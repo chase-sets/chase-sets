@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { buildIdentityApi } from "../api";
 import {
@@ -13,6 +16,28 @@ import {
 } from "../features/consents/domain/registration-consent";
 import { resolveRegistrationConsentSigningKeys } from "../support/runtime-support/registration-consent-signing";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
+import {
+  assertRegistrationConsentDeclaration,
+  bindRegistrationConsentSubject,
+  identityConsentPolicyPublications,
+  resolveConsentBundle,
+  resolveConsentBundleAgainstCorpus,
+  type RegistrationConsentBundles,
+} from "../features/consents/domain/consent-bundle";
+import {
+  activeSnapshot,
+  activeRegistrationConsentFixture,
+  registrationConsentBundlesFixture,
+} from "./consent-activation-authority-fixtures";
+import { identityConsentActiveVersionPolicies } from "../features/consents/domain/terms-of-service-policy";
+import { createIdentityBootstrapContext } from "../support/runtime-support/bootstrap-context";
+
+function buildApp(services: IdentityServices) {
+  const app = new Hono();
+  app.onError(errorHandler);
+  app.route("/", buildIdentityApi(services));
+  return app;
+}
 
 const TERMS_V1: RegistrationConsentRequirement = {
   policyKey: "terms-of-service",
@@ -30,6 +55,7 @@ function createServices() {
     // Registration composes its participants into one all-or-nothing append, so
     // the store itself is what these assertions observe.
     eventStore: createInMemoryEventStore(),
+    registrationConsentBundles: registrationConsentBundlesFixture(),
     db: {
       // The display-name uniqueness read finds nothing; the reservation upsert
       // returns its row so registration proceeds to the aggregate writes.
@@ -43,8 +69,7 @@ function createServices() {
       getUserBySocialLogin: vi.fn(async () => null),
     },
     policies: {
-      // A newer version is active in the resolver than the one any resolution
-      // below was minted with. Nothing in the registration path may consult it.
+      // Cached document values are not Consent Activation Authority.
       resolvePolicy: vi.fn(async () => ({ value: { version: "v99" } })),
     },
     projectors: [],
@@ -70,7 +95,7 @@ async function register(
   services: IdentityServices,
   body: Readonly<Record<string, unknown>>,
 ): Promise<Readonly<{ status: number; body: { error?: { code?: string; reason?: string } } }>> {
-  const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
+  const response = await buildApp(services).request("/internal/auth/personal-identities", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -98,6 +123,223 @@ function recordedConsents(services: IdentityServices) {
 }
 
 describe("registration consent resolution boundary", () => {
+  it.each(["terms-of-service", "privacy-policy"] as const)(
+    "guards every participant against %s authority movement",
+    async (policyKey) => {
+      const services = createServices();
+      const fixture = await activeRegistrationConsentFixture(store(services), services.db, {
+        "terms-of-service": "v1",
+        "privacy-policy": "v3",
+      });
+      Object.assign(services, fixture);
+      const original = services.registrationConsentBundles.forRegistration;
+      let moved = false;
+      vi.spyOn(services.registrationConsentBundles, "forRegistration").mockImplementation(async (subject) => {
+        const bound = await original(subject);
+        if (!moved) {
+          moved = true;
+          await services.policies.consentActivation.deactivate(
+            identityConsentActiveVersionPolicies[policyKey],
+            {
+              actorUserId: "usr_test_operator",
+            },
+            createIdentityBootstrapContext(),
+          );
+        }
+        return bound;
+      });
+      const append = vi.spyOn(store(services), "appendToStreams");
+      const response = await register(services, {
+        registrationConsent: { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true },
+      });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatchObject({ code: "registration_consent_expired", reason: "superseded" });
+      expect(append).toHaveBeenCalledOnce();
+      expect(append.mock.calls[0][0]).toHaveLength(8);
+      expect(store(services).streamIdsWithPrefix("identity.")).toEqual([]);
+    },
+  );
+
+  it("complete committed recovery retains the exact zero-event participant guard set without resolving authority", async () => {
+    const services = createServices();
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(store(services), services.db, {
+        "terms-of-service": "v1",
+        "privacy-policy": "v3",
+      }),
+    );
+    const submission = { registrationConsent: { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true } };
+    const first = await register(services, submission);
+    expect(first.status).toBe(201);
+    const expected = store(services)
+      .streamIdsWithPrefix("identity.")
+      .filter((streamId) => /^identity\.(registration-operation|account|user|membership|consent)-/.test(streamId))
+      .map((streamId) => ({
+        streamId,
+        expectedVersion: store(services).streams.get(streamId)!.at(-1)!.streamVersion,
+        events: [],
+      }));
+    expect(expected).toHaveLength(6);
+    const append = vi.spyOn(store(services), "appendToStreams");
+    const bind = vi.spyOn(services.registrationConsentBundles, "forRegistration");
+    expect(await register(services, submission)).toEqual(first);
+    expect(append).toHaveBeenCalledOnce();
+    expect(
+      append.mock.calls[0][0].map(({ streamId, expectedVersion, events }) => ({ streamId, expectedVersion, events })),
+    ).toEqual(expected);
+    expect(bind).not.toHaveBeenCalled();
+  });
+
+  it("rejects a decisive 501st participant event with the exact Layer-1 body", async () => {
+    const services = createServices();
+    const submission = { registrationConsent: { resolution: mint(), affirmed: false } };
+    expect((await register(services, submission)).status).toBe(201);
+    const streamId = store(services).streamIdsWithPrefix("identity.account-")[0];
+    await store(services).appendToStream({
+      streamId,
+      expectedVersion: 1,
+      context: createIdentityBootstrapContext(),
+      events: [
+        ...Array.from({ length: 499 }, () => ({
+          eventType: "identity.account.profile-updated",
+          payload: { name: "", displayName: "PokeBash TCG" },
+        })),
+        { eventType: "identity.account.closed", payload: { closedAt: new Date().toISOString() } },
+      ],
+    });
+    expect(store(services).streams.get(streamId)).toHaveLength(501);
+    const append = vi.spyOn(store(services), "appendToStreams");
+    const before = [...store(services).streams.entries()];
+    expect(await register(services, submission)).toEqual({
+      status: 409,
+      body: {
+        error: {
+          code: "registration_operation_participant_disagreement",
+          message: "This registration operation contains a participant that disagrees with its claim.",
+        },
+      },
+    });
+    expect(append).not.toHaveBeenCalled();
+    expect([...store(services).streams.entries()]).toEqual(before);
+  });
+
+  it("retains the exact contact-required Layer-1 body", async () => {
+    expect(
+      await register(createServices(), {
+        email: null,
+        phone: null,
+        registrationConsent: { resolution: mint(), affirmed: false },
+      }),
+    ).toEqual({
+      status: 400,
+      body: {
+        error: {
+          code: "registration_operation_contact_required",
+          message: "A verified email or phone is required to register a personal identity.",
+        },
+      },
+    });
+  });
+
+  it.each(["seller", "forged", "unresolved"] as const)(
+    "rejects %s at both mounted declaration consumers",
+    async (kind) => {
+      const seller = await resolveConsentBundleAgainstCorpus(
+        { read: async (key) => activeSnapshot(key, "v2") },
+        "seller-onboarding",
+        {
+          ...identityConsentPolicyPublications,
+          "seller-agreement": {
+            ...identityConsentPolicyPublications["seller-agreement"],
+            version: "v2",
+            consentActivatable: true,
+          },
+        },
+      );
+      const guardsRead = vi.fn(() => []);
+      const candidate =
+        kind === "seller"
+          ? seller
+          : {
+              bundleKey: "registration",
+              subjectScope: "user",
+              resolved: kind !== "unresolved",
+              requirements: [],
+              outcomes: [],
+              get guards() {
+                return guardsRead();
+              },
+            };
+      const bundles = {
+        resolve: vi.fn(async () => candidate),
+        forRegistration: vi.fn(async (subject: Parameters<RegistrationConsentBundles["forRegistration"]>[0]) => ({
+          declaration: candidate,
+          subject,
+        })),
+      } as unknown as RegistrationConsentBundles;
+      const services = { ...createServices(), registrationConsentBundles: bundles };
+      const append = vi.spyOn(store(services), "appendToStreams");
+      const get = await buildApp(services).request("/internal/auth/registration-consent");
+      expect(get.status).toBe(500);
+      expect(await get.json()).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+      const post = await register(services, { registrationConsent: { resolution: mint(), affirmed: false } });
+      expect(post.status).toBe(500);
+      expect(post.body).toEqual({ error: { code: "internal_error", message: "Internal server error." } });
+      expect(append).not.toHaveBeenCalled();
+      expect(guardsRead).not.toHaveBeenCalled();
+      expectNoIdentityWritten(services);
+    },
+  );
+
+  it.each(["userId", "accountId"] as const)("rejects genuine POST issuance for another %s", async (field) => {
+    const declaration = await resolveConsentBundle({ read: vi.fn() }, "registration");
+    assertRegistrationConsentDeclaration(declaration);
+    const forRegistration = vi.fn<RegistrationConsentBundles["forRegistration"]>(async (subject) =>
+      bindRegistrationConsentSubject(declaration, {
+        ...subject,
+        ...(field === "userId" ? { userId: "usr_other" as UserId } : { accountId: "acc_other" as AccountId }),
+      }),
+    );
+    const services = {
+      ...createServices(),
+      registrationConsentBundles: { resolve: async () => declaration, forRegistration },
+    };
+    const append = vi.spyOn(store(services), "appendToStreams");
+    const response = await register(services, { registrationConsent: { resolution: mint(), affirmed: false } });
+    expect(response.status).toBe(500);
+    expect(forRegistration).toHaveBeenCalledOnce();
+    expect(append).not.toHaveBeenCalled();
+    expectNoIdentityWritten(services);
+  });
+
+  it("rejects an unclaimed submitted list superseded by the canonical empty bundle", async () => {
+    const declaration = await resolveConsentBundle({ read: vi.fn() }, "registration");
+    assertRegistrationConsentDeclaration(declaration);
+    const services = {
+      ...createServices(),
+      registrationConsentBundles: {
+        resolve: async () => declaration,
+        forRegistration: async (subject: Parameters<RegistrationConsentBundles["forRegistration"]>[0]) =>
+          bindRegistrationConsentSubject(declaration, subject),
+      },
+    };
+    const response = await register(services, {
+      registrationConsent: { resolution: mint([TERMS_V1]), affirmed: true },
+    });
+    expect(response).toEqual({
+      status: 400,
+      body: {
+        error: {
+          code: "registration_consent_expired",
+          reason: "superseded",
+          message: "The registration consent resolution no longer matches the current required bundle.",
+        },
+      },
+    });
+    expectNoIdentityWritten(services);
+  });
+
   it("mints a signed, version-bearing resolution anonymously", async () => {
     const response = await buildIdentityApi(createServices()).request("/internal/auth/registration-consent");
 
@@ -108,6 +350,28 @@ describe("registration consent resolution boundary", () => {
     expect(resolution.signature).toEqual(expect.any(String));
     expect(resolution.signature.length).toBeGreaterThan(0);
     expect(resolution.resolvedAt).toMatch(/Z$/);
+    expect(Object.keys(resolution).sort()).toEqual(["bundleKey", "requirements", "resolvedAt", "signature"]);
+  });
+
+  it("mints the exact canonical ordered active bundle without a subject carrier in transport", async () => {
+    const services = createServices();
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(store(services), services.db, {
+        "terms-of-service": "v1",
+        "privacy-policy": "v3",
+      }),
+    );
+    const declaration = await services.registrationConsentBundles.resolve();
+    const response = await buildApp(services).request("/internal/auth/registration-consent");
+    expect(response.status).toBe(200);
+    const resolution = await response.json();
+    expect(Object.keys(resolution).sort()).toEqual(["bundleKey", "requirements", "resolvedAt", "signature"]);
+    expect(resolution.requirements).toEqual(declaration.requirements);
+    expect(resolution.requirements.map(({ policyKey }: RegistrationConsentRequirement) => policyKey)).toEqual([
+      "terms-of-service",
+      "privacy-policy",
+    ]);
   });
 
   describe("a resolution the server did not mint is rejected before any aggregate write", () => {
@@ -250,8 +514,13 @@ describe("registration consent resolution boundary", () => {
     expect(recordedConsents(services)).toEqual([]);
   });
 
-  it("records the minted requirement versions, not the currently active ones", async () => {
+  it("records the canonical signed versions without consulting cached policy values", async () => {
     const services = createServices();
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(store(services), services.db, { "terms-of-service": "v1" }),
+    );
+    const cachedPolicy = vi.spyOn(services.policies, "resolvePolicy");
 
     const { status } = await register(services, {
       registrationConsent: { resolution: mint([TERMS_V1]), affirmed: true },
@@ -259,11 +528,15 @@ describe("registration consent resolution boundary", () => {
 
     expect(status).toBe(201);
     expect(recordedConsents(services)).toEqual([{ policyKey: "terms-of-service", policyVersion: "v1" }]);
-    expect(services.policies.resolvePolicy, "the active version must never be consulted here").not.toHaveBeenCalled();
+    expect(cachedPolicy, "cached policy values must not be consulted").not.toHaveBeenCalled();
   });
 
   it("does not overwrite the submitted policy version with the currently active one", async () => {
     const services = createServices();
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(store(services), services.db, { "terms-of-service": "v99" }),
+    );
 
     // Under the deleted override this registration recorded the resolver's
     // active version (v99) for the canonical Terms of Service key, discarding
@@ -272,22 +545,28 @@ describe("registration consent resolution boundary", () => {
       registrationConsent: { resolution: mint([TERMS_V1]), affirmed: true },
     });
 
-    expect(status).toBe(201);
-    expect(recordedConsents(services).map((consent) => consent.policyVersion)).toEqual(["v1"]);
-    expect(recordedConsents(services).map((consent) => consent.policyVersion)).not.toContain("v99");
+    expect(status).toBe(400);
+    expect(recordedConsents(services)).toEqual([]);
   });
 
   it("records every requirement in its signed order", async () => {
     const services = createServices();
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(store(services), services.db, {
+        "terms-of-service": "v1",
+        "privacy-policy": "v3",
+      }),
+    );
 
     const { status } = await register(services, {
-      registrationConsent: { resolution: mint([PRIVACY_V3, TERMS_V1]), affirmed: true },
+      registrationConsent: { resolution: mint([TERMS_V1, PRIVACY_V3]), affirmed: true },
     });
 
     expect(status).toBe(201);
     expect(recordedConsents(services)).toEqual([
-      { policyKey: "privacy-policy", policyVersion: "v3" },
       { policyKey: "terms-of-service", policyVersion: "v1" },
+      { policyKey: "privacy-policy", policyVersion: "v3" },
     ]);
   });
 

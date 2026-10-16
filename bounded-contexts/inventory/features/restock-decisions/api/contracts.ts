@@ -1,5 +1,6 @@
 export type InventoryRestockDecision = Readonly<{
   decision_id: string;
+  version: number;
   account_id: string;
   order_id: string;
   item_id: string;
@@ -17,4 +18,10 @@ export type InventoryRestockDecision = Readonly<{
   pending_at: string;
   decided_at: string | null;
   updated_at: string;
+}>;
+
+export type RecordRestockDecisionInput = Readonly<{
+  expectedVersion: number;
+  outcome: "restocked" | "written-off";
+  damageNote?: string | null;
 }>;

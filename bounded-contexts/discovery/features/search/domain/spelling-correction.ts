@@ -4,6 +4,17 @@ import { SEARCH_SYNONYMS, type SearchSynonymQueries } from "./search-synonyms";
 
 export type SearchCorrectionTerms = Readonly<{ literal: boolean; prefix: boolean; candidates: readonly string[] }>;
 export type SearchCorrectionTermLookup = (token: string) => Promise<SearchCorrectionTerms>;
+/**
+ * Candidate lookups one search invocation may spend across every correction it attempts,
+ * so an interpreted correction and the original-text fallback share one bound.
+ */
+export type SearchCorrectionBudget = { lookups: number; readonly terms: Map<string, SearchCorrectionTerms> };
+
+const CORRECTION_LOOKUPS_PER_INVOCATION = 3;
+
+export function createSearchCorrectionBudget(): SearchCorrectionBudget {
+  return { lookups: 0, terms: new Map() };
+}
 
 export function protectedSearchQuery(tokens: readonly ProtectedSearchToken[]): string {
   return tokens
@@ -20,13 +31,12 @@ export function protectedSearchQuery(tokens: readonly ProtectedSearchToken[]): s
 export async function buildSpellingCorrectionQueries(
   tokens: readonly ProtectedSearchToken[],
   lookup: SearchCorrectionTermLookup,
+  budget: SearchCorrectionBudget = createSearchCorrectionBudget(),
 ): Promise<SearchSynonymQueries | null> {
   const hasProtected = tokens.some((token) => token.protected);
-  let lookups = 0;
   let rewrites = 0;
   const english: string[] = [];
   const simple: string[] = [];
-  const memo = new Map<string, SearchCorrectionTerms>();
   const expression = (value: string, simpleQuery: boolean) =>
     (simpleQuery ? buildSimpleSearchQuery(value) : normalizeSimpleSearchText(value))
       .toLowerCase()
@@ -45,11 +55,11 @@ export async function buildSpellingCorrectionQueries(
     let alternatives: string[] = [];
     let prefix = false;
     if (!synonym && /^\p{Script=Latin}{3,}$/u.test(key)) {
-      let terms = memo.get(key);
-      if (!terms && lookups < 3) {
+      let terms = budget.terms.get(key);
+      if (!terms && budget.lookups < CORRECTION_LOOKUPS_PER_INVOCATION) {
+        budget.lookups++;
         terms = await lookup(key);
-        memo.set(key, terms);
-        lookups++;
+        budget.terms.set(key, terms);
       }
       if (terms) {
         prefix = !terms.literal && !hasProtected && index === tokens.length - 1 && terms.prefix;

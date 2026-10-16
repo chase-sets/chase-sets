@@ -26,7 +26,7 @@ A **Support Request Participant Attempt** is one account's intended mutation of 
 
 ## Evidence Access Attempt
 
-An **Evidence Access Attempt** is one immutable authorization decision on `support.evidence-access-{supportRequestId}`, appended before attachment parsing or provider access and before returning a denial. An allowed read records authorization to attempt access, never byte delivery. A failed audit append releases no bytes. Records contain only bounded identity, assignment, action, decision, reason, participation, correlation and UTC instant fields. Audit reads append one attempt, without recursively auditing that append, and expose at most 50 records with an explicit continuation cursor. Malformed case identifiers return the same non-disclosing 404 without an event.
+An **Evidence Access Attempt** is one immutable authorization decision on `support.evidence-access-{supportRequestId}`, appended before attachment parsing or provider access and before returning a denial. An allowed read records authorization to attempt access, never byte delivery. A failed audit append releases no bytes. Records contain only bounded identity, assignment, action, decision, reason, participation, correlation and UTC instant fields. Audit reads append one attempt, without recursively auditing that append, and expose at most 50 records with an explicit continuation cursor. The cleanup runner's service attempt names only its Support Evidence Cleanup Binding id and revision, with no user, account or membership. Malformed case identifiers return the same non-disclosing 404 without an event.
 
 ## Reference Claim
 
@@ -36,7 +36,15 @@ A **Reference Claim** binds one Support Attachment Operation's complete ordered 
 
 A **Support Attachment Operation** identifies one photo batch with `sao_` plus a canonical ULID, created by the client before dispatch and retained through retries. Only an explicit new-photo-batch action replaces it. Ownership is tenant, initiating account and Support Request together; the id alone is never access authority. The required `x-support-attachment-operation-id` header names the operation.
 
-It durably stages one ordered canonical evidence manifest on `support.attachment-operation-{supportRequestId}-{operationId}` before any storage write. Its fingerprint binds the owner, client operation, canonical hashes, profile and encoder fingerprint. Each put has a version-guarded admission and is settled only by an actual provider response; ambiguous outcomes remain unresolved. Only independent byte verification records Stored. Exact retries match the manifest, resume unstored items and never re-put a stored item. Known failures record CleanupRequired; cleanup execution belongs to a later slice.
+It durably stages one ordered canonical evidence manifest on `support.attachment-operation-{supportRequestId}-{operationId}` before any storage write. Its fingerprint binds the owner, client operation, canonical hashes, profile and encoder fingerprint. Each put has a version-guarded admission and is settled only by an actual provider response; ambiguous outcomes remain unresolved. Only independent byte verification records Stored. Exact retries match the manifest, resume unstored items and never re-put a stored item. Known failures record CleanupRequired at once, as do a support.manage any-case human request and 24 hours without activity; only a Cleanup Claim removes bytes.
+
+## Cleanup Claim
+
+A **Cleanup Claim** is the worker's fenced attempt to delete one CleanupRequired Support Attachment Operation's bytes. It is appended only after a complete case-history read shows no evidence referencing the batch, atomically guarding the operation version, that case history and the observed Support Evidence Cleanup Binding receipt, and only when every admitted put has settled. The last put plus its storage deadline plus five minutes is eligibility only; an unsettled put retains the bytes indefinitely. The claim records the binding id and revision and fences out further puts and reference claims. Deleted-unreferenced is recorded only when every key reports deleted or absent and a confirming read finds each absent; any other outcome records a cleanup failure and a later claim retries. Deleted-unreferenced is terminal, and referenced operations are never claimed.
+
+## Support Evidence Cleanup Binding
+
+A **Support Evidence Cleanup Binding** is the environment- and instance-scoped deployment declaration (`SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON`, scoped like the capability administration authority by `CHASE_SETS_DEPLOYMENT_INSTANCE`) that mounts the platform-worker's `support-evidence-operation-cleanup` runner. Absent, invalid or inactive bindings leave it not mounted with one bounded denial. A valid binding compare-and-records its receipt on `support.evidence-cleanup-binding`; a process whose receipt was superseded cannot claim. It grants deletion, absence verification and the runner's own operational audit read only, never upload, download, administration or human HTTP access. Revocation is a higher inactive revision deployed after old workers drain.
 
 ## Support Evidence Attachment
 
@@ -73,6 +81,7 @@ A **Remedy Approval** is an immutable human decision on a proposed remedy after 
 - Source Workflow: The user task that produced a platform-feedback prompt, such as checkout payment, listing publish, offer submit, offer accept, inventory create, or inventory adjust.
 - Prompt Dismissal: A record that a user chose not to leave platform feedback for a Source Workflow at that time.
 - Review Queue Status: The internal lifecycle state for Platform Feedback: new, reviewed, or archived.
+
 ## Ops Dashboard
 
 The **Ops Dashboard** is the platform-wide, operator-facing analytics surface showing Gross Merchandise Value, order/trade counts, active buyer/seller counts, and liquidity indicators over a selectable date range, with time-series charts and a top-catalog-items breakdown. It reads pricing's published Platform Daily Rollup and Trades Tape query API exclusively -- Platform Operations never computes a second Gross Merchandise Value figure of its own.
@@ -91,7 +100,7 @@ The **Locked-Fee Listing Cohort** is the set of Marketplace listings whose listi
 
 ## Foregone Fee Estimate
 
-The **Foregone Fee Estimate** is the offer-economics monitor's projection of what the Locked-Fee Listing Cohort's realized Gross Merchandise Value would have cost in marketplace sales fees under Commercial Terms' published standard schedule -- the standard schedule's percentage applied to the cohort's realized GMV, plus its fixed component applied once per locked trade. It is an estimate against the *current* published schedule, not a historical replay of whatever schedule was standard on each trade's date.
+The **Foregone Fee Estimate** is the offer-economics monitor's projection of what the Locked-Fee Listing Cohort's realized Gross Merchandise Value would have cost in marketplace sales fees under Commercial Terms' published standard schedule -- the standard schedule's percentage applied to the cohort's realized GMV, plus its fixed component applied once per locked trade. It is an estimate against the _current_ published schedule, not a historical replay of whatever schedule was standard on each trade's date.
 
 ## Locked-Cohort Sell-Through
 

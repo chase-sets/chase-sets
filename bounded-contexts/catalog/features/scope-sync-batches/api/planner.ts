@@ -9,6 +9,7 @@ import {
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import { observeCountCapturePlan } from "./count-capture-context";
 import {
   buildScopeSyncBatchPreview,
   normalizeScopeSyncBatchSelection,
@@ -48,7 +49,30 @@ export function createScopeSyncBatchPlanner(deps: {
 
     for (const record of scopeRecords) {
       const scopeMappings = mappingsByScope.get(record.scope_record_id) ?? [];
-      const scope = catalogSyncScopeFromRecord(record, scopeMappings, selection);
+      let scope = catalogSyncScopeFromRecord(record, scopeMappings, selection);
+      if (scopeMappings.length > 0) {
+        const { providerParticipation, ...requirementScope } = scope;
+        const requirements = await deps.previewCatalogSyncScope({
+          scope: requirementScope,
+          context: input.context,
+          includeOperationalGates: false,
+          acceptedScopeMappings: [],
+        });
+        scope = {
+          ...scope,
+          providerParticipation: {
+            selectedUnitKeys: [
+              ...new Set([
+                ...(providerParticipation?.selectedUnitKeys ?? []),
+                ...requirements.units
+                  .filter((unit) => unit.requirement === "required")
+                  .map((unit) => unit.unitKey)
+                  .sort(),
+              ]),
+            ],
+          },
+        };
+      }
       const participationPreview = await deps.previewCatalogSyncScope({
         scope,
         context: input.context,
@@ -98,7 +122,7 @@ export function createScopeSyncBatchPlanner(deps: {
       });
     }
 
-    return {
+    const result = {
       preview: buildScopeSyncBatchPreview({
         selection,
         budget: input.budget,
@@ -107,6 +131,8 @@ export function createScopeSyncBatchPlanner(deps: {
       }),
       plans,
     };
+    observeCountCapturePlan(result);
+    return result;
   }
 
   return { resolve };

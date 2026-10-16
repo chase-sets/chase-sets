@@ -6,6 +6,7 @@ import { resolveRegistrationConsentSigningKeys } from "../support/runtime-suppor
 import { decideAccount, initialAccountState } from "../features/accounts/domain/domain";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
+import { registrationConsentBundlesFixture } from "./consent-activation-authority-fixtures";
 
 // Registration reaches the aggregate writes only with a server-minted
 // resolution, so these route tests resolve one the same way a caller does.
@@ -23,6 +24,7 @@ function registrationConsent() {
 function createServices() {
   return {
     eventStore: createInMemoryEventStore(),
+    registrationConsentBundles: registrationConsentBundlesFixture(),
     db: {
       query: vi.fn(),
     },

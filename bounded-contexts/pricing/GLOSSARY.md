@@ -38,10 +38,41 @@ A **Pricing Goal** is a versioned registry entry that solves one seller objectiv
 
 A **Shadow Evaluation** compares the whole matched directive on the incumbent round's captured inputs, independently replacing one goal anchor's version per occurrence. The optional v1 listing trace entries are ordered by zero-based `anchorIndex` and identified by `(evaluationId, listingId, anchorIndex)`. The outer goal names the substitution, while the result's anchor may name a fallback goal. Only incompatible parameters skip evaluation; unreached-anchor parity and missing-Economics fallback or terminal outcomes are evaluated results. There are at most five extra pure evaluations per listing, no new reads, and no comparisons in preview or dry runs. Only the incumbent drives commands, budgets, listing counts and Spiral Breaker direction.
 
+## Forecast Kind
+
+A **Forecast Kind** is a registered sell-time forecast model that, given one evaluated price, its goal's read-back, and the Demand Curve version and provider weeks its evaluation read, returns a median sell time and the model that produced it. Every kind's forecast is fixed when the price is evaluated and carried on the `pricing.repricing-policy.evaluated` fact. `curve` is the goal's own read-back under the curve's builder model, `buyer-choice` is the parity app's buyer-choice forecast under its calibration name, and `condition-rate` is the condition's own sale interval over the Store Win Share at the price under its method. Registering a kind is the whole contract for adding one: the ledger records it and grading scores it with no other change.
+
+## Forecast Ledger
+
+The **Forecast Ledger** is the read model of every price whose forecasts are graded, projected once from `pricing.repricing-policy.evaluated`: one incumbent entry per emitted price, or price held within tolerance, that a goal read back, and one shadow entry per priced shadow trace, which is never emitted. Each entry records the listing, price, goal id and version, curve version, the listing's quantity, and the forecasts its evaluation recorded, so a late or replayed projection records the same ones; an evaluation recorded before forecasts were fixed keeps entries with none, which are never graded. An entry is never rewritten.
+
+## Forecast Cohort
+
+A **Forecast Cohort** is the set of a goal version's listings in one role followed for one horizon from their first in-stock entry carrying the forecast under one model, within two horizons before the cohort closes at the start of a UTC day. A listing sold when the trades tape or an Own-Sale Observation records a sale within the horizon, or when it stopped being priced before the horizon less the grace and is out of stock now; one that stopped early while still in stock is censored out.
+
+## Forecast Grade
+
+A **Forecast Grade** scores one Forecast Kind and model at one horizon over its Forecast Cohort: the sold share, the share the forecasts implied, the Brier score beside the base rate's Brier, and fastest-to-slowest deciles. The grading job records each grade as a `pricing.forecast.graded` fact naming its grading rules (the grace, every horizon, and the grading implementation) and keeps it until those rules or the cohort's ledger entries, realized sales or stock change.
+
+## Adoption Gate
+
+The **Adoption Gate** decides whether a goal version above 1 may be selected: its latest closed shadow grade for the policy's adopted Forecast Kind and horizon must be at or below the Brier of its incumbent, the newest earlier version not in shadow, on the same day and model, both under the grading rules in force; until a rule change is regraded the grade is missing. A shadow version reports whether it is promotable; a version registered selectable that fails is refused in the Authoring Prerequisites with its reason. The gate never changes a Goal Lifecycle.
+
 ## Goal Decision
 
 A **Goal Decision** is a Pricing Goal's answer on one curve: selected and unconstrained amounts in the curve currency, the equivalent percentile and sell-time forecast read at the selected price, whether Net Proceeds there clear overhead, and the echoed parameters. A goal that cannot solve returns a typed unavailable reason and no price.
 
+## Goal Version
+
+A **Goal Version** is one `(id, version)` registration of a Pricing Goal. Any change to its Golden Decision makes a new version, which registers as `shadow` beside the incumbent; a change that keeps every Golden Decision keeps the version.
+
+## Golden Decision
+
+A **Golden Decision** is a Goal Version's recorded decision at default parameters on each shared fixture curve, kept as reviewed data in the Conformance Kit and checked against an independent expectation when recorded. A test run never rewrites one; a changed decision is a new Goal Version with its own Golden Decision.
+
+## Conformance Kit
+
+The **Conformance Kit** (`tests/conformance/`) is the executable contract every Pricing registry entry passes: goals, guardrail kinds, curve builders and Economics providers. Each run records the production registrations through `recordRegistrations`, or reads them from the enumeration a production module exports beside its own construction of the registry, fails any registration it does not exercise and an empty registry, and is required for every registry by the `pricing-registry-conformance` structure guard. The authoring steps are in `bounded-contexts/pricing/docs/pricing-goal-authoring.md`.
 ## Repricing Preset
 
 A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
@@ -55,6 +86,7 @@ a multi-rule preset opens in the advanced ordered-rule editor without losing its
 of all the account's listings. `hasCostBasis` is true when at least one listing links to an inventory
 item owned by that same account with a non-null acquisition cost amount, including zero. Neither
 fact is filtered by policy scope, listing status, assignment or halt. An unavailable read is not absence.
+`goalAdoption` is the Adoption Gate over every registered goal version that is not retired.
 
 ## Economics
 

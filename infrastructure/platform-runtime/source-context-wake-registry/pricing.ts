@@ -14,6 +14,7 @@ export const pricingWakeRegistryEntry = registryEntry({
     "marketplace:marketplace-managed-offer-reaction",
     "notifications:notifications-source-facts-outbox-projection",
     "pricing:pricing-economics-overrides-projection",
+    "pricing:pricing-forecast-ledger-projection",
     "pricing:pricing-repricing-evaluation-projection",
     "pricing:pricing-repricing-evaluation-reaction",
     "pricing:pricing-repricing-halt-projection",

@@ -340,7 +340,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Beta access starts",
     [
       [
-        "bounded-contexts/identity/api.ts:835-847",
+        "bounded-contexts/identity/api.ts:869-881",
         /if \(params.foundersBetaAccessStartedAt\)/,
         /foundersWindowEndsAt.setUTCDate\(foundersWindowEndsAt.getUTCDate\(\) \+ 60\)/,
         /type: "OpenFoundersWindow"/,
@@ -618,7 +618,7 @@ describe("founders clause-level source authority", () => {
   it("preserves all three Pricing callers through the shared client and the real bulk route", () => {
     const callers: Citation[] = [
       [
-        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:630-630",
+        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:647-647",
         /marketplaceGatewayForAccount\(accountId\).applyBulkListingPriceUpdates\(\{ updates \}\)/,
       ],
       [

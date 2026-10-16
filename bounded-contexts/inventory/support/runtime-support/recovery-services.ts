@@ -2,9 +2,23 @@ import type { InventoryItemServices } from "../../features/inventory-items/api/r
 import type { InventoryHoldServices } from "../../features/holds/api/runtime";
 import type { StorageLocationServices } from "../../features/storage-locations/api/runtime";
 import type { InventoryHoldCollisionServices } from "../../features/hold-collisions/api/runtime";
+import type { RestockDecisionServices } from "../../features/restock-decisions/api/runtime";
 import type { createInventoryMutationRuntime } from "./mutation-attempt";
 
 type MutationRuntime = ReturnType<typeof createInventoryMutationRuntime>;
+
+export function recoverRestockDecisions(
+  raw: RestockDecisionServices,
+  mutations: MutationRuntime,
+): RestockDecisionServices {
+  return {
+    ...raw,
+    recordDecision: (params, context) =>
+      mutations.execute("restock-record", params.decisionId, params.accountId, params, context, () =>
+        raw.recordDecision(params, context),
+      ),
+  };
+}
 
 export function recoverStorageLocations(
   raw: StorageLocationServices,

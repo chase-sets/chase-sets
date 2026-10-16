@@ -6,6 +6,7 @@ import {
   currentProviderSendBinding,
 } from "../provider-send-admission";
 import { runCountCaptureUsage } from "../count-capture-transport";
+import { reportCountSourceWinner } from "../count-capture-winners";
 import { createHash } from "node:crypto";
 import {
   countQuerySchema,
@@ -1205,7 +1206,9 @@ export async function readScrydexCountSource(
   } catch {
     /* Missing read authority is unavailable, never refreshed. */
   }
-  return newestCountSource(cache, count);
+  const selected = newestCountSource(cache, count);
+  reportCountSourceWinner({ query, source: selected, readAt: now });
+  return selected;
 }
 
 async function readScrydexCompletedCount(

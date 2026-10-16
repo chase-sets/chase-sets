@@ -42,7 +42,11 @@ const completed: RepricingDryRun = {
 type EditorApi = NonNullable<Parameters<typeof PolicyEditorDrawer>[0]["api"]>;
 function apiFixture(): EditorApi {
   return {
-    getRepricingAuthoringPrerequisites: vi.fn(async () => ({ listingCurrencyCodes: ["CAD"], hasCostBasis: false })),
+    getRepricingAuthoringPrerequisites: vi.fn(async () => ({
+      listingCurrencyCodes: ["CAD"],
+      hasCostBasis: false,
+      goalAdoption: [],
+    })),
     listRepricingCategories: vi.fn(async () => [
       { id: "cat_synthetic", name: "Trading cards", status: "active", listingCount: 1 },
     ]),
@@ -90,6 +94,7 @@ describe("policy editor prerequisites and gates", () => {
       vi.mocked(api.getRepricingAuthoringPrerequisites).mockResolvedValue({
         listingCurrencyCodes,
         hasCostBasis: false,
+        goalAdoption: [],
       });
       render(<PolicyEditorDrawer api={api} onSave={vi.fn()} onClose={vi.fn()} />);
       expect(screen.getByText("Loading listing currencies and cost availability")).toBeTruthy();
@@ -114,6 +119,7 @@ describe("policy editor prerequisites and gates", () => {
     vi.mocked(api.getRepricingAuthoringPrerequisites).mockResolvedValue({
       listingCurrencyCodes: ["CAD"],
       hasCostBasis: true,
+      goalAdoption: [],
     });
     render(<PolicyEditorDrawer api={api} onSave={vi.fn()} onClose={vi.fn()} />);
     await screen.findByLabelText("Margin above cost (%)");

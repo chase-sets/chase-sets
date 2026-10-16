@@ -33,16 +33,20 @@ import {
   type RepricingHaltEvent,
 } from "../domain/halt";
 import { buildRepricingHaltProjectionHandlers } from "../read-model/halt-projection";
+import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
 import {
-  getRepricingAuthoringPrerequisites,
+  getRepricingAuthoringFacts,
   getRepricingBudget,
   listRepricingCategories,
   previewRepricingScope,
+  type RepricingAuthoringPrerequisites,
 } from "../read-model/controls";
 
 type RepricingPolicyRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgQueryable;
+  /** The Adoption Gate over the registered goal versions, owned by the Forecast Ledger. */
+  goalAdoptions: () => Promise<readonly GoalAdoption[]>;
 }>;
 
 export class PolicyControlValidationError extends Error {}
@@ -68,7 +72,7 @@ export type RepricingPolicyServices = Readonly<{
   setHalt: (accountId: string, engaged: boolean, context: EventStoreContext) => Promise<RepricingHaltState>;
   getBudget: (accountId: string, day: string) => ReturnType<typeof getRepricingBudget>;
   listCategories: (accountId: string) => ReturnType<typeof listRepricingCategories>;
-  getAuthoringPrerequisites: (accountId: string) => ReturnType<typeof getRepricingAuthoringPrerequisites>;
+  getAuthoringPrerequisites: (accountId: string) => Promise<RepricingAuthoringPrerequisites>;
   previewScope: (input: Parameters<typeof previewRepricingScope>[1]) => ReturnType<typeof previewRepricingScope>;
   listAccountRepricingPolicies: (
     params: Readonly<{ accountId: string; includeDeleted?: boolean }>,
@@ -136,7 +140,13 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
       ).state,
     getBudget: (accountId, day) => getRepricingBudget(deps.db, accountId, day),
     listCategories: (accountId) => listRepricingCategories(deps.db, accountId),
-    getAuthoringPrerequisites: (accountId) => getRepricingAuthoringPrerequisites(deps.db, accountId),
+    getAuthoringPrerequisites: async (accountId) => {
+      const [facts, adoptions] = await Promise.all([
+        getRepricingAuthoringFacts(deps.db, accountId),
+        deps.goalAdoptions(),
+      ]);
+      return { ...facts, goalAdoption: adoptions.map(({ grades: _grades, ...adoption }) => adoption) };
+    },
     previewScope: (input) => previewRepricingScope(deps.db, input),
     listAccountRepricingPolicies: (params) => listAccountRepricingPolicies(deps.db, params),
     listRepricingPolicyAssignments: (params) => listRepricingPolicyAssignments(deps.db, params),

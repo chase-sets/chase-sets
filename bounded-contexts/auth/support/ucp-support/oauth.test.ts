@@ -1319,7 +1319,7 @@ describe("UCP OAuth routes", () => {
         daily_cap_cents: 5_000,
         monthly_cap_cents: 20_000,
         human_present_required: false,
-        allowed_rails: ["ap2"],
+        allowed_rails: ["stored-pm"],
       }),
       headers: { "Content-Type": "application/json" },
     });
@@ -1330,22 +1330,24 @@ describe("UCP OAuth routes", () => {
         daily_cap_cents: 5_000,
         monthly_cap_cents: 20_000,
         human_present_required: false,
-        allowed_rails: ["ap2"],
+        allowed_rails: ["stored-pm"],
       },
     });
 
-    // Rejects an invalid rail.
-    const rejected = await app.request("/ucp/oauth/authorizations/lpa_1/mandate", {
-      method: "PUT",
-      body: JSON.stringify({ allowed_rails: ["wire-transfer"] }),
-      headers: { "Content-Type": "application/json" },
-    });
-    expect(rejected.status).toBe(400);
+    // Rejects an invalid rail and the retired ap2 rail, alone or beside a supported one.
+    for (const allowedRails of [["wire-transfer"], ["ap2"], ["stored-pm", "ap2"]]) {
+      const rejected = await app.request("/ucp/oauth/authorizations/lpa_1/mandate", {
+        method: "PUT",
+        body: JSON.stringify({ allowed_rails: allowedRails }),
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(rejected.status, allowedRails.join(",")).toBe(400);
+    }
 
     // Rejects configuring a grant that does not belong to the account.
     const foreign = await app.request("/ucp/oauth/authorizations/lpa_unknown/mandate", {
       method: "PUT",
-      body: JSON.stringify({ allowed_rails: ["ap2"] }),
+      body: JSON.stringify({ allowed_rails: ["stored-pm"] }),
       headers: { "Content-Type": "application/json" },
     });
     expect(foreign.status).toBe(404);

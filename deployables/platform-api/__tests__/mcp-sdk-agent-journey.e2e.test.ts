@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it, vi } from "vitest";
@@ -573,7 +573,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
             id: "stripe-shared-payment-token",
             provider: "stripe",
             type: "shared_payment_token",
-            requiresAp2Mandate: true,
             confirmationExperience: "server-confirmed-payment-intent",
           },
         ],
@@ -604,7 +603,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         unavailable_reason_details: [],
       })),
     };
-    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const app = buildPlatformApiApp(
       createRuntime(
         {
@@ -639,13 +637,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         resolveActor: vi.fn(async () => agentActor(["offers.manage", "orders.view", "orders.manage"])),
         mcp: { agentGrantRateLimiter: rateLimiter },
         agentGrantSpendPolicy: spendPolicy,
-        ucpAp2MandateVerifier: {
-          verify: vi.fn(async () => ({
-            ok: true as const,
-            mode: "human-present" as const,
-            evidence: { verifier: "uat" },
-          })),
-        },
         ucp: {
           profileResolver: async () => ({
             ok: true,
@@ -658,13 +649,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
               },
             },
           }),
-          businessSigningKeys: {
-            current: {
-              kid: "merchant-uat",
-              alg: "ES256",
-              privateJwk: privateKey.export({ format: "jwk" }),
-            },
-          },
           allowInMemoryIdempotencyStoreForTests: true,
         },
       },
@@ -720,12 +704,9 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       createUcpEnvelope("ok", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
         total_amount: "10.00",
-        ap2: {
-          checkout_mandate: "checkout_mandate",
-        },
         payment_data: {
           provider: "stripe",
-          token: "spt_123",
+          saved_checkout_instrument_id: "sci_journey_1",
         },
       }),
     );
@@ -760,6 +741,9 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         expect.objectContaining({
           operation: "complete_checkout",
           amountCents: 2_605,
+          rail: "stored-pm",
+          humanPresent: false,
+          humanNotPresentAuthorized: true,
         }),
       );
     } finally {

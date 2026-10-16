@@ -321,9 +321,9 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "inventory-mutation/v1:*",
     evidenceRefs: [
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:79",
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:83",
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:88",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:81",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:85",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:90",
     ],
     factualSummary:
       "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
@@ -334,14 +334,14 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.restoration.v2",
     evidenceRefs: [
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:104",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:107",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:151",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:56",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:63",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:109",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:112",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:156",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:61",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:68",
     ],
     factualSummary:
-      "Search restoration reads, writes, and removes a browser storage entry named discovery.search.restoration.v2 through an injected Pick<Storage, ...> seam. The stored value holds the result-set identity (search text, category, tag, language, market activity, price bounds, in-stock flag, sort, and dynamic filters), the scroll position, and a bounded number of already-fetched result pages.",
+      "Search restoration reads, writes, and removes a browser storage entry named discovery.search.restoration.v2 through an injected Pick<Storage, ...> seam. The stored value holds the result-set identity (search text, category, tag, language, market activity, price bounds, in-stock flag, sort, dynamic filters, and whether the search carries the Search Interpretation marker), the scroll position, and a bounded number of already-fetched result pages.",
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["discovery.search.restoration.v2"] }],
   },
   {
@@ -482,7 +482,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "google",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:165-174",
-      "deployables/platform-api/src/main.ts:217-220",
+      "deployables/platform-api/src/main.ts:213-216",
     ],
     factualSummary:
       "A registered social-login provider named google maps a provider profile containing providerName, providerSubject, email, emailVerified, hostedDomain, displayName, givenName, and familyName. The platform API registers the provider executably.",
@@ -497,7 +497,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "facebook",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:197-205",
-      "deployables/platform-api/src/main.ts:225-228",
+      "deployables/platform-api/src/main.ts:221-224",
     ],
     factualSummary:
       "A registered social-login provider named facebook maps a provider profile containing providerName, providerSubject, email, emailVerified, displayName, givenName, and familyName. The platform API registers the provider executably.",

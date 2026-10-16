@@ -21,11 +21,11 @@ const AUTONOMOUS_MANDATE: AgentSpendingMandate = {
   dailyCapCents: 5_000,
   monthlyCapCents: null,
   humanPresentRequired: false,
-  allowedRails: ["ap2"],
+  allowedRails: ["stored-pm"],
 };
 
 const completionContext = {
-  rail: "ap2" as const,
+  rail: "stored-pm" as const,
   humanPresent: false,
   humanNotPresentAuthorized: true,
 };
@@ -173,7 +173,7 @@ describe("agent grant spending mandate Postgres enforcement", () => {
     expect(await directory.resolveMandate("lpa_dir")).toMatchObject({
       dailyCapCents: 5_000,
       humanPresentRequired: false,
-      allowedRails: ["ap2"],
+      allowedRails: ["stored-pm"],
     });
 
     const policy = createPostgresAgentGrantSpendPolicy(pools.platform, {
@@ -190,5 +190,29 @@ describe("agent grant spending mandate Postgres enforcement", () => {
 
     const summary = await directory.getSpendSummary("lpa_dir");
     expect(summary).toEqual({ dailyCents: 2_500, monthlyCents: 2_500 });
+  });
+
+  it("reads retired rails as absent", async () => {
+    const directory = createPostgresAgentGrantConsentDirectory(pools.platform);
+    // Rows written while ap2 was a grant rail keep their stored value; authority only narrows on read.
+    for (const [grantId, storedRails] of [
+      ["lpa_mixed", ["stored-pm", "ap2"]],
+      ["lpa_retired", ["ap2"]],
+    ] as const) {
+      await pools.platform.query(
+        `INSERT INTO platform_agent_grant_spending_mandates (grant_id, account_id, human_present_required, allowed_rails)
+         VALUES ($1, $2, false, $3::jsonb)`,
+        [grantId, "acc_1", JSON.stringify(storedRails)],
+      );
+    }
+
+    expect(await directory.resolveMandate("lpa_mixed")).toMatchObject({
+      humanPresentRequired: false,
+      allowedRails: ["stored-pm"],
+    });
+    expect(await directory.resolveMandate("lpa_retired")).toMatchObject({
+      humanPresentRequired: false,
+      allowedRails: ["handoff-only"],
+    });
   });
 });

@@ -28,14 +28,6 @@
     "reason": "Fixture validity: the idle-tail wake scenario only holds while real time stays inside the ordinary 60-second idle heartbeat, as the assertion message states."
   },
   {
-    "id": "scripts/canonical-record.test.mjs::test:candidate capability covers every governed loader position [shard ${shard + 1}/${CAPABILITY_SHARDS}]::1::1",
-    "reason": "Hosted strict script budget owned by #7907 and #7552: each shard must finish under SHARD_BUDGET_MS, which lane mode cannot relax; the budget rewrite belongs to those issues."
-  },
-  {
-    "id": "scripts/canonical-record.test.mjs::test:corpus census and memoized resolution stay inside the unchanged timeout [shard ${shard + 1}/${CENSUS_SHARDS}]::1::1",
-    "reason": "Hosted strict script budget owned by #7907 and #7552: each shard must finish under SHARD_BUDGET_MS, which lane mode cannot relax; the budget rewrite belongs to those issues."
-  },
-  {
     "id": "scripts/dev-system-launch.test.mjs::test:exits 1 within five seconds with a connected parent (owned=%s)::1::1",
     "reason": "Real child-process teardown: the launcher must exit and clean up owned children within five seconds of a failure signal, using real processes that fake timers cannot drive."
   },

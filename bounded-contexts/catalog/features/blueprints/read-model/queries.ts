@@ -110,3 +110,12 @@ export async function getBlueprintDetail(db: PgQueryable, blueprintId: string) {
 
   return result.rows[0] ?? null;
 }
+
+export async function getBlueprintProductResolutionRules(db: PgQueryable, blueprintId: string) {
+  const result = await db.query<Pick<BlueprintRow, "dimension_rules" | "canonical_dimension_order">>(
+    `SELECT dimension_rules, canonical_dimension_order FROM catalog_blueprints WHERE blueprint_id = $1`,
+    [blueprintId],
+  );
+
+  return result.rows[0] ?? null;
+}

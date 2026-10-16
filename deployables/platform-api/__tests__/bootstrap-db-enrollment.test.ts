@@ -1,10 +1,12 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type RunnerTestCase } from "vitest";
@@ -21,8 +23,21 @@ import {
   type BootstrapDbScheduleModel,
   type PlatformApiNonBootstrapDbCensus,
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
+import {
+  bindFrozenSourceToCapture,
+  canonicalJson,
+  checkBootstrapDbWorkloadFreshness,
+  createBootstrapDbWorkloadBaseline,
+  deriveBootstrapDbWorkload,
+  formatBootstrapDbWorkloadBaseline,
+  type BootstrapDbWorkloadBaseline,
+  type BootstrapDbWorkloadBinding,
+  type BootstrapDbWorkloadCaptureBinding,
+  type BootstrapDbWorkloadDerivation,
+} from "../scripts/db-enrollment-workload.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = join(testDirectory, "../../..");
 // Historical timing captures remain immutable. The current 68-case capture binds
 // all measured DB sources separately from this retained seed-command regression.
 const seedCommandSourceSha256 = "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356";
@@ -490,6 +505,109 @@ function expectSharedScheduleEquivalence(
   expect(observed).toEqual(expected);
 }
 
+let liveWorkloadDerivation: Promise<BootstrapDbWorkloadDerivation> | undefined;
+
+function liveWorkload() {
+  liveWorkloadDerivation ??= deriveBootstrapDbWorkload({ repositoryRoot });
+  return liveWorkloadDerivation;
+}
+
+function readWorkloadBaseline(provenance: Readonly<Record<string, unknown>>): BootstrapDbWorkloadBaseline {
+  const fileName = `db-enrollment-workload-${String(provenance.runId)}.json`;
+  return JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as BootstrapDbWorkloadBaseline;
+}
+
+function sha256Of(bytes: string | Uint8Array) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function withBindings(
+  baseline: BootstrapDbWorkloadBaseline,
+  edit: (bindings: BootstrapDbWorkloadBinding[]) => BootstrapDbWorkloadBinding[],
+): BootstrapDbWorkloadBaseline {
+  const bindings = edit([...baseline.bindings]);
+  return { ...baseline, bindings, bindingsSha256: sha256Of(canonicalJson(bindings)) };
+}
+
+type WorkloadEdit = string | null | ((source: string) => string);
+
+function replaceOnce(from: string, to: string) {
+  return (source: string) => {
+    expect(source.split(from), from).toHaveLength(2);
+    return source.replace(from, to);
+  };
+}
+
+function editCase(
+  select: (call: ts.CallExpression) => boolean,
+  edit: (call: ts.CallExpression, source: string) => string,
+) {
+  return (source: string) => {
+    const { found } = caseCallExpressions(source);
+    const match = found.find(({ node }) => select(node));
+    expect(match).toBeDefined();
+    return edit(match!.node, source);
+  };
+}
+
+const editFirstCaseCallback = editCase(
+  (call) => Boolean(call.arguments[1] && ts.isArrowFunction(call.arguments[1]) && ts.isBlock(call.arguments[1].body)),
+  (call, source) => {
+    const body = (call.arguments[1] as ts.ArrowFunction).body;
+    const at = body.getStart() + 1;
+    return `${source.slice(0, at)}\n    expect(1).toBe(1);${source.slice(at)}`;
+  },
+);
+
+const editFirstCaseTimeout = editCase(
+  (call) => Boolean(call.arguments[2] && ts.isNumericLiteral(call.arguments[2])),
+  (call, source) => {
+    const timeout = call.arguments[2]!;
+    return `${source.slice(0, timeout.getStart())}240_000${source.slice(timeout.getEnd())}`;
+  },
+);
+
+/**
+ * A disposable view of this checkout with `edits` applied (`null` deletes).
+ * Directories on an edited path are real; every other entry links to the
+ * checkout, which is never written. Links are removed, not followed, on
+ * cleanup, and `.git` is absent, so derivation cannot lean on history.
+ */
+async function createWorkloadMirror(edits: Readonly<Record<string, WorkloadEdit>>): Promise<string> {
+  const mirror = await mkdtemp(join(tmpdir(), "db-enrollment-workload-"));
+  temporaryRoots.push(mirror);
+  const edited = Object.keys(edits);
+  async function populate(path: string) {
+    for (const name of await readdir(join(repositoryRoot, path))) {
+      const child = path ? `${path}/${name}` : name;
+      if (name === ".git" || child in edits) continue;
+      const source = join(repositoryRoot, child);
+      const target = join(mirror, child);
+      if (edited.some((editedPath) => editedPath.startsWith(`${child}/`))) {
+        await mkdir(target);
+        await populate(child);
+      } else if ((await stat(source)).isDirectory()) {
+        await symlink(source, target, "junction");
+      } else {
+        await copyFile(source, target);
+      }
+    }
+  }
+  await populate("");
+  for (const [path, edit] of Object.entries(edits)) {
+    const original = existsSync(join(repositoryRoot, path)) ? readFileSync(join(repositoryRoot, path), "utf8") : null;
+    if (edit === null) {
+      expect(original, path).not.toBeNull();
+      continue;
+    }
+    const content = typeof edit === "function" ? edit(original ?? "") : edit;
+    expect(content, path).not.toBe(original);
+    await mkdir(dirname(join(mirror, path)), { recursive: true });
+    await writeFile(join(mirror, path), content);
+  }
+  return mirror;
+}
+
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -713,7 +831,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "c60282427ff1180e4f79326abf6cb5f81e25af34d30b7d0b8cbca101c68d3816",
+      "9fcc321686448d66d53a62ec9929ade85a4c6a674123e90d3b0b68d7ef8d2cbf",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -1680,7 +1798,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(capture.jobWallMs);
   });
 
-  it.each([
+  const measuredCaptures = [
     {
       label: "preserves the superseded 68-case capture and its measured workload projection",
       current: false,
@@ -1858,7 +1976,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     },
     {
       label: "binds all 68 current cases to the measured capture without reusing historical timings",
-      current: true,
+      current: false,
       fileName: "bootstrap-db-capture-38641988070.json",
       fixtureSha256: "2f2732a5b9d2047be5f698595e21d92f5912f4cf9881b190098f4fc46c1b9b41",
       minimumUnitCount: 2,
@@ -1881,7 +1999,60 @@ describe("Platform API bootstrap DB enrollment", () => {
         laneMode: null,
       },
     },
-  ])("$label", async ({ current, fileName, fixtureSha256, unitProjections, provenance, minimumUnitCount }) => {
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38737899795.json",
+      fixtureSha256: "8a2dfde27091a8b33e557a99cbab9910f3ed75b9bc5f375a0e8a79d86aa4c5f2",
+      minimumUnitCount: 2,
+      unitProjections: [339401, 258505],
+      provenance: {
+        runId: "38737899795",
+        runAttempt: "1",
+        referenceJobId: 116431778262,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "fc4a11cc994c0ed7a56e511bca9a988b33c679da",
+        sourceBase: "100432d0d59fb1d2df7486313d1f1a4136311a1a",
+        captureParent: "100432d0d59fb1d2df7486313d1f1a4136311a1a",
+        artifactId: 11974764643,
+        artifactSha256: "a30d190fcbebd29ee8ec28c80c29d455452af745d18896bf6ad572790932b380",
+        sourceManifestSha256: "7dafda5d1bb0e0529a17e7850bcf4e1371ef397682ccc50aa973cf02a3310a77",
+        caseManifestSha256: "558da64b638fde0dd4445d6ee1a5a6c44083de325d257fa9dcaa549220dfdbd7",
+        commandsSha256: "cb05dbb09f5432065a6e234ccc3fd500017b8c1d7472aba764359565a3ea144d",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-38804356099.json",
+      fixtureSha256: "ec0b832cecbb650d5240d3c42a9f7bc7a654c523b2754c413798daf53ae8bfec",
+      minimumUnitCount: 2,
+      unitProjections: [363545, 403099],
+      provenance: {
+        runId: "38804356099",
+        runAttempt: "1",
+        referenceJobId: 116661229774,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "ae95313278e2e38b541f5fc8b0a311afc076d4e9",
+        sourceBase: "eddd19e3a75d396a0bf66dea15750c0c2ce3a69e",
+        captureParent: "eddd19e3a75d396a0bf66dea15750c0c2ce3a69e",
+        artifactId: 12006597022,
+        artifactSha256: "0ed946d685e439f442a069952de68ccc8d8627b1a9ecc1f61c3feede111275b0",
+        sourceManifestSha256: "3916c219f3e4a5a0cda60d5ffc1656fe034662abd0d10878fd1f7871df336f9d",
+        caseManifestSha256: "438ad72cf3f74e68051ed3367ac29a39bca08accaa7c0fc59c047d67c5e3e880",
+        commandsSha256: "60845b58f8508707b517952b3d7fbc0bf8f086210ca4d27df75379fb50bb449c",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+  ];
+
+  it.each(measuredCaptures)("$label", async ({ current, fileName, fixtureSha256, ...expected }) => {
+    const { unitProjections, provenance, minimumUnitCount } = expected;
     const bytes = readFileSync(join(testDirectory, "fixtures", fileName));
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(fixtureSha256);
     const capture = JSON.parse(bytes.toString("utf8")) as {
@@ -1949,13 +2120,15 @@ describe("Platform API bootstrap DB enrollment", () => {
           .digest("hex"),
       ).toBe(file.sourceSha256);
     }
-    for (const [path, digest] of Object.entries(current ? capture.sourceBindings : {})) {
-      expect(
-        createHash("sha256")
-          .update(readFileSync(join(testDirectory, "../../..", path)))
-          .digest("hex"),
-        path,
-      ).toBe(digest);
+    // sourceBindings stay immutable capture provenance. Freshness is the
+    // workload the capture measured, re-derived from this checkout.
+    if (current) {
+      const { violations } = checkBootstrapDbWorkloadFreshness({
+        baseline: readWorkloadBaseline(capture.provenance),
+        capture: { fileName, fixtureSha256, provenance: capture.provenance },
+        derivation: await liveWorkload(),
+      });
+      expect(violations).toEqual([]);
     }
     const { candidate: scheduler } = exactScheduleProbes();
     for (const unit of capture.measuredUnits) {
@@ -2016,16 +2189,1165 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(capture.jobWallMs);
   });
 
+  const currentCaptures = measuredCaptures.filter((capture) => capture.current);
+
+  type CaptureFixture = {
+    provenance: Record<string, unknown>;
+    files: { testPath: string; sourceSha256: string; cases: { name: string; identity: string }[] }[];
+    nonBootstrapFiles: { testPath: string; sourceSha256: string }[];
+    sourceBindings: Record<string, string>;
+  };
+
+  function readCurrentCapture() {
+    const [{ fileName, fixtureSha256 }] = currentCaptures as [(typeof measuredCaptures)[number]];
+    const capture = JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as CaptureFixture;
+    const binding: BootstrapDbWorkloadCaptureBinding = { fileName, fixtureSha256, provenance: capture.provenance };
+    return { capture, binding };
+  }
+
+  function currentBaseline() {
+    return readWorkloadBaseline(readCurrentCapture().capture.provenance);
+  }
+
+  // The old broad pins, the producer's frozen-source proof and every collision
+  // reference belong to capture 38641988070 and read its committed frozen
+  // source. Only W1-W5 follows the current capture, so a recapture neither
+  // rebinds them nor regenerates the helper.
+  const historicalCaptureFileName = "bootstrap-db-capture-38641988070.json";
+  const frozenSourceFileName = "bootstrap-db-frozen-source-38641988070.json.gz";
+
+  function readHistoricalCapture() {
+    return JSON.parse(
+      readFileSync(join(testDirectory, "fixtures", historicalCaptureFileName), "utf8"),
+    ) as CaptureFixture;
+  }
+
+  /**
+   * The capture's frozen source as exactly the members it measured, each with
+   * the bytes its digest names. The gzip helper is generated outside CI from
+   * provenance.sourceBase; a missing, corrupt or partial helper is refused.
+   */
+  function loadFrozenSource(gzipped: Uint8Array | null, capture: CaptureFixture): ReadonlyMap<string, Buffer> {
+    const refused = (gaps: readonly string[]) =>
+      new Error(`frozen source ${frozenSourceFileName} refused: ${gaps.join("; ")}`);
+    if (!gzipped) throw refused(["it is missing"]);
+    let helper: { sourceBase?: unknown; files?: Record<string, unknown> };
+    try {
+      helper = JSON.parse(gunzipSync(gzipped).toString("utf8"));
+    } catch (error) {
+      throw refused([`it is unreadable (${(error as Error).message})`]);
+    }
+    if (typeof helper !== "object" || helper === null) {
+      throw refused(["it is unreadable (its root is not a JSON object)"]);
+    }
+    const files = helper.files ?? {};
+    const expected = new Map([
+      ...[...capture.files, ...capture.nonBootstrapFiles].map(
+        ({ testPath, sourceSha256 }) => [`deployables/platform-api/${testPath}`, sourceSha256] as const,
+      ),
+      ...Object.entries(capture.sourceBindings),
+    ]);
+    const gaps = [
+      ...(helper.sourceBase === capture.provenance.sourceBase
+        ? []
+        : [`it was not generated from ${String(capture.provenance.sourceBase)}`]),
+      ...[...expected.keys()].filter((path) => !Object.hasOwn(files, path)).map((path) => `it is missing ${path}`),
+      ...Object.keys(files)
+        .filter((path) => !expected.has(path))
+        .map((path) => `it adds ${path}, which the capture does not bind`),
+      ...[...expected]
+        .filter(([path, digest]) => {
+          const text = files[path];
+          return Object.hasOwn(files, path) && (typeof text !== "string" || sha256Of(text) !== digest);
+        })
+        .map(([path]) => `${path} differs from the capture`),
+    ];
+    if (gaps.length > 0) throw refused(gaps);
+    return new Map(Object.entries(files as Record<string, string>).map(([path, text]) => [path, Buffer.from(text)]));
+  }
+
+  let frozenSource: ReadonlyMap<string, Buffer> | undefined;
+
+  function readFrozenSourceFile(path: string) {
+    const helper = join(testDirectory, "fixtures", frozenSourceFileName);
+    frozenSource ??= loadFrozenSource(existsSync(helper) ? readFileSync(helper) : null, readHistoricalCapture());
+    return frozenSource.get(path) ?? null;
+  }
+
+  // An unmistakably synthetic recapture of this checkout: W1-W5 must follow
+  // it, while the old pins and frozen reads stay on capture 38641988070.
+  async function newerCurrentCapture() {
+    const derivation = await liveWorkload();
+    const { binding } = readCurrentCapture();
+    const sourceBase = "0000000000000000000000000000000000006547";
+    const captureBytes = Buffer.from(
+      JSON.stringify({
+        provenance: {
+          ...binding.provenance,
+          runId: "65440004",
+          checkoutSha: "0000000000000000000000000000000000006548",
+          sourceBase,
+          captureParent: sourceBase,
+        },
+      }),
+    );
+    const newer: BootstrapDbWorkloadCaptureBinding = {
+      fileName: "bootstrap-db-capture-65440004.json",
+      fixtureSha256: sha256Of(captureBytes),
+      provenance: JSON.parse(captureBytes.toString("utf8")).provenance,
+    };
+    expect(
+      checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
+    ).toEqual([
+      `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
+      `baseline was derived from ${currentBaseline().source.commit}, not the capture's frozen source ${sourceBase}`,
+    ]);
+    const baseline = createBootstrapDbWorkloadBaseline({
+      captureFileName: newer.fileName,
+      captureBytes,
+      source: { commit: sourceBase },
+      derivation,
+    }) as BootstrapDbWorkloadBaseline;
+    return { binding: newer, baseline };
+  }
+
+  const runId = "38804356099";
+  const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
+  const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
+  const removed = (key: string) =>
+    `${key} measured by capture ${runId} is absent from the derived workload; re-enrollment required`;
+  const refused = (gap: string) => `workload input refused: ${gap}`;
+
+  async function mirrorFreshness(
+    edits: Readonly<Record<string, WorkloadEdit>>,
+    baseline: BootstrapDbWorkloadBaseline = currentBaseline(),
+    capture: BootstrapDbWorkloadCaptureBinding = readCurrentCapture().binding,
+  ) {
+    const mirror = await createWorkloadMirror(edits);
+    const derivation = await deriveBootstrapDbWorkload({ repositoryRoot: mirror });
+    const { violations } = checkBootstrapDbWorkloadFreshness({ baseline, capture, derivation });
+    return { mirror, violations: [...violations].sort() };
+  }
+
+  // The superseded live loop, kept only as the control that shows each
+  // provenance-only edit below was rejected by the old broad pins, which were
+  // capture 38641988070's.
+  function broadSourceBindingMismatches(root: string) {
+    return Object.entries(readHistoricalCapture().sourceBindings)
+      .filter(([path, digest]) => sha256Of(readFileSync(join(root, path))) !== digest)
+      .map(([path]) => path);
+  }
+
+  function selectionKey(contextName: string) {
+    const binding = currentBaseline().bindings.find(
+      ([section, key]) => section === "W3 selection" && key.endsWith(` ${contextName}`),
+    );
+    expect(binding).toBeDefined();
+    return `W3 selection ${binding![1]}`;
+  }
+
+  function platformApiImporter(source: string, edit: (block: string) => string) {
+    const start = source.indexOf("\n  deployables/platform-api:\n");
+    const end = source.indexOf("\n  deployables/", start + 1);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    return source.slice(0, start) + edit(source.slice(start, end)) + source.slice(end);
+  }
+
+  describe("capture provenance remains immutable", () => {
+    it("keeps every measured capture byte-identical and binds the baseline to the sole current capture's frozen source", () => {
+      const fixtures = readdirSync(join(testDirectory, "fixtures"))
+        .sort()
+        .filter((name) => /^bootstrap-db-capture-\d+\.json$/.test(name));
+      expect(
+        Object.fromEntries(
+          fixtures.map((name) => [name, sha256Of(readFileSync(join(testDirectory, "fixtures", name)))]),
+        ),
+      ).toEqual({
+        "bootstrap-db-capture-37467774999.json": "957f5dccb19eb2bde1a906c3b27e9ded81886898ae375899f283a879eb01aff6",
+        "bootstrap-db-capture-37888294087.json": "98f7bda29e144e0c42d78ab421a56191846e903c04d9d95668651c3288b0d9d5",
+        "bootstrap-db-capture-37916297464.json": "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
+        ...Object.fromEntries(measuredCaptures.map(({ fileName, fixtureSha256 }) => [fileName, fixtureSha256])),
+      });
+      expect(currentCaptures).toHaveLength(1);
+
+      const { capture, binding } = readCurrentCapture();
+      const baseline = currentBaseline();
+      expect(baseline.capture).toEqual({
+        fileName: binding.fileName,
+        fixtureSha256: binding.fixtureSha256,
+        runId: capture.provenance.runId,
+        checkoutSha: capture.provenance.checkoutSha,
+        sourceBase: capture.provenance.sourceBase,
+        captureParent: capture.provenance.captureParent,
+      });
+      expect(baseline.source).toEqual({
+        commit: "eddd19e3a75d396a0bf66dea15750c0c2ce3a69e",
+        ref: "refs/pull/9708/head",
+      });
+      expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
+      expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
+      expect(Object.keys(capture.sourceBindings)).toHaveLength(43);
+
+      // Every digest the capture measured that is also a workload member
+      // reproduces in the baseline, so the baseline was derived from the
+      // capture's bytes rather than from today's checkout.
+      const bound = new Map(baseline.bindings.map(([section, key, value]) => [`${section} ${key}`, value]));
+      for (const file of [...capture.files, ...capture.nonBootstrapFiles]) {
+        expect(bound.get(`W1 file deployables/platform-api/${file.testPath}`), file.testPath).toBe(file.sourceSha256);
+      }
+      for (const file of capture.files) {
+        expect(bound.get(`W1 case identities deployables/platform-api/${file.testPath}`)).toEqual(
+          file.cases.map(({ name, identity }) => ({ name, identity })),
+        );
+      }
+      const members = new Map(
+        baseline.bindings
+          .filter(([section]) => / file$| json$/.test(section))
+          .map(([section, key, value]) => [key, { section, value }]),
+      );
+      const manifests = new Set(
+        baseline.bindings
+          .filter(([section]) => section === "W3 selection")
+          .map(([, , value]) => (value as { manifest: string }).manifest),
+      );
+      const dispositions = Object.fromEntries(
+        Object.entries(capture.sourceBindings).map(([path, digest]) => {
+          const member = members.get(path);
+          if (member) expect(member.value, path).toBe(digest);
+          return [path, member?.section ?? (manifests.has(path) ? "W3 selection" : "provenance-only")];
+        }),
+      );
+      // Lockfile and shared-config bytes stay provenance; their W5 and W4
+      // values are bound and refuse independently below.
+      expect(dispositions).toEqual({
+        "bounded-contexts/catalog/features/product-measures/api/publication.ts": "provenance-only",
+        "bounded-contexts/catalog/features/product-measures/api/runtime.ts": "provenance-only",
+        "bounded-contexts/catalog/features/product-measures/api/seed.ts": "W3 file",
+        "contracts/product-measures/publication.ts": "provenance-only",
+        "contracts/catalog-seed/representative-commerce-state.ts": "W3 file",
+        "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/catalog-seed-test-support.ts": "W2 file",
+        "deployables/platform-api/src/representative-commerce-state.ts": "W3 file",
+        "deployables/platform-api/__tests__/operator-session/fixture.ts": "W2 file",
+        "bounded-contexts/catalog/features/operator-session/api/operation.ts": "provenance-only",
+        "bounded-contexts/catalog/features/operator-session/read-model/grant-schema.ts": "provenance-only",
+        "bounded-contexts/inventory/api.ts": "provenance-only",
+        "bounded-contexts/inventory/index.ts": "provenance-only",
+        "bounded-contexts/inventory/context.json": "W3 selection",
+        "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/api/runtime.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/api/route.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/api/checkout-reservation-authority.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/read-model/schema.ts": "provenance-only",
+        "bounded-contexts/inventory/features/inventory-items/api/runtime.ts": "provenance-only",
+        "bounded-contexts/inventory/features/storage-locations/api/runtime.ts": "provenance-only",
+        "bounded-contexts/checkout/features/sessions/api/inventory-reservation-authority.ts": "provenance-only",
+        "bounded-contexts/checkout/support/request-support/checkout-confirmation.ts": "provenance-only",
+        "deployables/platform-api/src/app.ts": "provenance-only",
+        "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts": "provenance-only",
+        "bounded-contexts/auth/features/invitation-acceptance/read-model/schema.ts": "provenance-only",
+        "bounded-contexts/auth/support/runtime-support/schema.ts": "provenance-only",
+        "bounded-contexts/auth/support/runtime-support/services.ts": "provenance-only",
+        "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts": "provenance-only",
+        "bounded-contexts/identity/server.ts": "provenance-only",
+        "bounded-contexts/auth/support/ucp-support/oauth.ts": "provenance-only",
+        "bounded-contexts/auth/support/ucp-support/agent-webhooks/agent-webhook-registration.ts": "provenance-only",
+        "bounded-contexts/auth/support/ucp-support/agent-webhooks/order-update-payload.ts": "provenance-only",
+        "bounded-contexts/identity/features/agent-grants/api/revocation.ts": "provenance-only",
+        "bounded-contexts/marketplace/context.json": "W3 selection",
+        "bounded-contexts/marketplace/features/offer-policy/api/runtime.ts": "provenance-only",
+        "bounded-contexts/marketplace/features/offers/api/runtime.ts": "provenance-only",
+        "bounded-contexts/payments/features/payments/api/mcp.ts": "provenance-only",
+        "contracts/auth-context/index.ts": "provenance-only",
+        "infrastructure/platform-runtime/ucp-contracts.ts": "provenance-only",
+        "infrastructure/platform-runtime/api.ts": "W3 file",
+        "pnpm-lock.yaml": "provenance-only",
+        "vitest.shared.mjs": "provenance-only",
+      });
+
+      // The baseline's hosted values are the ones the capture executed under.
+      expect(String(capture.provenance.vitest)).toMatch(
+        new RegExp(`^vitest/${String(bound.get("W5 version vitest"))} `),
+      );
+      expect(bound.get("W4 postgres image")).toBe(capture.provenance.postgresImage);
+      expect(bound.get("W4 postgres workspaceConcurrency")).toBe(String(capture.provenance.workspaceConcurrency));
+      for (const unit of ["test:db:1", "test:db:2"]) {
+        expect(bound.get(`W1 partition ${unit}`)).toMatchObject({ maxWorkers: capture.provenance.maxWorkers });
+        // CI-dependent defaults resolve as on the hosted runner, not this host.
+        expect(bound.get(`W4 unit ${unit}`)).toMatchObject({
+          maxWorkers: capture.provenance.maxWorkers,
+          allowOnly: false,
+        });
+      }
+      expect(capture.provenance.laneMode).toBeNull();
+    });
+
+    it("refuses a substituted or missing capture, frozen source or baseline", async () => {
+      const derivation = await liveWorkload();
+      const baseline = currentBaseline();
+      const { binding } = readCurrentCapture();
+      expect(checkBootstrapDbWorkloadFreshness({ baseline, capture: binding, derivation }).violations).toEqual([]);
+
+      expect(
+        checkBootstrapDbWorkloadFreshness({
+          baseline,
+          capture: { ...binding, fixtureSha256: "f".repeat(64) },
+          derivation,
+        }).violations,
+      ).toEqual([
+        `baseline binds capture ${binding.fileName} but the current capture is ${binding.fileName}; derive the baseline from the current capture's own frozen source`,
+      ]);
+      expect(checkBootstrapDbWorkloadFreshness({ baseline, capture: undefined, derivation }).violations).toEqual([
+        "no current capture is bound; a baseline cannot certify freshness without one",
+      ]);
+      const newer = {
+        fileName: "bootstrap-db-capture-99999999999.json",
+        fixtureSha256: "e".repeat(64),
+        provenance: {
+          ...binding.provenance,
+          runId: "99999999999",
+          sourceBase: "1".repeat(40),
+          captureParent: "1".repeat(40),
+        },
+      };
+      expect(checkBootstrapDbWorkloadFreshness({ baseline, capture: newer, derivation }).violations).toEqual([
+        `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
+        `baseline was derived from ${baseline.source.commit}, not the capture's frozen source ${"1".repeat(40)}`,
+      ]);
+      expect(
+        checkBootstrapDbWorkloadFreshness({
+          baseline: { ...baseline, source: { ...baseline.source, commit: "2".repeat(40) } },
+          capture: binding,
+          derivation,
+        }).violations,
+      ).toEqual([
+        `baseline was derived from ${"2".repeat(40)}, not the capture's frozen source ${baseline.source.commit}`,
+      ]);
+      expect(
+        checkBootstrapDbWorkloadFreshness({ baseline: undefined, capture: binding, derivation }).violations,
+      ).toContain("baseline is missing");
+
+      // The producer's frozen-source proof: capture 38641988070's own digests
+      // decide over its committed frozen source, never this checkout's bytes.
+      const capture = readHistoricalCapture();
+      expect(bindFrozenSourceToCapture({ capture, readSourceFile: readFrozenSourceFile }).violations).toEqual([]);
+      expect(
+        bindFrozenSourceToCapture({
+          capture,
+          readSourceFile: (path) =>
+            path === "deployables/platform-api/src/app.ts" ? null : readFrozenSourceFile(path),
+        }).violations,
+      ).toEqual(["frozen source is missing deployables/platform-api/src/app.ts"]);
+      expect(
+        bindFrozenSourceToCapture({
+          capture,
+          readSourceFile: (path) =>
+            path.endsWith("bootstrap-scenario.db.test.ts") ? Buffer.from("substituted") : readFrozenSourceFile(path),
+        }).violations,
+      ).toEqual([
+        "frozen source deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts differs from the capture; substituted source",
+      ]);
+      expect(bindFrozenSourceToCapture({ capture: {}, readSourceFile: readFrozenSourceFile }).violations).toEqual([
+        "capture records no source digests to bind the frozen source to",
+      ]);
+    });
+
+    it("keeps the producer proof on capture 38641988070's frozen source while W1-W5 follows a newer capture", async () => {
+      const newer = await newerCurrentCapture();
+      expect(
+        checkBootstrapDbWorkloadFreshness({
+          baseline: newer.baseline,
+          capture: newer.binding,
+          derivation: await liveWorkload(),
+        }).violations,
+      ).toEqual([]);
+      const capture = readHistoricalCapture();
+      expect(capture.provenance.runId).toBe("38641988070");
+      expect(bindFrozenSourceToCapture({ capture, readSourceFile: readFrozenSourceFile }).violations).toEqual([]);
+
+      // A recapture that measured other bytes cannot certify, or be served by,
+      // the historical helper.
+      const app = "deployables/platform-api/src/app.ts";
+      const remeasured = {
+        ...capture,
+        provenance: newer.binding.provenance,
+        sourceBindings: { ...capture.sourceBindings, [app]: "0".repeat(64) },
+      };
+      expect(
+        bindFrozenSourceToCapture({ capture: remeasured, readSourceFile: readFrozenSourceFile }).violations,
+      ).toEqual([`frozen source ${app} differs from the capture; substituted source`]);
+      expect(() =>
+        loadFrozenSource(readFileSync(join(testDirectory, "fixtures", frozenSourceFileName)), remeasured),
+      ).toThrow(
+        new Error(
+          `frozen source ${frozenSourceFileName} refused: it was not generated from ${String(newer.binding.provenance.sourceBase)}; ${app} differs from the capture`,
+        ),
+      );
+    });
+
+    it("refuses a missing or corrupt frozen source and any deleted, substituted, added or truncated member", () => {
+      const capture = readHistoricalCapture();
+      const gzipped = readFileSync(join(testDirectory, "fixtures", frozenSourceFileName));
+      const helper = JSON.parse(gunzipSync(gzipped).toString("utf8")) as {
+        sourceBase: string;
+        files: Record<string, string>;
+      };
+      expect(helper.sourceBase).toBe(capture.provenance.sourceBase);
+      expect(Object.keys(helper.files)).toHaveLength(61);
+      expect([...loadFrozenSource(gzipped, capture).keys()].sort()).toEqual(Object.keys(helper.files).sort());
+
+      const rewritten = (edit: (files: Record<string, string>) => void, sourceBase = helper.sourceBase) => {
+        const files = { ...helper.files };
+        edit(files);
+        return gzipSync(JSON.stringify({ sourceBase, files }));
+      };
+      const refusal = (gap: string) => new Error(`frozen source ${frozenSourceFileName} refused: ${gap}`);
+      const app = "deployables/platform-api/src/app.ts";
+      expect(() => loadFrozenSource(null, capture)).toThrow(refusal("it is missing"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => delete files[app]),
+          capture,
+        ),
+      ).toThrow(refusal(`it is missing ${app}`));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files[app] = "substituted")),
+          capture,
+        ),
+      ).toThrow(refusal(`${app} differs from the capture`));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files["synthetic/added.ts"] = "export {};\n")),
+          capture,
+        ),
+      ).toThrow(refusal("it adds synthetic/added.ts, which the capture does not bind"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files["pnpm-lock.yaml"] = files["pnpm-lock.yaml"]!.slice(0, -1))),
+          capture,
+        ),
+      ).toThrow(refusal("pnpm-lock.yaml differs from the capture"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten(() => {}, "1".repeat(40)),
+          capture,
+        ),
+      ).toThrow(refusal(`it was not generated from ${helper.sourceBase}`));
+
+      const corrupt = Buffer.from(gzipped);
+      corrupt[corrupt.length >> 1]! ^= 0xff;
+      expect(() => loadFrozenSource(corrupt, capture)).toThrow(
+        /^frozen source bootstrap-db-frozen-source-38641988070\.json\.gz refused: it is unreadable \(.+\)$/,
+      );
+      expect(() => loadFrozenSource(gzipped.subarray(0, gzipped.length - 1024), capture)).toThrow(
+        refusal("it is unreadable (unexpected end of file)"),
+      );
+      expect(() => loadFrozenSource(gzipSync("null"), capture)).toThrow(
+        refusal("it is unreadable (its root is not a JSON object)"),
+      );
+    });
+  });
+
+  describe("producer reads only local Git objects", () => {
+    const syntheticEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Synthetic Probe",
+      GIT_AUTHOR_EMAIL: "synthetic@example.invalid",
+      GIT_COMMITTER_NAME: "Synthetic Probe",
+      GIT_COMMITTER_EMAIL: "synthetic@example.invalid",
+    };
+    const syntheticGit = (repository: string, args: string[], input?: string) =>
+      execFileSync("git", ["-C", repository, ...args], { env: syntheticEnv, input, encoding: "utf8" }).trim();
+    const objectStore = (gitDirectory: string) =>
+      readdirSync(join(gitDirectory, "objects"), { recursive: true, encoding: "utf8" }).sort();
+
+    // An unmistakably synthetic origin reachable only as a local file:// remote;
+    // the consumer optionally holds the source commit and tree but never the
+    // promised blob, so any lazy fetch would add objects to its store.
+    async function runProducerInSyntheticClone({
+      present,
+      config,
+    }: {
+      present: boolean;
+      config: Record<string, string>;
+    }) {
+      const root = await mkdtemp(join(tmpdir(), "db-enrollment-local-objects-"));
+      temporaryRoots.push(root);
+      const origin = join(root, "origin.git");
+      const consumer = join(root, "consumer");
+      syntheticGit(root, ["init", "--quiet", "--bare", origin]);
+      syntheticGit(root, ["init", "--quiet", consumer]);
+      const bytes = "unmistakably synthetic local-only fixture\n";
+      const blob = syntheticGit(origin, ["hash-object", "-w", "--stdin"], bytes);
+      const tree = syntheticGit(origin, ["mktree"], `100644 blob ${blob}\tsynthetic-marker.txt\n`);
+      const commit = syntheticGit(origin, ["commit-tree", tree, "-m", "synthetic local-only fixture"]);
+      syntheticGit(origin, ["update-ref", "refs/heads/main", commit]);
+      if (present) {
+        for (const id of [commit, tree]) {
+          const loose = join("objects", id.slice(0, 2), id.slice(2));
+          await mkdir(dirname(join(consumer, ".git", loose)), { recursive: true });
+          await copyFile(join(origin, loose), join(consumer, ".git", loose));
+        }
+      }
+      syntheticGit(consumer, ["config", "remote.synthetic.url", pathToFileURL(origin).href]);
+      for (const [key, value] of Object.entries(config)) syntheticGit(consumer, ["config", key, value]);
+
+      const capturePath = join(root, "synthetic-capture.json");
+      await writeFile(
+        capturePath,
+        JSON.stringify({
+          provenance: { runId: "65449999", sourceBase: commit, captureParent: commit },
+          sourceBindings: { "synthetic-marker.txt": sha256Of(bytes) },
+        }),
+      );
+      const outPath = join(root, "synthetic-baseline.json");
+      const tracePath = join(root, "git-trace.log").replaceAll("\\", "/");
+      const gitDirectory = join(consumer, ".git");
+      const before = objectStore(gitDirectory);
+      const run = spawnSync(
+        process.execPath,
+        [
+          join(testDirectory, "../scripts/db-enrollment-workload.mjs"),
+          "--check",
+          "--capture",
+          capturePath,
+          "--out",
+          outPath,
+        ],
+        { env: { ...syntheticEnv, GIT_DIR: gitDirectory, GIT_TRACE: tracePath }, encoding: "utf8" },
+      );
+      const commands = [...readFileSync(tracePath, "utf8").matchAll(/trace: built-in: git (\S+)/g)].map(
+        ([, command]) => command,
+      );
+      return { run, commit, commands, before, after: objectStore(gitDirectory), outputWritten: existsSync(outPath) };
+    }
+
+    it.each<{ label: string; present: boolean; config: Record<string, string>; names: string }>([
+      {
+        label: "a partial clone missing the source commit",
+        present: false,
+        config: {
+          "remote.synthetic.promisor": "true",
+          "remote.synthetic.partialclonefilter": "blob:none",
+          "extensions.partialClone": "synthetic",
+        },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter, extensions.partialclone",
+      },
+      {
+        label: "a partial clone holding the source commit but not its promised blob",
+        present: true,
+        config: {
+          "remote.synthetic.promisor": "true",
+          "remote.synthetic.partialclonefilter": "blob:none",
+          "extensions.partialClone": "synthetic",
+        },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter, extensions.partialclone",
+      },
+      {
+        label: "a filter-only remote",
+        present: false,
+        config: { "remote.synthetic.partialclonefilter": "blob:none" },
+        names: "remote.synthetic.partialclonefilter",
+      },
+      {
+        label: "a disabled promisor that keeps its filter",
+        present: true,
+        config: { "remote.synthetic.promisor": "false", "remote.synthetic.partialclonefilter": "blob:none" },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter",
+      },
+      {
+        label: "a promisor remote alone",
+        present: true,
+        config: { "remote.synthetic.promisor": "true" },
+        names: "remote.synthetic.promisor",
+      },
+      {
+        label: "the partial-clone extension alone",
+        present: false,
+        config: { "extensions.partialClone": "synthetic" },
+        names: "extensions.partialclone",
+      },
+    ])("refuses $label before any object read", async ({ present, config, names }) => {
+      const { run, commands, before, after, outputWritten } = await runProducerInSyntheticClone({ present, config });
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe(
+        `local Git objects refused: promisor or partial-clone configuration (${names}) could fetch a missing object; materialize the frozen source from a full clone outside CI`,
+      );
+      expect(commands).toEqual(["config"]);
+      expect(after).toEqual(before);
+      expect(outputWritten).toBe(false);
+    });
+
+    it("reports an absent source without fetching when no promisor is configured", async () => {
+      const { run, commit, commands, before, after, outputWritten } = await runProducerInSyntheticClone({
+        present: false,
+        config: {},
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe(
+        `frozen source ${commit} is not available locally; fetch it outside CI (for example its pull request ref)`,
+      );
+      expect(commands).toEqual(["config", "cat-file"]);
+      expect(after).toEqual(before);
+      expect(outputWritten).toBe(false);
+    });
+  });
+
+  describe("unrelated source edits preserve workload enrollment", () => {
+    const controls = [
+      {
+        label: "an unrelated lockfile entry",
+        path: "pnpm-lock.yaml",
+        edit: (source: string) => {
+          const marker = "resolution: {integrity: sha512-";
+          const at = source.indexOf(marker, source.indexOf("\npackages:\n")) + marker.length;
+          expect(at).toBeGreaterThan(marker.length);
+          return `${source.slice(0, at)}${source[at] === "A" ? "B" : "A"}${source.slice(at + 1)}`;
+        },
+      },
+      {
+        label: "a lane-only Vitest setting whose hosted values are identical",
+        path: "vitest.shared.mjs",
+        edit: replaceOnce("    maxWorkers: 2,\n", "    maxWorkers: 1,\n"),
+      },
+      {
+        label: "an unused type-only Auth export",
+        path: "contracts/auth-context/index.ts",
+        edit: (source: string) => `${source}\nexport type UnusedWorkloadProbe = Readonly<{ probe: true }>;\n`,
+      },
+      {
+        label: "a non-boot app.ts policy registration (#9638)",
+        path: "deployables/platform-api/src/app.ts",
+        edit: replaceOnce(
+          "        checkoutProcessingFeePolicy,\n        authenticityFeePolicy,\n",
+          "        checkoutProcessingFeePolicy,\n",
+        ),
+      },
+      {
+        label: "Auth runtime services (#9644)",
+        path: "bounded-contexts/auth/support/runtime-support/services.ts",
+        edit: replaceOnce('  "pricing.manage",\n]);', '  "pricing.manage",\n  "inventory.manage",\n]);'),
+      },
+    ];
+
+    // A W1-W5-neutral drift that no control's edit makes.
+    const preDrift = (path: string) => (source: string) =>
+      `${source}${path.endsWith(".yaml") ? "#" : "//"} synthetic pre-drift\n`;
+
+    /**
+     * The old broad pins reject `edit`: against a paired reference, the edited
+     * mirror adds exactly `path` to the historical mismatches. `base` is the
+     * unnormalized source and keeps all of its drift; a target it already drifted
+     * is restored to its captured bytes in the reference only, and the edit
+     * applies to those bytes.
+     */
+    async function expectOldPinRejection(
+      { path, edit }: (typeof controls)[number],
+      base: Readonly<Record<string, WorkloadEdit>> = {},
+      current = { binding: readCurrentCapture().binding, baseline: currentBaseline() },
+    ) {
+      const freshness = (edits: Readonly<Record<string, WorkloadEdit>>) =>
+        mirrorFreshness(edits, current.baseline, current.binding);
+      const captured = readFrozenSourceFile(path);
+      expect(captured, path).not.toBeNull();
+      const withTarget = (bytes: string) => {
+        const retained = Object.fromEntries(Object.entries(base).filter(([key]) => key !== path));
+        return readFileSync(join(repositoryRoot, path), "utf8") === bytes ? retained : { ...retained, [path]: bytes };
+      };
+
+      const unnormalized = await freshness(base);
+      expect(unnormalized.violations).toEqual([]);
+      const collision = !readFileSync(join(unnormalized.mirror, path)).equals(captured!);
+      const referenceEdits = collision ? withTarget(captured!.toString("utf8")) : base;
+      const reference = collision ? await freshness(referenceEdits) : unnormalized;
+      expect(reference.violations, "historical paired reference violates current W1-W5").toEqual([]);
+      const edited = await freshness(withTarget(edit(captured!.toString("utf8"))));
+      expect(edited.violations).toEqual([]);
+
+      const before = broadSourceBindingMismatches(reference.mirror);
+      const after = broadSourceBindingMismatches(edited.mirror);
+      expect(before).not.toContain(path);
+      expect([...after].sort()).toEqual([...before, path].sort());
+      return { collision, before };
+    }
+
+    it.each(controls)("accepts $label with W1-W5 fixed while the old broad pins reject it", async (control) => {
+      await expectOldPinRejection(control);
+    });
+
+    it.each(controls.map((control, index) => ({ ...control, drift: controls[(index + 1) % controls.length]! })))(
+      "accepts $label beside retained drift in $drift.path",
+      async ({ drift, ...control }) => {
+        const { before } = await expectOldPinRejection(control, { [drift.path]: drift.edit });
+        expect(before).toContain(drift.path);
+      },
+    );
+
+    it.each(controls)("accepts $label over a pre-drifted target restored to its captured bytes", async (control) => {
+      const { collision } = await expectOldPinRejection(control, { [control.path]: preDrift(control.path) });
+      expect(collision).toBe(true);
+    });
+
+    it.each(controls)("accepts $label while W1-W5 follows a newer current capture", async (control) => {
+      await expectOldPinRejection(control, {}, await newerCurrentCapture());
+    });
+  });
+
+  describe("workload changes require re-enrollment", () => {
+    const fixturesPath = "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex";
+    const seedingPath = "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts";
+    const settlementSupportPath = "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts";
+    const paymentSupportPath = "contracts/payment-processing/test-support.ts";
+
+    it("accepts the unchanged checked-out workload without Git history", async () => {
+      const { mirror, violations } = await mirrorFreshness({});
+      expect(existsSync(join(mirror, ".git"))).toBe(false);
+      expect(violations).toEqual([]);
+    });
+
+    it.each<{
+      label: string;
+      edits: Readonly<Record<string, WorkloadEdit>>;
+      expected: readonly string[] | (() => readonly string[]);
+    }>([
+      {
+        label: "a bootstrap case callback",
+        edits: { "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts": editFirstCaseCallback },
+        expected: [
+          changed("W1 case identities deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts"),
+          changed("W1 file deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts"),
+        ],
+      },
+      {
+        label: "a bootstrap case timeout",
+        edits: { "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts": editFirstCaseTimeout },
+        expected: [
+          changed("W1 case identities deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts"),
+          changed("W1 file deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts"),
+        ],
+      },
+      {
+        label: "a W2 harness hook",
+        edits: {
+          "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": replaceOnce(
+            "  }, 30_000);\n\n  afterAll(",
+            "  }, 45_000);\n\n  afterAll(",
+          ),
+        },
+        expected: [changed("W2 file deployables/platform-api/__tests__/bootstrap-db-test-support.ts")],
+      },
+      {
+        label: "a W2 closure helper",
+        edits: {
+          "deployables/platform-api/__tests__/catalog-seed-test-support.ts": replaceOnce(
+            "    enabledDataProfiles: profile.profiles,\n",
+            "    enabledDataProfiles: [...profile.profiles].reverse(),\n",
+          ),
+        },
+        expected: [changed("W2 file deployables/platform-api/__tests__/catalog-seed-test-support.ts")],
+      },
+      {
+        label: "a W2 fixture",
+        edits: {
+          "deployables/platform-api/__tests__/operator-session/fixture.ts": replaceOnce(
+            'export const base = "https://admin.example";',
+            'export const base = "https://admin.example.test";',
+          ),
+        },
+        expected: [changed("W2 file deployables/platform-api/__tests__/operator-session/fixture.ts")],
+      },
+      {
+        label: "the API boot list",
+        edits: {
+          "deployables/platform-api/src/generated/api-context-registry.ts": replaceOnce(
+            '  {\n    contextName: "settlement",\n    packageName: "@chase-sets/settlement",\n    manifest: settlementManifest,\n    module: settlementModule,\n  },\n',
+            "",
+          ),
+        },
+        expected: () => [removed(selectionKey("settlement")), removed("W4 alias ^@chase-sets\\/settlement$")],
+      },
+      {
+        label: "a context runtime profile selection",
+        edits: {
+          "bounded-contexts/inventory/context.json": replaceOnce(
+            '"apiRuntimeProfiles": ["proof", "public"],',
+            '"apiRuntimeProfiles": ["proof"],',
+          ),
+        },
+        expected: () => [changed(selectionKey("inventory"))],
+      },
+      {
+        label: "a seed data-profile list",
+        edits: {
+          "infrastructure/platform-runtime/api.ts": replaceOnce(
+            '  "catalog-integration-bootstrap",\n  "admin-qa-actor-fixtures",\n];',
+            '  "admin-qa-actor-fixtures",\n];',
+          ),
+        },
+        expected: [changed("W3 file infrastructure/platform-runtime/api.ts")],
+      },
+      {
+        label: "a feature seed",
+        edits: {
+          "bounded-contexts/catalog/features/product-measures/api/seed.ts": (source: string) =>
+            `${source}\nexport const productMeasuresSeedProbe = "probe";\n`,
+        },
+        expected: [changed("W3 file bounded-contexts/catalog/features/product-measures/api/seed.ts")],
+      },
+      {
+        label: "a support seed helper",
+        edits: {
+          "bounded-contexts/inventory/support/seed-support/ids.ts": (source: string) =>
+            `${source}\nexport const seedInventoryProbe = "probe";\n`,
+        },
+        expected: [changed("W3 file bounded-contexts/inventory/support/seed-support/ids.ts")],
+      },
+      {
+        label: "DB census membership",
+        edits: {
+          "deployables/platform-api/__tests__/workload-probe.db.test.ts": `it("probes", () => {\n  expect(${syntheticDatabaseUrlRead}).toBeDefined();\n});\n`,
+        },
+        expected: [
+          added("W1 case identities deployables/platform-api/__tests__/workload-probe.db.test.ts"),
+          changed("W1 census dbEntries"),
+          added("W1 file deployables/platform-api/__tests__/workload-probe.db.test.ts"),
+        ],
+      },
+      {
+        label: "a DB execution-unit assignment",
+        edits: {
+          "deployables/platform-api/package.json": (source: string) =>
+            replaceOnce(
+              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
+              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
+            )(
+              replaceOnce(
+                "__tests__/operator-session/operator-extension-route-contract.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
+                "__tests__/operator-session/operator-extension-route-contract.db.test.ts ",
+              )(source),
+            ),
+        },
+        expected: [changed("W1 partition test:db:1"), changed("W1 partition test:db:2")],
+      },
+      {
+        label: "a hosted CLI override",
+        edits: {
+          "deployables/platform-api/package.json": replaceOnce(
+            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
+            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --testTimeout=1 --maxWorkers=3",
+          ),
+        },
+        expected: [changed("W1 partition test:db:1"), changed("W4 unit test:db:1")],
+      },
+      {
+        label: "a hosted shared-config default",
+        edits: { "vitest.shared.mjs": replaceOnce("      hookTimeout: 120_000,\n", "      hookTimeout: 60_000,\n") },
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2")],
+      },
+      {
+        label: "a workspace Vitest override",
+        edits: {
+          "deployables/platform-api/vitest.config.ts": replaceOnce(
+            "    globals: true,\n",
+            "    globals: true,\n    retry: 1,\n",
+          ),
+        },
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2")],
+      },
+      {
+        label: "a hosted PostgreSQL setting",
+        edits: {
+          ".github/workflows/platform-pr.yml": replaceOnce(
+            "target_max_connections=300\n",
+            "target_max_connections=200\n",
+          ),
+        },
+        expected: [changed("W4 postgres maxConnections")],
+      },
+      {
+        label: "the resolved pg version",
+        edits: {
+          "pnpm-lock.yaml": (source: string) =>
+            platformApiImporter(
+              source,
+              replaceOnce(
+                "      pg:\n        specifier: ^8.20.0\n        version: 8.20.0\n",
+                "      pg:\n        specifier: ^8.20.0\n        version: 8.21.0\n",
+              ),
+            ),
+        },
+        expected: [changed("W5 version pg")],
+      },
+      {
+        label: "the resolved vitest version",
+        edits: {
+          "pnpm-lock.yaml": (source: string) =>
+            platformApiImporter(source, replaceOnce("        version: 4.1.5(", "        version: 4.1.6(")),
+        },
+        expected: [refused("W4 cannot be evaluated: installed vitest 4.1.5 but the tree resolves 4.1.6")],
+      },
+      {
+        label: "the admin-QA seed profiles",
+        edits: {
+          "deployables/platform-api/src/admin-qa-actor-fixtures.ts": replaceOnce(
+            'const BASELINE_DATA_PROFILES = ["critical-bootstrap", "catalog-integration-bootstrap"] as const;',
+            'const BASELINE_DATA_PROFILES = ["critical-bootstrap"] as const;',
+          ),
+        },
+        expected: [changed("W3 file deployables/platform-api/src/admin-qa-actor-fixtures.ts")],
+      },
+      {
+        label: "the Identity admin-QA actor matrix",
+        edits: {
+          "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts": replaceOnce(
+            'primaryEmail: "admin-qa-owner@chasesets.test"',
+            'primaryEmail: "admin-qa-owner-renamed@chasesets.test"',
+          ),
+        },
+        expected: [changed("W3 file bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts")],
+      },
+      {
+        label: "the Channels settlement work loop",
+        edits: {
+          [settlementSupportPath]: replaceOnce("for (const index of [1, 2]) {", "for (const index of [1, 2, 3]) {"),
+        },
+        expected: [changed(`W2 file ${settlementSupportPath}`)],
+      },
+      {
+        label: "a fake payment processor response",
+        edits: {
+          [paymentSupportPath]: replaceOnce(
+            '["seti_gateway_contract", "requires_payment_method"],',
+            '["seti_gateway_contract", "requires_action"],',
+          ),
+        },
+        expected: [changed(`W2 file ${paymentSupportPath}`)],
+      },
+      {
+        label: "the imported TCGdex JSON fixture",
+        edits: { [`${fixturesPath}/base2-60-scenario.json`]: replaceOnce('"firstEd": 64,', '"firstEd": 65,') },
+        expected: [changed(`W3 json ${fixturesPath}/base2-60-scenario.json`)],
+      },
+      {
+        label: "an added imported JSON fixture",
+        edits: {
+          [`${fixturesPath}/probe-scenario.json`]: '{ "probe": true }\n',
+          [seedingPath]: (source: string) =>
+            `import probeScenario from "../__fixtures__/tcgdex/probe-scenario.json" with { type: "json" };\n${source}\nexport const probeScenarioFixture = probeScenario;\n`,
+        },
+        expected: [added(`W3 json ${fixturesPath}/probe-scenario.json`), changed(`W3 file ${seedingPath}`)],
+      },
+      {
+        label: "a deleted imported JSON fixture",
+        edits: { [`${fixturesPath}/base2-60-scenario.json`]: null },
+        expected: [
+          refused(`${seedingPath}:17 workload import '../__fixtures__/tcgdex/base2-60-scenario.json' is unresolved`),
+        ],
+      },
+      {
+        label: "a new external W2 helper",
+        edits: {
+          "bounded-contexts/channels/features/connector-feed/tests/fee-test-support.ts":
+            'export const settlementFeeProbe = "probe";\n',
+          [settlementSupportPath]: (source: string) => `import "./fee-test-support";\n${source}`,
+        },
+        expected: [
+          added("W2 file bounded-contexts/channels/features/connector-feed/tests/fee-test-support.ts"),
+          changed(`W2 file ${settlementSupportPath}`),
+        ],
+      },
+      {
+        label: "a nonliteral workload import",
+        edits: {
+          [settlementSupportPath]: (source: string) =>
+            `${source}\nexport const loadProbe = (specifier: string) => import(specifier);\n`,
+        },
+        expected: () => {
+          const line = readFileSync(join(repositoryRoot, settlementSupportPath), "utf8").split("\n").length + 1;
+          return [refused(`${settlementSupportPath}:${line} has a nonliteral workload import`)];
+        },
+      },
+    ])("refuses $label", async ({ edits, expected }) => {
+      const { violations } = await mirrorFreshness(edits);
+      expect(violations).toEqual([...(typeof expected === "function" ? expected() : expected)].sort());
+    });
+
+    it("refuses unreadable and unresolved workload inputs", async () => {
+      const deletedHelper = await mirrorFreshness({ [paymentSupportPath]: null });
+      expect(deletedHelper.violations.length).toBeGreaterThan(0);
+      expect(deletedHelper.violations.every((violation) => violation.startsWith("workload input refused: "))).toBe(
+        true,
+      );
+      // A string, not a regex literal: lexical import scanners misread a regex.
+      const unresolvedHelper = "workload import '@chase-sets/payment-processing/test-support' is unresolved";
+      expect(deletedHelper.violations.some((violation) => violation.endsWith(unresolvedHelper))).toBe(true);
+
+      const unreadable = await mirrorFreshness({
+        "infrastructure/platform-runtime/context-pools.ts": null,
+        "infrastructure/platform-runtime/context-pools.ts/placeholder.txt": "not a module\n",
+      });
+      expect(unreadable.violations).toContain(
+        refused("W3 input infrastructure/platform-runtime/context-pools.ts is missing"),
+      );
+    });
+
+    it("refuses an omitted external helper and missing, duplicate, empty or partial bindings", async () => {
+      const derivation = await liveWorkload();
+      const baseline = currentBaseline();
+      const capture = readCurrentCapture().binding;
+      const check = (candidate: unknown) =>
+        checkBootstrapDbWorkloadFreshness({ baseline: candidate, capture, derivation }).violations;
+
+      const omitted = withBindings(baseline, (bindings) =>
+        bindings.filter(([section, key]) => !(section === "W2 file" && key === paymentSupportPath)),
+      );
+      expect(check(omitted)).toEqual([added(`W2 file ${paymentSupportPath}`)]);
+
+      const { bindings: _bindings, ...withoutBindings } = baseline;
+      expect(check(withoutBindings)).toContain("baseline bindings are missing or empty");
+      expect(check(withBindings(baseline, () => []))).toContain("baseline bindings are missing or empty");
+
+      const duplicate = withBindings(baseline, (bindings) => [bindings[0]!, ...bindings]);
+      expect(check(duplicate)).toContain(
+        `baseline binding ${baseline.bindings[0]![0]} ${baseline.bindings[0]![1]} is duplicated`,
+      );
+
+      const empty = withBindings(baseline, (bindings) => bindings.filter(([section]) => section !== "W3 file"));
+      expect(check(empty)).toEqual(["baseline W3 file bindings are empty"]);
+
+      const partial = withBindings(baseline, (bindings) =>
+        bindings.map((binding, index) => (index === 0 ? ([binding[0], binding[1], ""] as const) : binding)),
+      );
+      expect(check(partial)).toEqual(["baseline binding 0 is malformed or partial"]);
+
+      const edited = { ...baseline, bindings: baseline.bindings.slice(1) };
+      expect(check(edited)).toEqual(["baseline bindings do not match bindingsSha256 (partial or edited)"]);
+    });
+  });
+
+  describe("freshness uses workload bindings only", () => {
+    it("is called only by the Unit regression and its own producer, never by the test:db guard", () => {
+      const callers: string[] = [];
+      function visit(directory: string) {
+        for (const entry of readdirSync(join(repositoryRoot, directory)).sort()) {
+          const path = `${directory}/${entry}`;
+          if (["node_modules", "dist", "artifacts"].includes(entry) || entry.startsWith(".")) continue;
+          const absolute = join(repositoryRoot, path);
+          if (statSync(absolute).isDirectory()) visit(path);
+          else if (
+            /\.(?:[cm]?[jt]sx?)$/.test(entry) &&
+            readFileSync(absolute, "utf8").includes("db-enrollment-workload")
+          ) {
+            callers.push(path);
+          }
+        }
+      }
+      for (const directory of ["deployables/platform-api", "scripts"]) visit(directory);
+      expect(callers.sort()).toEqual([
+        "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
+        "deployables/platform-api/scripts/db-enrollment-workload.mjs",
+      ]);
+      const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      };
+      for (const name of ["test:db:1", "test:db:2"]) {
+        expect(packageScripts.scripts[name]).toMatch(
+          /^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /,
+        );
+      }
+    });
+
+    it("round-trips a newer capture through the shared producer derivation and refuses the stale baseline", async () => {
+      const derivation = await liveWorkload();
+      const { binding } = readCurrentCapture();
+      const captureBytes = Buffer.from(
+        JSON.stringify({
+          provenance: {
+            ...binding.provenance,
+            runId: "65440003",
+            checkoutSha: "0000000000000000000000000000000000006546",
+            sourceBase: "0000000000000000000000000000000000006545",
+            captureParent: "0000000000000000000000000000000000006545",
+          },
+        }),
+      );
+      const newer: BootstrapDbWorkloadCaptureBinding = {
+        fileName: "bootstrap-db-capture-65440003.json",
+        fixtureSha256: sha256Of(captureBytes),
+        provenance: JSON.parse(captureBytes.toString("utf8")).provenance,
+      };
+      const produced = JSON.parse(
+        formatBootstrapDbWorkloadBaseline(
+          createBootstrapDbWorkloadBaseline({
+            captureFileName: newer.fileName,
+            captureBytes,
+            source: { commit: "0000000000000000000000000000000000006545" },
+            derivation,
+          }),
+        ),
+      ) as BootstrapDbWorkloadBaseline;
+      expect(produced.bindings).toEqual(currentBaseline().bindings);
+      expect(checkBootstrapDbWorkloadFreshness({ baseline: produced, capture: newer, derivation }).violations).toEqual(
+        [],
+      );
+      expect(
+        checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
+      ).toEqual([
+        `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
+        `baseline was derived from eddd19e3a75d396a0bf66dea15750c0c2ce3a69e, not the capture's frozen source 0000000000000000000000000000000000006545`,
+      ]);
+      expect(() =>
+        createBootstrapDbWorkloadBaseline({
+          captureFileName: newer.fileName,
+          captureBytes,
+          source: { commit: "0000000000000000000000000000000000006545" },
+          derivation: { bindings: derivation.bindings, gaps: ["synthetic unresolved input"] },
+        }),
+      ).toThrow("workload derivation refused:\n- synthetic unresolved input");
+    });
+
+    it("audits the immediate fixture/helper frontier the selectors leave opaque", async () => {
+      const { frontier = [] } = await liveWorkload();
+      const targets = [...new Set(frontier.map(([, target]) => target))].sort();
+      expect(targets.length).toBeGreaterThan(0);
+      expect(
+        targets.filter((target) =>
+          /fixture|test-support|test-data|testing|fake|stub|mock|seed|__fixtures__|\.json$/i.test(target),
+        ),
+      ).toEqual([
+        // Bound through its W3 selection, not its bytes.
+        "bounded-contexts/catalog/context.json",
+        // Catalog fixture-lifecycle governance is product runtime, not fixture data.
+        "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-fixture-lifecycle.ts",
+      ]);
+    });
+
+    it("refuses a baseline whose workload binding was deleted", async () => {
+      const derivation = await liveWorkload();
+      const deleted = withBindings(currentBaseline(), (bindings) =>
+        bindings.filter(
+          ([section, key]) => !(section === "W3 file" && key === "infrastructure/platform-runtime/api.ts"),
+        ),
+      );
+      expect(
+        checkBootstrapDbWorkloadFreshness({ baseline: deleted, capture: readCurrentCapture().binding, derivation })
+          .violations,
+      ).toEqual([added("W3 file infrastructure/platform-runtime/api.ts")]);
+    });
+  });
+
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(46951);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(53040);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1351747,
+      1820562,
     );
   });
 
@@ -2035,15 +3357,15 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 393101],
-      ["test:db:2", 288780],
+      ["test:db:1", 363545],
+      ["test:db:2", 403099],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [34, 34],
-      [32, 32],
+      [33, 33],
+      [33, 33],
     ]);
-    expect(schedule.aggregateMs).toBe(681881);
-    expect(schedule.aggregateWithOverheadMs).toBe(728832);
+    expect(schedule.aggregateMs).toBe(766644);
+    expect(schedule.aggregateWithOverheadMs).toBe(819684);
     expect(schedule.minimumUnitCount).toBe(2);
     expect(schedule.observedUnitCount).toBe(2);
   });
@@ -2055,8 +3377,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 393101],
-      ["test:db:2", 288780],
+      ["test:db:1", 363545],
+      ["test:db:2", 403099],
     ]);
   });
 
@@ -2546,7 +3868,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(schedule.oneFewerUnit?.unitCount).toBe(1);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(638673);
+    expect(worst).toBe(815249);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
@@ -2556,16 +3878,16 @@ describe("Platform API bootstrap DB enrollment", () => {
     // file, database suffix, and identity — only the unit count is wasteful.
     const extraUnitAssignment: Record<string, string> = {
       "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
-      "authoritative-seed-resume-core.db.test.ts": "test:db:1",
       "connector-mount-gate-isolation.db.test.ts": "test:db:1",
+      "authoritative-seed-resume-core.db.test.ts": "test:db:1",
       "bootstrap-lock-contention.db.test.ts": "test:db:1",
       "seed-command-full-pools.db.test.ts": "test:db:1",
       "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
-      "bootstrap-shared-seed-command.db.test.ts": "test:db:3",
       "bootstrap-scenario.db.test.ts": "test:db:2",
       "inventory-seed-resume.db.test.ts": "test:db:2",
       "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
       "authoritative-seed-resume-recovery.db.test.ts": "test:db:2",
+      "bootstrap-shared-seed-command.db.test.ts": "test:db:3",
       "catalog-seed-interruption-resume.db.test.ts": "test:db:2",
     };
     const files = shippedShapedFiles().map((file) => ({

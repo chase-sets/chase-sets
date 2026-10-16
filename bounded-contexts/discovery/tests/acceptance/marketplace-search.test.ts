@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as catalogModule } from "@chase-sets/catalog";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as collectionsModule } from "@chase-sets/collections";
 import { module as identityModule } from "@chase-sets/identity";
@@ -3501,6 +3502,224 @@ describe("marketplace search", () => {
         [aliasSeed.japaneseItemId],
       );
       expect(aliasRow.rows[0]?.resolved_aliases).toEqual({});
+    });
+  });
+
+  describe("search interpretation over the projected Catalog taxonomy", () => {
+    const { condition, gradingCompany, grade } = catalogSeedIds.dimensions;
+    const companyParam = `dimension.${gradingCompany.dimensionId}`;
+    const gradeParam = `dimension.${grade.dimensionId}`;
+    // Values copied from the Catalog seed (pinned by search-interpretation.test.ts), projected
+    // through real Catalog commands into Discovery's option mirror.
+    const seedTaxonomy = [
+      {
+        dimension: condition,
+        key: "condition",
+        name: "Condition",
+        valueKind: "ordered" as const,
+        options: [
+          ["pristine", "pristine", "Pristine", 7],
+          ["mint", "mint", "Mint", 6],
+          ["nearMint", "near-mint", "Near Mint", 5],
+          ["excellent", "excellent", "Excellent", 4],
+          ["good", "good", "Good", 3],
+          ["poor", "poor", "Poor", 2],
+          ["damaged", "damaged", "Damaged", 1],
+        ],
+      },
+      {
+        dimension: gradingCompany,
+        key: "grading-company",
+        name: "Grading Company",
+        valueKind: "unordered" as const,
+        options: ["psa", "bgs", "cgc", "sgc", "ace", "tag"].map(
+          (code) => [code, code, code.toUpperCase(), null] as const,
+        ),
+      },
+      {
+        dimension: grade,
+        key: "grade",
+        name: "Grade",
+        valueKind: "numeric" as const,
+        options: [
+          ["pristine10", "pristine-10", "Pristine 10", 10.5],
+          ["gemMint10", "gem-mint-10", "Gem Mint 10", 10],
+          ["mint95", "mint-9.5", "Mint 9.5", 9.5],
+          ["mint9", "mint-9", "Mint 9", 9],
+        ],
+      },
+    ] as const;
+    const psa = { dimensionId: gradingCompany.dimensionId, optionId: gradingCompany.optionIds.psa };
+    const gemMint10 = { dimensionId: grade.dimensionId, optionId: grade.optionIds.gemMint10 };
+    const pristine10 = { dimensionId: grade.dimensionId, optionId: grade.optionIds.pristine10 };
+    const nearMint = { dimensionId: condition.dimensionId, optionId: condition.optionIds.nearMint };
+
+    async function addOption(dimensionId: string, optionId: string, code: string, label: string, value: number | null) {
+      await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${dimensionId}`, {
+        type: "AddOption",
+        optionId: optionId as never,
+        code,
+        label: l10n(label),
+        numericValue: value,
+      });
+    }
+
+    async function seedInterpretationFixture() {
+      for (const { dimension, key, name, valueKind, options } of seedTaxonomy) {
+        await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${dimension.dimensionId}`, {
+          type: "CreateDimension",
+          dimensionId: dimension.dimensionId as never,
+          key,
+          name: l10n(name),
+          description: l10n(name),
+          valueKind,
+        });
+        for (const [optionKey, code, label, value] of options) {
+          const optionIds: Record<string, string> = dimension.optionIds;
+          await addOption(dimension.dimensionId, optionIds[optionKey], code, label, value);
+        }
+        await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${dimension.dimensionId}`, {
+          type: "ActivateDimension",
+        });
+      }
+      await drainContextProcesses({ subscriptionRunners });
+      await pools.discovery.query(
+        `INSERT INTO discovery_search_catalog_items (catalog_item_id, slug, title, subtitle, status)
+         VALUES ('interp_charizard', 'interp-charizard', 'Charizard', 'Base Set 4/102', 'active')`,
+      );
+      await rebuildSearchIndex();
+      await pools.discovery.query(
+        `UPDATE discovery_search_items SET dimension_filter_values = $1::jsonb WHERE catalog_item_id = 'interp_charizard'`,
+        [JSON.stringify([psa, gemMint10, pristine10, nearMint])],
+      );
+      await pools.discovery.query(
+        `INSERT INTO discovery_market_accounts (account_id) VALUES ('interp-seller') ON CONFLICT DO NOTHING`,
+      );
+      for (const [id, price, options] of [
+        ["interp_psa_10", "500", [psa, gemMint10]],
+        ["interp_psa_pristine", "900", [psa, pristine10]],
+        ["interp_raw", "40", [nearMint]],
+      ] as const) {
+        await pools.discovery.query(
+          `INSERT INTO discovery_market_listings
+           (listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code,
+            listing_stream_version, quantity_cap, supply_total_quantity, active_held_quantity, status, product_measure_snapshot, selected_options)
+           VALUES ($1, 'interp-seller', $1, 'interp_charizard', $1, $2, 'USD', 1, 4, 10, 2, 'active', '{}', $3::jsonb)`,
+          [id, price, JSON.stringify(options)],
+        );
+      }
+      await refreshAllSearchIndexMarketSignals(pools.discovery);
+    }
+
+    async function searchApi(params: URLSearchParams) {
+      const response = await app.request(`/api/marketplace/items?${params.toString()}`);
+      expect(response.status).toBe(200);
+      return response.json();
+    }
+
+    function canonical(search: string, filters: readonly [string, string][], interpreted: string) {
+      const params = new URLSearchParams({ search, includeTotal: "true", interpreted });
+      for (const [key, value] of filters) params.append(key, value);
+      return params;
+    }
+
+    it.each([
+      ["typo plus PSA 10", "charzard psa 10", "charzard", "corrected"],
+      ["nickname plus grade", "zard psa 10", "zard", "lexical"],
+      ["collector number kept", "charizard 4/102 psa 10", "charizard 4/102", "lexical"],
+    ])(
+      "direct API and canonical URL agree on final rows and the true variant price: %s",
+      async (_name, search, remainder, mode) => {
+        await seedInterpretationFixture();
+        const direct = await searchApi(new URLSearchParams({ search, includeTotal: "true" }));
+        expect(direct).toMatchObject({
+          retrievalMode: mode,
+          nextCursor: null,
+          interpretation: {
+            remainingQuery: remainder,
+            applied: [
+              { param: companyParam, optionId: psa.optionId, label: "PSA" },
+              { param: gradeParam, optionId: gemMint10.optionId, label: "Gem Mint 10" },
+            ],
+          },
+        });
+        expect(direct.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+          "interp_charizard",
+        ]);
+        expect(direct.items[0].market_summary).toMatchObject({ lowest_price_amount: "500", active_listing_count: 1 });
+
+        const marked = await searchApi(
+          canonical(
+            remainder,
+            [
+              [companyParam, psa.optionId],
+              [gradeParam, gemMint10.optionId],
+            ],
+            `${companyParam},${gradeParam}`,
+          ),
+        );
+        expect(marked).not.toHaveProperty("interpretation");
+        expect(marked.items).toEqual(direct.items);
+      },
+    );
+
+    it("names Pristine 10 only by its full label and never for a bare 10", async () => {
+      await seedInterpretationFixture();
+      const pristine = await searchApi(new URLSearchParams({ search: "charizard pristine 10" }));
+      expect(pristine.interpretation.applied).toEqual([
+        { param: gradeParam, optionId: pristine10.optionId, label: "Pristine 10" },
+      ]);
+      expect(pristine.items[0].market_summary).toMatchObject({ lowest_price_amount: "900" });
+      const bare = await searchApi(new URLSearchParams({ search: "charizard psa 10" }));
+      expect(bare.interpretation.applied.map((value: { label: string }) => value.label)).toEqual([
+        "PSA",
+        "Gem Mint 10",
+      ]);
+    });
+
+    it("explicit filters win: a different value stays literal and an equal value is consumed silently", async () => {
+      await seedInterpretationFixture();
+      const different = new URLSearchParams({ search: "charizard bgs 10" });
+      different.append(companyParam, psa.optionId);
+      const literal = await searchApi(different);
+      expect(literal).not.toHaveProperty("interpretation");
+      expect(literal.items).toEqual([]);
+
+      const japanese = await searchApi(new URLSearchParams({ search: "charizard japanese", language: "en" }));
+      expect(japanese).not.toHaveProperty("interpretation");
+
+      const equal = new URLSearchParams({ search: "charizard psa 10" });
+      equal.append(companyParam, psa.optionId);
+      const consumed = await searchApi(equal);
+      expect(consumed.interpretation).toEqual({
+        remainingQuery: "charizard",
+        applied: [{ param: gradeParam, optionId: gemMint10.optionId, label: "Gem Mint 10" }],
+      });
+    });
+
+    it("ORs a test-only equal-valued Grade, keeps collisions literal, and ignores inactive options", async () => {
+      await seedInterpretationFixture();
+      await addOption(grade.dimensionId, "interp_test_ten", "test-ten", "Test Ten", 10);
+      await addOption(condition.dimensionId, "interp_test_collision", "bgs", "BGS", null);
+      await drainContextProcesses({ subscriptionRunners });
+
+      const equalValued = await searchApi(new URLSearchParams({ search: "charizard psa 10" }));
+      expect(equalValued.interpretation.applied.map((value: { optionId: string }) => value.optionId)).toEqual([
+        psa.optionId,
+        gemMint10.optionId,
+        "interp_test_ten",
+      ]);
+      expect(equalValued.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+        "interp_charizard",
+      ]);
+
+      expect(await searchApi(new URLSearchParams({ search: "charizard bgs 10" }))).not.toHaveProperty("interpretation");
+
+      await pools.discovery.query(
+        `UPDATE discovery_search_catalog_dimension_options SET status = 'inactive' WHERE option_id = $1`,
+        [psa.optionId],
+      );
+      expect(await searchApi(new URLSearchParams({ search: "charizard psa 10" }))).not.toHaveProperty("interpretation");
     });
   });
 });

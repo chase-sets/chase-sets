@@ -6,6 +6,7 @@ import {
 } from "../src/config";
 import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 import { selectSettlementBootstrapDatabaseUrl } from "../src/database-pools";
+import { createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
 
 const envNames = [
   "PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT",
@@ -160,6 +161,19 @@ const envNames = [
   "DATABASE_URL_PUBLIC_PRESENCE",
   "DATABASE_URL_SETTLEMENT",
   "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+  "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON",
+  "SUPPORT_EVIDENCE_CLEANUP_INTERVAL_MS",
+  "CHASE_SETS_DEPLOYMENT_INSTANCE",
+  "CHASE_SETS_IMPLEMENTATION_SHA",
+  "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND",
+  "MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT",
+  "MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL",
+  "MARKETPLACE_LISTING_PHOTO_S3_BUCKET",
+  "MARKETPLACE_LISTING_PHOTO_S3_REGION",
+  "MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT",
+  "MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID",
+  "MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY",
+  "MARKETPLACE_LISTING_PHOTO_S3_FORCE_PATH_STYLE",
 ];
 
 function clearConfigEnv() {
@@ -1159,5 +1173,143 @@ describe("platform worker config", () => {
     process.env.NOTIFICATION_EMAIL_PROVIDER = "local-capture";
 
     expect(() => loadConfig()).toThrow("NOTIFICATION_EMAIL_PROVIDER=local-capture is only allowed outside production.");
+  });
+});
+
+describe("Support Evidence Cleanup Binding configuration (AC-E4)", () => {
+  const instance = '["support-deployment-instance/v1","preview-9392","release-a"]';
+  const declaration = {
+    version: 1,
+    environment: "preview",
+    deploymentInstance: instance,
+    bindingId: "cleanup-preview",
+    revision: 3,
+    active: true,
+  };
+  function previewEnv(binding: unknown, overrides: Readonly<Record<string, string | undefined>> = {}) {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_synthetic_preview";
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = instance;
+    process.env.CHASE_SETS_IMPLEMENTATION_SHA = "a".repeat(40);
+    process.env.MARKETPLACE_LISTING_PHOTO_STORAGE_KIND = "s3";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_BUCKET = "support-evidence-preview";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_REGION = "nyc3";
+    process.env.MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL = "https://photos.preview.invalid";
+    if (binding !== undefined)
+      process.env.SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON =
+        typeof binding === "string" ? binding : JSON.stringify(binding);
+    for (const [name, value] of Object.entries(overrides)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    return loadConfig();
+  }
+  function hostPort(config: ReturnType<typeof loadConfig>) {
+    const info = vi.fn();
+    const store = {
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(),
+      verifyPrivate: vi.fn(async () => ({ status: "absent" as const })),
+      listPrivate: vi.fn(),
+      deleteKeys: vi.fn(async () => []),
+    };
+    const createStore = vi.fn(() => store);
+    return { port: createSupportEvidenceCleanupHostPort(config, { info }, createStore), info, store, createStore };
+  }
+
+  it("mounts a valid active binding scoped to the release tuple with a digest over effective values", () => {
+    const config = previewEnv(declaration);
+    expect(config.supportEvidenceCleanupBinding).toMatchObject({
+      kind: "configured",
+      environment: "preview",
+      deploymentInstance: instance,
+      bindingId: "cleanup-preview",
+      revision: 3,
+      active: true,
+      implementationSha: "a".repeat(40),
+    });
+    const digest = (config.supportEvidenceCleanupBinding as { configDigest: string }).configDigest;
+    expect(digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    const reordered = Object.fromEntries(Object.entries(declaration).reverse());
+    expect((previewEnv(reordered).supportEvidenceCleanupBinding as { configDigest: string }).configDigest).toBe(digest);
+    expect(
+      (previewEnv({ ...declaration, revision: 4 }).supportEvidenceCleanupBinding as { configDigest: string })
+        .configDigest,
+    ).not.toBe(digest);
+    const { port, info, store, createStore } = hostPort(previewEnv(declaration));
+    expect(port.supportEvidenceCleanup.kind).toBe("available");
+    expect(createStore).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "s3", bucket: "support-evidence-preview" }),
+    );
+    // The binding audits and cleans only: no upload, download, listing or administration reaches the runner.
+    const storage = (port.supportEvidenceCleanup as { storage: Record<string, unknown> }).storage;
+    expect(Object.keys(storage).sort()).toEqual(["deleteKeys", "verifyPrivate"]);
+    expect(info).not.toHaveBeenCalled();
+    expect(store.putPrivate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["absent", undefined, {}, "binding_absent"],
+    ["malformed", "{PLANTED_SECRET", {}, "binding_invalid"],
+    ["inactive", { ...declaration, active: false }, {}, "binding_inactive"],
+    ["wrong environment", { ...declaration, environment: "staging" }, {}, "binding_invalid"],
+    [
+      "wrong instance",
+      { ...declaration, deploymentInstance: '["support-deployment-instance/v1","preview-9392","release-b"]' },
+      {},
+      "binding_invalid",
+    ],
+    ["missing trusted instance", declaration, { CHASE_SETS_DEPLOYMENT_INSTANCE: undefined }, "binding_invalid"],
+    ["missing implementation sha", declaration, { CHASE_SETS_IMPLEMENTATION_SHA: undefined }, "binding_invalid"],
+    ["an extra field", { ...declaration, grants: "upload" }, {}, "binding_invalid"],
+    ["a string active flag", { ...declaration, active: "true" }, {}, "binding_invalid"],
+    ["revision zero", { ...declaration, revision: 0 }, {}, "binding_invalid"],
+    ["an invalid binding id", { ...declaration, bindingId: "Cleanup_Preview" }, {}, "binding_invalid"],
+    ["an oversized declaration", JSON.stringify(declaration) + " ".repeat(1024), {}, "binding_invalid"],
+  ] as const)("%s binding leaves the runner not mounted with one bounded denial", (_label, binding, env, reason) => {
+    const config = previewEnv(binding, env);
+    expect(config.supportEvidenceCleanupBinding).toEqual({ kind: "denied", diagnostic: reason });
+    const { port, info, createStore } = hostPort(config);
+    expect(port).toEqual({ supportEvidenceCleanup: { kind: "not-mounted" } });
+    expect(createStore).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info.mock.calls[0]![1]).toEqual({ type: "platform-operations.support-evidence-cleanup-binding", reason });
+    expect(JSON.stringify(info.mock.calls)).not.toContain("PLANTED_SECRET");
+  });
+
+  it("refuses a deployed filesystem store that platform-api cannot share, but mounts local filesystem stores", () => {
+    const deployed = previewEnv(declaration, { MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: "filesystem" });
+    expect(deployed.supportEvidenceStorage.kind).toBe("filesystem");
+    const refused = hostPort(deployed);
+    expect(refused.port.supportEvidenceCleanup).toEqual({ kind: "not-mounted" });
+    expect(refused.info.mock.calls[0]![1]).toEqual({
+      type: "platform-operations.support-evidence-cleanup-binding",
+      reason: "binding_storage_unshared",
+    });
+    const local = previewEnv(
+      { ...declaration, environment: "local" },
+      { DEPLOYMENT_ENVIRONMENT: "local", MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: undefined },
+    );
+    expect(local.supportEvidenceStorage).toMatchObject({
+      kind: "filesystem",
+      rootDir: "artifacts/marketplace-listing-photos",
+    });
+    expect(hostPort(local).port.supportEvidenceCleanup.kind).toBe("available");
+  });
+
+  it("selects the API's effective Support evidence store: production falls back to the Catalog asset store", () => {
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.NODE_ENV = "production";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-production";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+    const config = loadConfig();
+    expect(config.supportEvidenceStorage).toEqual(config.catalogAssetStorage);
+    expect(config.supportEvidenceCleanupBinding).toEqual({ kind: "denied", diagnostic: "binding_absent" });
+    expect(config.supportEvidenceCleanupIntervalMs).toBe(300_000);
   });
 });
