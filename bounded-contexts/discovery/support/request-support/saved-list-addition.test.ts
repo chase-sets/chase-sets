@@ -23,11 +23,7 @@ vi.mock("@chase-sets/collections/server", async () => {
   return { ...actual, createCollectionsRequestApiClient: mockCreateCollectionsRequestApiClient };
 });
 
-import {
-  commitSavedListAddition,
-  prepareSavedListAddition,
-  savedListActionError,
-} from "./saved-list-addition";
+import { commitSavedListAddition, prepareSavedListAddition, savedListActionError } from "./saved-list-addition";
 
 const product = {
   catalogItemId: "cat_card",
@@ -162,4 +158,3 @@ describe("Saved List addition request support", () => {
     });
   });
 });
-

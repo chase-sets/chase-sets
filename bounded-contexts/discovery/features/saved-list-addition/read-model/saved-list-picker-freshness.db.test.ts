@@ -51,4 +51,3 @@ describeDb("Discovery Saved List picker freshness read model", () => {
     ]);
   });
 });
-

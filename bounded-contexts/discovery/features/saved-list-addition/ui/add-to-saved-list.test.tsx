@@ -158,9 +158,7 @@ describe("Add to Saved List control", () => {
       );
       expect(replaceState).toHaveBeenCalled();
       const retainedUrl = String(replaceState.mock.calls.at(-1)?.[2] ?? "");
-      expect(new URL(retainedUrl, "http://localhost").searchParams.get("postWriteToken")).toBe(
-        "pwt_test0000000001",
-      );
+      expect(new URL(retainedUrl, "http://localhost").searchParams.get("postWriteToken")).toBe("pwt_test0000000001");
       expect(test.loader).toHaveBeenCalledTimes(1);
       expect(test.router.state.errors).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -168,6 +166,8 @@ describe("Add to Saved List control", () => {
       prepare();
       await act(async () => waitForRouterIdle(test.router));
       expect(test.action).toHaveBeenCalledTimes(3);
+      expect(new URL(test.requests[2].url).pathname).toBe(new URL(entry, "http://localhost").pathname);
+      expect(new URL(test.requests[2].url).searchParams.get("postWriteToken")).toBe("pwt_test0000000001");
       expect(screen.getByRole("radio", { name: /Favorites/ })).not.toBeNull();
       expect(screen.queryByRole("status")).toBeNull();
       expect(test.loader).toHaveBeenCalledTimes(1);

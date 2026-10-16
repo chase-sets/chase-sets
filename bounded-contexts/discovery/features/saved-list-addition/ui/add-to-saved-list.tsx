@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
-import { useFetcher } from "react-router";
+import { useFetcher, useLocation } from "react-router";
 import {
   Banner,
   Button,
@@ -33,6 +33,7 @@ export function AddToSavedListControl({
   tone?: "primary" | "secondary" | "ghost";
   size?: "sm" | "md" | "lg";
 }>) {
+  const location = useLocation();
   const [open, setOpen] = useState(Boolean(initialPreparation || initialError));
   const [preparation, setPreparation] = useState(initialPreparation);
   const [destinationValue, setDestinationValue] = useState(NEW_LIST_VALUE);
@@ -42,6 +43,7 @@ export function AddToSavedListControl({
   const busy = fetcher.state !== "idle";
   const [error, setError] = useState(initialError);
   const [saved, setSaved] = useState<Extract<SavedListRouteActionData, { status: "saved" }> | null>(null);
+  const [postWriteToken, setPostWriteToken] = useState(() => readPostWriteToken(location.pathname));
   const requestIdRef = useRef(0);
   const pendingRequestRef = useRef<{ id: number; productKey: string } | null>(null);
   const previousProductKeyRef = useRef(productKey);
@@ -81,6 +83,7 @@ export function AddToSavedListControl({
           const url = new URL(window.location.href);
           url.searchParams.set("postWriteToken", data.postWriteToken);
           window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+          setPostWriteToken(data.postWriteToken);
         }
         setSaved(data);
         return;
@@ -127,7 +130,11 @@ export function AddToSavedListControl({
     const formData = new FormData();
     formData.set("intent", "prepare-saved-list");
     for (const [key, value] of Object.entries(prepareFields)) formData.set(key, value);
-    void fetcher.submit(formData, { method: "post", defaultShouldRevalidate: false });
+    void fetcher.submit(formData, {
+      method: "post",
+      action: currentPostWriteAction(location.pathname, location.search, postWriteToken),
+      defaultShouldRevalidate: false,
+    });
   };
 
   const submit = () => {
@@ -141,7 +148,11 @@ export function AddToSavedListControl({
     formData.set("destinationKind", destinationValue === NEW_LIST_VALUE ? "new" : "existing");
     if (destinationValue === NEW_LIST_VALUE) formData.set("newListTitle", newListTitle);
     else formData.set("listId", destinationValue);
-    void fetcher.submit(formData, { method: "post", defaultShouldRevalidate: false });
+    void fetcher.submit(formData, {
+      method: "post",
+      action: currentPostWriteAction(location.pathname, location.search, postWriteToken),
+      defaultShouldRevalidate: false,
+    });
   };
 
   const listItems: Array<{ value: string; label: string; description: string }> =
@@ -271,4 +282,16 @@ export function AddToSavedListControl({
       </CommerceSheet>
     </>
   );
+}
+
+function currentPostWriteAction(pathname: string, search: string, postWriteToken: string | null) {
+  if (!postWriteToken) return undefined;
+  const url = new URL(`${pathname}${search}`, "https://chase-sets.local");
+  url.searchParams.set("postWriteToken", postWriteToken);
+  return `${url.pathname}${url.search}`;
+}
+
+function readPostWriteToken(pathname: string) {
+  if (typeof window === "undefined" || window.location.pathname !== pathname) return null;
+  return new URL(window.location.href).searchParams.get("postWriteToken");
 }
