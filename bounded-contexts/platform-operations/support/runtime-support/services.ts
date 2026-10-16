@@ -216,7 +216,10 @@ export function createPlatformOperationsServices(
     reportedContent,
     riskAlerts,
     supportRequests,
-    supportEvidenceLegacy: createLegacyReferenceReconstruction({ eventStore, readHorizon: () => readGapSafeEventStoreHead(pool) }),
+    supportEvidenceLegacy: createLegacyReferenceReconstruction({
+      eventStore,
+      readHorizon: () => readGapSafeEventStoreHead(pool),
+    }),
     policies,
     policyConsoleEntries,
     supportReferenceLookup,
