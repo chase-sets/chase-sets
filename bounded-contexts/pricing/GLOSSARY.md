@@ -234,6 +234,9 @@ aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list
 
 ## Repricing Activity Digest
 
+A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
+It is requested once after the evaluation projection has reached every member, never as a partial summary.
+
 ## Pricing Health Summary
 
 A **Pricing Health Summary** is the durable, capture-time seller report for a
@@ -255,9 +258,6 @@ current default.
 wait plus Economics turnaround cycle. **Profit/day** is signed net proceeds
 less unit cost over that same cycle. Both are unavailable when their required
 population or positive cycle is absent.
-
-A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
-It is requested once after the evaluation projection has reached every member, never as a partial summary.
 
 ## Digest Window
 
