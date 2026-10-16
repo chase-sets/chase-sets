@@ -31,7 +31,7 @@ export type RepricingDryRunSummary = Readonly<{
   flags: Readonly<Record<string, number>>;
   deltaBuckets: Readonly<Record<string, number>>;
   withinTolerance: number;
-  health: RepricingHealthSummary | null;
+  health?: RepricingHealthSummary | null;
 }>;
 export type RepricingDryRun = Readonly<{
   dryRunId: string;
