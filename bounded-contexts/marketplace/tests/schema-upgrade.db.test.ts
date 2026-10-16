@@ -90,7 +90,13 @@ describeDb("marketplace schema upgrades", () => {
     });
     expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({ can_fulfill: true, managed_status: null });
     amount = "12.00";
-    await expect(f.offers.acceptOffer(await f.acceptance(), context)).rejects.toMatchObject({
+    const acceptance = await f.acceptance();
+    await expect(
+      f.offers.acceptOffer(acceptance, {
+        ...context,
+        audit: { ...context.audit, forAccountId: acceptance.sellerAccountId },
+      }),
+    ).rejects.toMatchObject({
       code: "managed_offer_refresh_required",
     });
     held = true;
@@ -180,6 +186,7 @@ describeDb("marketplace schema upgrades", () => {
       "marketplace.listing.evidence-requirements-refreshed",
       "marketplace.listing.offer-commitment-recorded",
       "marketplace.seller-listing-availability.commitment-checked",
+      "marketplace.mutation-attempt.completed",
     ]);
     const project = buildBuyerOfferPolicyProjectionHandlers(pool);
     for (const event of events) if (project[event.eventType]) await project[event.eventType]!(toTransportEvent(event));
@@ -202,7 +209,12 @@ describeDb("marketplace schema upgrades", () => {
     );
     expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     const loser = result[0]!.status === "rejected" ? 0 : 1;
-    await expect(f.offers.acceptOffer(params[loser]!, context)).rejects.toMatchObject({ code: "managed_offer_held" });
+    await expect(
+      f.offers.acceptOffer(params[loser]!, {
+        ...context,
+        audit: { ...context.audit, forAccountId: params[loser]!.sellerAccountId },
+      }),
+    ).rejects.toMatchObject({ code: "managed_offer_held" });
     const events = await f.store.readAll();
     for (const type of [
       "marketplace.offer.accepted",
