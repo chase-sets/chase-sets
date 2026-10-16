@@ -60,7 +60,7 @@ describeDb("anonymous owner activation", () => {
     expect(
       (
         await pool.query(
-          "SELECT activated_at, gate_packet_sha256, floor_commit FROM collections_anonymous_owner_activation",
+          "SELECT activated_at::text AS activated_at, gate_packet_sha256, floor_commit FROM collections_anonymous_owner_activation",
         )
       ).rows,
     ).toEqual([

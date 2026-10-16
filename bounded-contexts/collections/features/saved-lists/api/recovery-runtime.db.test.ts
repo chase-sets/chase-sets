@@ -76,6 +76,9 @@ describeDb("durable Saved List recovery", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(collectionsModule, pools.collections);
+    await pools.collections.query(
+      "UPDATE collections_anonymous_owner_activation SET activated_at = NULL, gate_packet_sha256 = NULL, floor_commit = NULL",
+    );
     await activateAnonymousOwnerCutover(pools.collections, {
       gatePacketSha256: "d".repeat(64),
       floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
@@ -463,6 +466,9 @@ describeDb("durable Saved List recovery", () => {
     const { service, sending } = await ready();
     await service.apply({ operationId: sending.operationId, revision: sending.revision }, context);
     await pools.collections.query(
+      "UPDATE collections_anonymous_owner_activation SET activated_at = NULL, gate_packet_sha256 = NULL, floor_commit = NULL",
+    );
+    await pools.collections.query(
       `INSERT INTO collections_anonymous_saved_list_intents
       (intent_id, anonymous_owner_id, source_path, source_surface, catalog_catalog_item_id, product_id,
        selected_options, add_command_id, line_id, created_at, expires_at)
@@ -475,6 +481,10 @@ describeDb("durable Saved List recovery", () => {
         new Date(clock.getTime() + 30 * 86400000).toISOString(),
       ],
     );
+    await activateAnonymousOwnerCutover(pools.collections, {
+      gatePacketSha256: "f".repeat(64),
+      floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+    });
     const target = { kind: "existing" as const, listId: destination.listId };
     const confirmed = await service.reserveAnonymous(
       { anonymousOwnerId: "anon_sum", intentId: "sli_sum", destination: target, trackedQuantity: 3 },
