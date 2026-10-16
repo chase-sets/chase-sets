@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AGENT_OAUTH_SCOPE_FAMILIES } from "@chase-sets/auth-context";
+import { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES } from "@chase-sets/auth-context";
 import { Button, Form, Heading, HiddenInput, Inline, List, Stack, Text } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { AgentOAuthConsent } from "../../../client";
@@ -20,7 +20,7 @@ export function AgentConsentPage({
       </Stack>
     );
   }
-  const families = AGENT_OAUTH_SCOPE_FAMILIES.map((family) => ({
+  const families = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map((family) => ({
     family,
     scopes: family.scopes.filter((scope) => consent.scopes.includes(scope.scope)),
   })).filter(({ scopes }) => scopes.length > 0);
