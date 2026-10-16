@@ -179,11 +179,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       return staticKey(node.whenTrue, depth + 1) && staticKey(node.whenFalse, depth + 1);
     if (ts.isIdentifier(node)) {
       const declaration = checker.getSymbolAtLocation(node)?.valueDeclaration;
-      if (
-        declaration &&
-        ts.isVariableDeclaration(declaration) &&
-        declaration.initializer
-      )
+      if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer)
         return staticKey(declaration.initializer, depth + 1);
     }
     return finiteStringKeys(typeOf(node));

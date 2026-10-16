@@ -258,11 +258,7 @@ const repairControls = [
     "export function route(svc: H) { const bag: Record<string, unknown> = { holds: svc }; return bag.holds; }",
     "FAMILY_TYPE_ERASURE",
   ],
-  [
-    "F4-S5",
-    "export function* gen(svc: H): Generator<unknown> { yield svc; }",
-    "FAMILY_TYPE_ERASURE",
-  ],
+  ["F4-S5", "export function* gen(svc: H): Generator<unknown> { yield svc; }", "FAMILY_TYPE_ERASURE"],
   [
     "F4-S6",
     "declare function later(value: () => unknown): void; export function route(svc: H) { later(() => svc); }",
@@ -385,7 +381,7 @@ describe("issue-7169-type-resolved-census-matrix", () => {
       "let holds: H; ({ holds } = services); holds.createHold({}, context);",
       'const k = "createHold" as const; services.holds[k]({}, context);',
       'function route(k: "createHold") { services.holds[k]({}, context); }',
-      'const bag: { holds: H } = { holds: services.holds }; bag.holds.createHold({}, context);',
+      "const bag: { holds: H } = { holds: services.holds }; bag.holds.createHold({}, context);",
       "const holds = services.holds; const bag: { holds: H } = { holds }; bag.holds.createHold({}, context);",
       "const route = (svc: H): H => svc; route(services.holds).createHold({}, context);",
       "function* gen(svc: H): Generator<H> { yield svc; } gen(services.holds).next();",
