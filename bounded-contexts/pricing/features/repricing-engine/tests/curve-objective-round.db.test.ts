@@ -261,7 +261,11 @@ describeDb("curve-objective rounds through live, preview and dry-run pages", () 
     );
     await services.processNextDryRunJob({ claimOwnerId: "goal-round-dry", claimTtlMs: 30_000 });
     expect(curveQueries()).toEqual({ versions: 1, points: 1 });
-    expect(resolve.mock.calls).toEqual([[expectedRequest(new Date(run!.requestedAt).toISOString())]]);
+    const capturedAt = new Date(run!.requestedAt).toISOString();
+    expect(resolve.mock.calls).toEqual([
+      [expectedRequest(capturedAt)],
+      [{ ...expectedRequest(capturedAt), inventoryItemId: listings.percentile }],
+    ]);
     const dry = await services.listDryRunTraces(seller, run!.dryRunId);
 
     reset();

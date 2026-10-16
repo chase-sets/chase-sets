@@ -86,11 +86,11 @@ describeDb("repricing durable dry runs", () => {
       expect(pageStarts).toHaveLength(nonemptyPages + (products % 500 === 0 ? 1 : 0));
       expect(statements.filter((sql) => sql.includes("WITH advanced AS"))).toHaveLength(nonemptyPages);
       for (const index of pageStarts.slice(0, nonemptyPages)) {
-        const page = statements.slice(index, index + 9);
-        expect(page).toHaveLength(9);
-        expect(page.filter((sql) => sql.includes("WITH products AS"))).toHaveLength(6);
-        expect(page[7]).toContain("INSERT INTO pricing_repricing_dry_run_traces");
-        expect(page[8]).toContain("WITH advanced AS");
+        const page = statements.slice(index, index + 7);
+        expect(page).toHaveLength(7);
+        expect(page.filter((sql) => sql.includes("WITH products AS"))).toHaveLength(4);
+        expect(page[5]).toContain("INSERT INTO pricing_repricing_dry_run_traces");
+        expect(page[6]).toContain("WITH advanced AS");
       }
       const completed = await services.getDryRun("acc_7910", run!.dryRunId);
       expect(completed?.status).toBe("completed");
