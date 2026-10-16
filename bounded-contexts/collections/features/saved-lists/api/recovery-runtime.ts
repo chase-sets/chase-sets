@@ -85,6 +85,7 @@ export function createSavedListRecoveryRuntime(
 ) {
   const now = deps.clock ?? (() => new Date());
   async function account(context: EventStoreContext) {
+    if (typeof deps.pool.query !== "function") throw new SavedListRecoveryError("disabled");
     const activation = await readAnonymousOwnerActivation(deps.pool);
     if (!activation.activated_at) throw new SavedListRecoveryError("disabled");
     return savedListCanonicalIdentifier(context.audit.forAccountId) as AccountId;

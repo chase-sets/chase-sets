@@ -789,7 +789,7 @@ function createAnonymousOwnerCompatibility(db: PgQueryable, pool?: PgTransaction
       if (!raw.startsWith("anon_")) throw new Error("Invalid anonymous Saved List owner.");
       const fingerprint = savedListFingerprint(["collections.anonymous-owner.v1", raw]);
       return write(async (tx) => {
-        const activation = await readAnonymousOwnerActivation(tx);
+        const activation = pool ? await readAnonymousOwnerActivation(tx) : { activated_at: null };
         const legacy = await tx.query<{ intent_id: string; owner_revision: number }>(
           `SELECT intent_id, owner_revision FROM collections_anonymous_saved_list_intents
            WHERE anonymous_owner_id = $1 AND anonymous_owner_fingerprint IS NULL
@@ -812,7 +812,7 @@ function createAnonymousOwnerCompatibility(db: PgQueryable, pool?: PgTransaction
     },
     async insert(values: readonly unknown[], rawOwner: string) {
       return write(async (tx) => {
-        await readAnonymousOwnerActivation(tx);
+        if (pool) await readAnonymousOwnerActivation(tx);
         return tx.query<AnonymousIntentRow>(
           `INSERT INTO collections_anonymous_saved_list_intents (
              intent_id, anonymous_owner_fingerprint, source_path, source_surface,

@@ -66,7 +66,7 @@ export async function readAnonymousOwnerActivation(db: PgQueryable, lock = false
     `SELECT singleton, activated_at::text AS activated_at, gate_packet_sha256, floor_commit
      FROM collections_anonymous_owner_activation WHERE singleton = true${lock ? " FOR UPDATE" : " FOR SHARE"}`,
   );
-  return result.rows[0] ?? { singleton: true, activated_at: null, gate_packet_sha256: null, floor_commit: null };
+  return result?.rows?.[0] ?? { singleton: true, activated_at: null, gate_packet_sha256: null, floor_commit: null };
 }
 
 export async function activateAnonymousOwnerCutover(
