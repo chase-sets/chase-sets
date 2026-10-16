@@ -229,6 +229,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             const stopped = await page.request.post(`/api/marketplace/account/offer-policies/${policyId}/commands`, {
               data: {
                 type: "StopBuyerOfferPolicy",
+                attemptId: crypto.randomUUID(),
                 expectedVersion: current.version,
                 operationId: crypto.randomUUID(),
               },
