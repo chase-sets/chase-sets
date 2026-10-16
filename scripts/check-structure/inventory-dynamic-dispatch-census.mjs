@@ -266,8 +266,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       const elements = ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties;
       for (const element of elements) {
         const name = element.propertyName ?? element.name;
-        if (name && ts.isComputedPropertyName(name) && !staticKey(name.expression))
-          reject(name, "FAMILY_DYNAMIC_KEY");
+        if (name && ts.isComputedPropertyName(name) && !staticKey(name.expression)) reject(name, "FAMILY_DYNAMIC_KEY");
       }
     };
     const visit = (node) => {
