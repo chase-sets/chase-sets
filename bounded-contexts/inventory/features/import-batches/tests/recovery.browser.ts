@@ -28,6 +28,10 @@ export function registerImportRecoveryBrowserTests(
       const accepted = new Promise<void>((resolve) => {
         finish = resolve;
       });
+      const responseLoss = page.waitForEvent("requestfailed", {
+        predicate: (request) =>
+          request.method() === "POST" && new URL(request.url()).pathname === "/account/inventory/imports",
+      });
       await page.route("**/account/inventory/imports", async (route) => {
         if (route.request().method() !== "POST") return route.continue();
         posts++;
@@ -41,6 +45,7 @@ export function registerImportRecoveryBrowserTests(
       });
       await submit.click();
       await accepted;
+      await responseLoss;
       const metadata = await page.evaluate(() =>
         Object.entries(sessionStorage).filter(([key]) => key.startsWith("inventory-mutation/v1:")),
       );

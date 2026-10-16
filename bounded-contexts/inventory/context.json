@@ -46,7 +46,6 @@
     "./context",
     "./routes/*",
     "./seed-support/*",
-    "./test-support/import-recovery-browser",
     "./server",
     "./web",
     "./integration/link-intents"

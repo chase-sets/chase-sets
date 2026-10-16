@@ -20,6 +20,7 @@ const families: readonly InventoryMutationFamily[] = [
 ];
 
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;
+const automaticallyConfirmedAttempts = new Set<string>();
 const RecoveryContext = createContext<Readonly<{
   controllers: ReadonlyMap<InventoryMutationFamily, Controller>;
   changed: () => void;
@@ -39,16 +40,18 @@ export function InventoryMutationProvider({
   const [, render] = useState(0);
   const status = useRef<HTMLParagraphElement>(null);
   const wasNavigating = useRef(false);
-  const automaticallyConfirmedAttempts = useRef(new Set<string>());
   const changed = () => render((value) => value + 1);
   const confirmAutomatically = (controller: Controller, current: boolean) => {
     const attemptId = controller.snapshot().record?.attemptId;
-    if (!attemptId || automaticallyConfirmedAttempts.current.has(attemptId)) return;
-    automaticallyConfirmedAttempts.current.add(attemptId);
+    if (!attemptId || automaticallyConfirmedAttempts.has(attemptId)) return;
+    automaticallyConfirmedAttempts.add(attemptId);
     void controller
       .confirm((id) => inventoryApi.getMutationAttempt(id))
       .then(() => {
         if (current) changed();
+      })
+      .finally(() => {
+        automaticallyConfirmedAttempts.delete(attemptId);
       });
   };
   useEffect(() => {
