@@ -3,7 +3,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
 import { createId, parseTypedId } from "@chase-sets/primitives/typed-ids";
-import { moneyToCents } from "@chase-sets/primitives/money";
+import { moneyToCents, normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { EconomicsServices } from "../../economics/api/services";
 import { decideRepricingPolicy, initialRepricingPolicyState } from "../../repricing-policies/domain/domain";
 import { planRepricingRound, traceFromEvaluation } from "../domain/round";
@@ -15,6 +15,13 @@ import {
   type RepricingCandidate,
   type RepricingProductKey,
 } from "../read-model/queries";
+import { decodeDemandCurvePolicyValue } from "../../market-estimates/domain/demand-curve-policy";
+import {
+  buildHealthContributions,
+  summarizeHealth,
+  type RepricingHealthContribution,
+  type RepricingHealthSummary,
+} from "./health-summary";
 
 export type RepricingDryRunBody = RepricingCandidate["body"];
 export type RepricingDryRunSummary = Readonly<{
@@ -24,6 +31,7 @@ export type RepricingDryRunSummary = Readonly<{
   flags: Readonly<Record<string, number>>;
   deltaBuckets: Readonly<Record<string, number>>;
   withinTolerance: number;
+  health: RepricingHealthSummary | null;
 }>;
 export type RepricingDryRun = Readonly<{
   dryRunId: string;
@@ -42,7 +50,11 @@ type Payload = { dryRunId: string; sellerAccountId: string };
 type Progress = { phase: RepricingDryRun["status"] };
 type ReadRow = RepricingDryRun & { jobStatus: RepricingDryRun["status"] };
 function publicDryRun({ jobStatus, ...run }: ReadRow): RepricingDryRun {
-  return { ...run, status: jobStatus === "failed" ? "failed" : run.status };
+  return {
+    ...run,
+    status: jobStatus === "failed" ? "failed" : run.status,
+    summary: run.summary === null ? null : { ...run.summary, health: run.summary.health ?? null },
+  };
 }
 const tables = { jobsTable: "pricing_repricing_dry_run_jobs", eventsTable: "pricing_repricing_dry_run_job_events" };
 const jobKind = "repricing-dry-run";
@@ -242,10 +254,40 @@ export function createRepricingDryRunServices(
           checkLease();
           const products = await listCandidateRepricingProducts(db, candidate, run.cursor);
           if (!products.length) break;
-          const rounds = await loadRepricingRoundInputsPage(db, { products, candidate, capturedAt, policy, economics });
+          const rounds = await loadRepricingRoundInputsPage(db, {
+            products,
+            candidate,
+            capturedAt,
+            policy,
+            economics,
+            includeHealth: true,
+          });
           const traces: RepricingPolicyListingTrace[] = [];
+          const healthContributions: RepricingHealthContribution[] = [];
+          const curveMap = new Map<string, { policyRevisionId: string }>();
+          for (const [key, round] of rounds) if (round.healthDemandCurve) curveMap.set(key, round.healthDemandCurve);
+          const policyIds = [...new Set([...curveMap.values()].map((curve) => curve.policyRevisionId))];
+          const policyRows = policyIds.length
+            ? (
+                await db.query<{ document_id: string; value: unknown }>(
+                  "SELECT document_id, value FROM platform_policy_documents WHERE document_id = ANY($1::text[])",
+                  [policyIds],
+                )
+              ).rows
+            : [];
+          const healthPolicies = new Map<
+            string,
+            { revisionId: string; value: ReturnType<typeof decodeDemandCurvePolicyValue> }
+          >();
+          for (const id of policyIds) {
+            const row = policyRows.find((item) => item.document_id === id);
+            if (row)
+              healthPolicies.set(id, { revisionId: id, value: decodeDemandCurvePolicyValue(row.value as never) });
+          }
           for (const round of rounds.values()) {
-            for (const evaluation of planRepricingRound(round, capturedAt, policy)) {
+            const evaluations = planRepricingRound(round, capturedAt, policy);
+            const roundTraces: RepricingPolicyListingTrace[] = [];
+            for (const evaluation of evaluations) {
               const outcome =
                 evaluation.action === "update-price"
                   ? "changed"
@@ -254,19 +296,71 @@ export function createRepricingDryRunServices(
                     : evaluation.action === "notify-only"
                       ? "notify-only"
                       : "skipped";
-              traces.push(traceFromEvaluation(evaluation, outcome, evaluation.skipReason));
+              roundTraces.push(traceFromEvaluation(evaluation, outcome, evaluation.skipReason));
             }
+            traces.push(...roundTraces);
+            const contributions = await buildHealthContributions(
+              round.listings,
+              roundTraces,
+              new Map(
+                round.healthDemandCurve
+                  ? [
+                      [
+                        JSON.stringify([round.healthDemandCurve.catalogItemId, round.healthDemandCurve.productId]),
+                        round.healthDemandCurve,
+                      ],
+                    ]
+                  : [],
+              ),
+              healthPolicies,
+              capturedAt,
+              async (listing) => {
+                const currency = listing.priceCurrencyCode?.trim().toLowerCase() ?? "";
+                const marketAmount =
+                  round.marketEstimate?.currencyCode?.toUpperCase() === currency.toUpperCase()
+                    ? round.marketEstimate.amount
+                    : listing.priceAmount;
+                if (listing.economicsResolution)
+                  return { resolution: listing.economicsResolution, marketUnitPriceAmount: marketAmount };
+                if (!listing.inventoryItemId)
+                  return {
+                    resolution: {
+                      kind: "unavailable",
+                      reason: "provider-unavailable",
+                      accountId: listing.sellerAccountId,
+                      channel: { kind: "native-marketplace" },
+                      currency,
+                      effectiveAt: capturedAt,
+                      revision: "missing-inventory",
+                      facts: {} as never,
+                      diagnostics: {} as never,
+                    },
+                    marketUnitPriceAmount: marketAmount,
+                  };
+                const resolution = await economics.resolve({
+                  accountId: listing.sellerAccountId,
+                  scope: { kind: "native-marketplace" },
+                  catalogItemId: listing.catalogItemId,
+                  inventoryItemId: listing.inventoryItemId,
+                  marketUnitPrice: { amount: normalizeMoneyAmount(marketAmount), currency },
+                  quantity: 1,
+                  effectiveAt: capturedAt,
+                });
+                return { resolution, marketUnitPriceAmount: marketAmount };
+              },
+            );
+            healthContributions.push(...contributions);
           }
           checkLease();
           const guard = [sellerAccountId, dryRunId, run.updatedAt, input.claimOwnerId, claimed.attemptCount];
           await db.query(
             `INSERT INTO pricing_repricing_dry_run_traces
-               (dry_run_id, seller_account_id, listing_id, outcome, skip_reason, flags, delta_cents, trace)
+               (dry_run_id, seller_account_id, listing_id, outcome, skip_reason, flags, delta_cents, trace, health)
              SELECT run.dry_run_id, run.seller_account_id, item.trace->>'listingId', item.trace->>'outcome',
                item.trace->>'skipReason', ARRAY(SELECT jsonb_array_elements_text(item.trace->'flags')),
-               item.delta_cents, item.trace
+               item.delta_cents, item.trace, item.health
              FROM pricing_repricing_dry_runs AS run
-             CROSS JOIN jsonb_to_recordset($6::jsonb) AS item(trace jsonb, delta_cents bigint)
+             CROSS JOIN jsonb_to_recordset($6::jsonb) AS item(trace jsonb, delta_cents bigint, health jsonb)
              WHERE run.seller_account_id = $1 AND run.dry_run_id = $2 AND run.updated_at = $3::timestamptz
                AND run.status = 'running' AND ${claimSql}
              ON CONFLICT (dry_run_id, listing_id) DO NOTHING`,
@@ -275,6 +369,7 @@ export function createRepricingDryRunServices(
               JSON.stringify(
                 traces.map((trace) => ({
                   trace,
+                  health: healthContributions.find((health) => health.listingId === trace.listingId) ?? null,
                   delta_cents:
                     trace.targetPriceAmount === null
                       ? null
@@ -333,7 +428,26 @@ export function createRepricingDryRunServices(
           [sellerAccountId, dryRunId, run.updatedAt, input.claimOwnerId, claimed.attemptCount],
         );
         requireOwned(completed.rows[0]);
-        run = completed.rows[0]!;
+        const healthRows = await db.query<{ health: RepricingHealthContribution | null }>(
+          `SELECT health FROM pricing_repricing_dry_run_traces WHERE seller_account_id = $1 AND dry_run_id = $2 AND health IS NOT NULL ORDER BY listing_id`,
+          [sellerAccountId, dryRunId],
+        );
+        const health = summarizeHealth(healthRows.rows.map((row) => row.health!).filter(Boolean), capturedAt);
+        const persisted = await db.query<RepricingDryRun>(
+          `UPDATE pricing_repricing_dry_runs AS run SET summary = run.summary || jsonb_build_object('health', $6::jsonb), updated_at = clock_timestamp()
+           WHERE run.seller_account_id = $1 AND run.dry_run_id = $2 AND run.updated_at = $3::timestamptz
+             AND run.status = 'completed' AND ${claimSql} RETURNING ${columns}`,
+          [
+            sellerAccountId,
+            dryRunId,
+            completed.rows[0]!.updatedAt,
+            input.claimOwnerId,
+            claimed.attemptCount,
+            JSON.stringify(health),
+          ],
+        );
+        requireOwned(persisted.rows[0]);
+        run = persisted.rows[0]!;
       }
       checkLease();
       requireOwned(

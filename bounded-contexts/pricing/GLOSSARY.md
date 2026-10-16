@@ -234,6 +234,28 @@ aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list
 
 ## Repricing Activity Digest
 
+## Pricing Health Summary
+
+A **Pricing Health Summary** is the durable, capture-time seller report for a
+completed repricing dry run. It evaluates the whole candidate population using
+the run's captured prices, served Demand Curves and Economics facts, and keeps
+every money statistic partitioned by currency. Older runs have no summary and
+return `health: null`; health is never recomputed from a trace page.
+
+## Value at Risk
+
+**Value at Risk** is the effective listed value whose modeled median sell time
+is slow or hopeless under the Demand Curve policy revision that built it. A
+missing policy revision is reported as risk unknown, never classified by a
+current default.
+
+## Capital Turn
+
+**Capital Turn** is the signed daily logarithmic return over the weighted median
+wait plus Economics turnaround cycle. **Profit/day** is signed net proceeds
+less unit cost over that same cycle. Both are unavailable when their required
+population or positive cycle is absent.
+
 A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
 It is requested once after the evaluation projection has reached every member, never as a partial summary.
 

@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_dry_run_traces (
   flags text[] NOT NULL,
   delta_cents bigint NULL,
   trace jsonb NOT NULL,
+  health jsonb NULL,
   PRIMARY KEY (dry_run_id, listing_id)
 );
 CREATE INDEX IF NOT EXISTS pricing_repricing_dry_run_traces_outcome_idx
@@ -108,5 +109,10 @@ export const pricingRepricingDryRunSchemaMigrations: readonly BcSchemaMigration[
     migrationId: "20260914_pricing_repricing_dry_runs",
     description: "Persist candidate repricing dry runs, resumable product cursors and listing traces.",
     statements: [pricingRepricingDryRunSchemaSql],
+  },
+  {
+    migrationId: "20261016_pricing_repricing_health_summary",
+    description: "Store additive health contributions and the durable Pricing Health Summary without changing traces.",
+    statements: [`ALTER TABLE pricing_repricing_dry_run_traces ADD COLUMN IF NOT EXISTS health jsonb NULL`],
   },
 ];

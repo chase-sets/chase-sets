@@ -1,7 +1,7 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { EconomicsServices } from "../../economics/api/services";
-import { toEconomicsForPricingGoal } from "../../economics/domain/resolution";
+import { toEconomicsForPricingGoal, type EconomicsResolution } from "../../economics/domain/resolution";
 import {
   listDemandCurvesAsOf,
   type DemandCurveWithPoints,
@@ -33,6 +33,7 @@ export type RepricingRoundCapture = Readonly<{
   capturedAt: string;
   policy: RepricingEnginePolicyValue;
   economics: Pick<EconomicsServices, "resolve">;
+  includeHealth?: boolean;
 }>;
 
 export type RepricingRoundListing = Readonly<{
@@ -58,6 +59,8 @@ export type RepricingRoundListing = Readonly<{
   maxChangesPerDay: number;
   /** Null unless the matched chain holds a curve-objective anchor whose goal requires Economics. */
   economics: RepricingListingEconomics | null;
+  /** Raw resolution retained only for the durable health contribution path. */
+  economicsResolution?: EconomicsResolution;
 }>;
 
 export type RepricingRoundInputs = Readonly<{
@@ -73,6 +76,7 @@ export type RepricingRoundInputs = Readonly<{
   lastSold: Readonly<{ amount: string; currencyCode: string | null; soldAt: string }> | null;
   /** Read only when a listing's rules read the curve; null when none does or none is served at capture. */
   demandCurve: DemandCurveWithPoints | null;
+  healthDemandCurve?: DemandCurveWithPoints | null;
 }>;
 
 type ListingRow = Readonly<{
@@ -149,6 +153,7 @@ export async function loadRepricingRoundInputsPage(
       marketEstimate: null,
       lastSold: null,
       demandCurve: null,
+      healthDemandCurve: null,
     });
   }
   if (!products.length) return rounds;
@@ -294,6 +299,7 @@ type PageRound = {
   marketEstimate: RepricingRoundInputs["marketEstimate"];
   lastSold: RepricingRoundInputs["lastSold"];
   demandCurve: RepricingRoundInputs["demandCurve"];
+  healthDemandCurve: NonNullable<RepricingRoundInputs["demandCurve"]> | null;
 };
 
 /**
@@ -308,18 +314,25 @@ async function readGoalInputs(
   products: readonly RepricingProductKey[],
   rounds: ReadonlyMap<string, PageRound>,
 ): Promise<void> {
-  const identities = products.filter((product) =>
-    rounds.get(repricingProductKey(product))!.listings.some((listing) => readsDemandCurve(listing.rules)),
-  );
+  const identities = input.includeHealth
+    ? products
+    : products.filter((product) =>
+        rounds.get(repricingProductKey(product))!.listings.some((listing) => readsDemandCurve(listing.rules)),
+      );
   if (identities.length === 0) return;
   const curves = await listDemandCurvesAsOf(db, { identities, asOf: input.capturedAt }).catch((error: unknown) => {
     throw new RepricingDemandCurveReadError({ cause: error });
   });
-  for (const curve of curves) rounds.get(repricingProductKey(curve))!.demandCurve = curve;
+  for (const curve of curves) {
+    const round = rounds.get(repricingProductKey(curve))!;
+    if (input.includeHealth) round.healthDemandCurve = curve;
+    if (round.listings.some((listing) => readsDemandCurve(listing.rules))) round.demandCurve = curve;
+  }
   for (const round of rounds.values()) {
     for (const [index, listing] of round.listings.entries()) {
       if (!requiresGoalEconomics(round, listing, input.capturedAt, input.policy)) continue;
-      round.listings[index] = { ...listing, economics: await resolveListingEconomics(input, round, listing) };
+      const resolved = await resolveListingEconomics(input, round, listing);
+      round.listings[index] = { ...listing, economics: resolved.goal, economicsResolution: resolved.resolution };
     }
   }
 }
@@ -329,28 +342,42 @@ async function resolveListingEconomics(
   input: RepricingRoundCapture,
   round: RepricingRoundInputs,
   listing: RepricingRoundListing,
-): Promise<RepricingListingEconomics> {
-  if (listing.inventoryItemId === null) return { availability: "unavailable", reason: "inventory-item-missing" };
+): Promise<Readonly<{ goal: RepricingListingEconomics; resolution: EconomicsResolution }>> {
+  if (listing.inventoryItemId === null) {
+    return {
+      goal: { availability: "unavailable", reason: "inventory-item-missing" },
+      resolution: {
+        kind: "unavailable",
+        reason: "provider-unavailable",
+        accountId: listing.sellerAccountId,
+        channel: { kind: "native-marketplace" },
+        currency: listing.priceCurrencyCode?.trim().toLowerCase() ?? "",
+        effectiveAt: input.capturedAt,
+        revision: "inventory-item-missing",
+        facts: {} as never,
+        diagnostics: {} as never,
+      },
+    };
+  }
   // A matched rule implies a denominated listing price.
   const currency = listing.priceCurrencyCode!.trim().toUpperCase();
   const estimate = round.marketEstimate;
   try {
-    return toEconomicsForPricingGoal(
-      await input.economics.resolve({
-        accountId: listing.sellerAccountId,
-        scope: { kind: "native-marketplace" },
-        catalogItemId: listing.catalogItemId,
-        inventoryItemId: listing.inventoryItemId,
-        marketUnitPrice: {
-          amount: normalizeMoneyAmount(
-            estimate?.currencyCode.toUpperCase() === currency ? estimate.amount : listing.priceAmount,
-          ),
-          currency: currency.toLowerCase(),
-        },
-        quantity: 1,
-        effectiveAt: input.capturedAt,
-      }),
-    );
+    const resolution = await input.economics.resolve({
+      accountId: listing.sellerAccountId,
+      scope: { kind: "native-marketplace" },
+      catalogItemId: listing.catalogItemId,
+      inventoryItemId: listing.inventoryItemId,
+      marketUnitPrice: {
+        amount: normalizeMoneyAmount(
+          estimate?.currencyCode.toUpperCase() === currency ? estimate.amount : listing.priceAmount,
+        ),
+        currency: currency.toLowerCase(),
+      },
+      quantity: 1,
+      effectiveAt: input.capturedAt,
+    });
+    return { goal: toEconomicsForPricingGoal(resolution), resolution };
   } catch (error) {
     throw new RepricingEconomicsResolveError(listing.listingId, { cause: error });
   }
