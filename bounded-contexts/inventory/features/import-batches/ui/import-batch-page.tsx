@@ -441,50 +441,54 @@ export function InventoryImportBatchPage({
         />
       ) : null}
 
-      <MarketplaceDashboardPanel
-        title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}
-        description={t("inventory.features.importBatches.ui.importBatchPage.review.row.outcomes.before.creating")}
-        metrics={[
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.total.rows"),
-            value: detail?.total_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.csv.rows"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.accepted"),
-            value: detail?.accepted_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.ready.to.commit"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.rejected"),
-            value: detail?.rejected_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.needs.row.fixes"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.committed"),
-            value: detail?.committed_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.items.created"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.source"),
-            value: detail
-              ? localizedImportSourceLabel(detail.source_key)
-              : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
-            detail: detail
-              ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
-                  version: detail.adapter_version,
-                })
-              : t("inventory.features.importBatches.ui.importBatchPage.not.set"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
-            value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
-            detail:
-              detail?.default_storage_location_id ??
-              t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
-          },
-        ]}
-      />
+      {detail ? (
+        <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}>
+          <MarketplaceDashboardPanel
+            title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}
+            description={t("inventory.features.importBatches.ui.importBatchPage.review.row.outcomes.before.creating")}
+            metrics={[
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.total.rows"),
+                value: detail?.total_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.csv.rows"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.accepted"),
+                value: detail?.accepted_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.ready.to.commit"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.rejected"),
+                value: detail?.rejected_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.needs.row.fixes"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.committed"),
+                value: detail?.committed_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.items.created"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.source"),
+                value: detail
+                  ? localizedImportSourceLabel(detail.source_key)
+                  : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
+                detail: detail
+                  ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
+                      version: detail.adapter_version,
+                    })
+                  : t("inventory.features.importBatches.ui.importBatchPage.not.set"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
+                value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
+                detail:
+                  detail?.default_storage_location_id ??
+                  t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
+              },
+            ]}
+          />
+        </PageSection>
+      ) : null}
 
       <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.upload.csv")}>
         <Card elevation="tinted" data-elevation-role="furniture">

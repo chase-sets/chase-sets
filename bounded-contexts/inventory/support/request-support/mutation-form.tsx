@@ -39,7 +39,18 @@ export function InventoryMutationProvider({
   const [, render] = useState(0);
   const status = useRef<HTMLParagraphElement>(null);
   const wasNavigating = useRef(false);
+  const automaticallyConfirmedAttempts = useRef(new Set<string>());
   const changed = () => render((value) => value + 1);
+  const confirmAutomatically = (controller: Controller, current: boolean) => {
+    const attemptId = controller.snapshot().record?.attemptId;
+    if (!attemptId || automaticallyConfirmedAttempts.current.has(attemptId)) return;
+    automaticallyConfirmedAttempts.current.add(attemptId);
+    void controller
+      .confirm((id) => inventoryApi.getMutationAttempt(id))
+      .then(() => {
+        if (current) changed();
+      });
+  };
   useEffect(() => {
     let current = true;
     try {
@@ -48,12 +59,7 @@ export function InventoryMutationProvider({
       );
       setControllers(next);
       for (const controller of next.values()) {
-        if (controller.snapshot().state === "confirming")
-          void controller
-            .confirm((id) => inventoryApi.getMutationAttempt(id))
-            .then(() => {
-              if (current) changed();
-            });
+        if (controller.snapshot().state === "confirming") confirmAutomatically(controller, current);
       }
     } catch {
       setControllers(new Map());
@@ -70,11 +76,7 @@ export function InventoryMutationProvider({
         if (controller.snapshot().state !== "submitting") continue;
         controller.possibleSendLoss();
         changed();
-        void controller
-          .confirm((id) => inventoryApi.getMutationAttempt(id))
-          .then(() => {
-            if (current) changed();
-          });
+        confirmAutomatically(controller, current);
       }
     };
     window.addEventListener("pageshow", onPageShow);
@@ -92,11 +94,7 @@ export function InventoryMutationProvider({
       if (controller.snapshot().state !== "submitting") continue;
       controller.possibleSendLoss();
       changed();
-      void controller
-        .confirm((id) => inventoryApi.getMutationAttempt(id))
-        .then(() => {
-          if (current) changed();
-        });
+      confirmAutomatically(controller, current);
     }
     return () => {
       current = false;

@@ -250,14 +250,12 @@ export function prepareInventoryImportLegacySnapshot(
   const headers = retained[0]?.map((header) => header.trim()) ?? [];
   const parsedRows =
     input.parsedRows ??
-    retained
-      .slice(1)
-      .map((cells, index) => ({
-        rowNumber: index + 2,
-        values: Object.fromEntries(
-          headers.flatMap((header, column) => (header ? [[header, cells[column]?.trim() ?? ""]] : [])),
-        ),
-      }));
+    retained.slice(1).map((cells, index) => ({
+      rowNumber: index + 2,
+      values: Object.fromEntries(
+        headers.flatMap((header, column) => (header ? [[header, cells[column]?.trim() ?? ""]] : [])),
+      ),
+    }));
   const adapter = getInventoryImportSourceAdapter(input.sourceKey);
   return snapshotFromRows(
     input,

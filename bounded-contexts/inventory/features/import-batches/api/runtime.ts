@@ -1635,8 +1635,16 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     await stageInventoryImportSnapshot(deps.db, inputId, snapshot);
     const batchId = identity?.batchId ?? createId("imb");
     const jobId = identity?.jobId ?? createId("job");
-    await ensureCreateBatchHeader({ inputId, accountId: params.accountId, sourceKey: snapshot.header.sourceKey,
-      quantityMode: snapshot.header.quantityMode, defaultStorageLocationId: snapshot.header.defaultStorageLocationId }, batchId);
+    await ensureCreateBatchHeader(
+      {
+        inputId,
+        accountId: params.accountId,
+        sourceKey: snapshot.header.sourceKey,
+        quantityMode: snapshot.header.quantityMode,
+        defaultStorageLocationId: snapshot.header.defaultStorageLocationId,
+      },
+      batchId,
+    );
     let job: InventoryImportBatchJob;
     try {
       job = await jobStore.enqueue({

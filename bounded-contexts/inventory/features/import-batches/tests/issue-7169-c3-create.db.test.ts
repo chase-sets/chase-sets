@@ -8,7 +8,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { type PgQueryFunction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { module as inventoryModule } from "../../../index";
@@ -125,7 +125,7 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     );
     let killed = false;
     const interrupted: PgTransactionalPool = {
-      query: (sql, values) => pools.inventory.query(sql, values),
+      query: ((sql: string, values?: readonly unknown[]) => pools.inventory.query(sql, values)) as PgQueryFunction,
       connect: async () => {
         const client = await pools.inventory.connect();
         return {
@@ -340,7 +340,7 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     let killed = false;
     const pool: PgTransactionalPool = {
       ...pools.inventory,
-      query: (sql, values) => pools.inventory.query(sql, values),
+      query: ((sql: string, values?: readonly unknown[]) => pools.inventory.query(sql, values)) as PgQueryFunction,
       connect: async () => {
         const client = await pools.inventory.connect();
         return {

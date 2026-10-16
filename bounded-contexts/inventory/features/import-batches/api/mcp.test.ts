@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
@@ -243,8 +243,11 @@ describe("inventory import batch MCP handlers", () => {
     const job = await fake.enqueueCreateBatchJob(
       { accountId: actor.accountId as AccountId, csvText: "a\n1" },
       {
-        tenantId: actor.tenantId,
-        audit: { forAccountId: actor.accountId, performedByUserId: actor.userId },
+        tenantId: actor.tenantId as TenantId,
+        audit: {
+          forAccountId: actor.accountId as AccountId,
+          performedByUserId: actor.userId as UserId,
+        },
       },
     );
     const enqueueCommitBatchJob = vi.fn<InventoryImportBatchServices["enqueueCommitBatchJob"]>(async () => ({

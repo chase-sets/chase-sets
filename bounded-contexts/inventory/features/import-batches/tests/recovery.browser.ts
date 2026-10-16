@@ -14,13 +14,11 @@ export function registerImportRecoveryBrowserTests(signIn: (page: Page, baseUrl:
       const submit = form.getByRole("button", { name: "Validate import", exact: true });
       await expect(submit).toBeEnabled();
       const sentinel = `ignored-private-${randomUUID()}`;
-      await form
-        .locator('input[type="file"]')
-        .setInputFiles({
-          name: "private-upload.csv",
-          mimeType: "text/csv",
-          buffer: Buffer.from(`catalogItemId,totalQuantity,ignored\ncat_synthetic_missing,1,${sentinel}`),
-        });
+      await form.locator('input[type="file"]').setInputFiles({
+        name: "private-upload.csv",
+        mimeType: "text/csv",
+        buffer: Buffer.from(`catalogItemId,totalQuantity,ignored\ncat_synthetic_missing,1,${sentinel}`),
+      });
       let posts = 0;
       let attemptId = "";
       let finish!: () => void;
@@ -43,10 +41,8 @@ export function registerImportRecoveryBrowserTests(signIn: (page: Page, baseUrl:
         await route.abort("failed");
         finish();
       });
-      const navigation = page.waitForEvent("framenavigated", { predicate: (frame) => frame === page.mainFrame() });
       await submit.click();
       await accepted;
-      await navigation;
       await page.goto("/account/inventory/imports");
       const status = page.getByRole("status").filter({ hasText: "original Inventory change is confirmed" });
       await expect(status).toBeVisible();

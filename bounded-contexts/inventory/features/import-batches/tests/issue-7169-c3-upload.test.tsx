@@ -37,7 +37,7 @@ describe("issue-7169-c3-upload-recovery: real upload form", () => {
       const rendered = view(kind === "different-user" ? { ...authority, actorUserId: "usr_c3_other" } : authority);
       const expectedMessage = kind === "ambiguous" ? "uncertain" : "original account";
       await waitFor(() => expect(statusContaining(expectedMessage).textContent).toContain(expectedMessage));
-      const submit = screen.getByRole("button", { name: "Validate import", exact: true });
+      const submit = screen.getByRole("button", { name: "Validate import" });
       expect(submit.matches(":disabled")).toBe(true);
       const status = statusContaining(expectedMessage);
       expect(document.activeElement).toBe(status);
@@ -59,6 +59,7 @@ describe("issue-7169-c3-upload-recovery: real upload form", () => {
       family: "import-create",
       targetId: "draft",
       result: { jobId: "job_c3_synthetic" },
+      completedAt: "2026-10-16T00:00:00.000Z",
     } as Awaited<ReturnType<typeof inventoryApi.getMutationAttempt>>);
     const rendered = view();
     await waitFor(() => expect(statusContaining("confirmed").textContent).toContain("confirmed"));
@@ -67,14 +68,14 @@ describe("issue-7169-c3-upload-recovery: real upload form", () => {
     ).not.toBeNull();
     expect(sessionStorage.length).toBe(0);
     expect((rendered.container.querySelector('input[type="file"]') as HTMLInputElement).files).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Validate import", exact: true }).matches(":disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(false);
     expect(inventoryApi.getMutationAttempt).toHaveBeenCalledExactlyOnceWith(id);
   });
 
   it("refuses before sending when bounded recovery metadata cannot be persisted", async () => {
     const rendered = view();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Validate import", exact: true }).matches(":disabled")).toBe(false),
+      expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(false),
     );
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("synthetic storage refusal");
