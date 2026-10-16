@@ -2,7 +2,12 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryEmbeddingCache } from "../domain/query-embedding-cache";
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
-import { classifyDiscoverySearchCursor, retrieveDiscoveryItems, type DiscoverySearchResult } from "./hybrid-retrieval";
+import {
+  classifyDiscoverySearchCursor,
+  retrieveDiscoveryItems,
+  type DiscoveryHybridRetrievalDependencies,
+  type DiscoverySearchResult,
+} from "./hybrid-retrieval";
 import {
   searchDiscoveryItems,
   type DiscoverySearchItemRow,
@@ -35,6 +40,145 @@ const inferred = [
 ];
 
 describe("Discovery hybrid retrieval", () => {
+  describe("initial lexical observation survives recovery", () => {
+    it.each([
+      { name: "rescue zero without totals", count: 0, hybrid: false, mode: "rescue" },
+      { name: "rescue one", count: 1, hybrid: false, mode: "rescue" },
+      { name: "rescue two", count: 2, hybrid: false, mode: "rescue" },
+      { name: "hybrid zero", count: 0, hybrid: true, mode: "hybrid" },
+      { name: "hybrid nonzero", count: 1, hybrid: true, mode: "hybrid" },
+      { name: "corrected", count: 0, hybrid: false, mode: "corrected" },
+      { name: "interpreted", count: 0, hybrid: false, mode: "lexical" },
+    ])("$name", async ({ count, hybrid, mode, name }) => {
+      const observed = vi.fn();
+      const searchLexical = vi.fn<NonNullable<DiscoveryHybridRetrievalDependencies["searchLexical"]>>(
+        async (_db, params) => ({
+          ...result(
+            name === "interpreted" && params.search === "charizard"
+              ? [row("interpreted")]
+              : Array.from({ length: count }, (_, i) => row(`lexical-${i}`)),
+          ),
+          total: null,
+        }),
+      );
+      const page = await retrieveDiscoveryItems(
+        {
+          db: emptyDb(),
+          provider: fakeProvider(),
+          cache: createQueryEmbeddingCache(),
+          rescueEnabled: true,
+          hybridEnabled: hybrid,
+          searchLexical,
+          searchCorrected: async () => (mode === "corrected" ? result([row("corrected")]) : null),
+          loadInterpretationVocabulary: async () => vocabulary,
+          searchSemantic: async () => [{ item: row("semantic"), similarity: 0.99 }],
+          hydrateItems: async (_db, items) => [...items],
+          onLexicalObservation: observed,
+        },
+        { search: name === "interpreted" ? "charizard psa 10" : "chraizard", includeTotal: false },
+      );
+      expect(observed).toHaveBeenCalledExactlyOnceWith(count === 0);
+      expect(page.items.length).toBeGreaterThan(0);
+      expect(page.retrievalMode).toBe(mode);
+      expect(page.lexicalCount).toBe(mode === "corrected" ? 0 : null);
+      expect(searchLexical.mock.calls[0]?.[1].includeTotal).toBe(hybrid);
+    });
+
+    it.each(["empty", "cursor", "structured", "provider-failure", "before-read", "after-read"] as const)(
+      "%s preserves known versus unknown",
+      async (scenario) => {
+        const observed = vi.fn();
+        const failure = new Error("synthetic retrieval failure");
+        const provider = fakeProvider();
+        if (scenario === "provider-failure") vi.mocked(provider.embed).mockRejectedValue(failure);
+        const request = retrieveDiscoveryItems(
+          {
+            db: emptyDb(),
+            provider,
+            cache: createQueryEmbeddingCache(),
+            rescueEnabled: scenario === "provider-failure",
+            hybridEnabled: false,
+            searchLexical: async () => {
+              if (scenario === "before-read") throw failure;
+              return { ...result([]), total: null };
+            },
+            searchNaturalKey: async () => result([row("structured")]),
+            searchCorrected: async () => {
+              if (scenario === "after-read") throw failure;
+              return null;
+            },
+            onLexicalObservation: observed,
+          },
+          {
+            search: scenario === "structured" ? "TSP 136" : "chraizard",
+            cursor: scenario === "cursor" ? relevanceCursor() : undefined,
+            includeTotal: false,
+          },
+        );
+        if (scenario === "before-read" || scenario === "after-read") await expect(request).rejects.toBe(failure);
+        else {
+          const page = await request;
+          expect(page.items.length === 0).toBe(scenario !== "structured");
+        }
+        if (scenario === "structured" || scenario === "before-read") expect(observed).not.toHaveBeenCalled();
+        else expect(observed).toHaveBeenCalledExactlyOnceWith(true);
+      },
+    );
+
+    it.each(["semantic", "hydration"] as const)(
+      "hybrid cursor candidate observation survives %s failure and nonempty fallback",
+      async (fault) => {
+        const observed = vi.fn();
+        const page = await retrieveDiscoveryItems(
+          {
+            db: emptyDb(),
+            provider: fakeProvider(),
+            cache: createQueryEmbeddingCache(),
+            rescueEnabled: true,
+            hybridEnabled: true,
+            searchLexical: async (_db, _params, options) =>
+              result(options?.loadMarketSummaries === false ? [] : [row("fallback")]),
+            searchSemantic: async () => {
+              if (fault === "semantic") throw new Error("synthetic semantic failure");
+              return [{ item: row("semantic"), similarity: 0.99 }];
+            },
+            hydrateItems: async () => {
+              throw new Error("synthetic hydration failure");
+            },
+            onLexicalObservation: observed,
+          },
+          { search: "dragon", cursor: hybridCursor(1), includeTotal: false },
+        );
+        expect(page).toMatchObject({ retrievalMode: "lexical", cursorState: "cursor" });
+        expect(page.items).toHaveLength(1);
+        expect(observed).toHaveBeenCalledExactlyOnceWith(true);
+      },
+    );
+
+    it("does not replace a failed initial read with a successful hybrid fallback observation", async () => {
+      const observed = vi.fn();
+      const searchLexical: NonNullable<DiscoveryHybridRetrievalDependencies["searchLexical"]> = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("synthetic candidate failure"))
+        .mockResolvedValueOnce(result([row("fallback")]));
+      const page = await retrieveDiscoveryItems(
+        {
+          db: emptyDb(),
+          provider: fakeProvider(),
+          cache: createQueryEmbeddingCache(),
+          rescueEnabled: true,
+          hybridEnabled: true,
+          searchLexical,
+          searchSemantic: async () => [],
+          onLexicalObservation: observed,
+        },
+        { search: "dragon", cursor: hybridCursor(1) },
+      );
+      expect(page.items).toHaveLength(1);
+      expect(observed).not.toHaveBeenCalled();
+    });
+  });
+
   it.each([false, true])(
     "protected structured misses never escape through semantic retrieval (provider=%s)",
     async (enabled) => {

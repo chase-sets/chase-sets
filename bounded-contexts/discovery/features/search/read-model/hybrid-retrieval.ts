@@ -66,6 +66,7 @@ export type DiscoveryHybridRetrievalDependencies = Readonly<{
   loadInterpretationVocabulary?: typeof loadDiscoverySearchInterpretationVocabulary;
   hydrateItems?: HydrateItems;
   signal?: AbortSignal;
+  onLexicalObservation?: (lexicalZero: boolean) => void;
   onEmbeddingWait?: (observation: QueryEmbeddingWaitObservation) => void;
   onEmbeddingLoad?: (observation: QueryEmbeddingLoadObservation) => void;
 }>;
@@ -92,8 +93,25 @@ export async function retrieveDiscoveryItems(
         ? { ...params, cursor: undefined, offset: undefined, includeTotal: true }
         : { ...params, cursor: undefined };
 
+  const lexicalReader = dependencies.searchLexical ?? searchDiscoveryItems;
+  let lexicalStarted = false;
+  const searchLexical: SearchLexical = async (...args) => {
+    if (lexicalStarted) return lexicalReader(...args);
+    // Claim the initial read before awaiting: recovery/fallback must not replace it,
+    // even when that read fails. Observe before later stages can fail as well.
+    lexicalStarted = true;
+    const lexical = await lexicalReader(...args);
+    dependencies.onLexicalObservation?.(lexical.items.length === 0);
+    return lexical;
+  };
+
   return {
-    ...(await retrieveDiscoveryPage(dependencies, request, !params.cursor && !params.offset, tokens)),
+    ...(await retrieveDiscoveryPage(
+      { ...dependencies, searchLexical },
+      request,
+      !params.cursor && !params.offset,
+      tokens,
+    )),
     cursorState,
   };
 }

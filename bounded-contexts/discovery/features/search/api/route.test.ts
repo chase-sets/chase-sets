@@ -314,6 +314,36 @@ describe("discovery item search routes", () => {
     });
   });
 
+  it("keeps lexical observations and bounded interpretation outcomes out of the HTTP envelope", async () => {
+    const recordSearchQuery = vi.fn();
+    const { db } = scriptedSearchDb();
+    const app = discoveryItemSearchRoutes(
+      createDiscoveryItemSearchRuntime(
+        { db, eventStore: {} as never, checkpointStore: {} as never },
+        { recordSearchQuery },
+      ),
+    );
+    const response = await app.request("/?search=Charizard%20ex&includeTotal=true");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(Object.keys(body).sort()).toEqual([
+      "category_counts",
+      "count",
+      "facets",
+      "items",
+      "lexicalCount",
+      "nextCursor",
+      "queryHash",
+      "resultSetKey",
+      "retrievalMode",
+      "total",
+    ]);
+    expect(body).toMatchObject({ retrievalMode: "lexical", lexicalCount: 2, total: 2 });
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ lexicalZero: false, zeroResults: false, interpretation: "not-applied" }),
+    );
+  });
+
   it("returns bounded active-item prefix suggestions", async () => {
     const services = createServices();
     vi.mocked(services.suggestItems).mockResolvedValue([
