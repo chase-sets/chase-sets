@@ -454,7 +454,8 @@ describe("synthetic probe adapters and real CLI transport", () => {
       const input = command.input;
       switch (command.constructor.name) {
         case "PutObjectCommand":
-          expect(input.ACL).toBe("private");
+          expect(input).not.toHaveProperty("ACL");
+          expect(input.CacheControl).toBe("private, no-store");
           objects.set(input.Key, { body: Buffer.from(input.Body), type: input.ContentType });
           return {};
         case "GetObjectCommand": {
