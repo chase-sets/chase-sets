@@ -43,7 +43,10 @@ function parts(checker, type, seen = new Set()) {
   if (type.isUnionOrIntersection()) return type.types.flatMap((part) => parts(checker, part, seen));
   const constraint = checker.getBaseConstraintOfType(type);
   if (constraint && constraint !== type) return parts(checker, constraint, seen);
-  return [checker.getApparentType(type)];
+  const apparent = checker.getApparentType(type);
+  // A mapped wrapper can erase a callable's signatures while retaining its checked source type.
+  const mappedArguments = apparent.objectFlags & ts.ObjectFlags.Mapped ? (apparent.aliasTypeArguments ?? []) : [];
+  return [apparent, ...mappedArguments.flatMap((argument) => parts(checker, argument, seen))];
 }
 
 function isInventoryType(checker, type) {
@@ -51,6 +54,7 @@ function isInventoryType(checker, type) {
     [
       ...declarations(part.getSymbol()),
       ...declarations(part.aliasSymbol),
+      ...part.getProperties().flatMap(declarations),
       ...part
         .getCallSignatures()
         .map(({ declaration }) => declaration)
@@ -103,6 +107,7 @@ export function resolveInventoryFamilies(program, repoRoot, options = {}) {
   }
   const propertyDeclarations = new Set();
   const memberSignatures = new Set();
+  const memberFunctionTypes = new Set();
   const familySignatures = new Set();
   for (const { type } of families) {
     for (const part of parts(checker, type)) {
@@ -113,14 +118,17 @@ export function resolveInventoryFamilies(program, repoRoot, options = {}) {
         for (const declaration of declarations(property)) propertyDeclarations.add(declaration);
         const propertyType = checker.getTypeOfSymbolAtLocation(property, declarations(property)[0]);
         for (const value of parts(checker, propertyType)) {
+          if (value.getCallSignatures().length) memberFunctionTypes.add(value);
           for (const signature of value.getCallSignatures()) {
-            if (signature.declaration) memberSignatures.add(signature.declaration);
+            // Shared generic declarations alone cannot identify an Inventory instantiation.
+            if (signature.declaration && inventoryDeclaration(signature.declaration))
+              memberSignatures.add(signature.declaration);
           }
         }
       }
     }
   }
-  return { table, families, propertyDeclarations, memberSignatures, familySignatures };
+  return { table, families, propertyDeclarations, memberSignatures, memberFunctionTypes, familySignatures };
 }
 
 function finiteStringKeys(type) {
@@ -139,8 +147,10 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
   families ??= resolveInventoryFamilies(program, repoRoot);
   const diagnostics = [];
   const isMemberFunction = (type) =>
-    parts(checker, type).some((part) =>
-      part.getCallSignatures().some((signature) => families.memberSignatures.has(signature.declaration)),
+    parts(checker, type).some(
+      (part) =>
+        families.memberFunctionTypes.has(part) ||
+        part.getCallSignatures().some((signature) => families.memberSignatures.has(signature.declaration)),
     );
   const familyCache = new Map();
   const isFamily = (type) => {
@@ -158,17 +168,35 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
     return result;
   };
   const typeOf = (node) => checker.getTypeAtLocation(node);
-  const namedAdapter = (call, signature = checker.getResolvedSignature(call)) => {
-    const declaration = signature?.declaration;
+  const accessOf = (call) => ts.skipParentheses(call.expression);
+  const libraryMethod = (call, names, owner) => {
+    const access = accessOf(call);
+    let symbol;
+    if (ts.isPropertyAccessExpression(access)) symbol = checker.getSymbolAtLocation(access.name);
+    if (ts.isElementAccessExpression(access)) {
+      const key = typeOf(access.argumentExpression);
+      if (key.flags & ts.TypeFlags.StringLiteral)
+        symbol = checker.getPropertyOfType(typeOf(access.expression), key.value);
+    }
+    const signature = checker.getResolvedSignature(call);
+    return [...declarations(symbol), signature?.declaration]
+      .filter(Boolean)
+      .some(
+        (declaration) =>
+          ts.isMethodSignature(declaration) &&
+          ts.isIdentifier(declaration.name) &&
+          names.includes(declaration.name.text) &&
+          (!owner || (ts.isInterfaceDeclaration(declaration.parent) && declaration.parent.name.text === owner)) &&
+          program.isSourceFileDefaultLibrary(declaration.getSourceFile()),
+      );
+  };
+  const namedAdapter = (call) => {
+    const access = accessOf(call);
     return Boolean(
       ts.isCallExpression(call) &&
-      ts.isPropertyAccessExpression(call.expression) &&
-      declaration &&
-      ts.isMethodSignature(declaration) &&
-      ts.isIdentifier(declaration.name) &&
-      ["bind", "call", "apply"].includes(declaration.name.text) &&
-      declaration.getSourceFile().hasNoDefaultLib &&
-      isMemberFunction(typeOf(call.expression.expression)),
+      (ts.isPropertyAccessExpression(access) || ts.isElementAccessExpression(access)) &&
+      libraryMethod(call, ["bind", "call", "apply"]) &&
+      isMemberFunction(typeOf(access.expression)),
     );
   };
   for (const file of roots) {
@@ -210,20 +238,13 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           reject(node, "UNNAMED_FAMILY_MEMBER");
         const signature = checker.getResolvedSignature(node);
         if (signature) {
-          const declaration = signature.declaration;
           if (
-            declaration &&
-            ts.isMethodSignature(declaration) &&
-            ts.isIdentifier(declaration.name) &&
-            ["values", "entries"].includes(declaration.name.text) &&
-            ts.isInterfaceDeclaration(declaration.parent) &&
-            declaration.parent.name.text === "ObjectConstructor" &&
-            declaration.getSourceFile().hasNoDefaultLib &&
+            libraryMethod(node, ["values", "entries"], "ObjectConstructor") &&
             node.arguments?.some((argument) => isFamily(typeOf(argument)))
           )
             reject(node, "FAMILY_ENUMERATION");
           node.arguments?.forEach((argument, index) => {
-            if (index === 0 && namedAdapter(node, signature)) return;
+            if (index === 0 && namedAdapter(node)) return;
             const parameter = signature.parameters[index];
             if (parameter) laundering(argument, checker.getTypeOfSymbolAtLocation(parameter, argument), argument);
           });

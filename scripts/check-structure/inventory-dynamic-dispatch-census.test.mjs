@@ -131,7 +131,7 @@ async function matrix(cases, run) {
 }
 
 function emit(name, data) {
-  console.log(`${name} ${JSON.stringify(data)}`);
+  for (const entry of Array.isArray(data) ? data : [data]) process.stdout.write(`${name} ${JSON.stringify(entry)}\n`);
 }
 
 describe("issue-7169-type-resolved-census-matrix", () => {
@@ -187,6 +187,8 @@ describe("issue-7169-type-resolved-census-matrix", () => {
       "services.holds.createHold.bind(services.holds)({}, context);",
       "services.holds.createHold.call(services.holds, {}, context);",
       "services.holds.createHold.apply(services.holds, [context, context]);",
+      'services.holds.createHold["bind"](services.holds)({}, context);',
+      "(services.holds.createHold.bind)(services.holds)({}, context);",
       'function route(svc: InventoryServices["holds"]) { svc.createHold({}, context); }',
       "const named = { ...services.holds, createHold: services.holds.createHold }; named.createHold({}, context);",
       "declare const registry: Record<string, unknown>; registry[method];",
@@ -257,18 +259,19 @@ describe("issue-7169-type-resolved-census-corpus", () => {
       if (discoverInventoryCallers([source]).scanned) expect(result.scanned).toContain(source.path);
     }
     expect(result.scanned.length + result.ignored.length).toBe(result.total);
+    expect(result.total).toBe(new Set([...roots, ...sources.map(({ path: file }) => file)]).size);
     const registry = JSON.parse(
       readFileSync(path.join(repoRoot, "bounded-contexts/inventory/tests/caller-partition.json"), "utf8"),
     );
     const partition = partitionInventoryCallers(c1, registry);
     const retained = partition.callers.filter(({ status }) => status !== "unrelated");
-    emit("c1-qualification", {
+    emit("c1-partition", {
       total: partition.callers.length,
       retained: retained.length,
       unrelated: partition.callers.length - retained.length,
     });
     expect([partition.callers.length, retained.length, partition.callers.length - retained.length]).toEqual([
-      165, 160, 5,
+      141, 131, 10,
     ]);
     const built = analyzeInventoryDynamicDispatch({
       repoRoot,
