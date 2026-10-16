@@ -249,7 +249,10 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
     };
     const patternSource = (pattern) => {
       const parent = pattern.parent;
-      if (ts.isVariableDeclaration(parent)) return parent.initializer;
+      if (ts.isVariableDeclaration(parent)) {
+        if (ts.isForOfStatement(parent.parent) || ts.isForInStatement(parent.parent)) return parent.parent.expression;
+        return parent.initializer;
+      }
       if (ts.isParameter(parent)) {
         return parent.initializer ?? (parent.type ? { type: checker.getTypeFromTypeNode(parent.type) } : undefined);
       }
