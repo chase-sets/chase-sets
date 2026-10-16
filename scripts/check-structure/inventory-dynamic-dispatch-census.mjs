@@ -272,8 +272,30 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         if (name && ts.isComputedPropertyName(name) && !staticKey(name.expression)) reject(name, "FAMILY_DYNAMIC_KEY");
       }
     };
+    const isContextualSink = (node) => {
+      const parent = node.parent;
+      if (ts.isVariableDeclaration(parent) || ts.isParameter(parent)) return parent.initializer === node;
+      if (ts.isPropertyAssignment(parent)) return parent.initializer === node;
+      if (ts.isBindingElement(parent)) return parent.initializer === node;
+      if (ts.isArrayLiteralExpression(parent) || ts.isSpreadElement(parent)) return true;
+      if (ts.isReturnStatement(parent)) return parent.expression === node;
+      if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) return parent.arguments.includes(node);
+      if (ts.isConditionalExpression(parent)) return parent.whenTrue === node || parent.whenFalse === node;
+      if (ts.isParenthesizedExpression(parent) || ts.isNonNullExpression(parent)) return true;
+      if (ts.isBinaryExpression(parent) && parent.right === node)
+        return (
+          parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        );
+      return false;
+    };
     const visit = (node) => {
-      if (ts.isExpression(node) && !ts.isSatisfiesExpression(node.parent) && !adapterThis(node)) {
+      if (
+        ts.isExpression(node) &&
+        isContextualSink(node) &&
+        !ts.isSatisfiesExpression(node.parent) &&
+        !adapterThis(node)
+      ) {
         const contextual = checker.getContextualType(node);
         if (contextual && opaqueType(contextual) && isFamily(typeOf(node))) {
           if (mutant !== "laundering-unchecked") reject(node, "FAMILY_TYPE_ERASURE");
