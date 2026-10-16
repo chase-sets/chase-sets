@@ -11,7 +11,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import type { PricingApiEnv } from "../../../api";
-import { getRepricingAuthoringPrerequisites } from "../read-model/controls";
+import { getRepricingAuthoringFacts } from "../read-model/controls";
 import { createRepricingPolicyRuntime } from "../api/runtime";
 import { createRepricingPolicyRoutes } from "../api/route";
 
@@ -34,7 +34,7 @@ describeDb("authoring prerequisites", () => {
     await closeMultiContextTestPools(pools);
   });
 
-  const read = (account = "acc_a") => getRepricingAuthoringPrerequisites(pools.pricing, account);
+  const read = (account = "acc_a") => getRepricingAuthoringFacts(pools.pricing, account);
   async function listing(
     id: string,
     currency: string | null,
@@ -75,7 +75,7 @@ describeDb("authoring prerequisites", () => {
     app.route(
       "/policies",
       createRepricingPolicyRoutes({
-        ...createRepricingPolicyRuntime({ eventStore, db: pools.pricing }),
+        ...createRepricingPolicyRuntime({ eventStore, db: pools.pricing, goalAdoptions: async () => [] }),
         activateRepricingPolicy: async () => null,
       }),
     );
@@ -96,7 +96,7 @@ describeDb("authoring prerequisites", () => {
     expect(await read()).toEqual({ listingCurrencyCodes: ["CAD", "USD"], hasCostBasis: true });
     const response = await route().request("/policies/authoring-prerequisites");
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(await read());
+    expect(await response.json()).toEqual({ ...(await read()), goalAdoption: [] });
     const spoof = await route().request("/policies/authoring-prerequisites?accountId=acc_b");
     expect(spoof.status).toBe(400);
   });
@@ -114,7 +114,10 @@ describeDb("authoring prerequisites", () => {
     await pools.pricing.query(
       "UPDATE pricing_inventory_item_inputs SET acquisition_cost_amount = 999 WHERE seller_account_id = 'acc_b'",
     );
-    expect(await (await route().request("/policies/authoring-prerequisites")).json()).toEqual(expected);
+    expect(await (await route().request("/policies/authoring-prerequisites")).json()).toEqual({
+      ...expected,
+      goalAdoption: [],
+    });
     await pools.pricing.query(
       "UPDATE pricing_inventory_item_inputs SET acquisition_cost_amount = 0 WHERE item_id = 'inv_a'",
     );

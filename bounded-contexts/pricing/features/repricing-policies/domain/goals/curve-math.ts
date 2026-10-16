@@ -202,7 +202,7 @@ function horizonRatio(lower: SellTimePoint, upper: SellTimePoint, horizonDays: n
   return Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0;
 }
 
-function pointAtPrice(curve: GoalCurveViews, price: number): GoalCurvePoint {
+export function pointAtPrice(curve: GoalCurveViews, price: number): GoalCurvePoint {
   const points = curve.byPrice;
   if (price <= points[0]!.price) return points[0]!;
   if (price >= points.at(-1)!.price) return points.at(-1)!;
