@@ -15,8 +15,13 @@
 //
 // Predecessor records stay parseable only as rejected historical authority. A
 // v1 review, a v1 copy audit, a failing audit, or a non-launch audit produces
-// exactly one closed v3 record with `passesPromotionGate: false` and bounded
-// diagnostics — never a crash, and never an upgrade.
+// exactly one closed current-version record with `passesPromotionGate: false`
+// and bounded diagnostics — never a crash, and never an upgrade.
+//
+// v4 renames the agent-commerce claim restraint to `ucpAgentCommerceOwner`,
+// `ucpAgentCommerceClaimsReviewReference` and the `ucpAgentCommerceMarketing`
+// output. The closed key set rejects the retired names, and the launch
+// go/no-go gate reads a retained v3 record as pending until it is regenerated.
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -35,7 +40,7 @@ import { COUNSEL_REVIEW_PACKET_VERSION } from "./legal-review-corpus.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 
-export const MARKETPLACE_PROMOTION_EVIDENCE_VERSION = "marketplace-promotion-evidence/v3";
+export const MARKETPLACE_PROMOTION_EVIDENCE_VERSION = "marketplace-promotion-evidence/v4";
 const MAX_PROMOTION_REVIEW_AGE_DAYS = 30;
 
 /**
@@ -73,7 +78,7 @@ const REQUIRED_MARKETPLACE_PROMOTION_STRINGS = [
   "stagingWorkflowRunReference",
   "productionWorkflowRunReference",
   "checkoutLaunchEvidenceCompletedAt",
-  "ucpAp2ClaimsReviewReference",
+  "ucpAgentCommerceClaimsReviewReference",
 ];
 
 const REQUIRED_MARKETPLACE_PROMOTION_BOOLEANS = [
@@ -88,7 +93,7 @@ const ALLOWED_PROMOTION_REVIEW_FIELDS = [
   ...REQUIRED_MARKETPLACE_PROMOTION_STRINGS,
   ...REQUIRED_MARKETPLACE_PROMOTION_REFERENCES,
   ...REQUIRED_MARKETPLACE_PROMOTION_BOOLEANS,
-  "ucpAp2Owner",
+  "ucpAgentCommerceOwner",
   "certificationReference",
 ];
 
@@ -194,12 +199,12 @@ export function buildPromotionEvidence(input, dependencies = {}) {
         PROMOTION_AUDIT_DERIVED_LEGACY_PROOFS.map(([key, derive]) => [key, derive1(audit, derive)]),
       ),
     },
-    ucpAp2Marketing: {
-      owner: review.ucpAp2Owner,
+    ucpAgentCommerceMarketing: {
+      owner: review.ucpAgentCommerceOwner,
       publicLaunchClaimsEnabled: review.publicLaunchClaimsEnabled,
       certificationApproved: review.certificationApproved,
       certificationReference: review.certificationReference,
-      claimsReviewReference: review.ucpAp2ClaimsReviewReference,
+      claimsReviewReference: review.ucpAgentCommerceClaimsReviewReference,
       uncertifiedClaimsAbsent: review.uncertifiedClaimsAbsent,
     },
     ...(errors.length > 0 ? { errors } : {}),
@@ -241,7 +246,7 @@ async function main(argv, env = process.env) {
  * retired `publicPresenceCopyAudit*` value, every `counselPacket*` value, and
  * the three legacy proof aliases a v1 review carried — is a rejection, and a
  * missing or wrongly typed value is a diagnostic rather than a throw, so a
- * predecessor record still parses as exactly one rejected v3 result.
+ * predecessor record still parses as exactly one rejected current-version result.
  */
 export function normalizePromotionReview(candidate) {
   const errors = [];
@@ -249,7 +254,7 @@ export function normalizePromotionReview(candidate) {
 
   if (!isRecord(candidate)) {
     return {
-      review: { ...empty, ucpAp2Owner: null, certificationReference: "" },
+      review: { ...empty, ucpAgentCommerceOwner: null, certificationReference: "" },
       errors: ["Marketplace promotion review record must be a JSON object."],
     };
   }
@@ -277,7 +282,9 @@ export function normalizePromotionReview(candidate) {
     }
     review[key] = candidate[key];
   }
-  review.ucpAp2Owner = isNonEmptyString(candidate.ucpAp2Owner) ? candidate.ucpAp2Owner.trim() : "Checkout and Payments";
+  review.ucpAgentCommerceOwner = isNonEmptyString(candidate.ucpAgentCommerceOwner)
+    ? candidate.ucpAgentCommerceOwner.trim()
+    : "Checkout and Payments";
   review.certificationReference =
     typeof candidate.certificationReference === "string" ? candidate.certificationReference.trim() : "";
 
@@ -418,15 +425,19 @@ function validatePromotionReview(review, audit, checkedAt) {
     errors,
   );
   validateEvidenceReferences("Marketplace promotion", review, REQUIRED_MARKETPLACE_PROMOTION_REFERENCES, errors);
-  validateEvidenceReference("UCP/AP2 claimsReviewReference", review.ucpAp2ClaimsReviewReference, errors);
+  validateEvidenceReference(
+    "UCP agent-commerce claimsReviewReference",
+    review.ucpAgentCommerceClaimsReviewReference,
+    errors,
+  );
   if (review.publicLaunchClaimsEnabled) {
     if (review.certificationApproved !== true) {
-      errors.push("UCP/AP2 public launch claims require certificationApproved=true.");
+      errors.push("UCP agent-commerce public launch claims require certificationApproved=true.");
     }
     if (!isNonEmptyString(review.certificationReference)) {
-      errors.push("UCP/AP2 public launch claims require a certificationReference.");
+      errors.push("UCP agent-commerce public launch claims require a certificationReference.");
     } else {
-      validateEvidenceReference("UCP/AP2 certificationReference", review.certificationReference, errors);
+      validateEvidenceReference("UCP agent-commerce certificationReference", review.certificationReference, errors);
     }
   }
   if (
@@ -434,20 +445,22 @@ function validatePromotionReview(review, audit, checkedAt) {
     review.certificationApproved &&
     !isNonEmptyString(review.certificationReference)
   ) {
-    errors.push("UCP/AP2 certification approval requires a certificationReference.");
+    errors.push("UCP agent-commerce certification approval requires a certificationReference.");
   }
   if (
     !review.publicLaunchClaimsEnabled &&
     review.certificationApproved &&
     isNonEmptyString(review.certificationReference)
   ) {
-    validateEvidenceReference("UCP/AP2 certificationReference", review.certificationReference, errors);
+    validateEvidenceReference("UCP agent-commerce certificationReference", review.certificationReference, errors);
   }
   if (!review.certificationApproved && isNonEmptyString(review.certificationReference)) {
-    validateEvidenceReference("UCP/AP2 certificationReference", review.certificationReference, errors);
+    validateEvidenceReference("UCP agent-commerce certificationReference", review.certificationReference, errors);
   }
   if (review.publicLaunchClaimsEnabled === false && review.uncertifiedClaimsAbsent !== true) {
-    errors.push("UCP/AP2 launch restraint requires uncertifiedClaimsAbsent=true when public claims are disabled.");
+    errors.push(
+      "UCP agent-commerce launch restraint requires uncertifiedClaimsAbsent=true when public claims are disabled.",
+    );
   }
   return errors;
 }

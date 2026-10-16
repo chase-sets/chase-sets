@@ -82,11 +82,7 @@ import {
   lookupShipmentBySupportReference,
   type FulfillmentSupportLookupRow,
 } from "@chase-sets/fulfillment/server";
-import {
-  createPaymentsUcpHandoff,
-  type PaymentsServices,
-  type UcpAp2MandateVerifier,
-} from "@chase-sets/payments/server";
+import { createPaymentsUcpHandoff, type PaymentsServices } from "@chase-sets/payments/server";
 import {
   getLockedFeeListingCohortSummary,
   marketplaceListingGatePolicy,
@@ -120,6 +116,7 @@ import {
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
   demandCurvePolicy,
+  forecastLedgerPolicy,
   marketStatHygienePolicy,
   economicsPolicy,
   priceSignalPolicy,
@@ -194,7 +191,6 @@ import {
   createUcpMcpRoutes,
   createUcpProfileRoutes,
   createUcpRestRoutes,
-  addUcpAp2MerchantAuthorization,
   type CreateUcpRoutesOptions,
 } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantConsentDirectory, AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
@@ -301,7 +297,6 @@ export type BuildPlatformApiOptions = Readonly<{
   agentGrantSpendPolicy?: AgentGrantSpendPolicy;
   agentGrantConsent?: AgentGrantConsentDirectory;
   agentGrantActivity?: AgentGrantActivityDirectory;
-  ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
   checkoutClosed?: boolean;
@@ -524,6 +519,7 @@ export function createPlatformApiHost(
         providerObservationPolicy,
         repricingEnginePolicy,
         repricingManagementPolicy,
+        forecastLedgerPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,
@@ -980,10 +976,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   const checkoutServices = runtime.services.checkout as Parameters<typeof createCheckoutUcpHandlers>[0] | undefined;
   const paymentsServices = runtime.services.payments as PaymentsServices | undefined;
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
-    ? createPaymentsUcpHandoff(paymentsServices.publicConfig, {
-        ap2Verifier: options.ucpAp2MandateVerifier,
-        merchantAuthorizationEnabled: Boolean(options.ucp?.businessSigningKeys),
-      })
+    ? createPaymentsUcpHandoff(paymentsServices.publicConfig)
     : undefined;
   const checkoutUcpHandlers = checkoutServices?.sessions
     ? createCheckoutUcpHandlers(checkoutServices, {
@@ -993,9 +986,6 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           options.agentGrantSpendPolicy,
           identityServices.identity?.agentGrantRevocations,
         ),
-        signCheckout: options.ucp?.businessSigningKeys
-          ? (checkout) => addUcpAp2MerchantAuthorization(checkout, options.ucp?.businessSigningKeys)
-          : undefined,
       })
     : undefined;
   const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
@@ -1023,13 +1013,6 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     discoveryUcpHandlers || checkoutUcpHandlers || orderingUcpHandlers
       ? {
           ...options.ucp,
-          ap2Readiness: paymentHandoff
-            ? {
-                mandateVerification: paymentHandoff.payment.ap2.mandate_verification,
-                sharedPaymentToken: paymentHandoff.payment.ap2.shared_payment_token,
-                headlessCompletionEnabled: paymentHandoff.payment.ap2.headless_completion_enabled,
-              }
-            : undefined,
           restHandlers: {
             ...discoveryUcpHandlers?.restHandlers,
             ...checkoutUcpHandlers?.restHandlers,

@@ -917,20 +917,24 @@
       "label": "Purchases",
       "icon": "bag",
       "href": "/account/purchases",
-      "order": 170,
+      "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view"]
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "sales",
       "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
       "icon": "dollar",
       "href": "/account/sales",
+      "parentKey": "selling-workspace",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view", "listings.view"]
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
@@ -939,20 +943,26 @@
       "label": "Purchases",
       "icon": "bag",
       "href": "/account/purchases",
-      "order": 170,
+      "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view"]
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 400
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sales",
       "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
       "icon": "dollar",
       "href": "/account/sales",
+      "parentKey": "selling-workspace",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view", "listings.view"]
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

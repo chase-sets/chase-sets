@@ -697,6 +697,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "account-payment-stripe-embed.uat.spec.ts": [0, 3, 0, 0, "configured"],
   "listing-evidence-readiness.spec.ts": [0, 1, 0, 0, "configured/seeded"],
   "notifications.spec.ts": [0, 1, 0, 0, "seeded"],
+  "marketplace-navigation.spec.ts": [0, 1, 0, 0, "seeded owner navigation"],
   "inventory-recovery.spec.ts": [0, 3, 0, 0, "configured/seeded seller recovery"],
   "market-following-offers.spec.ts": [0, 2, 0, 0, "seeded buyer/seller; receipted Identity-to-Auth session"],
   "payout-connect-appearance.uat.spec.ts": [0, 1, 0, 0, "configured"],
@@ -914,7 +915,7 @@ describe("auth-caller-census", () => {
   it("discovers the complete tracked graph, with runtime/helper/test/launcher and configured/seeded labels separate", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
-      totalRuntime: 24,
+      totalRuntime: 25,
       synthetic: 6,
       direct: 9,
       receiptedSessionReads: 1,
@@ -926,7 +927,7 @@ describe("auth-caller-census", () => {
     expect(census.scanned).toBe(trackedMarketplaceSources.length);
     expect(readFileSync(`${root}/${launcher}`, "utf8")).toContain("AUTH_TRACE_ARTIFACT_PROBE");
     console.log(
-      `auth caller census scanned=${census.scanned} runtime=24 synthetic=6 direct=9 receipted-session=1 seeded-form=6 helper=1 unit=1 launcher=1`,
+      `auth caller census scanned=${census.scanned} runtime=25 synthetic=6 direct=9 receipted-session=1 seeded-form=6 helper=1 unit=1 launcher=1`,
     );
   });
   it("resolves named aliases, namespace imports, local aliases and re-exports without filename assumptions", () => {
@@ -949,7 +950,7 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(24);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(25);
     }
   });
   it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {

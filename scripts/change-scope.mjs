@@ -109,7 +109,7 @@ const exposurePosturePatterns = {
     /^scripts\/marketplace-transactional-email/,
     /^docs\/runbooks\/email-operations\.md$/,
   ],
-  "ucp-signed-write": [/ucp/i, /ap2/i, /^docs\/adr\/0002-adopt-ucp-for-agent-commerce\.md$/],
+  "ucp-signed-write": [/ucp/i, /^docs\/adr\/0002-adopt-ucp-for-agent-commerce\.md$/],
   "rollout-policy": [/^scripts\/release-lock/, /^docs\/runbooks\/release-process-evolution\.md$/],
 };
 

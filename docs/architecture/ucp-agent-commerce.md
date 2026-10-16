@@ -32,7 +32,7 @@ The ChatGPT app uses mixed authentication:
 - Public catalog tools use no-auth and read Discovery-owned public marketplace data.
 - Checkout and order tools use OAuth through the Auth-owned UCP authorization server and Identity-owned Linked Platform Authorization records.
 
-ChatGPT OAuth does not replace UCP request signatures. If ChatGPT calls signed checkout completion or cancellation tools without `UCP-Agent`, HTTP Message Signature, `Content-Digest`, and idempotency headers, the MCP runtime returns a trusted checkout handoff instead of invoking AP2/headless money movement. Signed UCP/AP2 agents keep the existing signed-write path and Payments-owned mandate verification.
+ChatGPT OAuth does not replace UCP request signatures. If ChatGPT calls signed checkout completion or cancellation tools without `UCP-Agent`, HTTP Message Signature, `Content-Digest`, and idempotency headers, the MCP runtime returns a trusted checkout handoff instead of invoking headless money movement. Signed UCP agents keep the existing signed-write path and the Payments-owned completion decision.
 
 ## Ownership
 
@@ -66,11 +66,11 @@ The native `/mcp` bridge is intentionally narrower than UCP. Its production cont
 
 ## Trusted Checkout
 
-Agents may prepare purchase intent. Checkout completion hands off to trusted UI unless AP2 Mandate verification and a provider-backed agentic payment handler are both configured. When those gates pass, Checkout reuses the same confirmation path as trusted UI: it records shipping details, creates Ordering-owned purchases, asks Payments to create the payment, then records the payment on the Checkout Session.
+Agents may prepare purchase intent. Checkout completion hands off to trusted UI unless a signed agent names a Saved Checkout Instrument from the stored-payment-method setup rail. Then Checkout reuses the same confirmation path as trusted UI: it records shipping details, creates Ordering-owned purchases, enforces the agent grant spending mandate, asks Payments to create the off-session payment, then records the payment on the Checkout Session.
 
-Payments owns the AP2 completion decision. It accepts UCP `ap2.checkout_mandate`, extracts Stripe shared payment tokens from UCP payment data, delegates mandate verification to a production verifier, and only then permits a headless agentic payment handoff. Without a verifier or supported token, the result remains a Trusted Checkout Handoff.
+Payments owns the completion decision. It recognizes a saved checkout instrument id (`sci_`) in UCP payment data and otherwise makes no decision, so Checkout answers with a Trusted Checkout Handoff. Agent-provided payment instruments never reach a processor payment.
 
-Stripe shared payment tokens are handled through the payment processor boundary. The Stripe adapter creates and confirms a PaymentIntent with `shared_payment_granted_token`, records normal Chase Sets payment metadata, and keeps idempotency tied to the internal payment id.
+Stripe shared payment tokens are handled through the payment processor boundary. The Stripe adapter creates and confirms a PaymentIntent with `shared_payment_granted_token`, records normal Chase Sets payment metadata, and keeps idempotency tied to the internal payment id. UCP checkout completion does not supply one.
 
 ## Replay And Audit
 
@@ -78,17 +78,17 @@ Writes must be replay-safe by `(platform profile, actor/account scope, operation
 
 HTTP Message Signature verification belongs in infrastructure. The runtime can verify request signatures when configured with a UCP profile/key resolver; production composition wires a Postgres-backed profile/key cache with TTL refresh and cached failure diagnostics. The runtime emits observer events for signed-write rejection, signature verification failure, idempotency replay/conflict, and operation completion so hosts can log and meter UCP traffic without moving protocol decisions into deployables. Observability records bounded-cardinality metrics for those observer events and Grafana provisions UCP operation/security panels and starter alerts.
 
-Business checkout-term signing also belongs in infrastructure. When `UCP_BUSINESS_SIGNING_PRIVATE_JWK` and `UCP_BUSINESS_SIGNING_KEY_ID` are configured, the public key is published in `/.well-known/ucp` and Checkout UCP responses include `ap2.merchant_authorization`, a detached JWS over the JCS-canonicalized checkout response excluding the `ap2` field.
+Business signing key publication also belongs in infrastructure. When `UCP_BUSINESS_SIGNING_PRIVATE_JWK` and `UCP_BUSINESS_SIGNING_KEY_ID` are configured, the public key is published in `/.well-known/ucp` `signing_keys`; no UCP response is signed with it.
 
-General response signing is not part of the v1 production baseline. Non-checkout UCP REST and MCP responses rely on HTTPS transport, OAuth/signed-request enforcement for protected writes, audit, and idempotency evidence. If a future agent profile requires response verification, define one response-signature scheme across REST and MCP before advertising it as a capability.
+General response signing is not part of the v1 production baseline. UCP REST and MCP responses, including checkout, rely on HTTPS transport, OAuth/signed-request enforcement for protected writes, audit, and idempotency evidence. If a future agent profile requires response verification, define one response-signature scheme across REST and MCP before advertising it as a capability.
 
 ## Production Boundaries
 
 UCP OAuth identity linking requires PKCE S256, rotates refresh tokens, supports token introspection, and lets the linked account revoke platform consent. Public non-local HTTP redirect/profile URLs are rejected.
 
-Payments recognizes AP2 mandate attempts and can complete headless agentic checkout when a production AP2 verifier and Stripe SPT-capable processor are configured. The default runtime remains closed: missing mandate verification, missing merchant signing keys, missing Stripe SPT access, or unsupported payment data all return a trusted UI continuation instead of moving money.
+Payments completes headless checkout only against a Saved Checkout Instrument. Every other completion, including agent-provided payment instruments and unsupported payment data, returns a trusted UI continuation instead of moving money.
 
-Remaining external gates are Stripe private-preview account enablement for shared payment tokens, AP2 SD-JWT+KB verifier/certification against real agents, and production key-rotation operations for the business signing key material.
+Remaining external gates are Stripe private-preview account enablement for shared payment tokens and production key-rotation operations for the business signing key material.
 
 ## OAuth Consent
 

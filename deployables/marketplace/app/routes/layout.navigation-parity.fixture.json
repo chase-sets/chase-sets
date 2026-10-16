@@ -1,0 +1,4932 @@
+{
+  "issue": 9551,
+  "captureSha": "f5d9d31350ac9e54aad6035a48b68461063c9263",
+  "captureSources": {
+    "deployables/marketplace/app/host.ts": "359a1c322cdaad04d50ec51ae48163d6e1a6cc59",
+    "deployables/marketplace/app/routes/layout.tsx": "1a24d98a1e3389de82fc92b5898c1a652b39730c"
+  },
+  "rows": [
+    {
+      "cohort": "anonymous",
+      "actor": null,
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sign-in",
+            "label": "Sign In",
+            "icon": "user",
+            "href": "/sign-in",
+            "placement": "utility"
+          },
+          {
+            "key": "register",
+            "label": "Register",
+            "icon": "plus",
+            "href": "/register",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sign-in",
+            "label": "Sign In",
+            "icon": "user",
+            "href": "/sign-in",
+            "placement": "utility"
+          },
+          {
+            "key": "register",
+            "label": "Register",
+            "icon": "plus",
+            "href": "/register",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": []
+      }
+    },
+    {
+      "cohort": "anonymous",
+      "actor": null,
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sign-in",
+            "label": "Sign In",
+            "icon": "user",
+            "href": "/sign-in",
+            "placement": "utility"
+          },
+          {
+            "key": "register",
+            "label": "Register",
+            "icon": "plus",
+            "href": "/register",
+            "placement": "utility"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "2",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sign-in",
+            "label": "Sign In",
+            "icon": "user",
+            "href": "/sign-in",
+            "placement": "utility"
+          },
+          {
+            "key": "register",
+            "label": "Register",
+            "icon": "plus",
+            "href": "/register",
+            "placement": "utility"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "2",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": []
+      }
+    },
+    {
+      "cohort": "anonymous",
+      "actor": null,
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sign-in",
+            "label": "Sign In",
+            "icon": "user",
+            "href": "/sign-in",
+            "placement": "utility"
+          },
+          {
+            "key": "register",
+            "label": "Register",
+            "icon": "plus",
+            "href": "/register",
+            "placement": "utility"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "99+",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sign-in",
+            "label": "Sign In",
+            "icon": "user",
+            "href": "/sign-in",
+            "placement": "utility"
+          },
+          {
+            "key": "register",
+            "label": "Register",
+            "icon": "plus",
+            "href": "/register",
+            "placement": "utility"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "99+",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": []
+      }
+    },
+    {
+      "cohort": "guest-buyer",
+      "actor": {
+        "roleKey": "guest-buyer",
+        "permissions": ["guest-checkout.manage"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": []
+      }
+    },
+    {
+      "cohort": "guest-buyer",
+      "actor": {
+        "roleKey": "guest-buyer",
+        "permissions": ["guest-checkout.manage"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "2",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "2",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": []
+      }
+    },
+    {
+      "cohort": "guest-buyer",
+      "actor": {
+        "roleKey": "guest-buyer",
+        "permissions": ["guest-checkout.manage"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "99+",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "badge": "99+",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": []
+      }
+    },
+    {
+      "cohort": "buyer-with-security",
+      "actor": {
+        "roleKey": "buyer",
+        "permissions": [
+          "accounts.view",
+          "offers.view",
+          "orders.view",
+          "orders.manage",
+          "reputation.view",
+          "security.manage"
+        ]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "account-sessions",
+            "label": "Sessions",
+            "icon": "clock",
+            "href": "/account/sessions"
+          },
+          {
+            "key": "account-agents",
+            "label": "Connected agents",
+            "icon": "spark",
+            "href": "/account/agents"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              },
+              {
+                "key": "reviews",
+                "label": "Reviews",
+                "icon": "star",
+                "href": "/account/reviews"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "security",
+            "label": "Security",
+            "href": "/account/security",
+            "icon": "settings"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "buyer-with-security",
+      "actor": {
+        "roleKey": "buyer",
+        "permissions": [
+          "accounts.view",
+          "offers.view",
+          "orders.view",
+          "orders.manage",
+          "reputation.view",
+          "security.manage"
+        ]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "account-sessions",
+            "label": "Sessions",
+            "icon": "clock",
+            "href": "/account/sessions"
+          },
+          {
+            "key": "account-agents",
+            "label": "Connected agents",
+            "icon": "spark",
+            "href": "/account/agents"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              },
+              {
+                "key": "reviews",
+                "label": "Reviews",
+                "icon": "star",
+                "href": "/account/reviews"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "security",
+            "label": "Security",
+            "href": "/account/security",
+            "icon": "settings"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "buyer-with-security",
+      "actor": {
+        "roleKey": "buyer",
+        "permissions": [
+          "accounts.view",
+          "offers.view",
+          "orders.view",
+          "orders.manage",
+          "reputation.view",
+          "security.manage"
+        ]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "account-sessions",
+            "label": "Sessions",
+            "icon": "clock",
+            "href": "/account/sessions"
+          },
+          {
+            "key": "account-agents",
+            "label": "Connected agents",
+            "icon": "spark",
+            "href": "/account/agents"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              },
+              {
+                "key": "reviews",
+                "label": "Reviews",
+                "icon": "star",
+                "href": "/account/reviews"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "security",
+            "label": "Security",
+            "href": "/account/security",
+            "icon": "settings"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "buyer-without-security",
+      "actor": {
+        "roleKey": "buyer",
+        "permissions": ["accounts.view", "offers.view", "orders.view", "orders.manage", "reputation.view"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              },
+              {
+                "key": "reviews",
+                "label": "Reviews",
+                "icon": "star",
+                "href": "/account/reviews"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "buyer-without-security",
+      "actor": {
+        "roleKey": "buyer",
+        "permissions": ["accounts.view", "offers.view", "orders.view", "orders.manage", "reputation.view"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              },
+              {
+                "key": "reviews",
+                "label": "Reviews",
+                "icon": "star",
+                "href": "/account/reviews"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "buyer-without-security",
+      "actor": {
+        "roleKey": "buyer",
+        "permissions": ["accounts.view", "offers.view", "orders.view", "orders.manage", "reputation.view"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              },
+              {
+                "key": "reviews",
+                "label": "Reviews",
+                "icon": "star",
+                "href": "/account/reviews"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "sparse-account",
+      "actor": {
+        "permissions": []
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "sparse-account",
+      "actor": {
+        "permissions": []
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "sparse-account",
+      "actor": {
+        "permissions": []
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "sparse-account-view",
+      "actor": {
+        "permissions": ["accounts.view"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "sparse-account-view",
+      "actor": {
+        "permissions": ["accounts.view"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "sparse-account-view",
+      "actor": {
+        "permissions": ["accounts.view"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "money-capable",
+      "actor": {
+        "permissions": ["accounts.view", "orders.view", "orders.manage", "payouts.view"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "money-capable",
+      "actor": {
+        "permissions": ["accounts.view", "orders.view", "orders.manage", "payouts.view"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "money-capable",
+      "actor": {
+        "permissions": ["accounts.view", "orders.view", "orders.manage", "payouts.view"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "money-without-orders",
+      "actor": {
+        "permissions": ["accounts.view", "payouts.view"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "money-without-orders",
+      "actor": {
+        "permissions": ["accounts.view", "payouts.view"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "money-without-orders",
+      "actor": {
+        "permissions": ["accounts.view", "payouts.view"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-without-inventory",
+      "actor": {
+        "permissions": ["accounts.view", "listings.view", "offers.view", "orders.view", "orders.manage"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-without-inventory",
+      "actor": {
+        "permissions": ["accounts.view", "listings.view", "offers.view", "orders.view", "orders.manage"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-without-inventory",
+      "actor": {
+        "permissions": ["accounts.view", "listings.view", "offers.view", "orders.view", "orders.manage"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "account",
+            "label": "Account",
+            "icon": "user",
+            "href": "/account",
+            "placement": "utility",
+            "children": [
+              {
+                "key": "account",
+                "label": "Account",
+                "icon": "user",
+                "href": "/account",
+                "placement": "utility"
+              },
+              {
+                "key": "submitted-offers",
+                "label": "Submitted Offers",
+                "icon": "message",
+                "href": "/account/offers/submitted"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-without-account-view",
+      "actor": {
+        "permissions": ["listings.view", "orders.view"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-without-account-view",
+      "actor": {
+        "permissions": ["listings.view", "orders.view"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-without-account-view",
+      "actor": {
+        "permissions": ["listings.view", "orders.view"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              }
+            ]
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "offers-without-account-view",
+      "actor": {
+        "permissions": ["offers.view", "reputation.view"]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "offers-without-account-view",
+      "actor": {
+        "permissions": ["offers.view", "reputation.view"]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "offers-without-account-view",
+      "actor": {
+        "permissions": ["offers.view", "reputation.view"]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-desk-trader",
+      "actor": {
+        "permissions": [
+          "accounts.view",
+          "fulfillment.view",
+          "fulfillment.manage",
+          "inventory.view",
+          "listings.view",
+          "offers.view",
+          "payouts.view",
+          "reputation.view",
+          "orders.view",
+          "orders.manage",
+          "support.view",
+          "support.manage"
+        ]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "support",
+            "label": "Support",
+            "icon": "help",
+            "href": "/account/support"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-desk-trader",
+      "actor": {
+        "permissions": [
+          "accounts.view",
+          "fulfillment.view",
+          "fulfillment.manage",
+          "inventory.view",
+          "listings.view",
+          "offers.view",
+          "payouts.view",
+          "reputation.view",
+          "orders.view",
+          "orders.manage",
+          "support.view",
+          "support.manage"
+        ]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "support",
+            "label": "Support",
+            "icon": "help",
+            "href": "/account/support"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-desk-trader",
+      "actor": {
+        "permissions": [
+          "accounts.view",
+          "fulfillment.view",
+          "fulfillment.manage",
+          "inventory.view",
+          "listings.view",
+          "offers.view",
+          "payouts.view",
+          "reputation.view",
+          "orders.view",
+          "orders.manage",
+          "support.view",
+          "support.manage"
+        ]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "support",
+            "label": "Support",
+            "icon": "help",
+            "href": "/account/support"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-every-contribution",
+      "actor": {
+        "roleKey": "owner",
+        "permissions": [
+          "accounts.view",
+          "channels.view",
+          "fulfillment.view",
+          "inventory.view",
+          "listings.view",
+          "offers.view",
+          "orders.view",
+          "payouts.view",
+          "pricing.view",
+          "reputation.view",
+          "security.manage",
+          "support.view"
+        ]
+      },
+      "cartCount": 0,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "repricing",
+            "label": "Pricing",
+            "icon": "chart",
+            "href": "/account/repricing"
+          },
+          {
+            "key": "channels-publication",
+            "label": "Channels",
+            "icon": "store",
+            "href": "/account/channels"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "support",
+            "label": "Support",
+            "icon": "help",
+            "href": "/account/support"
+          },
+          {
+            "key": "account-sessions",
+            "label": "Sessions",
+            "icon": "clock",
+            "href": "/account/sessions"
+          },
+          {
+            "key": "account-agents",
+            "label": "Connected agents",
+            "icon": "spark",
+            "href": "/account/agents"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "security",
+            "label": "Security",
+            "href": "/account/security",
+            "icon": "settings"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-every-contribution",
+      "actor": {
+        "roleKey": "owner",
+        "permissions": [
+          "accounts.view",
+          "channels.view",
+          "fulfillment.view",
+          "inventory.view",
+          "listings.view",
+          "offers.view",
+          "orders.view",
+          "payouts.view",
+          "pricing.view",
+          "reputation.view",
+          "security.manage",
+          "support.view"
+        ]
+      },
+      "cartCount": 2,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "repricing",
+            "label": "Pricing",
+            "icon": "chart",
+            "href": "/account/repricing"
+          },
+          {
+            "key": "channels-publication",
+            "label": "Channels",
+            "icon": "store",
+            "href": "/account/channels"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "support",
+            "label": "Support",
+            "icon": "help",
+            "href": "/account/support"
+          },
+          {
+            "key": "account-sessions",
+            "label": "Sessions",
+            "icon": "clock",
+            "href": "/account/sessions"
+          },
+          {
+            "key": "account-agents",
+            "label": "Connected agents",
+            "icon": "spark",
+            "href": "/account/agents"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "2"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "security",
+            "label": "Security",
+            "href": "/account/security",
+            "icon": "settings"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    },
+    {
+      "cohort": "seller-every-contribution",
+      "actor": {
+        "roleKey": "owner",
+        "permissions": [
+          "accounts.view",
+          "channels.view",
+          "fulfillment.view",
+          "inventory.view",
+          "listings.view",
+          "offers.view",
+          "orders.view",
+          "payouts.view",
+          "pricing.view",
+          "reputation.view",
+          "security.manage",
+          "support.view"
+        ]
+      },
+      "cartCount": 100,
+      "slots": {
+        "top-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "purchases",
+            "label": "Purchases",
+            "icon": "bag",
+            "href": "/account/purchases"
+          },
+          {
+            "key": "notifications",
+            "label": "Notifications",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "seller-desk",
+            "label": "Seller Desk",
+            "icon": "dashboard",
+            "href": "/account/desk"
+          },
+          {
+            "key": "sell-list",
+            "label": "Sell List",
+            "icon": "store",
+            "href": "/account/sell-list"
+          },
+          {
+            "key": "repricing",
+            "label": "Pricing",
+            "icon": "chart",
+            "href": "/account/repricing"
+          },
+          {
+            "key": "channels-publication",
+            "label": "Channels",
+            "icon": "store",
+            "href": "/account/channels"
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          },
+          {
+            "key": "support",
+            "label": "Support",
+            "icon": "help",
+            "href": "/account/support"
+          },
+          {
+            "key": "account-sessions",
+            "label": "Sessions",
+            "icon": "clock",
+            "href": "/account/sessions"
+          },
+          {
+            "key": "account-agents",
+            "label": "Connected agents",
+            "icon": "spark",
+            "href": "/account/agents"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          }
+        ],
+        "bottom-nav": [
+          {
+            "key": "search",
+            "label": "Browse",
+            "icon": "search",
+            "href": "/search"
+          },
+          {
+            "key": "cart",
+            "label": "Buy Cart",
+            "icon": "cart",
+            "href": "/account/cart",
+            "placement": "utility",
+            "badge": "99+"
+          },
+          {
+            "key": "notifications",
+            "label": "Alerts",
+            "icon": "bell",
+            "href": "/account/notifications",
+            "placement": "utility"
+          },
+          {
+            "key": "selling-workspace",
+            "label": "Sell",
+            "icon": "store",
+            "href": "/account/listings",
+            "children": [
+              {
+                "key": "inventory",
+                "label": "Inventory",
+                "icon": "package",
+                "href": "/account/inventory"
+              },
+              {
+                "key": "inventory-imports",
+                "label": "Import",
+                "icon": "package",
+                "href": "/account/inventory/imports"
+              },
+              {
+                "key": "inventory-restock-decisions",
+                "label": "Restock",
+                "icon": "package",
+                "href": "/account/inventory/restock-decisions"
+              },
+              {
+                "key": "listings",
+                "label": "Listings",
+                "icon": "store",
+                "href": "/account/listings"
+              },
+              {
+                "key": "offer-matches",
+                "label": "Offer Matches",
+                "icon": "tag",
+                "href": "/account/offers/matches"
+              },
+              {
+                "key": "sales",
+                "label": "Sales",
+                "icon": "dollar",
+                "href": "/account/sales"
+              },
+              {
+                "key": "sale-shipments",
+                "label": "Shipping",
+                "icon": "truck",
+                "href": "/account/sales/shipments"
+              }
+            ]
+          },
+          {
+            "key": "money",
+            "label": "Seller money",
+            "icon": "wallet",
+            "href": "/account/desk/money"
+          }
+        ],
+        "account-menu": [
+          {
+            "key": "account",
+            "label": "Account",
+            "href": "/account",
+            "icon": "user"
+          },
+          {
+            "key": "payment-methods",
+            "label": "Payment methods",
+            "href": "/account/payment-methods",
+            "icon": "creditCard"
+          },
+          {
+            "key": "security",
+            "label": "Security",
+            "href": "/account/security",
+            "icon": "settings"
+          },
+          {
+            "key": "consents",
+            "label": "Consent History",
+            "href": "/account/consents",
+            "icon": "clock"
+          },
+          {
+            "key": "submitted-offers",
+            "label": "Submitted Offers",
+            "href": "/account/offers/submitted",
+            "icon": "message"
+          },
+          {
+            "key": "reviews",
+            "label": "Reviews",
+            "href": "/account/reviews",
+            "icon": "star"
+          }
+        ]
+      }
+    }
+  ]
+}

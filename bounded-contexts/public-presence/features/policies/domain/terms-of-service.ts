@@ -101,7 +101,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/settlement/GLOSSARY.md:5-7",
-          "infrastructure/stripe-payments/index.ts:1670-1694",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
         openQuestions: [
@@ -347,7 +347,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "Describe Chase Sets' marketplace-operator role, that sellers and buyers contract with each other, and the platform-held fund flow; leave limited-payments-agent framing for counsel.",
         decisionRefs: [],
         productTruthRefs: [
-          "infrastructure/stripe-payments/index.ts:1670-1694",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
         openQuestions: [
@@ -358,7 +358,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
             assertion:
               "Buyer payment requests use the Chase Sets platform Stripe account (platform-held); seller proceeds move only later via a separate platform-to-connected-account transfer and on-demand payout, not a Stripe Connect destination charge.",
             evidenceRef:
-              "infrastructure/stripe-payments/index.ts:1670-1694; infrastructure/stripe-connect/index.ts:1100-1160",
+              "infrastructure/stripe-payments/index.ts:1669-1693; infrastructure/stripe-connect/index.ts:1100-1160",
           },
         ],
       },

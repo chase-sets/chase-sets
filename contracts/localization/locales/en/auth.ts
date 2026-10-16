@@ -146,7 +146,6 @@ export const authEnglishTranslations = {
   "auth.features.agentGrants.ui.agentGrantPresentation.daily.spend.summary": "{spent} / {cap} daily",
   "auth.features.agentGrants.ui.agentGrantPresentation.rail.handoff.only": "Trusted checkout handoff",
   "auth.features.agentGrants.ui.agentGrantPresentation.rail.stored.pm": "Saved payment method",
-  "auth.features.agentGrants.ui.agentGrantPresentation.rail.ap2": "AP2 mandate",
   "auth.features.agentGrants.ui.agentGrantDetailPage.agent": "Agent",
   "auth.features.agentGrants.ui.agentGrantDetailPage.connected.on": "Connected {date}",
   "auth.features.agentGrants.ui.agentGrantDetailPage.scopes": "Scopes",

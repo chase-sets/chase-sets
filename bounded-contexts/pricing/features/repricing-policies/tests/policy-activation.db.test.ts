@@ -46,7 +46,7 @@ describeDb("policy first activation", () => {
 
   function services(eventStore = createPostgresEventStore({ pool: pools.pricing }), pool = pools.pricing) {
     return {
-      ...createRepricingPolicyRuntime({ eventStore, db: pool }),
+      ...createRepricingPolicyRuntime({ eventStore, db: pool, goalAdoptions: async () => [] }),
       ...createRepricingPolicyActivationServices({ eventStore, pool }),
     };
   }

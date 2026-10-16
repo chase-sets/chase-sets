@@ -21,6 +21,7 @@ export const platformOperationsWakeRegistryEntry = registryEntry({
     "platform-operations:risk-alert-queue-projection",
     "fulfillment:fulfillment-support-return-source-projection",
     "notifications:notifications-source-facts-outbox-projection",
+    "platform-operations:support-evidence-cleanup-locator-projection",
     "platform-operations:support-request-projection",
     "payments:payments-support-refund-effect",
     "marketplace:marketplace-review-hold-reaction",

@@ -1,5 +1,4 @@
 // Universal Commerce Protocol (UCP) shopping profile for the 2026-04-08 spec.
-// AP2 support in this package follows the UCP shopping AP2 mandate capability.
 export const UCP_VERSION = "2026-04-08";
 export const UCP_SPEC_BASE_URL = `https://ucp.dev/${UCP_VERSION}`;
 export const UCP_LATEST_SPEC_BASE_URL = "https://ucp.dev/latest";
@@ -12,7 +11,6 @@ export const UCP_CAPABILITIES = {
   cart: "dev.ucp.shopping.cart",
   checkout: "dev.ucp.shopping.checkout",
   order: "dev.ucp.shopping.order",
-  ap2Mandate: "dev.ucp.shopping.ap2_mandate",
   identityLinking: "dev.ucp.common.identity_linking",
 } as const;
 
@@ -347,7 +345,7 @@ export const UCP_MCP_TOOLS = [
     title: "Complete Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP/AP2 agents may continue only when Payments verifies mandate support.",
+      "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP agents may continue headlessly only with a saved payment method.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
     inputSchema: {
@@ -420,7 +418,6 @@ export function buildUcpBusinessProfile(
   origin: string,
   options: Readonly<{
     signingKeys?: readonly UcpSigningJsonWebKey[];
-    ap2Readiness?: UcpAp2Readiness;
   }> = {},
 ): UcpBusinessProfile {
   const baseUrl = normalizeUcpOrigin(origin);
@@ -451,31 +448,11 @@ export function buildUcpBusinessProfile(
       capabilities: {
         [UCP_CAPABILITIES.catalogSearch]: [capability("catalog/search", "shopping/catalog_search.json")],
         [UCP_CAPABILITIES.catalogLookup]: [capability("catalog/lookup", "shopping/catalog_lookup.json")],
-        [UCP_CAPABILITIES.checkout]: [
-          capability("checkout", "shopping/checkout.json", {
-            completion_requires_trusted_ui_without_ap2_mandate: true,
-          }),
-        ],
+        [UCP_CAPABILITIES.checkout]: [capability("checkout", "shopping/checkout.json")],
         [UCP_CAPABILITIES.order]: [capability("order", "shopping/order.json")],
         [UCP_CAPABILITIES.identityLinking]: [
           capability("identity-linking", "common/identity_linking.json", {
             oauth_authorization_server: `${baseUrl}/.well-known/oauth-authorization-server`,
-          }),
-        ],
-        [UCP_CAPABILITIES.ap2Mandate]: [
-          capability("ap2-mandates", "shopping/ap2_mandate.json", {
-            status: options.ap2Readiness?.headlessCompletionEnabled
-              ? "human_present_enabled"
-              : signingKeys
-                ? "merchant_authorization_available"
-                : "guarded_scaffold",
-            business_response_signing: signingKeys ? "enabled" : "not-configured",
-            mandate_verification: options.ap2Readiness?.mandateVerification ?? "not-enabled",
-            shared_payment_token: options.ap2Readiness?.sharedPaymentToken ?? "not-enabled",
-            supported_modes: ["human-present"],
-            headless_completion_enabled: options.ap2Readiness?.headlessCompletionEnabled ?? false,
-            human_present_completion_enabled: options.ap2Readiness?.headlessCompletionEnabled ?? false,
-            human_not_present_completion_enabled: false,
           }),
         ],
       },
@@ -485,12 +462,6 @@ export function buildUcpBusinessProfile(
     },
   };
 }
-
-export type UcpAp2Readiness = Readonly<{
-  mandateVerification: "enabled" | "not-enabled";
-  sharedPaymentToken: "enabled" | "not-enabled";
-  headlessCompletionEnabled: boolean;
-}>;
 
 export function createUcpEnvelope<TPayload extends Readonly<Record<string, unknown>>>(
   status: UcpResponseStatus,

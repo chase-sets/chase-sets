@@ -42,6 +42,7 @@ import {
   pricingBulkRepriceIngestionSchemaSql,
 } from "../../features/bulk-reprice-ingestion/read-model/schema";
 import { pricingOwnSaleObservationsSchemaSql } from "../../features/own-sale-observations/read-model/schema";
+import { pricingForecastLedgerSchemaSql } from "../../features/forecast-ledger/read-model/schema";
 import {
   pricingEconomicsSchemaMigrations,
   pricingEconomicsSchemaSql,
@@ -83,6 +84,7 @@ export const pricingSchemaSql = [
   pricingRepricingPolicySchemaSql,
   pricingRepricingEngineSchemaSql,
   pricingRepricingDryRunSchemaSql,
+  pricingForecastLedgerSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the market-stat-hygiene and market-analytics-display policies -- see
   // ../../features/market-trades/domain/stat-hygiene-policy and

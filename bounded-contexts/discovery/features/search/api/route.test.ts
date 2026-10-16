@@ -180,6 +180,110 @@ describe("discovery item search routes", () => {
     controller.abort();
     expect(signal?.aborted).toBe(true);
   });
+  it.each([
+    ["typo plus PSA 10", "charzard psa 10", "charzard", "corrected"],
+    ["nickname plus grade", "zard psa 10", "zard", "lexical"],
+  ])(
+    "direct API and canonical URL return the same final rows for %s",
+    async (_name, search, remainingQuery, retrievalMode) => {
+      const company = "dimension.dim_seed_grading_company";
+      const grade = "dimension.dim_seed_grade";
+      const vocabularyReads: string[] = [];
+      const db: PgQueryable = {
+        query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+          let rows: unknown[] = [];
+          if (sql.includes("FROM discovery_search_catalog_dimension_options")) {
+            vocabularyReads.push(sql);
+            rows = [
+              {
+                dimension_id: "dim_seed_grading_company",
+                option_id: "psa",
+                code: "psa",
+                label: "PSA",
+                numeric_value: null,
+              },
+              {
+                dimension_id: "dim_seed_grade",
+                option_id: "gm10",
+                code: "gem-mint-10",
+                label: "Gem Mint 10",
+                numeric_value: "10",
+              },
+              {
+                dimension_id: "dim_seed_grade",
+                option_id: "p10",
+                code: "pristine-10",
+                label: "Pristine 10",
+                numeric_value: "10.5",
+              },
+            ];
+          } else if (sql.startsWith("SELECT EXISTS")) {
+            rows = [{ literal: false, prefix: false, candidates: ["charizard"] }];
+          } else if (
+            sql.startsWith("SELECT * FROM (") &&
+            values.includes("dim_seed_grade") &&
+            String(values[1]).includes("charizard")
+          ) {
+            rows = [{ catalog_item_id: "charizard-psa-10", slug: "charizard-psa-10", title: "Charizard" }];
+          }
+          return { rows: rows as Row[], rowCount: rows.length };
+        },
+      };
+      const app = discoveryItemSearchRoutes(
+        createDiscoveryItemSearchRuntime({ db, eventStore: {} as never, checkpointStore: {} as never }),
+      );
+
+      const direct = await (await app.request(`/?${new URLSearchParams({ search, limit: "24" })}`)).json();
+      expect(direct).toMatchObject({
+        retrievalMode,
+        nextCursor: null,
+        interpretation: {
+          remainingQuery,
+          applied: [
+            { param: company, optionId: "psa", label: "PSA" },
+            { param: grade, optionId: "gm10", label: "Gem Mint 10" },
+          ],
+        },
+      });
+      expect(vocabularyReads).toHaveLength(1);
+
+      const canonical = new URLSearchParams({
+        search: remainingQuery,
+        limit: "24",
+        interpreted: `${company},${grade}`,
+      });
+      canonical.append(company, "psa");
+      canonical.append(grade, "gm10");
+      const marked = await (await app.request(`/?${canonical}`)).json();
+      expect(marked).not.toHaveProperty("interpretation");
+      expect(marked.items).toEqual(direct.items);
+      expect(marked.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+        "charizard-psa-10",
+      ]);
+      expect(vocabularyReads).toHaveLength(1);
+    },
+  );
+
+  it("returns interpretation metadata only when the runtime interpreted the request", async () => {
+    const services = createServices();
+    const interpretation = {
+      remainingQuery: "charizard",
+      applied: [{ param: "language" as const, language: "ja", label: "Japanese" }],
+    };
+    vi.mocked(services.searchItems).mockResolvedValueOnce({
+      ...(await services.searchItems()),
+      interpretation,
+    });
+    const app = discoveryItemSearchRoutes(services);
+    await expect((await app.request("/?search=charizard%20japanese")).json()).resolves.toMatchObject({
+      interpretation,
+    });
+    await expect((await app.request("/?search=charizard")).json()).resolves.not.toHaveProperty("interpretation");
+    expect(vi.mocked(services.searchItems).mock.calls.at(-1)?.[0]).not.toHaveProperty("interpreted", true);
+    await app.request("/?search=charizard&interpreted=language");
+    expect(vi.mocked(services.searchItems).mock.calls.at(-1)?.[0]).toMatchObject({ interpreted: true });
+  });
+
   it("preserves runtime query and Result Set identities in the search JSON response", async () => {
     const services = createServices();
     const queryHash = "a".repeat(64);

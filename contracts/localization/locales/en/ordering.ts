@@ -346,4 +346,5 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.summary.title": "{projectionLabel} Summary",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.ready.for.counterparty.review":
     "This verified {transactionLabel} is ready for your {counterpartyRole} counterparty review.",
+  "ordering.shell.sales.label": "Sales",
 } as const;
