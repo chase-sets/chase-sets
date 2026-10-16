@@ -132,7 +132,11 @@ export function AddToSavedListControl({
     for (const [key, value] of Object.entries(prepareFields)) formData.set(key, value);
     void fetcher.submit(formData, {
       method: "post",
-      action: currentPostWriteAction(location.pathname, location.search, postWriteToken),
+      action: currentPostWriteAction(
+        location.pathname,
+        location.search,
+        readPostWriteToken(location.pathname) ?? postWriteToken,
+      ),
       defaultShouldRevalidate: false,
     });
   };
@@ -150,7 +154,11 @@ export function AddToSavedListControl({
     else formData.set("listId", destinationValue);
     void fetcher.submit(formData, {
       method: "post",
-      action: currentPostWriteAction(location.pathname, location.search, postWriteToken),
+      action: currentPostWriteAction(
+        location.pathname,
+        location.search,
+        readPostWriteToken(location.pathname) ?? postWriteToken,
+      ),
       defaultShouldRevalidate: false,
     });
   };
