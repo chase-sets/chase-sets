@@ -1,4 +1,5 @@
 import { ProviderSendStoppedError } from "./provider-send-admission";
+import { mapCountCaptureUnits } from "./count-capture-transport";
 import { t } from "@chase-sets/localization";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
 import type { ProviderAdapterRegistry } from "../provider-adapters/registry";
@@ -234,20 +235,18 @@ export async function previewCatalogSyncProviderParticipation(input: {
     }
   }
 
-  const units = await Promise.all(
-    matchingCandidates.map(({ version, unitKey }) =>
-      planProviderUnit({
-        scope,
-        version,
-        unitKey,
-        mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey),
-        registry: input.providerAdapterRegistry,
-        rolloutControlPolicy: input.rolloutControlPolicy,
-        includeOperationalGates: input.includeOperationalGates ?? false,
-        required: requiredDefaults.has(unitKey),
-        explicitlySelected: selectedUnitKeys.has(unitKey),
-      }),
-    ),
+  const units = await mapCountCaptureUnits(matchingCandidates, ({ version, unitKey }) =>
+    planProviderUnit({
+      scope,
+      version,
+      unitKey,
+      mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey),
+      registry: input.providerAdapterRegistry,
+      rolloutControlPolicy: input.rolloutControlPolicy,
+      includeOperationalGates: input.includeOperationalGates ?? false,
+      required: requiredDefaults.has(unitKey),
+      explicitlySelected: selectedUnitKeys.has(unitKey),
+    }),
   );
   const blockers = units.flatMap((unit) =>
     unit.requirement === "required" ? unit.blockers.filter((blocker) => blocker.severity === "error") : [],

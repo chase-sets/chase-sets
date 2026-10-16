@@ -17,8 +17,12 @@ import { countCaptureUnitKeys } from "../domain/count-capture-plan";
 import { createCountCaptureStore, readCountCaptureEffects } from "../read-model/count-capture-store";
 import { countAccountSlot, createCountStore } from "../read-model/count-store";
 import { captureActor, captureSession, freshCaptureAuthority } from "../tests/count-capture-session-fixture";
+import { captureAuthority } from "../tests/count-capture-session-fixture";
+import { createCountCaptureDbFixture } from "../tests/count-capture-db-fixture";
+import { validateCountLifecycleReceipt } from "../domain/count-lifecycle-receipt";
 import {
   createCountCaptureLifecycle,
+  countCaptureSessionOwner,
   observeDeployedScrydexUsage,
   readCountCaptureRoster,
   type CountCaptureLifecycle,
@@ -46,6 +50,76 @@ const usage = (remainingCredits: number | null, observedAt: string) => ({
   diagnostic: null,
   freshWithinSeconds: 900,
   unavailableAfterSeconds: 900,
+});
+
+describe("closed count capture on PostgreSQL", () => {
+  let pools: Readonly<Record<"catalog", PgTransactionalPool>>;
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(base!, ["catalog"], "count_capture_freeze_9586");
+    await ensureMultiContextTestDatabases(base!, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+  });
+  afterAll(async () => {
+    await closeMultiContextTestPools(pools);
+  });
+  it("freezes a closed receipt", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    const quote = await f.prepare();
+    await f.lifecycle.acquire(captureSession(), { quoteId: quote.quoteId, fingerprint: quote.fingerprint });
+    f.clock.now = "2026-10-13T08:04:10.000Z";
+    const preview = await f.lifecycle.preview(captureSession(), { selection: f.selection, budget: f.budget });
+    await f.lifecycle.preConfirm(captureSession(), {
+      selection: f.selection,
+      budget: f.budget,
+      planFingerprint: preview.planFingerprint,
+    });
+    const run = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    expect(run.reads.map((read) => read.phase)).toEqual(["preview", "pre-confirm"]);
+    expect(new Set(run.reads.map((read) => read.requestId)).size).toBe(2);
+    expect(run.reads[1]!.comparedFingerprint).toBe(run.reads[0]!.planFingerprint);
+    for (const read of run.reads) {
+      expect(read.eligible).toBe(true);
+      expect(read.winners).toHaveLength(2);
+      expect(read.winners.every((winner) => winner.source !== null)).toBe(true);
+      const sends = run.sends.filter((send) => send.requestId === read.requestId);
+      expect(sends.length).toBeGreaterThanOrEqual(3);
+      expect(sends.length).toBeLessThanOrEqual(4);
+      expect(sends.every((send) => send.status === 200)).toBe(true);
+    }
+    const before = f.fetch.mock.calls.length;
+    f.clock.now = "2026-10-13T08:04:11.000Z";
+    const { receipt } = await f.lifecycle.freeze(captureSession(), {
+      runnerRunId: "300",
+      runnerRunAttempt: 1,
+      collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
+    });
+    expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
+    expect(receipt.classification.verdict).toBe("CONFORMING");
+    expect("evidence" in receipt ? receipt.evidence : receipt).toMatchObject({
+      effects: {
+        baseline: { batches: 0, reservations: 0, jobs: 0, enqueues: 0, imports: 0 },
+        final: { batches: 0, reservations: 0, jobs: 0, enqueues: 0, imports: 0 },
+      },
+    });
+    expect(f.fetch).toHaveBeenCalledTimes(before);
+    expect(f.enqueue).not.toHaveBeenCalled();
+    await expect(f.lifecycle.quoteReadback(captureSession())).rejects.toThrow(CountCaptureStopped);
+    await expect(f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 })).rejects.toThrow(
+      CountCaptureStopped,
+    );
+    expect(f.fetch).toHaveBeenCalledTimes(before);
+  });
+  it("retains an INCOMPLETE stop receipt when local proof or collection is missing", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    await f.prepare();
+    const { receipt } = await f.lifecycle.freeze(captureSession(), { runnerRunId: "300", runnerRunAttempt: 1 });
+    expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
+    expect(receipt.classification.verdict).toBe("INCOMPLETE");
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("staging count-capture lifecycle on PostgreSQL", () => {

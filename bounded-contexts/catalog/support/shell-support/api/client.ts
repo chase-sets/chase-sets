@@ -2108,6 +2108,55 @@ export function createCatalogApiClient({
     async captureScopeSyncCountUsage(): Promise<Awaited<ReturnType<CountCaptureLifecycle["usage"]>>> {
       return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/usage", {});
     },
+    async quoteScopeSyncCaptureCounts(
+      input: Parameters<CountCaptureLifecycle["quote"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["quote"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/counts/quote", input);
+    },
+    async readBackScopeSyncCaptureQuote(): Promise<Awaited<ReturnType<CountCaptureLifecycle["quoteReadback"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/quote-readback",
+        {},
+      );
+    },
+    async recordScopeSyncCaptureFinalNotice(): Promise<Awaited<ReturnType<CountCaptureLifecycle["finalNotice"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/final-notice",
+        {},
+      );
+    },
+    async acquireScopeSyncCaptureCounts(
+      input: Parameters<CountCaptureLifecycle["acquire"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["acquire"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/counts/acquire", input);
+    },
+    async previewScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["preview"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["preview"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/preview", input);
+    },
+    async preConfirmScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["preConfirm"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["preConfirm"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/pre-confirm",
+        input,
+      );
+    },
+    async freezeScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["freeze"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["freeze"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/freeze", input);
+    },
     async getScopeSyncCountQuote<T>(quoteId: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/scope-sync-batches/counts/quote/${encodeURIComponent(quoteId)}`,
