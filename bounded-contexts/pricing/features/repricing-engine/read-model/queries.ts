@@ -153,7 +153,6 @@ export async function loadRepricingRoundInputsPage(
       marketEstimate: null,
       lastSold: null,
       demandCurve: null,
-      healthDemandCurve: null,
     });
   }
   if (!products.length) return rounds;
@@ -299,7 +298,7 @@ type PageRound = {
   marketEstimate: RepricingRoundInputs["marketEstimate"];
   lastSold: RepricingRoundInputs["lastSold"];
   demandCurve: RepricingRoundInputs["demandCurve"];
-  healthDemandCurve: NonNullable<RepricingRoundInputs["demandCurve"]> | null;
+  healthDemandCurve?: NonNullable<RepricingRoundInputs["demandCurve"]>;
 };
 
 /**
