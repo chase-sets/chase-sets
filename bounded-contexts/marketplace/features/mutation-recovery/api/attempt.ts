@@ -210,7 +210,9 @@ export function createMarketplaceAttempt<T>(
     try {
       const results = await eventStore.appendToStreams([...inputs, append(result, receipt, context)]);
       recordCommittedEvents(results.flatMap((entry) => entry.storedEvents));
-      return result;
+      const completedEvent = results.at(-1)?.storedEvents[0];
+      if (!completedEvent) throw new Error("Marketplace attempt append returned no committed event.");
+      return withMarketplaceAttemptReceipt(result, completedEvent);
     } catch (error) {
       if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
         const first = await read();

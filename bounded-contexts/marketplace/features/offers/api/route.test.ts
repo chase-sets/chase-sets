@@ -720,7 +720,7 @@ describe("buyer Offer lifecycle routes", () => {
       new Request(`http://marketplace.test/account${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attemptId: "lifecycle_route_attempt_identity_01", ...body }),
+        body: JSON.stringify({ sourceActionKey: "lifecycle_route_attempt_identity_01", ...body }),
       }),
     );
   const patchPrice = (app: Hono<MarketplaceApiEnv>, offerId: string, priceAmount: string) =>
