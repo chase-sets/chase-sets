@@ -63,4 +63,41 @@ describe("offer attempt caller partition", () => {
       rmSync(fixture, { recursive: true, force: true });
     }
   });
+  it.each(["attemptId", "requestHash"])("rejects test-file MCP callers missing %s", (missing) => {
+    const path = "deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts";
+    const source =
+      'import { it } from "vitest"; client.callTool({ name: "marketplace.submit-offer", arguments: { attemptId: "sdk_submit_attempt_12345", requestHash: "hash" } });';
+    const callers = (text: string) => enumerateMarketplaceAttemptCallers([{ path, source: text }]);
+    expect(callers(source)).toHaveLength(1);
+    expect(unpartitionedMarketplaceOfferCallers(callers(source))).toEqual([]);
+    expect(
+      unpartitionedMarketplaceOfferCallers(callers(source.replace(new RegExp(`${missing}: "[^"]+",?`), ""))),
+    ).toHaveLength(1);
+  });
+  it("rejects form producers missing attemptId, including test-file producers", () => {
+    const path = "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx";
+    const source =
+      'import { it } from "vitest"; const form = <RouterForm><HiddenInput name="intent" value="decline-offer" /><HiddenInput name="attemptId" value={attemptId} /></RouterForm>;';
+    const callers = (text: string) => enumerateMarketplaceAttemptCallers([{ path, source: text }]);
+    expect(callers(source)).toHaveLength(1);
+    expect(unpartitionedMarketplaceOfferCallers(callers(source))).toEqual([]);
+    expect(
+      unpartitionedMarketplaceOfferCallers(
+        callers(source.replace('<HiddenInput name="attemptId" value={attemptId} />', "")),
+      ),
+    ).toHaveLength(1);
+  });
+  it.each([
+    "deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts",
+    "deployables/platform-api/__tests__/seller-desk-journey.e2e.test.ts",
+    "bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx",
+  ])("rejects the reviewed-head missing-attempt caller: %s", (path) => {
+    const source = execFileSync("git", ["show", `aa68b7041d64c121ef85976305cc5fa77c9a81d3:${path}`], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    expect(
+      unpartitionedMarketplaceOfferCallers(enumerateMarketplaceAttemptCallers([{ path, source }])).length,
+    ).toBeGreaterThan(0);
+  });
 });

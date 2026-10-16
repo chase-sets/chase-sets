@@ -6,6 +6,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import MatchRoute, { action, loader } from "../routes/account-offer-match";
+import MatchListRoute, { loader as listLoader } from "../routes/account-offer-matches";
 import { hashMarketplaceRequest } from "../features/mutation-recovery/api/attempt";
 import { t } from "@chase-sets/localization";
 
@@ -142,6 +143,66 @@ describe("Offer match recovery real data router", () => {
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe(t("marketplace.recovery.failedSafe")));
     expect(transport.mock.calls.filter(([url]) => String(url).includes("mutation-attempts"))).toHaveLength(0);
     expect(transport.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+  });
+
+  it.each([false, true])("list decline reaches the action and redirects; missing-field mutant=%s", async (mutant) => {
+    const redirects: string[] = [];
+    const transport = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.endsWith("/api/auth/session")) return json({ actor });
+      if (init?.method === "POST") return json({ offerId: offer.offer_id, version: 2 });
+      return json({ items: [offer], total: 1, count: 1 });
+    });
+    vi.stubGlobal("fetch", transport);
+    const router = createMemoryRouter(
+      [
+        { path: "/account/offers/matches", loader: listLoader, Component: MatchListRoute },
+        {
+          id: "decline",
+          path: "/account/offers/matches/:offerId",
+          element: <p>Decline action result</p>,
+          action: async (args) => {
+            const result = await action(args);
+            if (result instanceof Response) redirects.push(result.headers.get("Location")!);
+            return result;
+          },
+        },
+      ],
+      { initialEntries: ["/account/offers/matches"] },
+    );
+    render(
+      <ChaseRoot>
+        <RouterProvider router={router} />
+      </ChaseRoot>,
+    );
+    const [decline] = await screen.findAllByRole("button", {
+      name: t("marketplace.features.offers.ui.offerMatchListPage.decline"),
+    });
+    const form = decline.closest("form")!;
+    const attempt = form.querySelector<HTMLInputElement>('input[name="attemptId"]');
+    if (mutant) attempt?.remove();
+    fireEvent.click(decline);
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    if (mutant) {
+      await waitFor(() =>
+        expect(router.state.actionData).toMatchObject({
+          decline: { recovery: "failed-safe" },
+        }),
+      );
+      expect(transport.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+      expect(redirects).toEqual([]);
+    } else {
+      await waitFor(() => expect(transport.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+      const [url, init] = transport.mock.calls.find(([, init]) => init?.method === "POST")!;
+      expect(new URL(String(url)).pathname).toBe(`/api/marketplace/account/offers/matches/${offer.offer_id}/decline`);
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        attemptId: expect.stringMatching(/^[A-Za-z0-9_-]{22,128}$/),
+      });
+      expect(JSON.parse(String(init?.body)).attemptId).toBe(attempt?.value);
+      await waitFor(() => expect(router.state.location.pathname).toBe("/account/offers/matches"));
+      expect(redirects).toEqual(["/account/offers/matches"]);
+    }
+    expect(transport.mock.calls.filter(([url]) => String(url).includes("mutation-attempts"))).toHaveLength(0);
   });
 
   it("possible-send loss makes one lookup, never retries, and ambiguity disables and focuses the announced action result", async () => {

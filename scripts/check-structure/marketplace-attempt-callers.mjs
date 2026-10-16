@@ -22,7 +22,7 @@ export function readTrackedMarketplaceCallerSources(root) {
       "-l",
       "-z",
       "-E",
-      "submitOffer|updateOfferPrice|acceptOffer|declineOfferMatch|createSubmittedOffer|updateSubmittedOfferPrice|acceptOfferMatch|commandBuyerOfferPolicy|BuyerOfferPolicyServices|createBuyerOfferPolicyRuntime|SubmitOffer|AcceptOffer|DeclineOfferMatch",
+      "submitOffer|updateOfferPrice|acceptOffer|declineOfferMatch|createSubmittedOffer|updateSubmittedOfferPrice|acceptOfferMatch|commandBuyerOfferPolicy|BuyerOfferPolicyServices|createBuyerOfferPolicyRuntime|SubmitOffer|AcceptOffer|DeclineOfferMatch|marketplace\\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)|decline-offer",
       "--",
       "*.ts",
       "*.tsx",
@@ -57,7 +57,6 @@ export function enumerateMarketplaceAttemptCallers(sources) {
     const ast = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
     const imports = ast.statements.filter(ts.isImportDeclaration).map((node) => node.moduleSpecifier.text);
     const isTest = imports.some((name) => /^(vitest|node:test|@playwright\/test)$/.test(name));
-    if (isTest) continue;
     const policy = imports.some((name) => /offer-policy.*runtime/.test(name));
     const aliases = new Map();
     function collectAliases(node) {
@@ -82,8 +81,29 @@ export function enumerateMarketplaceAttemptCallers(sources) {
       ts.forEachChild(node, collectAliases);
     }
     collectAliases(ast);
+    const add = (node, method, call = node.getText(ast)) => {
+      const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
+      callers.push({ path: file.path, method, line, call });
+    };
     function visit(node) {
       if (ts.isCallExpression(node)) {
+        for (const argument of node.arguments) {
+          if (!ts.isObjectLiteralExpression(argument)) continue;
+          const property = (name) =>
+            argument.properties.find((item) => ts.isPropertyAssignment(item) && item.name.getText(ast) === name);
+          const tool = property("name")?.initializer;
+          const args = property("arguments")?.initializer;
+          if (
+            tool &&
+            ts.isStringLiteral(tool) &&
+            /^marketplace\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)$/.test(
+              tool.text,
+            ) &&
+            args
+          ) {
+            add(node, "mcp-offer-command", args.getText(ast));
+          }
+        }
         const expression = node.expression;
         const rawName = ts.isPropertyAccessExpression(expression)
           ? expression.name.text
@@ -97,9 +117,13 @@ export function enumerateMarketplaceAttemptCallers(sources) {
           name === "commandHandler" &&
           /type:\s*["'](?:SubmitOffer|AcceptOffer|UpdateOfferPrice|DeclineOfferMatch)["']/.test(node.getText(ast));
         const policyCommand = name === "execute" && policy;
-        if (methods.has(name) || offerCommand || policyCommand) {
-          const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
-          callers.push({ path: file.path, method: name, line, call: node.getText(ast) });
+        // Handler fixtures deliberately exercise invalid commands; transport callers above are never exempt.
+        if (!isTest && (methods.has(name) || offerCommand || policyCommand)) add(node, name);
+      }
+      if (ts.isJsxElement(node) && /^(Form|RouterForm)$/.test(node.openingElement.tagName.getText(ast))) {
+        const call = node.getText(ast);
+        if (/name=["']intent["']\s+value=["'](?:decline-offer|accept-offer)["']/.test(call)) {
+          add(node, "offer-command-form");
         }
       }
       ts.forEachChild(node, visit);
@@ -111,6 +135,14 @@ export function enumerateMarketplaceAttemptCallers(sources) {
 
 // Every row is a command boundary or a named deterministic authoring exemption.
 export const marketplaceOfferCallerPartition = new Map([
+  ["deployables/platform-api/__tests__/mcp-sdk-agent-journey.e2e.test.ts::mcp-offer-command", "mcp-attempt-fields"],
+  ["deployables/platform-api/__tests__/seller-desk-journey.e2e.test.ts::mcp-offer-command", "mcp-attempt-fields"],
+  ["bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx::offer-command-form", "form-attemptId"],
+  ["bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx::offer-command-form", "form-attemptId"],
+  [
+    "bounded-contexts/platform-operations/features/support-requests/ui/support-request-detail-page.tsx::offer-command-form",
+    "not a Marketplace command: Support Request offer response; identity owned by participant-client",
+  ],
   ["bounded-contexts/checkout/routes/account-sell-list.tsx::declineOfferMatch", "attemptId"],
   ["bounded-contexts/checkout/support/request-support/checkout-confirmation.ts::createSubmittedOffer", "attemptId"],
   [
@@ -151,7 +183,13 @@ export function unpartitionedMarketplaceOfferCallers(callers) {
   return callers.filter((caller) => {
     const proof = marketplaceOfferCallerPartition.get(`${caller.path}::${caller.method}`);
     return (
-      !proof || (["attemptId", "sourceActionKey"].includes(proof) && !new RegExp(`\\b${proof}\\s*:`).test(caller.call))
+      !proof ||
+      (["attemptId", "sourceActionKey"].includes(proof) && !new RegExp(`\\b${proof}\\s*:`).test(caller.call)) ||
+      (proof === "mcp-attempt-fields" &&
+        (!/\battemptId\s*:/.test(caller.call) ||
+          !/\brequestHash\s*:/.test(caller.call) ||
+          /\bsourceActionKey\s*:/.test(caller.call))) ||
+      (proof === "form-attemptId" && !/name=["']attemptId["']/.test(caller.call))
     );
   });
 }
