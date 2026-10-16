@@ -68,7 +68,9 @@ describe("isolates the count capture runner", () => {
       if (intent === "capture-freeze") return { receipt };
       return { retained: true };
     });
-    const collect = vi.fn<CountCaptureDeploymentCollection>(async () => receipt.freezeCollection);
+    const collect = vi.fn<CountCaptureDeploymentCollection>(
+      async () => structuredClone(receipt.freezeCollection) as Awaited<ReturnType<CountCaptureDeploymentCollection>>,
+    );
     return { receipt, baseline, quote, action, collect };
   }
 
@@ -118,7 +120,12 @@ describe("isolates the count capture runner", () => {
 
   it("requires independently collected deployment before the initial notice", async () => {
     const { action, collect, receipt } = journey();
-    collect.mockResolvedValue({ ...receipt.freezeCollection, complete: false });
+    collect.mockResolvedValue({
+      ...receipt.freezeCollection,
+      outcome: "unknown",
+      reason: "authority-invalid",
+      binding: null,
+    });
     expect(await runCountCaptureJourney(identity, action, now, collect)).toMatchObject({
       reason: "deployment-unknown",
     });
