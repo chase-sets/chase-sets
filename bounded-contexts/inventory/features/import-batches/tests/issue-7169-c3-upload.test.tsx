@@ -22,6 +22,12 @@ function view(actor = authority) {
   );
 }
 
+function statusContaining(text: string) {
+  const status = screen.getAllByRole("status").find((candidate) => candidate.textContent?.includes(text));
+  expect(status).toBeDefined();
+  return status!;
+}
+
 describe("issue-7169-c3-upload-recovery: real upload form", () => {
   it.each(["ambiguous", "reauth-required", "different-user"])(
     "restores %s without sending or reading another actor's attempt",
@@ -29,15 +35,13 @@ describe("issue-7169-c3-upload-recovery: real upload form", () => {
       const id = createInventoryMutationRecovery(authority, "import-create", sessionStorage).begin("draft");
       if (kind === "reauth-required") vi.mocked(inventoryApi.getMutationAttempt).mockRejectedValueOnce({ status: 401 });
       const rendered = view(kind === "different-user" ? { ...authority, actorUserId: "usr_c3_other" } : authority);
-      await waitFor(() =>
-        expect(screen.getByRole("status").textContent).toContain(
-          kind === "ambiguous" ? "uncertain" : "original account",
-        ),
-      );
+      const expectedMessage = kind === "ambiguous" ? "uncertain" : "original account";
+      await waitFor(() => expect(statusContaining(expectedMessage).textContent).toContain(expectedMessage));
       const submit = screen.getByRole("button", { name: "Validate import", exact: true });
       expect(submit.matches(":disabled")).toBe(true);
-      expect(document.activeElement).toBe(screen.getByRole("status"));
-      expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+      const status = statusContaining(expectedMessage);
+      expect(document.activeElement).toBe(status);
+      expect(status.getAttribute("aria-live")).toBe("polite");
       if (kind === "different-user") expect(inventoryApi.getMutationAttempt).not.toHaveBeenCalled();
       else expect(inventoryApi.getMutationAttempt).toHaveBeenCalledExactlyOnceWith(id);
       const form = rendered.container.querySelector('input[name="intent"][value="create-batch"]')!.closest("form")!;
@@ -57,7 +61,7 @@ describe("issue-7169-c3-upload-recovery: real upload form", () => {
       result: { jobId: "job_c3_synthetic" },
     } as Awaited<ReturnType<typeof inventoryApi.getMutationAttempt>>);
     const rendered = view();
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("confirmed"));
+    await waitFor(() => expect(statusContaining("confirmed").textContent).toContain("confirmed"));
     expect(
       rendered.container.querySelector('a[href="/account/inventory/imports?jobId=job_c3_synthetic"]'),
     ).not.toBeNull();
@@ -77,7 +81,7 @@ describe("issue-7169-c3-upload-recovery: real upload form", () => {
     });
     const form = rendered.container.querySelector('input[name="intent"][value="create-batch"]')!.closest("form")!;
     expect(fireEvent.submit(form)).toBe(false);
-    expect(screen.getByRole("status").textContent).toContain("not sent");
+    await waitFor(() => expect(statusContaining("No change was sent").textContent).toContain("No change was sent"));
     expect(inventoryApi.getMutationAttempt).not.toHaveBeenCalled();
   });
 });
