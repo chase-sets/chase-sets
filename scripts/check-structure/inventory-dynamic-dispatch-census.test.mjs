@@ -134,6 +134,25 @@ function emit(name, data) {
   for (const entry of Array.isArray(data) ? data : [data]) process.stdout.write(`${name} ${JSON.stringify(entry)}\n`);
 }
 
+// Prepare the tracked Program once, as in authoritative-stream-read-classification.test.mjs.
+const roots = enumerateTrackedRoots(repoRoot);
+const program = createClassificationProgram(repoRoot, roots);
+const families = resolveInventoryFamilies(program, repoRoot);
+const sources = trackedInventorySources(repoRoot);
+const production = analyzeInventoryDynamicDispatch({ repoRoot, roots, program, families, sources });
+const c1 = discoverInventoryCallers(sources);
+const registry = JSON.parse(
+  readFileSync(path.join(repoRoot, "bounded-contexts/inventory/tests/caller-partition.json"), "utf8"),
+);
+const partition = partitionInventoryCallers(c1, registry);
+const built = analyzeInventoryDynamicDispatch({
+  repoRoot,
+  roots,
+  program,
+  families,
+  sources: [...sources, { path: "bounded-contexts/unexpected/build/output.js", source: "svc[key]()" }],
+});
+
 describe("issue-7169-type-resolved-census-matrix", () => {
   it("rejects every derived family's M16 and P1 forms at arbitrary paths", async () => {
     const cases = familyExpressions.flatMap(([family, expression, type]) =>
@@ -248,22 +267,15 @@ describe("issue-7169-type-resolved-census-matrix", () => {
 
 describe("issue-7169-type-resolved-census-corpus", () => {
   it("has zero tracked rejections, complete C1 coverage and unchanged clean/built qualification", () => {
-    const roots = enumerateTrackedRoots(repoRoot);
-    const program = createClassificationProgram(repoRoot, roots);
-    const families = resolveInventoryFamilies(program, repoRoot);
-    const sources = trackedInventorySources(repoRoot);
-    const result = analyzeInventoryDynamicDispatch({ repoRoot, roots, program, families, sources });
+    const result = production;
     expect(result.diagnostics).toEqual([]);
-    const c1 = discoverInventoryCallers(sources);
+    const c1Ignored = new Set(c1.ignored);
+    const scanned = new Set(result.scanned);
     for (const source of sources) {
-      if (discoverInventoryCallers([source]).scanned) expect(result.scanned).toContain(source.path);
+      if (!c1Ignored.has(source.path)) expect(scanned.has(source.path), source.path).toBe(true);
     }
     expect(result.scanned.length + result.ignored.length).toBe(result.total);
     expect(result.total).toBe(new Set([...roots, ...sources.map(({ path: file }) => file)]).size);
-    const registry = JSON.parse(
-      readFileSync(path.join(repoRoot, "bounded-contexts/inventory/tests/caller-partition.json"), "utf8"),
-    );
-    const partition = partitionInventoryCallers(c1, registry);
     const retained = partition.callers.filter(({ status }) => status !== "unrelated");
     emit("c1-partition", {
       total: partition.callers.length,
@@ -273,13 +285,6 @@ describe("issue-7169-type-resolved-census-corpus", () => {
     expect([partition.callers.length, retained.length, partition.callers.length - retained.length]).toEqual([
       141, 131, 10,
     ]);
-    const built = analyzeInventoryDynamicDispatch({
-      repoRoot,
-      roots,
-      program,
-      families,
-      sources: [...sources, { path: "bounded-contexts/unexpected/build/output.js", source: "svc[key]()" }],
-    });
     expect(built.diagnostics).toEqual(result.diagnostics);
     expect(built.scanned).toEqual(result.scanned);
     expect(built.total).toBe(result.total + 1);
