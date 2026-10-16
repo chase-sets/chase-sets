@@ -37,6 +37,18 @@ const REMOVAL_CONSUMERS = [
   ["discovery", "discovery-market-projection", 3],
   ["discovery", "discovery-product-alert-notification-projection", 2],
 ] as const;
+const OFFER_LIFECYCLE_EVENTS = [
+  "marketplace.offer.paused",
+  "marketplace.offer.resumed",
+  "marketplace.offer.withdrawn",
+] as const;
+const OFFER_LIFECYCLE_CONSUMERS = [
+  ["marketplace", "marketplace-offer-projection", 1],
+  ["discovery", "discovery-market-projection", 3],
+  ["discovery", "discovery-product-alert-notification-projection", 2],
+  ["checkout", "checkout.sell-list-projection", 3],
+  ["pricing", "pricing-market-input-projection", 2],
+] as const;
 
 const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
   sourceContextName: "ordering",
@@ -159,6 +171,34 @@ describe("platform worker projection wake interest graph", () => {
     expect(
       lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType: OPERATOR_REMOVAL }),
     ).toEqual([]);
+  });
+
+  it("resolves each Offer lifecycle event to every open-Offer consumer", () => {
+    const runtime = createPlatformWorkerHost();
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    for (const eventType of OFFER_LIFECYCLE_EVENTS) {
+      const interests = lookupProjectionInterests(index, { sourceContextName: "marketplace", eventType });
+      expect(interests.map((entry) => `${entry.targetContextName}:${entry.projectionName}`).sort()).toEqual(
+        OFFER_LIFECYCLE_CONSUMERS.map(([owner, name]) => `${owner}:${name}`).sort(),
+      );
+    }
+    for (const [targetContextName, projectionName, subscriptionVersion] of OFFER_LIFECYCLE_CONSUMERS) {
+      const runners = runtime.subscriptionRunners.filter(
+        (runner) =>
+          runner.sourceContextName === "marketplace" &&
+          runner.targetContextName === targetContextName &&
+          runner.projectionName === projectionName,
+      );
+      expect(runners).toHaveLength(1);
+      expect(runners[0]).toMatchObject({
+        subscriptionVersion,
+        checkpointKey: `${projectionName}:marketplace:v${subscriptionVersion}`,
+      });
+      for (const eventType of OFFER_LIFECYCLE_EVENTS) {
+        expect(runners[0]?.eventTypes).toContain(eventType);
+        expect(runners[0]?.handlers?.[eventType]).toBeTypeOf("function");
+      }
+    }
   });
 
   it("boots every public-profile context and creates the Checkout Session runner from its local projector", () => {
@@ -286,7 +326,9 @@ describe("platform worker projection wake interest graph", () => {
         .filter((runner) => runner.projectionName === "pricing-forecast-ledger-projection")
         .map((runner) => runner.checkpointKey),
     ).toEqual(["pricing-forecast-ledger-projection:pricing:v1"]);
-    expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutOperatorRemoval(runner))))).toEqual({
+    expect(
+      fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
+    ).toEqual({
       count: 256,
       sha256: "e1bcbbdfdf0765defa95110a7a333e19ffc36cb35b103d878cb83ceda8d9e544",
     });
@@ -301,7 +343,7 @@ describe("platform worker projection wake interest graph", () => {
           fingerprintObject(
             proofCreditRunners.includes(runner)
               ? {
-                  ...withoutOperatorRemoval(runner),
+                  ...withoutAddedConsumerEvents(runner),
                   eventTypes: runner.eventTypes?.filter(
                     (eventType) => eventType !== proofCreditEventType && eventType !== OPERATOR_REMOVAL,
                   ),
@@ -311,7 +353,7 @@ describe("platform worker projection wake interest graph", () => {
                     ),
                   ),
                 }
-              : withoutOperatorRemoval(runner),
+              : withoutAddedConsumerEvents(runner),
           ),
         ),
       ),
@@ -323,7 +365,7 @@ describe("platform worker projection wake interest graph", () => {
       fingerprint(
         rawSubscriptions.map(({ targetContextName, subscription }) => ({
           targetContextName,
-          subscription: fingerprintObject(withoutOperatorRemoval(subscription)),
+          subscription: fingerprintObject(withoutAddedConsumerEvents(subscription)),
         })),
       ),
     ).toEqual({
@@ -703,16 +745,24 @@ function createUnusedPool() {
 
 type FingerprintRecord = Readonly<Record<string, unknown>>;
 
-function withoutOperatorRemoval(value: FingerprintRecord) {
-  if (value.sourceContextName !== "marketplace" || !REMOVAL_CONSUMERS.some(([, name]) => name === value.projectionName))
-    return value;
+function addedConsumerEventTypes(value: FingerprintRecord): readonly string[] {
+  if (value.sourceContextName !== "marketplace") return [];
+  return [
+    ...(REMOVAL_CONSUMERS.some(([, name]) => name === value.projectionName) ? [OPERATOR_REMOVAL] : []),
+    ...(OFFER_LIFECYCLE_CONSUMERS.some(([, name]) => name === value.projectionName) ? OFFER_LIFECYCLE_EVENTS : []),
+  ];
+}
+
+function withoutAddedConsumerEvents(value: FingerprintRecord) {
+  const added = addedConsumerEventTypes(value);
+  if (added.length === 0) return value;
   return {
     ...value,
     ...(Array.isArray(value.eventTypes)
-      ? { eventTypes: value.eventTypes.filter((type) => type !== OPERATOR_REMOVAL) }
+      ? { eventTypes: value.eventTypes.filter((type) => !added.includes(type)) }
       : {}),
     ...(isRecord(value.handlers)
-      ? { handlers: Object.fromEntries(Object.entries(value.handlers).filter(([type]) => type !== OPERATOR_REMOVAL)) }
+      ? { handlers: Object.fromEntries(Object.entries(value.handlers).filter(([type]) => !added.includes(type))) }
       : {}),
   };
 }

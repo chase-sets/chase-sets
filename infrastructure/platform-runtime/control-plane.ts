@@ -134,6 +134,11 @@ CREATE TABLE IF NOT EXISTS platform_worker_heartbeats (
 CREATE INDEX IF NOT EXISTS platform_worker_heartbeats_heartbeat_at_worker_id_idx
   ON platform_worker_heartbeats (heartbeat_at, worker_id);
 
+CREATE TABLE IF NOT EXISTS platform_worker_quiesces (
+  worker_kind text PRIMARY KEY,
+  quiesced_at timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS platform_runner_statuses (
   runner_name text PRIMARY KEY,
   runner_kind text NOT NULL,
@@ -603,6 +608,84 @@ type ProjectionWakeRelayCursorRow = Readonly<{
 export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<void> {
   await db.query(platformControlPlaneSchemaSql);
   await reapStaleProjectionOperations(db);
+}
+
+/**
+ * Records that no worker process of `workerKind` is running now. Only a bootstrap that the deployment
+ * quiesce started after it confirmed zero worker pods may record it; every process started before this
+ * moment has terminated.
+ */
+export async function recordWorkerQuiesce(db: PgQueryable, workerKind: string): Promise<void> {
+  await db.query(
+    `INSERT INTO platform_worker_quiesces (worker_kind, quiesced_at)
+     VALUES ($1, now())
+     ON CONFLICT (worker_kind)
+     DO UPDATE SET quiesced_at = EXCLUDED.quiesced_at`,
+    [workerKind],
+  );
+}
+
+export type WorkerQuiesceCohortSnapshot = Readonly<{
+  snapshotAt: string;
+  /** The latest recorded quiesce of the worker kind, or null when none was ever recorded. */
+  quiescedAt: string | null;
+  /** Every retained heartbeat of the worker kind, whatever its age. */
+  workers: readonly Record<string, unknown>[];
+  /** The owner of every unexpired lease. */
+  leaseOwnerIds: readonly string[];
+}>;
+
+type WorkerQuiesceCohortQueryRow = Readonly<{
+  snapshot_at: Date | string;
+  quiesced_at: Date | string | null;
+  workers: unknown;
+  lease_owner_ids: unknown;
+}>;
+
+/** The latest quiesce of `workerKind` with every heartbeat of that kind and every unexpired lease owner. */
+export async function readWorkerQuiesceCohort(
+  db: PgQueryable,
+  workerKind: string,
+): Promise<WorkerQuiesceCohortSnapshot> {
+  const result = await db.query<WorkerQuiesceCohortQueryRow>(
+    `SELECT
+       now() AS snapshot_at,
+       (SELECT quiesced_at FROM platform_worker_quiesces WHERE worker_kind = $1) AS quiesced_at,
+       COALESCE(
+         (
+           SELECT jsonb_agg(to_jsonb(heartbeat) ORDER BY heartbeat.started_at, heartbeat.worker_id)
+           FROM platform_worker_heartbeats AS heartbeat
+           WHERE heartbeat.worker_kind = $1
+         ),
+         '[]'::jsonb
+       ) AS workers,
+       COALESCE(
+         (
+           SELECT jsonb_agg(DISTINCT lease.owner_id)
+           FROM platform_control_leases AS lease
+           WHERE lease.expires_at > now()
+         ),
+         '[]'::jsonb
+       ) AS lease_owner_ids`,
+    [workerKind],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error("Worker quiesce cohort query did not return its snapshot row.");
+  }
+
+  const leaseOwnerIds =
+    typeof row.lease_owner_ids === "string" ? (JSON.parse(row.lease_owner_ids) as unknown) : row.lease_owner_ids;
+  if (!Array.isArray(leaseOwnerIds)) {
+    throw new Error("Worker quiesce cohort query returned unreadable lease owners.");
+  }
+
+  return {
+    snapshotAt: formatTimestamp(row.snapshot_at),
+    quiescedAt: formatNullableTimestamp(row.quiesced_at),
+    workers: readJsonRecordArray(row.workers),
+    leaseOwnerIds: leaseOwnerIds.map((ownerId) => String(ownerId)),
+  };
 }
 
 const STALE_PROJECTION_OPERATION_REAP_BATCH_LIMIT = 100;

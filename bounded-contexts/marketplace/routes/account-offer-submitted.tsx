@@ -12,6 +12,7 @@ import {
   SubmittedOfferDetailErrorBoundary,
 } from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
+import { useSubmittedOfferLifecycle } from "../features/offers/ui/submitted-offer-lifecycle";
 import type { BuyerOfferPolicyListSnapshot } from "../features/offer-policy/api/runtime";
 
 export { SubmittedOfferDetailErrorBoundary as ErrorBoundary };
@@ -75,6 +76,7 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountSubmittedOfferRoute() {
   const data = useLoaderData<typeof loader>();
   const location = useLocation();
+  const lifecycle = useSubmittedOfferLifecycle();
 
   if (!data.submittedOffer) {
     return (
@@ -86,6 +88,10 @@ export default function MarketplaceAccountSubmittedOfferRoute() {
   }
 
   return (
-    <MarketplaceSubmittedOfferDetailPage offer={data.submittedOffer as SubmittedOfferDetail} policies={data.policies} />
+    <MarketplaceSubmittedOfferDetailPage
+      offer={data.submittedOffer as SubmittedOfferDetail}
+      policies={data.policies}
+      lifecycle={lifecycle}
+    />
   );
 }

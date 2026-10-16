@@ -77,7 +77,29 @@ function normalizeVersionSelection(value: readonly { dimensionId: string; option
   return normalized;
 }
 
-export type OfferStatus = "draft" | "submitted" | "accepted";
+export type OfferStatus = "draft" | "submitted" | "paused" | "withdrawn" | "accepted";
+
+export type OfferLifecycleAction = "pause" | "resume" | "withdraw";
+
+const offerLifecycleTargets = {
+  pause: { from: ["submitted"], to: "paused" },
+  resume: { from: ["paused"], to: "submitted" },
+  withdraw: { from: ["submitted", "paused"], to: "withdrawn" },
+} as const satisfies Record<OfferLifecycleAction, { from: readonly OfferStatus[]; to: OfferStatus }>;
+
+/**
+ * One rule for the buyer lifecycle table: a command already at its target is
+ * unchanged, a listed source status changes, and anything else (withdrawn,
+ * accepted, draft) is rejected.
+ */
+export function offerLifecycleTransition(
+  status: OfferStatus,
+  action: OfferLifecycleAction,
+): "changed" | "unchanged" | "rejected" {
+  const target = offerLifecycleTargets[action];
+  if (status === target.to) return "unchanged";
+  return (target.from as readonly OfferStatus[]).includes(status) ? "changed" : "rejected";
+}
 
 export type MarketplaceOfferState = Readonly<{
   offerId: OfferId | null;
@@ -205,6 +227,16 @@ export type AcceptOfferCommand = Readonly<{
   acceptanceBatchSize?: number | null;
 }>;
 
+type OfferLifecycleCommand<Type extends string> = Readonly<{
+  type: Type;
+  buyerAccountId: AccountId;
+  at: string;
+}>;
+
+export type PauseOfferCommand = OfferLifecycleCommand<"PauseOffer">;
+export type ResumeOfferCommand = OfferLifecycleCommand<"ResumeOffer">;
+export type WithdrawOfferCommand = OfferLifecycleCommand<"WithdrawOffer">;
+
 export type BindOfferToBuyerPolicyCommand = Readonly<{
   type: "BindOfferToBuyerPolicy";
   buyerAccountId: AccountId;
@@ -214,7 +246,10 @@ export type MarketplaceOfferCommand =
   | SubmitOfferCommand
   | UpdateOfferPriceCommand
   | AcceptOfferCommand
-  | BindOfferToBuyerPolicyCommand;
+  | BindOfferToBuyerPolicyCommand
+  | PauseOfferCommand
+  | ResumeOfferCommand
+  | WithdrawOfferCommand;
 
 export type OfferSubmittedEvent = DomainEvent<
   "marketplace.offer.submitted",
@@ -290,11 +325,25 @@ export type OfferBuyerPolicyBoundEvent = DomainEvent<
   "marketplace.offer.buyer-policy-bound",
   Readonly<{ offerId: OfferId; buyerAccountId: AccountId; policyId: string }>
 >;
+type OfferLifecycleEventData = Readonly<{ offerId: OfferId; buyerAccountId: AccountId; at: string }>;
+export type OfferPausedEvent = DomainEvent<"marketplace.offer.paused", OfferLifecycleEventData>;
+export type OfferResumedEvent = DomainEvent<"marketplace.offer.resumed", OfferLifecycleEventData>;
+export type OfferWithdrawnEvent = DomainEvent<"marketplace.offer.withdrawn", OfferLifecycleEventData>;
+
+const offerLifecycleCommands = {
+  PauseOffer: { action: "pause", eventType: "marketplace.offer.paused" },
+  ResumeOffer: { action: "resume", eventType: "marketplace.offer.resumed" },
+  WithdrawOffer: { action: "withdraw", eventType: "marketplace.offer.withdrawn" },
+} as const;
+
 export type MarketplaceOfferEvent =
   | OfferSubmittedEvent
   | OfferPriceUpdatedEvent
   | OfferAcceptedEvent
   | OfferBuyerPolicyBoundEvent
+  | OfferPausedEvent
+  | OfferResumedEvent
+  | OfferWithdrawnEvent
   | DomainEvent<
       "marketplace.offer.managed-evaluated",
       Readonly<{
@@ -393,7 +442,7 @@ function decideOffer(
     case "UpdateOfferPrice": {
       assert(!state.buyerOfferPolicyId || managed, "Managed Offer price changes require fresh policy authority.");
       assert(state.offerId !== null, "Offer must be submitted first.");
-      assert(state.status === "submitted", "Only submitted offers can change price.");
+      assert(state.status === "submitted" || state.status === "paused", "Only open or paused Offers can change price.");
       assert(state.buyerAccountId === command.buyerAccountId, "Only the Offer's buyer can change its price.");
       const priceAmount = normalizeMoneyAmount(command.priceAmount);
       const priceCurrencyCode = normalizeOfferPriceCurrencyCode(command.priceCurrencyCode);
@@ -502,6 +551,26 @@ function decideOffer(
           },
         },
       ];
+    case "PauseOffer":
+    case "ResumeOffer":
+    case "WithdrawOffer": {
+      assert(state.offerId !== null, "Offer must be submitted first.");
+      assert(state.buyerAccountId === command.buyerAccountId, "Only the Offer's buyer can change its lifecycle.");
+      const { action, eventType } = offerLifecycleCommands[command.type];
+      const transition = offerLifecycleTransition(state.status, action);
+      assert(transition !== "rejected", `A ${state.status} Offer cannot change its lifecycle.`);
+      if (transition === "unchanged") return [];
+      return [
+        {
+          type: eventType,
+          data: {
+            offerId: state.offerId,
+            buyerAccountId: command.buyerAccountId,
+            at: normalizeRequiredText(command.at, "Offer lifecycle changes must record a timestamp."),
+          },
+        },
+      ];
+    }
     default:
       throw new Error(`Unhandled marketplace offer command: ${JSON.stringify(command)}`);
   }
@@ -563,6 +632,10 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       priceCurrencyCode: event.data.priceCurrencyCode,
     };
   }
+
+  if (event.type === "marketplace.offer.paused") return { ...state, status: "paused" };
+  if (event.type === "marketplace.offer.resumed") return { ...state, status: "submitted" };
+  if (event.type === "marketplace.offer.withdrawn") return { ...state, status: "withdrawn" };
 
   if (event.type === "marketplace.offer.accepted") {
     return {

@@ -84,6 +84,43 @@ after the retention window and removes orphaned staged Inventory import inputs.
 It is safe for every worker process to register; the platform control plane
 leases the cadence so only one process runs a turn.
 
+## Event Types Added To Existing Subscriptions
+
+The API and worker are separate workloads, so a new producer can append an event
+while an old worker still owns a consumer checkpoint. The old worker filters the
+new type out of its unchanged subscription and advances its checkpoint past it,
+so the upgraded worker never reads that event. When a change adds event types to
+existing subscriptions without a new `subscriptionVersion`, its producers stay
+behind a default-closed admission and roll out in two phases:
+
+1. Deploy the release with the producer switch off. Every worker heartbeat
+   carries `consumedEventTypes`, the event types its subscription runners read.
+2. Let the worker rollout finish. A stale heartbeat does not retire a worker,
+   because a process whose heartbeat writes fail can keep renewing its leases.
+   Only the deployment quiesce retires workers: the bootstrap hook scales
+   `platform-worker` to zero, and the bootstrap records the quiesce only when
+   no worker pod is left, terminating pods included, within the drain budget.
+   A pod still exiting withholds the record without failing the deploy, and a
+   later deploy records it. Admission reads
+   the control plane on every request and stays closed until a quiesce is
+   recorded, while a worker started before it still owns an unexpired lease,
+   while any worker that started or heartbeated since it predates
+   `consumedEventTypes` or reads the anchor event without the new types,
+   whatever its heartbeat age, and until one of those capable workers is active.
+3. Open the switch in a later API-only change. Its deployment quiesces the
+   workers again. Refusals log the blocking reason and worker ids, so a refusal
+   after opening names the worker still in the way.
+4. After opening, roll the API back freely but keep the capable workers
+   installed. If a worker rollback is unavoidable, close the switch first and
+   wait until the consumer projections report caught up in
+   [Projection Operations](./projection-operations.md). A returning old worker
+   closes admission again when it first heartbeats, but cannot recover events
+   it already skipped.
+
+Offer Pause, Resume and Withdraw use this admission:
+`CHASE_SETS_OFFER_LIFECYCLE_OPEN` is the switch, refusals return `503
+offer_lifecycle_closed` and log `offer_lifecycle_closed_refusal`.
+
 ## External Providers
 
 Any provider call that can succeed outside the database transaction must have a

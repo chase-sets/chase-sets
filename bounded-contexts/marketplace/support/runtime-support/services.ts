@@ -26,12 +26,14 @@ import { createOfferResponseAttentionSourceFromReadModel } from "../../features/
 import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
 import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
+import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
 import { createManagedOfferWork } from "../../features/offers/integrations/managed-work";
 import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-model/managed-projection";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 export type MarketplaceServiceOptions = Readonly<{
   managedOfferPricing?: ManagedOfferPricing;
+  offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
@@ -84,6 +86,7 @@ export function createMarketplaceServices(
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
     ...(options.managedOfferPricing ? { managedOfferPricing: options.managedOfferPricing } : {}),
+    ...(options.offerLifecycleAdmission ? { offerLifecycleAdmission: options.offerLifecycleAdmission } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
