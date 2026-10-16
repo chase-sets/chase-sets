@@ -18,7 +18,10 @@ const servicesFile = "bounded-contexts/inventory/support/runtime-support/service
 const absoluteImport = (file) => JSON.stringify(path.join(repoRoot, file).replaceAll("\\", "/"));
 const fixtureConfig = JSON.stringify({
   extends: path.join(repoRoot, "tsconfig.json"),
-  compilerOptions: { typeRoots: [path.join(repoRoot, "node_modules/@types")] },
+  compilerOptions: {
+    allowImportingTsExtensions: true,
+    typeRoots: [path.join(repoRoot, "node_modules/@types")],
+  },
 });
 const prelude = `
 import type { InventoryServices } from ${absoluteImport(servicesFile)};
