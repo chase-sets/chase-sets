@@ -131,6 +131,19 @@ function gatewayTimeoutResponse() {
   });
 }
 
+type MutationAttemptReadMap = Map<string, Promise<InventoryMutationReceipt | null>>;
+
+function mutationAttemptReadMap(): MutationAttemptReadMap {
+  if (typeof window === "undefined") return new Map();
+  const key = Symbol.for("chase-sets.inventory.mutation-attempt-reads");
+  const global = globalThis as typeof globalThis & { [key: symbol]: unknown };
+  const existing = global[key];
+  if (existing instanceof Map) return existing as MutationAttemptReadMap;
+  const created: MutationAttemptReadMap = new Map();
+  global[key] = created;
+  return created;
+}
+
 export function createInventoryApiClient({
   mutationAttemptId,
   baseUrl = DEFAULT_BASE_URL,
@@ -174,7 +187,7 @@ export function createInventoryApiClient({
     }),
   );
   const headers = resolveHeaders(initialHeaders);
-  const mutationAttemptReads = new Map<string, Promise<InventoryMutationReceipt | null>>();
+  const mutationAttemptReads = mutationAttemptReadMap();
 
   return {
     async getMutationAttempt(
