@@ -265,6 +265,8 @@ export type DiscoverySearchQuerySignal = Readonly<{
   resultCount: number | null;
   total: number | null;
   zeroResults: boolean | null;
+  lexicalZero: boolean | null;
+  interpretation: "applied" | "not-applied" | "unknown";
   retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected" | null;
   outcome: "success" | "failure";
   normalizationDurationMs: number;
@@ -1157,6 +1159,8 @@ export function recordDiscoverySearchQuerySignal(event: DiscoverySearchQuerySign
     sort_order: event.sortOrder,
     cursor_state: event.cursorState,
     zero_results: event.zeroResults === null ? "unknown" : String(event.zeroResults),
+    lexical_zero: event.lexicalZero === null ? "unknown" : String(event.lexicalZero),
+    interpretation: event.interpretation,
     retrieval_mode: event.retrievalMode ?? "unknown",
     outcome: event.outcome,
     query_embedding_outcome: event.queryEmbeddingOutcome,

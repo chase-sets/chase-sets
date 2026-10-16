@@ -32,9 +32,12 @@ import {
   evolveMarketplaceOffer,
   initialMarketplaceOfferState,
   normalizeOfferPriceCurrencyCode,
+  offerLifecycleTransition,
   type MarketplaceOfferCommand,
   type MarketplaceOfferEvent,
   type MarketplaceOfferState,
+  type OfferLifecycleAction,
+  type OfferStatus,
 } from "../domain/domain";
 import { createOfferAcceptedCsatOutcomeFact } from "./request-support/customer-feedback-outcome-fact";
 import { assertOfferSubmissionAllowed, MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
@@ -58,6 +61,7 @@ import {
 import { createMarketplaceProductDescriptor, type MarketplaceVersionSchema } from "../domain/versioning";
 import { createManagedOfferAuthority, ManagedOfferConflictError, type ManagedOfferTarget } from "./managed-authority";
 import { BuyerOfferPolicyError } from "../../offer-policy/domain/domain";
+import { MarketplaceOfferLifecycleClosedError } from "./lifecycle-admission";
 
 export class MarketplaceOfferFeeQuoteStaleError extends Error {
   public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
@@ -72,6 +76,7 @@ export class MarketplaceOfferAcceptanceReadinessError extends Error {
   public constructor(
     public readonly code:
       | "offer_already_accepted"
+      | "offer_not_open"
       | "listing_not_eligible"
       | "listing_evidence_incomplete"
       | "listing_seller_trust_incomplete",
@@ -80,15 +85,49 @@ export class MarketplaceOfferAcceptanceReadinessError extends Error {
     super(
       code === "offer_already_accepted"
         ? "Offer has already been accepted."
-        : code === "listing_evidence_incomplete"
-          ? "Listing Evidence requirements are incomplete."
-          : code === "listing_seller_trust_incomplete"
-            ? "Seller trust requirements are incomplete for this Listing."
-            : "The selected Listing is no longer eligible for this Offer.",
+        : code === "offer_not_open"
+          ? "Offer is not open for acceptance."
+          : code === "listing_evidence_incomplete"
+            ? "Listing Evidence requirements are incomplete."
+            : code === "listing_seller_trust_incomplete"
+              ? "Seller trust requirements are incomplete for this Listing."
+              : "The selected Listing is no longer eligible for this Offer.",
     );
     this.name = "MarketplaceOfferAcceptanceReadinessError";
   }
 }
+
+export class MarketplaceOfferLifecycleError extends Error {
+  public constructor(public readonly code: "not_found" | "offer_transition_rejected" | "offer_conflict") {
+    super(
+      code === "not_found"
+        ? "Offer not found."
+        : code === "offer_conflict"
+          ? "Offer changed while this request was running."
+          : "Offer cannot make this lifecycle change.",
+    );
+    this.name = "MarketplaceOfferLifecycleError";
+  }
+}
+
+export const MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT = 250;
+
+export type MarketplaceOfferLifecycleResult = Readonly<{
+  offerId: OfferId;
+  outcome: "changed" | "unchanged";
+  status: OfferStatus;
+  version: number;
+}>;
+
+export type MarketplaceOfferLifecycleOutcome =
+  | MarketplaceOfferLifecycleResult
+  | Readonly<{ offerId: OfferId; outcome: "rejected"; code: MarketplaceOfferLifecycleError["code"] }>;
+
+const offerLifecycleCommandTypes = {
+  pause: "PauseOffer",
+  resume: "ResumeOffer",
+  withdraw: "WithdrawOffer",
+} as const satisfies Record<OfferLifecycleAction, MarketplaceOfferCommand["type"]>;
 
 export type MarketplaceOfferAcceptanceResult = Readonly<{
   offerId: OfferId;
@@ -141,7 +180,15 @@ export type MarketplaceOfferServices = Readonly<{
       priceCurrencyCode: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ offerId: OfferId; version: number }>;
+  ) => Promise<{ offerId: OfferId; version: number; status: OfferStatus }>;
+  changeOfferLifecycle: (
+    params: Readonly<{ offerId: OfferId; buyerAccountId: AccountId; action: OfferLifecycleAction }>,
+    context: EventStoreContext,
+  ) => Promise<MarketplaceOfferLifecycleResult>;
+  bulkChangeOfferLifecycle: (
+    params: Readonly<{ buyerAccountId: AccountId; action: OfferLifecycleAction; offerIds: readonly OfferId[] }>,
+    context: EventStoreContext,
+  ) => Promise<readonly MarketplaceOfferLifecycleOutcome[]>;
   acceptOffer: (
     params: Readonly<{
       offerId: OfferId;
@@ -272,6 +319,56 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       ...quote,
       fee_quote_fingerprint: `${quote.fee_quote_fingerprint}|${offerId}:${current.version}|${listingId}:${listing.version}`,
     };
+  }
+
+  async function assertOfferLifecycleAdmitted() {
+    const decision = deps.offerLifecycleAdmission
+      ? await deps.offerLifecycleAdmission.check()
+      : ({ admitted: false, reason: "admission_not_configured" } as const);
+    if (!decision.admitted) throw new MarketplaceOfferLifecycleClosedError(decision.reason);
+  }
+
+  async function changeOfferLifecycle(
+    params: Readonly<{ offerId: OfferId; buyerAccountId: AccountId; action: OfferLifecycleAction }>,
+    context: EventStoreContext,
+  ): Promise<MarketplaceOfferLifecycleResult> {
+    const streamId = `marketplace.offer-${params.offerId}`;
+    const classify = (state: MarketplaceOfferState) => {
+      // Another buyer's Offer is indistinguishable from a missing one.
+      if (state.offerId === null || state.buyerAccountId !== params.buyerAccountId)
+        return new MarketplaceOfferLifecycleError("not_found");
+      return offerLifecycleTransition(state.status, params.action) === "rejected"
+        ? new MarketplaceOfferLifecycleError("offer_transition_rejected")
+        : null;
+    };
+    const current = await repository.load(streamId);
+    const rejection = classify(current.state);
+    if (rejection) throw rejection;
+    try {
+      const result = await commandHandler({
+        streamId,
+        expectedVersion: current.version,
+        command: {
+          type: offerLifecycleCommandTypes[params.action],
+          buyerAccountId: params.buyerAccountId,
+          at: new Date().toISOString(),
+        },
+        context,
+      });
+      return {
+        offerId: params.offerId,
+        outcome: result.newEvents.length > 0 ? "changed" : "unchanged",
+        status: result.state.status,
+        version: result.version,
+      };
+    } catch (error) {
+      // A concurrent change can land between the check above and the decision or append.
+      const latest = classify((await repository.load(streamId)).state);
+      if (latest) throw latest;
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict")
+        throw new MarketplaceOfferLifecycleError("offer_conflict");
+      throw error;
+    }
   }
 
   function assertConfirmedFeeQuote(
@@ -492,7 +589,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
             throw new ManagedOfferConflictError("managed_offer_conflict");
           throw error;
         }
-        return { offerId: params.offerId, version: current.version + events.length };
+        return { offerId: params.offerId, version: current.version + events.length, status: current.state.status };
       }
       const result = await commandHandler({
         streamId: `marketplace.offer-${params.offerId}`,
@@ -504,7 +601,31 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         },
         context,
       });
-      return { offerId: params.offerId, version: result.version };
+      return { offerId: params.offerId, version: result.version, status: result.state.status };
+    },
+    changeOfferLifecycle: async (params, context) => {
+      await assertOfferLifecycleAdmitted();
+      return changeOfferLifecycle(params, context);
+    },
+    bulkChangeOfferLifecycle: async (params, context) => {
+      if (params.offerIds.length === 0 || params.offerIds.length > MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT)
+        throw new Error(`Bulk Offer changes take 1 to ${MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT} Offers.`);
+      await assertOfferLifecycleAdmitted();
+      const outcomes: MarketplaceOfferLifecycleOutcome[] = [];
+      for (const offerId of params.offerIds) {
+        try {
+          outcomes.push(
+            await changeOfferLifecycle(
+              { offerId, buyerAccountId: params.buyerAccountId, action: params.action },
+              context,
+            ),
+          );
+        } catch (error) {
+          if (!(error instanceof MarketplaceOfferLifecycleError)) throw error;
+          outcomes.push({ offerId, outcome: "rejected", code: error.code });
+        }
+      }
+      return outcomes;
     },
     declineOfferMatch: async (params, context) => {
       const offer = await getOfferMatch(deps.db, params.offerId, params.sellerAccountId);
@@ -555,6 +676,10 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
           acceptedSellerAccountId: current.state.acceptedSellerAccountId,
           acceptedListingId: current.state.acceptedListingId,
         });
+      }
+
+      if (current.state.status !== "submitted") {
+        throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: current.state.status });
       }
 
       const listingStreamId = `marketplace.listing-${params.listingId}`;
@@ -742,6 +867,9 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
               listingEvidenceSnapshot: latest.state.listingEvidenceSnapshot,
               version: latest.version,
             };
+          }
+          if (latest.state.status !== "submitted" && latest.state.status !== "accepted") {
+            throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: latest.state.status });
           }
           if (commitment) throw new ManagedOfferConflictError("managed_offer_conflict");
           throw new MarketplaceOfferAcceptanceReadinessError(

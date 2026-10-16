@@ -59,7 +59,8 @@
     "./work-signal-store": "./work-signal-store.ts",
     "./worker": "./worker.ts",
     "./worker-observer": "./worker-observer.ts",
-    "./worker-capacity": "./worker-capacity.ts"
+    "./worker-capacity": "./worker-capacity.ts",
+    "./worker-event-capability": "./worker-event-capability.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ./tsconfig.json --noEmit",

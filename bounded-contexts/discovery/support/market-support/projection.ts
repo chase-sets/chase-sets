@@ -503,6 +503,27 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   );
 }
 
+/** Buyer Pause/Resume/Withdraw: status only; the Offer patch removes non-submitted Offers from live views. */
+async function projectOfferLifecycleStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  const data = event.data as { offerId: string };
+  const projected = await db.query<{ offer_id: string }>(
+    `UPDATE discovery_offer_demand_matches
+     SET status = $2,
+         offer_stream_version = $3,
+         updated_at = $4
+     WHERE offer_id = $1
+       AND offer_stream_version < $3
+     RETURNING offer_id`,
+    [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+  );
+  if (projected.rows.length === 0) return;
+  await emitOfferPatch(db, event, data.offerId);
+}
+
 async function markDiscoveryMarketSupplyHoldTerminal(
   db: PgQueryable,
   params: Readonly<{
@@ -1382,6 +1403,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       if (projected.rows.length === 0) return;
       await emitOfferPatch(db, event, data.offerId);
     },
+    "marketplace.offer.paused": (event) => projectOfferLifecycleStatus(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectOfferLifecycleStatus(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectOfferLifecycleStatus(db, event, "withdrawn"),
     "marketplace.offer.accepted": async (event) => {
       const data = event.data as {
         offerId: string;

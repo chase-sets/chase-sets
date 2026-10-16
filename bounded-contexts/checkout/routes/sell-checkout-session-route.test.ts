@@ -639,6 +639,31 @@ describe("checkout web routes: sell checkout session", () => {
     },
   );
 
+  it("turns offer_not_open from a paused or withdrawn Offer into Sell List re-review", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockRejectedValueOnce(
+      new MockMarketplaceApiError(409, { error: { code: "offer_not_open", details: { status: "paused" } } }),
+    );
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    const detail = "Acerola's Mischief: offer terms need refresh.";
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { form: detail },
+      recovery: { kind: "readiness-stale", detail },
+    });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRemoveSellListLine).not.toHaveBeenCalled();
+  });
+
   it("keeps the generic refresh message for fee_quote_stale", async () => {
     mockSignedInSellCheckoutState();
     mockAcceptOfferMatch.mockRejectedValueOnce(

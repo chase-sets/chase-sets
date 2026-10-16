@@ -349,6 +349,13 @@ describe("count-capture steps", () => {
     baseline: vi.fn(async () => ({ providerSends: 0 })),
     initialNotice: vi.fn(async () => ({ notice: { fingerprint: "a".repeat(64) } })),
     usage: vi.fn(async () => ({ usage: { state: "skipped" } })),
+    quote: vi.fn(),
+    quoteReadback: vi.fn(),
+    finalNotice: vi.fn(),
+    acquire: vi.fn(),
+    preview: vi.fn(),
+    preConfirm: vi.fn(),
+    freeze: vi.fn(),
   });
   const post = (
     root: ReturnType<typeof captureApp>,
@@ -395,6 +402,51 @@ describe("count-capture steps", () => {
     }
     expect(unrouted.status).toBe(404);
     expect(Object.values(capture).every((handler) => handler.mock.calls.length === 0)).toBe(true);
+  });
+
+  it("routes the seven marked spend/read/freeze steps and refuses effectful commands", async () => {
+    const capture = lifecycle();
+    for (const handler of Object.values(capture)) handler.mockResolvedValue({ retained: true } as never);
+    const root = captureApp(capture);
+    const planner = {
+      selection: { mode: "ids", scopeRecordIds: ["scope-synthetic-op01"] },
+      budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+    };
+    const acquisition = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    const steps = [
+      ["/counts/quote", "quote", planner],
+      ["/count-capture/quote-readback", "quoteReadback", {}],
+      ["/count-capture/final-notice", "finalNotice", {}],
+      ["/counts/acquire", "acquire", acquisition],
+      ["/preview", "preview", planner],
+      ["/count-capture/pre-confirm", "preConfirm", { ...planner, planFingerprint: "b".repeat(64) }],
+      ["/count-capture/freeze", "freeze", { runnerRunId: "300", runnerRunAttempt: 1 }],
+    ] as const;
+    for (const [path, method, body] of steps) {
+      const response = await post(root, path, body);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      if (method === "quoteReadback" || method === "finalNotice")
+        expect(capture[method]).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ request: expect.any(Request) }),
+        );
+      else
+        expect(capture[method]).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ request: expect.any(Request) }),
+          body,
+        );
+    }
+    for (const path of ["/confirm", "/batch-1/cancel", "/batch-1/resume", "/batch-1/retry-unit"]) {
+      const response = await post(root, path, {});
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({ error: { code: "capture-stopped" } });
+    }
+    for (const [path, , body] of steps) {
+      const response = await post(root, path, { ...body, runId: "untrusted" });
+      expect(response.status).toBe(409);
+    }
+    for (const [path] of steps.filter(([path]) => path.startsWith("/count-capture/")))
+      expect((await post(root, path, {}, {})).status).toBe(404);
   });
 
   const refusals: Record<string, Readonly<{ headers?: Record<string, string>; body: unknown }>> = {

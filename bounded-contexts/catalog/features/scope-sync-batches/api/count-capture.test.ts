@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { countCaptureCollectionSchema } from "../domain/count-lifecycle-receipt";
+import { countCaptureFields, countCapturePlanSchema } from "../domain/count-capture-plan";
 import { CountCaptureStopped } from "../../source-observations/api/providers/count-capture-transport";
 import {
   observeCountSourceWinners,
@@ -357,6 +360,10 @@ describe("targeted usage observation", () => {
       ],
       "retainTargetedCountCaptureUsage",
       {
+        z,
+        countCaptureCollectionSchema,
+        countCaptureFields,
+        countCapturePlanSchema,
         ...transport,
         rawAuthority: (snapshot: { remainingCredits: number | null }) => ({
           fingerprint: "0".repeat(64),

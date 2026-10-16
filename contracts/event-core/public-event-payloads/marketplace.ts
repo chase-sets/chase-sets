@@ -117,6 +117,13 @@ export type MarketplaceOfferPriceUpdatedPayload = Readonly<{
   priceCurrencyCode: string;
 }>;
 
+/** Shared by `marketplace.offer.paused`, `.resumed` and `.withdrawn`; the event type carries the new Offer Status. */
+export type MarketplaceOfferLifecyclePayload = Readonly<{
+  offerId: string;
+  buyerAccountId: AccountId;
+  at: string;
+}>;
+
 export type MarketplaceListingOfferCommitmentRecordedPayload = Readonly<{
   offerId: string;
   quantity: number;
@@ -440,6 +447,9 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
   "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;
   "marketplace.offer.price-updated": MarketplaceOfferPriceUpdatedPayload;
+  "marketplace.offer.paused": MarketplaceOfferLifecyclePayload;
+  "marketplace.offer.resumed": MarketplaceOfferLifecyclePayload;
+  "marketplace.offer.withdrawn": MarketplaceOfferLifecyclePayload;
   "marketplace.listing.offer-commitment-recorded": MarketplaceListingOfferCommitmentRecordedPayload;
   "marketplace.seller-listing-availability.commitment-checked": MarketplaceSellerListingAvailabilityCommitmentCheckedPayload;
   "marketplace.review-scoring.disposition-projected.v1": MarketplaceReviewScoringDispositionProjectedV1Payload;

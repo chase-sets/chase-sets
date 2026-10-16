@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import * as http from "@chase-sets/platform-runtime/http";
 import { CountCaptureStopped } from "../../source-observations/api/providers/count-capture-transport";
 import * as transport from "../../source-observations/api/providers/count-capture-transport";
@@ -229,7 +230,7 @@ function receiptCollection(collectedAt: string) {
 
 // Original #9520 AC6 floor: each owned guard, disabled alone, admits its hostile case.
 describe("guard-disabled bypass mutants", () => {
-  const sessionBindings = { ...http, ...transport, ...acquisition };
+  const sessionBindings = { z, ...plan, ...receipt, ...http, ...transport, ...acquisition };
   const sessionGuards = {
     staging: ['environment !== "staging"', "a non-staging environment"],
     session: ["!actor || !actor.sessionId", "no session"],
@@ -297,7 +298,7 @@ describe("guard-disabled bypass mutants", () => {
       "../api/count-capture-lifecycle.ts",
       [needle, "replacement" in hostile ? hostile.replacement : "false"],
       "createCountCaptureLifecycle",
-      { ...http, ...transport, ...acquisition, ...plan, ...receipt, ...storeModule },
+      { z, ...http, ...transport, ...acquisition, ...plan, ...receipt, ...storeModule },
     );
     const mutant = create({ ...f.deps });
     await expect(mutant.baseline(captureSession(), body)).resolves.toMatchObject({ providerSends: 0 });

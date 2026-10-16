@@ -13,6 +13,8 @@ import {
   createCaptureLifecycleFixture,
 } from "../../../features/scope-sync-batches/tests/count-capture-session-fixture";
 import { createCatalogApiClient } from "../../shell-support/api/client";
+import { captureCountsFixture } from "../../../features/scope-sync-batches/tests/count-capture-counts-fixture";
+import { captureNow } from "../../../features/scope-sync-batches/tests/count-capture-planner-fixture";
 
 const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
   const api = {
@@ -27,6 +29,13 @@ const { api, createCatalogRequestApiClient } = vi.hoisted(() => {
     captureScopeSyncCountBaseline: vi.fn(),
     captureScopeSyncCountInitialNotice: vi.fn(),
     captureScopeSyncCountUsage: vi.fn(),
+    quoteScopeSyncCaptureCounts: vi.fn(),
+    readBackScopeSyncCaptureQuote: vi.fn(),
+    recordScopeSyncCaptureFinalNotice: vi.fn(),
+    acquireScopeSyncCaptureCounts: vi.fn(),
+    previewScopeSyncCountCapture: vi.fn(),
+    preConfirmScopeSyncCountCapture: vi.fn(),
+    freezeScopeSyncCountCapture: vi.fn(),
   };
   return { api, createCatalogRequestApiClient: vi.fn(() => api) };
 });
@@ -302,6 +311,64 @@ describe("count-capture intents", () => {
     });
     expect(api.captureScopeSyncCountInitialNotice).toHaveBeenCalledExactlyOnceWith();
     expect(api.captureScopeSyncCountUsage).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it("runs the marked Admin/client/API chain from quote through freeze and retains the same request's reads", async () => {
+    const f = captureCountsFixture();
+    await f.ready();
+    const root = new Hono<{ Variables: { context: EventStoreContext; actor: ResolvedActor | null } }>();
+    root.use("*", async (c, next) => {
+      c.set("context", captureContext);
+      c.set("actor", captureActor());
+      await next();
+    });
+    root.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes({} as never, f.lifecycle));
+    const client = createCatalogApiClient({
+      baseUrl: `${stagingAdmin}/api/catalog`,
+      headers: { origin: stagingAdmin, "sec-fetch-site": "same-origin" },
+      fetch: async (input, init) => root.request(input instanceof Request ? input : String(input), init),
+    });
+    const call = async (intent: string, fields: Readonly<Record<string, string>> = {}) => {
+      createCatalogRequestApiClient.mockReturnValueOnce(client as never);
+      const response = (await captureForm([
+        ["intent", intent],
+        ["countCapture", "1"],
+        ...Object.entries(fields),
+      ])) as Response;
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      return response.json();
+    };
+    const fields = { selectionMode: "ids", scopeRecordIds: captureScope, budget: JSON.stringify(f.budget) };
+    const quote = await call("count-quote", fields);
+    await call("capture-quote-readback");
+    await call("capture-final-notice");
+    expect(f.fetch).not.toHaveBeenCalled();
+    await call("count-acquire", { quoteId: quote.quoteId, countFingerprint: quote.fingerprint });
+    f.clock.now = captureNow;
+    const preview = await call("preview", fields);
+    await call("pre-confirm-planner-read", { ...fields, planFingerprint: preview.planFingerprint });
+    const frozen = await call("capture-freeze", {
+      freeze: JSON.stringify({
+        runnerRunId: "300",
+        runnerRunAttempt: 1,
+        collection: { ...captureAuthority().collection, outcome: "bound", collectedAt: f.clock.now },
+      }),
+    });
+    expect(frozen.receipt.classification.verdict).toBe("CONFORMING");
+    expect(f.run().reads.map((row) => [row.phase, row.requestId])).toEqual(
+      frozen.receipt.consumption
+        .filter((row: { kind: string }) => row.kind === "cards")
+        .map((row: { phase: string; requestId: string }) => [row.phase, row.requestId]),
+    );
+    expect(f.fetch).toHaveBeenCalledTimes(8);
+    for (const intent of ["confirm", "cancel", "resume", "retry-unit"]) {
+      const result = (await captureForm([
+        ["intent", intent],
+        ["countCapture", "1"],
+      ])) as Response;
+      expect(result.status).toBe(409);
+    }
   });
 
   it.each([

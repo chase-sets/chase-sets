@@ -14,7 +14,12 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { CountAcquisitionRefused } from "../domain/count-acquisition";
 import { countCaptureFields } from "../domain/count-capture-plan";
-import type { CountCaptureLifecycle, CountCaptureSession } from "./count-capture-lifecycle";
+import {
+  countCaptureFreezeInputSchema,
+  countCapturePlannerInputSchema,
+  type CountCaptureLifecycle,
+  type CountCaptureSession,
+} from "./count-capture-lifecycle";
 import { z } from "zod";
 
 type Env = { Variables: { context: EventStoreContext; actor: ResolvedActor | null } };
@@ -54,6 +59,19 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
     if (marker !== "1" || !capture) return c.json({ error: { code: "capture-stopped" } }, 409);
     return adminCountAccess(c, next);
   });
+  app.use("*", async (c, next) => {
+    const marker = c.req.header(countCaptureMarker);
+    if (marker !== undefined && !c.req.path.includes("/count-capture/")) {
+      c.header("Cache-Control", "no-store");
+      if (
+        marker !== "1" ||
+        !capture ||
+        !["/counts/quote", "/counts/acquire", "/preview"].some((path) => c.req.path.endsWith(path))
+      )
+        return c.json({ error: { code: "capture-stopped" } }, 409);
+    }
+    await next();
+  });
   // Every capture outcome is uncacheable, and every failure is one support-safe refusal.
   const captureStep =
     <T>(body: z.ZodType<T>, work: (session: CountCaptureSession, input: T) => Promise<unknown>) =>
@@ -78,6 +96,25 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
     "/count-capture/usage",
     captureStep(captureBodies.empty, (session) => capture!.usage(session)),
   );
+  app.post(
+    "/count-capture/quote-readback",
+    captureStep(captureBodies.empty, (session) => capture!.quoteReadback(session)),
+  );
+  app.post(
+    "/count-capture/final-notice",
+    captureStep(captureBodies.empty, (session) => capture!.finalNotice(session)),
+  );
+  app.post(
+    "/count-capture/freeze",
+    captureStep(countCaptureFreezeInputSchema, (session, input) => capture!.freeze(session, input)),
+  );
+  app.post(
+    "/count-capture/pre-confirm",
+    captureStep(
+      countCapturePlannerInputSchema.extend({ planFingerprint: countCaptureFields.hash }).strict(),
+      (session, input) => capture!.preConfirm(session, input),
+    ),
+  );
   app.onError((error, c) => {
     if (error instanceof CountAcquisitionRefused)
       return c.json({ error: { code: error.code, message: error.message } }, 409);
@@ -85,6 +122,8 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
     throw error;
   });
   app.post("/counts/quote", async (c) => {
+    if (c.req.header(countCaptureMarker) !== undefined)
+      return captureStep(countCapturePlannerInputSchema, (session, input) => capture!.quote(session, input))(c);
     const body = z
       .object({ selection: z.unknown(), cap: z.number().int().min(0).max(10_000).optional() })
       .strict()
@@ -98,6 +137,11 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
     );
   });
   app.post("/counts/acquire", async (c) => {
+    if (c.req.header(countCaptureMarker) !== undefined)
+      return captureStep(
+        z.object({ quoteId: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+        (session, input) => capture!.acquire(session, input),
+      )(c);
     const body = z
       .object({
         quoteId: z.uuid(),
@@ -143,6 +187,8 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
   });
 
   app.post("/preview", async (c) => {
+    if (c.req.header(countCaptureMarker) !== undefined)
+      return captureStep(countCapturePlannerInputSchema, (session, input) => capture!.preview(session, input))(c);
     const body = await c.req.json<unknown>();
     const request = parsePreviewRequest(body);
     return c.json(await services.preview({ ...request, context: c.get("context") }));

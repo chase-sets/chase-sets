@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
-import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
+import { applyMarketplaceListPatch, applySubmittedOfferListPatch } from "../support/realtime-support/patches";
 import {
   createMarketplaceOfferMatchPatch,
   createMarketplaceOfferPatch,
@@ -144,5 +144,92 @@ describe("marketplace realtime offer-match patch payloads", () => {
       }),
     );
     expect(rows.has("seller_2")).toBe(false);
+  });
+});
+
+describe("filter-aware Submitted Offer list patches", () => {
+  const offerPatch = (offerId: string, status: string) =>
+    ({
+      kind: "projection.patch",
+      context: "marketplace",
+      projection: "marketplace-offer-projection",
+      topics: ["account:acc_buyer:offers"],
+      changes: [{ op: "upsert", entity: "marketplace.offer", id: offerId, value: { offer_id: offerId, status } }],
+    }) satisfies RealtimeProjectionPatch;
+  const openOnly = {
+    entity: "marketplace.offer",
+    idField: "offer_id" as const,
+    matches: (row: { status: string }) => row.status === "submitted",
+  };
+
+  it("removes a row whose new status leaves the active filter", () => {
+    const data = { items: [{ offer_id: "off_1", status: "submitted" }], total: 1, count: 1 };
+    expect(applyMarketplaceListPatch(data, offerPatch("off_1", "paused"), openOnly)).toEqual({
+      items: [],
+      total: 0,
+      count: 0,
+    });
+  });
+
+  it("adds a row that newly matches and ignores one that does not", () => {
+    const data = { items: [] as { offer_id: string; status: string }[], total: 0, count: 0 };
+    expect(applyMarketplaceListPatch(data, offerPatch("off_2", "withdrawn"), openOnly).items).toEqual([]);
+    expect(applyMarketplaceListPatch(data, offerPatch("off_2", "submitted"), openOnly)).toEqual({
+      items: [{ offer_id: "off_2", status: "submitted" }],
+      total: 1,
+      count: 1,
+    });
+  });
+
+  it("keeps upserting every row when no filter applies", () => {
+    const data = { items: [{ offer_id: "off_1", status: "submitted" }], total: 1, count: 1 };
+    expect(
+      applyMarketplaceListPatch(data, offerPatch("off_1", "paused"), {
+        entity: "marketplace.offer",
+        idField: "offer_id",
+      }).items,
+    ).toEqual([{ offer_id: "off_1", status: "paused" }]);
+  });
+});
+
+describe("Submitted Offer list snapshot patches", () => {
+  const patchOf = (offerId: string, status: string, priceAmount = "20.00") =>
+    ({
+      kind: "projection.patch",
+      context: "marketplace",
+      projection: "marketplace-offer-projection",
+      topics: ["account:acc_buyer:offers"],
+      changes: [
+        { op: "upsert", entity: "marketplace.offer", id: offerId, value: { offer_id: offerId, status, priceAmount } },
+      ],
+    }) satisfies RealtimeProjectionPatch;
+  const snapshot = {
+    items: [{ offer_id: "off_1", status: "submitted", priceAmount: "20.00" }],
+    total: 1,
+    count: 1,
+    statusCounts: { submitted: 1, paused: 0, withdrawn: 0, accepted: 0 },
+    countRevision: 0,
+  };
+
+  it("moves a paused row out of Open and asks for fresh counts", () => {
+    expect(applySubmittedOfferListPatch(snapshot, patchOf("off_1", "paused"), "submitted")).toMatchObject({
+      items: [],
+      total: 0,
+      countRevision: 1,
+    });
+  });
+
+  it("keeps counts when only a visible row's price changes", () => {
+    expect(applySubmittedOfferListPatch(snapshot, patchOf("off_1", "submitted", "25.00"), "submitted")).toMatchObject({
+      items: [{ offer_id: "off_1", priceAmount: "25.00" }],
+      countRevision: 0,
+    });
+  });
+
+  it("asks for fresh counts when an Offer outside the view changes", () => {
+    expect(applySubmittedOfferListPatch(snapshot, patchOf("off_2", "withdrawn"), "submitted")).toMatchObject({
+      items: [{ offer_id: "off_1" }],
+      countRevision: 1,
+    });
   });
 });

@@ -8,6 +8,7 @@ import {
   Button,
   Checkbox,
   Form,
+  Inline,
   ProgressiveDisclosure,
   Switch,
   TextInput,
@@ -27,27 +28,32 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { SubmittedOfferDetail } from "./contracts";
+import {
+  latestSubmittedOfferStatus,
+  submittedOfferLifecycleActions,
+  submittedOfferStatusLabel,
+  submittedOfferStatusTone,
+  SubmittedOfferLifecycleOutcomes,
+  WithdrawOfferConfirmation,
+  type SubmittedOfferLifecycleControls,
+} from "./submitted-offer-lifecycle";
 
 type MarketFollowingSubmittedOffer = SubmittedOfferDetail & { authoritativeOfferVersion?: number };
-
-function statusTone(status: string) {
-  switch (status) {
-    case "submitted":
-      return "accent";
-    default:
-      return "neutral";
-  }
-}
 
 export function MarketplaceSubmittedOfferDetailPage({
   offer,
   errorMessage,
   policies,
+  lifecycle,
 }: {
   offer: MarketFollowingSubmittedOffer;
   errorMessage?: string | null;
   policies?: readonly BuyerOfferPolicySnapshot[];
+  lifecycle?: SubmittedOfferLifecycleControls;
 }) {
+  const [withdrawing, setWithdrawing] = useState<readonly string[] | null>(null);
+  const status = latestSubmittedOfferStatus(offer, lifecycle?.outcomes ?? null);
+  const actions = lifecycle ? submittedOfferLifecycleActions(status) : [];
   const showAcceptedSellerReputation = offer.accepted_seller_account_id !== null && offer.status === "accepted";
 
   return (
@@ -64,6 +70,49 @@ export function MarketplaceSubmittedOfferDetailPage({
       />
 
       {policies ? <MarketFollowingOfferControls offers={[offer]} policies={policies} /> : null}
+
+      {lifecycle && (actions.length > 0 || lifecycle.outcomes) ? (
+        <PageSection title={t("marketplace.features.offers.ui.submittedOfferLifecycle.manage.title")}>
+          <Stack gap={3}>
+            {status === "paused" ? (
+              <MarketplaceNotice
+                tone="warning"
+                title={submittedOfferStatusLabel(status)}
+                description={t("marketplace.features.offers.ui.submittedOfferLifecycle.paused.notice")}
+              />
+            ) : null}
+            <SubmittedOfferLifecycleOutcomes
+              outcomes={lifecycle.outcomes}
+              titles={new Map([[offer.offer_id, offer.item_title]])}
+            />
+            {actions.length > 0 ? (
+              <Inline gap={2}>
+                {actions.map((action) => (
+                  <Button
+                    key={action}
+                    tone={action === "withdraw" ? "secondary" : "primary"}
+                    disabled={lifecycle.pending}
+                    onClick={() => {
+                      if (action === "withdraw") setWithdrawing([offer.offer_id]);
+                      else if (!lifecycle.pending) lifecycle.onAction(action, [offer.offer_id]);
+                    }}
+                  >
+                    {t(`marketplace.features.offers.ui.submittedOfferLifecycle.${action}.offer`)}
+                  </Button>
+                ))}
+              </Inline>
+            ) : null}
+          </Stack>
+          <WithdrawOfferConfirmation
+            offerIds={withdrawing}
+            onCancel={() => setWithdrawing(null)}
+            onConfirm={(offerIds) => {
+              setWithdrawing(null);
+              if (!lifecycle.pending) lifecycle.onAction("withdraw", offerIds);
+            }}
+          />
+        </PageSection>
+      ) : null}
 
       {errorMessage ? (
         <MarketplaceNotice
@@ -82,7 +131,7 @@ export function MarketplaceSubmittedOfferDetailPage({
                 ? formatMoney(offer.price_amount, offer.price_currency_code)
                 : t("marketplace.features.offers.ui.price.incomplete")
             }
-            status={<Badge tone={statusTone(offer.status)}>{offer.status}</Badge>}
+            status={<Badge tone={submittedOfferStatusTone(status)}>{submittedOfferStatusLabel(status)}</Badge>}
             details={
               <Stack gap={2}>
                 {offer.item_subtitle ? <Text tone="secondary">{offer.item_subtitle}</Text> : null}
@@ -158,11 +207,11 @@ export function MarketplaceSubmittedOfferDetailPage({
           <MarketplaceStatusTimeline
             steps={[
               {
-                label: offer.status,
+                label: submittedOfferStatusLabel(status),
                 description: t(
                   "marketplace.features.offers.ui.submittedOfferDetailPage.this.submitted.offer.is.marketplace.wide",
                 ),
-                status: offer.status === "submitted" ? "current" : "complete",
+                status: status === "submitted" || status === "paused" ? "current" : "complete",
               },
               {
                 label: t("marketplace.features.offers.ui.submittedOfferDetailPage.submitted.offer.overview"),

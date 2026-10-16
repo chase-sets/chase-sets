@@ -38,6 +38,19 @@ export function runCountCaptureUsage<T>(usage: CountCaptureUsage, work: () => T)
   return usages.run(usage, work);
 }
 
+// A capture permits no send after an unresolved possible send. Plan its units
+// serially so independent units cannot race that guard; ordinary plans stay parallel.
+export async function mapCountCaptureUnits<T, R>(units: readonly T[], plan: (unit: T) => Promise<R>): Promise<R[]> {
+  const request = requests.getStore();
+  if (!request) return Promise.all(units.map(plan));
+  const results: R[] = [];
+  for (const unit of units) {
+    if (request.stopped) throw new CountCaptureStopped();
+    results.push(await plan(unit));
+  }
+  return results;
+}
+
 // Binds every provider send issued by `work` to one durable capture request. Any
 // failure, including one the provider adapter swallowed, stops the run.
 export async function runCountCaptureRequest<T>(

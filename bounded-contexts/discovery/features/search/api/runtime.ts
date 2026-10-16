@@ -36,6 +36,8 @@ export type DiscoverySearchQuerySignal = Readonly<{
   resultCount: number | null;
   total: number | null;
   zeroResults: boolean | null;
+  lexicalZero: boolean | null;
+  interpretation: "applied" | "not-applied" | "unknown";
   retrievalMode: DiscoverySearchResult["retrievalMode"] | null;
   outcome: "success" | "failure";
   normalizationDurationMs: number;
@@ -90,6 +92,7 @@ export function createDiscoveryItemSearchRuntime(
       const normalizationDurationMs = performance.now() - startedAt;
       const retrievalStartedAt = performance.now();
       let result: DiscoverySearchResult | undefined;
+      let lexicalZero: boolean | null = null;
       let embeddingWait: QueryEmbeddingWaitObservation = { outcome: "not-attempted", waiterDurationMs: 0 };
       const retrievalDependencies: DiscoveryHybridRetrievalDependencies = {
         db: deps.db,
@@ -98,6 +101,9 @@ export function createDiscoveryItemSearchRuntime(
         rescueEnabled: retrieval.rescueEnabled ?? false,
         hybridEnabled: retrieval.hybridEnabled ?? false,
         signal: options.signal,
+        onLexicalObservation: (observation) => {
+          lexicalZero = observation;
+        },
         onEmbeddingWait: (observation) => {
           embeddingWait = observation;
         },
@@ -119,6 +125,8 @@ export function createDiscoveryItemSearchRuntime(
             resultCount: result?.items.length ?? null,
             total: result?.total ?? null,
             zeroResults: result ? result.items.length === 0 : null,
+            lexicalZero,
+            interpretation: result ? (result.interpretation ? "applied" : "not-applied") : "unknown",
             retrievalMode: result?.retrievalMode ?? null,
             outcome: result ? "success" : "failure",
             normalizationDurationMs,
