@@ -81,6 +81,12 @@ async function expiryHarness(row: ReturnType<typeof operationRow>, foreign = fal
   let retained = true;
   const inserts = vi.fn();
   const query = vi.fn<PgTransactionalPool["query"]>(async <Row>(sql: string) => {
+    if (sql.includes("FROM collections_anonymous_owner_activation"))
+      return {
+        rows: [
+          { singleton: true, activated_at: "2026-10-12T00:00:00.000Z", gate_packet_sha256: "a", floor_commit: "f" },
+        ] as unknown as Row[],
+      };
     if (/^\s*INSERT INTO collections_saved_list_operations/.test(sql)) {
       inserts();
       return { rows: [operationRow("prepared", { operation_id: "slo_new" })] as unknown as Row[] };
@@ -103,7 +109,6 @@ async function expiryHarness(row: ReturnType<typeof operationRow>, foreign = fal
         memory.eventStore.readStream(input),
     },
     productCatalog,
-    enabled: true,
     clock: () => new Date("2026-10-13T00:00:00.000Z"),
   });
   return {
@@ -290,6 +295,12 @@ describe("saved-list-per-line-recovery rollback admission", () => {
     const releases = vi.fn();
     const rollback = vi.fn();
     const query = async <Row>(sql: string) => {
+      if (sql.includes("FROM collections_anonymous_owner_activation"))
+        return {
+          rows: [
+            { singleton: true, activated_at: "2026-10-12T00:00:00.000Z", gate_packet_sha256: "a", floor_commit: "f" },
+          ] as unknown as Row[],
+        };
       if (sql === "ROLLBACK") {
         rollback();
         if (!rollbackSucceeds) throw new Error("synthetic-rollback-failed");
@@ -310,7 +321,6 @@ describe("saved-list-per-line-recovery rollback admission", () => {
       pool,
       eventStore,
       productCatalog,
-      enabled: true,
       clock: () => new Date("2026-10-13T00:00:00.000Z"),
     });
     await expect(

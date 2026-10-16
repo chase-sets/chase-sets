@@ -1,5 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import { SavedListConcurrencyConflictError, type SavedListServices } from "./runtime";
 import {
@@ -29,6 +29,7 @@ import type {
   SavedListDestination,
   SavedListDiscoverySurface,
 } from "./discovery-contracts";
+import { readAnonymousOwnerActivation } from "../../../support/runtime-support/anonymous-owner-activation";
 
 const ANONYMOUS_SAVED_LIST_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_ACTIVE_ANONYMOUS_SAVED_LIST_INTENTS = 20;
@@ -105,13 +106,14 @@ export function createSavedListAdditionTokens(): SavedListAdditionTokens {
 export function createSavedListDiscoveryRuntime(
   deps: Readonly<{
     db: PgQueryable;
+    pool?: PgTransactionalPool;
     savedLists: SavedListServices;
     productCatalog: SavedListProductCatalog;
     clock?: () => Date;
   }>,
 ) {
   const now = deps.clock ?? (() => new Date());
-  const owners = createAnonymousOwnerCompatibility(deps.db);
+  const owners = createAnonymousOwnerCompatibility(deps.db, deps.pool);
 
   async function resolveOwner(raw: string, intentId: string | null = null) {
     try {
@@ -778,39 +780,51 @@ function toIso(value: string | null) {
   return value === null ? null : new Date(value).toISOString();
 }
 
-function createAnonymousOwnerCompatibility(db: PgQueryable) {
+function createAnonymousOwnerCompatibility(db: PgQueryable, pool?: PgTransactionalPool) {
+  const write = <T>(operation: (tx: PgQueryable) => Promise<T>) =>
+    pool ? withPgTransaction(pool, operation) : operation(db);
   return {
     async resolve(rawOwner: string, intentId: string | null = null): Promise<string> {
       const raw = savedListCanonicalIdentifier(rawOwner);
       if (!raw.startsWith("anon_")) throw new Error("Invalid anonymous Saved List owner.");
       const fingerprint = savedListFingerprint(["collections.anonymous-owner.v1", raw]);
-      const legacy = await db.query<{ intent_id: string; owner_revision: number }>(
-        `SELECT intent_id, owner_revision FROM collections_anonymous_saved_list_intents
-         WHERE anonymous_owner_id = $1 AND anonymous_owner_fingerprint IS NULL
-           AND (intent_id = $2 OR ($2::text IS NULL AND status = 'active'))`,
-        [raw, intentId],
-      );
-      for (const row of legacy.rows) {
-        await db.query(
-          `UPDATE collections_anonymous_saved_list_intents
-           SET anonymous_owner_fingerprint = $3, owner_revision = owner_revision + 1
-           WHERE intent_id = $1 AND owner_revision = $2
-             AND anonymous_owner_id = $4 AND anonymous_owner_fingerprint IS NULL`,
-          [row.intent_id, row.owner_revision, fingerprint, raw],
+      return write(async (tx) => {
+        const activation = await readAnonymousOwnerActivation(tx);
+        const legacy = await tx.query<{ intent_id: string; owner_revision: number }>(
+          `SELECT intent_id, owner_revision FROM collections_anonymous_saved_list_intents
+           WHERE anonymous_owner_id = $1 AND anonymous_owner_fingerprint IS NULL
+             AND (intent_id = $2 OR ($2::text IS NULL AND status = 'active'))`,
+          [raw, intentId],
         );
-      }
-      return fingerprint;
+        for (const row of legacy.rows) {
+          await tx.query(
+            `UPDATE collections_anonymous_saved_list_intents
+             SET anonymous_owner_fingerprint = $3,
+                 anonymous_owner_id = CASE WHEN $5::boolean THEN NULL ELSE anonymous_owner_id END,
+                 owner_revision = owner_revision + 1
+             WHERE intent_id = $1 AND owner_revision = $2
+               AND anonymous_owner_id = $4 AND anonymous_owner_fingerprint IS NULL`,
+            [row.intent_id, row.owner_revision, fingerprint, raw, Boolean(activation.activated_at)],
+          );
+        }
+        return fingerprint;
+      });
     },
     async insert(values: readonly unknown[], rawOwner: string) {
-      return db.query<AnonymousIntentRow>(
-        `INSERT INTO collections_anonymous_saved_list_intents (
-           intent_id, anonymous_owner_fingerprint, source_path, source_surface,
-           catalog_catalog_item_id, product_id, selected_options, product_summary,
-           add_command_id, line_id, expires_at, anonymous_owner_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
-         RETURNING ${anonymousIntentColumns}`,
-        [...values, savedListCanonicalIdentifier(rawOwner)],
-      );
+      return write(async (tx) => {
+        await readAnonymousOwnerActivation(tx);
+        return tx.query<AnonymousIntentRow>(
+          `INSERT INTO collections_anonymous_saved_list_intents (
+             intent_id, anonymous_owner_fingerprint, source_path, source_surface,
+             catalog_catalog_item_id, product_id, selected_options, product_summary,
+             add_command_id, line_id, expires_at, anonymous_owner_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11,
+             CASE WHEN (SELECT activated_at IS NULL FROM collections_anonymous_owner_activation WHERE singleton = true)
+               THEN $12 ELSE NULL END)
+           RETURNING ${anonymousIntentColumns}`,
+          [...values, savedListCanonicalIdentifier(rawOwner)],
+        );
+      });
     },
   };
 }

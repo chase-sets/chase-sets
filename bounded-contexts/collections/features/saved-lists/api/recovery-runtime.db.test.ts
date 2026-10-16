@@ -15,6 +15,7 @@ import { createSavedListRuntime } from "./runtime";
 import type { SavedListDestination } from "./discovery-contracts";
 import type { SavedListProductSelection } from "../domain/contracts";
 import { savedListCanonicalProduct, savedListFingerprint } from "./anonymous-owner";
+import { activateAnonymousOwnerCutover } from "../../../support/runtime-support/anonymous-owner-activation";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for recovery DB proof.");
@@ -50,7 +51,6 @@ function runtime(pool = pools.collections) {
     eventStore: createPostgresEventStore({ pool }),
     productCatalog: catalog,
     clock: () => clock,
-    enabled: true,
   });
 }
 
@@ -76,11 +76,28 @@ describeDb("durable Saved List recovery", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(collectionsModule, pools.collections);
+    await activateAnonymousOwnerCutover(pools.collections, {
+      gatePacketSha256: "d".repeat(64),
+      floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+    });
     clock = new Date("2026-10-12T12:00:00.000Z");
     catalog.resolveProduct.mockClear();
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("recovery activation is read per request", async () => {
+    await pools.collections.query(
+      "UPDATE collections_anonymous_owner_activation SET activated_at = NULL, gate_packet_sha256 = NULL, floor_commit = NULL",
+    );
+    const service = runtime();
+    await expect(service.list({}, context)).rejects.toMatchObject({ code: "disabled" });
+    await activateAnonymousOwnerCutover(pools.collections, {
+      gatePacketSha256: "e".repeat(64),
+      floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+    });
+    await expect(service.list({}, context)).resolves.toMatchObject({ items: [] });
   });
 
   it("direct-recovery-without-browser-state", async () => {
@@ -423,7 +440,6 @@ describeDb("durable Saved List recovery", () => {
     const delayed = createSavedListRecoveryRuntime({
       pool: pools.collections,
       eventStore: createPostgresEventStore({ pool: pools.collections }),
-      enabled: true,
       clock: () => clock,
       productCatalog: {
         resolveProduct: async (selection) => {
@@ -515,7 +531,6 @@ describeDb("durable Saved List recovery", () => {
     const delayed = createSavedListRecoveryRuntime({
       pool: pools.collections,
       eventStore: createPostgresEventStore({ pool: pools.collections }),
-      enabled: true,
       clock: () => clock,
       productCatalog: {
         resolveProduct: async (selection) => {
