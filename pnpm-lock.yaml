@@ -1453,6 +1453,8 @@ importers:
         specifier: workspace:*
         version: link:../event-core
 
+  contracts/catalog-product-line: {}
+
   contracts/catalog-seed:
     dependencies:
       '@chase-sets/event-core':

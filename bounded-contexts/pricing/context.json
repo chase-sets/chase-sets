@@ -88,7 +88,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
-      "subscriptionVersion": 7,
+      "subscriptionVersion": 8,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -96,6 +96,8 @@
         "catalog.category.deprecated",
         "catalog.category.archived",
         "catalog.catalog-item.created",
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
         "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.published",
         "catalog.catalog-item.retired",
@@ -105,7 +107,12 @@
         "catalog.catalog-item.external-catalog-item-reference-linked",
         "catalog.catalog-item.external-catalog-item-reference-unlinked",
         "catalog.catalog-item.category-assigned",
-        "catalog.catalog-item.category-removed"
+        "catalog.catalog-item.category-removed",
+        "catalog.reference-record.created",
+        "catalog.reference-record.revised",
+        "catalog.reference-record.published",
+        "catalog.reference-record.deprecated",
+        "catalog.reference-record.archived"
       ],
       "order": 10,
       "projectionHandlerSetNames": ["pricing-catalog-input-projection"]
