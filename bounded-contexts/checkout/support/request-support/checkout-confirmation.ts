@@ -533,6 +533,7 @@ export async function submitPurchaseIntentThroughMarketplace(request: Request, s
   try {
     const offer = (await marketplaceApi.createSubmittedOffer({
       offerId,
+      attemptId: offerId.padEnd(22, "_"),
       catalogItemId: line.catalogItemId,
       productId: line.productId,
       itemTitle: line.itemTitle,

@@ -121,12 +121,18 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
     });
   await policies.execute(
     "bop_one",
-    { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+    {
+      attemptId: String("create").padEnd(22, "_"),
+      type: "CreateBuyerOfferPolicy",
+      expectedVersion: 0,
+      operationId: "create",
+    },
     context,
   );
   const preview = await policies.execute(
     "bop_one",
     {
+      attemptId: String("preview").padEnd(22, "_"),
       type: "PreviewBuyerOfferPolicy",
       expectedVersion: 1,
       operationId: "preview",
@@ -141,6 +147,7 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
   await policies.execute(
     "bop_one",
     {
+      attemptId: String("authorize").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: 2,
       operationId: "authorize",
@@ -151,6 +158,7 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
   );
   async function acceptance(suffix = "one") {
     const params = {
+      sourceActionKey: crypto.randomUUID(),
       offerId: `off_${suffix}` as never,
       listingId: `lst_${suffix}`,
       sellerAccountId: `acc_${suffix}` as never,

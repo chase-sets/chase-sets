@@ -9,6 +9,7 @@ import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountSubmittedOfferRoutes } from "./route";
 import { createMarketplaceOfferMcpHandlers } from "./mcp";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
 
 const acceptedOfferMatch = {
   offer_id: "off_1",
@@ -119,9 +120,12 @@ describe("marketplace offer runtime", () => {
     async (outcome) => {
       const memory = createInMemoryEventStore().eventStore;
       const append = vi.fn(async (inputs: readonly AppendToStreamInput[]) => {
-        if (outcome === "failure") throw new Error("injected append failure");
+        const acceptance = inputs.some((input) =>
+          input.events.some((event) => event.eventType === "marketplace.offer.accepted"),
+        );
+        if (outcome === "failure" && acceptance) throw new Error("injected append failure");
         const results = await memory.appendToStreams!(inputs);
-        if (outcome === "conflict-recovery")
+        if (outcome === "conflict-recovery" && acceptance)
           throw Object.assign(new Error("concurrent duplicate committed"), { code: "concurrency_conflict" });
         return results;
       });
@@ -170,25 +174,31 @@ describe("marketplace offer runtime", () => {
       await runWithEventCommitMetadata(async () => {
         await services.updateOfferPrice(
           {
+            attemptId: "test_attempt_6241_identity",
             offerId: "off_1" as never,
             buyerAccountId: "acc_buyer" as never,
             priceAmount: "351.00",
             priceCurrencyCode: "USD",
           },
-          context,
+          { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
         );
-        expect(getEventCommitMetadata().committedEvents).toEqual(
-          (await memory.readStream({ streamId: "marketplace.offer-off_1" })).slice(-1),
-        );
+        expect(getEventCommitMetadata().committedEvents.map((event) => event.eventType)).toEqual([
+          "marketplace.offer.price-updated",
+          "marketplace.mutation-attempt.completed",
+        ]);
       });
       const params = {
+        sourceActionKey: "test_accept_6722_identity",
         offerId: "off_1" as never,
         sellerAccountId: "acc_seller" as never,
         listingId: "lst_1",
         feeQuoteFingerprint: "351.00|17.50|332.50|500|sch_standard|",
       };
       await runWithEventCommitMetadata(async () => {
-        const action = services.acceptOffer(params, context);
+        const action = services.acceptOffer(params, {
+          ...context,
+          audit: { ...context.audit, forAccountId: params.sellerAccountId },
+        });
         if (outcome === "failure") await expect(action).rejects.toThrow("injected append failure");
         else expect(await action).toMatchObject({ offerId: "off_1", listingId: "lst_1", version: 3 });
         if (outcome === "commit") {
@@ -199,6 +209,7 @@ describe("marketplace offer runtime", () => {
             "marketplace.listing.evidence-requirements-refreshed",
             "marketplace.listing.offer-commitment-recorded",
             "marketplace.seller-listing-availability.commitment-checked",
+            "marketplace.mutation-attempt.completed",
           ]);
           const eventIds = returned.map((event) => String(event.eventId));
           const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
@@ -212,7 +223,12 @@ describe("marketplace offer runtime", () => {
       });
       if (outcome !== "failure")
         await runWithEventCommitMetadata(async () => {
-          expect(await services.acceptOffer(params, context)).toMatchObject({ version: 3 });
+          expect(
+            await services.acceptOffer(params, {
+              ...context,
+              audit: { ...context.audit, forAccountId: params.sellerAccountId },
+            }),
+          ).toMatchObject({ version: 3 });
           expect(getEventCommitMetadata().eventIds).toEqual([]);
         });
     },
@@ -256,6 +272,7 @@ describe("marketplace offer runtime", () => {
   async function submitOfferWithDb(db: { query: ReturnType<typeof vi.fn> }, priceAmount = "80.00") {
     return createSubmitOfferServices(db).submitOffer(
       {
+        attemptId: "test_attempt_9545_identity",
         buyerAccountId: "acc_buyer" as never,
         catalogItemId: "cat_charizard",
         productId: "cat_charizard::",
@@ -312,6 +329,7 @@ describe("marketplace offer runtime", () => {
       permissions: ["offers.manage"],
     };
     const body = {
+      attemptId: "daily_cap_attempt_identity",
       accountId: actor.accountId,
       catalogItemId: "cat_charizard",
       productId: "cat_charizard::",
@@ -321,6 +339,22 @@ describe("marketplace offer runtime", () => {
       priceAmount: "1.00",
       priceCurrencyCode: "USD",
       quantityRequested: 1,
+    };
+    const { accountId: _accountId, attemptId: _attemptId, ...request } = body;
+    const mcpBody = {
+      ...body,
+      requestHash: hashMarketplaceRequest({
+        ...request,
+        itemSubtitle: null,
+        productSummary: null,
+        shippingDestinationSnapshot: {
+          ...body.shippingDestinationSnapshot,
+          company: null,
+          line2: null,
+          phone: null,
+          email: null,
+        },
+      }),
     };
     if (surface === "HTTP") {
       const app = new Hono<MarketplaceApiEnv>();
@@ -345,7 +379,7 @@ describe("marketplace offer runtime", () => {
       await expect(
         handler({
           actor,
-          arguments: body,
+          arguments: mcpBody,
           tool: null as never,
           request: new Request("http://marketplace.test/mcp"),
           protocol: { protocolVersion: "2025-06-18", stateless: false, clientInfo: null, clientCapabilities: null },
@@ -415,11 +449,8 @@ describe("marketplace offer runtime", () => {
 
     await expect(
       services.declineOfferMatch(
-        {
-          offerId: "off_1" as never,
-          sellerAccountId: "acc_seller" as never,
-        },
-        context,
+        { attemptId: "test_attempt_15292_identity", offerId: "off_1" as never, sellerAccountId: "acc_seller" as never },
+        { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
       ),
     ).resolves.toEqual({ offerId: "off_1", version: 1 });
   });
@@ -496,12 +527,13 @@ describe("marketplace offer runtime", () => {
     await expect(
       services.acceptOffer(
         {
+          sourceActionKey: "test_accept_18026_identity",
           offerId: "off_1" as never,
           sellerAccountId: "acc_seller" as never,
           listingId: "lst_1",
           feeQuoteFingerprint: "quote",
         },
-        context,
+        { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
       ),
     ).rejects.toThrow("Seller does not have enough active supply to accept this offer.");
     expect(commercialTermsResolver).not.toHaveBeenCalled();
@@ -551,12 +583,13 @@ describe("marketplace offer runtime", () => {
     await expect(
       services.acceptOffer(
         {
+          sourceActionKey: "test_accept_19806_identity",
           offerId: "off_1" as never,
           sellerAccountId: "acc_same" as never,
           listingId: "lst_1",
           feeQuoteFingerprint: "quote",
         },
-        {} as never,
+        { tenantId: "tnt_marketplace", audit: { performedByUserId: "usr_same", forAccountId: "acc_same" } } as never,
       ),
     ).rejects.toThrow("Accounts cannot accept their own offers.");
     expect(resolveListingTerms).not.toHaveBeenCalled();
@@ -609,12 +642,13 @@ describe("marketplace offer runtime", () => {
     await expect(
       services.acceptOffer(
         {
+          sourceActionKey: "test_accept_21910_identity",
           offerId: "off_1" as never,
           sellerAccountId: "acc_seller" as never,
           listingId: "lst_1",
           feeQuoteFingerprint: "quote",
         },
-        context,
+        { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
       ),
     ).rejects.toMatchObject({ code: "listing_evidence_incomplete" });
     expect(resolveListingTerms).not.toHaveBeenCalled();
@@ -651,6 +685,7 @@ describe("marketplace offer runtime", () => {
     await expect(
       services.submitOffer(
         {
+          attemptId: "test_attempt_23135_identity",
           buyerAccountId: "acc_same" as never,
           catalogItemId: "cat_charizard",
           productId: "cat_charizard::",
@@ -663,7 +698,7 @@ describe("marketplace offer runtime", () => {
           priceCurrencyCode: "USD",
           quantityRequested: 1,
         },
-        {} as never,
+        { tenantId: "tnt_marketplace", audit: { performedByUserId: "usr_same", forAccountId: "acc_same" } } as never,
       ),
     ).rejects.toThrow("Accounts cannot offer on their own listings.");
   });
@@ -724,12 +759,13 @@ describe("marketplace offer runtime", () => {
 
     const first = await services.acceptOffer(
       {
+        sourceActionKey: "test_accept_25508_identity",
         offerId: "off_1" as never,
         sellerAccountId: "acc_seller" as never,
         listingId: "lst_1",
         feeQuoteFingerprint: "350.00|17.50|332.50|500|sch_standard|",
       },
-      context,
+      { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
     );
     const listingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_1" });
     expect(listingEvents.slice(-2).map((event) => event.eventType)).toEqual([
@@ -750,12 +786,13 @@ describe("marketplace offer runtime", () => {
     vi.mocked(db.query).mockResolvedValue({ rows: [] });
     const retry = await services.acceptOffer(
       {
+        sourceActionKey: "test_accept_26589_identity",
         offerId: "off_1" as never,
         sellerAccountId: "acc_seller" as never,
         listingId: "lst_1",
         feeQuoteFingerprint: "350.00|17.50|332.50|500|sch_standard|",
       },
-      context,
+      { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
     );
 
     expect(first).toMatchObject({ offerId: "off_1", listingId: "lst_1", inventoryItemId: "inv_1", version: 2 });
@@ -764,12 +801,13 @@ describe("marketplace offer runtime", () => {
     await expect(
       services.acceptOffer(
         {
+          sourceActionKey: "test_accept_27079_identity",
           offerId: "off_1" as never,
           sellerAccountId: "acc_seller" as never,
           listingId: "lst_other",
           feeQuoteFingerprint: "350.00|17.50|332.50|500|sch_standard|",
         },
-        context,
+        { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
       ),
     ).rejects.toMatchObject({ code: "offer_already_accepted" });
     expect(resolveListingTerms).toHaveBeenCalledTimes(1);
@@ -827,12 +865,13 @@ describe("marketplace offer runtime", () => {
     await expect(
       services.acceptOffer(
         {
+          sourceActionKey: "test_accept_29146_identity",
           offerId: "off_1" as never,
           sellerAccountId: "acc_seller" as never,
           listingId: "lst_1",
           feeQuoteFingerprint: "unused",
         },
-        context,
+        { ...context, audit: { ...context.audit, forAccountId: "acc_seller" as never } },
       ),
     ).rejects.toMatchObject({ code: "listing_evidence_incomplete" });
     expect(listingEvidencePolicyEvaluator.evaluate).toHaveBeenCalledOnce();

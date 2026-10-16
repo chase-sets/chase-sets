@@ -14,6 +14,7 @@ import {
   initialBuyerOfferPolicyState,
 } from "../../offer-policy/domain/domain";
 import type { MarketplaceOfferState } from "../domain/domain";
+import { marketplaceRecoveryLoader } from "../../mutation-recovery/api/repository";
 
 export type ManagedOfferTargetRequest = Readonly<{
   selection: BuyerOfferPolicySelection;
@@ -44,13 +45,22 @@ export class ManagedOfferConflictError extends Error {
 }
 
 export function createManagedOfferAuthority(eventStore: EventStore, pricing?: ManagedOfferPricing) {
-  const { repository } = createAggregateCommandHandler({
+  const { repository: rawRepository } = createAggregateCommandHandler({
     eventStore,
     codec: buyerOfferPolicyCodec,
     initialState: () => initialBuyerOfferPolicyState,
     evolve: evolveBuyerOfferPolicy,
     decide: decideBuyerOfferPolicy,
   });
+  const repository = {
+    ...rawRepository,
+    load: marketplaceRecoveryLoader(
+      eventStore,
+      initialBuyerOfferPolicyState,
+      buyerOfferPolicyCodec,
+      evolveBuyerOfferPolicy,
+    ),
+  };
   async function load(offer: MarketplaceOfferState) {
     const loaded = await repository.load(`marketplace.offer-policy-${offer.buyerOfferPolicyId}`);
     assertBuyerOfferPolicyAdmission(loaded.state, offer);

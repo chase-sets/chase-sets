@@ -18,6 +18,7 @@
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
   "slices": [
+    "mutation-recovery",
     "offer-policy",
     "channel-inbound-clamp",
     "listing-evidence-policy",
