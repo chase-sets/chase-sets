@@ -4,12 +4,12 @@ import type { serializeBuyerOfferPolicy } from "./runtime";
 import { centsToMoneyAmount, moneyToCents, isCanonicalMoneyAmount } from "@chase-sets/primitives/money";
 
 export const offerPolicyAttemptResultSchema: z.ZodType<ReturnType<typeof serializeBuyerOfferPolicy>> = z.strictObject({
-  policyId: z.string().nullable(),
+  policyId: z.string().min(1).max(128).nullable(),
   status: z.enum(["draft", "active", "paused", "stopped"]),
   version: z.number().int().nonnegative().safe(),
   revision: z.number().int().nonnegative().safe(),
-  currency: z.string().nullable(),
-  consumedItemAmount: z.string(),
+  currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
+  consumedItemAmount: z.string().refine(isCanonicalMoneyAmount),
   remainingItemAllowance: z
     .string()
     .refine(isCanonicalMoneyAmount)
@@ -18,7 +18,7 @@ export const offerPolicyAttemptResultSchema: z.ZodType<ReturnType<typeof seriali
   authority: buyerOfferPolicyTermsSchema.nullable(),
   preview: z
     .strictObject({
-      previewId: z.string(),
+      previewId: z.string().regex(/^[a-f0-9]{64}$/),
       policyVersion: z.number().int().positive().safe(),
       terms: buyerOfferPolicyTermsSchema,
       outcomes: z.array(buyerOfferPolicyOutcomeSchema).max(100).optional(),
