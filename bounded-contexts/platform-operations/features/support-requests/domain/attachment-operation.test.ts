@@ -7,8 +7,10 @@ import {
   deriveSupportEvidenceAttachmentId,
   decideAttachmentOperation,
   replayAttachmentOperation,
+  SUPPORT_EVIDENCE_CLEANUP_PUT_GRACE_MS,
   type AttachmentOperationEvent,
 } from "./attachment-operation";
+import { SUPPORT_EVIDENCE_STORAGE_DEADLINE_MS } from "../api/attachments";
 import { parseSupportEvidenceAttachmentReference } from "./attachment-reference";
 
 const owner = {
@@ -350,5 +352,255 @@ describe("Support Attachment Operation", () => {
     ].map((history) => ({ history })),
   )("rejects poisoned history %# instead of normalizing it into authority", ({ history }) => {
     expect(() => replayAttachmentOperation(history as AttachmentOperationEvent[])).toThrow();
+  });
+});
+
+describe("Support Attachment Operation cleanup claims (AC-E6)", () => {
+  const binding = { bindingId: "cleanup-a", bindingRevision: 2 };
+  const now = "2026-10-15T12:00:00.000Z";
+  const authority = { ...binding, now, lastPutAdmittedAt: null };
+  const claimData = (attempt = 1, overrides: Record<string, unknown> = {}) => ({
+    attempt,
+    manifestFingerprint: manifest().manifestFingerprint,
+    ...binding,
+    claimedAt: now,
+    ...overrides,
+  });
+  const claimed = (attempt = 1): AttachmentOperationEvent => ({
+    type: "support.attachment-operation.cleanup-claimed",
+    data: claimData(attempt) as never,
+  });
+  const deleted = (attempt = 1): AttachmentOperationEvent => ({
+    type: "support.attachment-operation.deleted-unreferenced",
+    data: { attempt },
+  });
+  const failed = (attempt = 1): AttachmentOperationEvent => ({
+    type: "support.attachment-operation.cleanup-failed",
+    data: { attempt, reason: "delete-failed" },
+  });
+  const required = (reason = "abandoned"): AttachmentOperationEvent => ({
+    type: "support.attachment-operation.cleanup-required",
+    data: { reason } as never,
+  });
+  const referenceClaim = {
+    type: "ClaimSupportAttachmentReference",
+    data: { evidenceId: "sev_case", attachments: attachmentManifestReferences(manifest()), submittedAt: now },
+  } as const;
+  const claim = (history: readonly AttachmentOperationEvent[], data = claimData(), auth: unknown = authority) =>
+    decideAttachmentOperation(
+      replayAttachmentOperation(history),
+      { type: "ClaimSupportAttachmentCleanup", data: data as never },
+      (auth ?? undefined) as never,
+    );
+
+  it("pins the grace window to the storage deadline plus five minutes", () => {
+    expect(SUPPORT_EVIDENCE_CLEANUP_PUT_GRACE_MS).toBe(SUPPORT_EVIDENCE_STORAGE_DEADLINE_MS + 5 * 60_000);
+  });
+
+  it.each(["human-request", "abandoned", "put-failed", "verification-absent", "verification-conflict"])(
+    "records CleanupRequired(%s), claims, deletes and stays terminal",
+    (reason) => {
+      const base = [stage(), stored(), stored(1)];
+      const requiredEvents = decideAttachmentOperation(replayAttachmentOperation(base), {
+        type: "RequireSupportAttachmentCleanup",
+        data: { reason } as never,
+      });
+      const history = [...base, ...requiredEvents];
+      const claimEvents = claim(history);
+      expect(claimEvents).toEqual([claimed()]);
+      const claimedState = replayAttachmentOperation([...history, ...claimEvents]);
+      expect(claimedState.status).toBe("cleanup-claimed");
+      expect(claimedState.cleanupClaim).toEqual(claimData());
+      const confirmed = decideAttachmentOperation(claimedState, {
+        type: "ConfirmSupportAttachmentDeleted",
+        data: { attempt: 1 },
+      });
+      const complete = [...history, ...claimEvents, ...confirmed];
+      const terminal = replayAttachmentOperation(complete);
+      expect(terminal.status).toBe("deleted-unreferenced");
+      expect(
+        decideAttachmentOperation(terminal, { type: "ConfirmSupportAttachmentDeleted", data: { attempt: 1 } }),
+      ).toEqual([]);
+      expect(
+        decideAttachmentOperation(terminal, { type: "RequireSupportAttachmentCleanup", data: { reason: "abandoned" } }),
+      ).toEqual([]);
+      for (const command of [
+        { type: "AdmitSupportAttachmentPut", data: { index: 0, attempt: 1 } },
+        { type: "RecordSupportAttachmentStored", data: { index: 0 } },
+        { type: "StageSupportAttachmentOperation", data: manifest() },
+        referenceClaim,
+        { type: "RecordSupportAttachmentCleanupFailed", data: { attempt: 1, reason: "delete-failed" } },
+      ])
+        expect(() => decideAttachmentOperation(terminal, command as never)).toThrow();
+      expect(() => claim(complete, claimData(2))).toThrow("cleanup-not-eligible");
+    },
+  );
+
+  it("rejects before-stage cleanup events and a claim without a manifest", () => {
+    for (const event of [claimed(), deleted(), failed()])
+      expect(() => replayAttachmentOperation([event])).toThrow("invalid-operation-history");
+    expect(() => claim([required()])).toThrow();
+    expect(() =>
+      decideAttachmentOperation(replayAttachmentOperation([]), {
+        type: "ConfirmSupportAttachmentDeleted",
+        data: { attempt: 1 },
+      }),
+    ).toThrow();
+  });
+
+  const otherOwnerFingerprint = createAttachmentManifest({
+    owner: { ...owner, accountId: "acc_other" },
+    profile: fingerprint.profile,
+    encoderFingerprint: fingerprint,
+    images,
+  }).manifestFingerprint;
+  it.each([
+    ["the wrong owner's manifest", { manifestFingerprint: otherOwnerFingerprint }],
+    ["a changed fingerprint", { manifestFingerprint: "0".repeat(64) }],
+    ["a skipped attempt", { attempt: 2 }],
+    ["a non-canonical instant", { claimedAt: "2026-10-15T12:00:00Z" }],
+    ["an invalid binding id", { bindingId: "Cleanup_A" }],
+    ["an extra field", { extra: true }],
+  ])("rejects a claim with %s", (_label, overrides) => {
+    const data = claimData(1, overrides);
+    const history = [stage(), stored(), stored(1), required()];
+    const auth = {
+      ...authority,
+      ...("claimedAt" in overrides ? { now: overrides.claimedAt } : {}),
+      ...("bindingId" in overrides ? { bindingId: overrides.bindingId } : {}),
+    };
+    expect(() => claim(history, data, auth)).toThrow();
+    expect(() =>
+      replayAttachmentOperation([...history, { type: "support.attachment-operation.cleanup-claimed", data } as never]),
+    ).toThrow("invalid-operation-history");
+  });
+
+  it.each([
+    ["no authority", null],
+    ["another binding", { ...authority, bindingId: "cleanup-b" }],
+    ["an older binding revision", { ...authority, bindingRevision: 1 }],
+    ["a different claim instant", { ...authority, now: "2026-10-15T12:00:01.000Z" }],
+  ])("rejects a claim with %s (mutant: authority-free claim)", (_label, auth) => {
+    expect(() => claim([stage(), stored(), stored(1), required()], claimData(), auth)).toThrow("cleanup-unauthorized");
+  });
+
+  it("an admitted put blocks the claim after grace and an absent read until it settles (mutant: pending writer ignored)", () => {
+    const pending = [stage(), admitted(), required("human-request")];
+    const lastPutAdmittedAt = "2026-10-15T11:00:00.000Z";
+    expect(() => claim(pending, claimData(), { ...authority, lastPutAdmittedAt })).toThrow("cleanup-not-eligible");
+    expect(() =>
+      replayAttachmentOperation([
+        ...pending,
+        { type: "support.attachment-operation.cleanup-claimed", data: claimData() } as never,
+      ]),
+    ).toThrow("invalid-operation-history");
+    expect(() =>
+      decideAttachmentOperation(replayAttachmentOperation(pending), {
+        type: "AdmitSupportAttachmentPut",
+        data: { index: 1, attempt: 1 },
+      }),
+    ).toThrow("operation-terminal");
+    const settledEvents = decideAttachmentOperation(replayAttachmentOperation(pending), {
+      type: "SettleSupportAttachmentPut",
+      data: { index: 0, attempt: 1, outcome: "completed" },
+    });
+    expect(settledEvents).toEqual([settled()]);
+    const history = [...pending, ...settledEvents];
+    expect(
+      decideAttachmentOperation(replayAttachmentOperation(history), {
+        type: "SettleSupportAttachmentPut",
+        data: { index: 0, attempt: 1, outcome: "completed" },
+      }),
+    ).toEqual([]);
+    const at = (offsetMs: number) =>
+      new Date(Date.parse(lastPutAdmittedAt) + SUPPORT_EVIDENCE_CLEANUP_PUT_GRACE_MS + offsetMs).toISOString();
+    expect(() =>
+      claim(history, claimData(1, { claimedAt: at(-1) }), { ...authority, now: at(-1), lastPutAdmittedAt }),
+    ).toThrow("cleanup-not-eligible");
+    expect(
+      claim(history, claimData(1, { claimedAt: at(0) }), { ...authority, now: at(0), lastPutAdmittedAt }),
+    ).toHaveLength(1);
+  });
+
+  it("lets a pending sibling settle after a failed put so cleanup converges", () => {
+    const history = [
+      stage(),
+      admitted(0),
+      admitted(1),
+      { type: "support.attachment-operation.put-settled", data: { index: 0, attempt: 1, outcome: "failed" } },
+      required("put-failed"),
+      settled(1),
+    ] as AttachmentOperationEvent[];
+    expect(claim(history)).toEqual([claimed()]);
+  });
+
+  it("rejects puts after a claim or terminal, unfenced confirmations and dual terminals", () => {
+    const history = [stage(), stored(), stored(1), required(), claimed()];
+    for (const event of [admitted(), settled(), stored(), required(), deleted(2), failed(2), claimed()])
+      expect(() => replayAttachmentOperation([...history, event])).toThrow("invalid-operation-history");
+    expect(() => replayAttachmentOperation([stage(), stored(), stored(1), required(), deleted()])).toThrow();
+    expect(() => replayAttachmentOperation([stage(), stored(), stored(1), required(), failed()])).toThrow();
+    expect(() => replayAttachmentOperation([...history, deleted(), deleted()])).toThrow();
+    expect(() => replayAttachmentOperation([...history, deleted(), failed()])).toThrow();
+    expect(() => replayAttachmentOperation([...history, deleted(), claimed(2)])).toThrow();
+    expect(() =>
+      decideAttachmentOperation(replayAttachmentOperation(history), {
+        type: "ConfirmSupportAttachmentDeleted",
+        data: { attempt: 2 },
+      }),
+    ).toThrow();
+    const referenced = [
+      stage(),
+      stored(),
+      stored(1),
+      { type: "support.attachment-operation.reference-claimed", data: referenceClaim.data },
+      { type: "support.attachment-operation.referenced", data: { evidenceId: "sev_case" } },
+    ] as AttachmentOperationEvent[];
+    for (const event of [required(), claimed(), deleted(), failed()])
+      expect(() => replayAttachmentOperation([...referenced, event])).toThrow();
+    expect(() => claim(referenced)).toThrow("cleanup-not-eligible");
+    expect(() =>
+      decideAttachmentOperation(replayAttachmentOperation(referenced), {
+        type: "RequireSupportAttachmentCleanup",
+        data: { reason: "human-request" },
+      }),
+    ).toThrow("operation-terminal");
+  });
+
+  it("a failed attempt returns to CleanupRequired; retry or takeover reclaims with the next attempt only", () => {
+    const history = [stage(), stored(), stored(1), required(), claimed(), failed()];
+    const state = replayAttachmentOperation(history);
+    expect(state.status).toBe("cleanup-required");
+    expect(state.cleanupClaim).toBeNull();
+    expect(() => claim(history, claimData(1))).toThrow();
+    expect(claim(history, claimData(2))).toEqual([claimed(2)]);
+    const takeover = [stage(), stored(), stored(1), required(), claimed()];
+    expect(claim(takeover, claimData(2))).toEqual([claimed(2)]);
+    expect(() => replayAttachmentOperation([...takeover, claimed(2), deleted(1)])).toThrow("invalid-operation-history");
+    expect(replayAttachmentOperation([...takeover, claimed(2), deleted(2)]).status).toBe("deleted-unreferenced");
+  });
+
+  it("rejects a delayed reference claim after cleanup was required or claimed", () => {
+    for (const history of [
+      [stage(), stored(), stored(1), required()],
+      [stage(), stored(), stored(1), required(), claimed()],
+    ])
+      expect(() => decideAttachmentOperation(replayAttachmentOperation(history), referenceClaim)).toThrow(
+        "operation-terminal",
+      );
+  });
+
+  it("fresh, upgraded, replayed and boot-twice histories converge to one state", () => {
+    // A history written before cleanup claims existed (S-D2 reasons only) replays unchanged and stays claimable.
+    const upgraded = [stage(), admitted(), settled(), stored(), cleanup];
+    const fresh = replayAttachmentOperation(upgraded);
+    expect(fresh.status).toBe("cleanup-required");
+    const complete = [...upgraded, ...claim(upgraded)];
+    const once = replayAttachmentOperation(complete);
+    const twice = replayAttachmentOperation(JSON.parse(JSON.stringify(complete)) as AttachmentOperationEvent[]);
+    expect(twice).toEqual(once);
+    expect(
+      decideAttachmentOperation(once, { type: "RequireSupportAttachmentCleanup", data: { reason: "abandoned" } }),
+    ).toEqual([]);
   });
 });

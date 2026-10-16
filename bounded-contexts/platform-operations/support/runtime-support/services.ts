@@ -29,6 +29,7 @@ import { platformRemedyPolicy } from "../../features/support-requests/domain/pla
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
 import type { SupportEvidenceAttachmentStorage } from "../../features/support-requests/api/attachments";
 import type { SupportEvidenceCanonicalizationQueue } from "../../features/support-requests/api/evidence-canonicalization";
+import type { SupportEvidenceCleanupCapability } from "../../features/support-requests/api/attachment-cleanup";
 import type { PolicyConsoleCrossContextPort, PolicyConsoleEntry } from "../../features/policy-console/api/contracts";
 import { createSupportReferenceLookupRuntime } from "../../features/support-reference-lookup/api/runtime";
 import type {
@@ -45,6 +46,12 @@ export type PlatformOperationsHostPorts = Readonly<{
   notificationOutbox?: NotificationOutbox;
   supportEvidenceAttachmentStorage?: SupportEvidenceAttachmentStorage;
   supportEvidenceCanonicalizer?: SupportEvidenceCanonicalizationQueue;
+  /**
+   * The platform-worker's Support Evidence Cleanup Binding capability. Only a
+   * valid, active, instance-scoped binding supplies `available`; every other
+   * host (and an omitted port) is `not-mounted`, so no cleanup runner exists.
+   */
+  supportEvidenceCleanup?: SupportEvidenceCleanupCapability;
   /**
    * Cross-context policy sources for the platform policy console: Settlement
    * and Commercial Terms' declared policies, assembled once in the
@@ -130,6 +137,7 @@ export function createPlatformOperationsServices(
     policies,
     attachmentStorage: ports.supportEvidenceAttachmentStorage,
     attachmentCanonicalizer: ports.supportEvidenceCanonicalizer,
+    attachmentCleanup: ports.supportEvidenceCleanup,
   });
 
   const ownPolicyDefinitions = [

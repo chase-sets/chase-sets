@@ -11,6 +11,8 @@ import {
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
 
+import { createS3PrivateObjectStore, type PrivateObjectStore } from "./private-object-store";
+
 export * from "./private-object-store";
 
 export type ObjectStoragePutInput = Readonly<{
@@ -123,8 +125,8 @@ export function createFilesystemObjectFileStorage(options: FilesystemObjectStora
   };
 }
 
-export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectStorage {
-  const client =
+function s3Client(options: S3ObjectStorageOptions): Pick<S3Client, "send"> {
+  return (
     options.client ??
     new S3Client({
       ...options.clientConfig,
@@ -139,7 +141,17 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectSt
             },
           }
         : {}),
-    });
+    })
+  );
+}
+
+/** A private store over the same connection options as the public stores, so every host reaches one bucket. */
+export function createS3PrivateObjectStoreFromOptions(options: S3ObjectStorageOptions): PrivateObjectStore {
+  return createS3PrivateObjectStore({ bucket: options.bucket, client: s3Client(options) });
+}
+
+export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectStorage {
+  const client = s3Client(options);
 
   return {
     async putObject(input) {
@@ -194,22 +206,7 @@ export function createS3ObjectStorage(options: S3ObjectStorageOptions): ObjectSt
 }
 
 export function createS3ObjectFileStorage(options: S3ObjectStorageOptions): ObjectFileStorage {
-  const client =
-    options.client ??
-    new S3Client({
-      ...options.clientConfig,
-      region: options.region,
-      endpoint: options.endpoint,
-      forcePathStyle: options.forcePathStyle,
-      ...(options.accessKeyId && options.secretAccessKey
-        ? {
-            credentials: {
-              accessKeyId: options.accessKeyId,
-              secretAccessKey: options.secretAccessKey,
-            },
-          }
-        : {}),
-    });
+  const client = s3Client(options);
   const storage = createS3ObjectStorage({ ...options, client });
 
   return {
