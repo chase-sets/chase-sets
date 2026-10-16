@@ -158,6 +158,19 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
     return result;
   };
   const typeOf = (node) => checker.getTypeAtLocation(node);
+  const namedAdapter = (call, signature = checker.getResolvedSignature(call)) => {
+    const declaration = signature?.declaration;
+    return Boolean(
+      ts.isCallExpression(call) &&
+      ts.isPropertyAccessExpression(call.expression) &&
+      declaration &&
+      ts.isMethodSignature(declaration) &&
+      ts.isIdentifier(declaration.name) &&
+      ["bind", "call", "apply"].includes(declaration.name.text) &&
+      declaration.getSourceFile().hasNoDefaultLib &&
+      isMemberFunction(typeOf(call.expression.expression)),
+    );
+  };
   for (const file of roots) {
     const source = program.getSourceFile(path.join(repoRoot, file));
     if (!source) throw new Error(`Unloaded Inventory census root: ${file}`);
@@ -189,7 +202,11 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         laundering(node.initializer, checker.getTypeFromTypeNode(node.type), node);
       }
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-        if (ts.isCallExpression(node.expression) && isMemberFunction(typeOf(node.expression)))
+        if (
+          ts.isCallExpression(node.expression) &&
+          isMemberFunction(typeOf(node.expression)) &&
+          !namedAdapter(node.expression)
+        )
           reject(node, "UNNAMED_FAMILY_MEMBER");
         const signature = checker.getResolvedSignature(node);
         if (signature) {
@@ -206,6 +223,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           )
             reject(node, "FAMILY_ENUMERATION");
           node.arguments?.forEach((argument, index) => {
+            if (index === 0 && namedAdapter(node, signature)) return;
             const parameter = signature.parameters[index];
             if (parameter) laundering(argument, checker.getTypeOfSymbolAtLocation(parameter, argument), argument);
           });
