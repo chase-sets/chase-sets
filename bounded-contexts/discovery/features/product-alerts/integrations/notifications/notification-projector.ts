@@ -194,7 +194,30 @@ export function buildProductAlertNotificationProjectionHandlers(
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.offer.accepted": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
+    "marketplace.offer.paused": (event) => projectOfferLifecycleActivity(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectOfferLifecycleActivity(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectOfferLifecycleActivity(db, event, "withdrawn"),
   };
+}
+
+/**
+ * Keeps Offer activity status current without entering the dispatch path, so
+ * Resume never reads as newly open demand and never sends a Product Alert.
+ */
+async function projectOfferLifecycleActivity(
+  db: PgQueryable,
+  event: TransportEvent,
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  await db.query(
+    `UPDATE discovery_product_alert_market_activity
+     SET status = $2,
+         source_stream_version = $3,
+         updated_at = $4
+     WHERE activity_id = $1
+       AND source_stream_version < $3`,
+    [String(event.data.offerId ?? ""), status, event.streamVersion, event.timing.recordedAt],
+  );
 }
 
 async function upsertMarketActivityFromEvent(

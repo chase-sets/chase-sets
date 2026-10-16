@@ -586,6 +586,11 @@ describe("platform Kubernetes deployment", () => {
         verbs: ["get", "patch"],
       },
       {
+        apiGroups: [""],
+        resources: ["pods"],
+        verbs: ["list"],
+      },
+      {
         apiGroups: ["keda.sh"],
         resources: ["scaledobjects"],
         resourceNames: ["chase-sets-platform-chase-sets-platform-platform-worker"],

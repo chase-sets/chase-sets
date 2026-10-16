@@ -301,3 +301,19 @@ describe("marketplace offer MCP handlers", () => {
     }
   });
 });
+
+describe("marketplace offer MCP price receipts", () => {
+  it("reports the command result status, so a paused Offer's re-price receipt says paused", async () => {
+    const fakeServices = {
+      ...services(),
+      updateOfferPrice: vi.fn(async () => ({ offerId: "off_1", version: 3, status: "paused" })),
+    } as unknown as MarketplaceOfferServices;
+    const handlers = createMarketplaceOfferMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["marketplace.update-offer-price"]?.(
+      mcpRequest({ accountId: "acc_1", offerId: "off_1", priceAmount: "21.00", priceCurrencyCode: "USD" }),
+    );
+
+    expect(result).toMatchObject({ offerId: "off_1", version: 3, status: "paused" });
+  });
+});

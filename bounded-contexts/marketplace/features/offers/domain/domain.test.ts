@@ -354,3 +354,110 @@ describe("marketplace offer domain", () => {
     ).toThrow("Accounts cannot accept their own offers.");
   });
 });
+
+describe("marketplace offer lifecycle", () => {
+  const at = "2026-10-14T00:00:00.000Z";
+  const acceptCommand = {
+    type: "AcceptOffer",
+    sellerAccountId: "acc_seller" as never,
+    ...listingCommitment,
+    acceptedAt: at,
+    marketplaceSalesFeePercentageBps: 500,
+    marketplaceSalesFeeFixedAmount: "0.00",
+    marketplaceSalesFeeCapAmount: "25.00",
+    marketplaceSalesFeeUnitAmount: "0.50",
+    sellerNetUnitAmount: "9.50",
+    termsScheduleId: "sch_standard",
+    termsAgreementId: null,
+    termsResolvedAt: at,
+    feeQuoteFingerprint: "10.00|0.50|9.50|sch_standard|",
+  } as const;
+  const submitted = decideMarketplaceOffer(initialMarketplaceOfferState, {
+    type: "SubmitOffer",
+    offerId: "off_test" as never,
+    buyerAccountId: "acc_buyer" as never,
+    catalogItemId: "cat_charizard",
+    productId: "cat_charizard::" as never,
+    itemTitle: "Charizard",
+    itemSubtitle: null,
+    selectedOptions: [],
+    productSummary: null,
+    priceAmount: "10.00",
+    priceCurrencyCode: "USD",
+    quantityRequested: 1,
+    shippingDestinationSnapshot,
+  }).reduce(evolveMarketplaceOffer, initialMarketplaceOfferState);
+  const run = (state: typeof submitted, type: "PauseOffer" | "ResumeOffer" | "WithdrawOffer", buyer = "acc_buyer") =>
+    decideMarketplaceOffer(state, { type, buyerAccountId: buyer as never, at });
+  const apply = (state: typeof submitted, type: "PauseOffer" | "ResumeOffer" | "WithdrawOffer") =>
+    run(state, type).reduce(evolveMarketplaceOffer, state);
+  const paused = apply(submitted, "PauseOffer");
+  const withdrawn = apply(submitted, "WithdrawOffer");
+  const accepted = decideMarketplaceOffer(submitted, acceptCommand).reduce(evolveMarketplaceOffer, submitted);
+
+  it.each([
+    ["submitted", "PauseOffer", "marketplace.offer.paused", "paused"],
+    ["paused", "ResumeOffer", "marketplace.offer.resumed", "submitted"],
+    ["submitted", "WithdrawOffer", "marketplace.offer.withdrawn", "withdrawn"],
+    ["paused", "WithdrawOffer", "marketplace.offer.withdrawn", "withdrawn"],
+  ] as const)("moves a %s Offer through %s to %s's status", (from, type, eventType, to) => {
+    const state = from === "submitted" ? submitted : paused;
+    const events = run(state, type);
+    expect(events).toEqual([{ type: eventType, data: { offerId: "off_test", buyerAccountId: "acc_buyer", at } }]);
+    expect(events.reduce(evolveMarketplaceOffer, state).status).toBe(to);
+  });
+
+  it("keeps accepting a submitted Offer as the existing terminal transition", () => {
+    expect(accepted.status).toBe("accepted");
+  });
+
+  it.each([
+    ["paused", "PauseOffer"],
+    ["submitted", "ResumeOffer"],
+    ["withdrawn", "WithdrawOffer"],
+  ] as const)("emits nothing when a %s Offer receives %s", (from, type) => {
+    const state = from === "submitted" ? submitted : from === "paused" ? paused : withdrawn;
+    expect(run(state, type)).toEqual([]);
+  });
+
+  it.each([
+    ["withdrawn", "PauseOffer"],
+    ["withdrawn", "ResumeOffer"],
+    ["accepted", "PauseOffer"],
+    ["accepted", "ResumeOffer"],
+    ["accepted", "WithdrawOffer"],
+  ] as const)("rejects %s Offers receiving %s", (from, type) => {
+    const state = from === "withdrawn" ? withdrawn : accepted;
+    expect(() => run(state, type)).toThrow(`A ${from} Offer cannot change its lifecycle.`);
+  });
+
+  it("rejects another buyer's lifecycle command before any no-op", () => {
+    expect(() => run(submitted, "PauseOffer", "acc_other")).toThrow("Only the Offer's buyer can change its lifecycle.");
+    expect(() => run(paused, "PauseOffer", "acc_other")).toThrow("Only the Offer's buyer can change its lifecycle.");
+    expect(() => run(initialMarketplaceOfferState, "WithdrawOffer")).toThrow("Offer must be submitted first.");
+  });
+
+  it("lets the buyer re-price a paused Offer and keeps it paused until resumed at the new price", () => {
+    const repriced = decideMarketplaceOffer(paused, {
+      type: "UpdateOfferPrice",
+      buyerAccountId: "acc_buyer" as never,
+      priceAmount: "12.00",
+      priceCurrencyCode: "USD",
+    }).reduce(evolveMarketplaceOffer, paused);
+    expect(repriced).toMatchObject({ status: "paused", priceAmount: "12.00" });
+    expect(apply(repriced, "ResumeOffer")).toMatchObject({ status: "submitted", priceAmount: "12.00" });
+  });
+
+  it("rejects re-pricing and accepting a withdrawn Offer, and accepting a paused Offer", () => {
+    expect(() =>
+      decideMarketplaceOffer(withdrawn, {
+        type: "UpdateOfferPrice",
+        buyerAccountId: "acc_buyer" as never,
+        priceAmount: "12.00",
+        priceCurrencyCode: "USD",
+      }),
+    ).toThrow("Only open or paused Offers can change price.");
+    expect(() => decideMarketplaceOffer(withdrawn, acceptCommand)).toThrow("Only submitted offers can be accepted.");
+    expect(() => decideMarketplaceOffer(paused, acceptCommand)).toThrow("Only submitted offers can be accepted.");
+  });
+});

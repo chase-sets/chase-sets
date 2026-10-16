@@ -515,7 +515,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 298,
+    "count": 299,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -578,7 +578,7 @@
       "bounded-contexts/inventory/support/runtime-support/seed.ts": 1,
       "bounded-contexts/marketplace/features/listings/api/route.ts": 12,
       "bounded-contexts/marketplace/features/offer-policy/api/route.ts": 2,
-      "bounded-contexts/marketplace/features/offers/api/route.ts": 8,
+      "bounded-contexts/marketplace/features/offers/api/route.ts": 9,
       "bounded-contexts/marketplace/features/reviews/api/route.ts": 9,
       "bounded-contexts/notifications/api.ts": 3,
       "bounded-contexts/ordering/features/orders/api/route.ts": 4,

@@ -1381,7 +1381,31 @@
         "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer, accepted-offer, and declined-offer browser destinations use the receipt for fresh offer reads."
       },
       "proof": {
-        "authoritativeResponse": "SubmitOffer and UpdateOfferPrice return id/version/status=submitted, AcceptOffer returns id/version/status=accepted, and DeclineOfferMatch returns id/version/status=declined directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted, UpdateOfferPrice returns id/version and the command result's status (a paused Offer stays paused), AcceptOffer returns id/version/status=accepted, and DeclineOfferMatch returns id/version/status=declined directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "tests": [
+          "bounded-contexts/marketplace/features/offers/api/route.test.ts",
+          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.offer-lifecycle-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/:id/pause",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/:id/resume",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/:id/withdraw",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/bulk",
+        "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-lifecycle.tsx:H8e231ba234d8#1"
+      ],
+      "visibleDestination": {
+        "description": "Buyer Pause, Resume and Withdraw return the command result's id, version, status and changed/unchanged outcome per Offer; bulk returns one outcome per requested row. Submitted Offer list and detail show that status until the projected row reaches the same stream version, and list realtime patches revalidate per-status counts."
+      },
+      "proof": {
+        "authoritativeResponse": "changeOfferLifecycle folds the decided lifecycle event into the loaded Offer aggregate and returns its status and version; rejected rows carry not_found, offer_transition_rejected or offer_conflict without a write. Until the host admits lifecycle changes, every producer refuses with 503 offer_lifecycle_closed before any write.",
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
           "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
