@@ -52,7 +52,6 @@ export function agentGrantMandateCapLabel(cents: number | null) {
 const PAYMENT_RAIL_LABEL_KEYS: Readonly<Record<AgentGrantPaymentRail, string>> = {
   "handoff-only": "auth.features.agentGrants.ui.agentGrantPresentation.rail.handoff.only",
   "stored-pm": "auth.features.agentGrants.ui.agentGrantPresentation.rail.stored.pm",
-  ap2: "auth.features.agentGrants.ui.agentGrantPresentation.rail.ap2",
 };
 
 export function agentGrantPaymentRailLabel(rail: AgentGrantPaymentRail) {

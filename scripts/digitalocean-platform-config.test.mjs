@@ -2866,9 +2866,6 @@ describe("DigitalOcean platform configuration", () => {
       ["UCP_BUSINESS_SIGNING_ALG", "ucp_business_signing_alg"],
       ["UCP_BUSINESS_SIGNING_PRIVATE_JWK", "ucp_business_signing_private_jwk"],
       ["UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS", "ucp_business_signing_previous_public_jwks"],
-      ["UCP_AP2_VERIFIER_URL", "ucp_ap2_verifier_url"],
-      ["UCP_AP2_VERIFIER_AUTH_TOKEN", "ucp_ap2_verifier_auth_token"],
-      ["UCP_AP2_VERIFIER_TIMEOUT_MS", "ucp_ap2_verifier_timeout_ms"],
     ];
     for (const [environmentName, terraformName] of ucpSecretEnvironmentNames) {
       expect(runtimeSecretsStep).toContain(`TF_VAR_${terraformName}:`);

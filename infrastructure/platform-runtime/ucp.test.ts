@@ -23,7 +23,6 @@ import type { ResolvedActor } from "./auth";
 import { resolveAgentOAuthScopedPermissions, agentOAuthScopesForPermissions } from "@chase-sets/auth-context";
 import {
   createPostgresUcpIdempotencyStore,
-  addUcpAp2MerchantAuthorization,
   createUcpMcpRoutes as buildUcpMcpRoutes,
   createUcpProfileKeyResolver,
   createUcpProfileRoutes,
@@ -208,7 +207,7 @@ describe("UCP profile routes", () => {
     });
   });
 
-  it("publishes business signing keys and can add AP2 merchant authorization to checkout responses", async () => {
+  it("publishes business signing keys", async () => {
     const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const businessSigningKeys = {
       current: {
@@ -216,6 +215,7 @@ describe("UCP profile routes", () => {
         alg: "ES256" as const,
         privateJwk: privateKey.export({ format: "jwk" }),
       },
+      previousPublicJwks: [{ kty: "EC", crv: "P-256", kid: "merchant-2025", x: "x", y: "y" }],
     };
     const app = new Hono().route(
       "/.well-known",
@@ -226,39 +226,24 @@ describe("UCP profile routes", () => {
 
     const response = await app.request("https://marketplace.example/.well-known/ucp");
     const profile = await response.json();
-    expect(profile).toMatchObject({
-      signing_keys: [
-        {
-          kid: "merchant-2026",
-          alg: "ES256",
-        },
-      ],
-      ucp: {
-        capabilities: {
-          "dev.ucp.shopping.ap2_mandate": [
-            {
-              config: {
-                business_response_signing: "enabled",
-              },
-            },
-          ],
-        },
+    const publishedKeys = [
+      {
+        kty: "EC",
+        crv: "P-256",
+        kid: "merchant-2026",
+        alg: "ES256",
+        use: "sig",
+        x: expect.any(String),
+        y: expect.any(String),
       },
+      { kid: "merchant-2025" },
+    ];
+    expect(profile).toMatchObject({
+      signing_keys: publishedKeys,
+      ucp: { signing_keys: publishedKeys },
     });
     expect(profile.signing_keys[0]).not.toHaveProperty("d");
-
-    const signed = addUcpAp2MerchantAuthorization(
-      {
-        id: "chk_1",
-        status: "started",
-        totals: [{ type: "total", amount: 1000 }],
-      },
-      businessSigningKeys,
-    );
-
-    expect(signed.ap2).toMatchObject({
-      merchant_authorization: expect.stringMatching(/^[A-Za-z0-9_-]+\.\.[A-Za-z0-9_-]+$/),
-    });
+    expect(profile.ucp.signing_keys[0]).not.toHaveProperty("d");
   });
 });
 

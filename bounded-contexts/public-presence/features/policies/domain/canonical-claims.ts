@@ -68,8 +68,8 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "and Payments records capture from mapped webhook or reconciliation results.",
     productTruthRefs: [
       "bounded-contexts/payments/features/payments/api/runtime.ts:2051-2071",
-      "infrastructure/stripe-payments/index.ts:1670-1724",
-      "infrastructure/stripe-payments/index.ts:1726-1815",
+      "infrastructure/stripe-payments/index.ts:1669-1723",
+      "infrastructure/stripe-payments/index.ts:1725-1814",
       "bounded-contexts/payments/features/payments/api/runtime.ts:2179-2186",
       "infrastructure/stripe-payments/index.ts:930-1012",
       "infrastructure/stripe-payments/index.ts:1057-1083",

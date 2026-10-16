@@ -140,7 +140,7 @@ MCP tool calls are concurrency-limited before handler execution by the platform 
 
 The platform smoke script checks native `/mcp` anonymous discovery on every run. When admin credentials produce a session with an account id, or `SMOKE_NATIVE_MCP_ACCOUNT_ID` is supplied, it performs authenticated native discovery and the safe `inventory.list-import-sources` read across the `2025-06-18`, `2025-11-25`, and `2026-07-28` native MCP matrix with the same deployment.
 
-Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or AP2 mandate effects.
+Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or spend authorizations.
 
 ## Signed Checkout Writes
 
@@ -154,48 +154,24 @@ Checkout write requests must include:
 
 Current runtime verifies required headers, SHA-256 body digest, and replay/idempotency before invoking checkout write handlers. Production platform-api composition must bootstrap `platformUcpRuntimeSchemaSql` and wire the Postgres-backed UCP idempotency store and profile/key cache from the platform control database. Route creation fails outside the test runtime when a UCP REST or MCP mount omits the durable idempotency store. When configured with a UCP profile/key resolver, it also verifies RFC 9421 HTTP Message Signatures against the signer's public key.
 
-## AP2 Merchant Authorization
+## Business Signing Keys
 
-Configure checkout-term signing before enabling AP2-capable external smoke:
+Configure the business signing key to publish it in `/.well-known/ucp`:
 
-- `UCP_BUSINESS_SIGNING_KEY_ID`: current merchant signing key id, for example `merchant-2026-q2`.
+- `UCP_BUSINESS_SIGNING_KEY_ID`: current business signing key id, for example `merchant-2026-q2`.
 - `UCP_BUSINESS_SIGNING_ALG`: `ES256`, `ES384`, or `ES512`; prefer `ES256`.
-- `UCP_BUSINESS_SIGNING_PRIVATE_JWK`: EC private JWK for the current signing key.
+- `UCP_BUSINESS_SIGNING_PRIVATE_JWK`: EC private JWK for the current signing key. Keep it in environment-scoped secrets.
 - `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`: JSON array of previous public JWKs retained during rotation.
-- `UCP_AP2_VERIFIER_URL`: HTTPS production verifier endpoint implementing the `chase-sets-ucp-ap2-verification/v1` request contract.
-- `UCP_AP2_VERIFIER_AUTH_TOKEN`: verifier bearer credential. Keep this and the private JWK in environment-scoped secrets.
-- `UCP_AP2_VERIFIER_TIMEOUT_MS`: fail-closed verifier timeout; defaults to 5000 ms.
 
-After restart, verify `/.well-known/ucp` includes `signing_keys` and checkout responses include `checkout.ap2.merchant_authorization`.
+After restart, verify `/.well-known/ucp` includes `signing_keys` with public JWKs only. The runtime publishes the key set and signs no UCP response with it.
 
-Rotate by adding the current public key to `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`, installing the new private JWK and key id, deploying, then removing old public keys after all AP2 mandate retention windows have expired.
-
-The verifier request includes the UCP `2026-04-08` checkout, Checkout Mandate, verification time, and only a boolean that a payment token is present. It never receives the raw Shared Payment Token. The verifier response must attest `human-present` or `human-not-present`; Chase Sets accepts only `human-present` for headless completion. A timeout, malformed response, invalid/expired mandate, or human-not-present result fails closed to `trusted_checkout_handoff` and preserves the AP2 error code in the UCP message envelope.
-
-## AP2 Direct-Mode Certification Run
-
-The implementation gate and the environment certification gate are separate. Installing verifier and signing secrets makes staging eligible to run; it does not constitute approval. Complete these steps against one immutable staging release:
-
-1. Install the seven `UCP_BUSINESS_SIGNING_*` and `UCP_AP2_VERIFIER_*` values in the staging GitHub environment. Deploy and record the full release commit without copying secret values into evidence.
-2. Fetch `/.well-known/ucp`. Require UCP `2026-04-08`, AP2 status `human_present_enabled`, `mandate_verification: enabled`, `business_response_signing: enabled`, `shared_payment_token: enabled`, and `human_not_present_completion_enabled: false`.
-3. Verify checkout discovery exposes a public merchant signing key and checkout responses carry a valid detached merchant authorization. Rehearse key rotation with the previous public-key set and the documented retention window.
-4. Through the m86/ChatGPT MCP connector, submit a valid direct-mode Checkout Mandate plus a Stripe test Shared Payment Token. Require completion without `trusted_checkout_handoff`, one PaymentIntent using `shared_payment_granted_token`, and no duplicate Ordering or Payments effects on replay.
-5. Repeat with invalid, expired, replayed, and untrusted mandates. Each response must be `requires_action`, contain a `trusted_checkout_handoff` URL, preserve the applicable AP2 error code, and create no order, payment, or mandate effects.
-6. Confirm `shared_payment.granted_token.used` and `shared_payment.granted_token.deactivated` reach the provider webhook inbox and Payments handlers. Store redacted event-type/outcome references only—never provider object ids or payment tokens.
-7. Re-run OAuth PKCE, refresh rotation, introspection, revocation, consent removal, unsigned-write no-effects, and incident-response checks. Obtain Support and Finance approval.
-8. Prepare a redacted JSON record with schema `ucp-ap2-certification/v1`, then run:
-
-```powershell
-pnpm run ops ucp:ap2-certification-evidence -- --evidence-file artifacts/ucp-ap2/staging-certification.json --out artifacts/ucp-ap2/staging-certification-result.json
-```
-
-The validator requires every direct-mode, verifier rejection, Stripe SPT/webhook, OAuth, replay, incident-response, Support, and Finance row to carry a redacted internal evidence reference. It rejects credentials, raw SPT/Stripe identifiers, personal data, human-not-present enablement, incomplete reviews, and public marketing enablement. File the approved result with the certification record. If any row is unavailable, leave certification unapproved and keep trusted handoff as the public posture.
+Rotate by adding the current public key to `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`, installing the new private JWK and key id, deploying, then removing old public keys.
 
 ## Forward Readiness Posture
 
-General UCP response signing is deferred for v1. Operators should not promise signed non-checkout UCP responses; protected writes rely on signed requests, digest verification, OAuth scope, durable idempotency, and audit evidence. Checkout responses may carry `ap2.merchant_authorization` when merchant signing keys are configured, but that is checkout-term signing, not a general response-signature contract.
+General UCP response signing is deferred for v1, and no UCP response, including checkout, is signed. Operators should not promise signed UCP responses; protected writes rely on signed requests, digest verification, OAuth scope, durable idempotency, and audit evidence.
 
-Headless AP2 checkout is closed by default and enables at runtime only when the production AP2 verifier, merchant signing keys, and Stripe shared-payment-token handler are all configured. That runtime enablement is limited to verifier-attested human-present mandates. Human-not-present AP2 v0.2 remains disabled until spending-mandate enforcement is certified. OAuth ChatGPT calls and unsupported signed-agent calls return trusted checkout handoff continuations instead of creating orders, payments, or AP2 effects.
+Headless checkout completion uses only the stored-payment-method rail: a signed agent names a saved checkout instrument, and the agent grant spending mandate gates the charge. Agent-provided payment instruments, including Stripe shared payment tokens, are never submitted headlessly. OAuth ChatGPT calls and every other completion return trusted checkout handoff continuations instead of creating orders or payments.
 
 Check OAuth metadata:
 
@@ -242,24 +218,23 @@ For suspected replay or agent abuse:
 - OAuth identity linking requires PKCE S256, rotates refresh tokens, supports token introspection, and exposes linked-platform consent revocation.
 - Signature verification resolves agent keys from UCP profile/key discovery and is enabled in production runtime composition.
 - Idempotency records are durable, survive process restarts, carry a retention expiry, and can be pruned.
-- AP2/payment-handler support is guarded: Payments declares trusted and Stripe shared-payment-token handlers, but headless completion is enabled only when a production AP2 verifier, business signing key, and provider-backed Stripe SPT PaymentIntent path are configured.
-- AP2 profile readiness reads `human_present_enabled` only when verifier, business signing, and Stripe SPT controls are wired. It always declares human-not-present completion disabled.
-- Invalid, expired, replayed, untrusted, unavailable, or human-not-present AP2 verification returns trusted checkout handoff with no money-moving side effects and the applicable UCP/AP2 error envelope.
+- Payment-handler support is guarded: Payments declares trusted, Stripe shared-payment-token, and stored-payment-method handlers. Only the stored-payment-method handler completes headlessly; the others require trusted UI.
+- A completion request without a saved checkout instrument returns trusted checkout handoff with no money-moving side effects.
 - Stripe webhook configuration includes `shared_payment.granted_token.used` and `shared_payment.granted_token.deactivated` alongside PaymentIntent, Checkout Session, refund, dispute, Connect, and payout events.
-- Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, PKCE/refresh metadata, `/ucp/v1`, `/ucp/mcp`, native `/mcp` discovery/authentication posture, linked-account order reads, and the direct-mode certification run above on the marketplace host.
+- Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, PKCE/refresh metadata, `/ucp/v1`, `/ucp/mcp`, native `/mcp` discovery/authentication posture, and linked-account order reads on the marketplace host.
 
 ## Marketing Certification Gate
 
-Do not market UCP/AP2 as launch-ready, agent-commerce capable, autonomous-payment capable, or headless-checkout capable until a separate certification record is approved. The public launch posture is trusted checkout handoff: agents may prepare or inspect supported shopping flows, but account-scoped checkout completion must move through buyer UI review unless a verified AP2 Mandate and supported Payments handoff are present.
+Do not market UCP or the Agent Payments Protocol as launch-ready, agent-commerce capable, autonomous-payment capable, or headless-checkout capable until a separate certification record is approved. The public launch posture is trusted checkout handoff: agents may prepare or inspect supported shopping flows, but account-scoped checkout completion must move through buyer UI review unless the agent completes with the buyer's saved payment method under the agent grant spending mandate.
 
 The certification record must include:
 
-- Production AP2 verifier configuration and signed-write rejection evidence for missing, expired, replayed, or untrusted signatures.
-- Merchant signing key configuration, public-key discovery, rotation rehearsal, and mandate retention/expiry handling.
+- Signed-write rejection evidence for missing, expired, replayed, or untrusted signatures.
+- Business signing key configuration, public-key discovery, and rotation rehearsal.
 - Provider-backed Stripe Shared Payment Token PaymentIntent path, including token-use webhooks and replay-safe failure behavior.
 - OAuth authorization-code plus PKCE evidence, refresh-token rotation, token introspection, revocation, and linked-platform consent removal.
-- Trusted Checkout Handoff evidence showing unsupported or unsigned ChatGPT app calls do not create orders, payments, or AP2 effects.
+- Trusted Checkout Handoff evidence showing unsupported or unsigned ChatGPT app calls do not create orders, payments, or spend authorizations.
 - Incident-response evidence covering profile/client pause, token revocation, replay search, idempotency conflict review, and duplicate-effect checks.
 - Support and Finance review for buyer consent, payment liability, refund/dispute handling, and agent-abuse escalation.
 
-Until that record exists, Public Presence, launch notes, sales collateral, and promo-bar messages must avoid UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, Shared Payment Token, and agent-commerce claims.
+Until that record exists, Public Presence, launch notes, sales collateral, and promo-bar messages must avoid UCP, Agent Payments Protocol, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, Shared Payment Token, and agent-commerce claims.

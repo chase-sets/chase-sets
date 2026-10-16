@@ -107,8 +107,8 @@ describe("connected-agent detail action", () => {
 
     const formData = new URLSearchParams();
     formData.append("intent", "update-mandate");
+    formData.append("allowed_rails", "handoff-only");
     formData.append("allowed_rails", "stored-pm");
-    formData.append("allowed_rails", "ap2");
     const request = new Request("http://localhost/account/agents/lpa_1", {
       method: "POST",
       body: formData,
@@ -120,7 +120,7 @@ describe("connected-agent detail action", () => {
       daily_cap_cents: null,
       monthly_cap_cents: null,
       human_present_required: true,
-      allowed_rails: ["stored-pm", "ap2"],
+      allowed_rails: ["handoff-only", "stored-pm"],
     });
   });
 });

@@ -105,7 +105,7 @@ const chargeSourceRoles = [
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1670-1724",
+    ref: "infrastructure/stripe-payments/index.ts:1669-1723",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -115,7 +115,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1726-1815",
+    ref: "infrastructure/stripe-payments/index.ts:1725-1814",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -830,9 +830,9 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  // Includes #7422 revocation, #9499 Inventory recovery storage, and the #9106 Search Interpretation marker in
-  // stored search restoration; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "9b58707aa039607ef2025ac92af6eebcaec6252d323046652852e74e9d4a65cc",
+  // Includes #7422 revocation, #9499 Inventory recovery storage, the #9106 Search Interpretation marker in
+  // stored search restoration, and #9721 byte-identical citation relocations; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "458b04e7594d16a9ffcbc0eacf38bb0d0db92a99f9701d0739824d2819ed6fc0",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "d3bb76a274ad5ee1ff8b00b142beeb1be0ccce22f4dac583c31ad5963f96df11",
 };
@@ -1212,7 +1212,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1603-1660";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1602-1659";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"
