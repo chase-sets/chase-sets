@@ -25,6 +25,8 @@ import type { InventoryServices } from ${absoluteImport(servicesFile)};
 import { createInventoryApiClient } from ${absoluteImport("bounded-contexts/inventory/client.ts")};
 declare const services: InventoryServices;
 type RestockService = InventoryServices["restockDecisions"];
+type H = InventoryServices["holds"];
+type Fn = (...args: never[]) => unknown;
 declare const api: ReturnType<typeof createInventoryApiClient>;
 declare const method: string, flag: boolean, context: never;
 declare function consume(value: any): void;
@@ -115,6 +117,27 @@ function restockControls() {
   return cases;
 }
 
+const repairControls = [
+  ["F1-K1", 'export function route(svc: H) { return svc[method as "createHold"](context, context); }', "FAMILY_DYNAMIC_KEY"],
+  ["F1-K2", "export function route(svc: H) { const k = method as keyof H; return svc[k]; }", "FAMILY_DYNAMIC_KEY"],
+  ["F1-K6", 'export function route(c: ReturnType<typeof createInventoryApiClient>) { return c[method as "createHold"]; }', "FAMILY_DYNAMIC_KEY"],
+  ["F2-K3", "export function route(svc: H) { const { [method]: fn } = svc as H & Record<string, Fn>; return fn(); }", "FAMILY_DYNAMIC_KEY"],
+  ["F2-K3b", "export function route(svc: H) { const { [method]: fn } = svc; return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["F2-K3c", "export function route(svc: H) { let fn: unknown; ({ [method]: fn } = svc); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["F2-K4", 'export function route(svc: H) { const { [method as "createHold"]: fn } = svc; return fn(context, context); }', "FAMILY_DYNAMIC_KEY"],
+  ["F3-K5", "export function route(svc: H) { for (const k of Object.keys(svc) as (keyof H)[]) svc[k]; }", "FAMILY_ENUMERATION"],
+  ["F3-E4", "export function route(svc: H) { return Reflect.get(svc, method)(context, context); }", "FAMILY_ENUMERATION"],
+  ["F4-L1", "export function route(svc: H) { let erased: any; erased = svc; return erased[method](context, context); }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L2", "function leak(svc: H): any { return svc; } export function route(svc: H) { return leak(svc)[method](context, context); }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L3", "export function route(svc: H) { const bag: { s: any } = { s: svc }; return bag.s[method](context, context); }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L4", "export function route(svc: H) { const bag: Record<string, unknown> = { s: svc }; return (bag.s as Record<string, Fn>)[method](); }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L5", "export function route(svc: H) { const arr: any[] = [svc]; return arr[0][method](context, context); }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L6", "function call(...values: any[]) { return values[0][values[1]](); } export function route(svc: H) { return call(svc, method); }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L7", "export class Holder { held: unknown = services.holds; }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L8", "export class Holder { held: any; constructor(svc: H) { this.held = svc; } run() { return this.held[method](context, context); } }", "FAMILY_TYPE_ERASURE"],
+  ["F4-L9", "export function route(svc: H) { const { s = svc }: { s?: any } = {}; return s[method](context, context); }", "FAMILY_TYPE_ERASURE"],
+].map(([id, source, reason]) => ({ id, source, reason }));
+
 async function matrix(cases, run) {
   const fixtures = Object.fromEntries(
     cases.map(({ source }, index) => [
@@ -154,6 +177,23 @@ const built = analyzeInventoryDynamicDispatch({
 });
 
 describe("issue-7169-type-resolved-census-matrix", () => {
+  it("rejects the compile-clean F1-F4 escape controls", async () => {
+    await matrix(repairControls, ({ root, roots, program, families, fixtures }) => {
+      const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
+      for (const [index, control] of repairControls.entries()) {
+        const file = Object.keys(fixtures)[index];
+        const source = program.getSourceFile(path.join(root, file));
+        expect(program.getSyntacticDiagnostics(source), control.id).toEqual([]);
+        expect(program.getSemanticDiagnostics(source), control.id).toEqual([]);
+        expect(
+          result.diagnostics.some(({ file: diagnosticFile, reason }) => diagnosticFile === file && reason === control.reason),
+          control.id,
+        ).toBe(true);
+      }
+      emit("repair-controls", { total: repairControls.length, rejected: result.diagnostics.length });
+    });
+  });
+
   it("rejects every derived family's M16 and P1 forms at arbitrary paths", async () => {
     const cases = familyExpressions.flatMap(([family, expression, type]) =>
       [...shapes(expression, type), ...p1(expression, type, "member")].map((source) => ({ family, source })),

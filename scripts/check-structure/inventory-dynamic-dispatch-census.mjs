@@ -168,6 +168,27 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
     return result;
   };
   const typeOf = (node) => checker.getTypeAtLocation(node);
+  const staticKey = (expression, depth = 0) => {
+    if (depth > 32) return false;
+    const node = ts.skipParentheses(expression);
+    if (ts.isStringLiteralLike(node)) return true;
+    if (ts.isNonNullExpression(node)) return staticKey(node.expression, depth + 1);
+    if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node))
+      return staticKey(node.expression, depth + 1);
+    if (ts.isConditionalExpression(node))
+      return staticKey(node.whenTrue, depth + 1) && staticKey(node.whenFalse, depth + 1);
+    if (ts.isIdentifier(node)) {
+      const declaration = checker.getSymbolAtLocation(node)?.valueDeclaration;
+      if (
+        declaration &&
+        ts.isVariableDeclaration(declaration) &&
+        declaration.initializer &&
+        ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const
+      )
+        return staticKey(declaration.initializer, depth + 1);
+    }
+    return finiteStringKeys(typeOf(node));
+  };
   const accessOf = (call) => ts.skipParentheses(call.expression);
   const libraryMethod = (call, names, owner) => {
     const access = accessOf(call);
@@ -183,10 +204,11 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       .filter(Boolean)
       .some(
         (declaration) =>
-          ts.isMethodSignature(declaration) &&
           ts.isIdentifier(declaration.name) &&
           names.includes(declaration.name.text) &&
-          (!owner || (ts.isInterfaceDeclaration(declaration.parent) && declaration.parent.name.text === owner)) &&
+          (!owner ||
+            (ts.isInterfaceDeclaration(declaration.parent) && declaration.parent.name.text === owner) ||
+            (ts.isModuleBlock(declaration.parent) && declaration.parent.parent.name?.text === owner)) &&
           program.isSourceFileDefaultLibrary(declaration.getSourceFile()),
       );
   };
@@ -202,20 +224,62 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
   for (const file of roots) {
     const source = program.getSourceFile(path.join(repoRoot, file));
     if (!source) throw new Error(`Unloaded Inventory census root: ${file}`);
+    const rejected = new Set();
     const reject = (node, reason) => {
       const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+      const key = `${line}:${reason}`;
+      if (rejected.has(key)) return;
+      rejected.add(key);
       diagnostics.push({ file, line, reason });
     };
     const laundering = (value, target, node) => {
       if (mutant !== "laundering-unchecked" && opaqueType(target) && isFamily(typeOf(value)))
         reject(node, "FAMILY_TYPE_ERASURE");
     };
+    const adapterThis = (node) => {
+      const call = node.parent;
+      if (!call || !ts.isCallExpression(call) || call.arguments[0] !== node) return false;
+      const callee = ts.skipParentheses(call.expression);
+      const name = ts.isPropertyAccessExpression(callee)
+        ? callee.name.text
+        : ts.isElementAccessExpression(callee) && ts.isStringLiteralLike(callee.argumentExpression)
+          ? callee.argumentExpression.text
+          : "";
+      return ["bind", "call", "apply"].includes(name);
+    };
+    const patternSource = (pattern) => {
+      const parent = pattern.parent;
+      if (ts.isVariableDeclaration(parent)) return parent.initializer;
+      if (ts.isParameter(parent)) {
+        return parent.initializer ?? (parent.type ? { type: checker.getTypeFromTypeNode(parent.type) } : undefined);
+      }
+      if (ts.isBinaryExpression(parent) && parent.left === pattern) return parent.right;
+      return undefined;
+    };
+    const inspectPattern = (pattern) => {
+      const sourceTypeOrNode = patternSource(pattern);
+      const sourceType = sourceTypeOrNode?.type ?? (sourceTypeOrNode && typeOf(sourceTypeOrNode));
+      if (!sourceType || !isFamily(sourceType)) return;
+      const elements = ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties;
+      for (const element of elements) {
+        const name = element.propertyName ?? element.name;
+        if (name && ts.isComputedPropertyName(name) && !staticKey(name.expression))
+          reject(name, "FAMILY_DYNAMIC_KEY");
+      }
+    };
     const visit = (node) => {
+      if (ts.isExpression(node) && !ts.isSatisfiesExpression(node.parent) && !adapterThis(node)) {
+        const contextual = checker.getContextualType(node);
+        if (contextual && opaqueType(contextual) && isFamily(typeOf(node))) {
+          if (mutant !== "laundering-unchecked") reject(node, "FAMILY_TYPE_ERASURE");
+        }
+      }
       if (ts.isElementAccessExpression(node)) {
         if (isFamily(typeOf(node.expression))) {
-          if (!finiteStringKeys(typeOf(node.argumentExpression))) reject(node, "FAMILY_DYNAMIC_KEY");
+          if (!staticKey(node.argumentExpression)) reject(node, "FAMILY_DYNAMIC_KEY");
         } else if (isMemberFunction(typeOf(node))) reject(node, "UNNAMED_FAMILY_MEMBER");
       }
+      if (ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) inspectPattern(node);
       if (ts.isForInStatement(node) && isFamily(typeOf(node.expression))) reject(node, "FAMILY_ENUMERATION");
       if (ts.isForOfStatement(node)) {
         const inspectBinding = (binding) => {
@@ -239,8 +303,15 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         const signature = checker.getResolvedSignature(node);
         if (signature) {
           if (
-            libraryMethod(node, ["values", "entries"], "ObjectConstructor") &&
-            node.arguments?.some((argument) => isFamily(typeOf(argument)))
+            libraryMethod(node, ["values", "entries", "keys", "getOwnPropertyNames"], "ObjectConstructor") &&
+            node.arguments?.[0] &&
+            isFamily(typeOf(node.arguments[0]))
+          )
+            reject(node, "FAMILY_ENUMERATION");
+          if (
+            libraryMethod(node, ["ownKeys", "get", "getOwnPropertyDescriptor"], "Reflect") &&
+            node.arguments?.[0] &&
+            isFamily(typeOf(node.arguments[0]))
           )
             reject(node, "FAMILY_ENUMERATION");
           node.arguments?.forEach((argument, index) => {
