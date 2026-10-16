@@ -275,6 +275,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
     const isContextualSink = (node) => {
       const parent = node.parent;
       if (ts.isVariableDeclaration(parent) || ts.isParameter(parent)) return parent.initializer === node;
+      if (ts.isPropertyDeclaration(parent)) return parent.initializer === node;
       if (ts.isPropertyAssignment(parent)) return parent.initializer === node;
       if (ts.isBindingElement(parent)) return parent.initializer === node;
       if (ts.isArrayLiteralExpression(parent) || ts.isSpreadElement(parent)) return true;
