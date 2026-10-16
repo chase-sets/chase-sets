@@ -20,7 +20,16 @@ const families: readonly InventoryMutationFamily[] = [
 ];
 
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;
-const automaticallyConfirmedAttempts = new Set<string>();
+function automaticallyConfirmedAttempts() {
+  const key = "__chaseSetsInventoryAutomaticallyConfirmedAttempts";
+  const global = globalThis as typeof globalThis & {
+    __chaseSetsInventoryAutomaticallyConfirmedAttempts?: Set<string>;
+  };
+  if (global[key]) return global[key];
+  const created = new Set<string>();
+  global[key] = created;
+  return created;
+}
 const RecoveryContext = createContext<Readonly<{
   controllers: ReadonlyMap<InventoryMutationFamily, Controller>;
   changed: () => void;
@@ -43,8 +52,9 @@ export function InventoryMutationProvider({
   const changed = () => render((value) => value + 1);
   const confirmAutomatically = (controller: Controller, current: boolean) => {
     const attemptId = controller.snapshot().record?.attemptId;
-    if (!attemptId || automaticallyConfirmedAttempts.has(attemptId)) return;
-    automaticallyConfirmedAttempts.add(attemptId);
+    const confirmedAttempts = automaticallyConfirmedAttempts();
+    if (!attemptId || confirmedAttempts.has(attemptId)) return;
+    confirmedAttempts.add(attemptId);
     void controller
       .confirm((id) => inventoryApi.getMutationAttempt(id))
       .then(() => {
