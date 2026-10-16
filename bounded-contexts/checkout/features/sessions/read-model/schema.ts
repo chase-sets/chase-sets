@@ -42,6 +42,9 @@ ALTER TABLE checkout_session_pages
 
 ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS fulfillment_preview_snapshot jsonb NULL;
+
+ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;
 `;
 
 export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [

@@ -82,6 +82,7 @@ function session(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRo
     payment_id: null,
     submitted_offer_id: null,
     cancelled_at: null,
+    handoff_expires_at: null,
     created_at: "2026-05-16T00:00:00.000Z",
     updated_at: "2026-05-16T00:00:00.000Z",
     ...overrides,

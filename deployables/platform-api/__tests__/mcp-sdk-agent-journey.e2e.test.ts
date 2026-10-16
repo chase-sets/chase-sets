@@ -517,6 +517,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       payment_id: null,
       submitted_offer_id: null,
       cancelled_at: null,
+      handoff_expires_at: null,
       created_at: "2026-07-08T00:00:00.000Z",
       updated_at: "2026-07-08T00:00:00.000Z",
     };
