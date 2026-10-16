@@ -25,6 +25,16 @@ const AUTOMATIC_CONFIRMATION_TTL_MS = 5_000;
 function recentlyAutomaticallyConfirmed(attemptId: string) {
   try {
     const prefix = "chase-sets:inventory-auto-confirm:";
+    const key = `${prefix}${attemptId}`;
+    const previous = Number(window.localStorage.getItem(key));
+    if (Number.isFinite(previous) && Date.now() - previous < AUTOMATIC_CONFIRMATION_TTL_MS) return true;
+    window.localStorage.setItem(key, String(Date.now()));
+    return false;
+  } catch {
+    // Recovery remains fail-safe if browser storage is unavailable.
+  }
+  try {
+    const prefix = "chase-sets:inventory-auto-confirm:";
     const marker = window.name.startsWith(prefix) ? window.name.slice(prefix.length) : "";
     const separator = marker?.lastIndexOf("|") ?? -1;
     const previous = separator === -1 ? NaN : Number(marker?.slice(separator + 1));
