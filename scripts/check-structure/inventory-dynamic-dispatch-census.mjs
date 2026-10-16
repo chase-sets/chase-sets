@@ -182,8 +182,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       if (
         declaration &&
         ts.isVariableDeclaration(declaration) &&
-        declaration.initializer &&
-        ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const
+        declaration.initializer
       )
         return staticKey(declaration.initializer, depth + 1);
     }
@@ -248,23 +247,28 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           : "";
       return ["bind", "call", "apply"].includes(name);
     };
-    const patternSource = (pattern) => {
+    const elementType = (type) => type && checker.getIndexTypeOfType(type, ts.IndexKind.Number);
+    const assignmentSourceType = (pattern) => {
       const parent = pattern.parent;
-      if (ts.isVariableDeclaration(parent)) {
-        if (ts.isForOfStatement(parent.parent) || ts.isForInStatement(parent.parent)) return parent.parent.expression;
-        return parent.initializer;
+      if (ts.isParenthesizedExpression(parent)) return assignmentSourceType(parent);
+      if (
+        ts.isBinaryExpression(parent) &&
+        parent.left === pattern &&
+        parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      )
+        return typeOf(parent.right);
+      if (ts.isForOfStatement(parent) && parent.initializer === pattern) return elementType(typeOf(parent.expression));
+      if (ts.isPropertyAssignment(parent) && parent.initializer === pattern) {
+        const outer = assignmentSourceType(parent.parent);
+        const name = parent.name;
+        if (!outer || !(ts.isIdentifier(name) || ts.isStringLiteralLike(name))) return undefined;
+        return checker.getTypeOfPropertyOfType(outer, name.text);
       }
-      if (ts.isParameter(parent)) {
-        return (
-          parent.initializer ?? (parent.type ? { sourceType: checker.getTypeFromTypeNode(parent.type) } : undefined)
-        );
-      }
-      if (ts.isBinaryExpression(parent) && parent.left === pattern) return parent.right;
+      if (ts.isArrayLiteralExpression(parent)) return elementType(assignmentSourceType(parent));
       return undefined;
     };
     const inspectPattern = (pattern) => {
-      const sourceTypeOrNode = patternSource(pattern);
-      const sourceType = sourceTypeOrNode?.sourceType ?? (sourceTypeOrNode && typeOf(sourceTypeOrNode));
+      const sourceType = ts.isObjectBindingPattern(pattern) ? typeOf(pattern) : assignmentSourceType(pattern);
       if (!sourceType || !isFamily(sourceType)) return;
       const elements = ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties;
       for (const element of elements) {
@@ -283,6 +287,11 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       if (ts.isCallExpression(parent) || ts.isNewExpression(parent)) return parent.arguments.includes(node);
       if (ts.isConditionalExpression(parent)) return parent.whenTrue === node || parent.whenFalse === node;
       if (ts.isParenthesizedExpression(parent) || ts.isNonNullExpression(parent)) return true;
+      if (ts.isArrowFunction(parent)) return parent.body === node;
+      if (ts.isShorthandPropertyAssignment(parent)) return parent.name === node;
+      if (ts.isYieldExpression(parent) || ts.isAwaitExpression(parent)) return parent.expression === node;
+      if (ts.isTemplateSpan(parent)) return ts.isTaggedTemplateExpression(parent.parent.parent);
+      if (ts.isJsxExpression(parent)) return parent.expression === node;
       if (ts.isBinaryExpression(parent) && parent.right === node)
         return (
           parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&

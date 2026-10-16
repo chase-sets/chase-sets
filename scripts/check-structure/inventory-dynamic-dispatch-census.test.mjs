@@ -153,6 +153,41 @@ const repairControls = [
     "FAMILY_DYNAMIC_KEY",
   ],
   [
+    "F2-D2",
+    "export function route(svc: H) { for (const { [method]: fn } of [svc as H & Record<string, Fn>]) fn(); }",
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "F2-D3",
+    'export function route() { const { holds: { [method as "createHold"]: fn } } = services; return fn(context, context); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "F2-D4",
+    'export function route(svc: H) { const { s: { [method as "createHold"]: fn } } = { s: svc }; return fn(context, context); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "F2-D5",
+    'export function route(svc: H) { const [{ [method as "createHold"]: fn }] = [svc]; return fn(context, context); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "F2-D6",
+    'export function route(svc: H) { let fn: unknown; ({ s: { [method as "createHold"]: fn } } = { s: svc }); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "F2-D7",
+    'export function route(svc: H) { let fn: unknown; for ({ [method as "createHold"]: fn } of [svc]); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "F2-D10",
+    'export function route(list: H[]) { return list.map(({ [method as "createHold"]: fn }) => fn(context, context)); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
     "F3-K5",
     "export function route(svc: H) { for (const k of Object.keys(svc) as (keyof H)[]) svc[k]; }",
     "FAMILY_ENUMERATION",
@@ -202,6 +237,41 @@ const repairControls = [
     "F4-L9",
     "export function route(svc: H) { const { s = svc }: { s?: any } = {}; return s[method](context, context); }",
     "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "F4-S1",
+    "export const leak = (svc: H): any => svc; export function route(svc: H) { return leak(svc)[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "F4-S2",
+    "export const leak = (svc: H): unknown => svc; export function route(svc: H) { return leak(svc); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "F4-S3",
+    "export function route(svc: H) { const bag: { holds: any } = { holds: svc }; return bag.holds[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "F4-S4",
+    "export function route(svc: H) { const bag: Record<string, unknown> = { holds: svc }; return bag.holds; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "F4-S5",
+    "export function* gen(svc: H): Generator<unknown> { yield svc; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "F4-S6",
+    "declare function later(value: () => unknown): void; export function route(svc: H) { later(() => svc); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "F1-K7",
+    'export function route(svc: H) { let k = method as "createHold"; return svc[k](context, context); }',
+    "FAMILY_DYNAMIC_KEY",
   ],
 ].map(([id, source, reason]) => ({ id, source, reason }));
 
@@ -311,6 +381,14 @@ describe("issue-7169-type-resolved-census-matrix", () => {
       'const key = flag ? "createHold" as const : "releaseHold" as const; services.holds[key]({}, context);',
       "const m = services.holds.createHold; m({}, context);",
       "const { createHold: m } = services.holds; m({}, context);",
+      "const { holds: { createHold } } = services; createHold({}, context);",
+      "let holds: H; ({ holds } = services); holds.createHold({}, context);",
+      'const k = "createHold" as const; services.holds[k]({}, context);',
+      'function route(k: "createHold") { services.holds[k]({}, context); }',
+      'const bag: { holds: H } = { holds: services.holds }; bag.holds.createHold({}, context);',
+      "const holds = services.holds; const bag: { holds: H } = { holds }; bag.holds.createHold({}, context);",
+      "const route = (svc: H): H => svc; route(services.holds).createHold({}, context);",
+      "function* gen(svc: H): Generator<H> { yield svc; } gen(services.holds).next();",
       "const m = services.holds.createHold.bind(services.holds); m({}, context);",
       "services.holds.createHold.bind(services.holds)({}, context);",
       "services.holds.createHold.call(services.holds, {}, context);",
