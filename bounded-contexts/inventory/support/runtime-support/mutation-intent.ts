@@ -190,8 +190,12 @@ export function normalizeInventoryMutationIntent(
   switch (family) {
     case "import-create": {
       const input = object(value, ["accountId", "snapshotVersion", "snapshotHash"]);
-      assert(input.snapshotVersion === 1 && typeof input.snapshotHash === "string" && /^[a-f0-9]{64}$/.test(input.snapshotHash),
-        "Invalid Inventory import snapshot intent.");
+      assert(
+        input.snapshotVersion === 1 &&
+          typeof input.snapshotHash === "string" &&
+          /^[a-f0-9]{64}$/.test(input.snapshotHash),
+        "Invalid Inventory import snapshot intent.",
+      );
       return { accountId: text(input.accountId), snapshotVersion: 1, snapshotHash: input.snapshotHash };
     }
     case "restock-record": {

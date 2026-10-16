@@ -6,17 +6,30 @@ describe("durable job work units", () => {
   it("never invokes a fact writer after the parent is terminal", async () => {
     let written = false;
     const calls: string[] = [];
-    const store = createPostgresDurableJobWorkUnitStore({
-      query: async (sql: string) => {
-        calls.push(sql);
-        return { rows: sql.includes("terminal_unit") ? [{ job_id: "job_terminal" }] : [], rowCount: 1 };
+    const store = createPostgresDurableJobWorkUnitStore(
+      {
+        query: async (sql: string) => {
+          calls.push(sql);
+          return { rows: sql.includes("terminal_unit") ? [{ job_id: "job_terminal" }] : [], rowCount: 1 };
+        },
       },
-    }, { jobsTable: "jobs", eventsTable: "events", workUnitsTable: "units" }, { workflowName: "test" });
-    expect(await store.recordTerminal({ jobId: "job_terminal", unitId: "row_1", claimOwnerId: "old",
-      claimToken: "old-token", state: "completed", parentProgress: {}, resolveParentUpdate: async () => {
-        written = true;
-        return { parentProgress: {} };
-      } })).toBe("parent-already-terminal");
+      { jobsTable: "jobs", eventsTable: "events", workUnitsTable: "units" },
+      { workflowName: "test" },
+    );
+    expect(
+      await store.recordTerminal({
+        jobId: "job_terminal",
+        unitId: "row_1",
+        claimOwnerId: "old",
+        claimToken: "old-token",
+        state: "completed",
+        parentProgress: {},
+        resolveParentUpdate: async () => {
+          written = true;
+          return { parentProgress: {} };
+        },
+      }),
+    ).toBe("parent-already-terminal");
     expect(written).toBe(false);
     expect(calls.some((sql) => sql.includes("status IN ('queued', 'running') FOR UPDATE"))).toBe(true);
     expect(calls.some((sql) => sql.includes("UPDATE jobs AS job"))).toBe(false);

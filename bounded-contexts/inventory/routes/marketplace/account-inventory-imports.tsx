@@ -76,7 +76,9 @@ export const action = defineFormAction({
       const job = await createInventoryRequestApiClient(request, {
         mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
       }).createImportBatch({
-        csvText: file ? new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer()) : String(formData.get("csvText") ?? ""),
+        csvText: file
+          ? new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer())
+          : String(formData.get("csvText") ?? ""),
         sourceKey: String(formData.get("sourceKey") ?? "native-csv"),
         quantityMode: String(formData.get("quantityMode") ?? "add"),
         defaultStorageLocationId: String(formData.get("defaultStorageLocationId") ?? "").trim() || null,
@@ -117,16 +119,19 @@ export default function MarketplaceInventoryImportsRoute() {
   const navigation = useNavigation();
 
   return (
-    <InventoryMutationProvider authority={data.recoveryAuthority} navigationPending={navigation.state !== "idle"}
-      key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}>
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority}
+      navigationPending={navigation.state !== "idle"}
+      key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
+    >
       <InventoryImportBatchPage
-      batches={data.batches.items}
-      storageLocations={data.storageLocations.items}
-      detail={data.detail}
-      detailLoadMessage={data.detailLoadMessage}
-      activeJobId={data.activeJobId}
-      currentPath={`${location.pathname}${location.search}`}
-      errorMessage={actionData?.error ?? null}
+        batches={data.batches.items}
+        storageLocations={data.storageLocations.items}
+        detail={data.detail}
+        detailLoadMessage={data.detailLoadMessage}
+        activeJobId={data.activeJobId}
+        currentPath={`${location.pathname}${location.search}`}
+        errorMessage={actionData?.error ?? null}
       />
     </InventoryMutationProvider>
   );

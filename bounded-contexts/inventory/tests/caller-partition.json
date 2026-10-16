@@ -369,6 +369,14 @@
     "consumer": "bootstrap",
     "status": "cutover"
   },
+  "deployables/platform-api/src/app.ts": {
+    "families": ["import-create"],
+    "authority": "Collections owner-authorized Saved List snapshot and Inventory trusted actor context",
+    "attempt": "caller requestId through recovered Inventory import-create service",
+    "read": "private first acceptance receipt and durable validation job",
+    "consumer": "Collections to Inventory host port",
+    "status": "cutover"
+  },
   "deployables/platform-worker/src/main.ts": {
     "families": ["item-read"],
     "authority": "trusted account-scoped reader",

@@ -6,9 +6,13 @@ import { inventoryImportBatchRoutes } from "./route";
 import type { InventoryImportBatchServices, InventoryImportBatchJob } from "./runtime";
 
 describe("inventory import batch routes", () => {
-  const authority: EventStoreContext = { tenantId: "tnt_synthetic", audit: {
-    performedByUserId: "usr_synthetic", forAccountId: "acc_synthetic",
-  } };
+  const authority: EventStoreContext = {
+    tenantId: "tnt_synthetic",
+    audit: {
+      performedByUserId: "usr_synthetic",
+      forAccountId: "acc_synthetic",
+    },
+  };
   function privateApp(services: Partial<InventoryImportBatchServices>, context = authority) {
     const app = new Hono<InventoryApiEnv>();
     app.use("*", async (c, next) => {
@@ -20,25 +24,33 @@ describe("inventory import batch routes", () => {
     return app;
   }
 
-  it.each(["account", "user", "tenant"])("issue-7169-c3-upload-recovery: %s mismatch hides both job and SSE", async (kind) => {
-    const context = { ...authority, audit: { ...authority.audit } };
-    if (kind === "account") context.audit.forAccountId = "acc_other";
-    if (kind === "user") context.audit.performedByUserId = "usr_other";
-    if (kind === "tenant") context.tenantId = "tnt_other";
-    const job = { payload: { accountId: authority.audit.forAccountId }, eventContext: authority } as InventoryImportBatchJob;
-    const listImportBatchJobEvents = vi.fn();
-    const app = privateApp({ getImportBatchJob: async () => job, listImportBatchJobEvents }, context);
-    expect((await app.request("/jobs/job_synthetic")).status).toBe(404);
-    expect((await app.request("/jobs/job_synthetic/events")).status).toBe(404);
-    expect(listImportBatchJobEvents).not.toHaveBeenCalled();
-  });
+  it.each(["account", "user", "tenant"])(
+    "issue-7169-c3-upload-recovery: %s mismatch hides both job and SSE",
+    async (kind) => {
+      const context = { ...authority, audit: { ...authority.audit } };
+      if (kind === "account") context.audit.forAccountId = "acc_other";
+      if (kind === "user") context.audit.performedByUserId = "usr_other";
+      if (kind === "tenant") context.tenantId = "tnt_other";
+      const job = {
+        payload: { accountId: authority.audit.forAccountId },
+        eventContext: authority,
+      } as InventoryImportBatchJob;
+      const listImportBatchJobEvents = vi.fn();
+      const app = privateApp({ getImportBatchJob: async () => job, listImportBatchJobEvents }, context);
+      expect((await app.request("/jobs/job_synthetic")).status).toBe(404);
+      expect((await app.request("/jobs/job_synthetic/events")).status).toBe(404);
+      expect(listImportBatchJobEvents).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects malformed UTF-8 before calling the create owner", async () => {
     const enqueueCreateBatchJob = vi.fn();
     const form = new FormData();
     form.set("file", new File([new Uint8Array([0xc3, 0x28])], "private-synthetic.csv"));
     const response = await privateApp({ enqueueCreateBatchJob }).request("/", {
-      method: "POST", body: form, headers: { "Inventory-Mutation-Attempt": "a7b08aac-e3b5-45d6-93c2-13a9139e92b6" },
+      method: "POST",
+      body: form,
+      headers: { "Inventory-Mutation-Attempt": "a7b08aac-e3b5-45d6-93c2-13a9139e92b6" },
     });
     expect(response.status).toBe(400);
     expect(await response.text()).not.toContain("private-synthetic");

@@ -5,7 +5,16 @@ import type {
   InventoryImportSourceKey,
 } from "../domain/import-source-adapters";
 
-export type InventoryImportBatchStatus = "uploaded" | "committed" | "expired";
+export type InventoryImportBatchStatus =
+  | "uploaded"
+  | "validating"
+  | "ready-to-commit"
+  | "committing"
+  | "committed"
+  | "partial"
+  | "failed-safe"
+  | "ambiguous"
+  | "expired";
 export type InventoryImportRowStatus = "accepted" | "rejected" | "committed";
 export type InventoryImportResolutionStatus = "native" | "resolved" | "unresolved";
 
@@ -82,6 +91,25 @@ const IMPORT_BATCH_STATUS_SQL = `CASE
    AND accepted_count > 0
    AND committed_count = accepted_count
     THEN 'committed'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = 'create' AND job.status = 'failed') THEN 'failed-safe'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = 'create' AND job.status IN ('queued', 'running')) THEN 'validating'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = 'commit' AND job.status IN ('queued', 'running')) THEN 'committing'
+  WHEN committed_count > 0 THEN 'partial'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = 'create' AND job.status = 'completed'
+      AND (job.progress->>'total')::integer <> inventory_import_batches.total_count) THEN 'ambiguous'
+  WHEN total_count > 0 THEN 'ready-to-commit'
   ELSE 'uploaded'
 END`;
 
@@ -126,7 +154,7 @@ export async function getImportBatch(
        adapter_version,
        quantity_mode,
        default_storage_location_id,
-       source_filename,
+       NULL::text AS source_filename,
        total_count,
        accepted_count,
        rejected_count,
@@ -210,7 +238,7 @@ export async function listImportBatches(
          adapter_version,
          quantity_mode,
          default_storage_location_id,
-         source_filename,
+         NULL::text AS source_filename,
          total_count,
          accepted_count,
          rejected_count,

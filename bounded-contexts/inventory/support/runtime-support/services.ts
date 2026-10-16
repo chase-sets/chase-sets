@@ -131,14 +131,17 @@ export function createInventoryServices(
   const pendingStorageLocations = createStorageLocationRuntime(deps);
   const pendingItems = createInventoryItemRuntime(deps, catalogItems, pendingStorageLocations);
   const items = recoverInventoryItems(createInventoryItemRuntime(deps, catalogItems, storageLocations), mutations);
-  const importBatches = recoverInventoryImportCreates(createInventoryImportBatchRuntime({
-    db,
-    notificationWaiterPool: options.notificationWaiterPool,
-    items: pendingItems,
-    catalogItems,
-    draftListingCreator: ports.draftListingCreator,
-    importProductRollout: ports.importProductRollout,
-  }), mutations);
+  const importBatches = recoverInventoryImportCreates(
+    createInventoryImportBatchRuntime({
+      db,
+      notificationWaiterPool: options.notificationWaiterPool,
+      items: pendingItems,
+      catalogItems,
+      draftListingCreator: ports.draftListingCreator,
+      importProductRollout: ports.importProductRollout,
+    }),
+    mutations,
+  );
   const holds = recoverInventoryHolds(createInventoryHoldRuntime(deps), mutations);
   const holdCleanupAuthority = createInventoryHoldCleanupAuthority({ eventStore, db });
   const reservations = createInventoryReservationRuntime(deps);

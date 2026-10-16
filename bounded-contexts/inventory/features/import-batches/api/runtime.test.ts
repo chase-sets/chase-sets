@@ -562,27 +562,62 @@ function runtime(
       for (const sourceRow of snapshot.rows) {
         const row = await validateRow(params.accountId, sourceRow, snapshot.header.quantityMode);
         db.rows.push({
-          row_id: `imr_${batchId.slice(4)}_${sourceRow.rowNumber}`, batch_id: batchId, row_number: sourceRow.rowNumber,
-          status: row.status, raw_row: { ...sourceRow.rawRow,
-            ...(row.acquisitionCostCurrencyCode ? { acquisitionCostCurrencyCode: row.acquisitionCostCurrencyCode } : {}),
-            ...(row.listingPriceCurrencyCode ? { listingPriceCurrencyCode: row.listingPriceCurrencyCode } : {}) },
-          external_reference: row.externalReference, row_fingerprint: row.rowFingerprint, quantity_mode: row.quantityMode,
-          quantity_delta: row.quantityDelta, set_quantity: row.setQuantity, source_price_amount: row.sourcePriceAmount,
-          resolution_status: row.resolutionStatus, catalog_item_id: row.catalogItemId, product_id: row.productId,
-          selected_options: row.selectedOptions, storage_location_id: row.storageLocationId, total_quantity: row.totalQuantity,
-          acquisition_occurred_at: row.acquisitionOccurredAt, acquisition_cost_amount: row.acquisitionCostAmount,
-          acquisition_cost_currency_code: row.acquisitionCostCurrencyCode, seller_sku: row.sellerSku,
-          listing_price_amount: row.listingPriceAmount, listing_price_currency_code: row.listingPriceCurrencyCode,
-          listing_quantity_cap: row.listingQuantityCap, row_note: row.rowNote, validation_errors: row.validationErrors,
-          committed_inventory_item_id: null, committed_listing_id: null, committed_at: null, created_at: now, updated_at: now,
+          row_id: `imr_${batchId.slice(4)}_${sourceRow.rowNumber}`,
+          batch_id: batchId,
+          row_number: sourceRow.rowNumber,
+          status: row.status,
+          raw_row: {
+            ...sourceRow.rawRow,
+            ...(row.acquisitionCostCurrencyCode
+              ? { acquisitionCostCurrencyCode: row.acquisitionCostCurrencyCode }
+              : {}),
+            ...(row.listingPriceCurrencyCode ? { listingPriceCurrencyCode: row.listingPriceCurrencyCode } : {}),
+          },
+          external_reference: row.externalReference,
+          row_fingerprint: row.rowFingerprint,
+          quantity_mode: row.quantityMode,
+          quantity_delta: row.quantityDelta,
+          set_quantity: row.setQuantity,
+          source_price_amount: row.sourcePriceAmount,
+          resolution_status: row.resolutionStatus,
+          catalog_item_id: row.catalogItemId,
+          product_id: row.productId,
+          selected_options: row.selectedOptions,
+          storage_location_id: row.storageLocationId,
+          total_quantity: row.totalQuantity,
+          acquisition_occurred_at: row.acquisitionOccurredAt,
+          acquisition_cost_amount: row.acquisitionCostAmount,
+          acquisition_cost_currency_code: row.acquisitionCostCurrencyCode,
+          seller_sku: row.sellerSku,
+          listing_price_amount: row.listingPriceAmount,
+          listing_price_currency_code: row.listingPriceCurrencyCode,
+          listing_quantity_cap: row.listingQuantityCap,
+          row_note: row.rowNote,
+          validation_errors: row.validationErrors,
+          committed_inventory_item_id: null,
+          committed_listing_id: null,
+          committed_at: null,
+          created_at: now,
+          updated_at: now,
         });
       }
       const rows = db.rows.filter((row) => row.batch_id === batchId);
-      db.batches.set(batchId, { batch_id: batchId, account_id: params.accountId, status: "uploaded",
-        source_key: snapshot.header.sourceKey, adapter_version: snapshot.header.adapterVersion, quantity_mode: snapshot.header.quantityMode,
-        default_storage_location_id: snapshot.header.defaultStorageLocationId, source_filename: null,
-        total_count: rows.length, accepted_count: rows.filter((row) => row.status === "accepted").length,
-        rejected_count: rows.filter((row) => row.status === "rejected").length, committed_count: 0, created_at: now, updated_at: now });
+      db.batches.set(batchId, {
+        batch_id: batchId,
+        account_id: params.accountId,
+        status: "uploaded",
+        source_key: snapshot.header.sourceKey,
+        adapter_version: snapshot.header.adapterVersion,
+        quantity_mode: snapshot.header.quantityMode,
+        default_storage_location_id: snapshot.header.defaultStorageLocationId,
+        source_filename: null,
+        total_count: rows.length,
+        accepted_count: rows.filter((row) => row.status === "accepted").length,
+        rejected_count: rows.filter((row) => row.status === "rejected").length,
+        committed_count: 0,
+        created_at: now,
+        updated_at: now,
+      });
       return (await services.getBatch(batchId, params.accountId))!;
     },
   };
@@ -946,8 +981,9 @@ describe("inventory import batch runtime", () => {
     ]);
   });
 
-  it("keeps import batch schema additive for existing staging databases", () => {
-    expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS source_filename text NULL");
+  it("expands safe readers without recreating contracted private upload columns", () => {
+    expect(inventoryImportBatchSchemaSql).not.toMatch(/\b(?:csv_text|parsed_rows|source_filename)\b/);
+    expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS snapshot_version integer NULL");
     expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS seller_sku text NULL");
     expect(inventoryImportBatchSchemaSql).toContain(
       "ADD COLUMN IF NOT EXISTS listing_price_amount numeric(12, 2) NULL",

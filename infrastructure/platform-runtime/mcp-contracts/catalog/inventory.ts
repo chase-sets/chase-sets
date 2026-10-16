@@ -231,7 +231,12 @@ export const inventoryService = {
               required: ["rowNumber", "values"],
               properties: {
                 rowNumber: integerProperty("Distinct positive source row identity."),
-                values: { type: "object", description: "Text cells normalized by the selected source adapter; unknown upload fields are not retained.", additionalProperties: true },
+                values: {
+                  type: "object",
+                  description:
+                    "Text cells normalized by the selected source adapter; unknown upload fields are not retained.",
+                  additionalProperties: true,
+                },
               },
             }),
             defaultStorageLocationId: stringProperty(
@@ -252,12 +257,15 @@ export const inventoryService = {
       ),
       availability: "available",
       guardrails: guardrails("sensitive", { idempotencyAuthority: "owner", dryRunSupported: false }),
-      outputSchema: objectSchema({
-        receiptVersion: integerProperty("Durable import acceptance receipt version (1)."),
-        jobId: stringProperty("Durable validation job identity."),
-        batchId: stringProperty("Recoverable import batch identity."),
-        status: stringProperty("Acceptance does not assert validation or stock commit.", ["accepted"]),
-      }, ["receiptVersion", "jobId", "batchId", "status"]),
+      outputSchema: objectSchema(
+        {
+          receiptVersion: integerProperty("Durable import acceptance receipt version (1)."),
+          jobId: stringProperty("Durable validation job identity."),
+          batchId: stringProperty("Recoverable import batch identity."),
+          status: stringProperty("Acceptance does not assert validation or stock commit.", ["accepted"]),
+        },
+        ["receiptVersion", "jobId", "batchId", "status"],
+      ),
     },
     {
       ...readTool(
@@ -284,7 +292,7 @@ export const inventoryService = {
         "inventory",
         "commit-import-batch",
         "Commit Inventory Import Batch",
-        "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+        "Accept a durable job to commit reviewed import rows into Inventory Items and draft Listings; read the job for its outcome.",
         "inventory.manage",
         objectSchema(
           {
@@ -301,7 +309,15 @@ export const inventoryService = {
         ["Use only after reviewing match outcomes and confirming rejected rows should remain in review."],
       ),
       availability: "available",
-      outputSchema: inventoryImportBatchDetailOutputSchema,
+      outputSchema: objectSchema(
+        {
+          receiptVersion: integerProperty("Durable import acceptance receipt version (1)."),
+          jobId: stringProperty("Durable commit job identity."),
+          batchId: stringProperty("Inventory import batch identity."),
+          status: stringProperty("accepted; read the durable job for its terminal outcome."),
+        },
+        ["receiptVersion", "jobId", "batchId", "status"],
+      ),
     },
     {
       ...writeTool(

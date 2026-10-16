@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS inventory_import_batches (
   adapter_version integer NOT NULL DEFAULT 1,
   quantity_mode text NOT NULL DEFAULT 'add',
   default_storage_location_id text NULL,
-  source_filename text NULL,
   total_count integer NOT NULL DEFAULT 0,
   accepted_count integer NOT NULL DEFAULT 0,
   rejected_count integer NOT NULL DEFAULT 0,
@@ -90,12 +89,9 @@ CREATE INDEX IF NOT EXISTS inventory_import_batch_rows_batch_idx
 CREATE TABLE IF NOT EXISTS inventory_import_batch_job_inputs (
   input_id text PRIMARY KEY,
   account_id text NOT NULL,
-  csv_text text NULL,
-  parsed_rows jsonb NULL,
   source_key text NULL,
   quantity_mode text NULL,
   default_storage_location_id text NULL,
-  source_filename text NULL,
   created_at timestamptz NOT NULL
 );
 
@@ -122,8 +118,7 @@ ALTER TABLE inventory_import_batches
   ADD COLUMN IF NOT EXISTS source_key text NOT NULL DEFAULT 'native-csv',
   ADD COLUMN IF NOT EXISTS adapter_version integer NOT NULL DEFAULT 1,
   ADD COLUMN IF NOT EXISTS quantity_mode text NOT NULL DEFAULT 'add',
-  ADD COLUMN IF NOT EXISTS default_storage_location_id text NULL,
-  ADD COLUMN IF NOT EXISTS source_filename text NULL;
+  ADD COLUMN IF NOT EXISTS default_storage_location_id text NULL;
 
 ALTER TABLE inventory_import_batch_rows
   ADD COLUMN IF NOT EXISTS external_reference jsonb NULL,
@@ -154,6 +149,9 @@ ${durableJobSchemaSql({
   eventsTable: "inventory_import_batch_job_events",
 })}
 
+CREATE INDEX IF NOT EXISTS inventory_import_batch_jobs_batch_state_idx
+  ON inventory_import_batch_jobs ((payload->>'accountId'), (payload->>'batchId'), job_kind, status);
+
 ${durableJobWorkUnitSchemaSql({
   jobsTable: "inventory_import_batch_jobs",
   workUnitsTable: "inventory_import_batch_work_units",
@@ -164,7 +162,11 @@ export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] 
   {
     migrationId: "20261016_inventory_import_safe_snapshots",
     description: "Install safe versioned import source readers and bounded row storage before writer cutover.",
-    statements: [inventoryImportSnapshotSchemaSql],
+    statements: [
+      inventoryImportSnapshotSchemaSql,
+      `CREATE INDEX IF NOT EXISTS inventory_import_batch_jobs_batch_state_idx
+        ON inventory_import_batch_jobs ((payload->>'accountId'), (payload->>'batchId'), job_kind, status)`,
+    ],
   },
   {
     migrationId: "20261006_inventory_import_product_resolution_scan",

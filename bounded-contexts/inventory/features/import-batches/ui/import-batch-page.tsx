@@ -366,7 +366,11 @@ export function InventoryImportBatchPage({
   detailLoadMessage?: string | null;
   catalogItemApiBaseUrl?: string;
 }) {
-  const canCommit = Boolean(detail && detail.status !== "expired" && detail.accepted_count > detail.committed_count);
+  const canCommit = Boolean(
+    detail &&
+    ["uploaded", "ready-to-commit", "partial"].includes(detail.status) &&
+    detail.accepted_count > detail.committed_count,
+  );
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
   const activeJob = useInventoryImportBatchJob(activeJobId);
   const unresolvedRowIds = detail ? unresolvedResolutionRowIds(detail) : [];
@@ -424,11 +428,17 @@ export function InventoryImportBatchPage({
         />
       ) : null}
 
-      <MarketplaceNotice tone="info" title={t("inventory.import.resume.title")}
-        description={t("inventory.import.resume.description")} />
+      <MarketplaceNotice
+        tone="info"
+        title={t("inventory.import.resume.title")}
+        description={t("inventory.import.resume.description")}
+      />
       {detail?.status === "expired" ? (
-        <MarketplaceNotice tone="warning" title={t("inventory.import.expired.title")}
-          description={t("inventory.import.expired.description")} />
+        <MarketplaceNotice
+          tone="warning"
+          title={t("inventory.import.expired.title")}
+          description={t("inventory.import.expired.description")}
+        />
       ) : null}
 
       <MarketplaceDashboardPanel
@@ -478,7 +488,13 @@ export function InventoryImportBatchPage({
 
       <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.upload.csv")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <InventoryMutationForm family="import-create" targetId="draft" spacing="none" method="post" encType="multipart/form-data">
+          <InventoryMutationForm
+            family="import-create"
+            targetId="draft"
+            spacing="none"
+            method="post"
+            encType="multipart/form-data"
+          >
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-batch" />
               <Inline>
@@ -697,12 +713,16 @@ export function InventoryImportBatchPage({
             />
             <Inline>
               {rowOffset > 0 ? (
-                <LinkButton href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${Math.max(0, rowOffset - 100)}`}>
+                <LinkButton
+                  href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${Math.max(0, rowOffset - 100)}`}
+                >
                   {t("inventory.import.rows.previous")}
                 </LinkButton>
               ) : null}
               {rowOffset + detail.rows.length < detail.total_count ? (
-                <LinkButton href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${rowOffset + 100}`}>
+                <LinkButton
+                  href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${rowOffset + 100}`}
+                >
                   {t("inventory.import.rows.next")}
                 </LinkButton>
               ) : null}

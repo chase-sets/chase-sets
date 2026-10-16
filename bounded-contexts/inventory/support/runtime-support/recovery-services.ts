@@ -11,22 +11,39 @@ import { prepareInventorySavedListImportBatch } from "../../features/import-batc
 
 type MutationRuntime = ReturnType<typeof createInventoryMutationRuntime>;
 
-export function recoverInventoryImportCreates(raw: InventoryImportBatchServices, mutations: MutationRuntime): InventoryImportBatchServices {
+export function recoverInventoryImportCreates(
+  raw: InventoryImportBatchServices,
+  mutations: MutationRuntime,
+): InventoryImportBatchServices {
   return {
     ...raw,
     enqueueCreateBatchJob: (params, context) => {
       const snapshot = prepareInventoryImportSnapshot(params);
-      return mutations.execute("import-create", "draft", params.accountId,
-        { accountId: params.accountId, snapshotVersion: 1, snapshotHash: snapshot.header.hash }, context,
-        () => raw.enqueueCreateBatchJob(params, context));
+      return mutations.execute(
+        "import-create",
+        "draft",
+        params.accountId,
+        { accountId: params.accountId, snapshotVersion: 1, snapshotHash: snapshot.header.hash },
+        context,
+        () => raw.enqueueCreateBatchJob(params, context),
+      );
     },
     createSavedListImportBatch: (params, context) => {
       const prepared = prepareInventorySavedListImportBatch(params);
-      const snapshot = prepareInventoryImportSnapshot({ accountId: params.accountId, sourceKey: "saved-list", parsedRows: prepared.parsedRows });
+      const snapshot = prepareInventoryImportSnapshot({
+        accountId: params.accountId,
+        sourceKey: "saved-list",
+        parsedRows: prepared.parsedRows,
+      });
       const attempted = withInventoryMutationAttempt(context, params.requestId);
-      return mutations.execute("import-create", "draft", params.accountId,
-        { accountId: params.accountId, snapshotVersion: 1, snapshotHash: snapshot.header.hash }, attempted,
-        () => raw.createSavedListImportBatch(params, attempted));
+      return mutations.execute(
+        "import-create",
+        "draft",
+        params.accountId,
+        { accountId: params.accountId, snapshotVersion: 1, snapshotHash: snapshot.header.hash },
+        attempted,
+        () => raw.createSavedListImportBatch(params, attempted),
+      );
     },
   };
 }

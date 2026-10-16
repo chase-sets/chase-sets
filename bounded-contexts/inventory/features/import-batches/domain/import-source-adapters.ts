@@ -280,7 +280,7 @@ export function getInventoryImportSourceAdapter(sourceKey: string | null | undef
   const profile = getInventoryImportSourceProfile(sourceKey);
   if (!profile) {
     const normalized = clean(sourceKey) || "native-csv";
-    throw new Error(`Unsupported inventory import source '${normalized}'.`);
+    throw new Error("Unsupported inventory import source.");
   }
 
   return adapters[profile.sourceKey];

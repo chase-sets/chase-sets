@@ -1269,7 +1269,7 @@
     {
       "name": "inventory.commit-import-batch",
       "title": "Commit Inventory Import Batch",
-      "description": "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+      "description": "Accept a durable job to commit reviewed import rows into Inventory Items and draft Listings; read the job for its outcome.",
       "service_id": "inventory",
       "risk": "sensitive",
       "access_scope": "account",
@@ -1318,156 +1318,31 @@
       },
       "output_schema": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "required": [
+          "receiptVersion",
+          "jobId",
+          "batchId",
+          "status"
+        ],
         "properties": {
-          "batch_id": {
-            "type": "string",
-            "description": "Import batch identifier."
+          "receiptVersion": {
+            "type": "integer",
+            "description": "Durable import acceptance receipt version (1)."
           },
-          "account_id": {
+          "jobId": {
             "type": "string",
-            "description": "Account that owns the import batch."
+            "description": "Durable commit job identity."
+          },
+          "batchId": {
+            "type": "string",
+            "description": "Inventory import batch identity."
           },
           "status": {
             "type": "string",
-            "description": "Import batch status.",
-            "enum": [
-              "uploaded",
-              "committed"
-            ]
-          },
-          "source_key": {
-            "type": "string",
-            "description": "Configured import source key."
-          },
-          "adapter_version": {
-            "type": "integer",
-            "description": "Version of the import adapter contract."
-          },
-          "quantity_mode": {
-            "type": "string",
-            "description": "How row quantities affect stock.",
-            "enum": [
-              "add",
-              "replace"
-            ]
-          },
-          "total_count": {
-            "type": "integer",
-            "description": "Total row count."
-          },
-          "accepted_count": {
-            "type": "integer",
-            "description": "Accepted row count."
-          },
-          "rejected_count": {
-            "type": "integer",
-            "description": "Rejected row count."
-          },
-          "committed_count": {
-            "type": "integer",
-            "description": "Committed row count."
-          },
-          "created_at": {
-            "type": "string",
-            "description": "Creation timestamp."
-          },
-          "updated_at": {
-            "type": "string",
-            "description": "Last update timestamp."
-          },
-          "rows": {
-            "type": "array",
-            "description": "Import batch rows.",
-            "items": {
-              "type": "object",
-              "description": "Inventory import batch row.",
-              "additionalProperties": true,
-              "required": [
-                "row_id",
-                "batch_id",
-                "row_number",
-                "status",
-                "quantity_mode",
-                "resolution_status",
-                "validation_errors",
-                "created_at",
-                "updated_at"
-              ],
-              "properties": {
-                "row_id": {
-                  "type": "string",
-                  "description": "Import batch row identifier."
-                },
-                "batch_id": {
-                  "type": "string",
-                  "description": "Import batch identifier."
-                },
-                "row_number": {
-                  "type": "integer",
-                  "description": "Source row number."
-                },
-                "status": {
-                  "type": "string",
-                  "description": "Import row status.",
-                  "enum": [
-                    "accepted",
-                    "rejected",
-                    "committed"
-                  ]
-                },
-                "quantity_mode": {
-                  "type": "string",
-                  "description": "How row quantities affect stock.",
-                  "enum": [
-                    "add",
-                    "replace"
-                  ]
-                },
-                "resolution_status": {
-                  "type": "string",
-                  "description": "Catalog resolution status.",
-                  "enum": [
-                    "native",
-                    "resolved",
-                    "unresolved"
-                  ]
-                },
-                "validation_errors": {
-                  "type": "array",
-                  "description": "Validation errors for the row.",
-                  "items": {
-                    "type": "string",
-                    "description": "Validation error."
-                  }
-                },
-                "created_at": {
-                  "type": "string",
-                  "description": "Creation timestamp."
-                },
-                "updated_at": {
-                  "type": "string",
-                  "description": "Last update timestamp."
-                }
-              }
-            }
+            "description": "accepted; read the durable job for its terminal outcome."
           }
-        },
-        "required": [
-          "batch_id",
-          "account_id",
-          "status",
-          "source_key",
-          "adapter_version",
-          "quantity_mode",
-          "total_count",
-          "accepted_count",
-          "rejected_count",
-          "committed_count",
-          "created_at",
-          "updated_at",
-          "rows"
-        ]
+        }
       },
       "confirmation_required": true,
       "idempotency_key": "required",

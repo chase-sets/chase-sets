@@ -66,7 +66,11 @@ import {
   loadInventoryImportSnapshotPage,
   type InventoryImportSnapshotHeader,
 } from "./safe-snapshot";
-import { isImportMigrationPool, migrateInventoryImportSource } from "./source-migration";
+import {
+  contractInventoryImportSources,
+  isImportMigrationPool,
+  migrateInventoryImportSource,
+} from "./source-migration";
 import {
   initializeProductResolutionProgress,
   normalizeProductResolutionPage,
@@ -105,17 +109,21 @@ export type InventoryDraftListingCreator = (
 ) => Promise<{ listingId: ListingId; version: number; feeQuoteFingerprint: string }>;
 
 export type CreateInventoryImportBatch = Readonly<{
-      accountId: AccountId;
-      csvText?: string;
-      parsedRows?: readonly ImportCsvRow[];
-      sourceKey?: InventoryImportSourceKey;
-      quantityMode?: InventoryImportQuantityMode;
-      defaultStorageLocationId?: string | null;
-      sourceFilename?: string | null;
+  accountId: AccountId;
+  csvText?: string;
+  parsedRows?: readonly ImportCsvRow[];
+  sourceKey?: InventoryImportSourceKey;
+  quantityMode?: InventoryImportQuantityMode;
+  defaultStorageLocationId?: string | null;
+  sourceFilename?: string | null;
 }>;
 
 export type InventoryImportBatchServices = Readonly<{
-  getBatch: (batchId: string, accountId: string, page?: Readonly<{ limit: number; offset?: number }>) => ReturnType<typeof getImportBatch>;
+  getBatch: (
+    batchId: string,
+    accountId: string,
+    page?: Readonly<{ limit: number; offset?: number }>,
+  ) => ReturnType<typeof getImportBatch>;
   listBatches: (params: Parameters<typeof listImportBatches>[1]) => ReturnType<typeof listImportBatches>;
   getNativeCsvTemplate: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
   getNativeCsvExport: (params: Readonly<{ accountId: AccountId }>) => Promise<string>;
@@ -963,10 +971,19 @@ export function createInventoryImportRowValidator(deps: Pick<InventoryImportBatc
       rowNote: clean(values.rowNote),
       validationErrors: errors,
     };
-  }
+  };
 }
 
 export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRuntimeDeps): InventoryImportBatchServices {
+  let sourceCutover: Promise<void> | undefined;
+  function ensureSourceCutover() {
+    if (!isImportMigrationPool(deps.db)) return;
+    sourceCutover ??= contractInventoryImportSources(deps.db).catch((error: unknown) => {
+      sourceCutover = undefined;
+      throw error;
+    });
+    return sourceCutover;
+  }
   const validateRow = createInventoryImportRowValidator(deps);
   const jobStore = createPostgresDurableJobStore<
     InventoryImportBatchJobPayload,
@@ -999,16 +1016,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     },
   );
 
-  async function stageCreateBatchJobInput(
-    params: CreateInventoryImportBatch,
-    requestedInputId?: string,
-  ) {
-    const inputId = requestedInputId ?? createId("job_input");
-    await stageInventoryImportSnapshot(deps.db, inputId, prepareInventoryImportSnapshot(params));
-    return inputId;
-  }
-
-  async function loadCreateBatchJobInput(inputId: string, accountId: AccountId, rowNumber?: number, fallback?: InventoryImportBatchJobPayload["create"]): Promise<InventoryImportBatchJobInput> {
+  async function loadCreateBatchJobInput(
+    inputId: string,
+    accountId: AccountId,
+    rowNumber?: number,
+    fallback?: InventoryImportBatchJobPayload["create"],
+  ): Promise<InventoryImportBatchJobInput> {
     const result = await deps.db.query<{
       snapshot_version: number | null;
     }>(
@@ -1020,12 +1033,20 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     );
     const row = result.rows[0];
     if (!row || row.snapshot_version == null) {
-      if (!isImportMigrationPool(deps.db)) throw new InventoryDomainError("Import source migration requires a transaction.");
+      if (!isImportMigrationPool(deps.db))
+        throw new InventoryDomainError("Import source migration requires a transaction.");
       await migrateInventoryImportSource(deps.db, inputId, accountId, fallback);
     }
     const page = await loadInventoryImportSnapshotPage(deps.db, inputId, accountId, 0, rowNumber);
-    return { inputId, accountId, sourceKey: page.header.sourceKey, quantityMode: page.header.quantityMode,
-      defaultStorageLocationId: page.header.defaultStorageLocationId, snapshot: page.header, normalizedRows: page.rows };
+    return {
+      inputId,
+      accountId,
+      sourceKey: page.header.sourceKey,
+      quantityMode: page.header.quantityMode,
+      defaultStorageLocationId: page.header.defaultStorageLocationId,
+      snapshot: page.header,
+      normalizedRows: page.rows,
+    };
   }
 
   async function persistAccountSkuMapping(
@@ -1227,7 +1248,11 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     if (!detail) {
       throw new InventoryDomainError("Import batch not found.");
     }
-    if (detail.status === "expired") throw new InventoryDomainError("Import batch expired; create a new import from the source.");
+    if (detail.status === "expired")
+      throw new InventoryDomainError("Import batch expired; create a new import from the source.");
+    if (["validating", "failed-safe", "ambiguous"].includes(detail.status)) {
+      throw new InventoryDomainError("Import validation must finish before committing rows.");
+    }
 
     const rowsToCommit = detail.rows.filter((row) => row.status === "accepted" || row.status === "committed");
     let completed = rowsToCommit.filter((row) => row.status === "committed").length;
@@ -1403,10 +1428,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         adapter_version,
         quantity_mode,
         default_storage_location_id,
-        source_filename,
         created_at,
         updated_at
-      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, $7, now(), now())
+      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, now(), now())
       ON CONFLICT (batch_id) DO NOTHING`,
       [
         batchId,
@@ -1415,7 +1439,6 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         adapter.adapterVersion,
         quantityMode,
         input.defaultStorageLocationId ?? null,
-        null,
       ],
     );
   }
@@ -1524,14 +1547,27 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
        LEFT JOIN inventory_import_batch_rows AS row ON row.batch_id = $2
          AND row.row_number = (unit.payload->>'rowNumber')::integer
          AND unit.result->>'rowId' = row.row_id AND unit.result->>'status' = row.status
-       WHERE unit.job_id = $1 AND unit.unit_kind = 'create'`, [job.jobId, batchId]);
+       WHERE unit.job_id = $1 AND unit.unit_kind = 'create'`,
+      [job.jobId, batchId],
+    );
     const count = counts.rows[0];
     const total = job.progress.total;
-    if (count && count.terminal === count.total && count.failed === 0 &&
-      (count.total !== total || count.outcomes !== total)) {
+    if (
+      count &&
+      count.terminal === count.total &&
+      count.failed === 0 &&
+      (count.total !== total || count.outcomes !== total)
+    ) {
       throw new InventoryDomainError("Import validation outcomes require reconciliation.");
     }
-    const completeJob = Boolean(count && total > 0 && count.total === total && count.terminal === total && count.outcomes === total && count.failed === 0);
+    const completeJob = Boolean(
+      count &&
+      total > 0 &&
+      count.total === total &&
+      count.terminal === total &&
+      count.outcomes === total &&
+      count.failed === 0,
+    );
     const batch = await getImportBatch(queryable, batchId, job.payload.accountId, { limit: 0 });
     return {
       parentProgress: importBatchJobProgress(
@@ -1541,7 +1577,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         null,
         completeJob ? "Import validation completed." : "Validated row.",
       ),
-      parentResult: batch ? { batch } : null,
+      parentResult: batch ? { batch: completeJob ? { ...batch, status: "ready-to-commit" } : batch } : null,
       completeJob,
     };
   }
@@ -1578,15 +1614,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     context: EventStoreContext,
     identity?: InventoryImportBatchCreateIdentity,
   ): Promise<InventoryImportBatchJob> {
-    const quantityMode = params.quantityMode ?? "add";
     const snapshot = prepareInventoryImportSnapshot(params);
-    const rows = normalizedCreateBatchRows({
-      csvText: params.csvText,
-      parsedRows: params.parsedRows,
-      sourceKey: params.sourceKey,
-      quantityMode,
-      defaultStorageLocationId: params.defaultStorageLocationId,
-    });
+    const rows = snapshot.rows;
     if (rows.length === 0) {
       throw new InventoryDomainError("Import CSV must include at least one row.");
     }
@@ -1602,9 +1631,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       }
     }
 
-    const inputId = await stageCreateBatchJobInput(params, identity?.inputId);
+    const inputId = identity?.inputId ?? createId("job_input");
+    await stageInventoryImportSnapshot(deps.db, inputId, snapshot);
     const batchId = identity?.batchId ?? createId("imb");
     const jobId = identity?.jobId ?? createId("job");
+    await ensureCreateBatchHeader({ inputId, accountId: params.accountId, sourceKey: snapshot.header.sourceKey,
+      quantityMode: snapshot.header.quantityMode, defaultStorageLocationId: snapshot.header.defaultStorageLocationId }, batchId);
     let job: InventoryImportBatchJob;
     try {
       job = await jobStore.enqueue({
@@ -1614,7 +1646,13 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           batchId,
           accountId: params.accountId,
           ...(identity ? { idempotencyFingerprint: identity.inputFingerprint } : {}),
-          create: { inputId, batchId, snapshotVersion: 1, snapshotHash: snapshot.header.hash, rowCount: snapshot.header.rowCount },
+          create: {
+            inputId,
+            batchId,
+            snapshotVersion: 1,
+            snapshotHash: snapshot.header.hash,
+            rowCount: snapshot.header.rowCount,
+          },
         },
         progress: importBatchJobProgress("queued", 0, rows.length, null, "Import validation queued."),
         eventContext: context,
@@ -2010,6 +2048,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
     },
     processNextImportBatchJob: async (input) => {
+      await ensureSourceCutover();
       const createUnitResult = await processNextCreateBatchWorkUnit(input);
       if (createUnitResult.processed > 0) {
         return createUnitResult.processed;
@@ -2064,14 +2103,19 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           while (rows.length > 0) {
             await enqueueCreateWorkUnits(claimed.jobId, rows);
             if (!stagedInput.snapshot || rows.length < 100) break;
-            const page = await loadInventoryImportSnapshotPage(deps.db, stagedInput.inputId,
-              stagedInput.accountId, rows[rows.length - 1].rowNumber);
+            const page = await loadInventoryImportSnapshotPage(
+              deps.db,
+              stagedInput.inputId,
+              stagedInput.accountId,
+              rows[rows.length - 1].rowNumber,
+            );
             rows = page.rows;
           }
           await workUnitStore.reconcileTerminalParent({
             jobId: claimed.jobId,
             parentProgress: claimed.progress,
-            resolveParentUpdate: (db) => importBatchCreateParentUpdateFromWorkUnits(db, claimed, requireCreateBatchId(claimed.payload)),
+            resolveParentUpdate: (db) =>
+              importBatchCreateParentUpdateFromWorkUnits(db, claimed, requireCreateBatchId(claimed.payload)),
           });
           await jobStore.releaseClaim({ jobId: claimed.jobId, claimOwnerId: input.claimOwnerId });
           return 1;
@@ -2079,18 +2123,18 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         let commandReceipt: CommandReceiptMetadata | null = null;
         const batch = await runWithEventCommitMetadata(async () => {
           const result = await commitBatchRows(
-                {
-                  batchId: requireBatchId(claimed.payload),
-                  accountId: claimed.payload.accountId as AccountId,
-                },
-                context,
-                async (progress) => {
-                  await progressCheckpoint.checkpoint(progress);
-                },
-                {
-                  throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
-                },
-              );
+            {
+              batchId: requireBatchId(claimed.payload),
+              accountId: claimed.payload.accountId as AccountId,
+            },
+            context,
+            async (progress) => {
+              await progressCheckpoint.checkpoint(progress);
+            },
+            {
+              throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
+            },
+          );
           commandReceipt = commandReceiptFromEventMetadata(getEventCommitMetadata());
           return result;
         });
@@ -2168,9 +2212,13 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       );
       const batchId = requireCreateBatchId(claim.job.payload);
       const expected = claim.job.payload.create;
-      if (expected?.snapshotVersion !== undefined &&
-        (expected.snapshotVersion !== stagedInput.snapshot?.version || expected.snapshotHash !== stagedInput.snapshot.hash ||
-          expected.rowCount !== stagedInput.snapshot.rowCount || expected.rowCount !== claim.job.progress.total)) {
+      if (
+        expected?.snapshotVersion !== undefined &&
+        (expected.snapshotVersion !== stagedInput.snapshot?.version ||
+          expected.snapshotHash !== stagedInput.snapshot.hash ||
+          expected.rowCount !== stagedInput.snapshot.rowCount ||
+          expected.rowCount !== claim.job.progress.total)
+      ) {
         throw new InventoryDomainError("Import source binding is invalid; reconciliation is required.");
       }
       const rows = normalizedCreateBatchRows(stagedInput);
@@ -2182,13 +2230,12 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         `SELECT row.row_id, row.status FROM inventory_import_batch_rows AS row
          JOIN inventory_import_batches AS batch ON batch.batch_id = row.batch_id
          WHERE row.batch_id = $1 AND batch.account_id = $2 AND row.row_number = $3`,
-        [batchId, stagedInput.accountId, row.rowNumber]);
-      const previous = retained.rows[0];
-      const validated = previous ? null : await validateRow(
-        stagedInput.accountId,
-        row,
-        stagedInput.quantityMode ?? "add",
+        [batchId, stagedInput.accountId, row.rowNumber],
       );
+      const previous = retained.rows[0];
+      const validated = previous
+        ? null
+        : await validateRow(stagedInput.accountId, row, stagedInput.quantityMode ?? "add");
       throwIfImportBatchJobCancelled(input);
       const batch = await finishCreateBatchWorkUnit({
         jobId: claim.job.jobId,

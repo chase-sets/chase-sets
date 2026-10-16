@@ -26,12 +26,32 @@ const legacyMcpProtocol = {
 function services(): InventoryImportBatchServices {
   return {
     enqueueCreateBatchJob: vi.fn<InventoryImportBatchServices["enqueueCreateBatchJob"]>(async (params, context) => ({
-      jobId: "job_c3_synthetic", jobKind: "create", status: "queued",
-      payload: { accountId: params.accountId, batchId: "imb_1", create: { inputId: "input_synthetic", batchId: "imb_1" } },
-      progress: { phase: "queued", completed: 0, total: params.parsedRows?.length ?? 1, currentRowId: null, message: null },
-      result: null, errorMessage: null, eventContext: context, claimOwnerId: null, claimedUntil: null,
-      attemptCount: 0, nextEligibleAt: "2026-10-16T00:00:00.000Z", createdAt: "2026-10-16T00:00:00.000Z",
-      startedAt: null, completedAt: null, updatedAt: "2026-10-16T00:00:00.000Z",
+      jobId: "job_c3_synthetic",
+      jobKind: "create",
+      status: "queued",
+      payload: {
+        accountId: params.accountId,
+        batchId: "imb_1",
+        create: { inputId: "input_synthetic", batchId: "imb_1" },
+      },
+      progress: {
+        phase: "queued",
+        completed: 0,
+        total: params.parsedRows?.length ?? 1,
+        currentRowId: null,
+        message: null,
+      },
+      result: null,
+      errorMessage: null,
+      eventContext: context,
+      claimOwnerId: null,
+      claimedUntil: null,
+      attemptCount: 0,
+      nextEligibleAt: "2026-10-16T00:00:00.000Z",
+      createdAt: "2026-10-16T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+      updatedAt: "2026-10-16T00:00:00.000Z",
     })),
     getBatch: vi.fn(async (batchId, accountId) => ({
       batch_id: batchId,
@@ -216,6 +236,35 @@ describe("inventory import batch MCP handlers", () => {
       }),
     ).rejects.toThrow("accountId must match the authenticated actor account.");
     expect(fakeServices.commitBatch).not.toHaveBeenCalled();
+  });
+
+  it("returns a versioned durable commit acceptance rather than executing stock synchronously", async () => {
+    const fake = services();
+    const job = await fake.enqueueCreateBatchJob(
+      { accountId: actor.accountId as AccountId, csvText: "a\n1" },
+      {
+        tenantId: actor.tenantId,
+        audit: { forAccountId: actor.accountId, performedByUserId: actor.userId },
+      },
+    );
+    const enqueueCommitBatchJob = vi.fn<InventoryImportBatchServices["enqueueCommitBatchJob"]>(async () => ({
+      ...job,
+      jobKind: "commit",
+    }));
+    const handlers = createInventoryImportBatchMcpHandlers({ ...fake, enqueueCommitBatchJob }, storageLocations());
+    const result = await handlers.toolHandlers["inventory.commit-import-batch"]?.({
+      actor,
+      tool: null as never,
+      arguments: { accountId: actor.accountId, batchId: "imb_1" },
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+    expect(result).toEqual({ receiptVersion: 1, jobId: job.jobId, batchId: "imb_1", status: "accepted" });
+    expect(enqueueCommitBatchJob).toHaveBeenCalledWith(
+      { accountId: actor.accountId, batchId: "imb_1" },
+      expect.objectContaining({ tenantId: actor.tenantId }),
+    );
+    expect(fake.commitBatch).not.toHaveBeenCalled();
   });
 
   it("rejects dry-run writes before mutating import state", async () => {

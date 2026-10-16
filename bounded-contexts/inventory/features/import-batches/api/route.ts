@@ -2,7 +2,11 @@ import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { InventoryApiEnv } from "../../../api";
-import { toInventoryImportBatchJobStatus, type InventoryImportBatchServices, type InventoryImportBatchJob } from "./runtime";
+import {
+  toInventoryImportBatchJobStatus,
+  type InventoryImportBatchServices,
+  type InventoryImportBatchJob,
+} from "./runtime";
 import type { ImportCsvRow } from "../domain/csv";
 import { listInventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
 import type { InventoryImportQuantityMode } from "../domain/import-source-adapters";
@@ -16,9 +20,12 @@ function errorMessage(error: unknown) {
 }
 
 function canReadJob(job: InventoryImportBatchJob | null, context: EventStoreContext): job is InventoryImportBatchJob {
-  return Boolean(job && job.payload.accountId === context.audit.forAccountId &&
+  return Boolean(
+    job &&
+    job.payload.accountId === context.audit.forAccountId &&
     job.eventContext?.tenantId === context.tenantId &&
-    job.eventContext.audit.performedByUserId === context.audit.performedByUserId);
+    job.eventContext.audit.performedByUserId === context.audit.performedByUserId,
+  );
 }
 
 async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
@@ -31,7 +38,9 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
     }
     const file = formData.get("file");
     const uploadedFile = file instanceof File ? file : null;
-    const csvText = uploadedFile ? new TextDecoder("utf-8", { fatal: true }).decode(await uploadedFile.arrayBuffer()) : String(formData.get("csvText") ?? "");
+    const csvText = uploadedFile
+      ? new TextDecoder("utf-8", { fatal: true }).decode(await uploadedFile.arrayBuffer())
+      : String(formData.get("csvText") ?? "");
     const sourceFilename = uploadedFile
       ? uploadedFile.name
       : String(formData.get("sourceFilename") ?? "").trim() || null;
@@ -49,9 +58,12 @@ async function parseCreateBatchRequest(c: Context<InventoryApiEnv>) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid import request.");
   const body = value as Readonly<Record<string, unknown>>;
   const textKeys = ["csvText", "sourceKey", "quantityMode", "defaultStorageLocationId", "sourceFilename"];
-  if (Object.keys(body).some((key) => ![...textKeys, "parsedRows"].includes(key)) ||
+  if (
+    Object.keys(body).some((key) => ![...textKeys, "parsedRows"].includes(key)) ||
     textKeys.some((key) => body[key] != null && typeof body[key] !== "string") ||
-    (body.parsedRows !== undefined && !Array.isArray(body.parsedRows))) throw new Error("Invalid import request.");
+    (body.parsedRows !== undefined && !Array.isArray(body.parsedRows))
+  )
+    throw new Error("Invalid import request.");
   const parsedRows = body.parsedRows as readonly ImportCsvRow[] | undefined;
 
   return {
@@ -115,7 +127,10 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         },
         withInventoryMutationAttempt(c.get("context"), c.req.header("Inventory-Mutation-Attempt") ?? ""),
       );
-      return c.json({ ...toInventoryImportBatchJobStatus(job), receiptVersion: 1 as const, batchId: job.payload.batchId }, 202);
+      return c.json(
+        { ...toInventoryImportBatchJobStatus(job), receiptVersion: 1 as const, batchId: job.payload.batchId },
+        202,
+      );
     } catch (error) {
       return c.json(
         {
@@ -295,9 +310,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         })),
       loadCurrentSnapshot: async () => {
         const current = await services.getImportBatchJob(jobId);
-        return canReadJob(current, c.get("context")) && current
-          ? toInventoryImportBatchJobStatus(current)
-          : null;
+        return canReadJob(current, c.get("context")) && current ? toInventoryImportBatchJobStatus(current) : null;
       },
       waitForEvents: (_afterSequence, signal) => services.waitForImportBatchJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",

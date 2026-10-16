@@ -53,14 +53,19 @@ function parseParsedRows(value: unknown): readonly ImportCsvRow[] | undefined {
     }
 
     const record = row as ParsedImportRowInput;
-    if (Object.keys(record).some((key) => !["rowNumber", "values"].includes(key)) ||
-      typeof record.rowNumber !== "number" || !Number.isSafeInteger(record.rowNumber) || record.rowNumber < 1) {
+    if (
+      Object.keys(record).some((key) => !["rowNumber", "values"].includes(key)) ||
+      typeof record.rowNumber !== "number" ||
+      !Number.isSafeInteger(record.rowNumber) ||
+      record.rowNumber < 1
+    ) {
       throw new Error("Invalid parsed import row.");
     }
     if (typeof record.values !== "object" || record.values === null || Array.isArray(record.values)) {
       throw new Error("Each parsedRows entry requires a values object.");
     }
-    if (Object.values(record.values).some((value) => typeof value !== "string")) throw new Error("Import cells must be text.");
+    if (Object.values(record.values).some((value) => typeof value !== "string"))
+      throw new Error("Import cells must be text.");
 
     return {
       rowNumber: record.rowNumber,
@@ -143,7 +148,24 @@ export function createInventoryImportBatchMcpHandlers(
 
   const createImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
     rejectDryRun(args);
-    if (Object.keys(args).some((key) => !["accountId", "csvText", "parsedRows", "sourceKey", "quantityMode", "defaultStorageLocationId", "defaultStorageLocationName", "sourceFilename", "idempotencyKey", "confirmationText", "dryRun"].includes(key))) {
+    if (
+      Object.keys(args).some(
+        (key) =>
+          ![
+            "accountId",
+            "csvText",
+            "parsedRows",
+            "sourceKey",
+            "quantityMode",
+            "defaultStorageLocationId",
+            "defaultStorageLocationName",
+            "sourceFilename",
+            "idempotencyKey",
+            "confirmationText",
+            "dryRun",
+          ].includes(key),
+      )
+    ) {
       throw new Error("Invalid Inventory import request.");
     }
     const accountId = readMcpStringArgument(args, "accountId");
@@ -158,7 +180,10 @@ export function createInventoryImportBatchMcpHandlers(
         defaultStorageLocationId: await resolveDefaultStorageLocationId(storageLocations, scopedActor.accountId, args),
         sourceFilename: readMcpStringArgument(args, "sourceFilename"),
       },
-      withInventoryMutationAttempt(createActorEventStoreContext(scopedActor), readMcpStringArgument(args, "idempotencyKey") ?? ""),
+      withInventoryMutationAttempt(
+        createActorEventStoreContext(scopedActor),
+        readMcpStringArgument(args, "idempotencyKey") ?? "",
+      ),
     );
 
     return { receiptVersion: 1, jobId: job.jobId, batchId: job.payload.batchId, status: "accepted" };
@@ -183,13 +208,14 @@ export function createInventoryImportBatchMcpHandlers(
     const scopedActor = ensureMcpActorAccount(actor, accountId);
     const batchId = readMcpTypedIdArgument(args, "batchId", "imb");
 
-    return services.commitBatch(
+    const job = await services.enqueueCommitBatchJob(
       {
         accountId: scopedActor.accountId as AccountId,
         batchId,
       },
       createActorEventStoreContext(scopedActor),
     );
+    return { receiptVersion: 1, jobId: job.jobId, batchId: job.payload.batchId, status: "accepted" };
   };
 
   const readImportBatchResource: McpResourceHandler = async ({ actor, uri }) => {

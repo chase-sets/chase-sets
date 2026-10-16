@@ -2,6 +2,20 @@
 
 Inventory imports use a review-first batch. Rows are validated before they create or adjust stock.
 
+## Recovery And Privacy
+
+An upload receives a durable validation job, not a synchronous stock change. Inventory stores only a versioned, hashed snapshot of recognized import fields in pages of at most 100 rows. It does not retain the uploaded file, its filename, unknown columns, or raw CSV. Do not put credentials, URLs, private paths, or secrets in import fields.
+
+Keep the original file until review is complete. The pre-commit resume window is 24 hours from acceptance. Active validation or commit work is not expired. After the window, an inactive, uncommitted batch expires and its source is removed by exact snapshot identity. Original row diagnostics, the cleanup audit, and the first acceptance receipt remain available. Expired batches cannot commit; reselect the source for a new import.
+
+After a lost response, return with the original account and acting User. The browser restores only an opaque attempt identity and reads its private result; it never restores or resends the file. An uncertain result disables another upload until the original result is confirmed or explicitly discarded after checking for accepted work. Signing in as another User or switching accounts does not authorize the saved attempt.
+
+### Safe Snapshot Rollout
+
+The schema ledger installs the additive snapshot tables and reader columns before new writers use them. The compatible reader converts retained CSV, parsed, or normalized-row work transactionally without revalidating its original admission. The first new import-worker poll drains retained inputs and outcomes in keyset pages, then removes the raw columns in the same transaction. A failure at any conversion chunk rolls the conversion and contraction back together; no source is deleted first. Repeated schema bootstrap never recreates retired columns.
+
+Quiesce old import writers/workers before enabling the new worker. During the expansion phase, retain the legacy columns for old readers; after contraction, rollback must use the safe-snapshot-compatible reader, not the raw-source binary. Restore neither raw uploads nor event/SQL edits to retry work. A source that cannot be converted safely fails closed for audited same-identity reconciliation. The worker resumes the original job and immutable row outcomes, never a new batch identity.
+
 ## Chase Sets CSV
 
 Use this when the file already contains Chase Sets catalog identifiers and storage location names. Sellers can download a native template from the Inventory import page. The template includes the required native headers and one example row for each active storage location on that account. Archived storage locations are not included.
