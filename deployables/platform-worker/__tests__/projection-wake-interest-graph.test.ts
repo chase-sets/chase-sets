@@ -314,11 +314,23 @@ describe("platform worker projection wake interest graph", () => {
       "payments-wallet-funding-projection:payments:v1",
       "platform-policy-document-projection:payments:v1",
     ]);
+    // #9392 adds exactly one runner: Platform Operations' own Support evidence cleanup locator.
+    expect(
+      inheritedRunners
+        .filter((runner) => runner.projectionName === "support-evidence-cleanup-locator-projection")
+        .map((runner) => runner.checkpointKey),
+    ).toEqual(["support-evidence-cleanup-locator-projection:platform-operations:v1"]);
+    // #9638 adds exactly one runner: Pricing's own forecast ledger.
+    expect(
+      inheritedRunners
+        .filter((runner) => runner.projectionName === "pricing-forecast-ledger-projection")
+        .map((runner) => runner.checkpointKey),
+    ).toEqual(["pricing-forecast-ledger-projection:pricing:v1"]);
     expect(
       fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
     ).toEqual({
-      count: 255,
-      sha256: "bc4cd0180105da4e03a5287d32d0d34b91d6aca50b6346f29b529e1996d32f6d",
+      count: 256,
+      sha256: "e1bcbbdfdf0765defa95110a7a333e19ffc36cb35b103d878cb83ceda8d9e544",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -346,8 +358,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 255,
-      sha256: "d2a992a56b9ba60f364078816610ca29c498b99483c9fef2bc19f084fa3158db",
+      count: 256,
+      sha256: "544736446622d626972c650b5cc91480122777629388fbdf31e0172cde26994b",
     });
     expect(
       fingerprint(
@@ -368,8 +380,8 @@ describe("platform worker projection wake interest graph", () => {
       sha256: "ee3830e0000be54e6c457eef282d01afdb88d79cb3b55fef0ca41bcb777e15d7",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 255,
-      sha256: "32886869040e0a7fffaa6639af27f7bfee2799e88f07c8051bce869c0b9aaf09",
+      count: 256,
+      sha256: "36b8c77302ef82d50a7d8dd2bb4426ae9cb720a16d8b45d4aacd31a1cc70e9d0",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 123,

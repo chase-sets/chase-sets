@@ -151,6 +151,7 @@ import { workerContextRegistry } from "./generated/worker-context-registry";
 import {
   createInventoryProductResolutionMaintenanceRunners,
   createRegisteredScheduledRunners,
+  createSupportEvidenceCleanupHostPort,
 } from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
@@ -315,6 +316,7 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
 const identityHostPorts = {
   capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
 } satisfies Pick<import("@chase-sets/identity/server").IdentityHostPorts, "capabilityAdministrationAuthority">;
+const supportEvidenceCleanupHostPort = createSupportEvidenceCleanupHostPort(config, logger);
 const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
   createWorkerHost(workerContextRegistry, "platform-worker", {
     pools,
@@ -322,6 +324,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeLifecycle,
     hostPorts: {
       ...identityHostPorts,
+      ...supportEvidenceCleanupHostPort,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
       moneyMovementGateway,

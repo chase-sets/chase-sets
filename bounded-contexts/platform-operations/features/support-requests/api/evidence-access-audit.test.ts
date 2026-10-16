@@ -125,3 +125,73 @@ describe("closed Evidence Access Attempt schema", () => {
     await expect(broken.page("sup_case")).rejects.toMatchObject({ status: 503 });
   });
 });
+
+describe("Support evidence cleanup service attempts", () => {
+  async function recordService(decision: "allowed" | "denied" = "allowed") {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await createEvidenceAccessAudit(eventStore, () => "2026-10-15T00:00:00.000Z").recordService(
+      "sup_case",
+      "tnt_identity",
+      { bindingId: "cleanup-a", revision: 2 },
+      decision,
+    );
+    return allEvents[0]!;
+  }
+  it("records one service principal that names only the binding", async () => {
+    const event = await recordService();
+    expect(event).toMatchObject({
+      streamId: "support.evidence-access-sup_case",
+      performedByUserId: "usr_support_evidence_cleanup",
+      forAccountId: "acc_support_evidence_cleanup",
+    });
+    expect(parseEvidenceAccessAttempt(event.payload)).toEqual(event.payload);
+    expect(event.payload).toMatchObject({
+      action: "cleanup-audit-read",
+      decision: "allowed",
+      reason: "cleanup-binding",
+      participation: "service",
+      userId: null,
+      accountId: null,
+      membershipId: null,
+      assignmentId: null,
+      serviceBinding: { bindingId: "cleanup-a", revision: 2 },
+    });
+    expect(parseEvidenceAccessAttempt((await recordService("denied")).payload)).toMatchObject({
+      reason: "cleanup-binding-stale",
+    });
+  });
+  it.each([
+    ["a human user", { userId: "usr_operator" }],
+    ["a human account", { accountId: "acc_buyer" }],
+    ["a capability assignment", { assignmentId: "acap_current", assignmentVersion: 3 }],
+    ["a human action", { action: "download" }],
+    ["a human reason", { reason: "any-case-grant" }],
+    ["a mismatched decision reason", { decision: "denied" }],
+    ["an extra binding field", { serviceBinding: { bindingId: "cleanup-a", revision: 2, scope: "bytes" } }],
+    ["an unbounded revision", { serviceBinding: { bindingId: "cleanup-a", revision: 0 } }],
+  ])("rejects a service attempt carrying %s", async (_label, change) => {
+    const payload = { ...(await recordService()).payload, ...change };
+    expect(() => parseEvidenceAccessAttempt(payload)).toThrow();
+  });
+  it.each([
+    ["the service action", { action: "cleanup-audit-read" }],
+    ["the service participation", { participation: "service" }],
+    ["the service reason", { reason: "cleanup-binding" }],
+  ])("rejects a human attempt claiming %s", async (_label, change) => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await createEvidenceAccessAudit(eventStore, () => "2026-10-15T00:00:00.000Z").record(
+      "sup_case",
+      "cleanup-request",
+      evidenceActor("platform-admin", ["support.manage"], true, "acc_operator"),
+      {
+        decision: "allowed",
+        reason: "any-case-grant",
+        status: 200,
+        participation: "unrelated",
+        assignment: { key: "support.evidence.any-case", assignmentId: "acap_current", version: 3 },
+      },
+    );
+    expect(parseEvidenceAccessAttempt(allEvents[0]!.payload)).toMatchObject({ action: "cleanup-request" });
+    expect(() => parseEvidenceAccessAttempt({ ...allEvents[0]!.payload, ...change })).toThrow();
+  });
+});

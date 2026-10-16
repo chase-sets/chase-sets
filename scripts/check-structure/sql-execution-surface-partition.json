@@ -382,6 +382,7 @@
     "bounded-contexts/platform-operations/features/support-requests/integrations/source/return-label-source-projection.ts",
     "bounded-contexts/platform-operations/features/support-requests/integrations/source/source-projection.ts",
     "bounded-contexts/platform-operations/features/support-requests/integrations/transactional-email/transactional-email-projector.ts",
+    "bounded-contexts/platform-operations/features/support-requests/read-model/cleanup-locator.ts",
     "bounded-contexts/platform-operations/features/support-requests/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/support-requests/read-model/queries.ts",
     "bounded-contexts/platform-operations/support/runtime-support/seed.ts",

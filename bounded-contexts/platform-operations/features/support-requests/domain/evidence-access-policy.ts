@@ -1,7 +1,13 @@
 import type { ResolvedActor, ResolvedActorCapabilityAssignment } from "@chase-sets/auth-context";
 import type { SupportRequestState } from "./domain";
 
-export type EvidenceAccessAction = "upload" | "download" | "audit-read" | "submit-participant" | "submit-operations";
+export type EvidenceAccessAction =
+  | "upload"
+  | "download"
+  | "audit-read"
+  | "submit-participant"
+  | "submit-operations"
+  | "cleanup-request";
 export type EvidenceParticipation = "buyer" | "seller" | "unrelated" | "missing" | "anonymous";
 export type EvidenceAccessReason =
   | "participant"
@@ -59,7 +65,7 @@ export function decideEvidenceAccess(
       : deny("case-not-found", 404);
   }
   if (assignment) return { decision: "allowed", reason: "any-case-grant", status: 200, participation, assignment };
-  if (participant && action !== "audit-read" && action !== "submit-operations") {
+  if (participant && action !== "audit-read" && action !== "submit-operations" && action !== "cleanup-request") {
     return { decision: "allowed", reason: "participant", status: 200, participation, assignment };
   }
   return deny(participant ? "any-case-grant-required" : "case-not-found", participant ? 403 : 404);
