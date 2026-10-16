@@ -204,6 +204,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       .filter(Boolean)
       .some(
         (declaration) =>
+          declaration.name &&
           ts.isIdentifier(declaration.name) &&
           names.includes(declaration.name.text) &&
           (!owner ||
