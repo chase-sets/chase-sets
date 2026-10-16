@@ -24,7 +24,8 @@ const AUTOMATIC_CONFIRMATION_TTL_MS = 5_000;
 
 function recentlyAutomaticallyConfirmed(attemptId: string) {
   try {
-    const marker = document.documentElement.dataset.inventoryMutationAutoConfirm;
+    const prefix = "chase-sets:inventory-auto-confirm:";
+    const marker = window.name.startsWith(prefix) ? window.name.slice(prefix.length) : "";
     const separator = marker?.lastIndexOf("|") ?? -1;
     const previous = separator === -1 ? NaN : Number(marker?.slice(separator + 1));
     if (
@@ -33,7 +34,7 @@ function recentlyAutomaticallyConfirmed(attemptId: string) {
       Date.now() - previous < AUTOMATIC_CONFIRMATION_TTL_MS
     )
       return true;
-    document.documentElement.dataset.inventoryMutationAutoConfirm = `${attemptId}|${Date.now()}`;
+    window.name = `${prefix}${attemptId}|${Date.now()}`;
   } catch {
     // Recovery remains fail-safe if browser storage is unavailable.
   }
