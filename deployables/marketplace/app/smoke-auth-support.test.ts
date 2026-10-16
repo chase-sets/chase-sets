@@ -702,6 +702,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "payout-connect-appearance.uat.spec.ts": [0, 1, 0, 0, "configured"],
   "support-case-detail.spec.ts": [0, 2, 0, 0, "seeded"],
   "buyer-purchase-journey.spec.ts": [0, 0, 2, 0, "seeded-form"],
+  "saved-list-addition.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "channel-publication-freshness.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "channel-connection-connect.spec.ts": [0, 0, 1, 0, "seeded-form"],
   "channel-connection-states.evidence.spec.ts": [0, 1, 0, 0, "seeded"],
