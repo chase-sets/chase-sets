@@ -419,7 +419,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide the Collections event-store schema and runtime service composition seam without taking Saved List behavior out of its slice.",
-      "expectedConsumers": ["Root Collections module composition"]
+      "expectedConsumers": ["Root Collections module composition", "Saved List recovery and discovery runtimes"]
     },
     "routes": {
       "classification": "routes",

@@ -23,8 +23,6 @@ import { savedListRecoveryMigrations } from "./support/runtime-support/recovery-
 import { collectionsRetentionSweeps } from "./support/runtime-support/retention-policy";
 import { buildSavedListPickerProjectionHandlers } from "./features/saved-lists/read-model/picker-projection";
 
-export { activateAnonymousOwnerCutover } from "./support/runtime-support/anonymous-owner-activation";
-
 const collectionsContextManifest = contextManifest as BcContextManifest;
 
 export const module = defineBoundedContextModule<CollectionsServices, PgTransactionalPool, CollectionsHostPorts>({
