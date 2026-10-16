@@ -180,7 +180,10 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
     if (ts.isIdentifier(node)) {
       const declaration = checker.getSymbolAtLocation(node)?.valueDeclaration;
       if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer)
-        return staticKey(declaration.initializer, depth + 1);
+        return (
+          staticKey(declaration.initializer, depth + 1) &&
+          (Boolean(ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const) || finiteStringKeys(typeOf(node)))
+        );
     }
     return finiteStringKeys(typeOf(node));
   };
@@ -257,8 +260,22 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       if (ts.isPropertyAssignment(parent) && parent.initializer === pattern) {
         const outer = assignmentSourceType(parent.parent);
         const name = parent.name;
-        if (!outer || !(ts.isIdentifier(name) || ts.isStringLiteralLike(name))) return undefined;
-        return checker.getTypeOfPropertyOfType(outer, name.text);
+        if (!outer) return undefined;
+        const nameType = ts.isComputedPropertyName(name) ? typeOf(name.expression) : undefined;
+        const text =
+          ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)
+            ? name.text
+            : nameType && (nameType.isStringLiteral() || nameType.isNumberLiteral())
+              ? String(nameType.value)
+              : undefined;
+        const resolved = text === undefined ? undefined : checker.getTypeOfPropertyOfType(outer, text);
+        return (
+          resolved ??
+          outer
+            .getProperties()
+            .map((property) => checker.getTypeOfSymbolAtLocation(property, pattern))
+            .find(isFamily)
+        );
       }
       if (ts.isArrayLiteralExpression(parent)) return elementType(assignmentSourceType(parent));
       return undefined;

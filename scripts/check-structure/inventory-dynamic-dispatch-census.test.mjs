@@ -269,12 +269,100 @@ const repairControls = [
     'export function route(svc: H) { let k = method as "createHold"; return svc[k](context, context); }',
     "FAMILY_DYNAMIC_KEY",
   ],
+  [
+    "W1",
+    'export function route(svc: H) { let k = "createHold"; k = method; return (svc as H & Record<string, Fn>)[k](); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "W2",
+    'export function route(svc: H) { var k = "createHold"; k = method; return (svc as H & Record<string, Fn>)[k](); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "W3",
+    'let k = "createHold"; export function set(m: string) { k = m; } export function route(svc: H) { return (svc as H & Record<string, Fn>)[k](); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "W4",
+    'export function route(svc: H) { for (let k = "createHold"; flag; k = method) (svc as H & Record<string, Fn>)[k](); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "W5",
+    'export function route(svc: H) { let k = "createHold"; ({ k } = { k: method }); return (svc as H & Record<string, Fn>)[k](); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "W6",
+    'export function route(svc: H) { let k = "create"; k += method; return (svc as H & Record<string, Fn>)[k](); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "W7",
+    'export function route(svc: H) { let a = "createHold"; a = method; const k = a; return (svc as H & Record<string, Fn>)[k](); }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "X6",
+    'export function route(svc: H) { let fn: unknown; ({ ["s"]: { [method as "createHold"]: fn } } = { s: svc }); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "X6b",
+    'export function route(svc: H) { let fn: unknown; ({ 0: { [method as "createHold"]: fn } } = [svc]); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "X6c",
+    'export function route(svc: H) { let fn: unknown; ({ [`s`]: { [method as "createHold"]: fn } } = { s: svc }); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "X6d",
+    'export function route(svc: H) { const o = "s"; let fn: unknown; ({ [o]: { [method as "createHold"]: fn } } = { s: svc }); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "N13-S3",
+    "export function route(holds: H) { const bag: { holds: any } = { holds }; return bag.holds[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "N13-T1",
+    "declare function tag(strings: TemplateStringsArray, ...values: unknown[]): void; export function route(svc: H) { tag`${svc}`; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "N13-X2",
+    'export function route(svc: H) { let fn: unknown; let n: number; [n, { [method as "createHold"]: fn }] = [0, svc]; return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "N13-X3",
+    'export function route(svc: H) { let fn: unknown; for ([{ [method as "createHold"]: fn }] of [[svc]]); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "N13-J1",
+    "declare function C(p: { v: unknown }): null; export function route(svc: H) { return <C v={svc} />; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
 ].map(([id, source, reason]) => ({ id, source, reason }));
+
+const finiteAliasCleanControls = [
+  [
+    "W8",
+    'export function route(svc: H) { let k: keyof H = "createHold"; k = flag ? "releaseHold" : "createHold"; return svc[k](context, context); }',
+  ],
+  ["W9", 'export function route(svc: H) { let k = "createHold" as const; return svc[k](context, context); }'],
+].map(([id, source]) => ({ id, source }));
 
 async function matrix(cases, run) {
   const fixtures = Object.fromEntries(
-    cases.map(({ source }, index) => [
-      `bounded-contexts/unexpected/features/arbitrary/api/case-${index}.ts`,
+    cases.map(({ source, id }, index) => [
+      `bounded-contexts/unexpected/features/arbitrary/api/case-${index}${id?.endsWith("J1") ? ".tsx" : ".ts"}`,
       `${prelude}\n${source}\n`,
     ]),
   );
@@ -375,6 +463,10 @@ describe("issue-7169-type-resolved-census-matrix", () => {
       "services.holds.createHold({}, context);",
       'services.holds["createHold"]({}, context);',
       'const key = flag ? "createHold" as const : "releaseHold" as const; services.holds[key]({}, context);',
+      'let key: "createHold" = "createHold"; services.holds[key]({}, context);',
+      'var key: "createHold" = "createHold"; services.holds[key]({}, context);',
+      '({ ["s"]: { createHold: fn } } = { s: services.holds });',
+      "({ 0: { createHold: fn } } = [services.holds]);",
       "const m = services.holds.createHold; m({}, context);",
       "const { createHold: m } = services.holds; m({}, context);",
       "const { holds: { createHold } } = services; createHold({}, context);",
@@ -398,6 +490,7 @@ describe("issue-7169-type-resolved-census-matrix", () => {
       "const values = [() => 1]; values[0]();",
       "const unrelated = { createHold() {} }; unrelated[method]();",
       "services.pool[method]; services.db[method]; services.projectors[0];",
+      ...finiteAliasCleanControls.map(({ source }) => source),
     ];
     await matrix(
       cases.map((source) => ({ source })),
@@ -405,6 +498,26 @@ describe("issue-7169-type-resolved-census-matrix", () => {
         expect(analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families }).diagnostics).toEqual([]);
       },
     );
+  });
+
+  it("keeps the W8-W9 finite mutable-alias controls clean", async () => {
+    await matrix(finiteAliasCleanControls, ({ root, roots, program, families, fixtures }) => {
+      const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
+      for (const [index, control] of finiteAliasCleanControls.entries()) {
+        const file = Object.keys(fixtures)[index];
+        const source = program.getSourceFile(path.join(root, file));
+        expect(program.getSyntacticDiagnostics(source), control.id).toEqual([]);
+        expect(program.getSemanticDiagnostics(source), control.id).toEqual([]);
+        expect(
+          result.diagnostics.some(({ file: diagnosticFile }) => diagnosticFile === file),
+          control.id,
+        ).toBe(false);
+      }
+      emit(
+        "finite-alias-clean",
+        finiteAliasCleanControls.map(({ id }) => ({ id, result: "CLEAN" })),
+      );
+    });
   });
 
   it.each(["receiver-type-ignored", "laundering-unchecked"])(
