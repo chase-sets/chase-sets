@@ -80,7 +80,7 @@ describe("Catalog integration aggregate-state seed", () => {
     try {
       await client.query("SELECT set_config('application_name', 'catalog-seed-unregistered-client-control', false)");
       await expect(expectCatalogOnlyHarnessConnections()).rejects.toThrow(
-        /\"usename\".*\"backend_start\".*catalog-seed-unregistered-client-control.*\"owner\":null/u,
+        /\"usename\".*catalog-seed-unregistered-client-control.*\"backend_start\".*\"owner\":null/u,
       );
     } finally {
       await client.end();
