@@ -55,46 +55,40 @@ export function InventoryMutationProvider({
   const status = useRef<HTMLParagraphElement>(null);
   const wasNavigating = useRef(false);
   const changed = () => render((value) => value + 1);
-  const confirmAutomatically = (controller: Controller, current: boolean) => {
+  const confirmAutomatically = (controller: Controller) => {
     const attemptId = controller.snapshot().record?.attemptId;
     if (!attemptId || recentlyAutomaticallyConfirmed(attemptId)) return;
     void controller
       .confirm((id) => inventoryApi.getMutationAttempt(id))
       .then(() => {
-        if (current) changed();
+        changed();
       });
   };
   useEffect(() => {
-    let current = true;
     try {
       const next = new Map(
         families.map((family) => [family, createInventoryMutationRecovery(authority, family, window.sessionStorage)]),
       );
       setControllers(next);
       for (const controller of next.values()) {
-        if (controller.snapshot().state === "confirming") confirmAutomatically(controller, current);
+        if (controller.snapshot().state === "confirming") confirmAutomatically(controller);
       }
     } catch {
       setControllers(new Map());
     }
-    return () => {
-      current = false;
-    };
   }, [authority.accountId, authority.actorUserId]);
   useEffect(() => {
-    let current = true;
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
       for (const controller of controllers.values()) {
         if (controller.snapshot().state !== "submitting") continue;
         controller.possibleSendLoss();
         changed();
-        confirmAutomatically(controller, current);
+        confirmAutomatically(controller);
       }
     };
     window.addEventListener("pageshow", onPageShow);
     return () => {
-      current = false;
       window.removeEventListener("pageshow", onPageShow);
     };
   }, [controllers]);
@@ -102,16 +96,12 @@ export function InventoryMutationProvider({
     const completed = wasNavigating.current && !navigationPending;
     wasNavigating.current = navigationPending;
     if (!completed) return;
-    let current = true;
     for (const controller of controllers.values()) {
       if (controller.snapshot().state !== "submitting") continue;
       controller.possibleSendLoss();
       changed();
-      confirmAutomatically(controller, current);
+      confirmAutomatically(controller);
     }
-    return () => {
-      current = false;
-    };
   }, [navigationPending, controllers]);
   const pending = [...controllers.values()].filter((controller) => controller.snapshot().state !== "editing");
   const unavailable = controllers.size !== families.length;
