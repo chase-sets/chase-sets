@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   countCaptureAuthoritySchema,
+  countLifecycleStopReceiptSchema,
   countLifecycleReceiptSchema,
   validateCountCaptureAuthority,
   validateCountLifecycleReceipt,
@@ -30,38 +31,24 @@ const baselineSchema = z
         }),
         effects: z
           .object({
-            baseline: z
-              .object({
-                batches: z.number(),
-                reservations: z.number(),
-                jobs: z.number(),
-                enqueues: z.number(),
-                imports: z.number(),
-              })
-              .optional(),
-            final: z
-              .object({
-                batches: z.number(),
-                reservations: z.number(),
-                jobs: z.number(),
-                enqueues: z.number(),
-                imports: z.number(),
-              })
-              .optional(),
-            complete: z.boolean().optional(),
+            at: z.string().datetime({ offset: true }),
+            batches: z.number(),
+            reservations: z.number(),
+            jobs: z.number(),
+            enqueues: z.number(),
+            imports: z.number(),
           })
-          .passthrough(),
+          .strict(),
       })
       .passthrough(),
-    bootstrapRequired: z.boolean().optional(),
-    providerEgressDenied: z.literal(true).optional(),
+    providerSends: z.number().int().nonnegative(),
   })
   .passthrough();
 const acknowledgementSchema = z.object({}).passthrough();
 
 export type CountCaptureAction = (intent: string, fields: Readonly<Record<string, string>>) => Promise<unknown>;
 export type CountCaptureDeploymentCollection = (
-  authority: CountCaptureAuthority,
+  deployment: CountCaptureAuthority["deployment"],
   now: string,
 ) => Promise<CountCaptureAuthority["collection"]>;
 
@@ -91,30 +78,22 @@ export async function runCountCaptureJourney(
       baseline.baseline.selection.scopeRecordId !== identity.scopeRecordId ||
       new Set(baseline.baseline.units.map((unit) => unit.unitKey)).size !== 3 ||
       !validateCountCaptureAuthority(baseline.authority, now()).ok ||
-      baseline.baseline.effects.complete === false ||
-      [
-        baseline.baseline.effects.baseline?.batches,
-        baseline.baseline.effects.baseline?.reservations,
-        baseline.baseline.effects.baseline?.jobs,
-        baseline.baseline.effects.baseline?.enqueues,
-        baseline.baseline.effects.baseline?.imports,
-      ].some((value) => value !== 0)
+      baseline.providerSends !== 0
     )
       return stop("authority-unbound");
     if (!collectDeployment) return stop("deployment-unknown");
-    const collection = await collectDeployment(baseline.authority, now());
+    const collection = await collectDeployment(baseline.authority.deployment, now());
     if ((collection as { complete?: boolean } | null)?.complete === false) return stop("deployment-unknown");
     if (!validateCountCaptureAuthority({ ...baseline.authority, collection }, now()).ok)
       return stop("deployment-unknown");
     acknowledgementSchema.parse(await action("capture-initial-notice", {}));
-    if (baseline.bootstrapRequired) {
-      phase = "bootstrap";
-      acknowledgementSchema.parse(await action("capture-usage", {}));
-    }
+    phase = "bootstrap";
+    acknowledgementSchema.parse(await action("capture-usage", {}));
     phase = "quote";
     const quote = countQuoteSchema.parse(await action("count-quote", {}));
     if (quote.cap !== quote.plannedCredits) return stop("capture-stopped");
-    const readBack = countQuoteSchema.parse(await action("capture-quote-readback", {}));
+    const readBackResponse = await action("capture-quote-readback", {});
+    const readBack = countQuoteSchema.parse((readBackResponse as { quote?: unknown }).quote);
     if (JSON.stringify(readBack) !== JSON.stringify(quote)) return stop("capture-stopped");
     acknowledgementSchema.parse(await action("capture-final-notice", {}));
     phase = "acquisition";
@@ -131,9 +110,12 @@ export async function runCountCaptureJourney(
     phase = "pre-confirm";
     acknowledgementSchema.parse(await action("pre-confirm-planner-read", { planFingerprint: preview.planFingerprint }));
     phase = "freeze";
-    const freezeCollection = await collectDeployment(baseline.authority, now());
+    const freezeCollection = await collectDeployment(baseline.authority.deployment, now());
     const frozen = await action("capture-freeze", { collection: JSON.stringify(freezeCollection) });
-    const parsed = countLifecycleReceiptSchema.parse((frozen as { receipt?: unknown })?.receipt ?? frozen);
+    const raw = (frozen as { receipt?: unknown })?.receipt ?? frozen;
+    const stopped = countLifecycleStopReceiptSchema.safeParse(raw);
+    if (stopped.success && validateCountLifecycleReceipt(stopped.data).valid) return stopped.data;
+    const parsed = countLifecycleReceiptSchema.parse(raw);
     if (
       parsed.authority.runnerSha !== identity.sha ||
       parsed.authority.dispatchId !== identity.dispatchId ||

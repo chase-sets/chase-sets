@@ -36,13 +36,9 @@ describe("isolates the count capture runner", () => {
         selection: { ...receipt.selection, scopeRecordVersion: "2026-10-13T07:00:00.000Z" },
         units: receipt.units,
         countAuthority: { fingerprint: "a".repeat(64), headroom: 30, allowed: true },
-        effects: {
-          baseline: { ...receipt.effects.baseline, batches: 0, reservations: 0, jobs: 0, enqueues: 0, imports: 0 },
-          final: { ...receipt.effects.final, batches: 0, reservations: 0, jobs: 0, enqueues: 0, imports: 0 },
-        },
+        effects: { ...receipt.effects.baseline, batches: 0, reservations: 0, jobs: 0, enqueues: 0, imports: 0 },
       },
-      bootstrapRequired,
-      providerEgressDenied: true,
+      providerSends: 0,
     };
     const quote = {
       quoteId: receipt.quote.quoteId,
@@ -63,7 +59,8 @@ describe("isolates the count capture runner", () => {
     };
     const action = vi.fn(async (intent: string) => {
       if (intent === "capture-baseline") return baseline;
-      if (intent === "count-quote" || intent === "capture-quote-readback") return quote;
+      if (intent === "count-quote") return quote;
+      if (intent === "capture-quote-readback") return { quote };
       if (intent === "preview") return { planFingerprint: receipt.preConfirm.currentFingerprint };
       if (intent === "capture-freeze") return { receipt };
       return { retained: true };
@@ -82,7 +79,7 @@ describe("isolates the count capture runner", () => {
       expect(action.mock.calls.map(([intent]) => intent)).toEqual([
         "capture-baseline",
         "capture-initial-notice",
-        ...(bootstrap ? ["capture-usage"] : []),
+        "capture-usage",
         "count-quote",
         "capture-quote-readback",
         "capture-final-notice",
@@ -129,6 +126,49 @@ describe("isolates the count capture runner", () => {
     expect(await runCountCaptureJourney(identity, action, now, collect)).toMatchObject({
       reason: "deployment-unknown",
     });
+    expect(action).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a valid server stop receipt from freeze unchanged", async () => {
+    const { action: original, collect, receipt } = journey();
+    const stopReceipt = {
+      schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+      attribution: receipt.attribution,
+      stoppedAt: receipt.frozenAt,
+      phase: "freeze",
+      reason: "missing-observation",
+      evidence: { startedAt: receipt.startedAt, frozenAt: receipt.frozenAt, sends: receipt.sends, effects: receipt.effects },
+      classification: { verdict: "INCOMPLETE", reasons: ["missing-observation"], acceptance: { "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] }, "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] } } },
+    };
+    const action = vi.fn(async (intent: string, fields: Readonly<Record<string, string>>) =>
+      intent === "capture-freeze" ? { receipt: stopReceipt } : original(intent, fields),
+    );
+    expect(await runCountCaptureJourney(identity, action, now, collect)).toEqual(stopReceipt);
+  });
+
+  it("preserves a freeze-time drift as the server's incomplete stop", async () => {
+    const { action: original, collect, receipt } = journey();
+    const drifted = { ...receipt.freezeCollection, collectedAt: "2026-10-13T08:05:00.000Z" };
+    collect.mockResolvedValueOnce(receipt.freezeCollection).mockResolvedValueOnce(drifted);
+    const stopReceipt = {
+      schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+      attribution: receipt.attribution,
+      stoppedAt: receipt.frozenAt,
+      phase: "freeze",
+      reason: "missing-observation",
+      evidence: { startedAt: receipt.startedAt, frozenAt: receipt.frozenAt, sends: receipt.sends, effects: receipt.effects },
+      classification: { verdict: "INCOMPLETE", reasons: ["missing-observation"], acceptance: { "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] }, "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] } } },
+    };
+    const action = vi.fn(async (intent: string, fields: Readonly<Record<string, string>>) =>
+      intent === "capture-freeze" ? { receipt: stopReceipt } : original(intent, fields),
+    );
+    const result = await runCountCaptureJourney(identity, action, now, collect);
+    expect(result).toMatchObject({ reason: "missing-observation", classification: { verdict: "INCOMPLETE" } });
+  });
+
+  it("stops after no action when the deployment collector is absent", async () => {
+    const { action } = journey();
+    expect(await runCountCaptureJourney(identity, action, now)).toMatchObject({ reason: "deployment-unknown" });
     expect(action).toHaveBeenCalledTimes(1);
   });
 

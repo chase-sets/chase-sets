@@ -5,9 +5,21 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { captureRunnerIdentity, validateCaptureUpload } from "./catalog-staging-count-lifecycle.mjs";
+import {
+  captureExitCode,
+  captureActionDeadlineMs,
+  captureResponseByteCap,
+  addCookieMarkers,
+  captureRunnerIdentity,
+  captureUploadIdentity,
+  completeStopReceipt,
+  validateCaptureUpload,
+} from "./catalog-staging-count-lifecycle.mjs";
 import { writeCountCaptureArtifact } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-artifact.ts";
-import { syntheticCountLifecycleStopReceipt } from "../bounded-contexts/catalog/features/scope-sync-batches/tests/count-lifecycle-receipt-fixture.ts";
+import {
+  syntheticCountCaptureAuthority,
+  syntheticCountLifecycleStopReceipt,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/tests/count-lifecycle-receipt-fixture.ts";
 
 describe("isolates capture", () => {
   const source = readFileSync(".github/workflows/catalog-staging-provider-uat.yml", "utf8");
@@ -57,6 +69,43 @@ describe("isolates capture", () => {
   });
 });
 
+describe("capture receipt contracts", () => {
+  it("retains rotated cookie markers in the runner scan set", async () => {
+    const module = await import("./catalog-staging-count-lifecycle.mjs");
+    const markers = new Set(["initial-cookie"]);
+    module.addCookieMarkers(markers, [{ value: "rotated-cookie" }]);
+    expect(markers).toEqual(new Set(["initial-cookie", "rotated-cookie"]));
+  });
+  it.each(["authority-unbound", "deployment-unknown", "capture-stopped", "missing-observation"])(
+    "derives the classification for %s",
+    (reason) => {
+      const authority = syntheticCountCaptureAuthority();
+      const receipt = completeStopReceipt(
+        {
+          schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+          stoppedAt: "2026-10-13T08:06:00.000Z",
+          phase: "baseline",
+          reason,
+          evidence: {},
+        },
+        { sha: authority.runnerSha, run: "123", attempt: "1", dispatchId: authority.dispatchId, authority },
+      );
+      expect(receipt.classification.reasons).toContain(reason);
+      expect(receipt.classification.verdict).toBe(reason === "capture-stopped" ? "FAILED" : "INCOMPLETE");
+    },
+  );
+  it("uses the nested verdict for the CLI exit", async () => {
+    const module = await import("./catalog-staging-count-lifecycle.mjs");
+    expect(module.captureExitCode({ classification: { verdict: "CONFORMING" } })).toBe(0);
+    expect(module.captureExitCode({ classification: { verdict: "INCOMPLETE" } })).toBe(1);
+    expect(module.captureExitCode({ classification: { verdict: "FAILED" } })).toBe(1);
+  });
+  it("leaves explicit headroom over the largest valid freeze receipt", () => {
+    expect(captureResponseByteCap).toBeGreaterThan(128_000 + JSON.stringify({ receipt: null }).length);
+    expect(captureActionDeadlineMs).toBeGreaterThan(0);
+  });
+});
+
 const roots = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) {
@@ -77,6 +126,7 @@ describe("runner-owned upload proof", () => {
     CATALOG_STAGING_PROVIDER_UAT_SCOPE: "scope-sync-count-lifecycle",
     CATALOG_CAPTURE_DISPATCH_ID: "synthetic-dispatch",
     CATALOG_CAPTURE_SCOPE_RECORD_ID: "synthetic-scope",
+    CATALOG_CAPTURE_AUTHORITY: JSON.stringify(syntheticCountCaptureAuthority()),
   };
   const stop = syntheticCountLifecycleStopReceipt();
   async function fixture() {
@@ -89,7 +139,7 @@ describe("runner-owned upload proof", () => {
       .update(await readFile(artifact))
       .digest("hex");
     const seal = join(root, "catalog-count-capture-upload.json");
-    await writeFile(seal, JSON.stringify({ identity: captureRunnerIdentity(env), sha256 }));
+    await writeFile(seal, JSON.stringify({ identity: captureUploadIdentity(captureRunnerIdentity(boundEnv)), sha256 }));
     return { root, boundEnv, artifact, seal };
   }
   it("keeps an honest incomplete receipt uploadable without calling it conforming", async () => {
@@ -98,6 +148,8 @@ describe("runner-owned upload proof", () => {
       valid: true,
       classification: { verdict: "INCOMPLETE" },
     });
+    expect((await readFile(seal, "utf8")).length).toBeLessThan(2048);
+    expect(await readFile(seal, "utf8")).not.toContain("deployment");
     expect(await readFile(seal, "utf8")).not.toContain("synthetic-session-marker");
   });
   it.each(["GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "CATALOG_CAPTURE_DISPATCH_ID"])(
@@ -118,6 +170,13 @@ describe("runner-owned upload proof", () => {
     const { root, boundEnv, artifact } = await fixture();
     await writeFile(join(dirname(artifact), "trace.zip"), "synthetic-session-marker");
     await expect(validateCaptureUpload(boundEnv, root)).rejects.toThrow();
+  });
+  it("refuses content containing a non-empty credential marker", async () => {
+    const { root, boundEnv } = await fixture();
+    const marker = "rotated-cookie-marker";
+    const envWithMarker = { ...boundEnv, CATALOG_ADMIN_E2E_EMAIL: marker };
+    await writeFile(join(root, "artifacts/catalog-count-lifecycle/receipt.json"), marker);
+    await expect(validateCaptureUpload(envWithMarker, root)).rejects.toThrow();
   });
   it.each(["ADMIN_WEB_URL", "GITHUB_ACTIONS", "EXPECTED_SHA", "CATALOG_STAGING_PROVIDER_UAT_SCOPE"])(
     "refuses invalid capture %s before browser launch",

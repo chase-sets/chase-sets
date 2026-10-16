@@ -7,6 +7,12 @@ import {
   validateCountCaptureArtifacts,
   writeCountCaptureArtifact,
 } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-artifact.ts";
+import {
+  classifyCountLifecycleReceipt,
+  countCaptureAuthoritySchema,
+  countLifecycleReceiptMaxBytes,
+  countLifecycleStopReceiptSchema,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/domain/count-lifecycle-receipt.ts";
 import { createCountCaptureGitHubReader } from "./catalog-count-capture-github.mjs";
 import { collectCountCaptureDeployment } from "./catalog-count-capture-deployment.mjs";
 
@@ -15,27 +21,63 @@ const apiPath = "/api/catalog/scope-sync-batches";
 const refused = () => new Error("count-capture-runner-refused");
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const credentialNames = ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"];
+const actionPaths = new Set([
+  "/count-capture/baseline",
+  "/count-capture/initial-notice",
+  "/count-capture/usage",
+  "/count-capture/quote-readback",
+  "/count-capture/final-notice",
+  "/count-capture/freeze",
+  "/count-capture/pre-confirm",
+  "/counts/quote",
+  "/counts/acquire",
+  "/preview",
+]);
+export const captureActionDeadlineMs = 30_000;
+export const captureResponseByteCap = countLifecycleReceiptMaxBytes + 2_048;
 
-function completeStopReceipt(receipt, identity) {
+export function addCookieMarkers(forbidden, cookies) {
+  for (const cookie of cookies) if (cookie.value) forbidden.add(cookie.value);
+}
+
+export function collectCaptureDeployment(reader, deployment, now) {
+  return collectCountCaptureDeployment(reader, deployment, now);
+}
+
+export async function persistCaptureReceipt(receipt, forbidden, files, workspace, identity) {
+  const verdict = await writeCountCaptureArtifact(receipt, [...forbidden], workspace);
+  await writeFile(files.seal, JSON.stringify({ identity: captureUploadIdentity(identity), sha256: digest(await readFile(files.artifact)) }), {
+    flag: "wx",
+    mode: 0o600,
+  });
+  return verdict;
+}
+
+export function completeStopReceipt(receipt, identity) {
   if (receipt?.schemaVersion !== "scope-sync-count-lifecycle-stop/v1" || receipt.attribution) return receipt;
+  const authority = countCaptureAuthoritySchema.safeParse(identity.authority);
   const attribution = {
     dispatchId: identity.dispatchId,
     runnerRunId: identity.run,
     runnerRunAttempt: Number(identity.attempt),
     runnerSha: identity.sha,
-    packetHash: identity.authority?.packetHash ?? null,
-    reviewReceiptHash: identity.authority?.review?.receiptHash ?? null,
+    packetHash: authority.success ? authority.data.packetHash : null,
+    reviewReceiptHash: authority.success ? authority.data.review.receiptHash : null,
     phases: [],
   };
-  const incomplete = {
-    verdict: "INCOMPLETE",
-    reasons: [],
-    acceptance: {
-      "9431-ac7": { verdict: "INCOMPLETE", reasons: [] },
-      "9424-ac5": { verdict: "INCOMPLETE", reasons: [] },
+  const completed = {
+    ...receipt,
+    attribution,
+    classification: {
+      verdict: "INCOMPLETE",
+      reasons: [],
+      acceptance: {
+        "9431-ac7": { verdict: "INCOMPLETE", reasons: [] },
+        "9424-ac5": { verdict: "INCOMPLETE", reasons: [] },
+      },
     },
   };
-  return { ...receipt, attribution, classification: incomplete };
+  return { ...completed, classification: classifyCountLifecycleReceipt(completed) };
 }
 
 export function captureRunnerIdentity(env) {
@@ -75,6 +117,18 @@ function paths(env, workspace) {
   };
 }
 
+export function captureUploadIdentity(identity) {
+  const authority = countCaptureAuthoritySchema.safeParse(identity.authority);
+  return {
+    sha: identity.sha,
+    run: identity.run,
+    attempt: identity.attempt,
+    dispatchId: identity.dispatchId,
+    scopeRecordId: identity.scopeRecordId,
+    authoritySha256: authority.success ? digest(JSON.stringify(authority.data)) : null,
+  };
+}
+
 export async function validateCaptureUpload(env = process.env, workspace = process.cwd()) {
   const identity = captureRunnerIdentity(env);
   const files = paths(env, workspace);
@@ -85,7 +139,7 @@ export async function validateCaptureUpload(env = process.env, workspace = proce
     credentialNames.map((key) => env[key] ?? ""),
     workspace,
   );
-  const expected = { identity, sha256: digest(await readFile(files.artifact)) };
+  const expected = { identity: captureUploadIdentity(identity), sha256: digest(await readFile(files.artifact)) };
   if (JSON.stringify(seal) !== JSON.stringify(expected)) throw refused();
   return verdict;
 }
@@ -94,7 +148,7 @@ export async function capture(env = process.env, workspace = process.cwd()) {
   const identity = captureRunnerIdentity(env);
   if (credentialNames.some((key) => !env[key])) throw refused();
   const files = paths(env, workspace);
-  const forbidden = credentialNames.map((key) => env[key]);
+  const forbidden = new Set(credentialNames.map((key) => env[key]));
   const reader = createCountCaptureGitHubReader({ repository: env.GITHUB_REPOSITORY, token: env.GH_TOKEN });
   // Standalone Chromium: no test-runner trace, screenshot, video or storage-state output.
   const { chromium } = await import("@playwright/test");
@@ -109,11 +163,13 @@ export async function capture(env = process.env, workspace = process.cwd()) {
     await context.route("**/*", async (route) => {
       const request = route.request();
       const url = new URL(request.url());
+      const relativePath = url.pathname.startsWith(apiPath) ? url.pathname.slice(apiPath.length) : null;
       if (
         url.origin !== origin ||
-        (request.method() !== "GET" && !url.pathname.startsWith("/access/") && !url.pathname.startsWith(apiPath))
+        (request.method() !== "GET" && !url.pathname.startsWith("/access/") && !actionPaths.has(relativePath))
       )
         return route.abort("blockedbyclient");
+      if (request.method() !== "GET" && actionPaths.has(relativePath)) return route.continue();
       // Intercept redirects before a 307 can forward sign-in credentials.
       const response = await route.fetch({ maxRedirects: 0, maxRetries: 0 });
       const location = response.headers().location;
@@ -123,7 +179,7 @@ export async function capture(env = process.env, workspace = process.cwd()) {
     context.on("response", () => {
       // Cookie values never leave this process, including values rotated at sign-in.
       const read = context.cookies().then((cookies) => {
-        for (const cookie of cookies) forbidden.push(cookie.value);
+        addCookieMarkers(forbidden, cookies);
       });
       cookieReads.add(read);
       void read
@@ -146,8 +202,10 @@ export async function capture(env = process.env, workspace = process.cwd()) {
     if (!authority || typeof authority !== "object") throw refused();
     const action = async (intent, fields) => {
       if (new URL(page.url()).origin !== origin) throw refused();
-      const result = await page.evaluate(
-        async ({ apiPath, intent, fields, authority, runId, runAttempt }) => {
+      let timer;
+      const result = await Promise.race([
+        page.evaluate(
+        async ({ apiPath, intent, fields, authority, runId, runAttempt, deadlineMs, byteCap }) => {
           const routes = {
             "capture-baseline": ["/count-capture/baseline", { scopeRecordId: fields.scopeRecordId, authority }],
             "capture-initial-notice": ["/count-capture/initial-notice", {}],
@@ -184,32 +242,39 @@ export async function capture(env = process.env, workspace = process.cwd()) {
           };
           const route = routes[intent];
           if (!route) throw new Error("capture-stopped");
-          const response = await fetch(`${apiPath}${route[0]}`, {
+          const controller = new AbortController();
+          const deadline = setTimeout(() => controller.abort(), deadlineMs);
+          try {
+            const response = await fetch(`${apiPath}${route[0]}`, {
             method: "POST",
             credentials: "same-origin",
             redirect: "error",
             cache: "no-store",
             headers: { "content-type": "application/json", "x-catalog-count-capture": "1" },
             body: JSON.stringify(route[1]),
-          });
-          if (!response.ok || response.headers.get("cache-control") !== "no-store") throw new Error("capture-stopped");
-          if (!response.body) throw new Error("capture-stopped");
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let bytes = 0;
-          let text = "";
-          try {
-            while (true) {
-              const chunk = await reader.read();
-              if (chunk.done) break;
-              bytes += chunk.value.byteLength;
-              if (bytes > 128_000) throw new Error("capture-stopped");
-              text += decoder.decode(chunk.value, { stream: true });
+            signal: controller.signal,
+            });
+            if (!response.ok || response.headers.get("cache-control") !== "no-store") throw new Error("capture-stopped");
+            if (!response.body) throw new Error("capture-stopped");
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let bytes = 0;
+            let text = "";
+            try {
+              while (true) {
+                const chunk = await reader.read();
+                if (chunk.done) break;
+                bytes += chunk.value.byteLength;
+                if (bytes > byteCap) throw new Error("capture-stopped");
+                text += decoder.decode(chunk.value, { stream: true });
+              }
+              return JSON.parse(text + decoder.decode());
+            } finally {
+              await reader.cancel();
+              reader.releaseLock();
             }
-            return JSON.parse(text + decoder.decode());
           } finally {
-            await reader.cancel();
-            reader.releaseLock();
+            clearTimeout(deadline);
           }
         },
         {
@@ -219,18 +284,27 @@ export async function capture(env = process.env, workspace = process.cwd()) {
           authority,
           runId: identity.run,
           runAttempt: identity.attempt,
+          deadlineMs: captureActionDeadlineMs,
+          byteCap: captureResponseByteCap,
         },
-      );
-      for (const cookie of await context.cookies()) forbidden.push(cookie.value);
+        ),
+        new Promise((_, reject) => {
+          timer = setTimeout(async () => {
+            await context.close().catch(() => undefined);
+            reject(new Error("capture-stopped"));
+          }, captureActionDeadlineMs);
+        }),
+      ]).finally(() => clearTimeout(timer));
+      addCookieMarkers(forbidden, await context.cookies());
       return result;
     };
     receipt = await runCountCaptureJourney(
       { sha: identity.sha, dispatchId: identity.dispatchId, scopeRecordId: identity.scopeRecordId },
       action,
       undefined,
-      (authority, now) => collectCountCaptureDeployment(reader, authority, now),
+      (deployment, now) => collectCaptureDeployment(reader, deployment, now),
     );
-    for (const cookie of await context.cookies()) forbidden.push(cookie.value);
+    addCookieMarkers(forbidden, await context.cookies());
   } catch {
     receipt = {
       schemaVersion: "scope-sync-count-lifecycle-stop/v1",
@@ -246,14 +320,13 @@ export async function capture(env = process.env, workspace = process.cwd()) {
   }
   if (cookieReadFailed) throw refused();
   receipt = completeStopReceipt(receipt, identity);
-  const verdict = await writeCountCaptureArtifact(receipt, forbidden, workspace);
   // This digest binds the later upload to the bytes scanned with session markers
   // still in memory. No marker, cookie, or browser state is exported in the seal.
-  await writeFile(files.seal, JSON.stringify({ identity, sha256: digest(await readFile(files.artifact)) }), {
-    flag: "wx",
-    mode: 0o600,
-  });
-  return verdict;
+  return persistCaptureReceipt(receipt, forbidden, files, workspace, identity);
+}
+
+export function captureExitCode(validation) {
+  return validation?.classification?.verdict === "CONFORMING" ? 0 : 1;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -261,8 +334,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const command = process.argv[2];
     if (process.argv.length !== 3 || !["capture", "validate"].includes(command)) throw refused();
     const verdict = await (command === "capture" ? capture() : validateCaptureUpload());
-    console.log(JSON.stringify({ valid: verdict.valid, verdict: verdict.verdict }));
-    if (command === "capture" && verdict.verdict !== "CONFORMING") process.exitCode = 1;
+    console.log(JSON.stringify({ valid: verdict.valid, verdict: verdict.classification.verdict }));
+    if (command === "capture") process.exitCode = captureExitCode(verdict);
   } catch {
     console.error("count-capture-runner-refused");
     process.exitCode = 1;
