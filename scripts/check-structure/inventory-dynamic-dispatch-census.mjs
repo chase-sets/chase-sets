@@ -255,14 +255,16 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         return parent.initializer;
       }
       if (ts.isParameter(parent)) {
-        return parent.initializer ?? (parent.type ? { type: checker.getTypeFromTypeNode(parent.type) } : undefined);
+        return (
+          parent.initializer ?? (parent.type ? { sourceType: checker.getTypeFromTypeNode(parent.type) } : undefined)
+        );
       }
       if (ts.isBinaryExpression(parent) && parent.left === pattern) return parent.right;
       return undefined;
     };
     const inspectPattern = (pattern) => {
       const sourceTypeOrNode = patternSource(pattern);
-      const sourceType = sourceTypeOrNode?.type ?? (sourceTypeOrNode && typeOf(sourceTypeOrNode));
+      const sourceType = sourceTypeOrNode?.sourceType ?? (sourceTypeOrNode && typeOf(sourceTypeOrNode));
       if (!sourceType || !isFamily(sourceType)) return;
       const elements = ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties;
       for (const element of elements) {
