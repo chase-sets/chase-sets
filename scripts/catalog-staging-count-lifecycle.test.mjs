@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { captureRunnerIdentity, validateCaptureUpload } from "./catalog-staging-count-lifecycle.mjs";
 import { writeCountCaptureArtifact } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-artifact.ts";
+import { syntheticCountLifecycleStopReceipt } from "../bounded-contexts/catalog/features/scope-sync-batches/tests/count-lifecycle-receipt-fixture.ts";
 
 describe("isolates capture", () => {
   const source = readFileSync(".github/workflows/catalog-staging-provider-uat.yml", "utf8");
@@ -77,13 +78,7 @@ describe("runner-owned upload proof", () => {
     CATALOG_CAPTURE_DISPATCH_ID: "synthetic-dispatch",
     CATALOG_CAPTURE_SCOPE_RECORD_ID: "synthetic-scope",
   };
-  const stop = {
-    schemaVersion: "scope-sync-count-lifecycle-stop/v1",
-    stoppedAt: "2026-10-13T08:00:00Z",
-    phase: "baseline",
-    reason: "authority-unbound",
-    evidence: {},
-  };
+  const stop = syntheticCountLifecycleStopReceipt();
   async function fixture() {
     const root = await mkdtemp(join(tmpdir(), "count-capture-upload-"));
     roots.push(root);
@@ -99,7 +94,10 @@ describe("runner-owned upload proof", () => {
   }
   it("keeps an honest incomplete receipt uploadable without calling it conforming", async () => {
     const { root, boundEnv, seal } = await fixture();
-    expect(await validateCaptureUpload(boundEnv, root)).toMatchObject({ valid: true, verdict: "INCOMPLETE" });
+    expect(await validateCaptureUpload(boundEnv, root)).toMatchObject({
+      valid: true,
+      classification: { verdict: "INCOMPLETE" },
+    });
     expect(await readFile(seal, "utf8")).not.toContain("synthetic-session-marker");
   });
   it.each(["GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "CATALOG_CAPTURE_DISPATCH_ID"])(
