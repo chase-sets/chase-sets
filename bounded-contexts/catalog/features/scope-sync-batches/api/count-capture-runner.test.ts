@@ -137,11 +137,23 @@ describe("isolates the count capture runner", () => {
       stoppedAt: receipt.frozenAt,
       phase: "freeze",
       reason: "missing-observation",
-      evidence: { startedAt: receipt.startedAt, frozenAt: receipt.frozenAt, sends: receipt.sends, effects: receipt.effects },
-      classification: { verdict: "INCOMPLETE", reasons: ["missing-observation"], acceptance: { "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] }, "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] } } },
+      evidence: {
+        startedAt: receipt.startedAt,
+        frozenAt: receipt.frozenAt,
+        sends: receipt.sends,
+        effects: receipt.effects,
+      },
+      classification: {
+        verdict: "INCOMPLETE",
+        reasons: ["missing-observation"],
+        acceptance: {
+          "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+          "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+        },
+      },
     };
     const action = vi.fn(async (intent: string, fields: Readonly<Record<string, string>>) =>
-      intent === "capture-freeze" ? { receipt: stopReceipt } : original(intent, fields),
+      intent === "capture-freeze" ? { receipt: stopReceipt } : original(intent),
     );
     expect(await runCountCaptureJourney(identity, action, now, collect)).toEqual(stopReceipt);
   });
@@ -156,11 +168,23 @@ describe("isolates the count capture runner", () => {
       stoppedAt: receipt.frozenAt,
       phase: "freeze",
       reason: "missing-observation",
-      evidence: { startedAt: receipt.startedAt, frozenAt: receipt.frozenAt, sends: receipt.sends, effects: receipt.effects },
-      classification: { verdict: "INCOMPLETE", reasons: ["missing-observation"], acceptance: { "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] }, "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] } } },
+      evidence: {
+        startedAt: receipt.startedAt,
+        frozenAt: receipt.frozenAt,
+        sends: receipt.sends,
+        effects: receipt.effects,
+      },
+      classification: {
+        verdict: "INCOMPLETE",
+        reasons: ["missing-observation"],
+        acceptance: {
+          "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+          "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+        },
+      },
     };
     const action = vi.fn(async (intent: string, fields: Readonly<Record<string, string>>) =>
-      intent === "capture-freeze" ? { receipt: stopReceipt } : original(intent, fields),
+      intent === "capture-freeze" ? { receipt: stopReceipt } : original(intent),
     );
     const result = await runCountCaptureJourney(identity, action, now, collect);
     expect(result).toMatchObject({ reason: "missing-observation", classification: { verdict: "INCOMPLETE" } });

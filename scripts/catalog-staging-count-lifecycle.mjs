@@ -46,10 +46,14 @@ export function collectCaptureDeployment(reader, deployment, now) {
 
 export async function persistCaptureReceipt(receipt, forbidden, files, workspace, identity) {
   const verdict = await writeCountCaptureArtifact(receipt, [...forbidden], workspace);
-  await writeFile(files.seal, JSON.stringify({ identity: captureUploadIdentity(identity), sha256: digest(await readFile(files.artifact)) }), {
-    flag: "wx",
-    mode: 0o600,
-  });
+  await writeFile(
+    files.seal,
+    JSON.stringify({ identity: captureUploadIdentity(identity), sha256: digest(await readFile(files.artifact)) }),
+    {
+      flag: "wx",
+      mode: 0o600,
+    },
+  );
   return verdict;
 }
 
@@ -205,88 +209,89 @@ export async function capture(env = process.env, workspace = process.cwd()) {
       let timer;
       const result = await Promise.race([
         page.evaluate(
-        async ({ apiPath, intent, fields, authority, runId, runAttempt, deadlineMs, byteCap }) => {
-          const routes = {
-            "capture-baseline": ["/count-capture/baseline", { scopeRecordId: fields.scopeRecordId, authority }],
-            "capture-initial-notice": ["/count-capture/initial-notice", {}],
-            "capture-usage": ["/count-capture/usage", {}],
-            "count-quote": [
-              "/counts/quote",
-              {
-                selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
-                budget: { creditedProviderRequestLimits: { scrydex: 10 } },
-              },
-            ],
-            "capture-quote-readback": ["/count-capture/quote-readback", {}],
-            "capture-final-notice": ["/count-capture/final-notice", {}],
-            "count-acquire": ["/counts/acquire", { quoteId: fields.quoteId, fingerprint: fields.countFingerprint }],
-            preview: [
-              "/preview",
-              {
-                selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
-                budget: { creditedProviderRequestLimits: { scrydex: 10 } },
-              },
-            ],
-            "pre-confirm-planner-read": [
-              "/count-capture/pre-confirm",
-              {
-                selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
-                budget: { creditedProviderRequestLimits: { scrydex: 10 } },
-                planFingerprint: fields.planFingerprint,
-              },
-            ],
-            "capture-freeze": [
-              "/count-capture/freeze",
-              { runnerRunId: runId, runnerRunAttempt: runAttempt, collection: JSON.parse(fields.collection) },
-            ],
-          };
-          const route = routes[intent];
-          if (!route) throw new Error("capture-stopped");
-          const controller = new AbortController();
-          const deadline = setTimeout(() => controller.abort(), deadlineMs);
-          try {
-            const response = await fetch(`${apiPath}${route[0]}`, {
-            method: "POST",
-            credentials: "same-origin",
-            redirect: "error",
-            cache: "no-store",
-            headers: { "content-type": "application/json", "x-catalog-count-capture": "1" },
-            body: JSON.stringify(route[1]),
-            signal: controller.signal,
-            });
-            if (!response.ok || response.headers.get("cache-control") !== "no-store") throw new Error("capture-stopped");
-            if (!response.body) throw new Error("capture-stopped");
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let bytes = 0;
-            let text = "";
+          async ({ apiPath, intent, fields, authority, runId, runAttempt, deadlineMs, byteCap }) => {
+            const routes = {
+              "capture-baseline": ["/count-capture/baseline", { scopeRecordId: fields.scopeRecordId, authority }],
+              "capture-initial-notice": ["/count-capture/initial-notice", {}],
+              "capture-usage": ["/count-capture/usage", {}],
+              "count-quote": [
+                "/counts/quote",
+                {
+                  selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
+                  budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+                },
+              ],
+              "capture-quote-readback": ["/count-capture/quote-readback", {}],
+              "capture-final-notice": ["/count-capture/final-notice", {}],
+              "count-acquire": ["/counts/acquire", { quoteId: fields.quoteId, fingerprint: fields.countFingerprint }],
+              preview: [
+                "/preview",
+                {
+                  selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
+                  budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+                },
+              ],
+              "pre-confirm-planner-read": [
+                "/count-capture/pre-confirm",
+                {
+                  selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
+                  budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+                  planFingerprint: fields.planFingerprint,
+                },
+              ],
+              "capture-freeze": [
+                "/count-capture/freeze",
+                { runnerRunId: runId, runnerRunAttempt: runAttempt, collection: JSON.parse(fields.collection) },
+              ],
+            };
+            const route = routes[intent];
+            if (!route) throw new Error("capture-stopped");
+            const controller = new AbortController();
+            const deadline = setTimeout(() => controller.abort(), deadlineMs);
             try {
-              while (true) {
-                const chunk = await reader.read();
-                if (chunk.done) break;
-                bytes += chunk.value.byteLength;
-                if (bytes > byteCap) throw new Error("capture-stopped");
-                text += decoder.decode(chunk.value, { stream: true });
+              const response = await fetch(`${apiPath}${route[0]}`, {
+                method: "POST",
+                credentials: "same-origin",
+                redirect: "error",
+                cache: "no-store",
+                headers: { "content-type": "application/json", "x-catalog-count-capture": "1" },
+                body: JSON.stringify(route[1]),
+                signal: controller.signal,
+              });
+              if (!response.ok || response.headers.get("cache-control") !== "no-store")
+                throw new Error("capture-stopped");
+              if (!response.body) throw new Error("capture-stopped");
+              const reader = response.body.getReader();
+              const decoder = new TextDecoder();
+              let bytes = 0;
+              let text = "";
+              try {
+                while (true) {
+                  const chunk = await reader.read();
+                  if (chunk.done) break;
+                  bytes += chunk.value.byteLength;
+                  if (bytes > byteCap) throw new Error("capture-stopped");
+                  text += decoder.decode(chunk.value, { stream: true });
+                }
+                return JSON.parse(text + decoder.decode());
+              } finally {
+                await reader.cancel();
+                reader.releaseLock();
               }
-              return JSON.parse(text + decoder.decode());
             } finally {
-              await reader.cancel();
-              reader.releaseLock();
+              clearTimeout(deadline);
             }
-          } finally {
-            clearTimeout(deadline);
-          }
-        },
-        {
-          apiPath,
-          intent,
-          fields: { scopeRecordId: identity.scopeRecordId, ...fields },
-          authority,
-          runId: identity.run,
-          runAttempt: identity.attempt,
-          deadlineMs: captureActionDeadlineMs,
-          byteCap: captureResponseByteCap,
-        },
+          },
+          {
+            apiPath,
+            intent,
+            fields: { scopeRecordId: identity.scopeRecordId, ...fields },
+            authority,
+            runId: identity.run,
+            runAttempt: identity.attempt,
+            deadlineMs: captureActionDeadlineMs,
+            byteCap: captureResponseByteCap,
+          },
         ),
         new Promise((_, reject) => {
           timer = setTimeout(async () => {
