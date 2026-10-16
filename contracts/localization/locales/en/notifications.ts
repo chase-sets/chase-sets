@@ -176,4 +176,5 @@ export const notificationsEnglishTranslations = {
     "{policiesEvaluated} policies evaluated; {listingsChanged} listing changes; {floorClamped} floor clamps; {ceilingClamped} ceiling clamps; {maxMoveClamped} maximum-move clamps; {budgetExhausted} budget limits; {pausedForMissingInput} pauses for missing input; {withinTolerance} within tolerance; {spiralBreakerTrips} spiral breaker trips.",
   "notifications.routes.accountNotifications.description": "Review marketplace updates from the notification center.",
   "notifications.routes.accountNotifications.title": "Notifications | Marketplace",
+  "notifications.shell.notifications.label": "Notifications",
 } as const;

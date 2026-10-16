@@ -85,7 +85,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "Connected Account Agreement, without naming the selected agreement type or its mechanics.",
         decisionRefs: [5685, 5924, 5923],
         productTruthRefs: [
-          "infrastructure/stripe-payments/index.ts:1670-1694",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
           "infrastructure/stripe-connect/index.ts:879-917 (embedded Account Session onboarding surface)",
           "infrastructure/stripe-connect/index.ts:991-1010 (hosted Account Link onboarding surface)",

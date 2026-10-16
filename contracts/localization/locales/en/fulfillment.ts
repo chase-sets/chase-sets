@@ -504,4 +504,5 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.commandCenter.exception.lost": "Lost in transit",
   "fulfillment.features.shipments.ui.commandCenter.exception.returnToSender": "Return to sender",
   "fulfillment.features.shipments.ui.commandCenter.exception.other": "Other",
+  "fulfillment.shell.saleShipments.label": "Shipping",
 } as const;

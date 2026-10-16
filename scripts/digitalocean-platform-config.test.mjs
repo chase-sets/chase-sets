@@ -2866,9 +2866,6 @@ describe("DigitalOcean platform configuration", () => {
       ["UCP_BUSINESS_SIGNING_ALG", "ucp_business_signing_alg"],
       ["UCP_BUSINESS_SIGNING_PRIVATE_JWK", "ucp_business_signing_private_jwk"],
       ["UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS", "ucp_business_signing_previous_public_jwks"],
-      ["UCP_AP2_VERIFIER_URL", "ucp_ap2_verifier_url"],
-      ["UCP_AP2_VERIFIER_AUTH_TOKEN", "ucp_ap2_verifier_auth_token"],
-      ["UCP_AP2_VERIFIER_TIMEOUT_MS", "ucp_ap2_verifier_timeout_ms"],
     ];
     for (const [environmentName, terraformName] of ucpSecretEnvironmentNames) {
       expect(runtimeSecretsStep).toContain(`TF_VAR_${terraformName}:`);
@@ -3763,6 +3760,54 @@ describe("DigitalOcean platform configuration", () => {
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
     );
+  });
+
+  it("offers the admission retry only under the workflow rollback's eligibility and reads its attempts record", () => {
+    const attemptsPath = "artifacts/release-health/production-kubernetes-deploy-attempts.json";
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const deployStep = workflowStep(productionJob, "Deploy production Kubernetes release");
+    const verifyStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    const classifyStep = workflowStep(productionJob, "Classify production deployment failure");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+
+    expect(deployStep).toContain("ADMISSION_RETRY_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result }}");
+    expect(deployStep).toContain(
+      "ADMISSION_RETRY_ROLLBACK_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}",
+    );
+    expect(deployStep).toContain(
+      [
+        'if [ "$ADMISSION_RETRY_READINESS_RESULT" = "success" ] && node ./scripts/agent-grant-revocation-release.mjs check-rollback \\',
+        '            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \\',
+        '            --commit "$ADMISSION_RETRY_ROLLBACK_COMMIT"; then',
+        '            admission_retry_args=(--admission-retry-rollback-target "artifacts/release-health/production-rollback-target.json")',
+        "          fi",
+      ].join("\n"),
+    );
+    // The workflow rollback is gated by the same readiness result and check-rollback commit.
+    expect(rollbackStep).toContain("steps.rollback_readiness.outputs.result == 'success'");
+    expect(rollbackStep).toContain('--commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"');
+    expect(deployStep).toContain(`--attempts-out "${attemptsPath}"`);
+    expect(deployStep).toContain('"${admission_retry_args[@]}"');
+    expect(deployStep).toContain('--timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"');
+    expect(platformProductionWorkflow.split("--admission-retry-rollback-target")).toHaveLength(2);
+    expect(verifyStep).toContain(`--deploy-attempts "${attemptsPath}"`);
+    expect(classifyStep).toContain(`--diagnostics ${attemptsPath}`);
+
+    expect(stagingJob).not.toContain("--attempts-out");
+    expect(stagingJob).not.toContain("--admission-retry-rollback-target");
+    expect(stagingJob).not.toContain("deploy-attempts");
+    expect(workflowStep(stagingJob, "Deploy staging Kubernetes release")).toContain(
+      "platform:kubernetes-deployment -- deploy",
+    );
+    for (const job of [productionJob, stagingJob]) {
+      expect(job).toContain("\n    timeout-minutes: 180\n");
+    }
+
+    expect(doksPlatformOperationsRunbook).toContain("### Admission-Webhook Transient Retry (#9662)");
+    expect(doksPlatformOperationsRunbook).toContain("doks-admission-webhook-unreachable");
+    expect(doksPlatformOperationsRunbook).toContain("If both attempts fail");
+    expect(doksPlatformOperationsRunbook).toContain("rerun the failed Platform Deploy run");
   });
 
   it("binds production marker recovery callers and handoff outputs to the verified producer", () => {

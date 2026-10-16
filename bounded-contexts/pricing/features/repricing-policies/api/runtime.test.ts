@@ -54,7 +54,10 @@ function queryStub(rows: readonly Record<string, unknown>[] = []): PgQueryable {
 
 function createRuntime(db: PgQueryable = queryStub()) {
   const eventStore = createMemoryEventStore();
-  return { services: createRepricingPolicyRuntime({ eventStore: eventStore.store, db }), events: eventStore.allEvents };
+  return {
+    services: createRepricingPolicyRuntime({ eventStore: eventStore.store, db, goalAdoptions: async () => [] }),
+    events: eventStore.allEvents,
+  };
 }
 
 const rule = {

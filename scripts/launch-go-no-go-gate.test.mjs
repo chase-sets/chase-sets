@@ -682,8 +682,10 @@ describe("launch go/no-go gate: promotion-evidence legal-corpus revalidation", (
     ]) {
       expect(promotionRow(override).status, JSON.stringify(override)).toBe("pending");
     }
-    for (const version of ["v1", "v2"]) {
+    for (const version of ["v1", "v2", "v3"]) {
       expect(promotionRow({}, { schemaVersion: `marketplace-promotion-evidence/${version}` }).status).toBe("pending");
+    }
+    for (const version of ["v1", "v2"]) {
       expect(
         promotionRow({ publicPresenceCopyAuditVersion: `marketplace-public-presence-copy-audit/${version}` }).status,
       ).toBe("pending");

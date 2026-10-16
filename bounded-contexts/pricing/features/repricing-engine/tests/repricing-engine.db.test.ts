@@ -143,7 +143,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     );
 
     const policyHandlers = buildRepricingPolicyProjectionHandlers(pool);
-    const policies = createRepricingPolicyRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+    const policies = createRepricingPolicyRuntime({
+      eventStore: createPostgresEventStore({ pool }),
+      db: pool,
+      goalAdoptions: async () => [],
+    });
     const created = await policies.commandHandler({
       streamId: policies.streamIdForPolicy(policyId),
       context,
@@ -242,7 +246,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
   async function stopPolicy(mode: "pause" | "halt") {
     const pool = pools.pricing;
     const eventStore = createPostgresEventStore({ pool });
-    const controls = createRepricingPolicyRuntime({ eventStore, db: pool });
+    const controls = createRepricingPolicyRuntime({ eventStore, db: pool, goalAdoptions: async () => [] });
     if (mode === "pause")
       await controls.executeOwnedRepricingPolicy({
         policyId: "rpp_1",
@@ -1249,7 +1253,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       await pool.query(
         "UPDATE pricing_market_listing_inputs SET seller_account_id = 'acc_other' WHERE listing_id = 'lst_policy_2'",
       );
-      const policies = createRepricingPolicyRuntime({ eventStore: createPostgresEventStore({ pool }), db: pool });
+      const policies = createRepricingPolicyRuntime({
+        eventStore: createPostgresEventStore({ pool }),
+        db: pool,
+        goalAdoptions: async () => [],
+      });
       const created = await policies.commandHandler({
         streamId: policies.streamIdForPolicy("rpp_other"),
         context,
@@ -1734,7 +1742,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     };
     const { policyId } = await seedRound(pool, { listingPrices: ["12.00"], rule });
     const eventStore = createPostgresEventStore({ pool });
-    const policies = createRepricingPolicyRuntime({ eventStore, db: pool });
+    const policies = createRepricingPolicyRuntime({ eventStore, db: pool, goalAdoptions: async () => [] });
     expect((await policies.getAccountRepricingPolicy({ accountId: "acc_seller", policyId }))?.rules).toEqual([rule]);
     const competitor = await policies.commandHandler({
       streamId: policies.streamIdForPolicy("rpp_competitor"),
