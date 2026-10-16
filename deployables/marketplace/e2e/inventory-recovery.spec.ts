@@ -7,13 +7,13 @@ import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract"
 import { registerRestockRecoveryBrowserTests } from "@chase-sets/inventory/seed-support/restock-recovery-browser";
 import { registerImportRecoveryBrowserTests } from "@chase-sets/inventory/seed-support/import-recovery-browser";
 
-registerImportRecoveryBrowserTests((page, baseUrl) =>
-  signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials()),
-);
+registerImportRecoveryBrowserTests(async (page, baseUrl) => {
+  await signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials());
+});
 
-registerRestockRecoveryBrowserTests((page, baseUrl) =>
-  signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials()),
-);
+registerRestockRecoveryBrowserTests(async (page, baseUrl) => {
+  await signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials());
+});
 
 test.describe("@marketplace-seller issue-7169-c1-boundary-recovery AC9/10/11/13", () => {
   test("real location action loses its response, restores privately and never posts again", async ({

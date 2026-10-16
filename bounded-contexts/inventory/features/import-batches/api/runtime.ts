@@ -2117,7 +2117,11 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             resolveParentUpdate: (db) =>
               importBatchCreateParentUpdateFromWorkUnits(db, claimed, requireCreateBatchId(claimed.payload)),
           });
-          await jobStore.releaseClaim({ jobId: claimed.jobId, claimOwnerId: input.claimOwnerId });
+          await jobStore.releaseClaim({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: claimed.progress,
+          });
           return 1;
         }
         let commandReceipt: CommandReceiptMetadata | null = null;
