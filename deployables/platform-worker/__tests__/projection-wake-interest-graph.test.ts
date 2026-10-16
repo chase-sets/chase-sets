@@ -280,9 +280,15 @@ describe("platform worker projection wake interest graph", () => {
         .filter((runner) => runner.projectionName === "support-evidence-cleanup-locator-projection")
         .map((runner) => runner.checkpointKey),
     ).toEqual(["support-evidence-cleanup-locator-projection:platform-operations:v1"]);
+    // #9638 adds exactly one runner: Pricing's own forecast ledger.
+    expect(
+      inheritedRunners
+        .filter((runner) => runner.projectionName === "pricing-forecast-ledger-projection")
+        .map((runner) => runner.checkpointKey),
+    ).toEqual(["pricing-forecast-ledger-projection:pricing:v1"]);
     expect(fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutOperatorRemoval(runner))))).toEqual({
-      count: 255,
-      sha256: "bdb151d114a9db5fef88a306222b3b36b84c26d836deca14b3040f0ccb22694a",
+      count: 256,
+      sha256: "e1bcbbdfdf0765defa95110a7a333e19ffc36cb35b103d878cb83ceda8d9e544",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -310,8 +316,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 255,
-      sha256: "cb40eebd6252d584cd1f4efd1bea9b73a4495430e9ac5da4702529d656198cec",
+      count: 256,
+      sha256: "544736446622d626972c650b5cc91480122777629388fbdf31e0172cde26994b",
     });
     expect(
       fingerprint(
@@ -332,8 +338,8 @@ describe("platform worker projection wake interest graph", () => {
       sha256: "ee3830e0000be54e6c457eef282d01afdb88d79cb3b55fef0ca41bcb777e15d7",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 255,
-      sha256: "ab2e62c3f61ef3f035af96f15b3fe49678739cd5c68ee201b05b2b07ff5667fd",
+      count: 256,
+      sha256: "36b8c77302ef82d50a7d8dd2bb4426ae9cb720a16d8b45d4aacd31a1cc70e9d0",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 123,

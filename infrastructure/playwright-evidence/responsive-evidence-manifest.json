@@ -5443,6 +5443,216 @@
         }
       ],
       "artifact": "channels-connect-design-system-activate-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-navigation-desktop-1280",
+      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "testTitle": "records Marketplace owner navigation at 1280x900 @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded owner account home",
+        "path": "/account"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:demo-owner:marketplace-navigation"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "marketplace-top-nav",
+        "selector": "nav[aria-label=\"Primary navigation\"]",
+        "populatedSelector": ":scope a[href=\"/account/notifications\"]"
+      },
+      "measurements": [
+        {
+          "identity": "top-nav-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "top-nav-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "seller-money-visible",
+          "scope": "target",
+          "selector": "a[href=\"/account/desk/money\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "selling-disclosure-visible",
+          "scope": "target",
+          "selector": "button[aria-haspopup=\"dialog\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "marketplace-navigation-desktop-1280"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-navigation-mobile-360",
+      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "testTitle": "records Marketplace owner navigation at 360x800 @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded owner account home",
+        "path": "/account"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:demo-owner:marketplace-navigation"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "marketplace-bottom-nav",
+        "selector": "nav.fixed.inset-x-0.bottom-0",
+        "populatedSelector": ":scope a[href=\"/account/notifications\"]"
+      },
+      "measurements": [
+        {
+          "identity": "bottom-nav-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "bottom-nav-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "seller-money-visible",
+          "scope": "target",
+          "selector": "a[href=\"/account/desk/money\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "selling-disclosure-visible",
+          "scope": "target",
+          "selector": "details > summary",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "marketplace-navigation-mobile-360"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-navigation-mobile-390",
+      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "testTitle": "records Marketplace owner navigation at 390x844 @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded owner account home",
+        "path": "/account"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:demo-owner:marketplace-navigation"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-bottom-nav",
+        "selector": "nav.fixed.inset-x-0.bottom-0",
+        "populatedSelector": ":scope a[href=\"/account/notifications\"]"
+      },
+      "measurements": [
+        {
+          "identity": "bottom-nav-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "bottom-nav-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "seller-money-visible",
+          "scope": "target",
+          "selector": "a[href=\"/account/desk/money\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "selling-disclosure-visible",
+          "scope": "target",
+          "selector": "details > summary",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "marketplace-navigation-mobile-390"
     }
   ]
 }

@@ -7,7 +7,7 @@ import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { resolveLegacyNotificationCenterHref } from "@chase-sets/notifications/web";
-import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
+import { resolveMarketplaceAccountMenuItems, resolveMarketplaceActiveKey, resolveMarketplaceNavItems } from "../host";
 
 const signOutFormId = "marketplace-account-menu-sign-out";
 
@@ -16,74 +16,6 @@ const signOutFormId = "marketplace-account-menu-sign-out";
 export function loader({ request }: LoaderFunctionArgs) {
   const notificationCenterHref = resolveLegacyNotificationCenterHref(new URL(request.url));
   return notificationCenterHref ? redirect(notificationCenterHref) : null;
-}
-
-function getActiveKey(pathname: string) {
-  if (pathname.startsWith("/account/offers/matches")) {
-    return "offer-matches";
-  }
-
-  if (pathname.startsWith("/account/offers/submitted")) {
-    return "submitted-offers";
-  }
-
-  if (pathname.startsWith("/account/shipments")) {
-    return "shipments";
-  }
-
-  if (pathname.startsWith("/account/reviews")) {
-    return "reviews";
-  }
-
-  if (pathname.startsWith("/account/payouts")) {
-    return "payouts";
-  }
-
-  if (pathname.startsWith("/account/settlement")) {
-    return "wallet";
-  }
-
-  if (pathname.startsWith("/account/purchases")) {
-    return "purchases";
-  }
-
-  if (pathname.startsWith("/account/notifications")) {
-    return "notifications";
-  }
-
-  if (pathname.startsWith("/account/product-alerts")) {
-    return "product-alerts";
-  }
-
-  if (pathname.startsWith("/account/sales")) {
-    return "sales";
-  }
-
-  if (pathname.startsWith("/account/cart")) {
-    return "cart";
-  }
-
-  if (pathname.startsWith("/account/listings")) {
-    return "listings";
-  }
-
-  if (pathname.startsWith("/account/inventory")) {
-    return "inventory";
-  }
-
-  if (pathname.startsWith("/account")) {
-    return "account";
-  }
-
-  if (pathname.startsWith("/sign-in")) {
-    return "sign-in";
-  }
-
-  if (pathname.startsWith("/register")) {
-    return "register";
-  }
-
-  return "search";
 }
 
 function displayActorAccountName(display: CurrentActorDisplay) {
@@ -148,11 +80,12 @@ export default function MarketplaceLayoutRoute() {
   const topNavItems = resolveMarketplaceNavItems("top-nav", actor, { cartCount });
   const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor, { cartCount });
   const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
+  const activeKey = resolveMarketplaceActiveKey(location.pathname, actor, { cartCount });
   const prompt = new URLSearchParams(location.search).get("authPrompt");
   const showAddPasskeyPrompt = Boolean(actor && !isGuestCheckoutActor && prompt === "add-passkey");
   return (
     <DiscoveryShellLayout
-      activeKey={getActiveKey(location.pathname)}
+      activeKey={activeKey}
       colorMode={colorMode}
       reducedMotion={rootData?.viewer?.preferences?.reducedMotion}
       topNavItems={topNavItems}

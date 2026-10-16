@@ -1088,4 +1088,5 @@ export const checkoutEnglishTranslations = {
   "checkout.shared.policyLinks.privacy": "Privacy policy",
   "checkout.shared.policyLinks.refunds": "Refunds and returns",
   "checkout.shared.policyLinks.terms": "Terms of service",
+  "checkout.shell.cart.label": "Buy Cart",
 } as const;

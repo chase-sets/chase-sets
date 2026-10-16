@@ -696,7 +696,8 @@
       "href": "/account/sessions",
       "order": 205,
       "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
+      "requiredPermissions": ["security.manage"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
@@ -707,7 +708,8 @@
       "href": "/account/agents",
       "order": 206,
       "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
+      "requiredPermissions": ["security.manage"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
@@ -718,7 +720,8 @@
       "href": "/sign-in",
       "order": 900,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility"
     },
     {
       "deployable": "marketplace-web",
@@ -729,7 +732,8 @@
       "href": "/register",
       "order": 910,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility"
     },
     {
       "deployable": "marketplace-web",
@@ -738,9 +742,11 @@
       "label": "Sign In",
       "icon": "user",
       "href": "/sign-in",
-      "order": 900,
+      "order": 20,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility",
+      "packingPriority": 350
     },
     {
       "deployable": "marketplace-web",
@@ -749,9 +755,11 @@
       "label": "Register",
       "icon": "plus",
       "href": "/register",
-      "order": 910,
+      "order": 30,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility",
+      "packingPriority": 300
     }
   ],
   "directoryIntent": {

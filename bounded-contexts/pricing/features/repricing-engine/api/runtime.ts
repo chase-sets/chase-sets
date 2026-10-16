@@ -8,6 +8,13 @@ import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { moneyToCents } from "@chase-sets/primitives/money";
 import type { EconomicsServices } from "../../economics/api/services";
 import {
+  forecastKindDefinitions,
+  withForecasts,
+  type EvaluatedPrice,
+  type ForecastCurve,
+} from "../../forecast-ledger/domain/forecast-kinds";
+import { loadConditionSales } from "../../forecast-ledger/read-model/queries";
+import {
   activeProductFreeze,
   readProductRoundState,
   recordProductRoundDirection,
@@ -472,6 +479,16 @@ async function executeAdmittedProductRound(
     policy,
     economics: deps.economics,
   });
+  // Forecasts are fixed from the curve and the provider weeks as read now; a week's count changes later.
+  const forecastCurve: ForecastCurve | null = round.demandCurve && {
+    modelVersion: round.demandCurve.modelVersion,
+    points: round.demandCurve.points,
+    conditionSales: await loadConditionSales(deps.db, {
+      catalogItemId: job.payload.catalogItemId,
+      productId: job.payload.productId,
+      asOf: nowIso,
+    }),
+  };
   const evaluations = planRepricingRound(round, nowIso, policy);
   const shadows = planRepricingShadows(round, nowIso, policy);
   await input.afterRoundPlanned?.();
@@ -715,6 +732,8 @@ async function executeAdmittedProductRound(
       }
     });
     const evaluatedAt = new Date().toISOString();
+    const forecastsAt = <Price extends EvaluatedPrice>(price: Price) =>
+      withForecasts(forecastKindDefinitions(), price, { pricedAt: evaluatedAt, curve: forecastCurve });
     const fact: RepricingPolicyEvaluatedEvent = {
       type: repricingPolicyEvaluatedEventType,
       data: {
@@ -729,9 +748,13 @@ async function executeAdmittedProductRound(
         listingsEvaluated: traces.length,
         listingsChanged: traces.filter((trace) => trace.outcome === "changed").length,
         listingsSkipped: traces.filter((trace) => trace.outcome !== "changed").length,
-        listings: traces.map((trace) => {
-          const shadow = shadows.get(trace.listingId);
-          return shadow ? { ...trace, shadow } : trace;
+        listings: traces.map((trace, index) => {
+          const shadow = shadows.get(trace.listingId)?.map(forecastsAt);
+          const traced = {
+            ...(trace.anchor?.goal ? forecastsAt(trace) : trace),
+            quantity: plan.entries[index]!.listing.quantityCap,
+          };
+          return shadow ? { ...traced, shadow } : traced;
         }),
         ...goalInputsFor(plan.entries, round),
         ...(frozenUntil ? { spiralBreaker: { tripped: false, frozenUntil } } : {}),

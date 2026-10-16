@@ -1,0 +1,1678 @@
+{
+  "status": "app-recorded-synthetic-not-live",
+  "sourceRepository": "todd-skelton/tcgplayer-automation-app",
+  "sourceCommit": "bdeffa0190be035084abccb464716aaaa2541a59",
+  "sourceBlobs": {
+    "app/features/pricing/domain/forecastGrading.ts": "155e487f5d59e6980fa71bd86fb6ea7e222121d3",
+    "app/features/pricing/algorithms/buyerChoiceSellTime.ts": "248d66d7fdb943066ddf9847cc08d5a10dc573a1",
+    "app/features/pricing/algorithms/conditionSaleRate.ts": "e372e4d3a58f41e8ecebcb8cf62b47d813bb7860",
+    "app/features/pricing/domain/pricingPolicy.ts": "36f40f8096ba9657118096b20e705c53fedfb7b8",
+    "app/core/types/pricingPolicy.ts": "aa652940720ea8a923c3e7a9507e44ce0664bc2e",
+    "app/features/pricing/domain/maximize.ts": "3e6b75f9b9a3dc67d135262bf3ae361ef81eaacd",
+    "app/features/pricing/domain/horizonValueCurve.ts": "1d6ccccfa59b9a53876df4f41722bfe6355f7e87"
+  },
+  "cohort": {
+    "records": [
+      {
+        "sku": 1,
+        "day": 0,
+        "quantity": 2,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 1,
+        "day": 5,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 1,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 2,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 2,
+        "day": 10,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 2,
+        "day": 20,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 2,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 3,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 3,
+        "day": 3,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 4,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 4,
+        "day": 3,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 5,
+        "day": 20,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 5,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 6,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10
+        }
+      },
+      {
+        "sku": 6,
+        "day": 2,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 6,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 7,
+        "day": 0,
+        "quantity": 3,
+        "forecasts": {
+          "curve": 40,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 7,
+        "day": 25,
+        "quantity": 2,
+        "forecasts": {
+          "curve": 40,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 7,
+        "day": 30,
+        "quantity": 2,
+        "forecasts": {
+          "curve": 40,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 8,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 8,
+        "day": 20,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 9,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 5,
+          "choice": 7
+        }
+      },
+      {
+        "sku": 9,
+        "day": 4,
+        "quantity": 3,
+        "forecasts": {
+          "curve": 5,
+          "choice": 7
+        }
+      },
+      {
+        "sku": 9,
+        "day": 10,
+        "quantity": 3,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 9,
+        "day": 30,
+        "quantity": 3,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 10,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 8,
+          "choice": 9
+        }
+      },
+      {
+        "sku": 10,
+        "day": 3,
+        "quantity": 2,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 10,
+        "day": 8,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 10,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 11,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 12,
+          "choice": 6
+        }
+      },
+      {
+        "sku": 11,
+        "day": 19,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 12,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 15,
+          "choice": 30
+        }
+      },
+      {
+        "sku": 12,
+        "day": 18.5,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 13,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 3,
+          "choice": 4
+        }
+      },
+      {
+        "sku": 13,
+        "day": 18.5,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 10,
+          "choice": 20
+        }
+      },
+      {
+        "sku": 14,
+        "day": 0,
+        "quantity": 0,
+        "forecasts": {
+          "curve": 25,
+          "choice": 25
+        }
+      },
+      {
+        "sku": 14,
+        "day": 1,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 25,
+          "choice": 25
+        }
+      },
+      {
+        "sku": 14,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 25,
+          "choice": 25
+        }
+      },
+      {
+        "sku": 15,
+        "day": 9,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 60,
+          "choice": 14
+        }
+      },
+      {
+        "sku": 15,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 60,
+          "choice": 14
+        }
+      },
+      {
+        "sku": 16,
+        "day": 0,
+        "quantity": 2,
+        "forecasts": {
+          "curve": 21,
+          "choice": 21
+        }
+      },
+      {
+        "sku": 16,
+        "day": 21,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 21,
+          "choice": 21
+        }
+      },
+      {
+        "sku": 16,
+        "day": 30,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 21,
+          "choice": 21
+        }
+      },
+      {
+        "sku": 17,
+        "day": 0,
+        "quantity": 1,
+        "forecasts": {
+          "curve": 2,
+          "choice": 50
+        }
+      },
+      {
+        "sku": 18,
+        "day": 0,
+        "quantity": 3,
+        "forecasts": {
+          "curve": 10
+        }
+      },
+      {
+        "sku": 18,
+        "day": 2,
+        "quantity": 2,
+        "forecasts": {
+          "curve": 18,
+          "choice": 11
+        }
+      },
+      {
+        "sku": 18,
+        "day": 30,
+        "quantity": 2,
+        "forecasts": {
+          "curve": 18,
+          "choice": 11
+        }
+      }
+    ],
+    "inStockSkus": [2, 4, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 18],
+    "forecastNames": ["curve", "choice"],
+    "cohorts": [
+      {
+        "horizonDays": 14,
+        "members": [
+          {
+            "sku": 1,
+            "sold": true
+          },
+          {
+            "sku": 2,
+            "sold": false
+          },
+          {
+            "sku": 3,
+            "sold": true
+          },
+          {
+            "sku": 6,
+            "sold": false
+          },
+          {
+            "sku": 7,
+            "sold": false
+          },
+          {
+            "sku": 8,
+            "sold": false
+          },
+          {
+            "sku": 9,
+            "sold": false
+          },
+          {
+            "sku": 10,
+            "sold": true
+          },
+          {
+            "sku": 11,
+            "sold": false
+          },
+          {
+            "sku": 12,
+            "sold": false
+          },
+          {
+            "sku": 13,
+            "sold": false
+          },
+          {
+            "sku": 14,
+            "sold": false
+          },
+          {
+            "sku": 15,
+            "sold": false
+          },
+          {
+            "sku": 16,
+            "sold": false
+          },
+          {
+            "sku": 17,
+            "sold": true
+          },
+          {
+            "sku": 18,
+            "sold": false
+          }
+        ],
+        "grades": {
+          "curve": {
+            "count": 16,
+            "soldShare": 0.25,
+            "expectedShare": 0.5700878311337537,
+            "brier": 0.26289305453597744,
+            "deciles": [
+              {
+                "count": 1,
+                "medianDays": 2,
+                "soldShare": 1,
+                "expectedShare": 0.9921875
+              },
+              {
+                "count": 2,
+                "medianDays": 5,
+                "soldShare": 0,
+                "expectedShare": 0.9085200864080779
+              },
+              {
+                "count": 1,
+                "medianDays": 8,
+                "soldShare": 1,
+                "expectedShare": 0.7026982212493198
+              },
+              {
+                "count": 2,
+                "medianDays": 10,
+                "soldShare": 0.5,
+                "expectedShare": 0.6210708583724005
+              },
+              {
+                "count": 2,
+                "medianDays": 10,
+                "soldShare": 0.5,
+                "expectedShare": 0.6210708583724005
+              },
+              {
+                "count": 1,
+                "medianDays": 10,
+                "soldShare": 0,
+                "expectedShare": 0.6210708583724005
+              },
+              {
+                "count": 2,
+                "medianDays": 15,
+                "soldShare": 0,
+                "expectedShare": 0.5154517897597586
+              },
+              {
+                "count": 1,
+                "medianDays": 18,
+                "soldShare": 0,
+                "expectedShare": 0.41673548021194173
+              },
+              {
+                "count": 2,
+                "medianDays": 25,
+                "soldShare": 0,
+                "expectedShare": 0.34586865566436376
+              },
+              {
+                "count": 2,
+                "medianDays": 60,
+                "soldShare": 0,
+                "expectedShare": 0.18237437057619676
+              }
+            ]
+          },
+          "choice": {
+            "count": 16,
+            "soldShare": 0.25,
+            "expectedShare": 0.4787619260109921,
+            "brier": 0.3180893063627056,
+            "deciles": [
+              {
+                "count": 1,
+                "medianDays": 4,
+                "soldShare": 0,
+                "expectedShare": 0.9116116523516815
+              },
+              {
+                "count": 2,
+                "medianDays": 7,
+                "soldShare": 0,
+                "expectedShare": 0.7757874342519875
+              },
+              {
+                "count": 1,
+                "medianDays": 9,
+                "soldShare": 1,
+                "expectedShare": 0.6598024999564058
+              },
+              {
+                "count": 2,
+                "medianDays": 14,
+                "soldShare": 0,
+                "expectedShare": 0.5430616800287973
+              },
+              {
+                "count": 2,
+                "medianDays": 20,
+                "soldShare": 0.5,
+                "expectedShare": 0.38442779332754184
+              },
+              {
+                "count": 1,
+                "medianDays": 20,
+                "soldShare": 1,
+                "expectedShare": 0.38442779332754184
+              },
+              {
+                "count": 2,
+                "medianDays": 20,
+                "soldShare": 0,
+                "expectedShare": 0.38442779332754184
+              },
+              {
+                "count": 1,
+                "medianDays": 20,
+                "soldShare": 0,
+                "expectedShare": 0.38442779332754184
+              },
+              {
+                "count": 2,
+                "medianDays": 25,
+                "soldShare": 0,
+                "expectedShare": 0.34586865566436376
+              },
+              {
+                "count": 2,
+                "medianDays": 50,
+                "soldShare": 0.5,
+                "expectedShare": 0.2263871820061189
+              }
+            ]
+          }
+        }
+      },
+      {
+        "horizonDays": 21,
+        "members": [
+          {
+            "sku": 1,
+            "sold": true
+          },
+          {
+            "sku": 2,
+            "sold": false
+          },
+          {
+            "sku": 3,
+            "sold": true
+          },
+          {
+            "sku": 6,
+            "sold": false
+          },
+          {
+            "sku": 7,
+            "sold": false
+          },
+          {
+            "sku": 8,
+            "sold": false
+          },
+          {
+            "sku": 9,
+            "sold": false
+          },
+          {
+            "sku": 10,
+            "sold": true
+          },
+          {
+            "sku": 11,
+            "sold": false
+          },
+          {
+            "sku": 13,
+            "sold": true
+          },
+          {
+            "sku": 14,
+            "sold": false
+          },
+          {
+            "sku": 15,
+            "sold": false
+          },
+          {
+            "sku": 16,
+            "sold": true
+          },
+          {
+            "sku": 17,
+            "sold": true
+          },
+          {
+            "sku": 18,
+            "sold": false
+          }
+        ],
+        "grades": {
+          "curve": {
+            "count": 15,
+            "soldShare": 0.4,
+            "expectedShare": 0.6885168971600485,
+            "brier": 0.2785692873571156,
+            "deciles": [
+              {
+                "count": 1,
+                "medianDays": 2,
+                "soldShare": 1,
+                "expectedShare": 0.9993094660339975
+              },
+              {
+                "count": 2,
+                "medianDays": 5,
+                "soldShare": 0.5,
+                "expectedShare": 0.9688890448969961
+              },
+              {
+                "count": 1,
+                "medianDays": 8,
+                "soldShare": 1,
+                "expectedShare": 0.8378950556686238
+              },
+              {
+                "count": 2,
+                "medianDays": 10,
+                "soldShare": 0.5,
+                "expectedShare": 0.7667417521157982
+              },
+              {
+                "count": 1,
+                "medianDays": 10,
+                "soldShare": 1,
+                "expectedShare": 0.7667417521157982
+              },
+              {
+                "count": 2,
+                "medianDays": 10,
+                "soldShare": 0,
+                "expectedShare": 0.7667417521157982
+              },
+              {
+                "count": 1,
+                "medianDays": 12,
+                "soldShare": 0,
+                "expectedShare": 0.7026982212493198
+              },
+              {
+                "count": 2,
+                "medianDays": 21,
+                "soldShare": 0.5,
+                "expectedShare": 0.5272753204649152
+              },
+              {
+                "count": 1,
+                "medianDays": 25,
+                "soldShare": 0,
+                "expectedShare": 0.44135643096389
+              },
+              {
+                "count": 2,
+                "medianDays": 60,
+                "soldShare": 0,
+                "expectedShare": 0.26022839609104037
+              }
+            ]
+          },
+          "choice": {
+            "count": 15,
+            "soldShare": 0.4,
+            "expectedShare": 0.6158811776531732,
+            "brier": 0.342148954533626,
+            "deciles": [
+              {
+                "count": 1,
+                "medianDays": 4,
+                "soldShare": 1,
+                "expectedShare": 0.9737219870233215
+              },
+              {
+                "count": 2,
+                "medianDays": 7,
+                "soldShare": 0,
+                "expectedShare": 0.8933058261758408
+              },
+              {
+                "count": 1,
+                "medianDays": 9,
+                "soldShare": 1,
+                "expectedShare": 0.8015748685039751
+              },
+              {
+                "count": 2,
+                "medianDays": 14,
+                "soldShare": 0,
+                "expectedShare": 0.6900931685233678
+              },
+              {
+                "count": 1,
+                "medianDays": 20,
+                "soldShare": 1,
+                "expectedShare": 0.5170318355375773
+              },
+              {
+                "count": 2,
+                "medianDays": 20,
+                "soldShare": 0.5,
+                "expectedShare": 0.5170318355375773
+              },
+              {
+                "count": 1,
+                "medianDays": 20,
+                "soldShare": 0,
+                "expectedShare": 0.5170318355375773
+              },
+              {
+                "count": 2,
+                "medianDays": 20,
+                "soldShare": 0,
+                "expectedShare": 0.5170318355375773
+              },
+              {
+                "count": 1,
+                "medianDays": 21,
+                "soldShare": 1,
+                "expectedShare": 0.5
+              },
+              {
+                "count": 2,
+                "medianDays": 50,
+                "soldShare": 0.5,
+                "expectedShare": 0.34696590332321037
+              }
+            ]
+          }
+        }
+      },
+      {
+        "horizonDays": 28,
+        "members": [
+          {
+            "sku": 1,
+            "sold": true
+          },
+          {
+            "sku": 2,
+            "sold": false
+          },
+          {
+            "sku": 3,
+            "sold": true
+          },
+          {
+            "sku": 6,
+            "sold": false
+          },
+          {
+            "sku": 7,
+            "sold": true
+          },
+          {
+            "sku": 9,
+            "sold": false
+          },
+          {
+            "sku": 10,
+            "sold": true
+          },
+          {
+            "sku": 13,
+            "sold": true
+          },
+          {
+            "sku": 14,
+            "sold": false
+          },
+          {
+            "sku": 16,
+            "sold": true
+          },
+          {
+            "sku": 17,
+            "sold": true
+          },
+          {
+            "sku": 18,
+            "sold": false
+          }
+        ],
+        "grades": {
+          "curve": {
+            "count": 12,
+            "soldShare": 0.5833333333333334,
+            "expectedShare": 0.7918600114358947,
+            "brier": 0.3115318928619409,
+            "deciles": [
+              {
+                "count": 1,
+                "medianDays": 2,
+                "soldShare": 1,
+                "expectedShare": 0.99993896484375
+              },
+              {
+                "count": 1,
+                "medianDays": 3,
+                "soldShare": 1,
+                "expectedShare": 0.9984498036601873
+              },
+              {
+                "count": 1,
+                "medianDays": 5,
+                "soldShare": 0,
+                "expectedShare": 0.9793826888941736
+              },
+              {
+                "count": 1,
+                "medianDays": 8,
+                "soldShare": 1,
+                "expectedShare": 0.9116116523516815
+              },
+              {
+                "count": 2,
+                "medianDays": 10,
+                "soldShare": 0.5,
+                "expectedShare": 0.8564127056253706
+              },
+              {
+                "count": 1,
+                "medianDays": 10,
+                "soldShare": 1,
+                "expectedShare": 0.8564127056253706
+              },
+              {
+                "count": 1,
+                "medianDays": 10,
+                "soldShare": 0,
+                "expectedShare": 0.8564127056253706
+              },
+              {
+                "count": 1,
+                "medianDays": 18,
+                "soldShare": 0,
+                "expectedShare": 0.6598024999564058
+              },
+              {
+                "count": 1,
+                "medianDays": 21,
+                "soldShare": 1,
+                "expectedShare": 0.6031497370079502
+              },
+              {
+                "count": 2,
+                "medianDays": 40,
+                "soldShare": 0.5,
+                "expectedShare": 0.46216698400755213
+              }
+            ]
+          },
+          "choice": {
+            "count": 12,
+            "soldShare": 0.5833333333333334,
+            "expectedShare": 0.6843972773089794,
+            "brier": 0.30753484221202326,
+            "deciles": [
+              {
+                "count": 1,
+                "medianDays": 4,
+                "soldShare": 1,
+                "expectedShare": 0.9921875
+              },
+              {
+                "count": 1,
+                "medianDays": 7,
+                "soldShare": 0,
+                "expectedShare": 0.9375
+              },
+              {
+                "count": 1,
+                "medianDays": 9,
+                "soldShare": 1,
+                "expectedShare": 0.8842656609640887
+              },
+              {
+                "count": 1,
+                "medianDays": 11,
+                "soldShare": 0,
+                "expectedShare": 0.8287061269099845
+              },
+              {
+                "count": 2,
+                "medianDays": 20,
+                "soldShare": 0.5,
+                "expectedShare": 0.6210708583724005
+              },
+              {
+                "count": 1,
+                "medianDays": 20,
+                "soldShare": 1,
+                "expectedShare": 0.6210708583724005
+              },
+              {
+                "count": 1,
+                "medianDays": 20,
+                "soldShare": 0,
+                "expectedShare": 0.6210708583724005
+              },
+              {
+                "count": 1,
+                "medianDays": 20,
+                "soldShare": 1,
+                "expectedShare": 0.6210708583724005
+              },
+              {
+                "count": 1,
+                "medianDays": 21,
+                "soldShare": 1,
+                "expectedShare": 0.6031497370079502
+              },
+              {
+                "count": 2,
+                "medianDays": 50,
+                "soldShare": 0.5,
+                "expectedShare": 0.43080200548186326
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "buyerChoice": [
+    {
+      "curve": [
+        {
+          "percentile": 10,
+          "buyerArrivalIntervalDays": null,
+          "competingSellerCount": 4
+        },
+        {
+          "percentile": 25,
+          "buyerArrivalIntervalDays": 3.5,
+          "competingSellerCount": 9
+        },
+        {
+          "percentile": 50,
+          "buyerArrivalIntervalDays": 6,
+          "competingSellerCount": 12
+        }
+      ],
+      "forecasts": [
+        {
+          "price": 0.25,
+          "forecast": {
+            "medianSellDays": 338.2437258219749,
+            "calibration": "2026-08-11-cohort"
+          }
+        },
+        {
+          "price": 1,
+          "forecast": {
+            "medianSellDays": 144.91727269325608,
+            "calibration": "2026-08-11-cohort"
+          }
+        },
+        {
+          "price": 4.99,
+          "forecast": {
+            "medianSellDays": 84.71985629448797,
+            "calibration": "2026-08-11-cohort"
+          }
+        },
+        {
+          "price": 27.5,
+          "forecast": {
+            "medianSellDays": 71.33625557259963,
+            "calibration": "2026-08-11-cohort"
+          }
+        }
+      ]
+    },
+    {
+      "curve": [
+        {
+          "percentile": 50,
+          "buyerArrivalIntervalDays": 40,
+          "competingSellerCount": 0
+        }
+      ],
+      "forecasts": [
+        {
+          "price": 120,
+          "forecast": {
+            "medianSellDays": 123.06873714475327,
+            "calibration": "2026-08-11-cohort"
+          }
+        }
+      ]
+    },
+    {
+      "curve": [
+        {
+          "percentile": 50,
+          "buyerArrivalIntervalDays": 2,
+          "competingSellerCount": null
+        }
+      ],
+      "forecasts": [
+        {
+          "price": 3,
+          "forecast": null
+        }
+      ]
+    }
+  ],
+  "conditionRate": [
+    {
+      "asOf": "2026-08-12T15:00:00.000Z",
+      "buckets": [
+        {
+          "weekStart": "2025-08-11",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-08-18",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2025-08-25",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-09-01",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-09-08",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2025-09-15",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-09-22",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-09-29",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2025-10-06",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-10-13",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-10-20",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2025-10-27",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-11-03",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-11-10",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2025-11-17",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-11-24",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-12-01",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2025-12-08",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-12-15",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2025-12-22",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2025-12-29",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-01-05",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-01-12",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-01-19",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-01-26",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-02-02",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-02-09",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-02-16",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-02-23",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-03-02",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-03-09",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-03-16",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-03-23",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-03-30",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-04-06",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-04-13",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-04-20",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-04-27",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-05-04",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-05-11",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-05-18",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-05-25",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-06-01",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-06-08",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-06-15",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-06-22",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-06-29",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-07-06",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-07-13",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-07-20",
+          "transactionCount": 2
+        },
+        {
+          "weekStart": "2026-07-27",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-08-03",
+          "transactionCount": 1
+        },
+        {
+          "weekStart": "2026-08-10",
+          "transactionCount": 2
+        }
+      ],
+      "intervalDays": 4.9523809523809526,
+      "forecasts": [
+        {
+          "storeWinShare": 0.05,
+          "medianSellDays": 68.65457788403268
+        },
+        {
+          "storeWinShare": 0.4,
+          "medianSellDays": 8.581822235504085
+        },
+        {
+          "storeWinShare": 1,
+          "medianSellDays": 3.432728894201634
+        }
+      ]
+    },
+    {
+      "asOf": "2026-08-12T15:00:00.000Z",
+      "buckets": [
+        {
+          "weekStart": "2026-03-30",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-06",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-13",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-20",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-27",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-04",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-11",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-18",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-25",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-01",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-08",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-15",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-22",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-29",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-07-06",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-07-13",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-07-20",
+          "transactionCount": 3
+        },
+        {
+          "weekStart": "2026-07-27",
+          "transactionCount": 3
+        },
+        {
+          "weekStart": "2026-08-03",
+          "transactionCount": 3
+        },
+        {
+          "weekStart": "2026-08-10",
+          "transactionCount": 3
+        }
+      ],
+      "intervalDays": 12.133333333333333,
+      "forecasts": [
+        {
+          "storeWinShare": 0.25,
+          "medianSellDays": 33.64074316317601
+        }
+      ]
+    },
+    {
+      "asOf": "2026-08-12T15:00:00.000Z",
+      "buckets": [
+        {
+          "weekStart": "2025-08-11",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-08-18",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-08-25",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-09-01",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-09-08",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-09-15",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-09-22",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-09-29",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-10-06",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-10-13",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-10-20",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-10-27",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-11-03",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-11-10",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-11-17",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-11-24",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-12-01",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-12-08",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-12-15",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-12-22",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2025-12-29",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-01-05",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-01-12",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-01-19",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-01-26",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-02-02",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-02-09",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-02-16",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-02-23",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-03-02",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-03-09",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-03-16",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-03-23",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-03-30",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-06",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-13",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-20",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-04-27",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-04",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-11",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-18",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-05-25",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-01",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-08",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-15",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-22",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-06-29",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-07-06",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-07-13",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-07-20",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-07-27",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-08-03",
+          "transactionCount": 0
+        },
+        {
+          "weekStart": "2026-08-10",
+          "transactionCount": 0
+        }
+      ],
+      "intervalDays": null,
+      "forecasts": [
+        {
+          "storeWinShare": 0.5,
+          "medianSellDays": null
+        }
+      ]
+    }
+  ]
+}

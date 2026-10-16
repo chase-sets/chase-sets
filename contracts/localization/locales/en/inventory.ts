@@ -444,4 +444,6 @@ export const inventoryEnglishTranslations = {
   "inventory.checkoutReservation.unavailable": "Checkout reservation is unavailable.",
   "inventory.checkoutReservation.extensionUnavailable": "Checkout reservation extension is unavailable.",
   "inventory.checkoutReservation.releaseUnavailable": "Checkout reservation release is unavailable.",
+  "inventory.shell.inventory.label": "Inventory",
+  "inventory.shell.inventoryImports.label": "Import",
 } as const;

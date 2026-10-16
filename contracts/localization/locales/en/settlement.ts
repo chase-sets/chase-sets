@@ -1015,4 +1015,5 @@ export const settlementEnglishTranslations = {
   "settlement.features.moneyDashboard.ui.walletAdjustmentSafeTitle": "About this adjustment",
   "settlement.features.moneyDashboard.ui.walletAdjustmentTitle": "Wallet adjustment {reference}",
   "settlement.features.moneyDashboard.ui.walletBalance": "Available wallet balance",
+  "settlement.shell.money.label": "Seller money",
 } as const;
