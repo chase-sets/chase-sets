@@ -125,7 +125,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "bootstrap-lock-contention.db.test.ts": Object.freeze({
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_bootstrap_lock_contention",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -147,7 +147,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "seed-command-full-pools.db.test.ts": Object.freeze({
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_seed_command_full_pools",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -164,7 +164,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "connector-mount-gate-isolation.db.test.ts": Object.freeze({
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "connector_composed_7993",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -221,7 +221,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "authoritative-seed-resume-recovery.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:3",
     databaseSuffix: "platform_api_authoritative_seed_resume_recovery",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -238,7 +238,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "inventory-seed-resume.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:3",
     databaseSuffix: "platform_api_inventory_seed_resume",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -404,7 +404,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "catalog-seed-interruption-resume.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:3",
     databaseSuffix: "platform_api_catalog_seed_interruption_resume",
     bootBearingCases: "all",
     cases: Object.freeze([
@@ -465,7 +465,11 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
  * unit — or newly classified as boot-bearing — fails closed and forces the
  * schedule model to be re-derived rather than silently absorbing the load.
  */
-export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({ "test:db:1": 33, "test:db:2": 33 });
+export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
+  "test:db:1": 18,
+  "test:db:2": 29,
+  "test:db:3": 19,
+});
 
 /**
  * Measured timing inputs: run 38804356099, attempt 1, job 116661229774.
@@ -476,8 +480,12 @@ export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({ "
  * Each case reference is ceil(observed passing duration), never a copied cost.
  * File/unit fixed costs use ceil(max(0, observed residuals)), including zero
  * only when every measured residual at that level is nonpositive.
- * This measured source assignment remains minimal under unchanged limits,
- * not product qualification.
+ * That capture measured a two-unit topology. The three-unit split is a candidate
+ * topology pending recapture, not measured here: capture 38921380458 found two
+ * units over the 420000ms ceiling, and under its derived model this split
+ * projects 329711 / 258122 / 225431ms (90289ms unit and 211041ms aggregate
+ * slack) and fits from about 0.962x to 1.266x of its case durations. Until
+ * recapture, this model finds two units minimal and refuses the split.
  * Historical captures remain immutable; normal final-head DB CI owns qualification.
  */
 export const bootstrapDbScheduleModel = Object.freeze({
