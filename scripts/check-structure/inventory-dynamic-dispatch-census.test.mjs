@@ -24,6 +24,7 @@ const prelude = `
 import type { InventoryServices } from ${absoluteImport(servicesFile)};
 import { createInventoryApiClient } from ${absoluteImport("bounded-contexts/inventory/client.ts")};
 declare const services: InventoryServices;
+type RestockService = InventoryServices["restockDecisions"];
 declare const api: ReturnType<typeof createInventoryApiClient>;
 declare const method: string, flag: boolean, context: never;
 declare function consume(value: any): void;
@@ -105,7 +106,7 @@ function restockControls() {
     "const mutate = services['restockDecisions'][method]; mutate({}, context);",
   ];
   for (const member of ["services.restockDecisions", 'services["restockDecisions"]', "services['restockDecisions']"]) {
-    for (const wrapped of [`(${member})`, `${member}!`, `(${member} as InventoryServices["restockDecisions"])`]) {
+    for (const wrapped of [`(${member})`, `${member}!`, `(${member} as RestockService)`]) {
       cases.push(`${wrapped}[method]({}, context);`);
       cases.push(`const mutate = ${wrapped}[method]; mutate({}, context);`);
       cases.push(`${wrapped}["recordDecision"]({}, context);`);
@@ -213,6 +214,14 @@ describe("issue-7169-type-resolved-census-matrix", () => {
         ],
         ({ root, roots, program, families }) => {
           const options = { repoRoot: root, roots, program, families };
+          const legacy = discoverInventoryCallers(
+            roots.map((file) => ({
+              path: file,
+              source: readFileSync(path.join(root, file), "utf8"),
+            })),
+          );
+          expect(legacy.callers).toEqual([]);
+          expect(() => partitionInventoryCallers(legacy, {})).not.toThrow();
           const candidate = analyzeInventoryDynamicDispatch(options);
           const bypass = analyzeInventoryDynamicDispatch({ ...options, mutant });
           expect(candidate.diagnostics).toHaveLength(1);
@@ -224,6 +233,7 @@ describe("issue-7169-type-resolved-census-matrix", () => {
             bypass: "FAIL",
             governingInput: mutant,
             otherInputs: "unchanged",
+            legacyTextArm: "ADMITTED",
           });
         },
       );
