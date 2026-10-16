@@ -113,6 +113,7 @@ export type UcpOperationHandlerInput = Readonly<{
   arguments: Readonly<Record<string, unknown>>;
   request: Request;
   params: Readonly<Record<string, string>>;
+  requestMeta?: UcpRequestMeta;
 }>;
 
 export type UcpOperationHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope> | UcpEnvelope;
@@ -606,35 +607,6 @@ function oauthChallenge(tool: UcpMcpToolDescriptor) {
     .flatMap((scheme) => (scheme.type === "oauth2" ? [...scheme.scopes] : []))
     .filter((scope, index, scopes) => scopes.indexOf(scope) === index);
   return scopes.length > 0 ? `Bearer realm="Chase Sets", scope="${scopes.join(" ")}"` : 'Bearer realm="Chase Sets"';
-}
-
-function unsignedMcpTrustedHandoff(tool: UcpMcpToolDescriptor, args: Readonly<Record<string, unknown>>) {
-  const checkoutId = typeof args.id === "string" ? args.id : null;
-  const action =
-    tool.name === "cancel_checkout"
-      ? {
-          type: "trusted_checkout_handoff",
-          ...(checkoutId ? { url: `/checkout/${checkoutId}` } : {}),
-          reason: "Checkout cancellation is available only through trusted UI for ChatGPT OAuth callers.",
-        }
-      : {
-          type: "trusted_checkout_handoff",
-          ...(checkoutId ? { url: `/checkout/${checkoutId}` } : {}),
-          reason:
-            "Checkout completion requires trusted UI unless a signed UCP agent completes with a saved payment method.",
-        };
-  const message =
-    tool.name === "cancel_checkout"
-      ? "Open the trusted checkout UI to abandon or revise this checkout session."
-      : "Open the trusted checkout UI before creating orders or payment through ChatGPT.";
-
-  return createUcpEnvelope("requires_action", { action }, [
-    {
-      severity: "warning",
-      code: "trusted_ui_required",
-      message,
-    },
-  ]);
 }
 
 function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
@@ -1402,6 +1374,9 @@ async function invokeRestWrite(
 ) {
   const failure = await signedWriteOrJsonError(c.req.raw);
   if (failure) {
+    if (c.get("actor")?.agentGrant && !hasSignedWriteHeaders(c.req.raw)) {
+      return c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
+    }
     emitObserver(options.observer?.signedWriteRejected, {
       transport: "rest",
       operation,
@@ -1440,7 +1415,7 @@ async function invokeRestWrite(
     return c.json(rateLimit, 429);
   }
 
-  const input = handlerInput(c, params);
+  const input = { ...handlerInput(c, params), requestMeta: meta };
   const key = idempotencyScope(operation, meta, input.actor);
   const requestHash = await requestBodyHash(c.req.raw);
   const createdAt = new Date();
@@ -1519,6 +1494,7 @@ async function invokeMcpTool(
     arguments: args,
     request: c.req.raw,
     params: {},
+    requestMeta: meta,
   };
   const key = idempotencyScope(toolName, meta, input.actor);
   const requestHash = mcpToolRequestHash(toolName, args);
@@ -1873,8 +1849,10 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       if (tool.idempotencyKeyRequired) {
         const signedFailure = await signedWriteFailure(c.req.raw);
         if (signedFailure) {
-          if ("trustedHandoffOnUnsignedMcp" in tool && tool.trustedHandoffOnUnsignedMcp && c.get("actor")) {
-            return respondResult(toolResult(tool, unsignedMcpTrustedHandoff(tool, args)));
+          const actor = c.get("actor");
+          const unsignedAgentGrant = actor?.agentGrant && !hasSignedWriteHeaders(c.req.raw);
+          if (unsignedAgentGrant) {
+            return respondResult(toolResult(tool, await invokeNonIdempotentMcpTool(c, options, tool, args)));
           }
           emitObserver(options.observer?.signedWriteRejected, {
             transport: "mcp",
@@ -1974,4 +1952,8 @@ function handlerInput(c: Context<UcpRuntimeEnv>, params: Readonly<Record<string,
     request: c.req.raw,
     params,
   };
+}
+
+function hasSignedWriteHeaders(request: Request) {
+  return ["Signature-Input", "Signature", "Content-Digest"].some((name) => request.headers.has(name));
 }

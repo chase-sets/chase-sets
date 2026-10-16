@@ -31,6 +31,7 @@ export type CheckoutSessionRow = Readonly<{
   submitted_offer_id: string | null;
   cancelled_at?: string | null;
   created_at: string;
+  handoff_expires_at: string | null;
   updated_at: string;
 }>;
 
@@ -137,6 +138,7 @@ export async function getCheckoutSession(
        payment_id,
        submitted_offer_id,
        cancelled_at,
+       handoff_expires_at,
        created_at,
        updated_at
      FROM checkout_session_pages

@@ -974,6 +974,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     ? createDiscoveryUcpHandlers(discoveryServices.items)
     : undefined;
   const checkoutServices = runtime.services.checkout as Parameters<typeof createCheckoutUcpHandlers>[0] | undefined;
+  const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const paymentsServices = runtime.services.payments as PaymentsServices | undefined;
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
     ? createPaymentsUcpHandoff(paymentsServices.publicConfig)
@@ -982,13 +983,29 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     ? createCheckoutUcpHandlers(checkoutServices, {
         checkoutClosed: options.checkoutClosed,
         paymentHandoff,
+        getPublicListingById: discoveryServices?.items?.market?.getPublicListingById,
+        getOrderFacts: orderingServices?.orders
+          ? async (orderIds, accountId) => {
+              const facts = await Promise.all(
+                orderIds.map((orderId) => orderingServices.orders!.getPurchase(orderId, accountId)),
+              );
+              return facts
+                .filter((fact): fact is NonNullable<typeof fact> => fact !== null)
+                .map((fact) => ({
+                  id: fact.order_id,
+                  status: fact.status,
+                  readyForFulfillmentAt: fact.ready_for_fulfillment_at,
+                  label: `${fact.display_reference}`,
+                  permalinkUrl: `/account/purchases/${fact.order_id}`,
+                }));
+            }
+          : undefined,
         agentGrantSpendPolicy: fenceAgentGrantSpendPolicy(
           options.agentGrantSpendPolicy,
           identityServices.identity?.agentGrantRevocations,
         ),
       })
     : undefined;
-  const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
   const moduleMcpHandlers = buildMcpHandlersFromModules(runtime.mountedModules);
   const toolHandlers = {

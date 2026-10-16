@@ -139,6 +139,7 @@ export type CheckoutSessionServices = Readonly<{
       shippingOption?: string;
       fulfillmentPreviewRevision: string;
       fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
+      handoffExpiresAt?: string | null;
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
@@ -311,6 +312,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     cancelled_at: state.cancelledAt,
     created_at: state.createdAt,
     updated_at: state.updatedAt,
+    handoff_expires_at: state.handoffExpiresAt,
   };
 }
 
@@ -419,6 +421,15 @@ function assertOrderableSessionFulfillmentAssigned(
 function assertSessionNotCancelled(state: Pick<CheckoutSessionState, "cancelledAt">) {
   if (state.cancelledAt) {
     throw new CheckoutDomainError("Cancelled checkout sessions cannot create orders.", "checkout_cancelled");
+  }
+}
+
+function assertCheckoutHandoffNotExpired(
+  state: Pick<CheckoutSessionState, "handoffExpiresAt" | "orderIds">,
+  now = new Date(),
+) {
+  if (state.orderIds.length === 0 && state.handoffExpiresAt && now.getTime() >= Date.parse(state.handoffExpiresAt)) {
+    throw new CheckoutDomainError("This checkout handoff has expired. Start a new checkout.", "checkout_expired");
   }
 }
 
@@ -757,6 +768,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       optimizationGoal?: CheckoutOptimizationGoal;
       fulfillmentPreviewRevision?: string | null;
       fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
+      handoffExpiresAt?: string | null;
       cartReadinessSnapshot?: CartReadinessSnapshot | null;
       presentedAnonymousCartId?: string | null;
       shippingOption: ShippingOption;
@@ -831,6 +843,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           presentedAnonymousCartId: params.presentedAnonymousCartId,
           shippingOption: params.shippingOption,
           lines: params.lines,
+          handoffExpiresAt: params.handoffExpiresAt,
           createdAt: new Date().toISOString(),
         },
         context,
@@ -940,6 +953,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           optimizationGoal: params.optimizationGoal,
           fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
           fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
+          handoffExpiresAt: params.handoffExpiresAt,
           sessionIdOverride: params.sessionIdOverride,
           lines: [
             {
@@ -1090,6 +1104,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     assertReadyForOrderCreation: async (params) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       assertSessionNotCancelled(state);
+      assertCheckoutHandoffNotExpired(state);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
       assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
@@ -1101,6 +1116,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
       if (state.orderIds.length > 0) return resumeOrderCartCleanup(params, context);
       assertSessionNotCancelled(state);
+      assertCheckoutHandoffNotExpired(state);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
       assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);

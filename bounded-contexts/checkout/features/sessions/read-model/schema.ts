@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   payment_id text NULL,
   submitted_offer_id text NULL,
   cancelled_at timestamptz NULL,
+  handoff_expires_at timestamptz NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
@@ -44,6 +45,14 @@ ALTER TABLE checkout_session_pages
 `;
 
 export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261016_checkout_session_handoff_expiry",
+    description: "Add optional UCP checkout handoff expiry timestamps.",
+    statements: [
+      `ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;`,
+    ],
+  },
   {
     migrationId: "20260707_checkout_session_reservations",
     description: "Add checkout session reservation snapshots for checkout inventory holds.",

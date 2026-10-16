@@ -205,6 +205,8 @@ export async function getDiscoveryPublicListingBySlug(
   return result.rows[0] ? mapListing(result.rows[0]) : null;
 }
 
+export const getDiscoveryPublicListingById = getDiscoveryPublicListingBySlug;
+
 export async function getDiscoveryPublicAccountBySlug(
   db: PgQueryable,
   slug: string,

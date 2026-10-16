@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { getMutationResultCommandReceipt, type ResponseConsistencyMetadata } from "@chase-sets/http/responses";
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, readUcpRequestMeta, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import {
   agentGrantIdFromActor,
   type AgentGrantRail,
@@ -21,6 +23,7 @@ import type { CheckoutSessionRow } from "../../features/sessions/read-model/quer
 import type { CheckoutOptimizationGoal, CheckoutShippingAddress } from "../../features/sessions/domain/domain";
 import { parseCartReadinessDecisionInput, type CartReadinessDecisionInput } from "../../features/cart/domain/readiness";
 import { assertNoUnsupportedCustomerEconomicsInput } from "../../features/sessions/api/checkout-economics-runtime";
+import { prepareBuyNowCheckout } from "../../features/sessions/api/buy-now-preparation";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 
@@ -37,12 +40,36 @@ type UcpPaymentHandlerHandoff = Readonly<{
   evaluateCompleteRequest: PaymentsUcpPaymentHandlerHandoff["evaluateCompleteRequest"];
 }>;
 
+export type CheckoutUcpOrderFact = Readonly<{
+  id: string;
+  status?: string | null;
+  readyForFulfillmentAt?: string | null;
+  label?: string;
+  permalinkUrl?: string;
+}>;
+
+export type CheckoutUcpListing = Readonly<{
+  listing_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string | null;
+  item_subtitle: string | null;
+  product_summary: string | null;
+  selected_options: unknown;
+  inventory_item_id: string;
+  account_id: string;
+  price_amount: string;
+  price_currency_code: string | null;
+  visible_quantity: number;
+}>;
+
 export type CheckoutUcpHandlers = Readonly<{
   restHandlers: Readonly<Record<string, UcpHandler>>;
   mcpToolHandlers: Readonly<Record<string, UcpHandler>>;
 }>;
 
 type CheckoutIntentBody = Readonly<{
+  checkout?: unknown;
   source?: unknown;
   type?: unknown;
   intent?: unknown;
@@ -89,6 +116,9 @@ export function createCheckoutUcpHandlers(
     checkoutClosed?: boolean;
     paymentHandoff?: UcpPaymentHandlerHandoff;
     agentGrantSpendPolicy?: AgentGrantSpendPolicy;
+    getPublicListingById?: (listingId: string) => Promise<CheckoutUcpListing | null>;
+    getOrderFacts?: (orderIds: readonly string[], accountId: string) => Promise<readonly CheckoutUcpOrderFact[]>;
+    now?: () => Date;
   }> = {},
 ): CheckoutUcpHandlers {
   // Headless completion over the stored-payment-method off-session rail. Creates orders once,
@@ -339,33 +369,28 @@ export function createCheckoutUcpHandlers(
       }
       if (options.checkoutClosed) return checkoutClosedResponse();
 
-      const body = await readInputObject<CheckoutIntentBody>(input);
-      const source = readObject(body.source) ?? readObject(body.intent) ?? body;
-      const sourceType = readString(source.type) ?? readString(body.type);
-
       try {
-        const result =
-          sourceType === "cart"
-            ? await checkout.sessions.createFromCart(
-                {
-                  accountId: access.actor.accountId as AccountId,
-                  shippingOption: readShippingOption(body),
-                  optimizationGoal: readOptimizationGoal(body),
-                  readinessSnapshotId: readCartReadinessSnapshotId(source, body),
-                  readinessSourceRevision: readCartReadinessSourceRevision(source, body),
-                  readinessDecisions: readCartReadinessDecisions(source, body),
-                },
-                access.context,
-              )
-            : sourceType === "offer-intent"
-              ? await createOfferIntent(checkout, source, body, access)
-              : await createBuyNow(checkout, source, body, access);
+        const body = await readInputObject<CheckoutIntentBody>(input);
+        if (Object.hasOwn(body, "source") || Object.hasOwn(body, "intent") || Object.hasOwn(body, "items"))
+          throw new CheckoutDomainError("Only the checkout resource is accepted.", "invalid_request");
+        const checkoutBody = readObject(body.checkout);
+        if (checkoutBody && Object.hasOwn(checkoutBody, "id"))
+          throw new CheckoutDomainError(
+            "Checkout resource ids must be supplied as the top-level id.",
+            "invalid_request",
+          );
+        const lineItems = readLineItems(body);
+        if (lineItems.length !== 1)
+          throw new CheckoutDomainError("Only one checkout line item is supported.", "multiple_line_items_unsupported");
+        const item = readObject(lineItems[0]);
+        if (!item) throw new CheckoutDomainError("Checkout line item is required.", "invalid_request");
+        const result = await createUcpBuyNow(checkout, options, input, access, item);
 
         const session = await checkout.sessions.getSession(result.sessionId, access.actor.accountId);
 
         return createUcpEnvelope("ok", {
           checkout: session
-            ? sessionToUcpCheckout(session, options)
+            ? await ucpCheckoutPayload(checkout, options, input, session)
             : {
                 id: result.sessionId,
                 status: "started",
@@ -382,10 +407,12 @@ export function createCheckoutUcpHandlers(
       }
 
       const sessionId = readCheckoutSessionId(input);
+      if (!isCheckoutSessionId(sessionId, !options.getPublicListingById))
+        return validationError(new CheckoutDomainError("Checkout id is invalid.", "invalid_request"));
       const session = sessionId ? await checkout.sessions.getSession(sessionId, access.actor.accountId) : null;
 
       return session
-        ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) })
+        ? createUcpEnvelope("ok", { checkout: await ucpCheckoutPayload(checkout, options, input, session) })
         : checkoutNotFound();
     },
     update_checkout: async (input: UcpOperationHandlerInput) => {
@@ -400,48 +427,35 @@ export function createCheckoutUcpHandlers(
         return validationError("Checkout session id is required.");
       }
 
-      const body = await readInputObject<CheckoutIntentBody>(input);
-
       try {
-        const shippingOption = readShippingOption(body);
-        if (shippingOption) {
-          await checkout.sessions.selectShippingOption(
-            {
-              sessionId,
-              accountId: access.actor.accountId as AccountId,
-              shippingOption,
-            },
-            access.context,
+        if (!isCheckoutSessionId(sessionId, !options.getPublicListingById))
+          throw new CheckoutDomainError("Checkout id is invalid.", "invalid_request");
+        const body = await readInputObject<CheckoutIntentBody>(input);
+        const checkoutBody = readObject(body.checkout);
+        if (checkoutBody && Object.hasOwn(checkoutBody, "id"))
+          throw new CheckoutDomainError(
+            "Checkout resource ids must be supplied as the top-level id.",
+            "invalid_request",
           );
-        }
-
-        const optimizationGoal = readOptimizationGoal(body);
-        if (optimizationGoal) {
-          await checkout.sessions.selectOptimizationGoal(
-            {
-              sessionId,
-              accountId: access.actor.accountId as AccountId,
-              optimizationGoal,
-            },
-            access.context,
-          );
-        }
-
-        const shippingAddress = readShippingAddress(body.shippingAddress ?? body.shipping_address);
-        if (shippingAddress) {
-          await checkout.sessions.setShippingAddress(
-            {
-              sessionId,
-              accountId: access.actor.accountId as AccountId,
-              shippingAddress,
-            },
-            access.context,
-          );
-        }
-
+        const lineItems = readLineItems(body);
         const session = await checkout.sessions.getSession(sessionId, access.actor.accountId);
+        if (!session) return checkoutNotFound();
+        if (
+          lineItems.length > 0 &&
+          JSON.stringify(lineItems) !==
+            JSON.stringify(session.lines.map((line) => ({ id: line.listingId, quantity: line.quantity })))
+        ) {
+          throw new CheckoutDomainError("Checkout line updates are not supported.", "line_items_update_unsupported");
+        }
+        if (
+          session.handoff_expires_at &&
+          !hasOrders(session) &&
+          Date.parse(session.handoff_expires_at) <= (options.now?.() ?? new Date()).getTime()
+        ) {
+          throw new CheckoutDomainError("This checkout handoff has expired. Start a new checkout.", "checkout_expired");
+        }
         return session
-          ? createUcpEnvelope("ok", { checkout: sessionToUcpCheckout(session, options) })
+          ? createUcpEnvelope("ok", { checkout: await ucpCheckoutPayload(checkout, options, input, session) })
           : checkoutNotFound();
       } catch (error) {
         return validationError(error);
@@ -461,19 +475,13 @@ export function createCheckoutUcpHandlers(
           return checkoutNotFound();
         }
 
-        const body = await readInputObject<Readonly<Record<string, unknown>>>(input);
-        let cleanupResult: CheckoutSessionMutationResult | undefined;
-        if (session.order_ids.length > 0) {
-          cleanupResult = await checkout.sessions.resumeOrderCartCleanup(
-            { sessionId, accountId: access.actor.accountId as AccountId },
-            access.context,
-          );
-          session = cleanupResult.session;
-        }
-        const checkoutPayload = sessionToUcpCheckout(session, options);
-        const paymentDecision = options.paymentHandoff?.evaluateCompleteRequest(body);
-        if (paymentDecision?.kind === "headless-stored-payment-method") {
-          try {
+        if (!isCheckoutSessionId(sessionId, !options.getPublicListingById))
+          throw new CheckoutDomainError("Checkout id is invalid.", "invalid_request");
+        if (!options.getPublicListingById && !isCheckoutSessionId(sessionId)) {
+          const body = await readInputObject<Readonly<Record<string, unknown>>>(input);
+          const checkoutPayload = sessionToUcpCheckout(session, options);
+          const paymentDecision = options.paymentHandoff?.evaluateCompleteRequest(body);
+          if (paymentDecision?.kind === "headless-stored-payment-method") {
             return await completeHeadlessCheckout(
               input,
               access,
@@ -482,44 +490,34 @@ export function createCheckoutUcpHandlers(
               checkoutPayload,
               paymentDecision.savedCheckoutInstrumentId,
             );
-          } catch (error) {
-            return validationError(error);
           }
-        }
-
-        if (session.payment_id || session.submitted_offer_id) {
-          return createUcpEnvelope("ok", {
-            ...cleanupWriteMetadata(cleanupResult),
-            checkout: sessionToUcpCheckout(session, options),
-          });
-        }
-        if (session.cancelled_at) {
-          return createUcpEnvelope("ok", {
-            ...cleanupWriteMetadata(cleanupResult),
-            checkout: sessionToUcpCheckout(session, options),
-          });
-        }
-
-        return createUcpEnvelope(
-          "requires_action",
-          {
-            ...cleanupWriteMetadata(cleanupResult),
-            checkout: sessionToUcpCheckout(session, options),
-            action: {
-              type: "trusted_checkout_handoff",
-              url: `/checkout/buy/session/${session.session_id}`,
-              reason:
-                "Checkout completion requires buyer review in trusted UI unless the agent completes with a saved payment method.",
-            },
-          },
-          [
+          if (session.payment_id || session.submitted_offer_id || session.cancelled_at) {
+            return createUcpEnvelope("ok", { checkout: checkoutPayload });
+          }
+          return createUcpEnvelope(
+            "requires_action",
             {
-              severity: "warning",
-              code: "trusted_ui_required",
-              message: "Use trusted checkout handoff before creating orders or payment through an AI agent.",
+              checkout: checkoutPayload,
+              action: { type: "trusted_checkout_handoff", url: checkoutContinueUrl(input.request, session.session_id) },
             },
-          ],
-        );
+            [
+              {
+                severity: "warning",
+                code: "trusted_ui_required",
+                message: "Use trusted checkout handoff before creating orders or payment through an AI agent.",
+              },
+            ],
+          );
+        }
+        const payload = await ucpCheckoutPayload(checkout, options, input, session);
+        return createUcpEnvelope("requires_action", { checkout: payload }, [
+          {
+            severity: "warning",
+            code: "payment_required",
+            message: "Continue in trusted checkout to confirm payment.",
+            target: "$.checkout",
+          },
+        ]);
       } catch (error) {
         return validationError(error);
       }
@@ -531,22 +529,24 @@ export function createCheckoutUcpHandlers(
       }
 
       const sessionId = readCheckoutSessionId(input);
+      if (!isCheckoutSessionId(sessionId, !options.getPublicListingById))
+        return validationError(new CheckoutDomainError("Checkout id is invalid.", "invalid_request"));
       const session = sessionId ? await checkout.sessions.getSession(sessionId, access.actor.accountId) : null;
       if (!session) {
         return checkoutNotFound();
       }
 
       try {
+        if (!isSignedAttempt(input.request) && (options.getPublicListingById || isCheckoutSessionId(sessionId))) {
+          return createUcpEnvelope("ok", { checkout: await ucpCheckoutPayload(checkout, options, input, session) });
+        }
         const releasedReservations = await releaseCheckoutInventoryReservations(input.request, session);
         const result = await checkout.sessions.cancelSession(
-          {
-            sessionId,
-            accountId: access.actor.accountId as AccountId,
-          },
+          { sessionId, accountId: access.actor.accountId as AccountId },
           access.context,
         );
         return createUcpEnvelope("ok", {
-          checkout: sessionToUcpCheckout(result.session, options),
+          checkout: await ucpCheckoutPayload(checkout, options, input, result.session),
           released_reservation_ids: releasedReservations.map((reservation) => reservation.holdId),
           ...(result.commitPosition ? { commit_position: result.commitPosition } : {}),
           ...(result.commitEventIds ? { commit_event_ids: result.commitEventIds } : {}),
@@ -562,6 +562,185 @@ export function createCheckoutUcpHandlers(
     restHandlers: handlers,
     mcpToolHandlers: handlers,
   };
+}
+
+function readLineItems(body: Readonly<Record<string, unknown>>) {
+  const checkout = readObject(body.checkout);
+  const value = checkout?.line_items ?? body.line_items;
+  return Array.isArray(value) ? value : [];
+}
+
+function isCheckoutSessionId(value: string, legacy = false) {
+  return (legacy ? /^chk_[0-9A-Za-z]{1,32}$/ : /^chk_[0-9A-Za-z]{26,32}$/).test(value);
+}
+
+function hasOrders(session: CheckoutSessionRow) {
+  return session.order_ids.length > 0;
+}
+
+function isSignedAttempt(request: Request) {
+  return ["Signature-Input", "Signature", "Content-Digest"].some((name) => request.headers.has(name));
+}
+
+function checkoutContinueUrl(request: Request, sessionId: string) {
+  return `${resolvePublicRequestOrigin(request)}/checkout/buy/session/${encodeURIComponent(sessionId)}`;
+}
+
+export function checkoutUcpState(
+  session: CheckoutSessionRow,
+  orderFacts: readonly CheckoutUcpOrderFact[] = [],
+  paymentSummary: Readonly<{ status?: string | null }> | null = null,
+  currentPreview: Readonly<{
+    readyLineKeys?: readonly string[];
+    unavailableLines?: readonly unknown[];
+    unavailableLineKeys?: readonly string[];
+  }> | null = null,
+  now = new Date(),
+) {
+  const continueUrl = `/checkout/buy/session/${encodeURIComponent(session.session_id)}`;
+  const message = (code: string, target?: string, recoverability: "recoverable" | "unrecoverable" = "recoverable") => ({
+    severity: "warning" as const,
+    code,
+    message:
+      code === "checkout_expired"
+        ? "This checkout has expired. Start a new checkout."
+        : code === "payment_confirmation_required"
+          ? "Buyer confirmation is required to continue payment."
+          : code === "item_unavailable"
+            ? "This item is no longer available."
+            : "Payment is required to continue checkout.",
+    ...(target ? { target } : {}),
+    recoverability,
+  });
+  if (
+    session.cancelled_at ||
+    (session.order_ids.length > 0 && orderFacts.length > 0 && orderFacts.every((fact) => fact.status === "cancelled"))
+  ) {
+    return { status: "canceled" as const, messages: [] as const };
+  }
+  if (session.order_ids.length > 0) {
+    if (orderFacts.length > 0 && orderFacts.every((fact) => Boolean(fact.readyForFulfillmentAt))) {
+      return {
+        status: "completed" as const,
+        order: orderFacts.map((fact) => ({
+          id: fact.id,
+          label: fact.label ?? fact.id,
+          permalink_url: fact.permalinkUrl ?? `/account/purchases/${fact.id}`,
+        })),
+        messages: [] as const,
+      };
+    }
+    if (paymentSummary?.status === "captured")
+      return { status: "complete_in_progress" as const, messages: [] as const };
+    if (paymentSummary?.status === "pending-confirmation")
+      return {
+        status: "requires_escalation" as const,
+        continue_url: continueUrl,
+        messages: [message("payment_confirmation_required")],
+      };
+    return {
+      status: "requires_escalation" as const,
+      continue_url: continueUrl,
+      messages: [message("payment_required")],
+    };
+  }
+  if (session.handoff_expires_at && now.getTime() >= Date.parse(session.handoff_expires_at)) {
+    return {
+      status: "canceled" as const,
+      expires_at: session.handoff_expires_at,
+      messages: [message("checkout_expired", undefined, "unrecoverable")],
+    };
+  }
+  if ((currentPreview?.unavailableLines?.length ?? 0) > 0 || (currentPreview?.unavailableLineKeys?.length ?? 0) > 0) {
+    return {
+      status: "incomplete" as const,
+      messages: [message("item_unavailable", "$.line_items[0]", "unrecoverable")],
+    };
+  }
+  return { status: "requires_escalation" as const, continue_url: continueUrl, messages: [message("payment_required")] };
+}
+
+async function ucpCheckoutPayload(
+  checkout: Pick<CheckoutServices, "sessions">,
+  options: Readonly<{
+    getOrderFacts?: (orderIds: readonly string[], accountId: string) => Promise<readonly CheckoutUcpOrderFact[]>;
+    now?: () => Date;
+    paymentHandoff?: UcpPaymentHandlerHandoff;
+  }>,
+  input: UcpOperationHandlerInput,
+  session: CheckoutSessionRow,
+) {
+  const facts = options.getOrderFacts ? await options.getOrderFacts(session.order_ids, session.buyer_account_id) : [];
+  const payment = session.payment_id ? await checkout.sessions.getPaymentSummary(session.payment_id) : null;
+  const state = checkoutUcpState(
+    session,
+    facts,
+    payment,
+    session.fulfillment_preview_snapshot,
+    options.now?.() ?? new Date(),
+  );
+  return {
+    ...sessionToUcpCheckout(session, options),
+    status: state.status,
+    ...(state.continue_url ? { continue_url: checkoutContinueUrl(input.request, session.session_id) } : {}),
+    ...(session.handoff_expires_at ? { expires_at: session.handoff_expires_at } : {}),
+    ...(state.order ? { order: state.order } : {}),
+    ...(state.messages.length > 0 ? { messages: state.messages } : {}),
+  };
+}
+
+async function createUcpBuyNow(
+  checkout: Pick<CheckoutServices, "sessions">,
+  options: Readonly<{
+    getPublicListingById?: (listingId: string) => Promise<CheckoutUcpListing | null>;
+    now?: () => Date;
+  }>,
+  input: UcpOperationHandlerInput,
+  access: CheckoutAccess,
+  item: Readonly<Record<string, unknown>>,
+) {
+  if (!options.getPublicListingById) {
+    return createBuyNow(checkout, item, item as CheckoutIntentBody, access);
+  }
+  const listingId = readString(item.id);
+  if (!listingId) throw new CheckoutDomainError("Checkout line item id is required.", "invalid_request");
+  const quantity = item.quantity;
+  if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1)
+    throw new CheckoutDomainError("Quantity must be a positive integer.", "invalid_quantity");
+  const unit = readObject(item.quantity_unit ?? item.quantityUnit);
+  if (unit && (unit.unit !== "C62" || unit.scale !== 0))
+    throw new CheckoutDomainError("Only C62 quantity units are supported.", "quantity_unit_mismatch");
+  const listing = await options.getPublicListingById(listingId);
+  if (!listing || listing.visible_quantity < quantity)
+    throw new CheckoutDomainError("This item is no longer available.", "item_unavailable");
+  const meta =
+    input.requestMeta ??
+    readUcpRequestMeta(input.request, {
+      ...input.arguments,
+      ...(await readJsonObject(input.request)),
+    });
+  const sessionId = meta.retryKey
+    ? (`chk_${createHash("sha256").update(`${access.actor.accountId}:${meta.retryKey}:${listingId}`).digest("hex").slice(0, 28)}` as never)
+    : undefined;
+  const prepared = await prepareBuyNowCheckout({
+    request: input.request,
+    services: checkout.sessions,
+    accountId: access.actor.accountId as AccountId,
+    listing: {
+      listingId: listing.listing_id,
+      catalogItemId: listing.catalog_catalog_item_id,
+      productId: listing.product_id,
+      itemTitle: listing.item_title ?? listing.product_summary ?? listing.listing_id,
+      itemSubtitle: listing.item_subtitle,
+      productSummary: listing.product_summary,
+      selectedOptions: readSelectedOptions(listing.selected_options),
+    },
+    quantity,
+    context: access.context,
+    sessionIdOverride: sessionId,
+    handoffExpiresAt: new Date((options.now?.() ?? new Date()).getTime() + 6 * 60 * 60 * 1000).toISOString(),
+  });
+  return prepared;
 }
 
 async function createBuyNow(
