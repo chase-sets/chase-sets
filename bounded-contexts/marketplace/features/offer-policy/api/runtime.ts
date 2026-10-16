@@ -236,7 +236,10 @@ export function createBuyerOfferPolicyRuntime(
         buyerOfferPolicyOutcomeSchema.parse({
           offerId: terms.offers[index]!.offerId,
           currentUnitItemAmount: loadedOffers[index]!.state.priceAmount,
-          result,
+          result:
+            result.status === "target"
+              ? { status: result.status, unitItemAmount: result.unitItemAmount, evidence: result.evidence }
+              : { status: result.status, reason: result.reason, evidence: result.evidence },
         }),
       );
       // Re-evaluate at the current instant, but bind stable evidence and outcomes,

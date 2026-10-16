@@ -13,6 +13,32 @@ import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/
 import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
+  it("projects held Pricing results onto the Marketplace port before retaining the first preview", async () => {
+    const { store, db } = await fixture();
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db,
+      managedOfferPricing: {
+        evaluateTargets: async (requests) =>
+          requests.map(() => ({
+            status: "held" as const,
+            reason: "market-price-unavailable",
+            buyerCopy: "Pricing-owned display copy outside the Marketplace port.",
+            evidence: { marketPrice: null },
+          })),
+      },
+    });
+    const first = await preview(runtime);
+    expect(first.preview!.outcomes![0]!.result).toEqual({
+      status: "held",
+      reason: "market-price-unavailable",
+      evidence: { marketPrice: null },
+    });
+    const append = vi.spyOn(store, "appendToStreams");
+    expect(await preview(runtime)).toEqual(first);
+    expect(append).not.toHaveBeenCalled();
+  });
+
   it("records exactly the returned policy and every Authorize binding event, but not replay or empty decisions", async () => {
     const { runtime, store } = await fixture();
     await seedOffer(store, "off_two");
