@@ -43,3 +43,11 @@ export interface OfferMatchListItem extends MarketplaceOffer {
 }
 
 export interface OfferMatchDetail extends OfferMatchListItem {}
+
+export type SubmittedOfferStatus = "submitted" | "paused" | "withdrawn" | "accepted";
+export type SubmittedOfferStatusFilter = "all" | SubmittedOfferStatus;
+export type SubmittedOfferStatusCounts = Readonly<Record<SubmittedOfferStatus, number>>;
+export type SubmittedOfferLifecycleAction = "pause" | "resume" | "withdraw";
+export type SubmittedOfferLifecycleOutcome =
+  | Readonly<{ offerId: string; outcome: "changed" | "unchanged"; status: string; version: number }>
+  | Readonly<{ offerId: string; outcome: "rejected"; code: string }>;

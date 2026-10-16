@@ -91,7 +91,7 @@ import {
   recordUcpSignedWriteRejected,
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "@chase-sets/auth/server";
-import { buildPlatformApiApp, createPlatformApiHost } from "./app";
+import { buildPlatformApiApp, createOfferLifecycleAdmission, createPlatformApiHost } from "./app";
 import {
   DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
   type IdentityHostPorts,
@@ -332,6 +332,7 @@ const runtime = createPlatformApiHost({
     deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
     ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
+    offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, db: pools.control }),
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,

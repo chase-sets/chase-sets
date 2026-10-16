@@ -331,3 +331,52 @@ describe("pricing marketplace source projection", () => {
     ]);
   });
 });
+
+describe("pricing open-Offer inputs across the buyer Offer lifecycle", () => {
+  it("drops paused and withdrawn Offers from submitted inputs, restores Resume, and ignores stale redelivery", async () => {
+    const offers = new Map<string, { status: string; version: number }>();
+    const handlers = buildPricingMarketplaceInputProjectionHandlers({
+      query: async (sql: string, params: readonly unknown[] = []) => {
+        if (sql.includes("INSERT INTO pricing_buyer_offer_inputs"))
+          offers.set(String(params[0]), { status: "submitted", version: Number(params[8]) });
+        else if (sql.includes("UPDATE pricing_buyer_offer_inputs") && sql.includes("SET status = $2")) {
+          const current = offers.get(String(params[0]));
+          if (current && current.version < Number(params[2]))
+            offers.set(String(params[0]), { status: String(params[1]), version: Number(params[2]) });
+        }
+        return { rows: [] };
+      },
+    });
+    const lifecycle = (type: string, streamVersion: number) =>
+      handlers[type]!({
+        type,
+        streamId: "marketplace.offer-off_1",
+        streamVersion,
+        data: { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-14T00:00:00.000Z" },
+        timing: { recordedAt: "2026-10-14T00:00:00.000Z" },
+      } as never);
+    await handlers["marketplace.offer.submitted"]!({
+      type: "marketplace.offer.submitted",
+      streamId: "marketplace.offer-off_1",
+      streamVersion: 1,
+      data: {
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityRequested: 1,
+      },
+      timing: { recordedAt: "2026-10-14T00:00:00.000Z" },
+    } as never);
+
+    await lifecycle("marketplace.offer.paused", 2);
+    expect(offers.get("off_1")).toEqual({ status: "paused", version: 2 });
+    await lifecycle("marketplace.offer.resumed", 3);
+    await lifecycle("marketplace.offer.paused", 2);
+    expect(offers.get("off_1")).toEqual({ status: "submitted", version: 3 });
+    await lifecycle("marketplace.offer.withdrawn", 4);
+    expect(offers.get("off_1")).toEqual({ status: "withdrawn", version: 4 });
+  });
+});

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { flattenMcpTools } from "@chase-sets/platform-runtime/mcp-contracts";
 import { compileDeveloperArticleCorpus, compileMcpToolCatalog } from "./compile-developer-articles.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -64,6 +65,20 @@ describe("developer article compiler", () => {
         }),
       ]),
     );
+  });
+
+  it("publishes no operator capability or operator scope", () => {
+    const operatorToolNames = flattenMcpTools()
+      .filter((tool) => tool.permissionBoundary.scope === "operator")
+      .map((tool) => tool.name);
+    const catalog = compileMcpToolCatalog();
+
+    expect(operatorToolNames).toContain("platform-operations.get-offer-economics-summary");
+    for (const name of operatorToolNames) expect(catalog.map((tool) => tool.name)).not.toContain(name);
+    expect(
+      catalog.filter((tool) => (tool.permissionBoundary as { scope?: unknown } | undefined)?.scope === "operator"),
+    ).toEqual([]);
+    expect(JSON.stringify(catalog)).not.toContain("operations:");
   });
 
   it("publishes inventory adjustment reasonCode and note as optional catalog fields", () => {

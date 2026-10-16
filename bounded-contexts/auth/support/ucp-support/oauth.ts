@@ -9,8 +9,9 @@ import type {
 import { resumeAgentGrantRevocation } from "../../features/agent-grants/api/revocation";
 import { Hono, type Context } from "hono";
 import {
-  AGENT_OAUTH_SCOPE_FAMILIES,
-  AGENT_OAUTH_SUPPORTED_SCOPES,
+  AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES,
+  AGENT_OAUTH_COMMERCE_SCOPES,
+  isAgentOAuthOperatorScope,
   isAgentOAuthScope,
   normalizeAgentOAuthScopes,
   resolveAgentOAuthScopedPermissions,
@@ -142,8 +143,9 @@ const UCP_OAUTH_DEFAULT_SCOPES = [
   "dev.ucp.shopping.order:read",
 ] as const satisfies readonly AgentOAuthScope[];
 
-export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_SUPPORTED_SCOPES;
-export const UCP_OAUTH_SCOPE_FAMILIES = AGENT_OAUTH_SCOPE_FAMILIES;
+// Advertised lists only: registration and authorize also recognize the unadvertised operator scopes.
+export const UCP_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_COMMERCE_SCOPES;
+export const UCP_OAUTH_SCOPE_FAMILIES = AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES;
 
 type AuthorizationCodeRow = Readonly<{
   code_id: string;
@@ -216,7 +218,8 @@ async function resolveConsentClient(options: UcpOAuthRoutesOptions, consent: Con
   return client?.responseTypes.includes("code") &&
     client.grantTypes.includes("authorization_code") &&
     client.redirectUris.includes(consent.redirect_uri) &&
-    isScopeSubset(consent.scopes, client.scopes)
+    isScopeSubset(consent.scopes, client.scopes) &&
+    !consent.scopes.some(isAgentOAuthOperatorScope)
     ? client
     : null;
 }
@@ -371,6 +374,11 @@ export function createUcpOAuthRoutes(options: UcpOAuthRoutesOptions) {
 
     if (!scopes) {
       return c.json({ error: "invalid_scope", error_description: "Requested scopes are not supported." }, 400);
+    }
+    // No operator grant may exist until operator sign-in adds its own consent gate and capped lifetime, so the
+    // whole request is refused for every role before any client lookup, sign-in or consent page.
+    if (scopes.some(isAgentOAuthOperatorScope)) {
+      return c.json({ error: "invalid_scope", error_description: "Requested scopes cannot be authorized." }, 400);
     }
 
     if (

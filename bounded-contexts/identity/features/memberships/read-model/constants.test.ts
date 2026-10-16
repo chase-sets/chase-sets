@@ -49,6 +49,16 @@ describe("identity role permissions", () => {
       expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
     );
   });
+  it("grants projection operations to platform-admin, as Auth's role table does", () => {
+    expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
+      expect.arrayContaining([
+        "projection-operations.operate",
+        "projection-operations.rebuild",
+        "projection-operations.view",
+      ]),
+    );
+  });
+
   it("has permissions for every runtime role key", () => {
     expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual([...ROLE_KEYS].sort());
   });
@@ -237,9 +247,9 @@ describe("pricing preset contract", () => {
     viewer: ["pricing.view"],
     "platform-admin": [],
   };
-  // Sorted non-pricing sets, including the platform-admin-only reported-content grant.
+  // Sorted non-pricing sets, including the platform-admin-only reported-content and projection-operations grants.
   const predecessor = {
-    "platform-admin": "d8bcca0026238878d66a57e9314e02f436acd9d0d6c4420c0eabf38e7050d265",
+    "platform-admin": "209c0bd015d367f005d7ea75f15101c0273c9bf0266e7b42005d8326aad3310c",
     owner: "8dbce908e11a530780c622e5d633794d41c23357d51ed3054c586c505f2fdd55",
     manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
     fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",

@@ -12,6 +12,179 @@ describe("Discovery search runtime telemetry", () => {
   });
 
   it.each([
+    { count: 0, hybrid: false },
+    { count: 1, hybrid: false },
+    { count: 2, hybrid: false },
+    { count: 0, hybrid: true },
+    { count: 1, hybrid: true },
+  ])("lexical and final zero states: initial count $count, hybrid=$hybrid", async ({ count, hybrid }) => {
+    const recordSearchQuery = vi.fn();
+    let lexicalReads = 0;
+    const db = interpretationDb((sql) => {
+      if (sql.startsWith("SELECT * FROM (")) {
+        lexicalReads++;
+        return Array.from({ length: count }, (_, i) => ({
+          catalog_item_id: `synthetic-lexical-${i}`,
+          title: "Lexical",
+        }));
+      }
+      if (sql.includes("AS semantic_similarity"))
+        return [{ catalog_item_id: "synthetic-semantic", title: "Semantic", semantic_similarity: 0.99 }];
+      if (sql.startsWith("SELECT COUNT(*) AS count")) return [{ count: String(count) }];
+      return [];
+    });
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db },
+      {
+        provider: {
+          model: "synthetic-zero-matrix",
+          dimensions: 1_024,
+          embed: async () => ({
+            vectors: [Array.from({ length: 1_024 }, (_, i) => (i === 0 ? 1 : 0))],
+            totalTokens: 1,
+          }),
+        },
+        cache: createQueryEmbeddingCache(),
+        rescueEnabled: true,
+        hybridEnabled: hybrid,
+        recordSearchQuery,
+      },
+    );
+    const result = await runtime.searchItems({ search: "chraizard", includeTotal: false });
+    expect(result).toMatchObject({
+      retrievalMode: hybrid ? "hybrid" : "rescue",
+      lexicalCount: hybrid ? count : null,
+      total: hybrid ? count : null,
+    });
+    expect(result.items).toHaveLength(count + 1);
+    expect(lexicalReads).toBe(1);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ lexicalZero: count === 0, zeroResults: false, interpretation: "not-applied" }),
+    );
+  });
+
+  it.each([false, true])("bounded recovery outcomes: corrected, interpreted=%s", async (interpreted) => {
+    const recordSearchQuery = vi.fn();
+    const db = interpretationDb((sql, values) => {
+      if (sql.startsWith("SELECT * FROM") && values.some((value) => String(value).includes("| charizard")))
+        return [{ catalog_item_id: "synthetic-corrected" }];
+      return [];
+    });
+    const query = db.query;
+    db.query = async (sql, values = []) =>
+      sql.startsWith("SELECT EXISTS")
+        ? { rows: [{ literal: false, prefix: false, candidates: ["charizard"] }] as never[], rowCount: 1 }
+        : query(sql, values);
+    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+    const result = await runtime.searchItems({ search: interpreted ? "chraizard psa 10" : "chraizard" });
+    expect(result).toMatchObject({ retrievalMode: "corrected", lexicalCount: 0, total: 1 });
+    expect(Boolean(result.interpretation)).toBe(interpreted);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        retrievalMode: "corrected",
+        lexicalZero: true,
+        zeroResults: false,
+        interpretation: interpreted ? "applied" : "not-applied",
+      }),
+    );
+  });
+
+  it("lexical and final zero states: structured bypass is unknown, not false", async () => {
+    const recordSearchQuery = vi.fn();
+    const db = interpretationDb((sql) =>
+      sql.startsWith("SELECT catalog_item_id,") && sql.includes("card_number =")
+        ? [{ catalog_item_id: "synthetic-structured" }]
+        : [],
+    );
+    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+    const result = await runtime.searchItems({ search: "TSP 136" });
+    expect(result.retrievalMode).toBe("structured");
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ lexicalZero: null, zeroResults: false, interpretation: "not-applied" }),
+    );
+  });
+
+  it("effective cursor restart signal uses fresh rows, not rejected-page emptiness", async () => {
+    const recordSearchQuery = vi.fn();
+    const listReads: string[] = [];
+    const db = interpretationDb((sql) => {
+      if (sql.startsWith("SELECT * FROM (")) {
+        listReads.push(sql);
+        return sql.includes("OFFSET $") ? [] : [{ catalog_item_id: "synthetic-fresh" }];
+      }
+      if (sql.startsWith("SELECT COUNT(*)")) return [{ count: "1" }];
+      return [];
+    });
+    const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+    await runtime.searchItems({ search: "pikachu", cursor: "rejected", offset: 100, includeTotal: false });
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ cursorState: "restarted", lexicalZero: false, zeroResults: false, total: 1 }),
+    );
+    expect(listReads).toHaveLength(1);
+    expect(listReads[0]).not.toContain("OFFSET $");
+  });
+
+  it("lexical and final zero states: nonempty hybrid candidates survive later retrieval failure", async () => {
+    const recordSearchQuery = vi.fn();
+    const failure = new Error("synthetic hydration failure");
+    const db = interpretationDb((sql, values) => {
+      if (sql.startsWith("SELECT * FROM (")) return [{ catalog_item_id: "synthetic-candidate", title: "Candidate" }];
+      if (Array.isArray(values[0]) && values[0].includes("synthetic-candidate")) throw failure;
+      return [];
+    });
+    const runtime = createDiscoveryItemSearchRuntime(
+      { ...deps(), db },
+      {
+        provider: {
+          model: "synthetic-hydration-fault",
+          dimensions: 1_024,
+          embed: async () => ({
+            vectors: [Array.from({ length: 1_024 }, (_, i) => (i === 0 ? 1 : 0))],
+            totalTokens: 1,
+          }),
+        },
+        cache: createQueryEmbeddingCache(),
+        hybridEnabled: true,
+        recordSearchQuery,
+      },
+    );
+    await expect(runtime.searchItems({ search: "dragon" })).rejects.toBe(failure);
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ lexicalZero: false, zeroResults: null, interpretation: "unknown", outcome: "failure" }),
+    );
+  });
+
+  it("privacy sentinels never enter query signals or logs", async () => {
+    const recordSearchQuery = vi.fn();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const db = interpretationDb((sql) =>
+        sql.startsWith("SELECT * FROM (")
+          ? [{ catalog_item_id: "PRIVATE_ITEM_SENTINEL", title: "PRIVATE_TITLE_SENTINEL" }]
+          : [],
+      );
+      const runtime = createDiscoveryItemSearchRuntime({ ...deps(), db }, { recordSearchQuery });
+      await runtime.searchItems({
+        search: "privatequerysentinel",
+        language: "PRIVATE_LANGUAGE_SENTINEL",
+        category: "PRIVATE_CATEGORY_SENTINEL",
+        dimensionFilters: [{ dimensionId: "PRIVATE_DIMENSION_SENTINEL", optionId: "PRIVATE_OPTION_SENTINEL" }],
+      });
+      expect(recordSearchQuery).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toMatch(/privatequerysentinel|PRIVATE_/);
+      expect(log).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it.each([
     [false, "candidate-lookup"],
     [true, "candidate-lookup"],
     [false, "corrected-row-query"],
@@ -70,6 +243,8 @@ describe("Discovery search runtime telemetry", () => {
         resultCount: null,
         total: null,
         zeroResults: null,
+        lexicalZero: true,
+        interpretation: "unknown",
         queryEmbeddingOutcome: "not-attempted",
         queryEmbeddingWaiterDurationMs: 0,
       }),
@@ -96,12 +271,18 @@ describe("Discovery search runtime telemetry", () => {
     });
     expect(embed).toHaveBeenCalledTimes(1);
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ outcome: "success", retrievalMode: "lexical", queryEmbeddingOutcome: "error" }),
+      expect.objectContaining({
+        outcome: "success",
+        retrievalMode: "lexical",
+        queryEmbeddingOutcome: "error",
+        lexicalZero: true,
+        zeroResults: true,
+      }),
     );
     expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("chraizard");
   });
 
-  it("an interpreted hit records one final signal without text, labels, or an embedding", async () => {
+  it("bounded recovery outcomes: an interpreted hit records one final signal without text, labels, or an embedding", async () => {
     const recordSearchQuery = vi.fn();
     const embed = vi.fn(async () => ({ vectors: [[1]], totalTokens: 1 }));
     const db = interpretationDb((sql, values) =>
@@ -132,6 +313,9 @@ describe("Discovery search runtime telemetry", () => {
       expect.objectContaining({
         outcome: "success",
         retrievalMode: "lexical",
+        lexicalZero: true,
+        zeroResults: false,
+        interpretation: "applied",
         resultCount: 1,
         filterState: "none",
         queryEmbeddingOutcome: "not-attempted",
@@ -161,7 +345,13 @@ describe("Discovery search runtime telemetry", () => {
     expect(embed).toHaveBeenCalledExactlyOnceWith(["chraizard japanese"], "query", expect.anything());
     expect(db.correctionLookups).toBeLessThanOrEqual(3);
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ outcome: "success", retrievalMode: "lexical", queryEmbeddingOutcome: "loaded" }),
+      expect.objectContaining({
+        outcome: "success",
+        retrievalMode: "lexical",
+        queryEmbeddingOutcome: "loaded",
+        lexicalZero: true,
+        interpretation: "not-applied",
+      }),
     );
     expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toMatch(/chraizard|japanese|Japanese/);
   });
@@ -389,21 +579,31 @@ describe("Discovery search runtime telemetry", () => {
     const result = await runtime.searchItems({ search: "pikachu", cursor });
 
     expect(result.cursorState).toBe(expected);
-    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cursorState: expected }));
+    expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ cursorState: expected, lexicalZero: true, zeroResults: true }),
+    );
   });
 
-  it("reports the classified cursor state when retrieval fails", async () => {
-    const recordSearchQuery = vi.fn();
+  it("one signal and fail-open telemetry: reports unknown before a lexical observation", async () => {
+    const recordSearchQuery = vi.fn(() => {
+      throw new Error("synthetic exporter failure");
+    });
     const failingDeps = { ...deps(), db: { query: vi.fn().mockRejectedValue(new Error("SQL failed")) } };
     const runtime = createDiscoveryItemSearchRuntime(failingDeps, { recordSearchQuery });
 
     await expect(runtime.searchItems({ search: "pikachu", cursor: "not-a-cursor" })).rejects.toThrow("SQL failed");
     expect(recordSearchQuery).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ outcome: "failure", cursorState: "restarted" }),
+      expect.objectContaining({
+        outcome: "failure",
+        cursorState: "restarted",
+        lexicalZero: null,
+        zeroResults: null,
+        interpretation: "unknown",
+      }),
     );
   });
 
-  it("emits one privacy-safe signal for each search invocation without making telemetry a dependency", async () => {
+  it("one signal and fail-open telemetry: lexical and final zero states stay private", async () => {
     const recordSearchQuery = vi.fn();
     const runtime = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery });
     await expect(runtime.searchItems({ search: "pikachu", limit: 1 })).resolves.toMatchObject({
@@ -420,20 +620,22 @@ describe("Discovery search runtime telemetry", () => {
         resultCount: 0,
         total: null,
         zeroResults: true,
+        lexicalZero: true,
+        interpretation: "not-applied",
         retrievalMode: "lexical",
         outcome: "success",
       }),
     );
     expect(JSON.stringify(recordSearchQuery.mock.calls)).not.toContain("pikachu");
 
-    const telemetryFailure = createDiscoveryItemSearchRuntime(deps(), {
-      recordSearchQuery: () => {
-        throw new Error("exporter unavailable");
-      },
+    const throwingExporter = vi.fn(() => {
+      throw new Error("exporter unavailable");
     });
+    const telemetryFailure = createDiscoveryItemSearchRuntime(deps(), { recordSearchQuery: throwingExporter });
     await expect(telemetryFailure.searchItems({ search: "pikachu", limit: 1 })).resolves.toMatchObject({
       retrievalMode: "lexical",
     });
+    expect(throwingExporter).toHaveBeenCalledTimes(1);
   });
 });
 

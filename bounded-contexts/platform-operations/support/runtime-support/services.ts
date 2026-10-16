@@ -1,6 +1,7 @@
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
+  readGapSafeEventStoreHead,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -27,6 +28,7 @@ import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
 import { supportDeadlinePolicy } from "../../features/support-requests/domain/support-deadline-policy";
 import { platformRemedyPolicy } from "../../features/support-requests/domain/platform-remedy-policy";
 import { createSupportRequestRuntime } from "../../features/support-requests/api/runtime";
+import { createLegacyReferenceReconstruction } from "../../features/support-requests/api/legacy-reference-reconstruction";
 import type { SupportEvidenceAttachmentStorage } from "../../features/support-requests/api/attachments";
 import type { SupportEvidenceCanonicalizationQueue } from "../../features/support-requests/api/evidence-canonicalization";
 import type { SupportEvidenceCleanupCapability } from "../../features/support-requests/api/attachment-cleanup";
@@ -97,6 +99,7 @@ export type PlatformOperationsServices = Readonly<{
   reportedContent: ReturnType<typeof createReportedContentRuntime>;
   riskAlerts: ReturnType<typeof createRiskAlertRuntime>;
   supportRequests: ReturnType<typeof createSupportRequestRuntime>;
+  supportEvidenceLegacy: ReturnType<typeof createLegacyReferenceReconstruction>;
   /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (the rate-limit policy and the support-flow deadline policy). */
   policies: PolicyRuntime;
   /** The platform policy console's full registry: this context's own two policies plus any injected cross-context ones. */
@@ -213,6 +216,10 @@ export function createPlatformOperationsServices(
     reportedContent,
     riskAlerts,
     supportRequests,
+    supportEvidenceLegacy: createLegacyReferenceReconstruction({
+      eventStore,
+      readHorizon: () => readGapSafeEventStoreHead(pool),
+    }),
     policies,
     policyConsoleEntries,
     supportReferenceLookup,

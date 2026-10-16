@@ -410,6 +410,10 @@
           "value": "false"
         },
         {
+          "name": "CHASE_SETS_OFFER_LIFECYCLE_OPEN",
+          "value": "false"
+        },
+        {
           "name": "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS",
           "value": ""
         },

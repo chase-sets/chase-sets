@@ -6,6 +6,7 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogServices } from "../../../../support/authoring-support/services";
 import {
   CountCaptureStopped,
+  mapCountCaptureUnits,
   runCountCaptureRequest,
   runCountCaptureUsage,
   type CountCaptureBinding,
@@ -159,6 +160,22 @@ const hostileSends = [
 ] as const;
 
 describe("refuses unsafe sends", () => {
+  it("plans captured units serially without changing their order", async () => {
+    const f = fixture();
+    const order: string[] = [];
+    const values = await f.run(() =>
+      mapCountCaptureUnits([1, 2, 3], async (unit) => {
+        order.push(`start-${unit}`);
+        await Promise.resolve();
+        order.push(`end-${unit}`);
+        return unit;
+      }),
+    );
+    expect(values).toEqual([1, 2, 3]);
+    expect(order).toEqual(["start-1", "end-1", "start-2", "end-2", "start-3", "end-3"]);
+    expect(f.ledger.debit).not.toHaveBeenCalled();
+  });
+
   it.each(["cards", "sealed"] as const)("debits a %s count before its one manual-redirect send", async (kind) => {
     const f = fixture("acquisition");
     const query = countQuery(kind);
@@ -340,6 +357,18 @@ describe("refuses unsafe sends", () => {
 });
 
 describe("capture guard is inert when unbound", () => {
+  it("keeps ordinary unit planning parallel and results ordered", async () => {
+    const order: string[] = [];
+    const values = await mapCountCaptureUnits([1, 2, 3], async (unit) => {
+      order.push(`start-${unit}`);
+      await Promise.resolve();
+      order.push(`end-${unit}`);
+      return unit;
+    });
+    expect(values).toEqual([1, 2, 3]);
+    expect(order).toEqual(["start-1", "start-2", "start-3", "end-1", "end-2", "end-3"]);
+  });
+
   it("passes ordinary sends through with the caller's exact arguments", async () => {
     const f = fixture("preview", "redirect");
     const init = { headers: { Accept: "application/json" } };

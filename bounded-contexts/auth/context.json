@@ -203,6 +203,11 @@
       "portName": "securityLifetimes",
       "providedBy": "platform-api",
       "purpose": "Bounds-validated, env-configurable session/token lifetimes (issue #4292): session, account-selection, magic-link, challenge, social-login-state, guest-checkout, and UCP OAuth TTLs. Env-tier by design, never admin-policy-editable."
+    },
+    {
+      "portName": "operatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Identity's Membership-aggregate operator authority, exposed on Auth's identity port; native MCP admits operator capabilities only when it grants, and an absent port denies."
     }
   ],
   "apiDeployables": ["platform-api"],

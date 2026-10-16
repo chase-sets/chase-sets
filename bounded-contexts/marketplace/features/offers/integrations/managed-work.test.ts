@@ -124,3 +124,42 @@ describe("managed Offer durable Product work", () => {
     expect(await eventStore.readAll()).toEqual([]);
   });
 });
+
+describe("managed Offer re-pricing across buyer Pause and Resume", () => {
+  it("leaves a paused managed Offer untouched and applies the next target after Resume", async () => {
+    const eventStore = createInMemoryEventStore().eventStore;
+    const f = await managedFixture(eventStore);
+    f.setTarget({ status: "target", unitItemAmount: "9.00", evidence: { estimateVersion: "2" } });
+    const change = (action: "pause" | "resume") =>
+      f.offers.changeOfferLifecycle(
+        { offerId: "off_one" as never, buyerAccountId: "acc_buyer" as never, action },
+        context,
+      );
+    const offerEvents = () => eventStore.readStream({ streamId: "marketplace.offer-off_one" });
+
+    f.evaluateTargets.mockClear(); // Policy Preview evaluated targets during fixture setup.
+    await change("pause");
+    const pausedLength = (await offerEvents()).length;
+    expect(await f.offers.applyManagedOffer("off_one" as never, "op_paused", context)).toMatchObject({
+      status: "unchanged",
+    });
+    await f.offers.applyManagedOfferPage([{ offerId: "off_one" as never, operationId: "op_page" }], context, {
+      streamId: "marketplace.offer-work-paused",
+      expectedVersion: "no_stream",
+      events: [],
+      context,
+    });
+    expect(await offerEvents()).toHaveLength(pausedLength);
+    expect(f.evaluateTargets).not.toHaveBeenCalled();
+
+    await change("resume");
+    expect(await f.offers.applyManagedOffer("off_one" as never, "op_resumed", context)).toMatchObject({
+      status: "applied",
+    });
+    expect((await offerEvents()).map((event) => event.eventType).slice(-2)).toEqual([
+      "marketplace.offer.price-updated",
+      "marketplace.offer.managed-evaluated",
+    ]);
+    expect((await offerEvents()).at(-2)?.payload).toMatchObject({ priceAmount: "9.00" });
+  });
+});

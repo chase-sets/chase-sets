@@ -3,6 +3,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import { createMarketplaceOfferRuntime } from "./runtime";
+import { MarketplaceOfferLifecycleClosedError, type MarketplaceOfferLifecycleAdmission } from "./lifecycle-admission";
 import { MarketplaceOfferAbuseControlError } from "../domain/offer-abuse-policy";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
@@ -837,5 +838,267 @@ describe("marketplace offer runtime", () => {
     ).rejects.toMatchObject({ code: "listing_evidence_incomplete" });
     expect(listingEvidencePolicyEvaluator.evaluate).toHaveBeenCalledOnce();
     expect(resolveListingTerms).not.toHaveBeenCalled();
+  });
+});
+
+describe("marketplace offer lifecycle runtime", () => {
+  const buyerContext = {
+    tenantId: "tnt_marketplace" as never,
+    audit: { performedByUserId: "usr_buyer" as never, forAccountId: "acc_buyer" as never },
+  };
+  const fingerprint = "350.00|17.50|332.50|500|sch_standard|";
+
+  const openAdmission: MarketplaceOfferLifecycleAdmission = { check: async () => ({ admitted: true }) };
+
+  async function lifecycleServices(
+    wrapAppend?: (
+      append: NonNullable<EventStore["appendToStreams"]>,
+      memory: EventStore,
+    ) => NonNullable<EventStore["appendToStreams"]>,
+    admission: MarketplaceOfferLifecycleAdmission | null = openAdmission,
+  ) {
+    const memory = createInMemoryEventStore().eventStore;
+    const services = createMarketplaceOfferRuntime({
+      ...(admission ? { offerLifecycleAdmission: admission } : {}),
+      eventStore: wrapAppend ? { ...memory, appendToStreams: wrapAppend(memory.appendToStreams!, memory) } : memory,
+      db: { query: vi.fn(async () => ({ rows: [acceptedOfferMatch] })) },
+      checkpointStore: {} as never,
+      commercialTermsResolver: {
+        resolveListingTerms: async ({ amount }: { amount: string }) => ({
+          accountType: "personal",
+          basisAmount: amount,
+          marketplaceSalesFeeUnitAmount: "17.50",
+          sellerNetUnitAmount: "332.50",
+          shippingAllowancePercentageBps: 500,
+          scheduleId: "sch_standard",
+          agreementId: null,
+          resolvedAt: "2026-03-31T00:00:00.000Z",
+        }),
+      } as never,
+      listingEvidencePolicyEvaluator: { evaluate: async () => noEvidenceRequirementsEvaluation },
+    });
+    await seedActiveListing(memory, buyerContext);
+    await services.commandHandler({
+      streamId: "marketplace.offer-off_1",
+      command: {
+        type: "SubmitOffer",
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+        priceAmount: "350.00",
+        priceCurrencyCode: "USD",
+        quantityRequested: 1,
+      },
+      context: buyerContext,
+    } as never);
+    return { memory, services };
+  }
+
+  const change = (
+    services: Awaited<ReturnType<typeof lifecycleServices>>["services"],
+    action: "pause" | "resume" | "withdraw",
+    buyerAccountId = "acc_buyer",
+  ) =>
+    services.changeOfferLifecycle(
+      { offerId: "off_1" as never, buyerAccountId: buyerAccountId as never, action },
+      buyerContext,
+    );
+
+  it("keeps Pause, Resume and Withdraw closed without a host admission and appends nothing", async () => {
+    const { memory, services } = await lifecycleServices(undefined, null);
+    for (const action of ["pause", "resume", "withdraw"] as const) {
+      const refusal = change(services, action);
+      await expect(refusal).rejects.toBeInstanceOf(MarketplaceOfferLifecycleClosedError);
+      await expect(refusal).rejects.toMatchObject({
+        code: "offer_lifecycle_closed",
+        reason: "admission_not_configured",
+      });
+    }
+    await expect(
+      services.bulkChangeOfferLifecycle(
+        { buyerAccountId: "acc_buyer" as never, action: "withdraw", offerIds: ["off_1" as never, "off_2" as never] },
+        buyerContext,
+      ),
+    ).rejects.toBeInstanceOf(MarketplaceOfferLifecycleClosedError);
+    expect((await memory.readStream({ streamId: "marketplace.offer-off_1" })).map((event) => event.eventType)).toEqual([
+      "marketplace.offer.submitted",
+    ]);
+  });
+
+  it("asks admission once per request and appends only after it opens", async () => {
+    let admitted = false;
+    const check = vi.fn(async () =>
+      admitted ? ({ admitted: true } as const) : ({ admitted: false, reason: "worker_without_capability" } as const),
+    );
+    const { memory, services } = await lifecycleServices(undefined, { check });
+    await expect(change(services, "pause")).rejects.toMatchObject({ reason: "worker_without_capability" });
+    const bulk = () =>
+      services.bulkChangeOfferLifecycle(
+        { buyerAccountId: "acc_buyer" as never, action: "pause", offerIds: ["off_1" as never, "off_1" as never] },
+        buyerContext,
+      );
+    await expect(bulk()).rejects.toBeInstanceOf(MarketplaceOfferLifecycleClosedError);
+    expect(await memory.readStream({ streamId: "marketplace.offer-off_1" })).toHaveLength(1);
+    admitted = true;
+    check.mockClear();
+    expect(await bulk()).toMatchObject([
+      { outcome: "changed", status: "paused" },
+      { outcome: "unchanged", status: "paused" },
+    ]);
+    expect(check).toHaveBeenCalledTimes(1);
+    expect((await memory.readStream({ streamId: "marketplace.offer-off_1" })).at(-1)?.eventType).toBe(
+      "marketplace.offer.paused",
+    );
+  });
+
+  it("lets only the Offer's buyer pause, resume and withdraw, reporting each outcome", async () => {
+    const { memory, services } = await lifecycleServices();
+    await expect(change(services, "pause", "acc_other")).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      services.changeOfferLifecycle(
+        { offerId: "off_missing" as never, buyerAccountId: "acc_buyer" as never, action: "pause" },
+        buyerContext,
+      ),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await change(services, "resume")).toMatchObject({ outcome: "unchanged", status: "submitted", version: 1 });
+    expect(await change(services, "pause")).toMatchObject({ outcome: "changed", status: "paused", version: 2 });
+    expect(await change(services, "pause")).toMatchObject({ outcome: "unchanged", status: "paused", version: 2 });
+    expect(await change(services, "resume")).toMatchObject({ outcome: "changed", status: "submitted", version: 3 });
+    expect(await change(services, "withdraw")).toMatchObject({ outcome: "changed", status: "withdrawn", version: 4 });
+    await expect(change(services, "resume")).rejects.toMatchObject({ code: "offer_transition_rejected" });
+    const events = await memory.readStream({ streamId: "marketplace.offer-off_1" });
+    expect(events.map((event) => event.eventType)).toEqual([
+      "marketplace.offer.submitted",
+      "marketplace.offer.paused",
+      "marketplace.offer.resumed",
+      "marketplace.offer.withdrawn",
+    ]);
+    expect(events[1]!.payload).toMatchObject({ offerId: "off_1", buyerAccountId: "acc_buyer" });
+  });
+
+  it.each(["decision", "append"] as const)(
+    "rejects a Pause as offer_transition_rejected when a Withdraw lands before its %s",
+    async (window) => {
+      const { memory, services } = await lifecycleServices();
+      const withdraw = () =>
+        memory.appendToStream({
+          streamId: "marketplace.offer-off_1",
+          expectedVersion: 1,
+          context: buyerContext,
+          events: [
+            {
+              eventType: "marketplace.offer.withdrawn",
+              payload: { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-14T00:00:00.000Z" },
+            },
+          ],
+        });
+      let reads = 0;
+      const readStream = memory.readStream.bind(memory);
+      const appendToStream = memory.appendToStream.bind(memory);
+      vi.spyOn(memory, "readStream").mockImplementation(async (input) => {
+        if (window === "decision" && input.streamId === "marketplace.offer-off_1" && ++reads === 2) await withdraw();
+        return readStream(input);
+      });
+      vi.spyOn(memory, "appendToStream").mockImplementation(async (input) => {
+        if (window === "append" && input.streamId === "marketplace.offer-off_1" && reads++ === 0) await withdraw();
+        return appendToStream(input);
+      });
+      await expect(change(services, "pause")).rejects.toMatchObject({ code: "offer_transition_rejected" });
+      expect((await readStream({ streamId: "marketplace.offer-off_1" })).map((event) => event.eventType)).toEqual([
+        "marketplace.offer.submitted",
+        "marketplace.offer.withdrawn",
+      ]);
+    },
+  );
+
+  it("reports the command result status when a paused Offer is re-priced", async () => {
+    const { services } = await lifecycleServices();
+    await change(services, "pause");
+    expect(
+      await services.updateOfferPrice(
+        {
+          offerId: "off_1" as never,
+          buyerAccountId: "acc_buyer" as never,
+          priceAmount: "360.00",
+          priceCurrencyCode: "USD",
+        },
+        buyerContext,
+      ),
+    ).toEqual({ offerId: "off_1", version: 3, status: "paused" });
+  });
+
+  it("rejects accepting a paused or withdrawn Offer as offer_not_open", async () => {
+    const { services } = await lifecycleServices();
+    const accept = () =>
+      services.acceptOffer(
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: fingerprint,
+        },
+        buyerContext,
+      );
+    await change(services, "pause");
+    await expect(accept()).rejects.toMatchObject({ code: "offer_not_open", details: { status: "paused" } });
+    await change(services, "withdraw");
+    await expect(accept()).rejects.toMatchObject({ code: "offer_not_open", details: { status: "withdrawn" } });
+  });
+
+  it("reports offer_not_open when the buyer pauses between the acceptance read and its atomic append", async () => {
+    const { memory, services } = await lifecycleServices((append, store) => async (inputs) => {
+      await store.appendToStream({
+        streamId: "marketplace.offer-off_1",
+        expectedVersion: 1,
+        context: buyerContext,
+        events: [
+          {
+            eventType: "marketplace.offer.paused",
+            payload: { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-14T00:00:00.000Z" },
+          },
+        ],
+      });
+      return append(inputs);
+    });
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: fingerprint,
+        },
+        buyerContext,
+      ),
+    ).rejects.toMatchObject({ code: "offer_not_open", details: { status: "paused" } });
+    expect((await memory.readStream({ streamId: "marketplace.offer-off_1" })).at(-1)?.eventType).toBe(
+      "marketplace.offer.paused",
+    );
+  });
+
+  it("checks every bulk row on its own and rejects another buyer's Offer as not_found", async () => {
+    const { services } = await lifecycleServices();
+    expect(
+      await services.bulkChangeOfferLifecycle(
+        { buyerAccountId: "acc_buyer" as never, action: "pause", offerIds: ["off_1", "off_1", "off_missing"] as never },
+        buyerContext,
+      ),
+    ).toEqual([
+      { offerId: "off_1", outcome: "changed", status: "paused", version: 2 },
+      { offerId: "off_1", outcome: "unchanged", status: "paused", version: 2 },
+      { offerId: "off_missing", outcome: "rejected", code: "not_found" },
+    ]);
+    await expect(
+      services.bulkChangeOfferLifecycle(
+        { buyerAccountId: "acc_buyer" as never, action: "pause", offerIds: [] },
+        buyerContext,
+      ),
+    ).rejects.toThrow("Bulk Offer changes take 1 to 250 Offers.");
   });
 });

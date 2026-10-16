@@ -281,9 +281,18 @@ describe("provider webhook ingestion observability", () => {
 });
 
 describe("Discovery search observability", () => {
-  it.each(["lexical", "corrected"] as const)(
-    "exports %s dimensions and phase timings without query or Result Set identifiers",
-    (retrievalMode) => {
+  it.each([
+    { retrievalMode: "lexical", lexicalZero: true, interpretation: "not-applied" },
+    { retrievalMode: "rescue", lexicalZero: false, interpretation: "not-applied" },
+    { retrievalMode: "hybrid", lexicalZero: true, interpretation: "not-applied" },
+    { retrievalMode: "corrected", lexicalZero: true, interpretation: "not-applied" },
+    { retrievalMode: "corrected", lexicalZero: true, interpretation: "applied" },
+    { retrievalMode: "lexical", lexicalZero: true, interpretation: "applied" },
+    { retrievalMode: "structured", lexicalZero: null, interpretation: "not-applied" },
+    { retrievalMode: null, lexicalZero: null, interpretation: "unknown" },
+  ] as const)(
+    "bounded lexical miss dimensions without identities: $retrievalMode / $lexicalZero / $interpretation",
+    ({ retrievalMode, lexicalZero, interpretation }) => {
       const counterAdds: unknown[] = [];
       const histogramRecords: unknown[] = [];
       const createCounter = vi.fn((name: string) => ({
@@ -305,11 +314,13 @@ describe("Discovery search observability", () => {
           filterState: "category,field",
           sortOrder: "relevance",
           cursorState: "fresh",
-          resultCount: 0,
-          total: 0,
-          zeroResults: true,
+          resultCount: 123,
+          total: 456,
+          zeroResults: retrievalMode ? false : null,
+          lexicalZero,
+          interpretation,
           retrievalMode,
-          outcome: "success",
+          outcome: retrievalMode ? "success" : "failure",
           normalizationDurationMs: 1,
           retrievalDurationMs: 2,
           totalDurationMs: 3,
@@ -320,11 +331,25 @@ describe("Discovery search observability", () => {
         getMeter.mockRestore();
       }
 
-      expect(counterAdds).toHaveLength(1);
-      expect(JSON.stringify(counterAdds)).toContain(`"retrieval_mode":"${retrievalMode}"`);
-      expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("a".repeat(64));
-      expect(JSON.stringify([...counterAdds, ...histogramRecords])).not.toContain("b".repeat(64));
-      expect(histogramRecords).toHaveLength(3);
+      const attributes = {
+        filter_state: "category,field",
+        sort_order: "relevance",
+        cursor_state: "fresh",
+        zero_results: retrievalMode ? "false" : "unknown",
+        lexical_zero: lexicalZero === null ? "unknown" : String(lexicalZero),
+        interpretation,
+        retrieval_mode: retrievalMode ?? "unknown",
+        outcome: retrievalMode ? "success" : "failure",
+        query_embedding_outcome: "not-attempted",
+      };
+      expect(counterAdds).toEqual([{ name: "chase_sets_discovery_search_queries_total", value: 1, attributes }]);
+      expect(histogramRecords).toEqual(
+        ["normalization", "retrieval", "total"].map((phase, i) => ({
+          name: "chase_sets_discovery_search_query_duration_ms",
+          value: i + 1,
+          attributes: { ...attributes, phase },
+        })),
+      );
     },
   );
 
@@ -349,6 +374,8 @@ describe("Discovery search observability", () => {
           resultCount: 1,
           total: cursorState === "cursor" ? null : 1,
           zeroResults: false,
+          lexicalZero: false,
+          interpretation: "not-applied",
           retrievalMode: "lexical",
           outcome: "success",
           normalizationDurationMs: 0,
@@ -391,6 +418,8 @@ describe("Discovery search observability", () => {
           resultCount: 0,
           total: 0,
           zeroResults: true,
+          lexicalZero: true,
+          interpretation: "not-applied",
           retrievalMode: "lexical",
           outcome: "success",
           normalizationDurationMs: 0,
@@ -419,6 +448,65 @@ describe("Discovery search observability", () => {
         .filter(({ name }) => name === "chase_sets_discovery_search_queries_total")
         .map(({ attributes }) => (attributes as { query_embedding_outcome: string }).query_embedding_outcome),
     ).toEqual(["cache-hit", "joined", "loaded", "timeout", "error", "not-attempted"]);
+  });
+
+  it("staggered joined waiter is not provider load", () => {
+    const records: Array<{ name: string; value: number; attributes: unknown }> = [];
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: (name: string) => ({
+        add: (value: number, attributes: unknown) => records.push({ name, value, attributes }),
+      }),
+      createHistogram: (name: string) => ({
+        record: (value: number, attributes: unknown) => records.push({ name, value, attributes }),
+      }),
+    } as never);
+    try {
+      // Synthetic projection of runtime.test.ts's real-cache 500ms owner / 300ms follower matrix.
+      for (const [queryEmbeddingOutcome, queryEmbeddingWaiterDurationMs] of [
+        ["loaded", 500],
+        ["joined", 300],
+        ["cache-hit", 0],
+      ] as const) {
+        recordDiscoverySearchQuerySignal({
+          queryHash: "synthetic-private-hash",
+          resultSetKey: "synthetic-private-result",
+          filterState: "none",
+          sortOrder: "relevance",
+          cursorState: "fresh",
+          resultCount: 0,
+          total: null,
+          zeroResults: true,
+          lexicalZero: true,
+          interpretation: "not-applied",
+          retrievalMode: "lexical",
+          outcome: "success",
+          normalizationDurationMs: 0,
+          retrievalDurationMs: queryEmbeddingWaiterDurationMs,
+          totalDurationMs: queryEmbeddingWaiterDurationMs,
+          queryEmbeddingOutcome,
+          queryEmbeddingWaiterDurationMs,
+        });
+      }
+      recordDiscoveryQueryEmbeddingLoad({ outcome: "loaded", durationMs: 500 });
+    } finally {
+      getMeter.mockRestore();
+    }
+    expect(records.filter(({ name }) => name === "chase_sets_discovery_query_embedding_load_duration_ms")).toEqual([
+      { name: "chase_sets_discovery_query_embedding_load_duration_ms", value: 500, attributes: { outcome: "loaded" } },
+    ]);
+    expect(records.filter(({ name }) => name === "chase_sets_discovery_query_embedding_waiter_duration_ms")).toEqual(
+      [
+        ["loaded", 500],
+        ["joined", 300],
+        ["cache-hit", 0],
+      ].map(([outcome, value]) => ({
+        name: "chase_sets_discovery_query_embedding_waiter_duration_ms",
+        value,
+        attributes: { outcome },
+      })),
+    );
+    expect(records.filter(({ name }) => name === "chase_sets_discovery_search_queries_total")).toHaveLength(3);
+    expect(JSON.stringify(records)).not.toContain("synthetic-private");
   });
 });
 

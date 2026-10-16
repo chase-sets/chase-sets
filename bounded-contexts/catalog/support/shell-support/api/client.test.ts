@@ -281,6 +281,47 @@ data: ${JSON.stringify({ kind: "sync.required", snapshot: jobSnapshot({ status: 
       },
     ]);
   });
+  it("marks every capture spend/read/freeze call without marking ordinary preview or confirm", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ retained: true }));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog",
+      fetch,
+      headers: { origin: "https://admin.staging.chasesets.com" },
+    });
+    const planner = {
+      selection: { mode: "ids" as const, scopeRecordIds: ["scope-synthetic-op01"] },
+      budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+    };
+    const acquisition = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    const preConfirm = { ...planner, planFingerprint: "b".repeat(64) };
+    const freeze = { runnerRunId: "300", runnerRunAttempt: 1 };
+    await client.quoteScopeSyncCaptureCounts(planner);
+    await client.readBackScopeSyncCaptureQuote();
+    await client.recordScopeSyncCaptureFinalNotice();
+    await client.acquireScopeSyncCaptureCounts(acquisition);
+    await client.previewScopeSyncCountCapture(planner);
+    await client.preConfirmScopeSyncCountCapture(preConfirm);
+    await client.freezeScopeSyncCountCapture(freeze);
+    await client.previewScopeSyncBatch(planner);
+    await client.confirmScopeSyncBatch(preConfirm);
+    expect(
+      fetch.mock.calls.map(([url, init]) => ({
+        path: String(url).replace("/api/catalog/scope-sync-batches", ""),
+        marker: new Headers(init?.headers).get("x-catalog-count-capture"),
+        body: JSON.parse(String(init?.body)),
+      })),
+    ).toEqual([
+      { path: "/counts/quote", marker: "1", body: planner },
+      { path: "/count-capture/quote-readback", marker: "1", body: {} },
+      { path: "/count-capture/final-notice", marker: "1", body: {} },
+      { path: "/counts/acquire", marker: "1", body: acquisition },
+      { path: "/preview", marker: "1", body: planner },
+      { path: "/count-capture/pre-confirm", marker: "1", body: preConfirm },
+      { path: "/count-capture/freeze", marker: "1", body: freeze },
+      { path: "/preview", marker: null, body: planner },
+      { path: "/confirm", marker: null, body: preConfirm },
+    ]);
+  });
   it("previews source observation integration imports without enqueueing a job", async () => {
     const preview = {
       action: "import",

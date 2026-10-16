@@ -155,3 +155,12 @@ A **Client ID Metadata Document** is a trusted URL used as an OAuth `client_id` 
 Notes:
 
 - Auth resolves the document during OAuth Authorization and applies the same public-client, redirect URL, and scope constraints used for Dynamic Client Registration.
+
+## Operator Scope
+
+An **Operator Scope** (`operations:read`, `operations:write`) lets an agent grant reach the platform-wide `operator` capabilities on native `/mcp`. `operations:write` implies `operations:read`.
+
+Notes:
+
+- Operator Scopes map to no permission, so they never widen an HTTP or commerce actor. An operator capability runs only when Identity's operator authority, reading the actor's Membership aggregate, finds an active `platform-admin` membership for the actor's user and account, and then runs with that authority's role permissions.
+- Registration accepts them from any client, but no OAuth metadata document, connector package or developer portal advertises them, and authorize refuses any request naming one until operator sign-in adds its own consent gate.

@@ -30,7 +30,12 @@ export type {
   ReportListingRequest,
   ReportReviewRequest,
   SubmittedOfferDetail,
+  SubmittedOfferLifecycleAction,
+  SubmittedOfferLifecycleOutcome,
   SubmittedOfferListItem,
+  SubmittedOfferStatus,
+  SubmittedOfferStatusCounts,
+  SubmittedOfferStatusFilter,
 } from "../../client";
 import { createMarketplaceApiClient } from "../../client";
 

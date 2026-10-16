@@ -48,7 +48,12 @@ export type {
   MarketplaceOffer,
   PublicOfferDetail,
   SubmittedOfferDetail,
+  SubmittedOfferLifecycleAction,
+  SubmittedOfferLifecycleOutcome,
   SubmittedOfferListItem,
+  SubmittedOfferStatus,
+  SubmittedOfferStatusCounts,
+  SubmittedOfferStatusFilter,
 } from "./features/offers/api/contracts";
 
 import type {
@@ -84,7 +89,12 @@ import type {
   OfferMatchListItem,
   PublicOfferDetail,
   SubmittedOfferDetail,
+  SubmittedOfferLifecycleAction,
+  SubmittedOfferLifecycleOutcome,
   SubmittedOfferListItem,
+  SubmittedOfferStatus,
+  SubmittedOfferStatusCounts,
+  SubmittedOfferStatusFilter,
 } from "./features/offers/api/contracts";
 
 type MarketplaceApiApp = ReturnType<typeof buildMarketplaceApi>;
@@ -619,7 +629,9 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSubmittedOffers(query = ""): Promise<ListResponse<SubmittedOfferListItem>> {
+    async listSubmittedOffers(
+      query = "",
+    ): Promise<ListResponse<SubmittedOfferListItem> & { statusCounts?: SubmittedOfferStatusCounts }> {
       return parseJsonResponse(
         await client.account.offers.submitted.$get({
           query: queryFromString(query),
@@ -648,6 +660,29 @@ export function createMarketplaceApiClient({
         await client.account.offers.submitted[":id"].price.$patch({
           param: { id },
           json: body,
+          header: headers,
+        }),
+      );
+    },
+    async changeSubmittedOfferLifecycle(
+      id: string,
+      action: SubmittedOfferLifecycleAction,
+    ): Promise<{ id: string; version: number; status: string; outcome: "changed" | "unchanged" }> {
+      return parseJsonResponse(
+        await client.account.offers.submitted[":id"][action].$post({
+          param: { id },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
+    async bulkChangeSubmittedOfferLifecycle(
+      action: SubmittedOfferLifecycleAction,
+      offerIds: readonly string[],
+    ): Promise<ListResponse<SubmittedOfferLifecycleOutcome>> {
+      return parseJsonResponse(
+        await client.account.offers.submitted.bulk.$post({
+          json: { action, offerIds },
           header: headers,
         }),
       );
