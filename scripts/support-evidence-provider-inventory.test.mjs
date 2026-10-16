@@ -252,26 +252,36 @@ describe("legacy inventory, no live authority", () => {
     expect((await bypass.deleteApproved(deps)).receipt.result).toBe("deleted");
   });
 
-  it.each(["environment", "horizon", "implementationSha", "imageDigest", "boundaryReceiptId", "snapshotReceiptId"])(
-    "refuses changed %s; kills binding bypass",
-    async (field) => {
-      const deps = await prepared();
-      deps.options[field] =
-        field === "environment"
-          ? "staging"
-          : field === "horizon"
-            ? "502"
-            : field === "implementationSha"
-              ? "e".repeat(40)
-              : field === "imageDigest"
-                ? `sha256:${"e".repeat(64)}`
-                : "e".repeat(64);
-      expect((await tool.deleteApproved(deps)).receipt.result).toBe("retention");
-      expect(deps.storage.deleteKeys).not.toHaveBeenCalled();
-      const bypass = await mutant("options[field] !== manifest[field]", "false");
-      expect((await bypass.deleteApproved(deps)).receipt.result).toBe("deleted");
-    },
-  );
+  it.each([
+    "environment",
+    "horizon",
+    "implementationSha",
+    "imageDigest",
+    "boundaryReceiptId",
+    "snapshotReceiptId",
+    "requestCap",
+    "requestCostUpperBoundUsd",
+  ])("refuses changed %s; kills binding bypass", async (field) => {
+    const deps = await prepared();
+    deps.options[field] =
+      field === "environment"
+        ? "staging"
+        : field === "horizon"
+          ? "502"
+          : field === "implementationSha"
+            ? "e".repeat(40)
+            : field === "imageDigest"
+              ? `sha256:${"e".repeat(64)}`
+              : field === "requestCap"
+                ? 900
+                : field === "requestCostUpperBoundUsd"
+                  ? 0.002
+                  : "e".repeat(64);
+    expect((await tool.deleteApproved(deps)).receipt.result).toBe("retention");
+    expect(deps.storage.deleteKeys).not.toHaveBeenCalled();
+    const bypass = await mutant("options[field] !== manifest[field]", "false");
+    expect((await bypass.deleteApproved(deps)).receipt.result).toBe("deleted");
+  });
 
   it("refuses manifest drift under old approval; kills digest bypass", async () => {
     const deps = await prepared();
@@ -281,6 +291,23 @@ describe("legacy inventory, no live authority", () => {
     expect(deps.storage.deleteKeys).not.toHaveBeenCalled();
     const bypass = await mutant("if (approvedDigest !== digest)", "if (false)");
     expect((await bypass.deleteApproved(deps)).receipt.result).toBe("deleted");
+  });
+
+  it("stops manifest drift between batches and retains the approved identity in its receipt; kills mid-batch-digest bypass", async () => {
+    const deps = await prepared(101);
+    deps.persistOutcomes.mockImplementation(async () => {
+      deps.manifest.snapshotReceiptId = "e".repeat(64);
+    });
+    const result = await tool.deleteApproved(deps);
+    expect(result.receipt.result).toBe("retention");
+    expect(result.receipt.manifestDigest).toBe(deps.approvedDigest);
+    expect(deps.storage.deleteKeys).toHaveBeenCalledTimes(1);
+    const other = await prepared(101);
+    other.persistOutcomes.mockImplementation(async () => {
+      other.manifest.snapshotReceiptId = "e".repeat(64);
+    });
+    const bypass = await mutant("if (manifestDigest(manifest) !== digest)", "if (false)");
+    expect((await bypass.deleteApproved(other)).receipt.result).toBe("deleted");
   });
 
   it("reclassifies before delete; kills forged-class bypass", async () => {
@@ -344,14 +371,18 @@ describe("legacy inventory, no live authority", () => {
     expect((await bypass.deleteApproved(other)).receipt.result).toBe("deleted");
   });
 
-  it.each(["journal", "event"])("stops after %s persistence failure", async (kind) => {
+  it.each(["journal", "event"])("stops after %s persistence failure; kills durable-outcomes bypass", async (kind) => {
     const deps = await prepared(101);
     (kind === "journal" ? deps.persistOutcomes : deps.legacy.recordOutcomes).mockRejectedValue(new Error(marker));
     expect((await tool.deleteApproved(deps)).receipt.result).toBe("retention");
     expect(deps.storage.deleteKeys).toHaveBeenCalledTimes(1);
+    const other = await prepared(101);
+    (kind === "journal" ? other.persistOutcomes : other.legacy.recordOutcomes).mockRejectedValue(new Error(marker));
+    const bypass = await mutant("catch { return retained(); }", "catch {}");
+    expect((await bypass.deleteApproved(other)).receipt.result).toBe("deleted");
   });
 
-  it("redacts provider exceptions and refuses malformed per-key outcomes", async () => {
+  it("redacts provider exceptions and refuses malformed per-key outcomes; kills per-key-failure bypass", async () => {
     const dry = fixture();
     dry.storage.listPrivate.mockRejectedValue(new Error(marker));
     const result = await tool.dryRun(dry);
@@ -363,11 +394,17 @@ describe("legacy inventory, no live authority", () => {
         { key: key(0), status: "deleted" },
         { key: key(0), status: "deleted" },
       ],
+      [
+        { key: key(0), status: "deleted" },
+        { key: marker, status: "failed" },
+      ],
       [{ key: marker, status: "deleted" }],
     ]) {
       const deps = await prepared();
       deps.storage.deleteKeys.mockResolvedValue(outcomes);
       expect((await tool.deleteApproved(deps)).receipt).toMatchObject({ result: "retention", failed: 1 });
+      const bypass = await mutant('if (batch.some((outcome) => outcome.status === "failed"))', "if (false)");
+      expect((await bypass.deleteApproved(deps)).receipt.result).toBe("deleted");
     }
   });
 

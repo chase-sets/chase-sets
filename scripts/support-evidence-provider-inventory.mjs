@@ -287,6 +287,12 @@ export async function dryRun({ storage, legacy, options }) {
 }
 
 function normalizeOutcomes(keys, outcomes) {
+  if (
+    !Array.isArray(outcomes) ||
+    outcomes.length !== keys.length ||
+    outcomes.some((outcome) => !outcome || !keys.includes(outcome.key))
+  )
+    return keys.map((key) => ({ key, status: "failed" }));
   return keys.map((key) => {
     const matches = Array.isArray(outcomes) ? outcomes.filter((outcome) => outcome.key === key) : [];
     return {
@@ -299,19 +305,27 @@ function normalizeOutcomes(keys, outcomes) {
 export async function deleteApproved({ storage, legacy, options, manifest, approvedDigest, persistOutcomes }) {
   if (!validManifest(manifest)) fail();
   const digest = manifestDigest(manifest);
+  const approvedManifest = structuredClone(manifest);
   const outcomes = [];
   const retained = () => ({
     outcomes,
-    receipt: receipt("delete", manifest, "retention", {
+    receipt: receipt("delete", approvedManifest, "retention", {
       deleted: outcomes.filter((outcome) => outcome.status !== "failed").length,
       failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     }),
   });
   if (approvedDigest !== digest) return retained();
   if (
-    ["environment", "implementationSha", "imageDigest", "horizon", "boundaryReceiptId", "snapshotReceiptId"].some(
-      (field) => options[field] !== manifest[field],
-    )
+    [
+      "environment",
+      "implementationSha",
+      "imageDigest",
+      "horizon",
+      "boundaryReceiptId",
+      "snapshotReceiptId",
+      "requestCap",
+      "requestCostUpperBoundUsd",
+    ].some((field) => options[field] !== manifest[field])
   )
     return retained();
   if (manifest.completeness !== "complete" || !options.boundaryReceiptId || !options.snapshotReceiptId)
@@ -364,7 +378,7 @@ export async function deleteApproved({ storage, legacy, options, manifest, appro
     }
     if (batch.some((outcome) => outcome.status === "failed")) return retained();
   }
-  return { outcomes, receipt: receipt("delete", manifest, "deleted", { deleted: outcomes.length }) };
+  return { outcomes, receipt: receipt("delete", approvedManifest, "deleted", { deleted: outcomes.length }) };
 }
 
 export async function syntheticProbe({
