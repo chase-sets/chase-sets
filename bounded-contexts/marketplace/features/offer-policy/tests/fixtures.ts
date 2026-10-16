@@ -99,7 +99,12 @@ export async function fixture(enforcement = true, wrap: (store: EventStore) => E
   await seedOffer(store);
   await runtime.execute(
     "bop_one",
-    { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+    {
+      attemptId: String("create").padEnd(22, "_"),
+      type: "CreateBuyerOfferPolicy",
+      expectedVersion: 0,
+      operationId: "create",
+    },
     context,
   );
   return { runtime, store, db };
@@ -112,7 +117,13 @@ export async function preview(
 ) {
   return runtime.execute(
     "bop_one",
-    { type: "PreviewBuyerOfferPolicy", expectedVersion, operationId, terms: selectedTerms },
+    {
+      attemptId: String(operationId).padEnd(22, "_"),
+      type: "PreviewBuyerOfferPolicy",
+      expectedVersion,
+      operationId,
+      terms: selectedTerms,
+    },
     context,
   );
 }
@@ -121,6 +132,7 @@ export async function activate(runtime: ReturnType<typeof createBuyerOfferPolicy
   return runtime.execute(
     "bop_one",
     {
+      attemptId: String("authorize").padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: result.version,
       operationId: "authorize",

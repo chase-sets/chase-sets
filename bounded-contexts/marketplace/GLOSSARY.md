@@ -1,5 +1,9 @@
 # Marketplace Domain Glossary
 
+## Marketplace Mutation Attempt
+
+A **Marketplace Mutation Attempt** binds one opaque command identity to its actor, target and canonical request. Marketplace records its first result atomically with the business facts. An exact replay returns that result without another command; a changed request conflicts. Owner lookup is read-only and never treats connectivity or projection presence as command success.
+
 ## Review Opportunity Fact
 
 A **Review Opportunity Fact** is Marketplace's versioned, content-free snapshot of both review directions for one Order. Each slot is explicitly absent or carries the canonical eligibility instant, effective deadline, submission and hold state, active Review id, and nullable active reveal instant. The active reveal instant records publication of the active Review; a hold still suppresses its visibility. No rating, feedback, response or private Support reason crosses this contract.
@@ -205,7 +209,6 @@ An **Open Order** is an order that has been created and is neither cancelled nor
 
 **At Capacity** is the seller state when Open Order count meets or exceeds Order Capacity: new order intake pauses while everything already in flight proceeds unaffected. At Capacity is computed and enforced by Ordering, analogous to Seller Listing Availability but driven by order volume rather than a seller-declared away period.
 
-
 ## Away Window
 
 An **Away Window** is a seller-scheduled future away period on Seller Listing Availability: a start instant and an optional end instant, set in advance so listings disable and resume automatically without a same-day manual action.
@@ -400,6 +403,7 @@ Seller Reliability, On-Time Shipment Rate, the Seller-Responsible Issue Rate, an
 Scheduled Restore moved out of this Planned section (m127 seller time-away audit's auto-resume sweep): it is shipped behavior now -- see the main glossary body above. Away Window also moved out of this Planned section (m127 seller time-away audit's scheduled-window feature): it is shipped behavior now -- see the main glossary body above.
 
 Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reason Code, and related concepts) moved to the [Authenticity](../authenticity/GLOSSARY.md) bounded context ahead of the m109 Authenticity Check milestone (epic #4284); Marketplace does not own that vocabulary.
+
 ## Channel Inbound Clamp
 
 A **Channel Inbound Clamp** is Marketplace's revision-fenced ownership record for Listings paused while a Channel cannot observe inbound sales; recovery restores only an unchanged, solely clamp-owned pause.

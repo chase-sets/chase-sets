@@ -1,4 +1,10 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.recovery.submitting": "Sending your Offer action...",
+  "marketplace.recovery.confirming": "Confirming your first result. Do not submit this action again.",
+  "marketplace.recovery.succeeded": "Your Offer action is confirmed.",
+  "marketplace.recovery.failedSafe": "The action was not sent. Review your inputs before trying again.",
+  "marketplace.recovery.ambiguous":
+    "We could not confirm the result. This action is disabled to avoid duplicating your work.",
   "marketplace.marketFollowing.title": "Market-following Offers",
   "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
   "marketplace.marketFollowing.itemOnly":

@@ -102,7 +102,12 @@ describeDb("marketplace schema upgrades", () => {
     });
     const paused = await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
+      {
+        attemptId: String("pause").padEnd(22, "_"),
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "pause",
+      },
       context,
     );
     expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({
@@ -116,7 +121,12 @@ describeDb("marketplace schema upgrades", () => {
     });
     await f.policies.execute(
       "bop_one",
-      { type: "StopBuyerOfferPolicy", expectedVersion: paused.version, operationId: "stop" },
+      {
+        attemptId: String("stop").padEnd(22, "_"),
+        type: "StopBuyerOfferPolicy",
+        expectedVersion: paused.version,
+        operationId: "stop",
+      },
       context,
     );
     await project();
@@ -147,7 +157,9 @@ describeDb("marketplace schema upgrades", () => {
       END $$;
       CREATE TRIGGER reject_managed_acceptance BEFORE INSERT ON event_store_events
       FOR EACH ROW EXECUTE FUNCTION reject_managed_acceptance();`);
-    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({
+    await expect(
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ).rejects.toMatchObject({
       code: "infrastructure_failure",
       details: { cause: "injected after allowance debit before Offer append" },
     });
@@ -156,7 +168,10 @@ describeDb("marketplace schema upgrades", () => {
     await pool.query(
       "DROP TRIGGER reject_managed_acceptance ON event_store_events; DROP FUNCTION reject_managed_acceptance();",
     );
-    const results = await Promise.all([f.offers.acceptOffer(params, context), f.offers.acceptOffer(params, context)]);
+    const results = await Promise.all([
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ]);
     expect(results[0]).toEqual(results[1]);
     const events = await store.readAll();
     expect(events.slice(before.length).map((event) => event.eventType)).toEqual([
@@ -180,7 +195,11 @@ describeDb("marketplace schema upgrades", () => {
     await bootstrapContextDatabase(marketplaceModule, pool);
     const f = await managedFixture(createPostgresEventStore({ pool }));
     const params = await Promise.all([f.acceptance("one"), f.acceptance("two")]);
-    const result = await Promise.allSettled(params.map((p) => f.offers.acceptOffer(p, context)));
+    const result = await Promise.allSettled(
+      params.map((p) =>
+        f.offers.acceptOffer(p, { ...context, audit: { ...context.audit, forAccountId: p.sellerAccountId } }),
+      ),
+    );
     expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     const loser = result[0]!.status === "rejected" ? 0 : 1;
     await expect(f.offers.acceptOffer(params[loser]!, context)).rejects.toMatchObject({ code: "managed_offer_held" });
@@ -255,13 +274,19 @@ describeDb("marketplace schema upgrades", () => {
     for (const policyId of ["bop_one", "bop_two"]) {
       await runtime.execute(
         policyId,
-        { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+        {
+          attemptId: String("create").padEnd(22, "_"),
+          type: "CreateBuyerOfferPolicy",
+          expectedVersion: 0,
+          operationId: "create",
+        },
         context,
       );
       previews.push(
         await runtime.execute(
           policyId,
           {
+            attemptId: String("preview").padEnd(22, "_"),
             type: "PreviewBuyerOfferPolicy",
             expectedVersion: 1,
             operationId: "preview",
@@ -276,6 +301,7 @@ describeDb("marketplace schema upgrades", () => {
         runtime.execute(
           p.policyId!,
           {
+            attemptId: String("authorize").padEnd(22, "_"),
             type: "AuthorizeBuyerOfferPolicy",
             expectedVersion: p.version,
             operationId: "authorize",
@@ -332,6 +358,7 @@ describeDb("marketplace schema upgrades", () => {
     await runtime.execute(
       "bop_one",
       {
+        attemptId: String("stop").padEnd(22, "_"),
         type: "StopBuyerOfferPolicy",
         expectedVersion: 3,
         operationId: "stop",

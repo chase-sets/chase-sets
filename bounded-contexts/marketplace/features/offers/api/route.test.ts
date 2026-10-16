@@ -531,7 +531,7 @@ describe("marketplace offer routes", () => {
         sellerAccountId: "acc_seller",
         listingId: "lst_1",
         feeQuoteFingerprint: "350.00|17.50|332.50|sch_standard|",
-        sourceActionKey: null,
+        sourceActionKey: "",
         acceptanceBatchId: null,
         acceptanceBatchSize: null,
       },
@@ -603,6 +603,8 @@ describe("marketplace offer routes", () => {
     const response = await app.fetch(
       new Request("http://marketplace.test/account/offers/matches/off_1/decline", {
         method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ attemptId: "decline_route_attempt_01" }),
       }),
     );
 
@@ -614,6 +616,7 @@ describe("marketplace offer routes", () => {
     });
     expect(services.declineOfferMatch).toHaveBeenCalledWith(
       {
+        attemptId: "decline_route_attempt_01",
         offerId: "off_1",
         sellerAccountId: "acc_seller",
       },
