@@ -60,6 +60,13 @@ export function createMemoryCapturePool() {
       const rows = visible.filter((entry) => entry.run_id === values[0]).sort((a, b) => b.position - a.position);
       return { rows: rows.slice(0, 1).map((entry) => ({ payload: structuredClone(entry.payload) })), rowCount: 1 };
     }
+    if (sql.startsWith("SELECT payload FROM catalog_scope_sync_count_capture_history WHERE owner_hash=$1")) {
+      const rows = visible.filter((entry) => entry.owner_hash === values[0]).sort((a, b) => b.position - a.position);
+      return {
+        rows: rows.slice(0, 1).map((entry) => ({ payload: structuredClone(entry.payload) })),
+        rowCount: Math.min(1, rows.length),
+      };
+    }
     if (
       sql.startsWith(
         "SELECT DISTINCT ON (run_id) payload FROM catalog_scope_sync_count_capture_history WHERE owner_hash",

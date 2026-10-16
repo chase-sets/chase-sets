@@ -13,8 +13,21 @@ import {
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "../../source-observations/api/providers/scrydex/adapter";
-import { countFingerprint } from "../domain/count-acquisition";
-import { countCaptureFields, countCaptureUnitKeys } from "../domain/count-capture-plan";
+import { countFingerprint, countQuoteSchema, countTimeIsCurrent, type CountQuote } from "../domain/count-acquisition";
+import {
+  countCaptureFields,
+  countCaptureUnitKeys,
+  countCaptureQuerySchema,
+  countCapturePlanSchema,
+  countCapturePlannerReadSchema,
+  type CountCapturePlannerRead,
+} from "../domain/count-capture-plan";
+import {
+  countCaptureAuthoritySchema,
+  countLifecycleReceiptSchema,
+  countLifecycleStopReceiptSchema,
+  type CountCaptureAuthority,
+} from "../domain/count-lifecycle-receipt";
 
 // Possible sends per phase; slots never transfer between phases, and the run total is 11.
 export const countCapturePhaseCaps: Readonly<Record<CountCapturePhase, number>> = {
@@ -134,6 +147,35 @@ const usageSchema = z
   .object({ recordedAt: instant, state: z.enum(["skipped", "persisted"]), required: count, authority: authoritySchema })
   .strict();
 
+const finalNoticeSchema = z
+  .object({
+    recordedAt: instant,
+    fingerprint: hash,
+    readBackAt: instant.nullable(),
+    body: z
+      .object({
+        quoteId: z.uuid(),
+        fingerprint: hash,
+        membershipFingerprint: hash,
+        authority: authoritySchema,
+        expiresAt: instant,
+        plannedCount: count.max(2),
+        serverCap: count.max(2),
+        perKindBound: z.literal(1),
+        plannedKinds: z.array(z.enum(["cards", "sealed"])).max(2),
+        reused: z.array(countQuoteSchema.shape.targets.element).max(2),
+        usage: countLifecycleReceiptSchema.shape.usage,
+        remainingPreview: z.literal(4),
+        remainingPreConfirm: z.literal(4),
+        remainingTotal: count.max(10),
+        host: hostSchema,
+        countDebits: z.literal("separate-from-batch-reservation"),
+      })
+      .strict(),
+  })
+  .strict();
+const receiptSchema = z.union([countLifecycleReceiptSchema, countLifecycleStopReceiptSchema]);
+
 const runSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -141,7 +183,7 @@ const runSchema = z
     ownerHash: z.string().regex(/^[a-f0-9]{64}$/),
     admittedAt: instant,
     expiresAt: instant,
-    status: z.enum(["open", "stopped"]),
+    status: z.enum(["open", "stopped", "frozen"]),
     scopeRecordId: id,
     host: hostSchema,
     phases: z.array(phaseSchema).max(countCapturePhases.length),
@@ -150,6 +192,21 @@ const runSchema = z
     baseline: baselineSchema.nullable(),
     notice: noticeSchema.nullable(),
     usage: usageSchema.nullable(),
+    authority: countCaptureAuthoritySchema.nullable().default(null),
+    quote: countQuoteSchema.nullable().default(null),
+    quoteUsage: countLifecycleReceiptSchema.shape.usage.nullable().default(null),
+    budget: countCapturePlanSchema.shape.budget.nullable().default(null),
+    quoteReadBackAt: instant.nullable().default(null),
+    finalNotice: finalNoticeSchema.nullable().default(null),
+    approvalAt: instant.nullable().default(null),
+    acquisition: countQuoteSchema.nullable().default(null),
+    reads: z.array(countCapturePlannerReadSchema).max(2).default([]),
+    windows: z
+      .array(z.object({ phase: phaseSchema, startedAt: instant, endedAt: instant.nullable() }).strict())
+      .max(6)
+      .default([]),
+    frozenAt: instant.nullable().default(null),
+    receipt: receiptSchema.nullable().default(null),
   })
   .strict()
   .refine(
@@ -208,6 +265,45 @@ function bound(run: CountCaptureRun, binding: CountCaptureBinding) {
     throw new CountCaptureStopped();
 }
 
+export const remainingCountCaptureCap = (plannedCount: number) =>
+  plannedCount + countCapturePhaseCaps.preview + countCapturePhaseCaps["pre-confirm"];
+
+function assertQuote(run: CountCaptureRun, quote: CountQuote, at: string) {
+  const baseline = run.baseline;
+  const missing = quote.targets.filter((target) => !target.source).length;
+  if (
+    !baseline ||
+    quote.state !== "quoted" ||
+    Date.parse(quote.expiresAt) < Date.parse(at) ||
+    countFingerprint(quote.selection) !== countFingerprint({ mode: "ids", scopeRecordIds: [run.scopeRecordId] }) ||
+    quote.targets.length !== 2 ||
+    new Set(quote.targets.map((target) => target.query.kind)).size !== 2 ||
+    quote.plannedCredits !== missing ||
+    quote.cap !== missing ||
+    missing > countCapturePhaseCaps.acquisition ||
+    !quote.authority.allowed ||
+    quote.authority.headroom === null ||
+    quote.authority.headroom < remainingCountCaptureCap(missing) ||
+    quote.targets.some((target) => {
+      const query = countCaptureQuerySchema.safeParse(target.query);
+      const unit = baseline.units.find((unit) => unit.unitKey === target.query.unitKey);
+      return (
+        !query.success ||
+        target.scopeRecordId !== run.scopeRecordId ||
+        target.blocked ||
+        target.query.accountRevision !== baseline.selection.accountRevision ||
+        !unit ||
+        target.query.profileKey !== unit.profileKey ||
+        target.query.profileVersion !== unit.profileVersion ||
+        (target.source !== null &&
+          (!countTimeIsCurrent(target.source, at) ||
+            countFingerprint(target.source.query) !== countFingerprint(target.query)))
+      );
+    })
+  )
+    throw new CountCaptureStopped();
+}
+
 // The pre-spend notice is derived from durable run state alone: the declared host
 // authority, the recorded baseline and the fixed caps. No caller input reaches it.
 function initialNoticeBody(run: CountCaptureRun): z.infer<typeof noticeBodySchema> {
@@ -261,7 +357,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
     const outcome = await withPgTransaction(pool, async (db) => {
       await lock(db);
       const run = await latest(db, runId);
-      if (run.status === "stopped") return { accepted: false as const };
+      if (run.status !== "open") return { accepted: false as const };
       let next: CountCaptureRun;
       let value: T;
       try {
@@ -305,6 +401,19 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           throw new CountCaptureStopped();
         const usage = send.usage;
         if (phase === "acquisition") {
+          if (
+            run.quote &&
+            (!run.approvalAt ||
+              !run.finalNotice?.readBackAt ||
+              inPhase.length >= run.quote.cap ||
+              !run.quote.targets.some(
+                (target) =>
+                  !target.source &&
+                  target.query.kind === send.category &&
+                  target.query.requestFingerprint === send.requestFingerprint,
+              ))
+          )
+            throw new CountCaptureStopped();
           if (send.category === "usage" || usage || inPhase.some((entry) => entry.category === send.category))
             throw new CountCaptureStopped();
         } else if (
@@ -352,7 +461,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
       withPgTransaction(pool, async (db) => {
         await lock(db);
         const run = await latest(db, binding.runId);
-        if (run.status !== "stopped") await append(db, { ...run, status: "stopped" });
+        if (run.status === "open") await append(db, { ...run, status: "stopped" });
       }),
   };
 
@@ -361,7 +470,14 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
     read: (runId: string) => latest(pool, runId),
     // One active run at a time across every replica, and one run per host dispatch
     // ever; an unreadable run blocks admission.
-    admit: (input: Readonly<{ ownerHash: string; scopeRecordId: string; host: CountCaptureHost }>) =>
+    admit: (
+      input: Readonly<{
+        ownerHash: string;
+        scopeRecordId: string;
+        host: CountCaptureHost;
+        authority?: CountCaptureAuthority;
+      }>,
+    ) =>
       withPgTransaction(pool, async (db) => {
         await lock(db);
         const retained = await runs(db);
@@ -377,6 +493,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           status: "open",
           scopeRecordId: input.scopeRecordId,
           host: input.host,
+          authority: input.authority ?? null,
           phases: [],
           request: null,
           sends: [],
@@ -405,6 +522,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         if (phaseOrder(phase) > phaseOrder("bootstrap") && !run.usage) throw new CountCaptureStopped();
         const binding = { runId, requestId: randomUUID(), phase };
         run.phases.push(phase);
+        run.windows.push({ phase, startedAt: now(), endedAt: null });
         run.request = { requestId: binding.requestId, phase };
         return binding;
       }),
@@ -431,12 +549,179 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         run.usage = { ...usage, recordedAt: now() };
         return run.usage;
       }),
+    bindQuote: (
+      binding: CountCaptureBinding,
+      quote: CountQuote,
+      budget: z.infer<typeof countCapturePlanSchema.shape.budget>,
+      usage?: z.infer<typeof countLifecycleReceiptSchema.shape.usage> | null,
+    ) =>
+      mutate(binding.runId, (run) => {
+        bound(run, binding);
+        if (binding.phase !== "quote" || run.quote) throw new CountCaptureStopped();
+        assertQuote(run, quote, now());
+        run.quote = countQuoteSchema.parse(quote);
+        run.budget = budget;
+        run.quoteUsage = usage ?? null;
+        return run.quote;
+      }),
+    readBackQuote: (runId: string, quote: CountQuote) =>
+      mutate(runId, (run) => {
+        if (!run.quote || run.request || run.quoteReadBackAt || countFingerprint(run.quote) !== countFingerprint(quote))
+          throw new CountCaptureStopped();
+        assertQuote(run, quote, now());
+        run.quoteReadBackAt = now();
+        return run.quote;
+      }),
+    recordFinalNotice: (runId: string) =>
+      mutate(runId, (run) => {
+        if (!run.quote || !run.quoteReadBackAt || !run.quoteUsage || run.finalNotice || run.request)
+          throw new CountCaptureStopped();
+        const quote = run.quote;
+        assertQuote(run, quote, now());
+        const body = {
+          quoteId: quote.quoteId,
+          fingerprint: quote.fingerprint,
+          membershipFingerprint: quote.membershipFingerprint,
+          authority: quote.authority,
+          expiresAt: quote.expiresAt,
+          plannedCount: quote.plannedCredits,
+          serverCap: quote.cap,
+          perKindBound: 1 as const,
+          plannedKinds: quote.targets.filter((target) => !target.source).map((target) => target.query.kind),
+          reused: quote.targets.filter((target) => target.source !== null),
+          remainingPreview: 4 as const,
+          remainingPreConfirm: 4 as const,
+          usage: { ...run.quoteUsage, ageMs: Date.parse(now()) - Date.parse(run.quoteUsage.observedAt) },
+          remainingTotal: remainingCountCaptureCap(quote.plannedCredits),
+          host: run.host,
+          countDebits: "separate-from-batch-reservation" as const,
+        };
+        run.finalNotice = { recordedAt: now(), fingerprint: countFingerprint(body), readBackAt: null, body };
+        return run.finalNotice;
+      }),
+    readBackFinalNotice: (runId: string, fingerprint: string) =>
+      mutate(runId, (run) => {
+        if (
+          !run.finalNotice ||
+          run.finalNotice.readBackAt ||
+          run.finalNotice.fingerprint !== fingerprint ||
+          countFingerprint(run.finalNotice.body) !== fingerprint
+        )
+          throw new CountCaptureStopped();
+        run.finalNotice.readBackAt = now();
+        return run.finalNotice;
+      }),
+    approveAcquisition: (binding: CountCaptureBinding, quoteId: string, fingerprint: string) =>
+      mutate(binding.runId, (run) => {
+        bound(run, binding);
+        if (
+          !run.quote ||
+          run.quote.quoteId !== quoteId ||
+          run.quote.fingerprint !== fingerprint ||
+          run.approvalAt ||
+          !run.finalNotice?.readBackAt
+        )
+          throw new CountCaptureStopped();
+        assertQuote(run, run.quote, now());
+        run.approvalAt = now();
+      }),
+    retainAcquisition: (binding: CountCaptureBinding, result: CountQuote) =>
+      mutate(binding.runId, (run) => {
+        bound(run, binding);
+        const sends = run.sends.filter((send) => send.requestId === binding.requestId);
+        if (sends.length !== run.quote?.plannedCredits || sends.some((send) => send.status === null))
+          throw new CountCaptureStopped();
+        if (
+          !run.quote ||
+          result.quoteId !== run.quote.quoteId ||
+          result.fingerprint !== run.quote.fingerprint ||
+          result.state !== "complete" ||
+          result.cap !== run.quote.cap ||
+          result.plannedCredits !== run.quote.plannedCredits ||
+          result.membershipFingerprint !== run.quote.membershipFingerprint ||
+          countFingerprint(result.selection) !== countFingerprint(run.quote.selection) ||
+          result.targets.length !== 2 ||
+          result.targets.some(
+            (target, index) =>
+              !target.source ||
+              target.blocked ||
+              countFingerprint(target.query) !== countFingerprint(run.quote!.targets[index]!.query) ||
+              countFingerprint(target.source.query) !== countFingerprint(target.query) ||
+              !countTimeIsCurrent(target.source, now()),
+          )
+        )
+          throw new CountCaptureStopped();
+        run.acquisition = countQuoteSchema.parse(result);
+      }),
+    retainPlannerRead: (binding: CountCaptureBinding, row: CountCapturePlannerRead) =>
+      mutate(binding.runId, (run) => {
+        bound(run, binding);
+        const parsed = countCapturePlannerReadSchema.parse(row);
+        const scope = parsed.plan.scopes[0];
+        if (
+          parsed.requestId !== binding.requestId ||
+          parsed.phase !== binding.phase ||
+          run.reads.length !== (binding.phase === "preview" ? 0 : 1) ||
+          (binding.phase === "pre-confirm" && parsed.comparedFingerprint !== run.reads[0]?.planFingerprint) ||
+          countFingerprint(parsed.plan.selection) !== countFingerprint(run.quote?.selection) ||
+          countFingerprint(parsed.plan.budget) !== countFingerprint(run.budget) ||
+          !scope ||
+          scope.scopeRecordId !== run.scopeRecordId ||
+          scope.scopeRecordVersion !== run.baseline?.selection.scopeRecordVersion ||
+          countFingerprint(
+            scope.mappingVersions
+              .map((mapping) => ({ id: mapping.mappingId, version: mapping.version }))
+              .sort((a, b) => a.id.localeCompare(b.id)),
+          ) !==
+            countFingerprint(
+              run.baseline.units
+                .map((unit) => ({ id: unit.mappingId, version: unit.mappingVersion }))
+                .sort((a, b) => a.id.localeCompare(b.id)),
+            ) ||
+          scope.units.length !== 3 ||
+          run.baseline.units.some(
+            (unit) =>
+              !scope.units.some(
+                (selected) =>
+                  selected.selected &&
+                  selected.unitKey === unit.unitKey &&
+                  selected.profileKey === unit.profileKey &&
+                  selected.profileVersion === unit.profileVersion,
+              ),
+          )
+        )
+          throw new CountCaptureStopped();
+        run.reads.push(parsed);
+      }),
+    seal: (ownerHash: string) =>
+      withPgTransaction(pool, async (db) => {
+        await lock(db);
+        const result = await db.query<{ payload: unknown }>(
+          "SELECT payload FROM catalog_scope_sync_count_capture_history WHERE owner_hash=$1 ORDER BY position DESC LIMIT 1",
+          [ownerHash],
+        );
+        const run = parseRun(result.rows[0]?.payload);
+        if (run.ownerHash !== ownerHash || run.status === "frozen") throw new CountCaptureStopped();
+        const sealed = { ...run, status: "frozen" as const, frozenAt: now() };
+        await append(db, sealed);
+        return { ...sealed, stopped: run.status === "stopped" };
+      }),
+    retainReceipt: (runId: string, receipt: z.infer<typeof receiptSchema>) =>
+      withPgTransaction(pool, async (db) => {
+        await lock(db);
+        const run = await latest(db, runId);
+        if (run.status !== "frozen" || run.receipt) throw new CountCaptureStopped();
+        await append(db, { ...run, receipt: receiptSchema.parse(receipt) });
+        return (await latest(db, runId)).receipt!;
+      }),
     finish: (binding: CountCaptureBinding) =>
       mutate(binding.runId, (run) => {
         bound(run, binding);
         if (run.sends.some((send) => send.requestId === binding.requestId && send.status === null))
           throw new CountCaptureStopped();
         run.request = null;
+        const window = run.windows.at(-1);
+        if (window) window.endedAt = now();
       }),
   };
 }

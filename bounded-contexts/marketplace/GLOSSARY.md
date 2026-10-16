@@ -105,6 +105,27 @@ Notes:
 - Discovery Product Alerts may consume limited offer demand signals for subscribed accounts without exposing buyer identity or full Offer detail.
 - When accepted, an offer leaves public marketplace-wide demand and becomes a commitment input for the selling account in Ordering.
 
+## Offer Status
+
+**Offer Status** is the buyer-visible lifecycle state of an Offer: Open (`submitted`), Paused (`paused`), Withdrawn (`withdrawn`) or Accepted (`accepted`).
+
+Notes:
+
+- Only the Offer's buyer can Pause, Resume or Withdraw it. Pause holds an Open Offer until the buyer Resumes it; a paused Offer can still change its fixed price and returns at that price.
+- Only Open Offers are visible to sellers, product pages, search, Sell Lists, Pricing and Product Alerts, and only Open Offers can be accepted: accepting a Paused or Withdrawn Offer fails as `offer_not_open`. An already Accepted Offer keeps its existing behavior: the accepting seller's retry for the same Listing returns the original acceptance, and any other acceptance fails as `offer_already_accepted`.
+- A command that would not change the status (Pause while paused, Resume while Open, Withdraw while withdrawn) changes nothing.
+- Resuming an Offer does not send a new Product Alert.
+- The internal pre-submit `draft` state is not an Offer Status buyers see.
+
+## Offer Withdrawal
+
+An **Offer Withdrawal** is the buyer's terminal decision to end an Open or Paused Offer.
+
+Notes:
+
+- A withdrawn Offer can never be resumed, re-priced or accepted; the buyer submits a new Offer to bid again.
+- Offer Withdrawal is distinct from Buying Budget availability ([#8646](https://github.com/chase-sets/chase-sets/issues/8646)), which never changes an Offer's status.
+
 ## Limited Offer Demand Signal
 
 A **Limited Offer Demand Signal** is the restricted fact that submitted demand exists for a Product and satisfies a Product Alert price threshold.

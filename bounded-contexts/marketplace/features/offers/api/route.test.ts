@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./route";
-import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import {
+  createMarketplaceOfferRuntime,
+  MarketplaceOfferFeeQuoteStaleError,
+  type MarketplaceOfferServices,
+} from "./runtime";
 import { ManagedOfferConflictError } from "./managed-authority";
 import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
 
@@ -646,5 +651,234 @@ describe("marketplace offer routes", () => {
     const response = await app.fetch(new Request(`http://marketplace.test${path}`, { method }));
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe("buyer Offer lifecycle routes", () => {
+  const actorFor = (accountId: string, permissions = ["offers.view", "offers.manage"]) => ({
+    sessionId: `ses_${accountId}`,
+    tenantId: "tnt_identity",
+    userId: `usr_${accountId}`,
+    accountId,
+    membershipId: `mbr_${accountId}`,
+    roleKey: "owner",
+    permissions,
+  });
+
+  async function lifecycleApps(offerIds: Readonly<Record<string, string>>, lifecycleOpen = true) {
+    const eventStore = createInMemoryEventStore().eventStore;
+    const appendToStreams = vi.spyOn(eventStore, "appendToStreams");
+    const appendToStream = vi.spyOn(eventStore, "appendToStream");
+    const services = createMarketplaceOfferRuntime({
+      ...(lifecycleOpen ? { offerLifecycleAdmission: { check: async () => ({ admitted: true }) as const } } : {}),
+      eventStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      checkpointStore: {} as never,
+      commercialTermsResolver: {} as never,
+    });
+    for (const [offerId, buyerAccountId] of Object.entries(offerIds))
+      await services.commandHandler({
+        streamId: `marketplace.offer-${offerId}`,
+        command: {
+          type: "SubmitOffer",
+          offerId: offerId as never,
+          buyerAccountId: buyerAccountId as never,
+          catalogItemId: "cat_charizard" as never,
+          productId: "cat_charizard::" as never,
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          shippingDestinationSnapshot: {
+            name: "Buyer",
+            line1: "1 Main",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+          priceAmount: "350.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 1,
+        },
+        context: {
+          tenantId: "tnt_identity" as never,
+          audit: { performedByUserId: "usr_1" as never, forAccountId: buyerAccountId as never },
+        },
+      });
+    appendToStream.mockClear();
+    return {
+      eventStore,
+      writes: () => appendToStream.mock.calls.length + appendToStreams.mock.calls.length,
+      buyer: buildApp({ actor: actorFor("acc_buyer"), services }),
+      seller: buildApp({ actor: actorFor("acc_seller", ["offers.view", "offers.manage", "listings.view"]), services }),
+    };
+  }
+
+  const post = (app: Hono<MarketplaceApiEnv>, path: string, body: Record<string, unknown> = {}) =>
+    app.fetch(
+      new Request(`http://marketplace.test/account${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: "lifecycle_route_attempt_identity_01", ...body }),
+      }),
+    );
+  const patchPrice = (app: Hono<MarketplaceApiEnv>, offerId: string, priceAmount: string) =>
+    app.fetch(
+      new Request(`http://marketplace.test/account/offers/submitted/${offerId}/price`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attemptId: "lifecycle_price_attempt_identity_01",
+          priceAmount,
+          priceCurrencyCode: "USD",
+        }),
+      }),
+    );
+
+  it("refuses every lifecycle producer with 503 offer_lifecycle_closed and no write until admission opens", async () => {
+    const { buyer, writes } = await lifecycleApps({ off_1: "acc_buyer" }, false);
+    for (const [path, body] of [
+      ["/offers/submitted/off_1/pause", {}],
+      ["/offers/submitted/off_1/resume", {}],
+      ["/offers/submitted/off_1/withdraw", {}],
+      ["/offers/submitted/bulk", { action: "withdraw", offerIds: ["off_1", "off_2"] }],
+    ] as const) {
+      const response = await post(buyer, path, body);
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "offer_lifecycle_closed",
+          message: "Pausing, resuming and withdrawing Offers is not open yet. Try again later.",
+        },
+      });
+    }
+    expect(writes()).toBe(0);
+  });
+
+  it("pauses, re-prices while paused, resumes and withdraws one Offer, reporting the real status", async () => {
+    const { buyer, writes } = await lifecycleApps({ off_1: "acc_buyer" });
+    const pause = await post(buyer, "/offers/submitted/off_1/pause");
+    expect(pause.status).toBe(200);
+    await expect(pause.json()).resolves.toEqual({ id: "off_1", version: 2, status: "paused", outcome: "changed" });
+    await expect((await post(buyer, "/offers/submitted/off_1/pause")).json()).resolves.toMatchObject({
+      status: "paused",
+      outcome: "unchanged",
+    });
+    const repriced = await patchPrice(buyer, "off_1", "360.00");
+    expect(repriced.status).toBe(200);
+    await expect(repriced.json()).resolves.toEqual({ id: "off_1", version: 3, status: "paused" });
+    await expect((await post(buyer, "/offers/submitted/off_1/resume")).json()).resolves.toEqual({
+      id: "off_1",
+      version: 4,
+      status: "submitted",
+      outcome: "changed",
+    });
+    await expect((await post(buyer, "/offers/submitted/off_1/withdraw")).json()).resolves.toMatchObject({
+      status: "withdrawn",
+      outcome: "changed",
+    });
+    const writesBeforeReplay = writes();
+    const replay = await patchPrice(buyer, "off_1", "360.00");
+    await expect(replay.json()).resolves.toEqual({ id: "off_1", version: 3, status: "paused" });
+    expect(replay.headers.get("Chase-Sets-Commit-Receipt")).toBe(repriced.headers.get("Chase-Sets-Commit-Receipt"));
+    expect(replay.headers.get("Chase-Sets-Commit-Receipt")).not.toBeNull();
+    expect(writes()).toBe(writesBeforeReplay);
+  });
+
+  it("keeps a withdrawn Offer final: it cannot be resumed, re-priced or accepted", async () => {
+    const { buyer, seller } = await lifecycleApps({ off_1: "acc_buyer" });
+    await post(buyer, "/offers/submitted/off_1/withdraw");
+    const resume = await post(buyer, "/offers/submitted/off_1/resume");
+    expect(resume.status).toBe(409);
+    await expect(resume.json()).resolves.toMatchObject({ error: { code: "offer_transition_rejected" } });
+    const reprice = await patchPrice(buyer, "off_1", "360.00");
+    expect(reprice.status).toBe(400);
+    await expect(reprice.json()).resolves.toMatchObject({
+      error: { code: "validation_failed", message: "Only open or paused Offers can change price." },
+    });
+    const accept = await post(seller, "/offers/matches/off_1/accept", { listingId: "lst_1", feeQuoteFingerprint: "x" });
+    expect(accept.status).toBe(409);
+    await expect(accept.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
+  });
+
+  it("returns 409 offer_not_open when a seller accepts a paused Offer", async () => {
+    const { buyer, seller } = await lifecycleApps({ off_1: "acc_buyer" });
+    await post(buyer, "/offers/submitted/off_1/pause");
+    const accept = await post(seller, "/offers/matches/off_1/accept", { listingId: "lst_1", feeQuoteFingerprint: "x" });
+    expect(accept.status).toBe(409);
+    await expect(accept.json()).resolves.toMatchObject({
+      error: { code: "offer_not_open", details: { status: "paused" } },
+    });
+  });
+
+  it("hides another buyer's Offer from single lifecycle commands", async () => {
+    const { buyer, eventStore } = await lifecycleApps({ off_other: "acc_other" });
+    const response = await post(buyer, "/offers/submitted/off_other/withdraw");
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "not_found" } });
+    expect((await eventStore.readStream({ streamId: "marketplace.offer-off_other" })).at(-1)?.eventType).toBe(
+      "marketplace.offer.submitted",
+    );
+  });
+
+  it("returns one outcome per row for 250 mixed IDs and rejects another buyer's Offer as not_found", async () => {
+    const offers: Record<string, string> = { off_other: "acc_other" };
+    for (let index = 0; index < 200; index++) offers[`off_${String(index).padStart(3, "0")}`] = "acc_buyer";
+    const { buyer, eventStore } = await lifecycleApps(offers);
+    await post(buyer, "/offers/submitted/off_000/pause");
+    await post(buyer, "/offers/submitted/off_001/withdraw");
+    const offerIds = [
+      ...Array.from({ length: 200 }, (_, index) => `off_${String(index).padStart(3, "0")}`),
+      "off_other",
+      ...Array.from({ length: 49 }, (_, index) => `off_missing_${index}`),
+    ];
+    const response = await post(buyer, "/offers/submitted/bulk", { action: "pause", offerIds });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: { offerId: string; outcome: string; code?: string }[] };
+    expect(body.items).toHaveLength(250);
+    expect(body.items.map((item) => item.offerId)).toEqual(offerIds);
+    expect(body.items[0]).toMatchObject({ offerId: "off_000", outcome: "unchanged", status: "paused" });
+    expect(body.items[1]).toEqual({ offerId: "off_001", outcome: "rejected", code: "offer_transition_rejected" });
+    expect(body.items[2]).toMatchObject({ offerId: "off_002", outcome: "changed", status: "paused" });
+    expect(body.items[200]).toEqual({ offerId: "off_other", outcome: "rejected", code: "not_found" });
+    expect(body.items.slice(201).every((item) => item.outcome === "rejected" && item.code === "not_found")).toBe(true);
+    expect(body.items.filter((item) => item.outcome === "changed")).toHaveLength(198);
+    expect((await eventStore.readStream({ streamId: "marketplace.offer-off_other" })).at(-1)?.eventType).toBe(
+      "marketplace.offer.submitted",
+    );
+  });
+
+  it.each([
+    ["251 IDs", { action: "pause", offerIds: Array.from({ length: 251 }, (_, index) => `off_${index}`) }],
+    ["no IDs", { action: "pause", offerIds: [] }],
+    ["an unknown action", { action: "accept", offerIds: ["off_1"] }],
+    ["a malformed ID", { action: "pause", offerIds: ["off_1", "lst_1"] }],
+  ])("rejects a bulk request with %s as 400 before any write", async (_label, body) => {
+    const { buyer, writes } = await lifecycleApps({ off_1: "acc_buyer" });
+    const response = await post(buyer, "/offers/submitted/bulk", body);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "validation_failed" } });
+    expect(writes()).toBe(0);
+  });
+
+  it("passes the status filter through and returns per-status counts", async () => {
+    const services = createServices();
+    vi.mocked(services.listSubmittedOffers).mockResolvedValue({
+      items: [],
+      total: 2,
+      statusCounts: { submitted: 3, paused: 2, withdrawn: 1, accepted: 0 },
+    });
+    const app = buildApp({ actor: actorFor("acc_buyer"), services });
+    const response = await app.fetch(new Request("http://marketplace.test/account/offers/submitted?status=paused"));
+    await expect(response.json()).resolves.toMatchObject({
+      total: 2,
+      statusCounts: { submitted: 3, paused: 2, withdrawn: 1, accepted: 0 },
+    });
+    expect(services.listSubmittedOffers).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerAccountId: "acc_buyer", status: "paused" }),
+    );
+    await app.fetch(new Request("http://marketplace.test/account/offers/submitted?status=bogus"));
+    expect(services.listSubmittedOffers).toHaveBeenLastCalledWith(expect.objectContaining({ status: undefined }));
   });
 });

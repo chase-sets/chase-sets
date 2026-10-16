@@ -46,6 +46,7 @@ import type {
   MarketplaceListingCreatedPayload,
   MarketplaceListingOperatorUnlistedPayload,
   MarketplaceListingPriceUpdatedPayload,
+  MarketplaceOfferLifecyclePayload,
   MarketplaceOperatorListingEnforcementData,
   MarketplaceSalesFeeLineSnapshotPayload,
   OrderingOrderCancelledPayload,
@@ -378,6 +379,21 @@ function partitionShardModules(moduleFileNames: readonly string[], reExportedFil
     danglingReExports: reExportedFileNames.filter((fileName) => !present.has(fileName)),
   };
 }
+
+describe("marketplace Offer lifecycle payloads", () => {
+  it("registers paused, resumed and withdrawn on one closed buyer lifecycle payload", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.paused"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.resumed"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.withdrawn"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<keyof MarketplaceOfferLifecyclePayload>().toEqualTypeOf<"offerId" | "buyerAccountId" | "at">();
+  });
+});
 
 describe("Listing Removal Directive contract", () => {
   const directive = {

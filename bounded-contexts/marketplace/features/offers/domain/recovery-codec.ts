@@ -13,6 +13,7 @@ const currency = z
 const amount = z.string().regex(/^\d+\.\d{2}$/);
 const selection = z.array(z.strictObject({ dimensionId: id, optionId: id })).max(100);
 const common = { offerId: id, buyerAccountId: id, priceAmount: amount, priceCurrencyCode: currency };
+const lifecycle = z.object({ offerId: id, buyerAccountId: id, at: z.iso.datetime({ offset: true }) });
 const submission = z.object({
   ...common,
   catalogItemId: id,
@@ -27,6 +28,9 @@ const submission = z.object({
 const payloads = {
   "marketplace.offer.submitted": submission,
   "marketplace.offer.price-updated": z.object(common),
+  "marketplace.offer.paused": lifecycle,
+  "marketplace.offer.resumed": lifecycle,
+  "marketplace.offer.withdrawn": lifecycle,
   "marketplace.offer.accepted": submission.extend({
     sellerAccountId: id,
     listingId: id,
@@ -48,7 +52,7 @@ const payloads = {
     reason: id,
     evidence: z.record(z.string(), z.json()),
   }),
-};
+} satisfies Record<MarketplaceOfferEvent["type"], z.ZodType>;
 
 const codec = createPassthroughDomainEventCodec<MarketplaceOfferEvent>();
 export const marketplaceOfferRecoveryCodec: DomainEventCodec<MarketplaceOfferEvent> = {

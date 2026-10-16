@@ -194,7 +194,7 @@ export function createMarketplaceOfferMcpHandlers(services: MarketplaceOfferServ
       },
       createActorEventStoreContext(scopedActor),
     );
-    return offerReceipt(scopedActor.accountId, result, "submitted");
+    return offerReceipt(scopedActor.accountId, result, result.status);
   };
 
   const counterOffer: McpToolHandler = async ({ actor, arguments: args }) => {

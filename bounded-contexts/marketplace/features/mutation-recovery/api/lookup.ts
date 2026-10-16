@@ -6,7 +6,11 @@ import {
   type MarketplaceMutationRecoveryResult,
   type MarketplaceMutationKind,
 } from "../domain/contracts";
-import { offerAttemptResultSchema, offerAcceptanceResultSchema } from "../../offers/api/attempt-result";
+import {
+  offerAttemptResultSchema,
+  offerAcceptanceResultSchema,
+  offerPriceAttemptResultSchema,
+} from "../../offers/api/attempt-result";
 import { offerPolicyAttemptResultSchema } from "../../offer-policy/api/attempt-result";
 import { withMarketplaceAttemptReceipt } from "./receipt";
 
@@ -35,7 +39,9 @@ export function createMarketplaceMutationLookup(eventStore: Pick<EventStore, "re
         ? offerAcceptanceResultSchema
         : input.mutationKind === "offer-policy.command"
           ? offerPolicyAttemptResultSchema
-          : offerAttemptResultSchema;
+          : input.mutationKind === "offer.update-price"
+            ? offerPriceAttemptResultSchema
+            : offerAttemptResultSchema;
     const completedSchema = completedMarketplaceAttemptSchema<unknown>(resultSchema);
     let wrongOwner = false;
     const reader = {

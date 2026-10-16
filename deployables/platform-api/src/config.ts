@@ -337,6 +337,7 @@ export type PlatformApiRealtimeStreamLimiterConfig =
 export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
   Readonly<{
     checkoutClosed: boolean;
+    offerLifecycleOpen: boolean;
     channelCredentialKeyring: ChannelCredentialKeyring | null;
     ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
     catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
@@ -873,6 +874,7 @@ export function loadConfig(): PlatformApiConfig {
     ...baseConfig,
     moneyMovement: stripeProvider.moneyMovement,
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
+    offerLifecycleOpen: getBooleanEnv("CHASE_SETS_OFFER_LIFECYCLE_OPEN", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
     ebayAccountDeletionConfiguration: parseEbayAccountDeletionConfiguration(
       process.env.EBAY_ACCOUNT_DELETION_ENDPOINT,

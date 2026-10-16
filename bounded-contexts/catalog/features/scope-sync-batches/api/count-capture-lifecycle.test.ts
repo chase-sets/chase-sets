@@ -11,6 +11,7 @@ import {
 } from "../../source-observations/api/providers/scrydex/adapter";
 import * as acquisition from "../domain/count-acquisition";
 import * as plan from "../domain/count-capture-plan";
+import * as receipt from "../domain/count-lifecycle-receipt";
 import { createCountCaptureStore, type CountCaptureRun } from "../read-model/count-capture-store";
 import { guardDisabledMutant } from "../tests/count-capture-mutants";
 import {
@@ -140,6 +141,9 @@ describe("guard-disabled bypass mutants", () => {
     ...transport,
     ...acquisition,
     ...plan,
+    countCaptureAuthoritySchema: receipt.countCaptureAuthoritySchema,
+    countLifecycleReceiptSchema: receipt.countLifecycleReceiptSchema,
+    countLifecycleStopReceiptSchema: receipt.countLifecycleStopReceiptSchema,
     SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
     SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,

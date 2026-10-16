@@ -107,6 +107,11 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
+  listConsumedEventTypes,
+  PLATFORM_WORKER_KIND,
+  WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY,
+} from "@chase-sets/platform-runtime/worker-event-capability";
+import {
   createRuntimeLifecycleRegistry,
   runWithRuntimeLifecycleTimeout,
 } from "@chase-sets/platform-runtime/runtime-lifecycle";
@@ -159,7 +164,7 @@ import {
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
-const workerKind = "platform-worker";
+const workerKind = PLATFORM_WORKER_KIND;
 const platformWorkerGroupsEnabled = config.runtimeProfile !== "landing";
 const pools = createPlatformWorkerPools(config);
 await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
@@ -749,6 +754,8 @@ void projectionWakeRelaySupervisor?.done.catch((error: unknown) => {
   });
 });
 const runnerCount = runnerGroups.reduce((total, group) => total + group.runners.length, 0);
+// Producers of event types newly added to existing subscriptions admit writes only once every live worker reads them.
+const consumedEventTypes = listConsumedEventTypes(runtime.subscriptionRunners);
 const runnerCapacity = summarizeRunnerCapacity(config.pool.max, runnerGroupCapacityInputs(runnerGroups));
 const getDatabasePoolPressure = () => summarizeDatabasePoolPressure(config.pool.max, pools);
 assertRunnerCapacity(runnerCapacity, {
@@ -764,6 +771,7 @@ await runWorkerStartupDatabaseStep("record initial worker heartbeat", () =>
     metadata: {
       runtimeProfile: config.runtimeProfile,
       runnerCount,
+      [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumedEventTypes,
       runnerGroups: runnerGroupMetadata(runnerGroups),
       runnerCapacity,
       databasePoolPressure: getDatabasePoolPressure(),
@@ -779,6 +787,7 @@ const heartbeatTimer = setInterval(
         metadata: {
           runtimeProfile: config.runtimeProfile,
           runnerCount,
+          [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumedEventTypes,
           runnerGroups: runnerGroupMetadata(runnerGroups),
           runnerCapacity,
           databasePoolPressure: getDatabasePoolPressure(),

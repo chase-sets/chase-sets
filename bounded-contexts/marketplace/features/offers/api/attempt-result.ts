@@ -8,6 +8,9 @@ export const offerAttemptResultSchema = z.strictObject({
   offerId: text.transform((id) => id as OfferId),
   version: z.number().int().nonnegative().safe(),
 });
+export const offerPriceAttemptResultSchema = offerAttemptResultSchema.extend({
+  status: z.enum(["draft", "submitted", "paused", "withdrawn", "accepted"]),
+});
 export const offerAcceptanceResultSchema: z.ZodType<MarketplaceOfferAcceptanceResult> = offerAttemptResultSchema.extend(
   {
     listingId: text,

@@ -38,6 +38,7 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
     db,
     checkpointStore: {} as never,
     managedOfferPricing: pricing ?? { evaluateTargets },
+    offerLifecycleAdmission: { check: async () => ({ admitted: true }) },
     commercialTermsResolver: {
       resolveListingTerms: async ({ amount }: { amount: string }) => ({
         accountType: "personal",

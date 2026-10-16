@@ -61,6 +61,7 @@
     "bounded-contexts/catalog/features/reference-data/read-model/queries.ts",
     "bounded-contexts/catalog/features/scope-registry/read-model/projection.ts",
     "bounded-contexts/catalog/features/scope-registry/read-model/queries.ts",
+    "bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-lifecycle.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-resolution.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/api/planner.ts",
     "bounded-contexts/catalog/features/scope-sync-batches/read-model/count-capture-store.ts",
@@ -514,7 +515,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 301,
+    "count": 302,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -578,7 +579,7 @@
       "bounded-contexts/marketplace/features/listings/api/route.ts": 12,
       "bounded-contexts/marketplace/features/mutation-recovery/api/route.ts": 3,
       "bounded-contexts/marketplace/features/offer-policy/api/route.ts": 2,
-      "bounded-contexts/marketplace/features/offers/api/route.ts": 8,
+      "bounded-contexts/marketplace/features/offers/api/route.ts": 9,
       "bounded-contexts/marketplace/features/reviews/api/route.ts": 9,
       "bounded-contexts/notifications/api.ts": 3,
       "bounded-contexts/ordering/features/orders/api/route.ts": 4,

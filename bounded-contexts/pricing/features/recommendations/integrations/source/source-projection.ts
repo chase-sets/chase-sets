@@ -331,7 +331,25 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
 }
 
 export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  // Open-Offer inputs read `status = 'submitted'`; buyer Pause/Withdraw drop out and Resume restores.
+  const projectBuyerOfferStatus =
+    (status: "submitted" | "paused" | "withdrawn"): ProjectorHandlerMap[string] =>
+    async (event) => {
+      await db.query(
+        `UPDATE pricing_buyer_offer_inputs
+         SET status = $2,
+             last_stream_version = $3,
+             updated_at = $4
+         WHERE offer_id = $1
+           AND last_stream_version < $3`,
+        [(event.data as { offerId: string }).offerId, status, event.streamVersion, event.timing.recordedAt],
+      );
+    };
+
   return {
+    "marketplace.offer.paused": projectBuyerOfferStatus("paused"),
+    "marketplace.offer.resumed": projectBuyerOfferStatus("submitted"),
+    "marketplace.offer.withdrawn": projectBuyerOfferStatus("withdrawn"),
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
         listingId: string;
