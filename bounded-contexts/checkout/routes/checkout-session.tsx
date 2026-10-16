@@ -69,6 +69,7 @@ const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.enter.contact
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable",
 );
+const CHECKOUT_HANDOFF_EXPIRED_MESSAGE = t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description");
 const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
 const GUEST_SAVED_PAYMENT_UNAVAILABLE =
   "Saved payment methods are available after sign-in. Continue with card payment.";
@@ -904,7 +905,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         Date.parse(session.handoff_expires_at) <= Date.now()
       ) {
         throw new CheckoutApiError(400, {
-          error: { code: "checkout_expired", message: "This checkout handoff has expired. Start a new checkout." },
+          error: { code: "checkout_expired", message: CHECKOUT_HANDOFF_EXPIRED_MESSAGE },
         });
       }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
