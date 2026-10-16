@@ -52,7 +52,7 @@ describe("Discovery hybrid retrieval", () => {
     ])("$name", async ({ count, hybrid, mode, name }) => {
       const observed = vi.fn();
       const searchLexical = vi.fn<NonNullable<DiscoveryHybridRetrievalDependencies["searchLexical"]>>(
-        async (_db, params) => ({
+        async (_db, params = {}) => ({
           ...result(
             name === "interpreted" && params.search === "charizard"
               ? [row("interpreted")]
@@ -81,7 +81,7 @@ describe("Discovery hybrid retrieval", () => {
       expect(page.items.length).toBeGreaterThan(0);
       expect(page.retrievalMode).toBe(mode);
       expect(page.lexicalCount).toBe(mode === "corrected" ? 0 : null);
-      expect(searchLexical.mock.calls[0]?.[1].includeTotal).toBe(hybrid);
+      expect(searchLexical.mock.calls[0]?.[1]?.includeTotal).toBe(hybrid);
     });
 
     it.each(["empty", "cursor", "structured", "provider-failure", "before-read", "after-read"] as const)(
