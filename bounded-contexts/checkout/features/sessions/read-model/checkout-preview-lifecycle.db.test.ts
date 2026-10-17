@@ -610,14 +610,13 @@ describeDb("checkout preview lifecycle", () => {
     await syncProjectionGroup(sessionGroup);
     const check = async () => {
       for (const [index, sessionId] of ids.entries()) {
-        const handoffExpiresAt = (await getCheckoutSession(pools!.checkout, sessionId, actor.accountId))?.handoff_expires_at;
+        const handoffExpiresAt = (await getCheckoutSession(pools!.checkout, sessionId, actor.accountId))
+          ?.handoff_expires_at;
         const normalizedHandoffExpiresAt =
           (handoffExpiresAt as unknown) instanceof Date
             ? (handoffExpiresAt as unknown as Date).toISOString()
             : handoffExpiresAt;
-        expect(normalizedHandoffExpiresAt).toBe(
-          index === 0 ? expiresAt : null,
-        );
+        expect(normalizedHandoffExpiresAt).toBe(index === 0 ? expiresAt : null);
       }
     };
     await check();
