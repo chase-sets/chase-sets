@@ -124,7 +124,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [5685],
         productTruthRefs: [
           ...paymentChargeTimingAndCaptureProductTruthRefs,
-          "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+          "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376",
         ],
         openQuestions: [
           "What, if anything, may the policy say about the descriptor a card or bank statement will display? Sending a suffix does not establish issuer display.",
@@ -143,7 +143,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Checkout creates and records Orders before requesting Payment; neither Order creation nor Payment creation proves nonzero capture.",
             evidenceRef:
-              "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437; bounded-contexts/payments/features/payments/api/runtime.ts:2099-2106",
+              "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376; bounded-contexts/payments/features/payments/api/runtime.ts:2099-2106",
           },
         ],
         canonicalClaims: [

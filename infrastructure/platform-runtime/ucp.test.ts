@@ -2091,7 +2091,7 @@ describe("UCP MCP routes", () => {
   );
 
   it.each(["legacy", "modern"])(
-    "returns trusted checkout handoff for OAuth actors without UCP signed-write headers (%s)",
+    "refuses non-grant unsigned complete instead of the retired trusted-handoff shortcut (%s)",
     async (era) => {
       const app = new Hono<{
         Variables: {
@@ -2144,16 +2144,13 @@ describe("UCP MCP routes", () => {
           era === "modern" ? modernHeaders("tools/call", "complete_checkout") : { "Content-Type": "application/json" },
       });
 
+      // Brief dispatch table replaces the any-OAuth-actor shortcut with a grant requirement.
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
         result: {
           structuredContent: {
-            ucp: { status: "requires_action" },
-            action: {
-              type: "trusted_checkout_handoff",
-              url: "/checkout/chk_1",
-            },
-            messages: [{ code: "trusted_ui_required" }],
+            ucp: { status: "error" },
+            messages: [{ code: "authorization_forbidden" }],
           },
           _meta: {
             ui: {

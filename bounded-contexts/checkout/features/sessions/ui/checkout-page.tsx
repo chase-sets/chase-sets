@@ -90,7 +90,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
 
       <CheckoutNoticeStack candidates={model.noticeCandidates} />
 
-      {model.preparedPaymentEntry ? (
+      {props.expiredCheckout ? null : model.preparedPaymentEntry ? (
         model.preparedPaymentEntry
       ) : model.session.payment_id ? (
         <CheckoutConfirmationSection
@@ -203,15 +203,16 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     </Stack>
   );
 
-  const stickyAction = model.preparedPaymentEntry ? null : (
-    <CheckoutStickyAction
-      totalsTotalLabel={model.totalsTotalLabel}
-      hasPayment={model.hasPayment}
-      totalsTotal={model.totalsTotal}
-      isOfferIntent={model.isOfferIntent}
-      commitButtonProps={commitButtonProps}
-    />
-  );
+  const stickyAction =
+    props.expiredCheckout || model.preparedPaymentEntry ? null : (
+      <CheckoutStickyAction
+        totalsTotalLabel={model.totalsTotalLabel}
+        hasPayment={model.hasPayment}
+        totalsTotal={model.totalsTotal}
+        isOfferIntent={model.isOfferIntent}
+        commitButtonProps={commitButtonProps}
+      />
+    );
 
   return (
     <Page>
