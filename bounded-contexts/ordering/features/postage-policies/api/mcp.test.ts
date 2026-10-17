@@ -84,7 +84,7 @@ function native(fakeServices: PostagePolicyServices) {
     authority: {
       kind: "granted",
       membershipId: actor.membershipId,
-      roleKey: actor.roleKey,
+      roleKey: "platform-admin",
       rolePermissions: actor.permissions,
     },
   };
@@ -421,7 +421,7 @@ describe("ordering postage policy MCP handlers", () => {
       (await boundary.call("ordering.create-postage-policy", { ...createArguments, label: "Conflicting" })).result
         .isError,
     ).toBe(true);
-    boundary.state.authority = { kind: "denied", reason: "revoked" };
+    boundary.state.authority = { kind: "denied", reason: "inactive" };
     expect((await boundary.call("ordering.create-postage-policy", createArguments)).result.isError).toBe(true);
     expect(fakeServices.createPolicy).toHaveBeenCalledOnce();
     expect(boundary.audits.at(-1)).toMatchObject({ outcome: "denied", actorId: actor.userId });
