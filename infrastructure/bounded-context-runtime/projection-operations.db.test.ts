@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   defineBoundedContextModule,
   defineBcProjectionGroupReset,
@@ -54,6 +54,8 @@ if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
+// Fails the ledger race gate well inside the test timeout when the competing claim never arrives.
+const CLAIM_ADMISSION_TIMEOUT_MS = 10_000;
 
 type TestContextName = "source" | "target";
 type TestOrderCommands = Readonly<{
@@ -296,6 +298,47 @@ async function hasReactionOrderForSource(db: PgTransactionalPool, sourceId: stri
 }
 
 const targetPorts: TestPorts = {};
+
+describe("ledger race claim admission gate", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("times out when the competing claim neither arrives nor settles", async () => {
+    const neverClaimed = createDeferred<void>().promise;
+    const neverSettled = createDeferred<void>().promise;
+    let outcome: string | undefined;
+    void waitForClaimAdmission(neverClaimed, neverSettled, CLAIM_ADMISSION_TIMEOUT_MS).then((value) => {
+      outcome = value;
+    });
+
+    await vi.advanceTimersByTimeAsync(CLAIM_ADMISSION_TIMEOUT_MS - 1);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toBe("timeout");
+  });
+
+  it("reports claim submission or settlement before the bound and clears its timer", async () => {
+    const claimSubmitted = createDeferred<void>();
+    const neverClaimed = createDeferred<void>().promise;
+    const neverSettled = createDeferred<void>().promise;
+    const claimed = waitForClaimAdmission(claimSubmitted.promise, neverSettled, CLAIM_ADMISSION_TIMEOUT_MS);
+    claimSubmitted.resolve();
+    await expect(claimed).resolves.toBe("claim-submitted");
+
+    await expect(waitForClaimAdmission(neverClaimed, Promise.resolve(), CLAIM_ADMISSION_TIMEOUT_MS)).resolves.toBe(
+      "settled",
+    );
+    await expect(
+      waitForClaimAdmission(neverClaimed, Promise.reject(new Error("run failed")), CLAIM_ADMISSION_TIMEOUT_MS),
+    ).resolves.toBe("settled");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
 
 describeDb("projection operations Postgres integration", () => {
   let pools: Readonly<Record<TestContextName, PgTransactionalPool>>;
@@ -1006,13 +1049,7 @@ describeDb("projection operations Postgres integration", () => {
     // Release only once the competing claim is provably waiting on the primary's
     // uncommitted ledger row; an unsettled run alone may not have read its checkpoint.
     await expect(
-      Promise.race([
-        competingClaim.claimSubmitted.promise.then(() => "claim-submitted"),
-        competingRun.then(
-          () => "settled",
-          () => "settled",
-        ),
-      ]),
+      waitForClaimAdmission(competingClaim.claimSubmitted.promise, competingRun, CLAIM_ADMISSION_TIMEOUT_MS),
     ).resolves.toBe("claim-submitted");
     const claimWait = await waitForBackendBlock(pools.target, primaryBackendPid, competingClaim.claimBackendPid);
     expect(claimWait).toMatchObject({ wait_event_type: "Lock", wait_event: "transactionid" });
@@ -2658,6 +2695,29 @@ async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): P
       setTimeout(() => resolve(false), timeoutMs);
     }),
   ]);
+}
+
+// Distinguishes a submitted competing claim from an early settle or a bounded timeout.
+async function waitForClaimAdmission(
+  claimSubmitted: Promise<void>,
+  run: Promise<unknown>,
+  timeoutMs: number,
+): Promise<"claim-submitted" | "settled" | "timeout"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      claimSubmitted.then(() => "claim-submitted" as const),
+      run.then(
+        () => "settled" as const,
+        () => "settled" as const,
+      ),
+      new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function delay(timeoutMs: number): Promise<void> {
