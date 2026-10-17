@@ -227,6 +227,9 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
         400,
       );
     }
+    if (badgeKey === "manual-payout-review") {
+      return c.json({ error: { code: "validation_failed", message: "Manual payout review is now a Settlement payout review hold." } }, 400);
+    }
 
     const result = await services.commandHandler({
       streamId: `identity.account-${accountId}`,
@@ -260,6 +263,9 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
         },
         400,
       );
+    }
+    if (badgeKey === "manual-payout-review") {
+      return c.json({ error: { code: "validation_failed", message: "Manual payout review is now a Settlement payout review hold." } }, 400);
     }
 
     const result = await services.commandHandler({

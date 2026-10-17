@@ -638,6 +638,29 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(
   };
 }
 
+/** Settlement-owned hold projection. The stream version guard prevents a delayed fact from
+ * overwriting a newer command while preserving the event-store version observed by queries. */
+export function buildSettlementPayoutReviewHoldProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  async function write(event: Parameters<NonNullable<ProjectorHandlerMap[string]>>[0], active: boolean) {
+    const data = event.data as { accountId: string };
+    const version = Number(event.streamVersion ?? 0);
+    await db.query(
+      `INSERT INTO settlement_account_risk_sources (account_id, payout_review_hold, payout_review_hold_stream_version, updated_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (account_id) DO UPDATE SET
+         payout_review_hold = EXCLUDED.payout_review_hold,
+         payout_review_hold_stream_version = EXCLUDED.payout_review_hold_stream_version,
+         updated_at = EXCLUDED.updated_at
+       WHERE settlement_account_risk_sources.payout_review_hold_stream_version < EXCLUDED.payout_review_hold_stream_version`,
+      [data.accountId, active, version, event.timing.recordedAt],
+    );
+  }
+  return {
+    "settlement.payout-review-hold.placed": (event) => write(event, true),
+    "settlement.payout-review-hold.released": (event) => write(event, false),
+  };
+}
+
 export function buildSettlementReputationAccountRiskSourceProjectionHandlers(
   db: PgQueryable,
   deps: AccountRiskSourcePolicyDeps = {},

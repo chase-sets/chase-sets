@@ -11,6 +11,7 @@ import { createPayoutBoundsPolicyRoutes } from "./features/payouts/api/payout-bo
 import { createPayoutReadinessRoutes } from "./features/payout-readiness/api/route";
 import { payoutUnavailableReasonLabel } from "./features/payouts/domain/reason-codes";
 import { buildPayoutSetupProgress } from "./features/payout-readiness/domain/setup-progress";
+import { createPayoutReviewHoldRoutes } from "./features/wallets/api/payout-review-hold-route";
 
 export type SettlementApiEnv = AuthenticatedApiEnv;
 
@@ -97,6 +98,7 @@ export function buildSettlementApi(services: SettlementServices) {
   });
 
   app.route("/", createWalletRoutes(services.wallets));
+  app.route("/", createPayoutReviewHoldRoutes(services.payoutReviewHold));
   app.route("/", createWalletAdjustmentRoutes(services.walletAdjustments, services.wallets));
   app.route("/", createStagingProofCreditRoutes(services.stagingProofCredits));
   app.route("/", createPayoutReadinessRoutes(services.payoutReadiness));

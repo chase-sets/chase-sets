@@ -13,10 +13,15 @@ import {
   Stack,
   Text,
   Banner,
+  Button,
+  HiddenInput,
+  Textarea,
   type DataColumn,
   type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
+import type { SettlementPayoutReviewHold } from "../../../client";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
 import type { SettlementWalletAdjustmentPreview } from "../../../client";
 import type { WalletAdjustmentFlowError } from "../../../support/request-support/wallet-adjustment-flow-error";
@@ -56,13 +61,16 @@ export type WalletWorkbenchLedgerFilters = Readonly<{
 }>;
 
 export type WalletWorkbenchLastAction = Readonly<{
-  intent: WalletAdjustmentFormIntent;
+  intent: WalletAdjustmentFormIntent | "place-payout-review-hold" | "release-payout-review-hold";
   adjustmentId?: string | null;
   snapshot?: SettlementWalletAdjustmentRow | null;
   reversal?: SettlementWalletAdjustmentRow | null;
   preview?: SettlementWalletAdjustmentPreview | null;
   values?: WalletAdjustmentGuidedFlowValues | null;
   error?: WalletAdjustmentFlowError | null;
+  holdReason?: string | null;
+  holdError?: string | null;
+  holdResult?: { outcome: "placed" | "released" | "noop"; version: number } | null;
 }>;
 
 export interface SettlementWalletWorkbenchPageProps {
@@ -78,6 +86,80 @@ export interface SettlementWalletWorkbenchPageProps {
   currentActorUserId?: string;
   lastAction?: WalletWorkbenchLastAction | null;
   marketplaceOrigin?: string | null;
+  payoutReviewHold?: SettlementPayoutReviewHold | null;
+}
+
+function PayoutReviewHoldPanel({
+  hold,
+  actorPermissions,
+  lastAction,
+}: {
+  hold: SettlementPayoutReviewHold | null | undefined;
+  actorPermissions: readonly string[];
+  lastAction?: WalletWorkbenchLastAction | null;
+}) {
+  const canManage = actorPermissions.includes("payout-review-holds.manage");
+  if (!canManage && !hold?.active) return null;
+  return (
+    <PageSection
+      title={t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold")}
+      data-testid="payout-review-hold-panel"
+    >
+      {hold?.active ? (
+        <Stack gap={1}>
+          <Badge tone="danger">{t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.held")}</Badge>
+          <Text>
+            {hold.reason ?? t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.reason")}
+          </Text>
+          <Text size="sm" tone="secondary">
+            {t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.source", {
+              source: hold.source ?? "unknown",
+            })}{" "}
+            ·{" "}
+            {t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.actor", {
+              actor: hold.actorUserId ?? "unknown",
+            })}{" "}
+            ·{" "}
+            {t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.occurred", {
+              date: hold.occurredAt ?? "unknown time",
+            })}
+          </Text>
+        </Stack>
+      ) : (
+        <Text tone="secondary">
+          {t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.not.held")}
+        </Text>
+      )}
+      {canManage ? (
+        <RouterForm method="post" spacing="none">
+          <HiddenInput
+            type="hidden"
+            name="intent"
+            value={hold?.active ? "release-payout-review-hold" : "place-payout-review-hold"}
+          />
+          <Textarea
+            label={t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.reason")}
+            name="reason"
+            required
+            maxLength={500}
+            rows={3}
+          />
+          <Button type="submit" tone={hold?.active ? "danger" : "primary"}>
+            {hold?.active
+              ? t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.release")
+              : t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.place")}
+          </Button>
+        </RouterForm>
+      ) : null}
+      {lastAction?.holdError ? (
+        <Banner
+          tone="danger"
+          title={t("settlement.features.wallets.ui.walletWorkbenchPage.payout.review.hold.failed")}
+          description={lastAction.holdError}
+        />
+      ) : null}
+    </PageSection>
+  );
 }
 
 function hasPermission(actorPermissions: readonly string[], permission: string) {
@@ -655,6 +737,11 @@ export function SettlementWalletWorkbenchPage(props: SettlementWalletWorkbenchPa
         description={t("settlement.features.wallets.ui.walletWorkbenchPage.account.id.reference", { accountId })}
       />
       {wallet ? <AccountBalanceSummary wallet={wallet} /> : null}
+      <PayoutReviewHoldPanel
+        hold={props.payoutReviewHold}
+        actorPermissions={actorPermissions}
+        lastAction={props.lastAction}
+      />
       {canCreate && wallet ? (
         <CreateAdjustmentForm
           accountId={accountId}

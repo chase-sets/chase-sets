@@ -144,6 +144,7 @@ import {
   type SettlementSupportLookupRow,
   type SettlementWalletAdjustmentSupportLookupRow,
 } from "@chase-sets/settlement/server";
+import type { PayoutReviewHoldCrossContextPort } from "@chase-sets/platform-operations/server";
 import {
   attachApiMountMiddleware,
   assertApiRouteTableHasNoCollisions,
@@ -356,6 +357,27 @@ export function createPlatformApiHost(
         ]
       : []),
   ];
+  const payoutReviewHoldCrossContext: PayoutReviewHoldCrossContextPort | undefined = settlementPool
+    ? {
+        placeRiskAlertHold: (input, context) => {
+          const settlement = runtime?.services.settlement as SettlementServices | undefined;
+          if (!settlement) throw new Error("Settlement services are not composed on this host.");
+          if (!input.actorPermissions.includes("payout-review-holds.manage")) {
+            throw new Error("Payout review hold permission is required.");
+          }
+          return settlement.payoutReviewHold.place(
+            {
+              accountId: input.accountId as never,
+              reason: input.reason,
+              source: "risk-alert",
+              sourceReference: input.sourceReference,
+              actorPermissions: input.actorPermissions,
+            },
+            context,
+          );
+        },
+      }
+    : undefined;
   const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),
     () => runtime?.services.marketplace as MarketplaceServices | undefined,
@@ -712,6 +734,7 @@ export function createPlatformApiHost(
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
       providerConnectionsCrossContext,
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
+      ...(payoutReviewHoldCrossContext ? { payoutReviewHoldCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
       draftListingCreator,

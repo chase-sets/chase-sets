@@ -1,12 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { Badge, Inline, VisuallyHidden } from "@chase-sets/design-system";
 
-export const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
+export const accountBadgeKeys = ["founding-account", "trusted-seller"] as const;
 export type AccountBadgeKey = (typeof accountBadgeKeys)[number];
 
 export const accountBadgeLabels: Record<AccountBadgeKey, string> = {
   "founding-account": t("identity.features.accounts.ui.accountBadges.founding.account"),
-  "manual-payout-review": t("identity.features.accounts.ui.accountBadges.manual.payout.review"),
   "trusted-seller": t("identity.features.accounts.ui.accountBadges.trusted.seller"),
 };
 

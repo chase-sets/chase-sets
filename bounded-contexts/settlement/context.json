@@ -2,7 +2,7 @@
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
   "localeCatalogs": ["contracts/localization/locales/en/settlement.ts"],
-  "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
+  "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry", "payout-review-hold"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
   "slices": [
@@ -19,6 +19,26 @@
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
   "seedRequirements": ["identity", "payments"],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "identity",
+      "projectionName": "settlement-payout-review-hold-migration",
+      "subscriptionVersion": 1,
+      "subscriptionName": "settlement-payout-review-hold-migration",
+      "filterToEventTypes": true,
+      "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
+      "order": 21,
+      "projectionHandlerSetNames": ["settlement-payout-review-hold-migration"]
+    },
+    {
+      "sourceContextName": "settlement",
+      "projectionName": "settlement-account-risk-source-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "settlement.settlement-account-risk-source-projection",
+      "filterToEventTypes": true,
+      "eventTypes": ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
+      "order": 72,
+      "projectionHandlerSetNames": ["settlement-account-risk-source-projection"]
+    },
     {
       "sourceContextName": "payments",
       "projectionName": "settlement-payment-input-projection",
@@ -182,6 +202,14 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "settlement-payout-review-hold-migration",
+      "sourceContextNames": ["identity"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "settlement-payment-input-projection",
       "sourceContextNames": ["payments"],
       "ownedTables": [
@@ -235,7 +263,7 @@
     {
       "projectionName": "settlement-account-risk-source-projection",
       "projectionRevision": 3,
-      "sourceContextNames": ["identity", "marketplace", "payments"],
+      "sourceContextNames": ["identity", "marketplace", "payments", "settlement"],
       "ownedTables": [
         "settlement_account_risk_sources",
         "settlement_account_review_sources",
@@ -788,6 +816,35 @@
     }
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "settlement.payout-review-hold-command-snapshot",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/wallets/api/payout-review-hold-route.ts:POST /accounts/:accountId/payout-review-hold",
+        "api-route:bounded-contexts/settlement/features/wallets/api/payout-review-hold-route.ts:DELETE /accounts/:accountId/payout-review-hold"
+      ],
+      "visibleDestination": { "description": "The hold command returns its committed stream version and outcome without waiting for projection." },
+      "proof": {
+        "authoritativeResponse": "Place and release return the aggregate command outcome and stream version.",
+        "tests": ["bounded-contexts/settlement/features/wallets/domain/payout-review-hold.test.ts"]
+      }
+    },
+    {
+      "id": "settlement.payout-review-hold-workbench-command",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.tsx:Hb08a81ecfd73#1"
+      ],
+      "visibleDestination": { "description": "The wallet workbench submits a reasoned hold command and renders the committed outcome after revalidation." },
+      "proof": {
+        "authoritativeResponse": "The Settlement hold route returns the aggregate outcome and version; the workbench never treats projection state as command authority.",
+        "tests": ["bounded-contexts/settlement/features/wallets/domain/payout-review-hold.test.ts"]
+      }
+    },
     {
       "id": "settlement.staging-proof-credit-receipt",
       "owner": "settlement",

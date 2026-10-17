@@ -7,6 +7,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
+import type { SettlementPayoutReviewHold } from "../../../client";
 import { SettlementWalletWorkbenchPage, type SettlementWalletWorkbenchPageProps } from "./wallet-workbench-page";
 
 function wallet(overrides: Partial<SettlementWalletRow> = {}): SettlementWalletRow {
@@ -129,6 +130,26 @@ describe("SettlementWalletWorkbenchPage", () => {
     expect(screen.getByText(/No ledger/)).toBeTruthy();
     const balanceSection = screen.getByTestId("wallet-balance-summary-furniture");
     expect(balanceSection.querySelector(".ds-glass")).toBeNull();
+  });
+
+  it("shows the stream-backed payout review hold details and release form", () => {
+    const hold: SettlementPayoutReviewHold = {
+      accountId: "acc_test" as never,
+      active: true,
+      streamExists: true,
+      hasNonMigrationEvent: true,
+      reason: "Operator review",
+      source: "operator",
+      sourceReference: null,
+      actorUserId: "usr_operator",
+      occurredAt: "2026-10-17T00:00:00.000Z",
+      version: 1,
+    };
+    renderWorkbench({ payoutReviewHold: hold, actorPermissions: ["payout-review-holds.manage"] });
+
+    expect(screen.getByTestId("payout-review-hold-panel")).toBeTruthy();
+    expect(screen.getByText("Operator review")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Release hold" })).toBeTruthy();
   });
 
   it("surfaces negative-balance and collections consequences without implying promotional credit", () => {

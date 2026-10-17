@@ -12,7 +12,7 @@ const actor = Object.freeze({
   accountId: "acc_synthetic_operator",
   membershipId: "mbr_synthetic_operator",
   roleKey: "platform-admin",
-  permissions: Object.freeze(["support.manage", "reported-content.view"]),
+  permissions: Object.freeze(["support.manage", "reported-content.view", "payout-review-holds.manage"]),
 }) satisfies ResolvedActor;
 const context = Object.freeze({
   tenantId: "tnt_synthetic_operator",
@@ -47,7 +47,7 @@ describe("risk-alerts HTTP authorization", () => {
           "actor",
           granted
             ? actor
-            : { ...actor, permissions: actor.permissions.filter((key) => key !== "reported-content.view") },
+            : { ...actor, permissions: actor.permissions.filter((key) => key !== "reported-content.view" && key !== "payout-review-holds.manage") },
         );
         c.set("context", context);
         await next();
@@ -78,6 +78,7 @@ describe("risk-alerts HTTP authorization", () => {
               action,
               note: body.note,
               operatorUserId: actor.userId,
+              ...(action === "request-manual-payout-review" ? { actorPermissions: actor.permissions } : {}),
             },
             context,
           );
