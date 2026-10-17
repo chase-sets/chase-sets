@@ -108,6 +108,18 @@ describe("staging count capture lifecycle", () => {
       await next();
     });
     app.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes(fixture.runtime, fixture.lifecycle));
+    const routePaths: Record<string, string> = {
+      "capture-baseline": "/count-capture/baseline",
+      "capture-initial-notice": "/count-capture/initial-notice",
+      "capture-usage": "/count-capture/usage",
+      "count-quote": "/counts/quote",
+      "capture-quote-readback": "/count-capture/quote-readback",
+      "capture-final-notice": "/count-capture/final-notice",
+      "count-acquire": "/counts/acquire",
+      preview: "/preview",
+      "pre-confirm-planner-read": "/count-capture/pre-confirm",
+      "capture-freeze": "/count-capture/freeze",
+    };
     const post = (path: string, body: unknown) =>
       app.request(`https://admin.staging.chasesets.com/api/catalog/scope-sync-batches${path}`, {
         method: "POST",
@@ -159,7 +171,7 @@ describe("staging count capture lifecycle", () => {
           binding: null,
           collectedAt: mode === "scope-refresh" ? "2026-10-13T08:05:00.000Z" : fixture.clock.now,
         };
-      const response = await post(paths[intent]![0], body);
+      const response = await post(routePaths[intent]!, body);
       const value = await response.json();
       if (!response.ok) throw new Error(`action-${intent}-${response.status}`);
       if ((mode === "cap-overflow" || mode === "replay") && intent === "count-acquire") {
