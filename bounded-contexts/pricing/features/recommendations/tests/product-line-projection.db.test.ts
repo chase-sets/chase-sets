@@ -9,7 +9,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import { buildPricingCatalogInputProjectionHandlers } from "../integrations/source/source-projection";
-import { readCatalogItemProductLineInputs } from "../../../server";
+import { readCatalogItemProductLineInputs } from "../read-model/catalog-product-line-inputs";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required in CI.");

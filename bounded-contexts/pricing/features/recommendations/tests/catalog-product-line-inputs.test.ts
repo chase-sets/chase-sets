@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { readCatalogItemProductLineInputs } from "../../../server";
+import { readCatalogItemProductLineInputs } from "../read-model/catalog-product-line-inputs";
 
 describe("C-facing Catalog Product Line input adapter", () => {
   it("loads one set of item ids and maps the shared reference or explicit null", async () => {
