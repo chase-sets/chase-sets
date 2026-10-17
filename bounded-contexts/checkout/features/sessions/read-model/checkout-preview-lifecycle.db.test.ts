@@ -609,10 +609,12 @@ describeDb("checkout preview lifecycle", () => {
     }
     await syncProjectionGroup(sessionGroup);
     const check = async () => {
-      for (const [index, sessionId] of ids.entries())
-        expect((await getCheckoutSession(pools!.checkout, sessionId, actor.accountId))?.handoff_expires_at).toBe(
+      for (const [index, sessionId] of ids.entries()) {
+        const handoffExpiresAt = (await getCheckoutSession(pools!.checkout, sessionId, actor.accountId))?.handoff_expires_at;
+        expect(handoffExpiresAt instanceof Date ? handoffExpiresAt.toISOString() : handoffExpiresAt).toBe(
           index === 0 ? expiresAt : null,
         );
+      }
     };
     await check();
     await rebuildProjectionGroup(sessionGroup);
