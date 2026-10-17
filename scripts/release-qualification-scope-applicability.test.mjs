@@ -30,6 +30,44 @@ const AC12_FIXTURE = JSON.parse(
   readFileSync(new URL("./fixtures/release-qualification-ac12/ac12-candidate-sweep-v1.json", import.meta.url), "utf8"),
 );
 
+function assertAc12PinnedEvidence(AC12_FIXTURE, candidate, mergeBase) {
+  const tree = (sha) => execFileSync("git", ["rev-parse", `${sha}^{tree}`], { encoding: "utf8" }).trim();
+  const governed = (sha) =>
+    listNonTestTypeScriptModules(process.cwd(), {
+      execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
+    });
+
+  if (candidate && mergeBase) {
+    expect(tree(candidate)).toBe(AC12_FIXTURE.candidate.treeSha);
+    expect(tree(mergeBase)).toBe(AC12_FIXTURE.mergeBase.treeSha);
+    expect(execFileSync("git", ["merge-base", candidate, mergeBase], { encoding: "utf8" }).trim()).toBe(mergeBase);
+    expect(
+      execFileSync("git", ["diff", "--name-only", mergeBase, candidate], { encoding: "utf8" })
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual(AC12_FIXTURE.changedFiles);
+    const governedCandidate = governed(candidate);
+    expect(governedCandidate).toEqual(governed(mergeBase));
+    expect(createHash("sha256").update(JSON.stringify(governedCandidate)).digest("hex")).toBe(
+      AC12_FIXTURE.governedModulesSha256,
+    );
+    return;
+  }
+
+  if (!mergeBase) throw new Error(`AC12_PINNED_MERGE_BASE ${AC12_FIXTURE.mergeBase.sha}`);
+  expect(tree(mergeBase)).toBe(AC12_FIXTURE.mergeBase.treeSha);
+  expect(AC12_FIXTURE.changedFiles).toEqual([
+    "scripts/release-qualification-scope-applicability.mjs",
+    "scripts/release-qualification-scope-applicability.test.mjs",
+  ]);
+  expect(
+    createHash("sha256")
+      .update(JSON.stringify(governed(mergeBase)))
+      .digest("hex"),
+  ).toBe(AC12_FIXTURE.governedModulesSha256);
+}
+
 function fixture(extra = {}, packages = []) {
   const root = mkdtempSync(path.join(os.tmpdir(), "release-applicability-"));
   tempRoots.push(root);
@@ -964,34 +1002,31 @@ describe("release qualification applicability evaluator", () => {
     };
     const candidate = resolvePinnedCommit(AC12_FIXTURE.candidate.sha);
     const mergeBase = resolvePinnedCommit(AC12_FIXTURE.mergeBase.sha);
-    if (candidate && mergeBase) {
-      const tree = (sha) => execFileSync("git", ["rev-parse", `${sha}^{tree}`], { encoding: "utf8" }).trim();
-      expect(tree(candidate)).toBe(AC12_FIXTURE.candidate.treeSha);
-      expect(tree(mergeBase)).toBe(AC12_FIXTURE.mergeBase.treeSha);
-      expect(execFileSync("git", ["merge-base", candidate, mergeBase], { encoding: "utf8" }).trim()).toBe(mergeBase);
-      expect(
-        execFileSync("git", ["diff", "--name-only", mergeBase, candidate], { encoding: "utf8" })
-          .trim()
-          .split(/\r?\n/)
-          .filter(Boolean),
-      ).toEqual(AC12_FIXTURE.changedFiles);
-      const governed = (sha) =>
-        listNonTestTypeScriptModules(process.cwd(), {
-          execGit: () =>
-            execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
-        });
-      const governedCandidate = governed(candidate);
-      expect(governedCandidate).toEqual(governed(mergeBase));
-      expect(createHash("sha256").update(JSON.stringify(governedCandidate)).digest("hex")).toBe(
-        AC12_FIXTURE.governedModulesSha256,
-      );
-    } else {
-      expect(AC12_FIXTURE.changedFiles).toEqual([
-        "scripts/release-qualification-scope-applicability.mjs",
-        "scripts/release-qualification-scope-applicability.test.mjs",
-      ]);
-      expect(AC12_FIXTURE.governedModulesSha256).toMatch(/^[a-f0-9]{64}$/);
-    }
+    process.stdout.write(
+      `AC12_PINNED_EVIDENCE ${JSON.stringify({ branch: candidate && mergeBase ? "live" : "fallback" })}\n`,
+    );
+    assertAc12PinnedEvidence(AC12_FIXTURE, candidate, mergeBase);
+  });
+
+  it("AC12 fallback rejects a tampered merge-base tree or governed digest", () => {
+    const mergeBase = AC12_FIXTURE.mergeBase.sha;
+    expect(() => assertAc12PinnedEvidence(AC12_FIXTURE, null, mergeBase)).not.toThrow();
+
+    const tamperedTree = structuredClone(AC12_FIXTURE);
+    tamperedTree.mergeBase.treeSha = "0".repeat(40);
+    expect(() => assertAc12PinnedEvidence(tamperedTree, null, mergeBase)).toThrowError(
+      expect.stringContaining(tamperedTree.mergeBase.treeSha),
+    );
+
+    const tamperedDigest = structuredClone(AC12_FIXTURE);
+    tamperedDigest.governedModulesSha256 = "0".repeat(64);
+    expect(() => assertAc12PinnedEvidence(tamperedDigest, null, mergeBase)).toThrowError(
+      expect.stringContaining(tamperedDigest.governedModulesSha256),
+    );
+
+    expect(() => assertAc12PinnedEvidence(AC12_FIXTURE, null, null)).toThrowError(
+      expect.stringContaining(AC12_FIXTURE.mergeBase.sha),
+    );
   });
 
   function neutralityError(code, reachedClause) {
