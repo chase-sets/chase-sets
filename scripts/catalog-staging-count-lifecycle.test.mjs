@@ -303,6 +303,9 @@ describe("runner-owned upload proof", () => {
     CATALOG_CAPTURE_DISPATCH_ID: "synthetic-dispatch",
     CATALOG_CAPTURE_SCOPE_RECORD_ID: "synthetic-scope",
     CATALOG_CAPTURE_AUTHORITY: JSON.stringify(syntheticCountCaptureAuthority()),
+    CATALOG_ADMIN_E2E_EMAIL: "synthetic-admin@example.com",
+    CATALOG_ADMIN_E2E_PASSWORD: "synthetic-password",
+    GH_TOKEN: "synthetic-token",
   };
   const stop = syntheticCountLifecycleStopReceipt();
   async function fixture() {
