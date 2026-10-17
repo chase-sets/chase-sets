@@ -22,6 +22,7 @@ import {
 } from "../../features/offers/domain/versioning";
 import { addReviewWindowDays, REVIEW_WINDOW_DAYS, type ReviewRole } from "../../features/reviews/domain/common";
 import { buildListingEvidenceSnapshot } from "../../features/listings/domain/evidence-snapshot";
+import { normalizeMarketplaceListingFeeLock, totalFeeLockedUnits } from "../../features/listings/domain/fee-lock";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
@@ -919,6 +920,20 @@ async function reconcileSeedListings(
   for (const accountId of accountOrder) {
     const entries = updatesByAccount.get(accountId);
     if (!entries || entries.length === 0) continue;
+    for (const entry of entries) {
+      try {
+        if (totalFeeLockedUnits(entry.state.feeLocks) !== entry.state.quantityCap) {
+          throw new Error("fee-lock units do not cover the listing quantity cap");
+        }
+        entry.state.feeLocks.forEach(normalizeMarketplaceListingFeeLock);
+      } catch (error) {
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' rejected; ` +
+            `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${entry.committed.length}; ` +
+            `mismatched fields: fee locks (${error instanceof Error ? error.message : "invalid fee lock"}).`,
+        );
+      }
+    }
     let outcomes: Awaited<ReturnType<MarketplaceServices["listings"]["applyBulkListingPriceUpdates"]>>;
     try {
       outcomes = await services.listings.applyBulkListingPriceUpdates(
