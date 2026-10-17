@@ -9,7 +9,13 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
 import { createCountCaptureDbFixture } from "./count-capture-db-fixture";
-import { captureActor, captureAuthority, captureContext, captureScope, captureSession } from "./count-capture-session-fixture";
+import {
+  captureActor,
+  captureAuthority,
+  captureContext,
+  captureScope,
+  captureSession,
+} from "./count-capture-session-fixture";
 import { scopeSyncBatchRoutes } from "../api/route";
 import { runCountCaptureJourney } from "../api/count-capture-runner";
 import { countCaptureCollectionSchema, validateCountLifecycleReceipt } from "../domain/count-lifecycle-receipt";
@@ -29,7 +35,7 @@ describe("staging count capture lifecycle", () => {
 
   it("reaches conforming through the ten-action loopback with bounded debits", async () => {
     const fixture = await createCountCaptureDbFixture(pools.catalog);
-    const app = new Hono();
+    const app = new Hono<{ Variables: { context: typeof captureContext; actor: ReturnType<typeof captureActor> } }>();
     app.use("*", async (c, next) => {
       c.set("context", captureContext);
       c.set("actor", captureActor());
@@ -47,13 +53,17 @@ describe("staging count capture lifecycle", () => {
       "capture-final-notice": ["/count-capture/final-notice", {}],
       "count-acquire": ["/counts/acquire", {}],
       preview: ["/preview", { selection: fixture.selection, budget: fixture.budget }],
-      "pre-confirm-planner-read": ["/count-capture/pre-confirm", { selection: fixture.selection, budget: fixture.budget }],
+      "pre-confirm-planner-read": [
+        "/count-capture/pre-confirm",
+        { selection: fixture.selection, budget: fixture.budget },
+      ],
       "capture-freeze": ["/count-capture/freeze", { runnerRunId: "300", runnerRunAttempt: 1 }],
     };
     const action = async (intent: string, fields: Readonly<Record<string, string>>) => {
       const [path, baseBody] = paths[intent]!;
       const body = { ...baseBody };
-      if (intent === "capture-freeze") body.collection = JSON.stringify({ ...authority.collection, collectedAt: fixture.clock.now });
+      if (intent === "capture-freeze")
+        body.collection = JSON.stringify({ ...authority.collection, collectedAt: fixture.clock.now });
       if (intent === "count-acquire") {
         const quote = fields.quoteId ? { quoteId: fields.quoteId, fingerprint: fields.countFingerprint } : {};
         Object.assign(body, quote);
@@ -62,13 +72,20 @@ describe("staging count capture lifecycle", () => {
       if (intent === "pre-confirm-planner-read") body.planFingerprint = fields.planFingerprint;
       const response = await app.request(`https://admin.staging.chasesets.com/api/catalog/scope-sync-batches${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json", origin: "https://admin.staging.chasesets.com", "x-catalog-count-capture": "1" },
+        headers: {
+          "content-type": "application/json",
+          origin: "https://admin.staging.chasesets.com",
+          "x-catalog-count-capture": "1",
+        },
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(`action-${intent}-${response.status}`);
       return response.json();
     };
-    const result = await runCountCaptureJourney(identity, action, fixture.clock.now, async () => ({ ...authority.collection, collectedAt: fixture.clock.now }));
+    const result = await runCountCaptureJourney(identity, action, fixture.clock.now, async () => ({
+      ...authority.collection,
+      collectedAt: fixture.clock.now,
+    }));
     const receipt = result;
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification.verdict).toBe("CONFORMING");
@@ -78,33 +95,43 @@ describe("staging count capture lifecycle", () => {
   it.each(["cap overflow", "refused authority", "replay", "refresh"])(
     "rejects unsafe lifecycle (%s) through the route adapter with retained debit evidence",
     async () => {
-    const fixture = await createCountCaptureDbFixture(pools.catalog);
-    const authority = captureAuthority();
-    const app = new Hono();
-    app.use("*", async (c, next) => {
-      c.set("context", captureContext);
-      c.set("actor", captureActor());
-      await next();
-    });
-    app.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes(fixture.runtime, fixture.lifecycle));
-    const post = (path: string, body: unknown) =>
-      app.request(`https://admin.staging.chasesets.com/api/catalog/scope-sync-batches${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "https://admin.staging.chasesets.com", "x-catalog-count-capture": "1" },
-        body: JSON.stringify(body),
+      const fixture = await createCountCaptureDbFixture(pools.catalog);
+      const authority = captureAuthority();
+      const app = new Hono<{ Variables: { context: typeof captureContext; actor: ReturnType<typeof captureActor> } }>();
+      app.use("*", async (c, next) => {
+        c.set("context", captureContext);
+        c.set("actor", captureActor());
+        await next();
       });
-    expect((await post("/count-capture/baseline", { scopeRecordId: captureScope, authority })).status).toBe(200);
-    expect((await post("/count-capture/initial-notice", {})).status).toBe(200);
-    const response = await post("/count-capture/freeze", {
-      runnerRunId: "300",
-      runnerRunAttempt: 1,
-      collection: { ...authority.collection, outcome: "unknown", reason: "authority-invalid", binding: null, collectedAt: fixture.clock.now },
-    });
-    expect(response.status).toBe(200);
-    const stop = await response.json();
-    expect(validateCountLifecycleReceipt(stop.receipt).valid).toBe(true);
-    expect(stop.receipt.classification.verdict).toBe("INCOMPLETE");
-    expect("sends" in stop.receipt ? stop.receipt.sends.length : 0).toBe(0);
+      app.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes(fixture.runtime, fixture.lifecycle));
+      const post = (path: string, body: unknown) =>
+        app.request(`https://admin.staging.chasesets.com/api/catalog/scope-sync-batches${path}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "https://admin.staging.chasesets.com",
+            "x-catalog-count-capture": "1",
+          },
+          body: JSON.stringify(body),
+        });
+      expect((await post("/count-capture/baseline", { scopeRecordId: captureScope, authority })).status).toBe(200);
+      expect((await post("/count-capture/initial-notice", {})).status).toBe(200);
+      const response = await post("/count-capture/freeze", {
+        runnerRunId: "300",
+        runnerRunAttempt: 1,
+        collection: {
+          ...authority.collection,
+          outcome: "unknown",
+          reason: "authority-invalid",
+          binding: null,
+          collectedAt: fixture.clock.now,
+        },
+      });
+      expect(response.status).toBe(200);
+      const stop = await response.json();
+      expect(validateCountLifecycleReceipt(stop.receipt).valid).toBe(true);
+      expect(stop.receipt.classification.verdict).toBe("INCOMPLETE");
+      expect("sends" in stop.receipt ? stop.receipt.sends.length : 0).toBe(0);
     },
   );
 });
