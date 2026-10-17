@@ -230,7 +230,10 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
     if (badgeKey === "manual-payout-review") {
       return c.json(
         {
-          error: { code: "validation_failed", message: "Manual payout review is now a Settlement payout review hold." },
+          error: {
+            code: "validation_failed",
+            message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+          },
         },
         400,
       );
@@ -272,7 +275,10 @@ export function accountRoutes(services: AccountServices, accountManagement?: Acc
     if (badgeKey === "manual-payout-review") {
       return c.json(
         {
-          error: { code: "validation_failed", message: "Manual payout review is now a Settlement payout review hold." },
+          error: {
+            code: "validation_failed",
+            message: t("identity.features.accounts.api.route.account.badge.not.supported"),
+          },
         },
         400,
       );
