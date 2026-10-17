@@ -47,8 +47,10 @@ export function healthAvailability(
 export function rollupHealth(reasons: readonly ChannelHealthReasonGeneration[]): ChannelHealthState {
   if (reasons.some((reason) => reason.state === "failing")) return "failing";
   if (reasons.some((reason) => reason.state === "degraded")) return "degraded";
-  return channelHealthReasons.every((code) =>
-    reasons.some((reason) => reason.reasonCode === code && reason.state === "closed"),
+  return channelHealthReasons.every(
+    (code) =>
+      code === "connector-liveness" ||
+      reasons.some((reason) => reason.reasonCode === code && reason.state === "closed"),
   )
     ? "healthy"
     : "unknown";
@@ -72,9 +74,14 @@ export function observeReason(
   policy: ChannelHealthPolicy,
 ): ChannelHealthReasonGeneration {
   const changed = previous?.fingerprint !== observation.fingerprint;
+  const nextLivenessSeries =
+    observation.reasonCode === "connector-liveness" &&
+    previous?.state === "closed" &&
+    observation.outcome === "failure" &&
+    previous.opening.sourceWorkId !== observation.sourceWorkId;
   const reason: ChannelHealthReasonGeneration = {
     reasonCode: observation.reasonCode,
-    generation: changed ? (previous?.generation ?? 0) + 1 : previous.generation,
+    generation: changed || nextLivenessSeries ? (previous?.generation ?? 0) + 1 : previous.generation,
     fingerprint: observation.fingerprint,
     state:
       observation.outcome === "success" ? "closed" : !changed && previous.state === "failing" ? "failing" : "degraded",

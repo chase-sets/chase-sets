@@ -29,7 +29,12 @@ export function createBuyerOfferPolicyRoutes(services: BuyerOfferPolicyServices)
   });
   app.get("/", async (c) =>
     c.json(
-      await services.list(c.get("actor")!.accountId, c.req.query("after") ?? "", Number(c.req.query("limit") ?? 100)),
+      await services.list(
+        c.get("actor")!.accountId,
+        c.req.query("after") ?? "",
+        Number(c.req.query("limit") ?? 100),
+        c.req.queries("offerId") ?? [],
+      ),
     ),
   );
   app.get("/:id", async (c) => c.json(await services.get(c.req.param("id"), c.get("actor")!.accountId)));

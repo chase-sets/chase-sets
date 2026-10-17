@@ -72,10 +72,13 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
     case "channel-recovery":
       return t("channels.manualSync.attention.recovery", params);
     case "channel-action-open": {
-      const health = t("marketplace.features.sellerDesk.summary.channelActionOpen", {
-        ...params,
-        topReason: channelHealthReasonLabel(params.topReason),
-      });
+      const health =
+        params.topReason === undefined
+          ? null
+          : t("marketplace.features.sellerDesk.summary.channelActionOpen", {
+              ...params,
+              topReason: channelHealthReasonLabel(params.topReason),
+            });
       const manual =
         params.manualReason === "ready"
           ? t("channels.manualSync.attention.ready", params)
@@ -93,7 +96,16 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
               params,
             )
           : null;
-      return [health, drift, manual].filter((summary) => summary !== null).join(" ");
+      const orders =
+        typeof params.orderCount === "number"
+          ? t(
+              params.orderOverflow === 1 ? "channels.attention.ordersOverflow" : "channels.attention.ordersCount",
+              params,
+            )
+          : null;
+      return [health, drift, manual === null ? null : `${manual}.`, orders]
+        .filter((summary) => summary !== null)
+        .join(" ");
     }
     default:
       return t("marketplace.features.sellerDesk.summary.fallback");
@@ -174,6 +186,8 @@ function channelHealthReasonLabel(value: string | number | undefined): string {
       return t("channels.attention.reason.provider-availability");
     case "sale-follow-up":
       return t("channels.attention.reason.sale-follow-up");
+    case "connector-liveness":
+      return t("marketplace.features.sellerDesk.reason.connectorLiveness");
     default:
       return t("marketplace.features.sellerDesk.source.channelAction");
   }

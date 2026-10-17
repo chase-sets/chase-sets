@@ -31,12 +31,13 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (167)
+## Projection Groups (171)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
 | Projection group | Owner | Source contexts | Status | Enabled |
 | --- | --- | --- | --- | --- |
+| `auth:auth-identity-account-capability-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-account-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-invitation-projection` | Auth | **identity** | push-enabled | 1/1 |
 | `auth:auth-identity-membership-projection` | Auth | **identity** | push-enabled | 1/1 |
@@ -54,6 +55,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `channels:channel-catalog-publication-facts` | Channels | **catalog** | push-enabled | 1/1 |
 | `channels:channel-connection-projection` | Channels | channels | push-eligible | 0/1 |
 | `channels:channel-inventory-publication-facts` | Channels | **inventory** | push-enabled | 1/1 |
+| `channels:channel-fulfillment-item-facts` | Channels | **inventory** | push-enabled | 1/1 |
+| `channels:channel-fulfillment-observation-retry` | Channels | channels, **inventory** | push-eligible | 1/2 |
 | `channels:channel-listing-desired-state-reaction` | Channels | **catalog**, channels, **inventory**, **marketplace** | push-eligible | 3/4 |
 | `channels:channel-marketplace-publication-facts` | Channels | **marketplace** | push-enabled | 1/1 |
 | `channels:channel-owned-publication-state` | Channels | channels | push-eligible | 0/1 |
@@ -129,6 +132,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-managed-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-managed-offer-reaction` | Marketplace | pricing | push-eligible | 0/1 |
+| `marketplace:marketplace-listing-moderation-reaction` | Marketplace | **platform-operations** | push-enabled | 1/1 |
 | `marketplace:marketplace-offer-policy-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
@@ -167,6 +171,8 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `payments:payments-order-input-projection` | Payments | **ordering** | push-enabled | 1/1 |
 | `payments:payments-payment-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `payments:payments-support-refund-effect` | Payments | fulfillment, **platform-operations** | push-eligible | 1/2 |
+| `payments:payments-wallet-funding-projection` | Payments | **payments** | push-enabled | 1/1 |
+| `payments:platform-policy-document-projection` | Payments | **payments** | push-enabled | 1/1 |
 | `platform-operations:experience-platform-feedback-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:commercial-terms-effective-date-attention-projection` | Platform Operations | **commercial-terms** | push-enabled | 1/1 |
 | `platform-operations:platform-policy-document-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
@@ -174,6 +180,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `platform-operations:reported-content-queue-projection` | Platform Operations | **marketplace**, **platform-operations** | push-enabled | 2/2 |
 | `platform-operations:risk-alert-queue-projection` | Platform Operations | **identity**, **marketplace**, **payments**, **platform-operations** | push-enabled | 4/4 |
 | `platform-operations:seller-compliance-sales-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
+| `platform-operations:support-evidence-cleanup-locator-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:support-request-projection` | Platform Operations | **platform-operations** | push-enabled | 1/1 |
 | `platform-operations:support-affected-line-amount-projection` | Platform Operations | **ordering**, **payments** | push-enabled | 2/2 |
 | `platform-operations:support-inventory-hold-collision` | Platform Operations | **inventory** | push-enabled | 1/1 |
@@ -187,6 +194,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `pricing:pricing-market-trades-projection` | Pricing | authenticity, fulfillment, **identity**, **ordering**, **payments** | push-eligible | 3/5 |
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
 | `pricing:pricing-economics-overrides-projection` | Pricing | pricing | push-eligible | 0/1 |
+| `pricing:pricing-forecast-ledger-projection` | Pricing | pricing | push-eligible | 0/1 |
 | `pricing:pricing-repricing-evaluation-projection` | Pricing | pricing | push-eligible | 0/1 |
 | `pricing:pricing-repricing-evaluation-reaction` | Pricing | **marketplace**, pricing | push-eligible | 1/2 |
 | `pricing:pricing-repricing-halt-projection` | Pricing | pricing | push-eligible | 0/1 |
@@ -206,9 +214,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `settlement:settlement-support-hold-lifecycle-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-support-hold-projection` | Settlement | **payments**, **platform-operations**, **settlement** | push-enabled | 3/3 |
 
-Totals: 122 `push-enabled`, 40 `push-eligible`, 0 `disabled`, 0 `opted-out`.
+Totals: 128 `push-enabled`, 42 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (83)
+## Read-After-Write Route Inventory (85)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -218,6 +226,8 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `auth.current-session-fresh-read` | auth | critical | exact wait | deferred until wave 4 |
 | `auth.session-detail-self-refresh` | auth | important | exact wait | deferred until wave 4 |
 | `channels.publication-settings-to-detail` | channels | important | exact wait | deferred until wave 4 |
+| `channels.activation-to-manual-sync` | channels | important | exact wait | deferred until wave 4 |
+| `channels.connect-to-detail` | channels | important | exact wait | deferred until wave 4 |
 | `checkout.cart-self-refresh` | checkout | critical | exact wait | push-accelerated |
 | `checkout.guest-cart-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
 | `checkout.guest-sell-list-add-line-handoff` | checkout | critical | exact wait | push-accelerated |
@@ -244,6 +254,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `discovery.item-detail-ship-from-setup-self-refresh` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `fulfillment.seller-shipment-self-refresh` | fulfillment | important | exact wait | poll-bounded until wave 2 |
 | `fulfillment.shipment-mutation-owner-recovery` | fulfillment | important | exact wait | poll-bounded until wave 2 |
+| `identity.account-management-attempt-owner-history` | identity | critical | owner-history receipt lookup | not-read-model-backed |
 | `identity.account-security-api-key-fresh-read` | identity | critical | exact wait | push-accelerated |
 | `identity.account-security-user-fresh-read` | identity | important | exact wait | push-accelerated |
 | `identity.account-team-invitation-fresh-read` | identity | important | exact wait | push-accelerated |

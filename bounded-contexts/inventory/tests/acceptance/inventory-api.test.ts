@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { withInventoryMutationAttempt } from "../../support/runtime-support/mutation-attempt";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import type { BcApiEntry, BcApiModule } from "@chase-sets/bounded-context-module";
@@ -212,7 +214,7 @@ describe("inventory api", () => {
   it("creates inventory items, places holds, releases holds, and projects availability", async () => {
     const locationResponse = await app.request("/api/inventory/storage-locations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "North shelf",
         description: "Singles",
@@ -225,7 +227,7 @@ describe("inventory api", () => {
 
     const itemResponse = await app.request("/api/inventory/items", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         catalogItemId: catalogSeedIds.items.charizardBaseSet,
         selectedOptions: [
@@ -249,7 +251,7 @@ describe("inventory api", () => {
 
     const adjustmentResponse = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantityDelta: 2,
         reason: "Found in back stock",
@@ -270,7 +272,7 @@ describe("inventory api", () => {
 
     const holdResponse = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 3,
         reason: "Checkout hold",
@@ -302,7 +304,7 @@ describe("inventory api", () => {
 
     const releaseResponse = await app.request(`/api/inventory/holds/${holdBody.id}/release`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
     expect(releaseResponse.status).toBe(200);
@@ -359,7 +361,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-LEGACY",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -379,7 +381,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 5,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     await services.items.adjustItem(
@@ -389,7 +391,7 @@ describe("inventory api", () => {
         quantityDelta: 1,
         reason: "Legacy shelf correction",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     const hold = await services.holds.createHold(
       {
@@ -400,12 +402,12 @@ describe("inventory api", () => {
         purpose: "manual",
         sourceRef: null,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     await services.holds.releaseHold(
       { accountId: "acc_inventory", holdId: hold.holdId, releaseReason: "manual" },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     const pending = await services.restockDecisions.markPending(
       {
@@ -420,8 +422,13 @@ describe("inventory api", () => {
       inventoryContext,
     );
     await services.restockDecisions.recordDecision(
-      { accountId: "acc_inventory", decisionId: pending.decisionId, outcome: "written-off" },
-      inventoryContext,
+      {
+        accountId: "acc_inventory",
+        decisionId: pending.decisionId,
+        expectedVersion: pending.version,
+        outcome: "written-off",
+      },
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -496,7 +503,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-ATOMIC",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,
@@ -519,7 +526,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,
@@ -589,7 +596,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-CONVERT",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -610,7 +617,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -630,7 +637,7 @@ describe("inventory api", () => {
         },
         expiresAt: "2099-01-01T00:00:00.000Z",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -665,7 +672,7 @@ describe("inventory api", () => {
         },
         expiresAt: null,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     const [conversionResult, competingPlacementResult] = await Promise.allSettled([conversion, competingPlacement]);
 
@@ -722,7 +729,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-EXPIRE",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -743,7 +750,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -763,7 +770,7 @@ describe("inventory api", () => {
         },
         expiresAt: "2026-07-07T00:00:00.000Z",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -813,7 +820,7 @@ describe("inventory api", () => {
   it("prevents over-holds and defaults colliding reductions to protect orders with a partial fill", async () => {
     const location = await app.request("/api/inventory/storage-locations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "Overflow",
         shipFromCode: "DFW-2",
@@ -824,7 +831,7 @@ describe("inventory api", () => {
 
     const itemResponse = await app.request("/api/inventory/items", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
         selectedOptions: [
@@ -845,7 +852,7 @@ describe("inventory api", () => {
 
     const hold = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 2,
         reason: "Packing",
@@ -855,7 +862,7 @@ describe("inventory api", () => {
 
     const overHold = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 4,
         reason: "Too much",
@@ -865,7 +872,7 @@ describe("inventory api", () => {
 
     const protectedAdjustment = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantityDelta: -4,
         reason: "Bad cycle count",
@@ -899,7 +906,7 @@ describe("inventory api", () => {
           shipFromCode: name.toUpperCase().replaceAll(" ", "-").slice(0, 20),
           shipFromAddress,
         },
-        inventoryContext,
+        withInventoryMutationAttempt(inventoryContext, randomUUID()),
       );
       await drainContextProcesses({ subscriptionRunners });
       const item = await services.items.createItem(
@@ -921,7 +928,7 @@ describe("inventory api", () => {
           acquisitionCostAmount: "75.00",
           acquisitionCostCurrencyCode: "USD",
         },
-        inventoryContext,
+        withInventoryMutationAttempt(inventoryContext, randomUUID()),
       );
       await drainContextProcesses({ subscriptionRunners });
       return item;
@@ -938,13 +945,13 @@ describe("inventory api", () => {
         sourceRef: null,
         expiresAt: null,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
     const partial = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 3,
         salePriceAmount: "125.00",
@@ -1001,7 +1008,7 @@ describe("inventory api", () => {
     const partialEventCount = partialEvents.rows.length;
     const replay = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 3,
         salePriceAmount: "125.00",
@@ -1026,12 +1033,12 @@ describe("inventory api", () => {
         sourceRef: null,
         expiresAt: null,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const refused = await app.request(`/api/inventory/items/${refusedItem.itemId}/offline-sales`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 3,
         channel: "in-store",
@@ -1071,7 +1078,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-COUNTER",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -1091,7 +1098,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 5,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1109,7 +1116,7 @@ describe("inventory api", () => {
 
     const response = await app.request(`/api/inventory/items/${item.itemId}/offline-sales`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 4,
         salePriceAmount: "125.00",
@@ -1183,7 +1190,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-CONVERT",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -1203,7 +1210,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 2,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1219,7 +1226,7 @@ describe("inventory api", () => {
         sourceRef: { checkoutSessionId: "chk_older" as never, lineKey: "line_1" },
         expiresAt: "2099-07-17T12:00:00.000Z",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1257,7 +1264,7 @@ describe("inventory api", () => {
         mode: "honor-offline",
         actorRole: "owner",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1289,7 +1296,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-RACE",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -1309,7 +1316,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1332,7 +1339,7 @@ describe("inventory api", () => {
           requestedQuantity: 1,
           reason: "Concurrent counter sale",
         },
-        inventoryContext,
+        withInventoryMutationAttempt(inventoryContext, randomUUID()),
       ),
     ]);
     if (reservationAttempt.status === "rejected") {
@@ -1389,7 +1396,7 @@ describe("inventory api", () => {
 
     const writeResponse = await unauthorizedApp.request("/api/inventory/storage-locations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "Blocked",
         shipFromCode: "MSP-1",
@@ -1399,7 +1406,7 @@ describe("inventory api", () => {
     expect(writeResponse.status).toBe(403);
     const offlineSaleResponse = await unauthorizedApp.request("/api/inventory/items/inv_1/offline-sales", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({ quantity: 1, channel: "in-store", idempotencyKey: "forbidden-sale" }),
     });
     expect(offlineSaleResponse.status).toBe(403);
@@ -1474,7 +1481,7 @@ describe("inventory api", () => {
         shipFromCode: "NYC-1",
         shipFromAddress,
       },
-      otherContext,
+      withInventoryMutationAttempt(otherContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,
@@ -1497,7 +1504,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 2,
       },
-      otherContext,
+      withInventoryMutationAttempt(otherContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,

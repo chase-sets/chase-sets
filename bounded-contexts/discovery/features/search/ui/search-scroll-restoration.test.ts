@@ -2,12 +2,23 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DiscoverySearchResponse } from "../../../support/request-support/api-client";
 import {
+  buildSearchResultSetKey,
   MAX_PERSISTED_SEARCH_EXTRA_PAGES,
   persistSearchRestoration,
   restoreSearchRestoration,
 } from "./search-scroll-restoration";
 
 describe("search scroll restoration", () => {
+  it("retains corrected single-page metadata for the matching Result Set", () => {
+    const corrected = {
+      ...page("corrected", null),
+      retrievalMode: "corrected" as const,
+      lexicalCount: 0,
+      nextCursor: null,
+    };
+    persistSearchRestoration(window.sessionStorage, "charzard", [corrected], 240);
+    expect(restoreSearchRestoration(window.sessionStorage, "charzard")).toEqual({ pages: [corrected], scrollY: 240 });
+  });
   beforeEach(() => window.sessionStorage.clear());
 
   it("restores cursor pages and scroll offset only for the matching Result Set", () => {
@@ -18,6 +29,53 @@ describe("search scroll restoration", () => {
     expect(restoreSearchRestoration(window.sessionStorage, "pikachu")).toEqual({ pages, scrollY: 640 });
     expect(restoreSearchRestoration(window.sessionStorage, "raichu")).toEqual({ pages: [], scrollY: null });
     expect(restoreSearchRestoration(window.sessionStorage, "pikachu")).toEqual({ pages: [], scrollY: null });
+  });
+
+  it("round-trips a cursor-restart replacement over, never alongside, the old stored pages", () => {
+    const oldPages = [page("old-second", "legacy_3"), page("old-third", "legacy_4")];
+    persistSearchRestoration(window.sessionStorage, "charizard", oldPages, 900);
+
+    // The restart replaces the first page in the loader cache and discards every extra page.
+    persistSearchRestoration(window.sessionStorage, "charizard", [], 900);
+    expect(restoreSearchRestoration(window.sessionStorage, "charizard")).toEqual({ pages: [], scrollY: null });
+
+    // Later valid v2 pages are the only extra pages restoration can revive.
+    const v2Pages = [page("v2-second", "v2_3")];
+    persistSearchRestoration(window.sessionStorage, "charizard", v2Pages, 1_200);
+    expect(restoreSearchRestoration(window.sessionStorage, "charizard")).toEqual({ pages: v2Pages, scrollY: 1_200 });
+  });
+
+  it("keys a marked request as its own Result Set and leaves unmarked keys unchanged", () => {
+    const identity = {
+      search: "charizard",
+      category: "",
+      tag: "",
+      language: "",
+      marketActivity: "",
+      priceMin: "",
+      priceMax: "",
+      inStock: false,
+      sort: "relevance",
+      dynamicFilters: [{ kind: "dimension", id: "grade", value: "ten" }],
+    };
+    const unmarked = buildSearchResultSetKey({ ...identity, interpreted: false });
+    const marked = buildSearchResultSetKey({ ...identity, interpreted: true });
+
+    // Byte for byte the key stored before the marker existed, so stored restoration stays valid.
+    expect(unmarked).toBe(
+      '["charizard","","","","","","",false,"relevance",[{"kind":"dimension","id":"grade","value":"ten"}]]',
+    );
+    expect(marked).not.toBe(unmarked);
+
+    persistSearchRestoration(window.sessionStorage, unmarked, [page("semantic-only", null)], 640);
+    expect(restoreSearchRestoration(window.sessionStorage, marked)).toEqual({ pages: [], scrollY: null });
+    persistSearchRestoration(window.sessionStorage, marked, [page("lexical", null)], 320);
+    expect(restoreSearchRestoration(window.sessionStorage, unmarked)).toEqual({ pages: [], scrollY: null });
+    persistSearchRestoration(window.sessionStorage, marked, [page("lexical", null)], 320);
+    expect(restoreSearchRestoration(window.sessionStorage, marked)).toEqual({
+      pages: [page("lexical", null)],
+      scrollY: 320,
+    });
   });
 
   it("caps persisted pages at a contiguous prefix so its final cursor remains resumable", () => {

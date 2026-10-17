@@ -32,10 +32,6 @@ export const SUBCOMMANDS = {
     script: "account-cart-consistency-probe.mjs",
     description: "Redacted account-cart post-write consistency probe evidence.",
   },
-  "ucp:ap2-certification-evidence": {
-    script: "ucp-ap2-certification-evidence.mjs",
-    description: "Validate redacted staging UCP AP2 direct-mode certification evidence.",
-  },
   "campaign:start-gate": {
     script: "campaign-start-gate.mjs",
     description: "Campaign-start checklist gate for the beta-signup surface.",
@@ -63,7 +59,8 @@ export const SUBCOMMANDS = {
   },
   "catalog:production-completion-report": {
     script: "run-catalog-production-completion-report.mjs",
-    description: "Reconcile a frozen production Catalog completion manifest and gate launch on completeness blockers.",
+    description:
+      "Reconcile a frozen Catalog completion manifest or deployed Catalog database facts and gate launch on completeness blockers.",
   },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
@@ -207,6 +204,10 @@ export const SUBCOMMANDS = {
   "release-health:flake-digest": {
     script: "release-health-flake-digest.mjs",
     description: "Weekly CI flake digest from GitHub Actions retry telemetry.",
+  },
+  "release-health:db-duration-drift": {
+    script: "release-health-db-duration-drift.mjs",
+    description: "Collect DB duration drift and explicitly pending baseline cohorts.",
   },
   "release-health:merge-group-failure-signatures": {
     script: "release-health-merge-group-failure-signatures.mjs",

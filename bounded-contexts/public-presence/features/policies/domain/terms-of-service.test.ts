@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from "./canonical-claims";
+import { readCitedSourceSlice } from "../integrations/privacy-product-truth-inventory.mjs";
 import {
   evaluateTermsOfServicePublicationReadiness,
   requiredTermsOfServiceSubjectIds,
@@ -10,6 +11,46 @@ import {
 } from "./terms-of-service";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../../../..");
+
+describe("Terms drift reconciliation", () => {
+  it("distinguishes ruled Prepaid Balance from promotional Marketplace Credit", () => {
+    const section = termsSection("cash-equivalent-and-marketplace-credit");
+    expect(section.draftText).toContain("Prepaid Balance");
+    expect(section.draftText).toContain("Payments Terms");
+    expect(section.draftText).toContain("promotional, non-withdrawable");
+    expect(section.draftText).not.toContain("promotional or prepaid");
+    expect(section.reviewManifest.decisionRefs).toContain(7807);
+    expect(section.reviewManifest.productTruthRefs).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+    );
+  });
+
+  it("cites current platform charge and on-demand transfer ranges in both refs and assumption", () => {
+    const section = termsSection("marketplace-role-and-limited-payments-agent");
+    const roles = [
+      ["infrastructure/stripe-payments/index.ts:", "/v1/payment_intents", "1464-1494"],
+      ["infrastructure/stripe-connect/index.ts:", "platform-held-on-demand-payout", "1039-1094"],
+    ];
+    for (const [prefix, marker, oldRange] of roles) {
+      const ref = section.reviewManifest.productTruthRefs.find((value) => value.startsWith(prefix!))!;
+      expect(readCitedSourceSlice(repositoryRoot, ref).text).toContain(marker);
+      expect(section.reviewManifest.assumptions[0]!.evidenceRef).toContain(ref);
+      expect(readCitedSourceSlice(repositoryRoot, `${prefix}${oldRange}`).text).not.toContain(marker);
+    }
+  });
+
+  it("names shipped compliance articles while preserving the unverified DMCA registration question", () => {
+    const conduct = termsSection("conduct-and-policy-incorporation").reviewManifest.openQuestions.join(" ");
+    expect(conduct).toContain("prohibited-and-restricted-items");
+    expect(conduct).toContain("community-guidelines-and-enforcement");
+    expect(conduct).not.toContain("not yet published");
+    const content = termsSection("user-content-license").reviewManifest.openQuestions.join(" ");
+    expect(content).toContain("intellectual-property-and-dmca");
+    expect(content).toContain("registration-status-unverified");
+    expect(content).toContain("counsel");
+    expect(content).not.toMatch(/No prior IP-license|not-yet-made decision/);
+  });
+});
 
 function resolveIdentityCitation(reference: string) {
   const match = reference.match(/^(bounded-contexts\/identity\/features\/accounts\/domain\/domain\.ts):([0-9,-]+)/);

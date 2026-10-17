@@ -1,5 +1,11 @@
 # Marketplace Domain Glossary
 
+## Review Opportunity Fact
+
+A **Review Opportunity Fact** is Marketplace's versioned, content-free snapshot of both review directions for one Order. Each slot is explicitly absent or carries the canonical eligibility instant, effective deadline, submission and hold state, active Review id, and nullable active reveal instant. The active reveal instant records publication of the active Review; a hold still suppresses its visibility. No rating, feedback, response or private Support reason crosses this contract.
+
+Durable publication generations, source checkpoints and rebuild generations identify the snapshot's provenance. Publication and acknowledgement commit together; historical backfill and later canonical writes use the same publication path. Consumers compare the published absolute deadline to server time, without owning review-window or hold policy.
+
 This glossary defines the canonical terminology for the Marketplace bounded context.
 
 Browse, search, filters, and item detail terminology are owned by the Discovery bounded context.
@@ -94,6 +100,27 @@ Notes:
 - Offer Match source lists can add selected offers to Checkout Sell List; Checkout owns durable Sell List review state.
 - Discovery Product Alerts may consume limited offer demand signals for subscribed accounts without exposing buyer identity or full Offer detail.
 - When accepted, an offer leaves public marketplace-wide demand and becomes a commitment input for the selling account in Ordering.
+
+## Offer Status
+
+**Offer Status** is the buyer-visible lifecycle state of an Offer: Open (`submitted`), Paused (`paused`), Withdrawn (`withdrawn`) or Accepted (`accepted`).
+
+Notes:
+
+- Only the Offer's buyer can Pause, Resume or Withdraw it. Pause holds an Open Offer until the buyer Resumes it; a paused Offer can still change its fixed price and returns at that price.
+- Only Open Offers are visible to sellers, product pages, search, Sell Lists, Pricing and Product Alerts, and only Open Offers can be accepted: accepting a Paused or Withdrawn Offer fails as `offer_not_open`. An already Accepted Offer keeps its existing behavior: the accepting seller's retry for the same Listing returns the original acceptance, and any other acceptance fails as `offer_already_accepted`.
+- A command that would not change the status (Pause while paused, Resume while Open, Withdraw while withdrawn) changes nothing.
+- Resuming an Offer does not send a new Product Alert.
+- The internal pre-submit `draft` state is not an Offer Status buyers see.
+
+## Offer Withdrawal
+
+An **Offer Withdrawal** is the buyer's terminal decision to end an Open or Paused Offer.
+
+Notes:
+
+- A withdrawn Offer can never be resumed, re-priced or accepted; the buyer submits a new Offer to bid again.
+- Offer Withdrawal is distinct from Buying Budget availability ([#8646](https://github.com/chase-sets/chase-sets/issues/8646)), which never changes an Offer's status.
 
 ## Limited Offer Demand Signal
 
@@ -244,11 +271,7 @@ A **Commerce Commitment Request** is the integration fact emitted when Marketpla
 
 ## Offer Decline
 
-An **Offer Decline** is a seller action that hides one Offer Match from that seller's listing-specific match surface without ending the marketplace-wide Offer.
-
-## Buyer Offer Mute
-
-A **Buyer Offer Mute** is a seller action that hides current and future Offer Matches from one buyer account for a specific Listing until removed.
+An **Offer Decline** is a seller's private hide of one marketplace-wide Offer across that seller's matching Listings. It does not hide the Offer from other sellers, end the Offer, count toward a buyer limit, or start a cooldown.
 
 ## Review
 
@@ -268,6 +291,10 @@ A **Review Response** is the single public response the reviewed account may att
 ## Review Eligibility
 
 **Review Eligibility** is the order-lifecycle fact that determines whether a transaction can support directional feedback. Delivery establishes eligibility by default. A seller-responsible cancellation can establish buyer-to-seller eligibility without delivery once the cancellation is recorded; a buyer-caused, mutually agreed, external, or indeterminate cancellation does not automatically establish it.
+
+## Review Opportunity
+
+A **Review Opportunity** is Marketplace's canonical state for one direction of feedback on an Order. It combines Review Eligibility, the effective submission deadline, submission and hold state, and the active Review and its reveal instant when present. A Review Opportunity Fact publishes both directions without transferring ownership of eligibility, clock, hold, or reveal policy to consumers.
 
 ## Review Hold
 
@@ -397,3 +424,14 @@ Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reaso
 ## Channel Inbound Clamp
 
 A **Channel Inbound Clamp** is Marketplace's revision-fenced ownership record for Listings paused while a Channel cannot observe inbound sales; recovery restores only an unchanged, solely clamp-owned pause.
+
+## Listing Enforcement Action
+
+A **Listing Enforcement Action** is one immutable Marketplace fact that removes an active Listing from sale and has a never-reused `lea_` identity. It is distinct from Identity's Account Enforcement Action and never changes the Account.
+
+Notes:
+
+- The Listing aggregate owns removal. Each action records its closed source: `automatic-report-threshold` names the triggering `rpt_` Report, and `operator-unlist` names the `rca_` Reported Content action. The source is provenance only and grants no permission.
+- The action is attributed to the Listing owner taken from the aggregate, never from a caller. Its time is the auto-unlist timestamp or the operator action's recorded time.
+- A source removes a Listing at most once. A redelivered source is inert even after republish, a distinct later source removes again, and an identity is never reused for another source. Draft, paused and withdrawn Listings are not removed.
+- The latest action stays current across republish and pause. Historical automated unlisting without an action identity remains valid and records none.

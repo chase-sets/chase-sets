@@ -141,9 +141,11 @@ jobs:
           set -euo pipefail
           node ./scripts/ci-gate-plan.mjs github-output
 
-  static:
-    name: Static Checks
-    runs-on: ubuntu-latest
+  static-source:
+    name: Static Source Checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     timeout-minutes: 20
     needs: change-scope
     if: needs['change-scope'].outputs.static_required == 'true'
@@ -151,6 +153,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
@@ -164,6 +167,59 @@ jobs:
           CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}
           FORMAT_CHECK_SCOPE: full
         run: pnpm run verify:static
+
+  static:
+    name: Static Checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    timeout-minutes: 20
+    needs: [change-scope, static-source]
+    if: always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.static_required == 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Check generated metadata
+        run: pnpm run verify:metadata
+
+      - name: Install provider browser boundary
+        run: bash scripts/provider-object-disposition/browser-boundary/ci-setup.sh
+
+      - name: Installed-boundary controls
+        run: |
+          python3 scripts/provider-object-disposition/browser-boundary/ownership.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/ownership-race.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/identity-controls.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/native-variants.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/peer-observe.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/ownership-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/path-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/path-fixtures.py
+          python3 scripts/provider-object-disposition/browser-boundary/pid-reuse.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/r3-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/installer-failure.test.py
+          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-policy.test.mjs scripts/provider-object-disposition/browser-boundary/bootstrap.test.mjs scripts/provider-object-disposition/browser-boundary/protocol.test.mjs
+          pnpm exec vitest run --config vitest.scripts.config.mjs scripts/provider-object-disposition/test-window-admission.test.mjs scripts/provider-object-disposition/test-window-main.test.mjs scripts/provider-object-disposition/test-window-driver.test.mjs scripts/provider-object-disposition/test-window-packet.test.mjs scripts/provider-object-disposition/publish-test-window.test.mjs scripts/provider-object-disposition/browser-boundary/installation-cycle.test.mjs scripts/provider-object-disposition/browser-boundary/browser-lifecycle-controls.test.mjs
+          node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs
+
+      - name: Remove owned provider browser boundary
+        if: always()
+        run: bash scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh
+
+      - name: Require full source checks
+        if: always()
+        env:
+          SOURCE_RESULT: ${{ needs.static-source.result }}
+        run: test "$SOURCE_RESULT" = success
 
   typecheck:
     name: Typecheck
@@ -202,11 +258,16 @@ jobs:
           node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   db-tests:
-    name: DB Profile Tests
+    name: DB Profile Tests (${{ matrix.db-workspace-group }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: change-scope
     if: needs['change-scope'].outputs.db_tests_required == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        db-workspace-group: [api, other]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -292,8 +353,32 @@ jobs:
           docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
             'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
 
+      - name: Select platform API evidence before running tests
+        id: platform-api-selected
+        env:
+          AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}
+        run: |
+          if [[ "${{ matrix.db-workspace-group }}" != "api" ]]; then
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then
+            echo "selected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run DB-profile tests
-        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
+
+      - name: Upload bootstrap DB evidence including failures
+        if: always() && steps.platform-api-selected.outputs.selected == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-db-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: deployables/platform-api/artifacts/bootstrap-db-evidence
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Capture post-failure PostgreSQL state
         if: failure()
@@ -316,10 +401,68 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: db-profile-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          name: db-profile-diagnostics-${{ matrix.db-workspace-group }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/db-profile-diagnostics/post-failure.txt
           retention-days: 7
           if-no-files-found: warn
+
+  capture-hermetic-chromium:
+    name: Capture Hermetic Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    needs: change-scope
+    if: needs['change-scope'].outputs.e2e_tests_required == 'true' && contains(fromJson(needs['change-scope'].outputs.e2e_suites_json), 'tcgplayer_connector_extension')
+    env:
+      AC4_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+    steps:
+      - name: Require explicit AC4 source
+        shell: bash
+        run: test -n "$AC4_SOURCE_SHA"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Prove three synthetic Chromium capture cases
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
+        run: |
+          set -euo pipefail
+          test -n "$AC4_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$AC4_SOURCE_SHA"
+          test "${CHASE_SETS_LANE_MODE+x}" != x
+          printf 'AC4 source=%s run=%s attempt=%s job=%s\n' \
+            "$AC4_SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB"
+          pnpm exec playwright install --with-deps chromium
+          CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum \
+            pnpm --filter @chase-sets/channels run test:unit \
+            features/connector-client/integrations/order-authority-probe/capture.test.ts \
+            -t 'host-attributed hermetic Chromium' \
+            --maxWorkers=1 --no-file-parallelism \
+            --reporter=verbose --reporter=json \
+            --outputFile.json="$RUNNER_TEMP/ac4-chromium.json"
+          node --input-type=module -e '
+          import fs from "node:fs";
+          const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          const a = r.testResults.flatMap(x => x.assertionResults);
+          const selected = a.filter(x => x.fullName.includes("host-attributed hermetic Chromium"));
+          const names = ["qualified", "canceled", "expired"];
+          if (r.success !== true || selected.length !== 3 ||
+              selected.some(x => x.status !== "passed") ||
+              names.some(n => selected.filter(x => x.fullName.includes("terminal " + n + " with synthetic install/removal")).length !== 1) ||
+              a.some(x => x.status === "passed" && !selected.includes(x))) {
+            throw new Error("AC4 requires exactly the three named Chromium cases to pass");
+          }
+          console.log("AC4: qualified/canceled/expired passed; synthetic only");
+          ' "$RUNNER_TEMP/ac4-chromium.json"
 
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
@@ -1139,9 +1282,6 @@ jobs:
           TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
           TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
           TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
-          TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
-          TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
-          TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
           TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
@@ -1314,6 +1454,8 @@ jobs:
       - name: Apply preview Kubernetes runtime secrets
         env:
           CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
+          EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
+          EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
           CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
           DEPLOYMENT_ENVIRONMENT: preview
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -1368,9 +1510,6 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
-          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
-          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
@@ -1436,6 +1575,10 @@ jobs:
       # issuance, so there is no ACME order to wait on here. This is a fast
       # presence check, not a poll: the deploy step already failed loudly with
       # a bootstrap pointer if the shared secret did not exist to copy (#4857).
+      # It also reads the source Certificate once (#9268): an expired or
+      # not-Ready wildcard fails here with the restore command instead of as an
+      # opaque "fetch failed" ingress timeout, and a certificate inside the
+      # 14-day renewal floor warns (staging deploys fail closed on it).
       - name: Verify preview TLS secret
         run: |
           set -euo pipefail
@@ -1446,6 +1589,7 @@ jobs:
             exit 1
           fi
           echo "Preview TLS secret ${secret_name} is present in ${namespace}."
+          node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 0 --warn-remaining-days 14
 
       - name: Wait for preview ingress URLs
         id: preview_domains
@@ -1553,6 +1697,7 @@ jobs:
       - unit-tests
       - db-tests
       - e2e-tests
+      - capture-hermetic-chromium
       - build
       - docker-image
       - workflow-lint
@@ -1564,6 +1709,9 @@ jobs:
       - compose-preview-smoke
     steps:
       - name: Verify required jobs
+        env:
+          AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
+          AC4_E2E_SUITES_JSON: ${{ needs['change-scope'].outputs.e2e_suites_json }}
         run: |
           set -euo pipefail
 
@@ -1598,6 +1746,16 @@ jobs:
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
           require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
+          capture_required="$(node --input-type=module -e '
+          const required = process.env.AC4_E2E_REQUIRED;
+          const suites = JSON.parse(process.env.AC4_E2E_SUITES_JSON);
+          if (!["true", "false"].includes(required) || !Array.isArray(suites) ||
+              suites.some(suite => typeof suite !== "string" || suite.length === 0)) {
+            throw new Error("Capture Hermetic Chromium has unknown or missing selection");
+          }
+          console.log(required === "true" && suites.includes("tcgplayer_connector_extension"));
+          ')"
+          require_job "Capture Hermetic Chromium" "${{ needs['capture-hermetic-chromium'].result }}" "$capture_required"
           require_job "Build" "${{ needs.build.result }}" "${{ needs['change-scope'].outputs.build_required }}"
           require_job "Docker Image Build" "${{ needs['docker-image'].result }}" "${{ needs['change-scope'].outputs.docker_image_required }}"
           require_job "Workflow Lint" "${{ needs['workflow-lint'].result }}" "${{ needs['change-scope'].outputs.workflow_lint_required }}"

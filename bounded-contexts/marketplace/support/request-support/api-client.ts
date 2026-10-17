@@ -3,7 +3,6 @@ export { createMarketplaceApiClient, marketplaceApi, MarketplaceApiError } from 
 export type {
   OfferMatchDetail,
   OfferMatchListItem,
-  OfferBuyerMute,
   MarketplaceApiClientOptions,
   MarketplaceOffer,
   PublicOfferDetail,
@@ -31,7 +30,12 @@ export type {
   ReportListingRequest,
   ReportReviewRequest,
   SubmittedOfferDetail,
+  SubmittedOfferLifecycleAction,
+  SubmittedOfferLifecycleOutcome,
   SubmittedOfferListItem,
+  SubmittedOfferStatus,
+  SubmittedOfferStatusCounts,
+  SubmittedOfferStatusFilter,
 } from "../../client";
 import { createMarketplaceApiClient } from "../../client";
 

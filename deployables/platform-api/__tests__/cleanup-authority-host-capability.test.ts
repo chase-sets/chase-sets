@@ -58,7 +58,10 @@ describe("cleanup-authority-inventory-host-capability", () => {
       const runtime = createPlatformApiHost({
         runtimeProfile: "public",
         pools,
-        hostPorts: { processorGateway: createFakePaymentProcessorGateway() },
+        hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+          processorGateway: createFakePaymentProcessorGateway(),
+        },
       });
       const fulfillment = runtime.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices>;
       const port = captured.ports?.shipmentGroupAdmissionAuthority as ShipmentGroupAdmissionAuthority;
@@ -101,7 +104,11 @@ describe("cleanup-authority-inventory-host-capability", () => {
   it("states not-mounted in the landing profile, where Ordering is source-only and Inventory has no pool", async () => {
     const pools = createPools("landing");
     try {
-      const runtime = createPlatformApiHost({ runtimeProfile: "landing", pools, hostPorts: {} });
+      const runtime = createPlatformApiHost({
+        runtimeProfile: "landing",
+        pools,
+        hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+      });
       const ordering = orderingServicesOf(runtime.services);
 
       expect(runtime.mountedContexts.map((entry) => entry.contextName)).not.toContain("inventory");
@@ -123,6 +130,7 @@ describe("cleanup-authority-inventory-host-capability", () => {
           pools,
           runtimeProfile: "public",
           hostPorts: {
+            capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
             processorGateway: createFakePaymentProcessorGateway(),
             channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, accountContext),
           },

@@ -10,6 +10,7 @@ export const AUTH_PERMISSION_PRESETS = {
 
 export const AUTH_ROLE_PERMISSIONS = {
   "platform-admin": [
+    "payouts.platform.view",
     "provider-connections.view",
     "accounts.manage",
     "accounts.view",
@@ -47,6 +48,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "recovered-inventory.evidence",
     "recovered-inventory.manage",
     "recovered-inventory.view",
+    "reported-content.view",
     "security.manage",
     "support.manage",
     "support.remedies.approve",

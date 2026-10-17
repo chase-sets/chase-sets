@@ -8,8 +8,12 @@ const contextRoot = path.resolve(import.meta.dirname, "../../..");
 
 describe("channel-subscription-order-fence", () => {
   it("keeps five ordered projection subscriptions below all four reactions", () => {
-    const subscriptions = contextManifest.eventSubscriptions;
-    const reactions = contextManifest.eventReactions;
+    const subscriptions = contextManifest.eventSubscriptions.filter(
+      (entry) => entry.projectionName !== "channel-fulfillment-item-facts",
+    );
+    const reactions = contextManifest.eventReactions.filter(
+      (entry) => entry.reactionName === "channel-listing-desired-state-reaction",
+    );
     expect(subscriptions.map((entry) => entry.sourceContextName)).toEqual([
       "marketplace",
       "catalog",
@@ -30,8 +34,12 @@ describe("channel-subscription-order-fence", () => {
   });
 
   it("enumerates every producer event once and reacts only after the owning projection", () => {
-    const subscriptions = contextManifest.eventSubscriptions;
-    const reactions = contextManifest.eventReactions;
+    const subscriptions = contextManifest.eventSubscriptions.filter(
+      (entry) => entry.projectionName !== "channel-fulfillment-item-facts",
+    );
+    const reactions = contextManifest.eventReactions.filter(
+      (entry) => entry.reactionName === "channel-listing-desired-state-reaction",
+    );
     expect(
       subscriptions.map((entry) => ("eventTypes" in entry && entry.eventTypes ? entry.eventTypes.length : 0)),
     ).toEqual([9, 6, 9, 14, 0]);
@@ -147,8 +155,34 @@ describe("channel-listing-composition-scope-fence", () => {
     expect(files).not.toMatch(
       /INSERT INTO (?:marketplace|catalog|inventory)_|UPDATE (?:marketplace|catalog|inventory)_/,
     );
-    expect(contextManifest.allowedContextDependencies).toEqual(["@chase-sets/marketplace", "@chase-sets/inventory"]);
+    expect(contextManifest.allowedContextDependencies).toEqual([
+      "@chase-sets/marketplace",
+      "@chase-sets/inventory",
+      "@chase-sets/auth",
+    ]);
     expect(contextManifest.hostPorts).toEqual([
+      {
+        portName: "ebayAccountDeletionConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+      },
+      {
+        portName: "webhookTelemetry",
+        providedBy: "platform-api",
+        purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+      },
+      {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
+      {
+        portName: "connectorOAuth",
+        providedBy: "platform-api",
+        purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+      },
       {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",

@@ -147,6 +147,30 @@
       "synthetic": false
     },
     {
+      "family": "browserRuntimePatterns:14",
+      "pattern": "/^docker-compose\\.dev\\.yml$/",
+      "suites": null,
+      "path": "docker-compose.dev.yml",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "browserRuntimePatterns:15",
+      "pattern": "/^scripts\\/lib\\/sandbox\\.mjs$/",
+      "suites": null,
+      "path": "scripts/lib/sandbox.mjs",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "browserRuntimePatterns:16",
+      "pattern": "/^scripts\\/dev-system(?:-config)?\\.mjs$/",
+      "suites": null,
+      "path": "scripts/dev-system.mjs",
+      "trackedCandidates": 2,
+      "synthetic": false
+    },
+    {
       "family": "contextSuiteOwnership:auth",
       "pattern": "/^bounded-contexts\\/auth\\/features\\/[^/]+\\/(?:api|ui)\\//",
       "suites": ["marketplace_account", "admin_auth"],
@@ -395,6 +419,14 @@
       "synthetic": false
     },
     {
+      "family": "adminContextRouteSuiteOwnership:channels",
+      "pattern": "/^bounded-contexts\\/channels\\/routes\\/(?:admin|access-admin|catalog-admin)\\//",
+      "suites": ["admin_support"],
+      "path": "bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
       "family": "adminContextRouteSuiteOwnership:commercial-terms",
       "pattern": "/^bounded-contexts\\/commercial-terms\\/routes\\/(?:admin|access-admin|catalog-admin)\\//",
       "suites": ["admin_commerce"],
@@ -468,6 +500,14 @@
     },
     {
       "family": "e2eSpecSuiteOwnership:0",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/account-management-interruption\\.spec\\.ts$/",
+      "suites": ["marketplace_account"],
+      "path": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:1",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/account-elevation-intent\\.spec\\.ts$/",
       "suites": ["marketplace_account"],
       "path": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
@@ -475,7 +515,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:1",
+      "family": "e2eSpecSuiteOwnership:2",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/item-detail\\.spec\\.ts$/",
       "suites": ["marketplace_browse"],
       "path": "deployables/marketplace/e2e/item-detail.spec.ts",
@@ -483,7 +523,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:2",
+      "family": "e2eSpecSuiteOwnership:3",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/critical-flows\\.spec\\.ts$/",
       "suites": ["marketplace_browse", "marketplace_account", "marketplace_checkout", "marketplace_seller"],
       "path": "deployables/marketplace/e2e/critical-flows.spec.ts",
@@ -491,7 +531,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:3",
+      "family": "e2eSpecSuiteOwnership:4",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/(?:account-payment|buy-funnel-redesign|buyer-purchase-journey|sell-checkout-session)\\.spec\\.ts$/",
       "suites": ["marketplace_checkout"],
       "path": "deployables/marketplace/e2e/account-payment.spec.ts",
@@ -499,7 +539,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:4",
+      "family": "e2eSpecSuiteOwnership:5",
       "pattern": "/^deployables\\/marketplace\\/e2e\\/responsive-evidence-contract\\.spec\\.ts$/",
       "suites": ["marketplace_browse"],
       "path": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
@@ -507,7 +547,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:5",
+      "family": "e2eSpecSuiteOwnership:6",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/access-/",
       "suites": ["admin_access"],
       "path": "deployables/admin-web/e2e/access-account-badges.spec.ts",
@@ -515,7 +555,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:6",
+      "family": "e2eSpecSuiteOwnership:7",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/admin-tablet-navigation\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations", "admin_support"],
       "path": "deployables/admin-web/e2e/admin-tablet-navigation.spec.ts",
@@ -523,7 +563,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:7",
+      "family": "e2eSpecSuiteOwnership:8",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/auth-shell-rbac\\.spec\\.ts$/",
       "suites": ["admin_auth"],
       "path": "deployables/admin-web/e2e/auth-shell-rbac.spec.ts",
@@ -531,7 +571,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:8",
+      "family": "e2eSpecSuiteOwnership:9",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-integrations\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
       "path": "deployables/admin-web/e2e/catalog-integrations.spec.ts",
@@ -539,7 +579,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:9",
+      "family": "e2eSpecSuiteOwnership:10",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-scopes\\.spec\\.ts$/",
       "suites": ["catalog_admin_integrations"],
       "path": "deployables/admin-web/e2e/catalog-scopes.spec.ts",
@@ -547,7 +587,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:10",
+      "family": "e2eSpecSuiteOwnership:11",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/catalog-modeling\\.spec\\.ts$/",
       "suites": ["catalog_admin_modeling"],
       "path": "deployables/admin-web/e2e/catalog-modeling.spec.ts",
@@ -555,7 +595,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:11",
+      "family": "e2eSpecSuiteOwnership:12",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/commerce-/",
       "suites": ["admin_commerce"],
       "path": "deployables/admin-web/e2e/commerce-commercial-terms.spec.ts",
@@ -563,7 +603,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:12",
+      "family": "e2eSpecSuiteOwnership:13",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/growth-/",
       "suites": ["admin_growth"],
       "path": "deployables/admin-web/e2e/growth-google-shopping-waitlist.spec.ts",
@@ -571,7 +611,7 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:13",
+      "family": "e2eSpecSuiteOwnership:14",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/support-/",
       "suites": ["admin_support"],
       "path": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
@@ -579,11 +619,19 @@
       "synthetic": false
     },
     {
-      "family": "e2eSpecSuiteOwnership:14",
+      "family": "e2eSpecSuiteOwnership:15",
       "pattern": "/^deployables\\/admin-web\\/e2e\\/(?:admin-cross-cutting-topology|platform-projection-operations)\\.spec\\.ts$/",
       "suites": ["admin_platform"],
       "path": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
       "trackedCandidates": 2,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:16",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/inventory-recovery\\.spec\\.ts$/",
+      "suites": ["marketplace_seller"],
+      "path": "deployables/marketplace/e2e/inventory-recovery.spec.ts",
+      "trackedCandidates": 1,
       "synthetic": false
     },
     {
@@ -1109,6 +1157,111 @@
   ],
   "cases": [
     {
+      "changedFiles": ["deployables/marketplace/e2e/inventory-recovery.spec.ts"],
+      "suiteIds": ["marketplace_seller"],
+      "batches": ["marketplace_seller"]
+    },
+    {
+      "changedFiles": ["docker-compose.dev.yml"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/lib/sandbox.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/dev-system.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/dev-system-config.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
       "changedFiles": [],
       "suiteIds": [],
       "batches": []
@@ -1234,6 +1387,11 @@
       "changedFiles": ["bounded-contexts/channels/features/connector-client/api/client.ts"],
       "suiteIds": ["tcgplayer_connector_extension"],
       "batches": ["tcgplayer_connector_extension"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx"],
+      "suiteIds": ["admin_support"],
+      "batches": ["admin_support"]
     },
     {
       "changedFiles": [
@@ -2169,6 +2327,16 @@
       ],
       "suiteIds": ["marketplace_browse", "marketplace_seller", "catalog_admin_integrations"],
       "batches": ["catalog_admin_integrations", "marketplace_browse,marketplace_seller"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/auth/support/runtime-support/seed.ts"],
+      "suiteIds": ["marketplace_account", "admin_auth"],
+      "batches": ["marketplace_account,admin_auth"]
+    },
+    {
+      "changedFiles": ["deployables/marketplace/e2e/account-management-interruption.spec.ts"],
+      "suiteIds": ["marketplace_account"],
+      "batches": ["marketplace_account"]
     }
   ]
 }

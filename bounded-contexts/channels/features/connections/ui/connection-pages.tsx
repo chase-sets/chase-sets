@@ -3,17 +3,20 @@ import {
   Badge,
   Button,
   Card,
+  CheckboxGroup,
   HiddenInput,
+  Inline,
   LinkButton,
   MarketplaceNotice,
   Page,
   PageHeader,
   PageSection,
+  NativeSelect,
   Stack,
   Text,
 } from "@chase-sets/design-system";
 import { RouterForm } from "@chase-sets/design-system/react-router";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { ChannelConnectionStatus, PublicChannelConnection } from "../domain/contracts";
 
 const listFilters: readonly Readonly<{ status: ChannelConnectionStatus | "default"; labelKey: string }>[] = [
@@ -63,7 +66,17 @@ export type ChannelConnectionListPageState =
       nextCursor?: string;
     }>;
 
-export function ChannelConnectionListPage({ state }: { state: ChannelConnectionListPageState }) {
+export function ChannelConnectionListPage({
+  state,
+  providers = [],
+  connecting = false,
+  connectError,
+}: {
+  state: ChannelConnectionListPageState;
+  providers?: readonly string[];
+  connecting?: boolean;
+  connectError?: string;
+}) {
   return (
     <Page>
       <PageHeader
@@ -71,9 +84,34 @@ export function ChannelConnectionListPage({ state }: { state: ChannelConnectionL
         title={t("channels.connections.title")}
         description={t("channels.connections.description")}
       />
+      {providers.length > 0 ? (
+        <PageSection title={t("channels.connections.connect")}>
+          <RouterForm method="post">
+            <Stack gap={3}>
+              <NativeSelect
+                name="providerKey"
+                label={t("channels.connections.provider")}
+                required
+                items={providers.map((value) => ({ value, label: value }))}
+                disabled={connecting}
+              />
+              {connectError ? (
+                <MarketplaceNotice
+                  tone="danger"
+                  title={t("channels.connections.error.title")}
+                  description={connectError}
+                />
+              ) : null}
+              <Button type="submit" disabled={connecting} loading={connecting}>
+                {t("channels.connections.connect")}
+              </Button>
+            </Stack>
+          </RouterForm>
+        </PageSection>
+      ) : null}
       <PageSection title={t("channels.connections.section.title")}>
         {state.kind === "ready" ? (
-          <Stack direction="row" gap={2}>
+          <Inline gap={2} wrap>
             {listFilters.map((filter) => (
               <LinkButton
                 key={filter.status}
@@ -84,11 +122,56 @@ export function ChannelConnectionListPage({ state }: { state: ChannelConnectionL
                 {t(filter.labelKey)}
               </LinkButton>
             ))}
-          </Stack>
+          </Inline>
         ) : null}
         {renderListState(state)}
       </PageSection>
     </Page>
+  );
+}
+
+export type ConnectionSetupLocations =
+  | Readonly<{ kind: "loaded"; items: readonly Readonly<{ storageLocationId: string; name: string }>[] }>
+  | Readonly<{ kind: "read-error" }>;
+
+export function ChannelConnectionSetupSection({
+  locations,
+  pending = false,
+}: {
+  locations: ConnectionSetupLocations;
+  pending?: boolean;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  return (
+    <PageSection title={t("channels.connections.setup")}>
+      {locations.kind === "read-error" ? (
+        <MarketplaceNotice
+          tone="danger"
+          title={t("channels.connections.error.title")}
+          description={t("channels.connections.action.failed")}
+        />
+      ) : locations.items.length === 0 ? (
+        <LinkButton href="/account/inventory/locations">{t("channels.connections.locations")}</LinkButton>
+      ) : (
+        <RouterForm method="post">
+          <Stack gap={3}>
+            <HiddenInput name="intent" value="activate" />
+            <CheckboxGroup
+              name="storageLocationIds"
+              label={t("channels.connections.locations")}
+              required
+              items={locations.items.map((item) => ({ value: item.storageLocationId, label: item.name }))}
+              values={selected}
+              onValuesChange={setSelected}
+              disabled={pending}
+            />
+            <Button type="submit" disabled={pending || selected.length === 0} loading={pending}>
+              {t("channels.connections.activate")}
+            </Button>
+          </Stack>
+        </RouterForm>
+      )}
+    </PageSection>
   );
 }
 

@@ -3,6 +3,7 @@ import type { SupportOperationsQueueFilters } from "../../features/support-reque
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 250;
 const SUPPORT_OPERATIONS_QUEUE_STATUSES = new Set([
+  "unresolved",
   "open",
   "waiting-on-buyer",
   "waiting-on-seller",

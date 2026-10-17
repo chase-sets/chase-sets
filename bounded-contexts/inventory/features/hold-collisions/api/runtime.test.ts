@@ -93,17 +93,9 @@ function createRecoveryHarness(
             .map((event) => ({ payload: event.payload })),
         };
       }
-      if (sql.includes("WITH placed AS")) {
+      if (sql.includes("WITH candidates AS")) {
         return {
-          rows: [
-            {
-              hold_id: "hld_manual",
-              quantity: options.activeHoldQuantity ?? 1,
-              purpose: "manual",
-              source_ref: null,
-              committed_at: "2026-08-26T12:00:00.000Z",
-            },
-          ],
+          rows: [{ stream_id: "inventory.hold-hld_manual", total: "1", current_version: "1" }],
         };
       }
 
@@ -130,6 +122,27 @@ function createRecoveryHarness(
     },
   });
   const seedItem = async () => {
+    await eventStore.appendToStream({
+      streamId: "inventory.hold-hld_manual",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId: "hld_manual",
+            accountId: "acc_seller",
+            itemId: "inv_1",
+            quantity: options.activeHoldQuantity ?? 1,
+            reason: "Existing manual hold",
+            notes: null,
+            purpose: "manual",
+            sourceRef: null,
+            expiresAt: null,
+          },
+        },
+      ],
+    });
     const [created] = decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
       acquisitionOccurrence: { kind: "unknown" },

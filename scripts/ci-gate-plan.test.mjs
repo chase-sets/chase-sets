@@ -439,7 +439,15 @@ describe("shared CI gate plan", () => {
       head = commit();
       check(base, head, paths);
       base = head;
-      const rename = scopedCases.at(-1).changedFiles;
+      const renameCase = scopedCases.find(
+        ({ changedFiles }) =>
+          changedFiles.length === 2 &&
+          changedFiles[0] ===
+            "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts" &&
+          changedFiles[1] === "bounded-contexts/inventory/features/listings/ui/listing.tsx",
+      );
+      expect(renameCase, "Catalog-provider/Inventory-listing rename fixture must be present").toBeDefined();
+      const rename = renameCase.changedFiles;
       mkdirSync(path.dirname(path.join(temporary, rename[1])), { recursive: true });
       git(["mv", rename[0], rename[1]]);
       head = commit();
@@ -533,6 +541,43 @@ describe("shared CI gate plan", () => {
       rmSync(temporary, { recursive: true, force: true });
     }
   });
+
+  it.each(["pull-request", "merge-group"])(
+    "requires Public Presence unit coverage for every nonempty diff in %s plans",
+    (mode) => {
+      const membership = (changedFiles) => {
+        const scope = classifyChanges({ changedFiles });
+        const plan = createCiGatePlan({ mode, provenance: "same-repository", labels: [], scope });
+        const unitGate = plan.gates.find(({ id }) => id === "unit-tests");
+        return {
+          selection: unitGate.selection,
+          publicPresence: unitGate.affectedWorkspaces.filter((name) => name === "@chase-sets/public-presence").length,
+        };
+      };
+      for (const file of [
+        "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
+        "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
+        "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.test.ts",
+        "scripts/verify-static-surfaces.mjs",
+        "bounded-contexts/identity/api.ts",
+        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts",
+        "bounded-contexts/identity/GLOSSARY.md",
+        "bounded-contexts/authenticity/README.md",
+        "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+        "scripts/clean-logs.mjs",
+        "README.md",
+      ]) {
+        expect(membership([file]), file).toEqual({ selection: "REQUIRED", publicPresence: 1 });
+      }
+      // Controls: an empty diff selects nothing, and the platform-pr workflow's
+      // all-DB sweep keeps its empty workspace list.
+      expect(membership([])).toEqual({ selection: "NOT_REQUIRED", publicPresence: 0 });
+      expect(membership([".github/workflows/platform-pr.yml"])).toEqual({
+        selection: "NOT_REQUIRED",
+        publicPresence: 0,
+      });
+    },
+  );
 
   it("requires DB tests for platform-pr workflow alone without narrowing the all-DB workspace list", () => {
     const scope = classifyChanges({ changedFiles: [".github/workflows/platform-pr.yml"] });

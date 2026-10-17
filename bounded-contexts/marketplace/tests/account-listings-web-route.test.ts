@@ -70,7 +70,7 @@ function stubAccountListingsReads(sellerMetrics: () => Promise<Response>) {
       if (url.includes("/api/marketplace/account/listing-availability")) {
         return Promise.resolve(jsonResponse(listingAvailability));
       }
-      if (url.includes("/api/ordering/account/sales/order-capacity")) {
+      if (url.includes("/api/marketplace/account/sales/order-capacity")) {
         return Promise.resolve(jsonResponse({ open_order_count: 4 }));
       }
 

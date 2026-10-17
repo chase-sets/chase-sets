@@ -114,6 +114,12 @@ export type SupportRequestId = TypedUlid<"sup">;
 /** Identity-owned immutable account enforcement action identity. */
 export type EnforcementActionId = TypedUlid<"enf">;
 
+/** Marketplace-owned immutable listing removal identity; distinct from Identity's `enf_` account actions. */
+export type ListingEnforcementActionId = TypedUlid<"lea">;
+
+/** Platform-Operations-minted identity of one operator moderation action on reported content. */
+export type ReportedContentActionId = TypedUlid<"rca">;
+
 /** Support-owned handle for a single authorized remedy on a support request (ADR 0022). */
 export type RemedyId = TypedUlid<"rmd">;
 

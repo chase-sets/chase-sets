@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyChanges } from "./change-scope.mjs";
@@ -8,6 +8,7 @@ import { listWorkspacePackages, repoRoot as defaultRepoRoot } from "./lib/repo.m
 import {
   ALWAYS_RUN,
   MAY_NARROW,
+  VERIFY_STATIC_GUARD_TEST_SURFACES,
   VERIFY_STATIC_SCOPED_EXCLUSIONS,
   VERIFY_STATIC_SURFACES,
   linkSurfaceMatches,
@@ -172,6 +173,59 @@ export function verifyStaticSurfaceMapCompleteness(chain, surfaces = VERIFY_STAT
   };
 }
 
+export function verifyStaticGuardTestMapCompleteness({
+  repoRoot = defaultRepoRoot,
+  surfaces = VERIFY_STATIC_GUARD_TEST_SURFACES,
+  testFileExists = (file) => existsSync(path.join(repoRoot, file)),
+} = {}) {
+  const entries = Object.entries(surfaces);
+  return {
+    missingTestFiles: entries.filter(([file]) => !testFileExists(file)).map(([file]) => file),
+    invalidTargets: entries.filter(([file]) => !/^scripts\/.+\.test\.mjs$/.test(file)).map(([file]) => file),
+    invalidInclude: entries
+      .filter(([, entry]) => !Array.isArray(entry?.include) || entry.include.length === 0)
+      .map(([file]) => file),
+    invalidEvidence: entries
+      .filter(
+        ([, entry]) =>
+          typeof entry?.rule !== "string" ||
+          entry.rule.trim() === "" ||
+          !Array.isArray(entry.evidence) ||
+          entry.evidence.length === 0 ||
+          entry.evidence.some((citation) => !/^[^:]+:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/.test(citation)),
+      )
+      .map(([file]) => file),
+  };
+}
+
+export function selectVerifyStaticGuardTests({
+  changedFiles,
+  repoRoot = defaultRepoRoot,
+  surfaces = VERIFY_STATIC_GUARD_TEST_SURFACES,
+  forceFull = false,
+  testFileExists = (file) => existsSync(path.join(repoRoot, file)),
+} = {}) {
+  const completeness = verifyStaticGuardTestMapCompleteness({ repoRoot, surfaces, testFileExists });
+  if (completeness.missingTestFiles.length > 0 || completeness.invalidTargets.length > 0) {
+    throw new StaticScopeDerivationError(
+      "STATIC_SCOPE_GUARD_TEST_MAP_INVALID",
+      `invalid or missing configured guard test: ${[...completeness.missingTestFiles, ...completeness.invalidTargets].join(", ")}`,
+    );
+  }
+  const selectAll = forceFull || completeness.invalidInclude.length > 0 || completeness.invalidEvidence.length > 0;
+  const selected = new Set();
+  for (const [file, entry] of Object.entries(surfaces)) {
+    if (selectAll || linkSurfaceMatches(entry, changedFiles)) selected.add(file);
+  }
+  for (const changedFile of changedFiles) {
+    const file = changedFile.replaceAll("\\", "/").replace(/^\.\//, "");
+    if (!file.startsWith("scripts/") || !file.endsWith(".mjs")) continue;
+    const testFile = file.endsWith(".test.mjs") ? file : file.replace(/\.mjs$/, ".test.mjs");
+    if (testFileExists(testFile)) selected.add(testFile);
+  }
+  return [...selected].sort();
+}
+
 function allWorkspacesAffected(changedFiles, repoRoot, dependencies) {
   const workspaces = dependencies.listWorkspacePackages({ repoRoot });
   if (workspaces.length === 0) return false;
@@ -189,9 +243,18 @@ export function selectVerifyStaticLinks({
   repoRoot = defaultRepoRoot,
   surfaces = VERIFY_STATIC_SURFACES,
   scopedExclusions = VERIFY_STATIC_SCOPED_EXCLUSIONS,
+  guardSurfaces = VERIFY_STATIC_GUARD_TEST_SURFACES,
+  testFileExists,
   forceFull = false,
   dependencies = { classifyChanges, listWorkspacePackages },
 } = {}) {
+  const guardTests = selectVerifyStaticGuardTests({
+    changedFiles,
+    repoRoot,
+    surfaces: guardSurfaces,
+    forceFull,
+    testFileExists,
+  });
   const excluded = chain
     .filter((link) => Object.hasOwn(scopedExclusions, link.name))
     .map((link) => ({ link, rule: scopedExclusions[link.name] }));
@@ -203,6 +266,7 @@ export function selectVerifyStaticLinks({
       skipped: scopedChain.map((link) => ({ link, rule: "empty derived diff" })),
       excluded,
       fullReason: null,
+      guardTests,
     };
   }
 
@@ -216,7 +280,7 @@ export function selectVerifyStaticLinks({
       : allWorkspacesAffected(changedFiles, repoRoot, dependencies)
         ? "classifyChanges affected every workspace (derived root-runtime fanout)"
         : null;
-  if (fullReason) return { selected: scopedChain, skipped: [], excluded, fullReason };
+  if (fullReason) return { selected: scopedChain, skipped: [], excluded, fullReason, guardTests };
 
   const selected = [];
   const skipped = [];
@@ -238,7 +302,7 @@ export function selectVerifyStaticLinks({
       skipped.push({ link, rule: entry.rule });
     }
   }
-  return { selected, skipped, excluded, fullReason: null };
+  return { selected, skipped, excluded, fullReason: null, guardTests };
 }
 
 export function resolvePnpmInvocation({ env = process.env, platform = process.platform } = {}) {
@@ -251,10 +315,8 @@ export function resolvePnpmInvocation({ env = process.env, platform = process.pl
   return { executable: "pnpm", argumentPrefix: [], shell: platform === "win32" };
 }
 
-function defaultRunLink(link, repoRoot) {
+function runPnpm(args, repoRoot) {
   const invocation = resolvePnpmInvocation();
-  const args = ["run", link.name];
-  if (link.forwarded) args.push(...link.forwarded.split(/\s+/));
   const result = spawnSync(invocation.executable, [...invocation.argumentPrefix, ...args], {
     cwd: repoRoot,
     stdio: "inherit",
@@ -265,16 +327,26 @@ function defaultRunLink(link, repoRoot) {
   return result.status ?? 1;
 }
 
+function defaultRunLink(link, repoRoot) {
+  const args = ["run", link.name];
+  if (link.forwarded) args.push(...link.forwarded.split(/\s+/));
+  return runPnpm(args, repoRoot);
+}
+
 export async function runVerifyStaticScoped({
   repoRoot = defaultRepoRoot,
   env = process.env,
   execGit,
   readPackageJson = () => JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")),
   runLink = (link) => defaultRunLink(link, repoRoot),
+  runGuardTests = (files) =>
+    runPnpm(["exec", "vitest", "run", "--config", "./vitest.scripts.config.mjs", ...files], repoRoot),
   stdout = console.log,
   stderr = console.warn,
   surfaces = VERIFY_STATIC_SURFACES,
   scopedExclusions = VERIFY_STATIC_SCOPED_EXCLUSIONS,
+  guardSurfaces = VERIFY_STATIC_GUARD_TEST_SURFACES,
+  testFileExists,
   acquireSlot = () => false,
   dependencies = { classifyChanges, listWorkspacePackages },
 } = {}) {
@@ -298,17 +370,25 @@ export async function runVerifyStaticScoped({
       repoRoot,
       surfaces,
       scopedExclusions,
+      guardSurfaces,
+      testFileExists,
       forceFull,
       dependencies,
     });
   } catch (error) {
+    if (error.code === "STATIC_SCOPE_GUARD_TEST_MAP_INVALID") {
+      stderr(`[${error.code}] ${error.message}.`);
+      return 1;
+    }
     stderr(`[STATIC_SCOPE_CLASSIFICATION_FAILED] ${error.message}. Running the full local static link set.`);
     plan = selectVerifyStaticLinks({
       chain,
-      changedFiles: [],
+      changedFiles: derived.files,
       repoRoot,
       surfaces,
       scopedExclusions,
+      guardSurfaces,
+      testFileExists,
       forceFull: true,
       dependencies,
     });
@@ -323,14 +403,24 @@ export async function runVerifyStaticScoped({
   stdout(
     `[VERIFY_STATIC_SCOPE] scanned=${plan.selected.length}/${plan.selected.length + plan.skipped.length}; ` +
       `skipped=${plan.skipped.length}; excluded=${plan.excluded.length}; ` +
+      `guard-tests=${plan.guardTests.length}; ` +
       `changed=${derived.files.length}; source=${derived.source}.`,
   );
 
-  if (plan.selected.length > 0) acquireSlot();
+  if (plan.selected.length > 0 || plan.guardTests.length > 0) acquireSlot();
   for (const link of plan.selected) {
     stdout(`[VERIFY_STATIC_RUN] ${link.name}`);
     const status = await runLink(link);
     if (status !== 0) return status;
+  }
+  if (plan.guardTests.length > 0) {
+    stdout(`[VERIFY_STATIC_GUARD_TESTS] ${plan.guardTests.join(" ")}`);
+    const started = performance.now();
+    try {
+      return await runGuardTests(plan.guardTests);
+    } finally {
+      stdout(`[VERIFY_STATIC_GUARD_TESTS] elapsed=${((performance.now() - started) / 1000).toFixed(2)}s`);
+    }
   }
   return 0;
 }

@@ -12,7 +12,153 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
   subtitle?: string | null;
 }>;
 
+type ReferenceRecordProjectionData = Readonly<{
+  referenceRecordId?: string;
+  typeKey: string;
+  name: string | LocalizedTextMap;
+  relationships: unknown;
+}>;
+
+type ReferenceRecordProjectionEvent = Readonly<{
+  streamId: string;
+  streamVersion: number;
+  timing: { recordedAt: string };
+  data: ReferenceRecordProjectionData;
+}>;
+
+type ReferenceValue = Readonly<{ referenceId?: unknown; reference_record_id?: unknown }>;
+
+function referenceIdFromValue(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const candidate = value as ReferenceValue;
+  const referenceId = candidate.referenceId ?? candidate.reference_record_id;
+  return typeof referenceId === "string" && referenceId.length > 0 ? referenceId : null;
+}
+
+async function refreshProductLineInputs(
+  db: PgQueryable,
+  recordedAt: string,
+  scope: Readonly<{ catalogItemId: string } | { referenceId: string }>,
+): Promise<void> {
+  await db.query(
+    `WITH RECURSIVE descendants(reference_id) AS (
+       SELECT $2::text WHERE $2::text IS NOT NULL
+       UNION
+       SELECT record.reference_id
+       FROM pricing_catalog_reference_records AS record
+       CROSS JOIN LATERAL jsonb_array_elements(record.relationships) AS relationship(value)
+       JOIN descendants ON relationship.value->>'relationshipType' = 'part-of'
+                        AND relationship.value->>'referenceId' = descendants.reference_id
+     ), affected AS (
+       SELECT catalog_item_id FROM pricing_catalog_item_inputs WHERE catalog_item_id = $1
+       UNION
+       SELECT input.catalog_item_id
+       FROM pricing_catalog_reference_inputs AS input
+       JOIN descendants ON descendants.reference_id = input.reference_id
+     ), reference_frontier AS (
+       SELECT input.catalog_item_id,
+              input.reference_id,
+              0 AS depth,
+              ARRAY[input.reference_id]::text[] AS path
+       FROM pricing_catalog_reference_inputs AS input
+       JOIN affected ON affected.catalog_item_id = input.catalog_item_id
+       WHERE input.reference_id IS NOT NULL
+       UNION ALL
+       SELECT frontier.catalog_item_id,
+              relationship.value->>'referenceId',
+              frontier.depth + 1,
+              array_append(frontier.path, relationship.value->>'referenceId')
+       FROM reference_frontier AS frontier
+       JOIN pricing_catalog_reference_records AS record
+         ON record.reference_id = frontier.reference_id
+       CROSS JOIN LATERAL jsonb_array_elements(record.relationships) AS relationship(value)
+       WHERE relationship.value->>'relationshipType' = 'part-of'
+         AND relationship.value->>'referenceId' IS NOT NULL
+         AND NOT (relationship.value->>'referenceId' = ANY(frontier.path))
+     ), resolved AS (
+       SELECT DISTINCT ON (frontier.catalog_item_id)
+              frontier.catalog_item_id, frontier.reference_id, record.name
+       FROM reference_frontier AS frontier
+       JOIN pricing_catalog_reference_records AS record ON record.reference_id = frontier.reference_id
+       WHERE record.type_key = 'product-line'
+       ORDER BY frontier.catalog_item_id, frontier.depth ASC, frontier.reference_id ASC
+     )
+     UPDATE pricing_catalog_item_inputs AS item
+     SET product_line_reference_id = resolved.reference_id,
+         product_line_name = resolved.name,
+         product_line_version = COALESCE(item.product_line_version, 0) + 1,
+         updated_at = $3
+     FROM affected LEFT JOIN resolved ON resolved.catalog_item_id = affected.catalog_item_id
+     WHERE item.catalog_item_id = affected.catalog_item_id
+       AND (item.product_line_reference_id, item.product_line_name)
+           IS DISTINCT FROM (resolved.reference_id, resolved.name)`,
+    [
+      "catalogItemId" in scope ? scope.catalogItemId : null,
+      "referenceId" in scope ? scope.referenceId : null,
+      recordedAt,
+    ],
+  );
+}
+
+async function upsertReferenceRecord(db: PgQueryable, event: ReferenceRecordProjectionEvent): Promise<void> {
+  const data = event.data;
+  const referenceId = data.referenceRecordId ?? extractIdFromStreamId(event.streamId, "catalog.reference-record-");
+  await db.query(
+    `INSERT INTO pricing_catalog_reference_records
+       (reference_id, type_key, name, relationships, status, updated_at, last_stream_version)
+     VALUES ($1, $2, $3, $4, 'draft', $5, $6)
+     ON CONFLICT (reference_id) DO UPDATE
+       SET type_key = EXCLUDED.type_key,
+           name = EXCLUDED.name,
+           relationships = EXCLUDED.relationships,
+           updated_at = EXCLUDED.updated_at,
+           last_stream_version = EXCLUDED.last_stream_version
+       WHERE pricing_catalog_reference_records.last_stream_version < EXCLUDED.last_stream_version`,
+    [
+      referenceId,
+      data.typeKey,
+      resolveLocalizedTextMap(coerceLocalizedTextMap(data.name)),
+      JSON.stringify(Array.isArray(data.relationships) ? data.relationships : []),
+      event.timing.recordedAt,
+      event.streamVersion,
+    ],
+  );
+  await refreshProductLineInputs(db, event.timing.recordedAt, { referenceId });
+}
+
 export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const referenceStatus =
+    (status: string): ProjectorHandlerMap[string] =>
+    async (event) => {
+      const referenceId = extractIdFromStreamId(event.streamId, "catalog.reference-record-");
+      await db.query(
+        `UPDATE pricing_catalog_reference_records SET status = $2, updated_at = $3, last_stream_version = $4
+         WHERE reference_id = $1 AND last_stream_version < $4`,
+        [referenceId, status, event.timing.recordedAt, event.streamVersion],
+      );
+      await refreshProductLineInputs(db, event.timing.recordedAt, { referenceId });
+    };
+  const setReferenceInput = async (
+    catalogItemId: string,
+    fieldId: string,
+    referenceId: string | null,
+    recordedAt: string,
+    streamVersion: number,
+  ): Promise<void> => {
+    // Retain null tombstones so an older set cannot resurrect a cleared field.
+    await db.query(
+      `INSERT INTO pricing_catalog_reference_inputs
+         (catalog_item_id, field_id, reference_id, updated_at, last_stream_version)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (catalog_item_id, field_id) DO UPDATE
+         SET reference_id = EXCLUDED.reference_id,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE pricing_catalog_reference_inputs.last_stream_version < EXCLUDED.last_stream_version`,
+      [catalogItemId, fieldId, referenceId, recordedAt, streamVersion],
+    );
+    await refreshProductLineInputs(db, recordedAt, { catalogItemId });
+  };
   const categoryStatus =
     (status: string): ProjectorHandlerMap[string] =>
     async (event) => {
@@ -90,6 +236,22 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
         [data.itemId, data.languageCode ?? "en", titleText, subtitleText, slug, event.timing.recordedAt],
       );
     },
+    "catalog.catalog-item.field-value-set": async (event) => {
+      const catalogItemId = extractIdFromStreamId(event.streamId, "catalog.item-");
+      const data = event.data as { fieldId: string; value: unknown };
+      await setReferenceInput(
+        catalogItemId,
+        data.fieldId,
+        referenceIdFromValue(data.value),
+        event.timing.recordedAt,
+        event.streamVersion,
+      );
+    },
+    "catalog.catalog-item.field-value-cleared": async (event) => {
+      const catalogItemId = extractIdFromStreamId(event.streamId, "catalog.item-");
+      const data = event.data as { fieldId: string };
+      await setReferenceInput(catalogItemId, data.fieldId, null, event.timing.recordedAt, event.streamVersion);
+    },
     "catalog.catalog-item.display-identity-resolved": async (event) => {
       const data = event.data as CatalogItemDisplayIdentityResolvedEventData;
       const subtitleText = data.subtitle?.trim() || null;
@@ -157,6 +319,15 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
         [extractIdFromStreamId(event.streamId, "catalog.item-"), data.categoryId, event.timing.recordedAt],
       );
     },
+    "catalog.reference-record.created": async (event) => {
+      await upsertReferenceRecord(db, event as unknown as ReferenceRecordProjectionEvent);
+    },
+    "catalog.reference-record.revised": async (event) => {
+      await upsertReferenceRecord(db, event as unknown as ReferenceRecordProjectionEvent);
+    },
+    "catalog.reference-record.published": referenceStatus("active"),
+    "catalog.reference-record.deprecated": referenceStatus("deprecated"),
+    "catalog.reference-record.archived": referenceStatus("archived"),
   };
 }
 
@@ -331,7 +502,25 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
 }
 
 export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  // Open-Offer inputs read `status = 'submitted'`; buyer Pause/Withdraw drop out and Resume restores.
+  const projectBuyerOfferStatus =
+    (status: "submitted" | "paused" | "withdrawn"): ProjectorHandlerMap[string] =>
+    async (event) => {
+      await db.query(
+        `UPDATE pricing_buyer_offer_inputs
+         SET status = $2,
+             last_stream_version = $3,
+             updated_at = $4
+         WHERE offer_id = $1
+           AND last_stream_version < $3`,
+        [(event.data as { offerId: string }).offerId, status, event.streamVersion, event.timing.recordedAt],
+      );
+    };
+
   return {
+    "marketplace.offer.paused": projectBuyerOfferStatus("paused"),
+    "marketplace.offer.resumed": projectBuyerOfferStatus("submitted"),
+    "marketplace.offer.withdrawn": projectBuyerOfferStatus("withdrawn"),
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
         listingId: string;

@@ -25,12 +25,13 @@ import {
 } from "./project-status-sync.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const outcomeDescription = '<!-- outcome: {"version":1,"track":"wave","order":2,"status":"committed"} -->';
 
 function issue(overrides = {}) {
   return {
     number: 1,
     state: "open",
-    milestone: { title: "Wave 2" },
+    milestone: { title: "Wave 2", description: outcomeDescription },
     labels: [{ name: "priority:p1" }, { name: "area:catalog" }, { name: "kind:product" }],
     blockedBy: 0,
     hasParent: false,
@@ -53,7 +54,7 @@ function boardNode({
   stateReason = null,
   status = "Refined",
   targetDate = null,
-  milestone = { title: "Wave 2", dueOn: "2026-08-12T00:00:00Z" },
+  milestone = { title: "Wave 2", description: outcomeDescription, dueOn: "2026-08-12T00:00:00Z" },
   labels = labelConnection(["priority:p1", "area:catalog", "kind:product"]),
   blockedBy = 0,
   parent = null,
@@ -379,7 +380,10 @@ describe("project status derivation", () => {
       boardNode({
         number: 6169,
         parent: { number: 6100 },
-        milestone: { title: "Wave 1" },
+        milestone: {
+          title: "Wave 1",
+          description: '<!-- outcome: {"version":1,"track":"wave","order":1,"status":"committed"} -->',
+        },
       }),
       ["priority:p1", "area:ops", "kind:tech-debt"],
     );
@@ -614,9 +618,15 @@ describe("Epic and Tracking derivation contract", () => {
 });
 
 describe("planner correction and lane ownership", () => {
-  it("schedules reconciliation hourly including nights and weekends", () => {
+  it("reconciles close and reopen events with serialized hourly and manual fallback runs", () => {
     const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/project-status-sync.yml"), "utf8"));
-    expect(workflow.on.schedule).toEqual([{ cron: "17 * * * *" }]);
+    expect(workflow.on).toEqual({
+      issues: { types: ["closed", "reopened"] },
+      schedule: [{ cron: "17 * * * *" }],
+      workflow_dispatch: null,
+    });
+    expect(workflow.concurrency).toEqual({ group: "project-status-sync", "cancel-in-progress": false });
+    expect(workflow.permissions).toEqual({ contents: "read" });
   });
 
   const LANE_OWNED_STATUSES = ["In lane", "In review"];

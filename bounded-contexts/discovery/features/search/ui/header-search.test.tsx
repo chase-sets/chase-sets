@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useLocation, MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,24 +82,71 @@ describe("MarketplaceHeaderSearch", () => {
     expect(window.localStorage.getItem(MARKETPLACE_RECENT_SEARCHES_STORAGE_KEY)).toBeNull();
   });
 
-  it("shows the query submit row first and records only that query", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json({ items: [], count: 0 })),
-    );
-    renderSearch();
+  it.each(["char", "ETB", "zard 4/102"])(
+    "shows the original query submit row first and records only %s",
+    async (query) => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ items: [], count: 0 })),
+      );
+      renderSearch();
 
+      const searchbox = screen.getByRole("combobox", { name: "Search marketplace" });
+      await user.click(searchbox);
+      fireEvent.change(searchbox, { target: { value: query } });
+
+      const queryOption = await screen.findByRole("option", { name: `Search for '${query}'` });
+      expect(screen.getAllByRole("option")[0]).toBe(queryOption);
+      await user.click(queryOption);
+
+      await waitFor(() =>
+        expect(screen.getByLabelText("Current location").textContent).toBe(`/search?q=${encodeURIComponent(query)}`),
+      );
+      expect(JSON.parse(window.localStorage.getItem(MARKETPLACE_RECENT_SEARCHES_STORAGE_KEY) ?? "[]")).toEqual([query]);
+    },
+  );
+
+  it("aborts stale synonym requests, ignores late results and empties failed suggestions", async () => {
+    let finishStale!: (response: Response) => void;
+    const fetch = vi
+      .fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishStale = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          items: [{ catalogItemId: "new", title: "Charizard", subtitle: null, slug: "charizard", category: null }],
+          count: 1,
+        }),
+      )
+      .mockRejectedValueOnce(new Error("suggestions unavailable"));
+    vi.stubGlobal("fetch", fetch);
+    renderSearch();
+    const user = userEvent.setup();
     const searchbox = screen.getByRole("combobox", { name: "Search marketplace" });
     await user.click(searchbox);
-    fireEvent.change(searchbox, { target: { value: "char" } });
-
-    const queryOption = await screen.findByRole("option", { name: "Search for 'char'" });
-    expect(screen.getAllByRole("option")[0]).toBe(queryOption);
-    await user.click(queryOption);
-
-    await waitFor(() => expect(screen.getByLabelText("Current location").textContent).toBe("/search?q=char"));
-    expect(JSON.parse(window.localStorage.getItem(MARKETPLACE_RECENT_SEARCHES_STORAGE_KEY) ?? "[]")).toEqual(["char"]);
+    fireEvent.change(searchbox, { target: { value: "ETB" } });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    fireEvent.change(searchbox, { target: { value: "zard" } });
+    expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    await screen.findByRole("option", { name: "Charizard" });
+    await act(async () => {
+      finishStale(
+        Response.json({
+          items: [{ catalogItemId: "old", title: "Stale Trainer Box", subtitle: null, slug: "old", category: null }],
+          count: 1,
+        }),
+      );
+    });
+    await waitFor(() => expect(screen.queryByRole("option", { name: "Stale Trainer Box" })).toBeNull());
+    fireEvent.change(searchbox, { target: { value: "pkmn" } });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole("option", { name: "Charizard" })).toBeNull());
+    expect(screen.getByRole("option", { name: "Search for 'pkmn'" })).toBeTruthy();
   });
 
   it("loads persisted recent searches and clears them from the keyboard-accessible list", async () => {

@@ -1,48 +1,57 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFreshWriteToken } from "@chase-sets/http/responses";
 
-const { MockCommercialTermsApiError, mockApi, mockCreateCommercialTermsRequestApiClient, commercialTermsCommit } =
-  vi.hoisted(() => {
-    class MockCommercialTermsApiError extends Error {}
-    function commercialTermsCommit(position = "42", id = "cts_committed") {
-      return {
-        id,
-        version: 2,
-        commandReceipt: {
-          mode: "eventual",
-          commitPosition: position,
-          commitEventIds: [`evt_terms_${position}`],
-          commitPositions: [
-            {
-              sourceContextName: "commercial-terms",
-              maxGlobalPosition: position,
-              eventIds: [`evt_terms_${position}`],
-            },
-          ],
-        },
-      };
-    }
+const {
+  MockCommercialTermsApiError,
+  mockApi,
+  mockPublicApi,
+  mockCreateCommercialTermsPublicRequestApiClient,
+  mockCreateCommercialTermsRequestApiClient,
+  commercialTermsCommit,
+} = vi.hoisted(() => {
+  class MockCommercialTermsApiError extends Error {}
+  function commercialTermsCommit(position = "42", id = "cts_committed") {
     return {
-      MockCommercialTermsApiError,
-      commercialTermsCommit,
-      mockCreateCommercialTermsRequestApiClient: vi.fn(),
-      mockApi: {
-        listSchedules: vi.fn(),
-        getSchedule: vi.fn(),
-        createSchedule: vi.fn(),
-        updateSchedule: vi.fn(),
-        listAgreements: vi.fn(),
-        getAgreement: vi.fn(),
-        createAgreement: vi.fn(),
-        updateAgreement: vi.fn(),
-        listAccountOptions: vi.fn(),
+      id,
+      version: 2,
+      commandReceipt: {
+        mode: "eventual",
+        commitPosition: position,
+        commitEventIds: [`evt_terms_${position}`],
+        commitPositions: [
+          {
+            sourceContextName: "commercial-terms",
+            maxGlobalPosition: position,
+            eventIds: [`evt_terms_${position}`],
+          },
+        ],
       },
     };
-  });
+  }
+  return {
+    MockCommercialTermsApiError,
+    commercialTermsCommit,
+    mockCreateCommercialTermsRequestApiClient: vi.fn(),
+    mockCreateCommercialTermsPublicRequestApiClient: vi.fn(),
+    mockPublicApi: { getMarketplaceSalesFeeSchedule: vi.fn() },
+    mockApi: {
+      listSchedules: vi.fn(),
+      getSchedule: vi.fn(),
+      createSchedule: vi.fn(),
+      updateSchedule: vi.fn(),
+      listAgreements: vi.fn(),
+      getAgreement: vi.fn(),
+      createAgreement: vi.fn(),
+      updateAgreement: vi.fn(),
+      listAccountOptions: vi.fn(),
+    },
+  };
+});
 
 vi.mock("../../features/home/integrations/admin-api-client", () => ({
   CommercialTermsApiError: MockCommercialTermsApiError,
   createCommercialTermsRequestApiClient: mockCreateCommercialTermsRequestApiClient,
+  createCommercialTermsPublicRequestApiClient: mockCreateCommercialTermsPublicRequestApiClient,
 }));
 
 import { action as homeAction, loader as homeLoader } from "./home";
@@ -77,6 +86,8 @@ function termsForm(intent: string) {
 
 describe("commercial terms admin home route", () => {
   beforeEach(() => {
+    mockCreateCommercialTermsPublicRequestApiClient.mockReturnValue(mockPublicApi);
+    mockPublicApi.getMarketplaceSalesFeeSchedule.mockResolvedValue(null);
     mockCreateCommercialTermsRequestApiClient.mockReturnValue(mockApi);
     mockApi.listSchedules.mockResolvedValue({ items: [], total: 0, count: 0 });
     mockApi.listAgreements.mockResolvedValue({ items: [], total: 0, count: 0 });
@@ -86,6 +97,48 @@ describe("commercial terms admin home route", () => {
   });
 
   afterEach(() => vi.clearAllMocks());
+
+  it.each(["policy", "fallback"])("propagates the public %s resolver envelope unchanged", async (source) => {
+    const publishedSchedule = {
+      value: {
+        label: "Synthetic terms",
+        marketplaceSalesFeePercentageBps: 625,
+        marketplaceSalesFeeFixedAmount: "0.42",
+        marketplaceSalesFeeCapAmount: "19.75",
+        shippingAllowancePercentageBps: 725,
+      },
+      source,
+      documentId: source === "policy" ? "pol_synthetic" : null,
+      effectiveFrom: source === "policy" ? "2026-07-12T00:00:00.000Z" : null,
+      resolvedAt: "2026-07-15T12:00:00.000Z",
+    };
+    mockPublicApi.getMarketplaceSalesFeeSchedule.mockResolvedValue(publishedSchedule);
+    const request = new Request("https://admin.chasesets.com/commerce/terms");
+    await expect(homeLoader({ request, params: {}, context: undefined } as never)).resolves.toMatchObject({
+      publishedSchedule,
+      loadError: null,
+    });
+    expect(mockCreateCommercialTermsPublicRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockPublicApi.getMarketplaceSalesFeeSchedule).toHaveBeenCalledOnce();
+  });
+
+  it("does not invent a fallback when the public request fails or rejects malformed policy data", async () => {
+    mockPublicApi.getMarketplaceSalesFeeSchedule.mockRejectedValue(new Error("Policy unavailable"));
+    await expect(
+      homeLoader({
+        request: new Request("https://admin.chasesets.com/commerce/terms?agreement=cag_demo"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).resolves.toMatchObject({
+      publishedSchedule: null,
+      schedules: [],
+      agreements: [],
+      accounts: [],
+      selectedAgreement: null,
+      loadError: "Policy unavailable",
+    });
+  });
 
   it("contributes one Commercial Terms home and keeps the five retired paths as redirects", () => {
     const routes = contextManifest.deployableContributions[0]?.routes ?? [];

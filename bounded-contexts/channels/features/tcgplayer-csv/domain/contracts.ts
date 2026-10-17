@@ -84,7 +84,7 @@ export type ChannelInventorySnapshot = Readonly<{
   completeness: "unverified";
   ingestedAt: string;
   capturedAt: string;
-  capturedAtSource: "operator-declared" | "ingest";
+  capturedAtSource: "operator-declared" | "ingest" | "connector-captured";
 }>;
 
 export type ChannelInventorySnapshotRow = TcgplayerParsedExportRow &
@@ -97,7 +97,7 @@ export type ChannelInventorySnapshotRow = TcgplayerParsedExportRow &
     currency: "USD";
     ingestedAt: string;
     capturedAt: string;
-    capturedAtSource: "operator-declared" | "ingest";
+    capturedAtSource: ChannelInventorySnapshot["capturedAtSource"];
   }>;
 
 export const tcgplayerLocalRefusalReasons = [

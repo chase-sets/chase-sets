@@ -11,10 +11,15 @@ export const channelsWakeRegistryEntry = registryEntry({
   wakeStoreLoadEstimate: "none",
   affectedProjectionNames: [
     "channels:channel-connection-projection",
+    "channels:channel-fulfillment-observation-retry",
     "channels:channel-listing-desired-state-reaction",
     "channels:channel-owned-publication-state",
     "channels:platform-policy-document-projection",
     "channels:tcgplayer-csv-projection",
   ],
-  routeDependencyIds: ["channels.publication-settings-to-detail"],
+  routeDependencyIds: [
+    "channels.activation-to-manual-sync",
+    "channels.connect-to-detail",
+    "channels.publication-settings-to-detail",
+  ],
 });

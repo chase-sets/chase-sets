@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { withInventoryMutationAttempt } from "../../../support/runtime-support/mutation-attempt";
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
@@ -47,7 +49,10 @@ describeDb("checkout reservation ownership through real Inventory HTTP and Postg
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(inventoryModule, pool);
     eventStore = createPostgresEventStore({ pool });
-    services = inventoryModule.createServices(pool, {});
+    services = inventoryModule.createServices(pool, {
+      checkoutReservationAuthority: async (input) =>
+        input.checkoutSessionId === "chk_own" && input.inventoryItemId === "inv_1" ? { accountId: "acc_seller" } : null,
+    });
     await pool.query(`INSERT INTO inventory_storage_locations
       (storage_location_id, account_id, name, ship_from_code) VALUES ('loc_1', 'acc_seller', 'Main', 'MAIN')`);
     const [created] = decideInventoryItem(initialInventoryItemState, {
@@ -82,7 +87,7 @@ describeDb("checkout reservation ownership through real Inventory HTTP and Postg
         sourceRef: { checkoutSessionId: "chk_own", lineKey: "line_1" },
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       },
-      context,
+      withInventoryMutationAttempt(context, randomUUID()),
     );
     await projectHold();
   });
@@ -126,7 +131,7 @@ describeDb("checkout reservation ownership through real Inventory HTTP and Postg
         const send = (sessionId: string, id = holdId) =>
           app.request(`/api/inventory/checkout-reservations/${id}/${action}`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
             body: JSON.stringify({ checkoutSessionId: sessionId, sellerAccountId: "acc_seller" }),
           });
         const before = await snapshot();
@@ -182,7 +187,7 @@ describeDb("checkout reservation ownership through real Inventory HTTP and Postg
       for (const action of ["extend", "release"]) {
         const response = await app.request(`/api/inventory/checkout-reservations/${holdId}/${action}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
           body: JSON.stringify({ checkoutSessionId: "chk_own" }),
         });
         expect(response.status).toBe(404);

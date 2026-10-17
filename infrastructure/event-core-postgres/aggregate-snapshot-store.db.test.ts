@@ -174,13 +174,13 @@ describeDb("postgres aggregate snapshot store real database integration", () => 
     expect(latestSnapshot?.streamVersion).toBeGreaterThanOrEqual(30);
   });
 
-  it("reduces load() latency on a 500-event stream (before/after benchmark)", async () => {
+  it("replays only the post-snapshot tail on a 500-event stream", async () => {
     const eventStore = createPostgresEventStore({ pool: schema.pool });
     const snapshotStore = createPostgresAggregateSnapshotStore<number>({ db: schema.pool });
     const streamId = "counter-500-benchmark";
 
     // Seed 500 events directly (bypassing per-command round trips) so the
-    // benchmark measures load()'s replay cost, not append throughput.
+    // loads below replay a known stream, not per-command appends.
     const chunkSize = 100;
     for (let start = 0; start < 500; start += chunkSize) {
       await eventStore.appendToStream({
@@ -194,16 +194,14 @@ describeDb("postgres aggregate snapshot store real database integration", () => 
       });
     }
 
+    const fullReplayEvolve = createCountingEvolve();
     const { repository: noSnapshotRepository } = createAggregateCommandHandler<number, CounterCommand, CounterEvent>({
       eventStore,
       codec: createPassthroughDomainEventCodec<CounterEvent>(),
       initialState: () => 0,
-      evolve: (state, event) => state + event.data.by,
+      evolve: fullReplayEvolve.evolve,
       decide: (_state, command) => [{ type: "counter.incremented" as const, data: { by: command.by } }],
     });
-
-    // "Before": every load() replays all 500 events from event #1.
-    const beforeSamples = await timeLoads(noSnapshotRepository, streamId, 5);
 
     // Simulate write-behind having already caught this stream up to a
     // recent snapshot (as it would after real traffic at everyNEvents=100).
@@ -214,6 +212,7 @@ describeDb("postgres aggregate snapshot store real database integration", () => 
       state: 400,
     });
 
+    const snapshotAssistedEvolve = createCountingEvolve();
     const { repository: snapshotAssistedRepository } = createAggregateCommandHandler<
       number,
       CounterCommand,
@@ -222,49 +221,48 @@ describeDb("postgres aggregate snapshot store real database integration", () => 
       eventStore,
       codec: createPassthroughDomainEventCodec<CounterEvent>(),
       initialState: () => 0,
-      evolve: (state, event) => state + event.data.by,
+      evolve: snapshotAssistedEvolve.evolve,
       decide: (_state, command) => [{ type: "counter.incremented" as const, data: { by: command.by } }],
       snapshots: { store: snapshotStore, schemaVersion: SNAPSHOT_SCHEMA_VERSION, everyNEvents: 100 },
     });
 
-    // "After": load() replays only the 100 events past the snapshot.
-    const afterSamples = await timeLoads(snapshotAssistedRepository, streamId, 5);
+    // Full replay folds all 500 events from event #1.
+    fullReplayEvolve.reset();
+    const fullReplayStartedAt = performance.now();
+    const noSnapshotLoad = await noSnapshotRepository.load(streamId);
+    const fullReplayMs = performance.now() - fullReplayStartedAt;
+    const fullReplayEvolveCalls = fullReplayEvolve.calls();
 
-    const beforeMedianMs = median(beforeSamples);
-    const afterMedianMs = median(afterSamples);
+    // A snapshot-assisted load folds only the 100 events past the v400 snapshot.
+    snapshotAssistedEvolve.reset();
+    const snapshotAssistedStartedAt = performance.now();
+    const snapshotAssistedLoad = await snapshotAssistedRepository.load(streamId);
+    const snapshotAssistedMs = performance.now() - snapshotAssistedStartedAt;
+    const snapshotAssistedEvolveCalls = snapshotAssistedEvolve.calls();
 
-    // eslint-disable-next-line no-console -- before/after numbers must land in the PR description.
+    // eslint-disable-next-line no-console -- informational only; the replay counts below are the assertion.
     console.log(
-      `[m113 aggregate snapshots] 500-event listing-stream load() latency -- before (full replay): ${beforeMedianMs.toFixed(2)}ms median` +
-        ` | after (snapshot at v400 + 100-event tail replay): ${afterMedianMs.toFixed(2)}ms median` +
-        ` | samples: before=${beforeSamples.map((ms) => ms.toFixed(2)).join(",")}` +
-        ` after=${afterSamples.map((ms) => ms.toFixed(2)).join(",")}`,
+      `[m113 aggregate snapshots] 500-event listing-stream load() -- full replay: ${fullReplayMs.toFixed(2)}ms` +
+        ` | snapshot at v400 + 100-event tail replay: ${snapshotAssistedMs.toFixed(2)}ms`,
     );
 
-    const noSnapshotLoad = await noSnapshotRepository.load(streamId);
-    const snapshotAssistedLoad = await snapshotAssistedRepository.load(streamId);
+    expect(fullReplayEvolveCalls).toBe(500);
+    expect(snapshotAssistedEvolveCalls).toBe(100);
     expect(snapshotAssistedLoad.state).toBe(noSnapshotLoad.state);
     expect(snapshotAssistedLoad.version).toBe(noSnapshotLoad.version);
-    expect(afterMedianMs).toBeLessThan(beforeMedianMs);
   });
 });
 
-async function timeLoads(
-  repository: Readonly<{ load: (streamId: string) => Promise<unknown> }>,
-  streamId: string,
-  sampleCount: number,
-): Promise<number[]> {
-  const samples: number[] = [];
-  for (let index = 0; index < sampleCount; index += 1) {
-    const startedAt = performance.now();
-    await repository.load(streamId);
-    samples.push(performance.now() - startedAt);
-  }
-  return samples;
-}
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+function createCountingEvolve() {
+  let calls = 0;
+  return {
+    evolve: (state: number, event: CounterEvent) => {
+      calls += 1;
+      return state + event.data.by;
+    },
+    calls: () => calls,
+    reset: () => {
+      calls = 0;
+    },
+  };
 }

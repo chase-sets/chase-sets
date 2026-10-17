@@ -38,6 +38,47 @@ import { loader } from "../routes/account-listings";
 describe("account listings route", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { status: 200, count: 2, expected: 2 },
+    { status: 200, count: 0, expected: 0 },
+    { status: 500, count: 2, expected: null },
+  ])("reads the mounted Ordering route with status $status and count $count", async ({ status, count, expected }) => {
+    mockResolveRequiredActorFromAuthApi.mockResolvedValue({
+      kind: "authorized",
+      actor: { accountId: "acc_seller", permissions: ["listings.view", "listings.manage"] },
+    });
+    const listings = { items: [], total: 0, count: 0 };
+    const orderCapacity = { account_id: "acc_seller", max_open_orders: 5 };
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      listSellerListings: vi.fn().mockResolvedValue(listings),
+      listSellerListingFeeLockReport: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      getSellerListingAvailability: vi.fn().mockResolvedValue({ account_id: "acc_seller", status: "available" }),
+      getSellerOrderCapacity: vi.fn().mockResolvedValue(orderCapacity),
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      return path === "/api/marketplace/account/sales/order-capacity"
+        ? Response.json({ open_order_count: count }, { status })
+        : Response.json({ error: "not_found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await loader({
+      request: new Request("https://example.test/account/listings"),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(result.openOrderCount).toBe(expected);
+    expect(result.listings).toMatchObject(listings);
+    expect(result.orderCapacity).toEqual(orderCapacity);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://example.test/api/marketplace/account/sales/order-capacity",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("returns an account access state instead of throwing 403 for signed-in actors without listing access", async () => {

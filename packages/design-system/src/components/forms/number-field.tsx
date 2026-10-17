@@ -19,9 +19,10 @@ import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy,
  * decrement/increment icon buttons around a centered text input. Colocating
  * this here keeps the three numeric controls (this pair, plus
  * `QuantityStepper` in its own file for the cart/order-entry density variant)
- * from re-deriving the same grid/icon-button markup.
+ * from re-deriving the same wrapping control/icon-button markup.
  */
 function NumberFieldControlGroup({
+  inputId,
   error,
   disabledChrome = false,
   decrementLabel,
@@ -31,6 +32,7 @@ function NumberFieldControlGroup({
   prefixAdornment,
   suffixAdornment,
 }: {
+  inputId: string;
   error?: unknown;
   disabledChrome?: boolean;
   decrementLabel: string;
@@ -39,7 +41,7 @@ function NumberFieldControlGroup({
   inputRef?: Ref<HTMLInputElement>;
   /**
    * Decorative content flowed in-line before/after the input, inside the same
-   * middle grid cell as the input itself (for example a currency symbol). Kept
+   * flexible middle cell as the input itself (for example a currency symbol). Kept
    * in normal flex flow rather than absolutely positioned, so no fixed-width
    * padding assumption is ever needed regardless of the adornment's width.
    */
@@ -57,13 +59,13 @@ function NumberFieldControlGroup({
         compoundControlClass,
         !!error && controlErrorClass,
         disabledChrome && "cursor-not-allowed opacity-60",
-        "grid grid-cols-[var(--control-sm-height)_minmax(0,1fr)_var(--control-sm-height)] items-center gap-1",
+        "flex flex-wrap items-center justify-between gap-1",
       )}
     >
-      <NumberFieldPrimitive.Decrement aria-label={decrementLabel} className={iconButtonClass}>
+      <NumberFieldPrimitive.Decrement aria-label={decrementLabel} aria-controls={inputId} className={iconButtonClass}>
         <Icon name="minus" size="sm" />
       </NumberFieldPrimitive.Decrement>
-      <span className="flex min-w-0 items-center justify-center gap-1 px-2">
+      <span className="flex min-w-min flex-1 items-center justify-center gap-1 px-2">
         {prefixAdornment ? (
           <span aria-hidden="true" className="text-secondary">
             {prefixAdornment}
@@ -73,7 +75,7 @@ function NumberFieldControlGroup({
           role="spinbutton"
           {...inputProps}
           ref={inputRef}
-          className="min-w-0 flex-1 bg-transparent py-[var(--control-sm-py)] text-center outline-none"
+          className="w-0 min-w-[var(--control-md-height)] flex-1 bg-transparent py-[var(--control-sm-py)] text-center outline-none"
         />
         {suffixAdornment ? (
           <span aria-hidden="true" className="text-secondary">
@@ -81,7 +83,7 @@ function NumberFieldControlGroup({
           </span>
         ) : null}
       </span>
-      <NumberFieldPrimitive.Increment aria-label={incrementLabel} className={iconButtonClass}>
+      <NumberFieldPrimitive.Increment aria-label={incrementLabel} aria-controls={inputId} className={iconButtonClass}>
         <Icon name="plus" size="sm" />
       </NumberFieldPrimitive.Increment>
     </NumberFieldPrimitive.Group>
@@ -145,7 +147,6 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
       htmlFor={inputId}
     >
       <NumberFieldPrimitive.Root
-        id={inputId}
         name={name}
         form={form}
         value={value}
@@ -159,12 +160,14 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
         readOnly={readOnly}
       >
         <NumberFieldControlGroup
+          inputId={inputId}
           error={error}
           disabledChrome={disabled}
           decrementLabel={decrementLabel}
           incrementLabel={incrementLabel}
           inputRef={ref}
           inputProps={{
+            id: inputId,
             placeholder,
             "aria-describedby": fieldDescribedBy({ inputId, description, error, status, counter }),
             "aria-invalid": !!error || undefined,
@@ -357,7 +360,6 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(fu
       htmlFor={inputId}
     >
       <NumberFieldPrimitive.Root
-        id={inputId}
         name={name}
         form={form}
         locale={locale}
@@ -375,6 +377,7 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(fu
         readOnly={readOnly}
       >
         <NumberFieldControlGroup
+          inputId={inputId}
           error={error}
           disabledChrome={disabled}
           decrementLabel={decrementLabel}
@@ -383,6 +386,7 @@ export const CurrencyInput = forwardRef<HTMLInputElement, CurrencyInputProps>(fu
           suffixAdornment={affix.position === "suffix" ? affix.symbol : undefined}
           inputRef={ref}
           inputProps={{
+            id: inputId,
             placeholder,
             inputMode: "decimal",
             "aria-label": ariaLabel,

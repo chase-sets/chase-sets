@@ -237,6 +237,8 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.source": "Source",
   "ordering.features.orders.ui.orderDetailPage.standard": "Standard",
   "ordering.features.orders.ui.orderDetailPage.status": "Status",
+  "ordering.features.orders.ui.orderDetailPage.delivered": "Delivered",
+  "ordering.features.orders.ui.orderDetailPage.delivered.at": "Delivered at",
   "ordering.features.orders.ui.orderDetailPage.status.2": "Status",
   "ordering.features.orders.ui.orderDetailPage.support.reference": "Support reference",
   "ordering.features.orders.ui.orderDetailPage.tax": "Tax",
@@ -277,13 +279,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderListPage.seller.payout": "Seller payout",
   "ordering.features.orders.ui.orderListPage.total": "Total",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review": "Leave account review",
-  "ordering.features.orders.ui.orderReviewOpportunityCallout.account.response": "Account response",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.awaiting.reveal": "Awaiting publication",
-  "ordering.features.orders.ui.orderReviewOpportunityCallout.context.only": "Published, context only",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.revealed": "Published",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review": "Open your review",
-  "ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies":
-    "Reviews open only after delivery verifies both accounts in the transaction.",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.your.account.review.is.already.active":
     "Your account review is already active.",
   "ordering.features.orders.ui.orderOutcome.title": "Order outcome",
@@ -294,7 +292,7 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderOutcome.review.held": "Review paused",
   "ordering.features.orders.ui.orderOutcome.review.held.description":
     "Issue is being resolved before feedback continues.",
-  "ordering.features.orders.ui.orderOutcome.review.expired": "Review window expired",
+  "ordering.features.orders.ui.orderOutcome.review.expired": "Review window closed",
   "ordering.features.orders.ui.orderOutcome.review.expired.description":
     "The feedback window for this order has closed.",
   "ordering.features.orders.ui.orderOutcome.review.ineligible": "Review unavailable for this order",
@@ -348,4 +346,5 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.summary.title": "{projectionLabel} Summary",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.ready.for.counterparty.review":
     "This verified {transactionLabel} is ready for your {counterpartyRole} counterparty review.",
+  "ordering.shell.sales.label": "Sales",
 } as const;

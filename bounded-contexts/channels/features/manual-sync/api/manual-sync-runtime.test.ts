@@ -5,6 +5,7 @@ import type { TcgplayerCsvServices } from "../../tcgplayer-csv/api/runtime";
 import type { ChannelSyncRun, ChannelSyncRunMember } from "../../tcgplayer-csv/domain/contracts";
 import { getPublicChannelConnection } from "../../connections/read-model/queries";
 import { createManualSyncRuntime } from "./runtime";
+import { liveAuthority } from "../domain/coverage-test-support";
 
 const context: EventStoreContext = {
   tenantId: "tenant" as never,
@@ -12,6 +13,83 @@ const context: EventStoreContext = {
 };
 
 describe("manual-sync runtime binding", () => {
+  it("manual-sync-coverage-composition: readPanel, compose and retryClamp read current authority without changing actions", async () => {
+    const current = run();
+    const tcgplayerCsv = producer(current);
+    tcgplayerCsv.composeTcgplayerSyncRun = vi.fn(async () => ({
+      run: current,
+      composition: { members: current.members, batch: null },
+    }));
+    const readAuthority = vi.fn(async () => liveAuthority());
+    const recover = vi.fn();
+    const runtime = createManualSyncRuntime({
+      db: statefulPanelDb(current.runId) as never,
+      connections: connections(activeConnection()),
+      tcgplayerCsv,
+      connectorFeed: { readAuthority },
+      policies: {
+        resolvePolicy: vi.fn(async (definition: { policyKey: string }) => ({
+          value:
+            definition.policyKey === "channels.tcgplayer-manual-claim-lease"
+              ? { leaseMs: 60_000 }
+              : { maxRowsPerBatch: 500 },
+          source: "fallback",
+          documentId: null,
+          effectiveFrom: null,
+          effectiveUntil: null,
+          resolvedAt: "2026-09-10T12:00:00.000Z",
+        })) as never,
+      },
+      marketplaceClamp: {
+        kind: "available",
+        port: {
+          recover,
+          engage: vi.fn(async () => ({
+            kind: "engaged" as const,
+            requestedListingCount: 1,
+            affectedListingCount: 1,
+            clampedListingCount: 1,
+            recoveryListingCount: 0,
+          })),
+        },
+      },
+    });
+    const input = { accountId: "account-owner", connectionId: current.connectionId };
+    const panels = [
+      await runtime.readPanel(input),
+      await runtime.compose(input, context),
+      await runtime.retryClamp({ ...input, runId: current.runId, expectedRevision: current.revision }, context),
+    ];
+    for (const panel of panels)
+      expect(panel).toMatchObject({ inboundCoverage: { state: "live", reason: null }, actions: ["download"] });
+    expect(readAuthority).toHaveBeenCalledTimes(3);
+    for (const call of readAuthority.mock.calls) expect(call).toEqual([input]);
+    expect(recover).not.toHaveBeenCalled();
+    readAuthority.mockResolvedValue({ ...liveAuthority(), inbound: "revoked", grant: null });
+    await expect(runtime.readPanel(input)).resolves.toMatchObject({
+      inboundCoverage: { state: "dark", reason: "inbound-authority-revoked" },
+      actions: ["download"],
+    });
+    readAuthority.mockRejectedValue(new Error("synthetic-secret-sentinel"));
+    await expect(runtime.readPanel(input)).rejects.toMatchObject({ message: "manual-sync-unavailable" });
+  });
+
+  it("never reads authority for a foreign or missing connection", async () => {
+    const readAuthority = vi.fn();
+    const runtime = createManualSyncRuntime({
+      db: db() as never,
+      connections: connections(null),
+      tcgplayerCsv: producer(),
+      connectorFeed: { readAuthority },
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: { kind: "not-mounted" },
+    });
+    for (const connectionId of ["missing", "foreign"]) {
+      await expect(runtime.readPanel({ accountId: "account-owner", connectionId })).resolves.toBeNull();
+    }
+    expect(readAuthority).not.toHaveBeenCalled();
+  });
+
   it("keeps the actual closed connection query rejecting a synthetic run field", async () => {
     await expect(
       getPublicChannelConnection(
@@ -75,8 +153,21 @@ describe("manual-sync runtime binding", () => {
         },
       ],
     };
-    tcgplayerCsv.ingestTcgplayerExportSnapshot = vi.fn(async () => parsed);
+    const snapshot = {
+      snapshotId: "cis_runtime",
+      snapshotGeneration: 3,
+      connectionId: connection.connectionId,
+      providerKey: "tcgplayer" as const,
+      surface: "staged" as const,
+      parsedRowCount: 1,
+      completeness: "unverified" as const,
+      ingestedAt: "2026-09-22T14:00:00.000Z",
+      capturedAt: "2026-09-22T13:47:54.000Z",
+      capturedAtSource: "operator-declared" as const,
+    };
+    tcgplayerCsv.ingestTcgplayerExportSnapshot = vi.fn(async () => ({ ...parsed, snapshot }));
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: database as never,
       connections: channelConnections,
       tcgplayerCsv,
@@ -99,7 +190,11 @@ describe("manual-sync runtime binding", () => {
       await expect(runtime.ingest(input)).rejects.toMatchObject({ code: scenario.error });
       expect(tcgplayerCsv.ingestTcgplayerExportSnapshot).not.toHaveBeenCalled();
     } else {
-      await expect(runtime.ingest(input)).resolves.toMatchObject({ result: parsed });
+      await expect(runtime.ingest(input)).resolves.toStrictEqual({
+        surface: "staged",
+        probe: expect.objectContaining({ fileName: "staged.csv", logicalRows: 1 }),
+        outcome: { kind: "ingested", snapshotId: "cis_runtime", snapshotGeneration: 3, parsedRowCount: 1 },
+      });
       expect(tcgplayerCsv.ingestTcgplayerExportSnapshot).toHaveBeenCalledExactlyOnceWith({
         snapshotId: expect.any(String),
         connectionId: input.connectionId,
@@ -125,6 +220,7 @@ describe("manual-sync runtime binding", () => {
     const tcgplayerCsv = producer();
     const resolvePolicy = vi.fn();
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(null),
       tcgplayerCsv,
@@ -157,6 +253,7 @@ describe("manual-sync runtime binding", () => {
       }),
     );
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -200,6 +297,7 @@ describe("manual-sync runtime binding", () => {
       recoveryListingCount: 0,
     }));
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -239,6 +337,7 @@ describe("manual-sync runtime binding", () => {
     tcgplayerCsv.recordValidationCancellation = vi.fn(async () => current);
     tcgplayerCsv.verifyRun = vi.fn(async () => current);
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: channelConnections,
       tcgplayerCsv,
@@ -308,6 +407,7 @@ describe("manual-sync runtime binding", () => {
     const tcgplayerCsv = producer(duplicate);
     const engage = vi.fn();
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -366,6 +466,7 @@ describe("manual-sync runtime binding", () => {
     }));
     const resolvePolicy = vi.fn(async () => ({ value: { maxRowsPerBatch: 500 } }));
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -386,6 +487,7 @@ describe("manual-sync runtime binding", () => {
   it("refuses UTF-8 and logical-record bounds before the imported producer writes", async () => {
     const tcgplayerCsv = producer();
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -422,6 +524,7 @@ describe("manual-sync runtime binding", () => {
       recoveryListingCount: 0,
     }));
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -466,6 +569,7 @@ describe("manual-sync runtime binding", () => {
         recoveryListingCount: 0,
       });
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: database as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -512,6 +616,7 @@ describe("manual-sync runtime binding", () => {
     );
     tcgplayerCsv.verifyRun = verifyRun;
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,
@@ -555,6 +660,7 @@ describe("manual-sync runtime binding", () => {
     const engage = vi.fn();
     const recover = vi.fn();
     const runtime = createManualSyncRuntime({
+      connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: db() as never,
       connections: connections(activeConnection()),
       tcgplayerCsv,

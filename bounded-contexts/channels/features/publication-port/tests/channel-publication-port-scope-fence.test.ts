@@ -11,12 +11,17 @@ describe("channel-publication-port-scope-fence", () => {
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
     expect(manifest.slices).toEqual([
+      "ebay-account-deletion",
+      "connector-feed",
       "connections",
       "credentials",
       "connector-client",
       "publication-port",
       "listing-composition",
       "tcgplayer-csv",
+      "tcgplayer-orders",
+      "live-export-snapshot",
+      "order-fulfillment-observations",
       "outbound-sync",
       "connection-health",
       "connection-attention",
@@ -24,6 +29,28 @@ describe("channel-publication-port-scope-fence", () => {
       "reconciliation",
     ]);
     expect(manifest.hostPorts).toEqual([
+      {
+        portName: "ebayAccountDeletionConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+      },
+      {
+        portName: "webhookTelemetry",
+        providedBy: "platform-api",
+        purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+      },
+      {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
+      {
+        portName: "connectorOAuth",
+        providedBy: "platform-api",
+        purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+      },
       {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",
@@ -49,6 +76,7 @@ describe("channel-publication-port-scope-fence", () => {
       "./client",
       "./context",
       "./server",
+      "./test-support",
       "./routes/*",
       "./seed-support/*",
     ]);
@@ -57,6 +85,7 @@ describe("channel-publication-port-scope-fence", () => {
       "./client": "./client.ts",
       "./context": "./context.json",
       "./server": "./server.ts",
+      "./test-support": "./features/connector-feed/tests/settlement-test-support.ts",
       "./seed-support/*": "./support/seed-support/*.ts",
       "./routes/*": "./routes/*.tsx",
     });

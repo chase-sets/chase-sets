@@ -17,6 +17,7 @@ export async function listStorageLocations(
   params: Readonly<{
     accountId: string;
     includeArchived?: boolean;
+    limit?: number;
   }>,
 ) {
   const values: unknown[] = [params.accountId];
@@ -25,12 +26,18 @@ export async function listStorageLocations(
   if (!params.includeArchived) {
     filters.push("is_archived = false");
   }
+  if (params.limit !== undefined) {
+    if (!Number.isSafeInteger(params.limit) || params.limit < 1 || params.limit > 250) {
+      throw new Error("Invalid storage location limit.");
+    }
+    values.push(params.limit);
+  }
 
   const result = await db.query<InventoryStorageLocationRow>(
     `SELECT *
      FROM inventory_storage_locations
      WHERE ${filters.join(" AND ")}
-     ORDER BY is_archived ASC, name ASC`,
+     ORDER BY is_archived ASC, name ASC${params.limit === undefined ? "" : ` LIMIT $${values.length}`}`,
     values,
   );
 

@@ -1,0 +1,152 @@
+name: Catalog Staging Count Preparation
+
+# Governed Scrydex count preparation before a #9224 rehearsal pass reserves and
+# starts its batch (#9591). Quote mode spends nothing; acquire mode spends only
+# the host-approved quote, once. Neither mode previews, confirms or starts a
+# batch, refreshes usage or holds provider credentials. Capability, not spend
+# authority: the host owns the notice, approval and #8427 headroom.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed 40-character commit SHA for this run.
+        required: true
+        type: string
+      confirm:
+        description: Type "prepare catalog staging counts" to quote or acquire governed Scrydex counts.
+        required: true
+        type: string
+      admin_web_url:
+        description: Staging admin-web origin.
+        required: true
+        default: https://admin.staging.chasesets.com
+        type: string
+      mode:
+        description: quote spends nothing; acquire spends the host-approved quote once.
+        required: true
+        default: quote
+        type: choice
+        options:
+          - quote
+          - acquire
+      dispatch_id:
+        description: Host dispatch reference for this preparation.
+        required: true
+        type: string
+      pass:
+        description: The #9224 rehearsal pass this preparation precedes.
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+      product_domain:
+        description: The pass's Catalog Scope product domain.
+        required: true
+        type: choice
+        options:
+          - magic
+          - one-piece
+          - pokemon
+          - yugioh
+          - lorcana
+      language_code:
+        description: The pass's language code, exactly as the start dispatch uses it; blank for every language.
+        required: false
+        default: ""
+        type: string
+      cap:
+        description: quote only. Optional client cap; it can only lower the server cap.
+        required: false
+        default: ""
+        type: string
+      approval:
+        description: acquire only. The host's closed approval JSON for the displayed quote.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-staging-mutating-operations
+  cancel-in-progress: false
+
+jobs:
+  admit-reviewed-sha:
+    name: Admit Reviewed Immutable SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify confirmation, immutable SHA and staging origin
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RUN_SHA: ${{ github.sha }}
+          CONFIRMATION: ${{ inputs.confirm }}
+          ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+        with:
+          script: |
+            const expected = process.env.EXPECTED_SHA ?? '';
+            if (process.env.CONFIRMATION !== 'prepare catalog staging counts' ||
+                !/^[a-fA-F0-9]{40}$/.test(expected) ||
+                expected.toLowerCase() !== process.env.RUN_SHA) {
+              core.setFailed('Confirmation and exact immutable expected_sha are required.');
+            }
+            if (process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
+              core.setFailed('Count preparation requires the exact staging origin.');
+            }
+
+  prepare-counts:
+    name: Prepare Governed Scrydex Counts
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Prepare governed Scrydex counts
+        id: prepare
+        timeout-minutes: 10
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+          CATALOG_COUNT_PREPARATION_MODE: ${{ inputs.mode }}
+          CATALOG_COUNT_PREPARATION_DISPATCH_ID: ${{ inputs.dispatch_id }}
+          CATALOG_COUNT_PREPARATION_PASS: ${{ inputs.pass }}
+          CATALOG_COUNT_PREPARATION_PRODUCT_DOMAIN: ${{ inputs.product_domain }}
+          CATALOG_COUNT_PREPARATION_LANGUAGE_CODE: ${{ inputs.language_code }}
+          CATALOG_COUNT_PREPARATION_CAP: ${{ inputs.cap }}
+          CATALOG_COUNT_PREPARATION_APPROVAL: ${{ inputs.approval }}
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+        run: pnpm exec tsx scripts/catalog-staging-count-preparation.mjs run
+
+      # Publish only the exact receipt, and only after it validates against this
+      # admitted SHA/run/attempt and proves the Admin credential values are absent.
+      - name: Validate count preparation receipt
+        id: receipt
+        if: ${{ always() && steps.prepare.outcome != 'skipped' }}
+        env:
+          CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+        run: pnpm exec tsx scripts/catalog-staging-count-preparation.mjs validate --file artifacts/catalog-count-preparation/receipt.json
+
+      - name: Upload count preparation receipt
+        if: ${{ always() && steps.receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-count-preparation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-count-preparation/receipt.json
+          if-no-files-found: error
+          retention-days: 30

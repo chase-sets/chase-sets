@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { links as supportLinks } from "@chase-sets/platform-operations/integration/link-intents";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
@@ -355,7 +356,8 @@ type SettlementSupportHoldConsumedData = SettlementSupportHoldFactData & Readonl
 // Copy helpers
 // ---------------------------------------------------------------------------
 
-const CASE_LINK = (supportRequestId: string) => `/account/support/${supportRequestId}`;
+const CASE_LINK = (supportRequestId: string) =>
+  supportLinks("account-support-detail", { path: { id: supportRequestId } }).href;
 
 function orderRef(orderId: string): string {
   return deriveDisplayReferenceOrRaw(orderId as OrderId);

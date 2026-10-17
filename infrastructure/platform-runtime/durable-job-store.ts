@@ -134,6 +134,7 @@ export type DurableJobTables = Readonly<{
   eventsTable: string;
   notifyChannel?: string;
   includeBootReshapes?: boolean;
+  retentionExemptJobKinds?: readonly string[];
 }>;
 
 type DurableJobRow = Readonly<{
@@ -285,6 +286,8 @@ export function createPostgresDurableJobStore<
 ): DurableJobStore<TPayload, TProgress, TResult, TSnapshot> {
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
+  const retentionExemptJobKinds = [...new Set(tables.retentionExemptJobKinds ?? [])];
+  const retentionExemptionSql = "AND job_kind <> ALL($3::text[])";
   const notifyChannel = sqlNotifyChannel(tables.notifyChannel ?? "durable_job_events");
   const notificationPool = options.notificationWaiterPool ?? db;
   const lifecycle =
@@ -617,6 +620,7 @@ export function createPostgresDurableJobStore<
            FROM ${jobsTable}
            WHERE status IN ('completed', 'failed')
              AND completed_at < $1::timestamptz
+             ${retentionExemptionSql}
            ORDER BY completed_at ASC, job_id ASC
            LIMIT $2
          )
@@ -624,7 +628,11 @@ export function createPostgresDurableJobStore<
          USING expired
          WHERE job.job_id = expired.job_id
          RETURNING job.job_id`,
-        [formatDateInput(input.completedBefore), Math.max(1, Math.min(input.limit ?? 500, 5_000))],
+        [
+          formatDateInput(input.completedBefore),
+          Math.max(1, Math.min(input.limit ?? 500, 5_000)),
+          retentionExemptJobKinds,
+        ],
       );
       return Number(result.rowCount ?? result.rows.length);
     },

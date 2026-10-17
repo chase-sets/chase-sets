@@ -113,6 +113,7 @@ function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}
     providerIntegrationProfiles: {} as never,
     sourceObservations: {} as never,
     scopeSyncBatches: {} as never,
+    countCapture: null,
     catalogAliases: {} as never,
     attentionQueue: {} as never,
     authoringBulkJobs: createBulkJobServices(overrides),

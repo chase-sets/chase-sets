@@ -1,7 +1,7 @@
-import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
-
+// Provisioning consumes no Consent recording authorization (#8945), so the
+// admin-QA surface carries no constructor reference.
 async function provisionAdminQaActorFixture(userId: unknown, accountId: unknown) {
-  return authorizeConsentForProvisioning(userId, accountId);
+  return { userId, accountId };
 }
 
 void provisionAdminQaActorFixture;

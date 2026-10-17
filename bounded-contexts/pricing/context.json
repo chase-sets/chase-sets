@@ -28,6 +28,12 @@
     "repricing-dry-run",
     "bulk-reprice-job",
     "market-capture",
+    "demand-curve",
+    "condition-ladder",
+    "pooled-supply",
+    "buyer-arrival-interval",
+    "store-win-share",
+    "sell-time-forecast",
     "provider-sale-observation",
     "weekly-sale-bucket",
     "listing-snapshot",
@@ -56,10 +62,11 @@
     "public-market-pages",
     "bulk-reprice-ingestion",
     "own-sale-observations",
-    "economics"
+    "economics",
+    "forecast-ledger"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/channels",
     "@chase-sets/commercial-terms",
@@ -81,7 +88,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
-      "subscriptionVersion": 7,
+      "subscriptionVersion": 8,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -89,6 +96,8 @@
         "catalog.category.deprecated",
         "catalog.category.archived",
         "catalog.catalog-item.created",
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
         "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.published",
         "catalog.catalog-item.retired",
@@ -98,7 +107,12 @@
         "catalog.catalog-item.external-catalog-item-reference-linked",
         "catalog.catalog-item.external-catalog-item-reference-unlinked",
         "catalog.catalog-item.category-assigned",
-        "catalog.catalog-item.category-removed"
+        "catalog.catalog-item.category-removed",
+        "catalog.reference-record.created",
+        "catalog.reference-record.revised",
+        "catalog.reference-record.published",
+        "catalog.reference-record.deprecated",
+        "catalog.reference-record.archived"
       ],
       "order": 10,
       "projectionHandlerSetNames": ["pricing-catalog-input-projection"]
@@ -134,6 +148,9 @@
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
         "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted"
       ],
       "order": 30,
@@ -285,6 +302,8 @@
       "ownedTables": [
         "pricing_catalog_item_inputs",
         "pricing_catalog_category_inputs",
+        "pricing_catalog_reference_inputs",
+        "pricing_catalog_reference_records",
         "pricing_external_product_reference_inputs",
         "pricing_external_catalog_item_reference_inputs"
       ],
@@ -337,6 +356,13 @@
         "pricing_market_trade_rollup_rederive_queue"
       ],
       "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-forecast-ledger-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_forecast_ledger_entries"],
+      "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
@@ -717,8 +743,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -729,6 +754,9 @@
             "owner": "pricing",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -808,18 +836,8 @@
       "href": "/account/repricing",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": ["pricing.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "repricing",
-      "label": "Pricing",
-      "icon": "chart",
-      "href": "/account/repricing",
-      "order": 120,
-      "visibility": "signed-in",
-      "requiredPermissions": ["pricing.view"]
+      "requiredPermissions": ["pricing.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     }
   ],
   "directoryIntent": {
@@ -885,6 +903,11 @@
       "classification": "slice",
       "purpose": "Own seller-scoped observations of external-channel and offline sales projected from Inventory as pricing evidence that remains isolated from the published Market-Value Estimate.",
       "expectedConsumers": ["Internal pricing module composition", "Future Pricing-owned seller analytics"]
+    },
+    "forecast-ledger": {
+      "classification": "slice",
+      "purpose": "Record every incumbent and shadow price's registered sell-time forecasts from RepricingPolicyEvaluated facts, grade each Forecast Kind against realized sales from the trades tape and Own-Sale Observations, publish ForecastGraded facts, and apply the Adoption Gate to goal versions.",
+      "expectedConsumers": ["Internal pricing module composition", "platform-worker", "Pricing Health surface (#7709)"]
     },
     "runtime-support": {
       "classification": "support",

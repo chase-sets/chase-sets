@@ -433,6 +433,190 @@ describe("Catalog Merge Candidate domain", () => {
   });
 });
 
+describe("Catalog Merge Candidate application checkpoints", () => {
+  it("binds one immutable plan to an approval, then records exactly that plan as applied", () => {
+    const approved = approvedCandidateState();
+    expect(approved).toMatchObject({ status: "promoted", promotionPlan: null, promotionApplication: null });
+
+    const planned = decideCatalogMergeCandidate(approved, {
+      type: "PlanCatalogMergeCandidatePromotion",
+      plan: promotionPlan(),
+      plannedAt: "2026-06-24T11:00:00.000Z",
+    });
+    expect(planned).toEqual([
+      {
+        type: "catalog.merge-candidate.promotion-planned",
+        data: {
+          candidateId: "cand_pokemon_en_base1_043_standard",
+          plan: promotionPlan(),
+          plannedAt: "2026-06-24T11:00:00.000Z",
+        },
+      },
+    ]);
+    const withPlan = evolveCatalogMergeCandidate(approved, planned[0]!);
+    expect(withPlan).toMatchObject({ status: "promoted", promotionPlan: promotionPlan(), promotionApplication: null });
+
+    const applied = decideCatalogMergeCandidate(withPlan, {
+      type: "RecordCatalogMergeCandidatePromotionApplied",
+      application: application(),
+      appliedAt: "2026-06-24T11:05:00.000Z",
+    });
+    expect(applied[0]).toEqual({
+      type: "catalog.merge-candidate.promotion-applied",
+      data: {
+        candidateId: "cand_pokemon_en_base1_043_standard",
+        ...application(),
+        appliedAt: "2026-06-24T11:05:00.000Z",
+      },
+    });
+    const completed = evolveCatalogMergeCandidate(withPlan, applied[0]!);
+    expect(completed).toMatchObject({ status: "promoted", promotionApplication: application() });
+
+    expect(() =>
+      decideCatalogMergeCandidate(completed, {
+        type: "RecordCatalogMergeCandidatePromotionApplied",
+        application: application(),
+        appliedAt: "2026-06-24T11:06:00.000Z",
+      }),
+    ).toThrow("Catalog Merge Candidate application is already recorded.");
+  });
+
+  it("refuses plans before approval, a second competing plan, and plans that do not bind the approved snapshot", () => {
+    expect(() =>
+      decideCatalogMergeCandidate(createdCandidateState(), {
+        type: "PlanCatalogMergeCandidatePromotion",
+        plan: promotionPlan(),
+        plannedAt: "2026-06-24T11:00:00.000Z",
+      }),
+    ).toThrow("Only approved Catalog Merge Candidates can be applied.");
+
+    const approved = approvedCandidateState();
+    expect(() =>
+      decideCatalogMergeCandidate(approved, {
+        type: "PlanCatalogMergeCandidatePromotion",
+        plan: { ...promotionPlan(), identityFingerprint: "sha256:other" },
+        plannedAt: "2026-06-24T11:00:00.000Z",
+      }),
+    ).toThrow("Catalog Merge Candidate application plan must bind the approved snapshot.");
+    for (const plan of [
+      { ...promotionPlan(), mode: "create" as const, targetBaseline: { streamVersion: 3, status: "draft" } },
+      { ...promotionPlan(), mode: "refresh" as const, targetBaseline: { streamVersion: 0, status: null } },
+      { ...promotionPlan(), commands: [] },
+      { ...promotionPlan(), approvalVersion: 0 },
+    ]) {
+      expect(() =>
+        decideCatalogMergeCandidate(approved, {
+          type: "PlanCatalogMergeCandidatePromotion",
+          plan,
+          plannedAt: "2026-06-24T11:00:00.000Z",
+        }),
+      ).toThrow();
+    }
+    for (const planFingerprint of ["synthetic-invalid-fingerprint", `sha256:${"A".repeat(64)}`, "sha256:short"]) {
+      expect(() =>
+        decideCatalogMergeCandidate(approved, {
+          type: "PlanCatalogMergeCandidatePromotion",
+          plan: { ...promotionPlan(), planFingerprint },
+          plannedAt: "2026-06-24T11:00:00.000Z",
+        }),
+      ).toThrow("Application plan fingerprint is invalid.");
+    }
+
+    const withPlan = evolveCatalogMergeCandidate(
+      approved,
+      decideCatalogMergeCandidate(approved, {
+        type: "PlanCatalogMergeCandidatePromotion",
+        plan: promotionPlan(),
+        plannedAt: "2026-06-24T11:00:00.000Z",
+      })[0]!,
+    );
+    expect(() =>
+      decideCatalogMergeCandidate(withPlan, {
+        type: "PlanCatalogMergeCandidatePromotion",
+        plan: { ...promotionPlan(), jobId: "job_competing" },
+        plannedAt: "2026-06-24T11:01:00.000Z",
+      }),
+    ).toThrow("Catalog Merge Candidate approval already has an application plan.");
+  });
+
+  it("records application only for the bound plan's target, mode, fingerprint and initiator", () => {
+    const approved = approvedCandidateState();
+    expect(() =>
+      decideCatalogMergeCandidate(approved, {
+        type: "RecordCatalogMergeCandidatePromotionApplied",
+        application: application(),
+        appliedAt: "2026-06-24T11:05:00.000Z",
+      }),
+    ).toThrow("Catalog Merge Candidate application requires a bound plan.");
+    const withPlan = evolveCatalogMergeCandidate(
+      approved,
+      decideCatalogMergeCandidate(approved, {
+        type: "PlanCatalogMergeCandidatePromotion",
+        plan: promotionPlan(),
+        plannedAt: "2026-06-24T11:00:00.000Z",
+      })[0]!,
+    );
+    for (const mismatch of [
+      { catalogItemId: "cat_other" },
+      { appliedMode: "refresh" as const },
+      { planFingerprint: "sha256:other" },
+      { approvalVersion: 9 },
+      { jobId: "job_later_catch_up" },
+      { unitId: "cand_other" },
+    ]) {
+      expect(() =>
+        decideCatalogMergeCandidate(withPlan, {
+          type: "RecordCatalogMergeCandidatePromotionApplied",
+          application: { ...application(), ...mismatch },
+          appliedAt: "2026-06-24T11:05:00.000Z",
+        }),
+      ).toThrow("Catalog Merge Candidate application must complete its bound plan.");
+    }
+  });
+});
+
+function approvedCandidateState() {
+  const state = createdCandidateState();
+  const promoted = decideCatalogMergeCandidate(state, {
+    type: "PromoteCatalogMergeCandidate",
+    reason: "Approved for application.",
+    actor: reviewActor(),
+    promotedAt: "2026-06-24T10:30:00.000Z",
+  })[0]!;
+  return evolveCatalogMergeCandidate(state, promoted);
+}
+
+function promotionPlan() {
+  const snapshot = candidateSnapshot();
+  return {
+    approvalVersion: 2,
+    jobId: "job_scope_promotion",
+    unitId: "cand_pokemon_en_base1_043_standard",
+    catalogItemId: "cat_candidate_synthetic",
+    mode: "create" as const,
+    targetBaseline: { streamVersion: 0, status: null },
+    identityFingerprint: snapshot.identityFingerprint,
+    membership: snapshot.membership,
+    profiles: [{ providerKey: "tcgdex", profileKey: "pokemon-tcg", profileVersion: "2026.06.24" }],
+    catalogMapping: { blueprintId: "bp_synthetic", categoryId: "cat_synthetic", fields: [] },
+    referenceRecordIds: {},
+    assetPlan: null,
+    commands: [{ type: "CreateCatalogItem", itemId: "cat_candidate_synthetic" }],
+    planFingerprint: `sha256:${"a".repeat(64)}`,
+  };
+}
+
+function application() {
+  return {
+    approvalVersion: 2,
+    catalogItemId: "cat_candidate_synthetic",
+    appliedMode: "create" as const,
+    planFingerprint: `sha256:${"a".repeat(64)}`,
+    jobId: "job_scope_promotion",
+    unitId: "cand_pokemon_en_base1_043_standard",
+  };
+}
+
 function createdCandidateState(snapshot = candidateSnapshot()) {
   const created = decideCatalogMergeCandidate(initialCatalogMergeCandidateState, {
     type: "CreateCatalogMergeCandidate",

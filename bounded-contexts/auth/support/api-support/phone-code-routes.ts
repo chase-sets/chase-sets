@@ -19,6 +19,7 @@ import {
   type AuthApiApp,
 } from "./support";
 import { requireRegistrationAdmission } from "./registration-gates";
+import { missingPhoneResponse } from "./phone-code-errors";
 
 const PHONE_CODE_NOTIFICATION_PROJECTION = "auth-phone-code-notification-intent";
 const PHONE_CODE_MAX_FAILED_ATTEMPTS = 5;
@@ -56,7 +57,7 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
     const body = await c.req.json();
     const phone = normalizeAuthPhoneNumber(String(body.phone ?? ""));
     if (!phone) {
-      return c.json({ error: t("auth.support.apiSupport.phoneCodeRoutes.phone.is.required") }, 400);
+      return c.json(missingPhoneResponse(), 400);
     }
     const rateLimitResponse = phoneCodeRequestRateLimits.check(c.req.raw, `phone:${phone}`);
     if (rateLimitResponse) {
@@ -110,6 +111,7 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
     const phone = normalizeAuthPhoneNumber(String(body.phone ?? ""));
     const code = normalizePhoneCode(body.code);
     if (!phone || !code) {
+      if (!phone) return c.json(missingPhoneResponse(), 400);
       return c.json({ error: t("auth.support.apiSupport.phoneCodeRoutes.phone.and.code.are.required") }, 400);
     }
     const rateLimitResponse = phoneCodeConsumeRateLimits.check(c.req.raw, `phone:${phone}`);

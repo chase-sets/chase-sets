@@ -269,12 +269,10 @@ export function resolveTerminalPaymentFailureDeadline(
 
 export const defaultShippingQuotePolicy: ShippingQuotePolicy = {
   quote({ shippingOption, itemSubtotalAmount, quantity, listingCount, packagePlan }) {
-    const subtotal = Number.parseFloat(
-      normalizeMoneyAmount(itemSubtotalAmount, {
-        allowZero: true,
-        fieldName: "Item subtotal",
-      }),
-    );
+    normalizeMoneyAmount(itemSubtotalAmount, {
+      allowZero: true,
+      fieldName: "Item subtotal",
+    });
     if (packagePlan && packagePlan.packageCount > 0) {
       const baseAmount = packagePlan.packages.reduce((sum, pkg) => {
         if (pkg.mailpieceClass === "letter") {

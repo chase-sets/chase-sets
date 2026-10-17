@@ -1,0 +1,15 @@
+{
+  "id": 38349636491,
+  "name": "Platform Deploy",
+  "path": ".github/workflows/platform-production.yml",
+  "event": "workflow_dispatch",
+  "workflow_id": 274293633,
+  "run_attempt": 1,
+  "head_sha": "7d81f3f3309fc2a83ca3a70ee0ed5f51b45e4c0a",
+  "head_branch": "main",
+  "status": "completed",
+  "conclusion": "success",
+  "created_at": "2026-10-13T05:05:28Z",
+  "updated_at": "2026-10-13T05:23:31Z",
+  "run_started_at": "2026-10-13T05:05:28Z"
+}

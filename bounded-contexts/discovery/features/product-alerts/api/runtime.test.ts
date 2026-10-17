@@ -190,6 +190,38 @@ const context = {
 };
 
 describe("product alert runtime anonymous intents", () => {
+  it.each([
+    [" 1.5 ", "1.50"],
+    ["0.1", "0.10"],
+    ["0.00", "0.00"],
+    ["9999999999.99", "9999999999.99"],
+    ["abc", null],
+    ["10000000000.00", null],
+  ])("normalizes price amounts through the money primitive: %s", async (thresholdAmount, expected) => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db } = createAnonymousProductAlertIntentDb();
+    const services = createProductAlertRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const result = services.createAnonymousProductAlertIntent({
+      anonymousOwnerId: "anon_watch_1",
+      sourcePath: "/items/charizard",
+      marketSide: "listing",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      selectedOptions: [],
+      thresholdCurrencyCode: "USD",
+      thresholdAmount,
+    });
+    if (expected === null) {
+      await expect(result).rejects.toThrow("Price threshold must be a valid decimal.");
+    } else {
+      await expect(result).resolves.toMatchObject({ threshold_amount: expected });
+    }
+  });
+
   it("deduplicates, claims once, and creates no Product Alert event before claim", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-10T12:00:00.000Z"));

@@ -672,6 +672,12 @@ function ImportPreviewEvidence({
                 value: formatEstimatedRequests(usage),
               },
               {
+                key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimateReason"),
+                value:
+                  usage.estimateReason ??
+                  t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.noEstimateReason"),
+              },
+              {
                 key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.estimatedPayloads"),
                 value: formatEstimatedPayloads(preview.targets),
               },
@@ -827,6 +833,7 @@ type ImportPreviewUsageSummary = Readonly<{
   requestStrategy: SourceObservationProviderUsageEstimate["requestStrategy"] | null;
   estimateState: SourceObservationProviderUsageEstimate["estimateState"] | null;
   estimatedRequestCount: number | null;
+  estimateReason: string | null;
   usageCheckState: SourceObservationProviderUsageEstimate["usageCheckState"] | null;
   pageSize: number | null;
   selectedFields: readonly string[];
@@ -844,6 +851,7 @@ function previewUsageSummary(
       requestStrategy: null,
       estimateState: null,
       estimatedRequestCount: null,
+      estimateReason: null,
       usageCheckState: null,
       pageSize: null,
       selectedFields: [],
@@ -863,6 +871,11 @@ function previewUsageSummary(
       ? "estimate-unavailable"
       : "estimated",
     estimatedRequestCount,
+    estimateReason:
+      (
+        estimates.find((estimate) => estimate.estimateState === "estimate-unavailable" && estimate.estimateReason) ??
+        estimates.find((estimate) => estimate.estimateReason)
+      )?.estimateReason ?? null,
     usageCheckState: commonValue(estimates.map((estimate) => estimate.usageCheckState)),
     pageSize: commonValue(estimates.map((estimate) => estimate.pageSize)),
     selectedFields: uniqueStrings(estimates.flatMap((estimate) => estimate.selectedFields)),

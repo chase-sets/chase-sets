@@ -1,5 +1,10 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 
+export const CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE_ENV =
+  "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE";
+export const CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE_ENV =
+  "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE";
+
 export type CatalogIntegrationGovernedDataClassKey =
   | "raw-provider-payload"
   | "sampled-provider-payload"

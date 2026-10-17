@@ -42,6 +42,15 @@ export function createChannelsReconciliationRunners(
       );
       return results.length;
     }),
+    createScheduledJobRunner("channels-tcgplayer-orders", 60_000, input.controlPlane, async () =>
+      input.services.tcgplayerOrders.interpretDueConnections(),
+    ),
+    createScheduledJobRunner("channels-live-export-snapshots", 60_000, input.controlPlane, async () =>
+      input.services.liveExportSnapshots.consumeDueConnections(),
+    ),
+    createScheduledJobRunner("channels-order-fulfillment-observations", 60_000, input.controlPlane, async () =>
+      input.services.fulfillmentObservations.interpretDueConnections(),
+    ),
   ];
 }
 

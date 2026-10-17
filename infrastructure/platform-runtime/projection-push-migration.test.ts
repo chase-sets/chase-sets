@@ -139,6 +139,34 @@ describe("projection push migration inventory", () => {
     });
   });
 
+  it("inherits the Payments push disposition for wallet funding and its locally mounted policy projection", () => {
+    const entries = listProjectionPushMigrationEntries();
+    for (const projectionName of ["payments-wallet-funding-projection", "platform-policy-document-projection"]) {
+      expect(entries.find((entry) => entry.projectionKey === `payments:${projectionName}`)).toEqual({
+        projectionKey: `payments:${projectionName}`,
+        targetContextName: "payments",
+        projectionName,
+        owner: "Payments",
+        status: "push-enabled",
+        sourceContexts: [
+          {
+            sourceContextName: "payments",
+            rolloutState: "staging-enabled",
+            rolloutWave: "wave-1-checkout-hot-path",
+            priorityLane: "hot",
+            eventStoreWakeNotificationsEnabled: true,
+            relayFanOutEnabled: true,
+          },
+        ],
+        sourceContextCount: 1,
+        enabledSourceContextCount: 1,
+        consumesDurableWakeIntents: true,
+        fallbackPolling: true,
+        optOut: null,
+      });
+    }
+  });
+
   it("requires owner-approved evidence for explicit opt-outs", () => {
     expect(() => validateProjectionPushOptOuts()).not.toThrow();
     expect(projectionPushOptOuts).toEqual([]);

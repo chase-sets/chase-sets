@@ -13,6 +13,47 @@ import {
 } from "./domain";
 
 describe("checkout cart domain", () => {
+  it.each([
+    [" 1.5 ", "1.50", null],
+    ["0.1", "0.10", null],
+    ["9999999999.99", "9999999999.99", null],
+    ["abc", null, "Selected listing price must be a valid amount."],
+    ["10000000000.00", null, "Selected listing price must be a valid amount."],
+    ["0.00", null, "Selected listing price must be a positive amount."],
+  ])("normalizes price amounts through the money primitive: %s", (priceAmount, expected, error) => {
+    const add = () =>
+      decideCheckoutCart(initialCheckoutCartState, {
+        type: "AddCartLine",
+        buyerAccountId: "acc_buyer" as never,
+        lineId: "cli_1" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_selected",
+        selectedListingSnapshot: {
+          listingId: "lst_selected",
+          sellerAccountId: "acc_seller",
+          sellerDisplayName: "Seller",
+          sellerSlug: "seller",
+          priceAmount,
+          priceCurrencyCode: "USD",
+          listingStreamVersion: 1,
+          source: "discovery.item-detail.add-to-cart",
+        },
+      });
+    if (error) {
+      expect(add).toThrow(error);
+    } else {
+      expect(add()[0]).toMatchObject({ data: { selectedListingSnapshot: { priceAmount: expected } } });
+    }
+  });
+
   it("adds, updates, removes, and clears cart lines on checkout", () => {
     const added = decideCheckoutCart(initialCheckoutCartState, {
       type: "AddCartLine",

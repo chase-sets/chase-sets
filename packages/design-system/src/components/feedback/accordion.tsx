@@ -210,6 +210,7 @@ export function Accordion({
     <AccordionPrimitive.Root
       {...rootProps}
       {...rest}
+      role="group"
       onValueChange={handleValueChange}
       className={cx(
         isSectionList && bleed === "horizontal" && !anchorActiveItemToScrollEnd && "[overflow-anchor:none]",
@@ -292,7 +293,6 @@ export function Accordion({
             </AccordionPrimitive.Header>
             <AccordionPrimitive.Panel
               id={panelId}
-              aria-labelledby={item.triggerProps?.id ?? triggerId}
               keepMounted
               render={(props, state) => (
                 <AnimatedAccordionContent

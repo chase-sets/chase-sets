@@ -28,6 +28,7 @@ import type {
   CommercialTermsAccountOption,
   CommercialTermsHistoryItem,
   CommercialTermsSchedule,
+  PublishedMarketplaceSalesFeeSchedule,
 } from "../integrations/admin-api-client";
 
 type CommercialTermCard =
@@ -38,6 +39,56 @@ export type CommercialTermsCreateKind = "schedule" | "agreement";
 
 function dateOnly(value: string) {
   return value.slice(0, 10);
+}
+
+function accountLabel(agreement: CommercialAgreement) {
+  const name = agreement.account_name?.trim();
+  const displayName = agreement.account_display_name?.trim();
+  return name && displayName ? `${name} (${displayName})` : name || displayName || agreement.account_id;
+}
+
+function policySource(schedule: PublishedMarketplaceSalesFeeSchedule) {
+  return schedule.source === "policy"
+    ? t("commercialTerms.features.home.publishedPolicy")
+    : t("commercialTerms.features.home.fallbackPolicy");
+}
+
+function PublishedScheduleCard({ schedule }: Readonly<{ schedule: PublishedMarketplaceSalesFeeSchedule }>) {
+  const { value } = schedule;
+  return (
+    <Card data-published-schedule elevation="elevated">
+      <Card.Header>
+        <Stack gap={1}>
+          <Badge tone={schedule.source === "policy" ? "success" : "warning"}>{policySource(schedule)}</Badge>
+          <Card.Title>{value.label}</Card.Title>
+        </Stack>
+      </Card.Header>
+      <Card.Body>
+        <KeyValueList
+          items={[
+            {
+              key: t("commercialTerms.features.home.marketplaceFee"),
+              value: `${formatBpsPercent(value.marketplaceSalesFeePercentageBps)} + ${formatMoney(value.marketplaceSalesFeeFixedAmount, "USD")}`,
+            },
+            {
+              key: t("commercialTerms.features.home.marketplaceFeeCap"),
+              value: formatMoney(value.marketplaceSalesFeeCapAmount, "USD"),
+            },
+            {
+              key: t("commercialTerms.features.home.shippingAllowance"),
+              value: formatBpsPercent(value.shippingAllowancePercentageBps),
+            },
+            {
+              key: t("commercialTerms.features.home.effectiveFrom"),
+              value: schedule.effectiveFrom
+                ? dateOnly(schedule.effectiveFrom)
+                : t("commercialTerms.features.home.none"),
+            },
+          ]}
+        />
+      </Card.Body>
+    </Card>
+  );
 }
 
 function isActiveWindow(
@@ -108,7 +159,7 @@ function CommercialTermCardView({ card, now }: Readonly<{ card: CommercialTermCa
   const subtitle =
     card.kind === "schedule"
       ? t("commercialTerms.features.home.scheduleFor", { accountType: item.account_type })
-      : (card.item.account_display_name ?? card.item.account_id);
+      : accountLabel(card.item);
 
   return (
     <Card data-commercial-term-id={card.id} elevation="elevated">
@@ -117,6 +168,11 @@ function CommercialTermCardView({ card, now }: Readonly<{ card: CommercialTermCa
           <Badge tone={statusTone(item.status, item.effective_from, now)}>{item.status}</Badge>
           <Card.Title>{item.label}</Card.Title>
           <Card.Description>{subtitle}</Card.Description>
+          {card.kind === "agreement" ? (
+            <Text size="sm" tone="secondary">
+              {card.item.account_id}
+            </Text>
+          ) : null}
         </Stack>
       </Card.Header>
       <Card.Body>
@@ -333,11 +389,11 @@ function ScheduleSheet({
 
 function AgreementSheet({
   agreement,
-  activeSchedule,
+  publishedSchedule,
   onClose,
 }: Readonly<{
   agreement: CommercialAgreement;
-  activeSchedule?: CommercialTermsSchedule;
+  publishedSchedule: PublishedMarketplaceSalesFeeSchedule | null;
   onClose: () => void;
 }>) {
   return (
@@ -357,7 +413,14 @@ function AgreementSheet({
           items={[
             {
               key: t("commercialTerms.features.home.account"),
-              value: agreement.account_display_name ?? agreement.account_id,
+              value: (
+                <Stack gap={1}>
+                  <Text>{accountLabel(agreement)}</Text>
+                  <Text size="sm" tone="secondary">
+                    {agreement.account_id}
+                  </Text>
+                </Stack>
+              ),
             },
             { key: t("commercialTerms.features.home.status"), value: <Badge>{agreement.status}</Badge> },
             { key: t("commercialTerms.features.home.effectiveFrom"), value: agreement.effective_from },
@@ -367,15 +430,49 @@ function AgreementSheet({
             },
           ]}
         />
-        <ComparisonModule
-          title={t("commercialTerms.features.home.compareActiveSchedule")}
-          columns={[
-            t("commercialTerms.features.home.activeSchedule"),
-            t("commercialTerms.features.home.accountOverride"),
-          ]}
-          signalLabel={t("commercialTerms.features.home.term")}
-          rows={comparisonRows(activeSchedule, agreement)}
-        />
+        {publishedSchedule ? (
+          <ComparisonModule
+            title={t("commercialTerms.features.home.comparePublishedSchedule")}
+            columns={[policySource(publishedSchedule), t("commercialTerms.features.home.accountOverride")]}
+            signalLabel={t("commercialTerms.features.home.term")}
+            rows={[
+              {
+                label: t("commercialTerms.features.home.label"),
+                values: [publishedSchedule.value.label, agreement.label],
+              },
+              {
+                label: t("commercialTerms.features.home.marketplaceFee"),
+                values: [
+                  `${formatBpsPercent(publishedSchedule.value.marketplaceSalesFeePercentageBps)} + ${formatMoney(publishedSchedule.value.marketplaceSalesFeeFixedAmount, "USD")}`,
+                  `${formatBpsPercent(agreement.marketplace_sales_fee_percentage_bps)} + ${formatMoney(agreement.marketplace_sales_fee_fixed_amount, "USD")}`,
+                ],
+              },
+              {
+                label: t("commercialTerms.features.home.shippingAllowance"),
+                values: [
+                  formatBpsPercent(publishedSchedule.value.shippingAllowancePercentageBps),
+                  formatBpsPercent(agreement.shipping_allowance_percentage_bps),
+                ],
+              },
+              {
+                label: t("commercialTerms.features.home.marketplaceFeeCap"),
+                values: [
+                  formatMoney(publishedSchedule.value.marketplaceSalesFeeCapAmount, "USD"),
+                  t("commercialTerms.features.home.none"),
+                ],
+              },
+              {
+                label: t("commercialTerms.features.home.effectiveFrom"),
+                values: [
+                  publishedSchedule.effectiveFrom
+                    ? dateOnly(publishedSchedule.effectiveFrom)
+                    : t("commercialTerms.features.home.none"),
+                  dateOnly(agreement.effective_from),
+                ],
+              },
+            ]}
+          />
+        ) : null}
         <RevisionHistory history={agreement.history} />
         <Stack gap={2}>
           <Text weight="semibold">{t("commercialTerms.features.home.reviseOverride")}</Text>
@@ -497,6 +594,7 @@ function CreateAgreementSheet({
 }
 
 export function CommercialTermsHomePage({
+  publishedSchedule,
   schedules,
   agreements,
   accounts,
@@ -508,6 +606,7 @@ export function CommercialTermsHomePage({
   errorMessage,
   loadErrorMessage,
 }: Readonly<{
+  publishedSchedule: PublishedMarketplaceSalesFeeSchedule | null;
   schedules: readonly CommercialTermsSchedule[];
   agreements: readonly CommercialAgreement[];
   accounts: readonly CommercialTermsAccountOption[];
@@ -528,9 +627,7 @@ export function CommercialTermsHomePage({
         selectedSchedule.account_type,
         now,
       )
-    : selectedAgreement
-      ? activeScheduleFor(schedules, selectedAgreement.account_type, now)
-      : undefined;
+    : undefined;
 
   return (
     <Page>
@@ -560,6 +657,7 @@ export function CommercialTermsHomePage({
       {errorMessage ? (
         <Banner tone="danger" title={t("commercialTerms.features.home.changeRejected")} description={errorMessage} />
       ) : null}
+      {publishedSchedule ? <PublishedScheduleCard schedule={publishedSchedule} /> : null}
       <PageSection title={t("commercialTerms.features.home.activeAndScheduled")}>
         <AutoGrid minItemWidth="md" gap={3}>
           {cards.map((card) => (
@@ -572,7 +670,7 @@ export function CommercialTermsHomePage({
         <ScheduleSheet schedule={selectedSchedule} activeSchedule={selectedActiveSchedule} onClose={closeSheet} />
       ) : null}
       {selectedAgreement ? (
-        <AgreementSheet agreement={selectedAgreement} activeSchedule={selectedActiveSchedule} onClose={closeSheet} />
+        <AgreementSheet agreement={selectedAgreement} publishedSchedule={publishedSchedule} onClose={closeSheet} />
       ) : null}
       {createKind === "schedule" ? <CreateScheduleSheet schedules={schedules} now={now} onClose={closeSheet} /> : null}
       {createKind === "agreement" ? (

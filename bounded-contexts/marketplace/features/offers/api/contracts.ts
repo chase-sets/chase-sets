@@ -1,9 +1,13 @@
 export type {
   OfferMatchDetail,
   OfferMatchListItem,
-  OfferBuyerMute,
   MarketplaceOffer,
   PublicOfferDetail,
   SubmittedOfferDetail,
+  SubmittedOfferLifecycleAction,
+  SubmittedOfferLifecycleOutcome,
   SubmittedOfferListItem,
+  SubmittedOfferStatus,
+  SubmittedOfferStatusCounts,
+  SubmittedOfferStatusFilter,
 } from "../ui/contracts";

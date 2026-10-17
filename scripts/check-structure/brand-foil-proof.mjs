@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { acquireHeavySlot } from "../lib/heavy-slot.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const aggregateFixture = "#8A682A80";
+const aggregateFixture = "#80612780";
 const validatorPath = "scripts/check-structure/brand-foil-sites.mjs";
 const aggregatePath = "scripts/check-structure.mjs";
 const runPath = "scripts/check-structure/run.mjs";

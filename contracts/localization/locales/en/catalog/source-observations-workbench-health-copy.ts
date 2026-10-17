@@ -144,6 +144,9 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.options": "Option query",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.payload": "Payload acquisition",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.rate.limit": "Rate limit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.diagnostic": "Usage diagnostic",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.freshness": "Usage freshness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.capability.usage.lag": "Provider usage lag",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.description":
     "Triage Catalog semantic readiness, provider adapter transport, rollout stops, job pressure, and audit projection state without leaving the import context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.diagnostic.counts":
@@ -260,4 +263,24 @@ export const catalogSourceObservationsWorkbenchHealthCopyEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.units.empty": "No ingestion units reported",
   "catalog.features.sourceObservations.ui.primaryWorkbench.health.units.empty.detail":
     "Choose a provider profile and import scope before expecting unit readiness evidence.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.credits.allowance":
+    "{balance} of {allowance} {unit}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.credits.balance": "{balance} {unit}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.fresh":
+    "Fresh, observed {observedAt}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.never.observed": "Never observed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.stale":
+    "Stale, last observed {observedAt}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.unavailable": "Unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.freshness.unavailable.observed":
+    "Unavailable, last observed {observedAt}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.beyond":
+    "Beyond the provider's 30-minute update window",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.documented":
+    "Provider updates usage every 20-30 minutes",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.unobserved": "Not observed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.lag.within":
+    "Within the provider's 30-minute update window",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.not.reported": "Not reported",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.health.usage.unsupported": "Not reported by this provider",
 } as const;

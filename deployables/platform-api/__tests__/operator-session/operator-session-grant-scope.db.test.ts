@@ -4,8 +4,6 @@ import {
   admin,
   adminPath,
   base,
-  database,
-  describeDb,
   keyring,
   mint,
   mounted,
@@ -16,6 +14,7 @@ import {
   transport,
   unpair,
 } from "./fixture";
+import { database, describeDb } from "./db-fixture";
 
 afterEach(() => vi.useRealTimers());
 describeDb("public bearer scope and pre-commit refusal atomicity", () => {

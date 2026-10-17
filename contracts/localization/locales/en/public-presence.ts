@@ -434,6 +434,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.nav.foundersTerms": "Founders offer terms",
   "publicPresence.nav.help": "Help",
   "publicPresence.nav.policies": "Policies",
+  "publicPresence.nav.press": "Creator and press fact sheet",
   "publicPresence.nav.waitlist": "Request early access",
   "publicPresence.nav.privacy": "Privacy",
   "publicPresence.nav.product": "Product",

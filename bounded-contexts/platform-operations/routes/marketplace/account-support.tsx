@@ -1,11 +1,23 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { useRef } from "react";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { navigateAfterWrite } from "@chase-sets/platform-runtime/http";
 import type { SupportOrderLookup } from "../../features/support-requests/ui/contracts";
 import { SupportRequestListPage } from "../../features/support-requests/ui/support-request-list-page";
-import { createSupportRequestRequestApiClient } from "../../support/request-support/support-request-api-client";
+import {
+  createSupportRequestRequestApiClient,
+  SupportEvidenceUploadError,
+  SupportParticipantSendError,
+} from "../../support/request-support/support-request-api-client";
+import { ParticipantRoute, type ParticipantRouteRecovery } from "../../features/support-requests/ui/participant-form";
+import { participantActorMatches, readParticipantRecovery } from "../../support/request-support/participant-recovery";
+import {
+  readSupportAttachmentFormData,
+  validateSupportAttachmentOperationId,
+} from "../../features/support-requests/api/attachment-intake";
 
 function formValue(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
@@ -16,7 +28,7 @@ function isUploadedFile(value: FormDataEntryValue): value is File {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "support.view",
   });
@@ -42,6 +54,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   return {
+    accountId: actor.accountId,
+    tenantId: actor.tenantId,
     flows,
     buyerRequests,
     sellerRequests,
@@ -52,27 +66,67 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "support.manage",
   });
-  const api = createSupportRequestRequestApiClient(request);
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await readSupportAttachmentFormData(request);
+  } catch {
+    return { error: t("support.routes.marketplace.accountSupport.photos.intakeRejected") };
+  }
+  const api = createSupportRequestRequestApiClient(
+    request,
+    formValue(formData, "participantAttemptId") || crypto.randomUUID(),
+  );
+  if (!participantActorMatches(formData, actor)) return { error: t("support.participantAttempt.accountChanged") };
+  let participantRecovery: ParticipantRouteRecovery | null = null;
+  try {
+    participantRecovery = readParticipantRecovery(formData, actor);
+    if (participantRecovery?.descriptor) {
+      const lookup = await api.lookupParticipantAttempt(participantRecovery.descriptor);
+      if (lookup.outcome === "committed" || lookup.outcome === "confirming")
+        return redirect(navigateAfterWrite(lookup.result, `/account/support/${encodeURIComponent(lookup.result.id)}`));
+      return { error: null, participantRecovery };
+    }
+  } catch {
+    return { error: t("support.participantAttempt.statusUnavailable"), participantRecovery };
+  }
   const affectedLineIds = formData.getAll("affectedLineIds").map(String);
   const files = formData.getAll("attachments").filter(isUploadedFile);
   const photoRequired = formValue(formData, "photoRequired") === "true";
   let supportRequestId = formValue(formData, "supportRequestId");
   let uploadedAttachmentReferences = formData.getAll("uploadedAttachmentReferences").map(String);
+  const attachmentOperationId = formValue(formData, "attachmentOperationId");
+  let uploadUncertain = formValue(formData, "uploadUncertain") === "true";
+  const recovery = () => ({
+    recoverySupportRequestId: supportRequestId || null,
+    uploadedAttachmentReferences,
+    attachmentOperationId,
+    uploadUncertain,
+  });
+
+  if (files.length > 0 || uploadedAttachmentReferences.length > 0 || uploadUncertain) {
+    try {
+      validateSupportAttachmentOperationId(attachmentOperationId);
+    } catch {
+      return { error: t("support.routes.marketplace.accountSupport.photos.operationRequired"), ...recovery() };
+    }
+  }
+
+  if (uploadUncertain && uploadedAttachmentReferences.length === 0)
+    return { error: t("support.routes.marketplace.accountSupport.photos.uncertain"), ...recovery() };
 
   if (photoRequired && files.length === 0 && uploadedAttachmentReferences.length === 0) {
     return {
       error: t("support.routes.marketplace.accountSupport.photos.required"),
-      recoverySupportRequestId: null,
-      uploadedAttachmentReferences: [] as string[],
+      ...recovery(),
     };
   }
 
   try {
+    let commandResult: unknown;
     if (!supportRequestId) {
       const result = await api.openSupportRequest({
         orderId: formValue(formData, "orderId"),
@@ -80,25 +134,44 @@ export async function action({ request }: ActionFunctionArgs) {
         ...(affectedLineIds.length > 0 ? { affectedLineIds } : {}),
       });
       supportRequestId = result.id;
+      commandResult = result;
     }
     if (files.length > 0 && uploadedAttachmentReferences.length === 0) {
-      const uploaded = await api.uploadSupportEvidenceAttachments(supportRequestId, files);
+      uploadUncertain = true;
+      const uploaded = await api.uploadSupportEvidenceAttachments(supportRequestId, files, attachmentOperationId);
+      uploadUncertain = false;
       uploadedAttachmentReferences = uploaded.attachments.map((attachment) => attachment.reference);
     }
     if (uploadedAttachmentReferences.length > 0) {
-      await api.submitSupportEvidence(supportRequestId, {
-        submittedByRole: "buyer",
-        evidenceType: "photo",
-        summary: t("support.routes.marketplace.accountSupport.photos.summary"),
-        attachments: uploadedAttachmentReferences,
-      });
+      commandResult = await api.participantCommand(
+        "submit-evidence",
+        {
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: t("support.routes.marketplace.accountSupport.photos.summary"),
+          attachments: uploadedAttachmentReferences,
+          attachmentOperationId,
+        },
+        formValue(formData, "evidenceAttemptId") || crypto.randomUUID(),
+        supportRequestId,
+      );
     }
-    return redirect(`/account/support?opened=${encodeURIComponent(supportRequestId)}`);
+    return redirect(navigateAfterWrite(commandResult, `/account/support/${encodeURIComponent(supportRequestId)}`));
   } catch (error) {
+    if (error instanceof SupportEvidenceUploadError && error.status >= 400 && error.status < 500)
+      uploadUncertain = false;
     return {
       error: error instanceof Error ? error.message : t("support.routes.marketplace.accountSupport.open.failed"),
-      recoverySupportRequestId: supportRequestId || null,
-      uploadedAttachmentReferences,
+      ...recovery(),
+      participantRecovery:
+        error instanceof SupportParticipantSendError
+          ? ({
+              accountId: actor.accountId,
+              tenantId: actor.tenantId,
+              phase: error.phase,
+              descriptor: error.descriptor,
+            } satisfies ParticipantRouteRecovery)
+          : null,
     };
   }
 }
@@ -109,21 +182,38 @@ export const meta: MetaFunction = () =>
 export default function MarketplaceAccountSupportRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  type RecoveryData = Extract<NonNullable<typeof actionData>, { attachmentOperationId: string }>;
+  const orderId = data.supportOrder?.orderId ?? null;
+  const lastRecovery = useRef<{ orderId: string | null; data: RecoveryData | null }>({ orderId, data: null });
+  if (lastRecovery.current.orderId !== orderId) lastRecovery.current = { orderId, data: null };
+  if (actionData && "attachmentOperationId" in actionData) lastRecovery.current.data = actionData;
+  const recoveryData = lastRecovery.current.data;
+  const participantRecovery =
+    actionData && "participantRecovery" in actionData ? (actionData.participantRecovery ?? null) : null;
   const [searchParams] = useSearchParams();
   const openedSupportRequestId = searchParams.get("opened");
 
   return (
-    <SupportRequestListPage
-      flows={data.flows.items}
-      buyerRequests={data.buyerRequests.items}
-      sellerRequests={data.sellerRequests.items}
-      actionError={actionData?.error ?? null}
-      lookupError={data.lookupError}
-      openedSupportRequestId={openedSupportRequestId}
-      supportOrder={data.supportOrder}
-      initialFlowType={data.initialFlowType}
-      recoverySupportRequestId={actionData?.recoverySupportRequestId ?? null}
-      uploadedAttachmentReferences={actionData?.uploadedAttachmentReferences ?? []}
-    />
+    <ParticipantRoute
+      key={`${data.tenantId}/${data.accountId}/${orderId}`}
+      accountId={data.accountId}
+      tenantId={data.tenantId}
+      recovery={participantRecovery}
+    >
+      <SupportRequestListPage
+        flows={data.flows.items}
+        buyerRequests={data.buyerRequests.items}
+        sellerRequests={data.sellerRequests.items}
+        actionError={actionData?.error ?? null}
+        lookupError={data.lookupError}
+        openedSupportRequestId={openedSupportRequestId}
+        supportOrder={data.supportOrder}
+        initialFlowType={data.initialFlowType}
+        recoverySupportRequestId={recoveryData?.recoverySupportRequestId ?? null}
+        uploadedAttachmentReferences={recoveryData?.uploadedAttachmentReferences ?? []}
+        attachmentOperationId={recoveryData?.attachmentOperationId}
+        uploadUncertain={recoveryData?.uploadUncertain}
+      />
+    </ParticipantRoute>
   );
 }

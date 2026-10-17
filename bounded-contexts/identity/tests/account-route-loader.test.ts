@@ -141,6 +141,7 @@ describe("marketplace account route loader", () => {
         recoveryKind: "refreshable-catching-up",
       },
       actorDisplay,
+      mutationActor: { tenantId: "tnt_identity", userId: "usr_identity", accountId: "acc_identity" },
     });
   });
 

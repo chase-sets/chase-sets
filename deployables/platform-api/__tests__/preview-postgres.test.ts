@@ -12,7 +12,7 @@ function createRecordingPoolFactory(queries: RecordedQuery[], connectionStrings:
   return (connectionString: string): PreviewPostgresPool => {
     connectionStrings.push(connectionString);
     return {
-      query: async (queryText, values) => {
+      query: async (queryText: string, values?: readonly unknown[]) => {
         queries.push({ connectionString, queryText, ...(values ? { values } : {}) });
         return { rows: [{ exists: false }] };
       },
@@ -68,6 +68,11 @@ describe("preview postgres provisioning", () => {
 
     const extensionQueries = queries.filter((query) => query.queryText.startsWith("create extension"));
     expect(extensionQueries).toEqual([
+      {
+        connectionString:
+          "postgresql://postgres:super-secret@chase-sets-pr-123-chase-sets-platform-preview-postgres:5432/chase_sets_preview_discovery?sslmode=disable",
+        queryText: 'create extension if not exists "pg_trgm"',
+      },
       {
         connectionString:
           "postgresql://postgres:super-secret@chase-sets-pr-123-chase-sets-platform-preview-postgres:5432/chase_sets_preview_discovery?sslmode=disable",

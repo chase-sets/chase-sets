@@ -80,7 +80,7 @@ export const decideUserPreferences: AggregateDecider<
 > = (state, command) => {
   assert(state.userId === null || state.userId === command.userId, "User preferences belong to another user.");
   const target = normalizeUserPreferencesCommand(state, command);
-  if (state.userId === command.userId && userPreferencesMatch(state, target)) {
+  if (userPreferencesMatch(state, target)) {
     return [];
   }
 
@@ -176,4 +176,59 @@ function userPreferencesMatch(left: UserPreferencesState, right: UserPreferences
     left.locale === right.locale &&
     left.timeZone === right.timeZone
   );
+}
+
+export type PreferenceChanges = Partial<Omit<UserPreferences, "userId">>;
+export type PreferenceField = keyof typeof defaultUserPresentationPreferences;
+
+const preferenceCanonicalizers = {
+  colorMode: normalizeColorMode,
+  density: normalizeDensity,
+  reducedMotion: normalizeReducedMotionPreference,
+  locale: normalizeLocale,
+  timeZone: normalizeTimeZone,
+} satisfies { [Field in PreferenceField]: (value: UserPreferences[Field]) => UserPreferences[Field] };
+
+export function canonicalPreferenceChanges(body: unknown): PreferenceChanges {
+  const fields = Object.keys(defaultUserPresentationPreferences).sort();
+  assert(
+    fields.length === Object.keys(preferenceCanonicalizers).length &&
+      fields.every((field) => Object.hasOwn(preferenceCanonicalizers, field)),
+    "INDETERMINATE preference field partition.",
+  );
+  assert(body !== null && typeof body === "object" && !Array.isArray(body), "User preferences are invalid.");
+  const input = body as Record<string, unknown>;
+  const supplied = Object.keys(input);
+  assert(supplied.length > 0 && supplied.every((field) => fields.includes(field)), "User preferences are invalid.");
+  const canonical: Record<string, string> = {};
+  for (const field of fields) {
+    if (!Object.hasOwn(input, field)) continue;
+    const value = input[field];
+    assert(typeof value === "string" && value.length <= 128, "User preferences are invalid.");
+    // The closed field partition and domain normalizers narrow every value.
+    const normalize = preferenceCanonicalizers[field as PreferenceField] as (value: string) => string;
+    canonical[field] = normalize(value as string);
+  }
+  return canonical as PreferenceChanges;
+}
+
+export function canonicalPreferences(userId: UserId, value: unknown): UserPreferences {
+  assert(value !== null && typeof value === "object" && !Array.isArray(value), "Invalid preference history.");
+  const object = value as Record<string, unknown>;
+  assert(
+    object.userId === userId &&
+      Object.keys(object).length === Object.keys(defaultUserPresentationPreferences).length + 1,
+    "Invalid preference history.",
+  );
+  const { userId: _userId, ...changes } = object;
+  const canonical = canonicalPreferenceChanges(changes);
+  assert(
+    Object.keys(canonical).length === Object.keys(defaultUserPresentationPreferences).length,
+    "Invalid preference history.",
+  );
+  assert(
+    Object.entries(canonical).every(([key, scalar]) => object[key] === scalar),
+    "Invalid preference history.",
+  );
+  return { userId, ...defaultUserPresentationPreferences, ...canonical };
 }

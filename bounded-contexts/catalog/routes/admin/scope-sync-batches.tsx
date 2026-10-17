@@ -14,7 +14,7 @@ export { action, loader } from "../../support/route-support/admin-scope-sync-bat
 export const meta: MetaFunction = () => [{ title: t("catalog.features.scopeSyncBatches.routes.admin.meta.title") }];
 
 export default function ScopeSyncBatchesRoute() {
-  const { batch } = useLoaderData<typeof loader>();
+  const { batch, countQuote } = useLoaderData<typeof loader>();
   const actionData = useActionData<ScopeSyncBatchRouteActionData>();
   const navigation = useNavigation();
   const revalidator = useRevalidator();
@@ -39,6 +39,8 @@ export default function ScopeSyncBatchesRoute() {
       error={actionData?.error ?? null}
       heldSetSubmitting={heldSetSubmitting}
       onHeldSetSubmit={submitHeldSetExport}
+      countQuote={actionData?.countQuote ?? countQuote ?? null}
+      countSubmitting={navigation.state !== "idle" && navigation.formData?.get("intent") === "count-acquire"}
     />
   );
 }

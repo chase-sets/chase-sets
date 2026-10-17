@@ -8,12 +8,26 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { parseGlobalPosition } from "@chase-sets/event-core/storage";
+import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as channelsModule } from "../../../index";
 import { testContext } from "../../connections/tests/test-support";
 import { createChannelListingCompositionRuntime } from "../../listing-composition/api/runtime";
 import { createChannelCompositionProfileRegistry } from "../../listing-composition/domain/canonical";
+import { channelListingEventCodec } from "../../listing-composition/domain/codecs";
+import {
+  buildChannelMarketplaceDesiredStateReactionHandlers,
+  buildChannelOwnedDesiredStateReactionHandlers,
+} from "../../listing-composition/integrations/reactions";
+import {
+  buildChannelCatalogFactsProjectionHandlers,
+  buildChannelInventoryFactsProjectionHandlers,
+  buildChannelMarketplaceFactsProjectionHandlers,
+} from "../../listing-composition/read-model/facts-projection";
+import { readComposeChannelListingProviderProductReferences } from "../../listing-composition/read-model/queries";
+import { buildChannelListingStateProjectionHandlers } from "../../listing-composition/read-model/state-projection";
 import { createOutboundSyncRuntime } from "../../outbound-sync/api/runtime";
+import { createChannelListingPublicationOutcomeRecorder } from "../../outbound-sync/integrations/listing-composition";
 import { channelProviderRegistry } from "../../publication-port/api/registry";
 import { createTcgplayerCsvRuntime } from "../api/runtime";
 import { channelSyncRunEventCodec } from "../domain/codec";
@@ -23,7 +37,12 @@ import { tcgplayerCompositionProfiles, tcgplayerLiveExportHeader } from "../doma
 import { createTcgplayerClaimedReservationRunSettlementPort } from "../integrations/outbound-sync-settlement";
 import { canonicalManualClaimLeasePolicySnapshotDigest } from "../domain/validation";
 import { projectChannelSyncRunComposed, projectChannelSyncRunTransitioned } from "../read-model/projection";
-import { readLatestSnapshotRows, readSnapshotRowsById, readRun } from "../read-model/queries";
+import {
+  readLatestSnapshotRows,
+  readSnapshotRowsById,
+  readRun,
+  readTcgplayerConditionMappingInputs,
+} from "../read-model/queries";
 import { tcgplayerCsvSchemaSql } from "../read-model/schema";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -65,6 +84,315 @@ describeDb("tcgplayer-run-order-and-lease", () => {
 
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("tcgplayer-compose-operation-identity composes before the link projector runs", async () => {
+    const services = createOwnedRuntime();
+    const listing = {
+      listingId: "synthetic-listing-operation",
+      channelListingId: "synthetic-channel-listing-operation",
+      catalogItemId: "synthetic-catalog-operation",
+      externalKey: "product:99009198",
+      gradedCard: null,
+    };
+    await seedProductionCompositionFacts([listing], { projectLinks: false });
+    await seedProductReference(listing, "sku:synthetic-operation");
+    await ingestStaged(services, "synthetic-operation-basis", [["99009198", "Near Mint", "2", "0", "0.26"]], 1);
+    await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("synthetic-operation-run", "connector", "synthetic-connector"),
+      testContext,
+    );
+    expect(result?.composition.members).toEqual([
+      expect.objectContaining({
+        channelListingId: listing.channelListingId,
+        listingId: listing.listingId,
+        memberKind: "composed",
+        externalKey: listing.externalKey,
+        refusalReason: null,
+        csvRow: expect.objectContaining({ "TCGplayer Id": "99009198", "Add to Quantity": "-1" }),
+      }),
+    ]);
+    expect(result?.composition.batch).not.toBeNull();
+    await expectNoProjectedLinks();
+  });
+
+  it.each([0, 1, 2])("tcgplayer-compose-reference-controls preserves catalog cardinality %i", async (count) => {
+    const services = createOwnedRuntime();
+    const listing = operationListing();
+    await seedProductionCompositionFacts([listing], { projectLinks: false });
+    await seedProductReference(listing, "sku:synthetic-operation");
+    await pools.channels.query(
+      `INSERT INTO channels_external_catalog_item_reference_facts
+       (provider_key,external_key,catalog_item_id,link_state,updated_at,reference_stream_version)
+       VALUES ('tcgplayer','product:99009199',$1,'unlinked','2026-09-09T00:00:00Z',1)`,
+      [listing.catalogItemId],
+    );
+    await pools.channels.query(
+      `UPDATE channels_external_catalog_item_reference_facts SET link_state=
+       CASE WHEN $1::integer=2 OR ($1::integer=1 AND external_key='product:99009198') THEN 'linked' ELSE 'unlinked' END`,
+      [count],
+    );
+    await ingestStaged(services, "synthetic-control-basis", [["99009198", "Near Mint", "2", "0", "0.26"]], 1);
+    await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("synthetic-control-run", "connector", "synthetic-connector"),
+      testContext,
+    );
+    expect(result?.composition.members).toHaveLength(1);
+    if (count === 1) {
+      expect(result?.composition.members[0]).toMatchObject({ memberKind: "composed", refusalReason: null });
+      expect(result?.composition.members[0]?.csvRow).not.toBeNull();
+      expect(result?.composition.batch).not.toBeNull();
+    } else {
+      expect(result?.composition.members[0]).toMatchObject({
+        memberKind: "refused",
+        refusalReason:
+          count === 0 ? "provider-catalog-item-reference-unlinked" : "provider-catalog-item-reference-ambiguous",
+        csvRow: null,
+      });
+      expect(result?.composition.batch).toBeNull();
+    }
+  });
+
+  it.each([0, 1, 2])(
+    "tcgplayer-compose-reference-controls preserves product cardinality %i and selected options",
+    async (count) => {
+      const listing = operationListing();
+      await seedProductionCompositionFacts([listing], { projectLinks: false });
+      for (const externalKey of [
+        "sku:synthetic-one",
+        "sku:synthetic-two",
+        "sku:synthetic-other-options",
+        "sku:synthetic-other-provider",
+      ]) {
+        await seedProductReference(listing, externalKey);
+      }
+      await pools.channels.query(
+        `UPDATE channels_external_product_reference_facts SET
+         provider_key=CASE WHEN external_key='sku:synthetic-other-provider' THEN 'synthetic-other' ELSE provider_key END,
+         selected_option_key=CASE WHEN external_key='sku:synthetic-other-options' THEN 'other-option' ELSE selected_option_key END,
+         link_state=CASE WHEN external_key IN ('sku:synthetic-other-options','sku:synthetic-other-provider')
+           OR $1::integer=2 OR ($1::integer=1 AND external_key='sku:synthetic-one') THEN 'linked' ELSE 'unlinked' END`,
+        [count],
+      );
+      const references = await readComposeChannelListingProviderProductReferences(pools.channels, {
+        providerKey: "tcgplayer",
+        operations: [listing],
+      });
+      expect(references).toEqual([
+        {
+          channelListingId: listing.channelListingId,
+          catalogItemReference: { kind: "linked", providerKey: "tcgplayer", externalKey: listing.externalKey },
+          productReference:
+            count === 0
+              ? { kind: "unlinked" }
+              : count === 1
+                ? { kind: "linked", providerKey: "tcgplayer", externalKey: "sku:synthetic-one" }
+                : { kind: "ambiguous", candidateCount: 2 },
+        },
+      ]);
+      await expectNoProjectedLinks();
+    },
+  );
+
+  it("tcgplayer-compose-condition-operation-identity resolves graded inputs without snapshot masking", async () => {
+    const services = createOwnedRuntime();
+    const listing = { ...operationListing(), gradedCard: gradedCard("PSA", "10") };
+    await seedProductionCompositionFacts([listing], { projectLinks: false });
+    await seedConditionMapping("connection-production", "graded-condition:PSA|10", "Lightly Played", "accepted");
+    await ingestStaged(
+      services,
+      "synthetic-condition-basis",
+      [
+        ["99009198", "Near Mint", "2", "0", "0.26"],
+        ["99009198", "Lightly Played", "3", "0", "0.26"],
+      ],
+      1,
+    );
+    await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+    expect(
+      await readTcgplayerConditionMappingInputs(pools.channels, {
+        connectionId: "connection-production",
+        operations: [listing],
+      }),
+    ).toEqual([
+      {
+        channelListingId: listing.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:PSA|10",
+        targetKey: "Lightly Played",
+      },
+    ]);
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      composeInput("synthetic-condition-run", "connector", "synthetic-connector"),
+      testContext,
+    );
+    expect(result?.composition.members).toEqual([
+      expect.objectContaining({
+        memberKind: "composed",
+        listingId: listing.listingId,
+        channelListingId: listing.channelListingId,
+        conditionText: "Lightly Played",
+        refusalReason: null,
+        csvRow: expect.objectContaining({ Condition: "Lightly Played", "Add to Quantity": "-2" }),
+      }),
+    ]);
+    await expectNoProjectedLinks();
+  });
+
+  it("tcgplayer-compose-read-caller-closure batches distinct identities and retains provider/connection scope", async () => {
+    const services = createOwnedRuntime();
+    const listings = [
+      { ...operationListing(), gradedCard: gradedCard("PSA", "10") },
+      {
+        listingId: "synthetic-listing-second",
+        channelListingId: "synthetic-channel-second",
+        catalogItemId: "synthetic-catalog-second",
+        externalKey: "product:99009199",
+        gradedCard: gradedCard("BGS", "9"),
+      },
+    ];
+    await seedProductionCompositionFacts(listings, { projectLinks: false });
+    await cloneConnection("synthetic-other-connection");
+    await seedConditionMapping("connection-production", "graded-condition:PSA|10", "Near Mint", "accepted");
+    await seedConditionMapping("connection-production", "graded-condition:BGS|9", "Lightly Played", "auto-accepted");
+    await seedConditionMapping("synthetic-other-connection", "graded-condition:PSA|10", "Heavily Played", "accepted");
+    await seedConditionMapping("synthetic-other-connection", "graded-condition:BGS|9", "Damaged", "proposed");
+    for (const listing of listings) await seedProductReference(listing, `sku:${listing.listingId}`);
+    await pools.channels.query(
+      `INSERT INTO channels_external_catalog_item_reference_facts
+       (provider_key,external_key,catalog_item_id,link_state,updated_at,reference_stream_version)
+       VALUES ('synthetic-other','product:99009999',$1,'linked','2026-09-09T00:00:00Z',1)`,
+      [listings[0]!.catalogItemId],
+    );
+    const calls: string[] = [];
+    const db: PgQueryable = {
+      async query<Row>(sql: string, values?: readonly unknown[]) {
+        calls.push(sql);
+        return pools.channels.query<Row>(sql, values);
+      },
+    };
+    const missing = { listingId: "synthetic-missing", channelListingId: "synthetic-channel-missing" };
+    const operations = [listings[1]!, missing, listings[0]!];
+    expect(
+      await readComposeChannelListingProviderProductReferences(db, { providerKey: "tcgplayer", operations }),
+    ).toEqual([
+      {
+        channelListingId: listings[1]!.channelListingId,
+        catalogItemReference: { kind: "linked", providerKey: "tcgplayer", externalKey: listings[1]!.externalKey },
+        productReference: { kind: "linked", providerKey: "tcgplayer", externalKey: `sku:${listings[1]!.listingId}` },
+      },
+      {
+        channelListingId: missing.channelListingId,
+        catalogItemReference: { kind: "unlinked" },
+        productReference: { kind: "unlinked" },
+      },
+      {
+        channelListingId: listings[0]!.channelListingId,
+        catalogItemReference: { kind: "linked", providerKey: "tcgplayer", externalKey: listings[0]!.externalKey },
+        productReference: { kind: "linked", providerKey: "tcgplayer", externalKey: `sku:${listings[0]!.listingId}` },
+      },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(
+      await readTcgplayerConditionMappingInputs(db, { connectionId: "connection-production", operations }),
+    ).toEqual([
+      {
+        channelListingId: listings[1]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:BGS|9",
+        targetKey: "Lightly Played",
+      },
+      {
+        channelListingId: listings[0]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:PSA|10",
+        targetKey: "Near Mint",
+      },
+    ]);
+    expect(calls).toHaveLength(3);
+    expect(calls.join("\n")).not.toContain("channels_channel_listing_links");
+    expect(calls.join("\n")).not.toContain("channels_connection_facts");
+    expect(
+      await readTcgplayerConditionMappingInputs(db, { connectionId: "synthetic-other-connection", operations }),
+    ).toEqual([
+      {
+        channelListingId: listings[1]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:BGS|9",
+        targetKey: null,
+      },
+      {
+        channelListingId: listings[0]!.channelListingId,
+        dimension: "condition",
+        sourceKey: "graded-condition:PSA|10",
+        targetKey: "Heavily Played",
+      },
+    ]);
+    expect(
+      await readComposeChannelListingProviderProductReferences(db, {
+        providerKey: "synthetic-other",
+        operations: [listings[0]!],
+      }),
+    ).toEqual([
+      {
+        channelListingId: listings[0]!.channelListingId,
+        productReference: { kind: "unlinked" },
+        catalogItemReference: { kind: "linked", providerKey: "synthetic-other", externalKey: "product:99009999" },
+      },
+    ]);
+    const beforeEmpty = calls.length;
+    expect(
+      await readComposeChannelListingProviderProductReferences(db, { providerKey: "tcgplayer", operations: [] }),
+    ).toEqual([]);
+    expect(
+      await readTcgplayerConditionMappingInputs(db, { connectionId: "connection-production", operations: [] }),
+    ).toEqual([]);
+    expect(calls).toHaveLength(beforeEmpty);
+    await ingestStaged(
+      services,
+      "synthetic-closure-basis",
+      [
+        ["99009198", "Near Mint", "2", "0", "0.26"],
+        ["99009198", "Lightly Played", "3", "0", "0.26"],
+        ["99009199", "Near Mint", "4", "0", "0.26"],
+        ["99009199", "Lightly Played", "5", "0", "0.26"],
+      ],
+      1,
+    );
+    const compose = composeInput("synthetic-empty-run", "connector", "synthetic-connector");
+    expect(await services.tcgplayerCsv.composeTcgplayerSyncRun(compose, testContext)).toBeNull();
+    for (const listing of listings) await appendAndEnqueueDesiredState(services, listing);
+    await expectNoProjectedLinks();
+    const result = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      { ...compose, runId: "synthetic-closure-run" },
+      testContext,
+    );
+    expect(result?.composition.members).toHaveLength(2);
+    expect(result?.composition.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          memberKind: "composed",
+          listingId: listings[0]!.listingId,
+          channelListingId: listings[0]!.channelListingId,
+          externalKey: listings[0]!.externalKey,
+          conditionText: "Near Mint",
+        }),
+        expect.objectContaining({
+          memberKind: "composed",
+          listingId: listings[1]!.listingId,
+          channelListingId: listings[1]!.channelListingId,
+          externalKey: listings[1]!.externalKey,
+          conditionText: "Lightly Played",
+        }),
+      ]),
+    );
+    await expectNoProjectedLinks();
   });
 
   it("snapshot-read-cap-boundary limits SQL materialization and returned rows on both paths", async () => {
@@ -1345,7 +1673,361 @@ describeDb("tcgplayer-run-order-and-lease", () => {
       ),
     ).resolves.toMatchObject({ run: { basisSnapshotGeneration: 2, state: "composed" } });
   });
+
+  it("second-run-after-applied-composes-clamp-paused-revert", async () => {
+    const services = createOwnedRuntime(undefined, { recordLinkOutcomes: true });
+    await seedProductionCompositionFacts([]);
+    const harness = await seedClampRevertListings(services);
+    const baselineRows = clampRevertListings.map((listing) => stagedRow(listing, listing.baseline));
+    const canaryRows = clampRevertListings.map((listing) => stagedRow(listing, listing.canary));
+    await services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-revert-baseline",
+      connectionId: "connection-production",
+      surface: "staged",
+      csv: stagedCsv(baselineRows),
+      limits: { maxRecords: baselineRows.length },
+      ingestedAt: "2026-09-09T01:00:00Z",
+      capturedAt: "2026-09-09T01:00:00Z",
+      capturedAtSource: "operator-declared",
+    });
+    const canary = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      {
+        runId: "run-revert-canary",
+        connectionId: "connection-production",
+        claimant: { claimantKind: "connector", claimantId: "connector-revert" },
+        leaseMs: 60_000,
+        manualClaimLeasePolicySnapshot: null,
+        resolvedPolicy: { maxRowsPerBatch: 500 },
+        composedAt: "2026-09-09T01:01:00Z",
+      },
+      testContext,
+    );
+    expect(memberTable(canary!.run.members)).toEqual([
+      memberLine("listing-revert-one", "composed", { quantity: 2, minor: 26 }, { quantity: 1, minor: 27 }),
+      memberLine(
+        "listing-revert-steady",
+        "already-satisfied",
+        { quantity: 5, minor: 100 },
+        { quantity: 5, minor: 100 },
+      ),
+      memberLine("listing-revert-two", "composed", { quantity: 4, minor: 29 }, { quantity: 3, minor: 30 }),
+    ]);
+
+    for (const listing of clampRevertListings) {
+      await harness.applyListingEvent(
+        listing.listingId,
+        "marketplace.listing.paused",
+        { reason: "channel-inbound-dark" },
+        3,
+      );
+    }
+    const claimed = await services.tcgplayerCsv.claimRun(
+      { runId: canary!.run.runId, expectedRevision: canary!.run.revision },
+      testContext,
+    );
+    const awaiting = await services.tcgplayerCsv.recordUploadAttempt(
+      {
+        runId: claimed.runId,
+        expectedRevision: claimed.revision,
+        uploadAttemptedAt: "2026-09-09T01:01:30Z",
+        fileName: "run-application.csv",
+      },
+      testContext,
+    );
+    await services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-revert-canary-proof",
+      connectionId: "connection-production",
+      surface: "staged",
+      csv: stagedCsv(canaryRows),
+      limits: { maxRecords: canaryRows.length },
+      ingestedAt: "2026-09-09T01:02:00Z",
+      capturedAt: "2026-09-09T01:02:00Z",
+      capturedAtSource: "operator-declared",
+    });
+    const applied = await services.tcgplayerCsv.verifyRun(
+      {
+        runId: awaiting.runId,
+        expectedRevision: awaiting.revision,
+        verificationSnapshotId: "snapshot-revert-canary-proof",
+        importSummary: importSummary(2),
+      },
+      testContext,
+    );
+    expect(applied.state).toBe("applied");
+    await harness.enqueueDesiredStates();
+    expect(
+      (
+        await pools.channels.query<{ link_write_state: string }>(
+          "SELECT link_write_state FROM channel_outbound_operations WHERE reservation_id=$1 ORDER BY listing_id",
+          [applied.reservationId],
+        )
+      ).rows,
+    ).toEqual([{ link_write_state: "applied" }, { link_write_state: "applied" }, { link_write_state: "applied" }]);
+
+    for (const listing of clampRevertListings.filter(changedByCanary)) {
+      await harness.applyListingEvent(
+        listing.listingId,
+        "marketplace.listing.price-updated",
+        { priceAmount: listing.baseline.price, priceCurrencyCode: "USD" },
+        4,
+      );
+      await harness.applyListingEvent(
+        listing.listingId,
+        "marketplace.listing.quantity-cap-updated",
+        { quantityCap: listing.baseline.quantity },
+        5,
+      );
+    }
+    await services.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+      snapshotId: "snapshot-revert-post-canary",
+      connectionId: "connection-production",
+      surface: "staged",
+      csv: stagedCsv(canaryRows),
+      limits: { maxRecords: canaryRows.length },
+      ingestedAt: "2026-09-10T01:02:00Z",
+      capturedAt: "2026-09-10T01:02:00Z",
+      capturedAtSource: "operator-declared",
+    });
+    const revert = await services.tcgplayerCsv.composeTcgplayerSyncRun(
+      {
+        runId: "run-revert",
+        connectionId: "connection-production",
+        claimant: { claimantKind: "connector", claimantId: "connector-revert" },
+        leaseMs: 60_000,
+        manualClaimLeasePolicySnapshot: null,
+        resolvedPolicy: { maxRowsPerBatch: 500 },
+        composedAt: "2026-09-10T01:03:00Z",
+      },
+      testContext,
+    );
+    expect(revert?.run).toMatchObject({ basisSnapshotId: "snapshot-revert-post-canary", state: "composed" });
+    expect(memberTable(revert!.run.members)).toEqual([
+      memberLine("listing-revert-one", "composed", { quantity: 1, minor: 27 }, { quantity: 2, minor: 26 }),
+      memberLine(
+        "listing-revert-steady",
+        "already-satisfied",
+        { quantity: 5, minor: 100 },
+        { quantity: 5, minor: 100 },
+      ),
+      memberLine("listing-revert-two", "composed", { quantity: 3, minor: 30 }, { quantity: 4, minor: 29 }),
+    ]);
+    expect(revert!.composition.batch?.rows).toHaveLength(2);
+    expect(revert!.run.members.filter((member) => member.targetQuantity === 0)).toEqual([]);
+    expect(
+      (
+        await pools.channels.query(
+          `SELECT 1 FROM event_store_events
+           WHERE event_type='channels.channel-listing.desired-state-changed' AND payload->>'intent'='delist'`,
+        )
+      ).rows,
+    ).toEqual([]);
+  });
 });
+
+type ClampRevertValues = Readonly<{ quantity: number; price: string }>;
+
+const clampRevertListings: readonly Readonly<{
+  listingId: string;
+  externalId: string;
+  baseline: ClampRevertValues;
+  canary: ClampRevertValues;
+}>[] = [
+  {
+    listingId: "listing-revert-one",
+    externalId: "90000901",
+    baseline: { quantity: 2, price: "0.26" },
+    canary: { quantity: 1, price: "0.27" },
+  },
+  {
+    listingId: "listing-revert-two",
+    externalId: "90000902",
+    baseline: { quantity: 4, price: "0.29" },
+    canary: { quantity: 3, price: "0.30" },
+  },
+  {
+    listingId: "listing-revert-steady",
+    externalId: "90000903",
+    baseline: { quantity: 5, price: "1.00" },
+    canary: { quantity: 5, price: "1.00" },
+  },
+];
+
+function changedByCanary(listing: (typeof clampRevertListings)[number]): boolean {
+  return listing.baseline.quantity !== listing.canary.quantity || listing.baseline.price !== listing.canary.price;
+}
+
+function stagedRow(listing: (typeof clampRevertListings)[number], values: ClampRevertValues): readonly string[] {
+  return [listing.externalId, "Near Mint", String(values.quantity), "0", values.price];
+}
+
+function memberTable(members: ChannelSyncRun["members"]) {
+  return members
+    .map((member) => ({
+      listingId: member.listingId,
+      memberKind: member.memberKind,
+      basis: { quantity: member.basisTotalQuantity, minor: member.basisPriceAmountMinor },
+      target: { quantity: member.targetQuantity, minor: member.targetPriceAmountMinor },
+    }))
+    .sort((left, right) => left.listingId.localeCompare(right.listingId));
+}
+
+function memberLine(
+  listingId: string,
+  memberKind: "composed" | "already-satisfied",
+  basis: Readonly<{ quantity: number; minor: number }>,
+  target: Readonly<{ quantity: number; minor: number }>,
+) {
+  return { listingId, memberKind, basis, target };
+}
+
+async function seedClampRevertListings(services: ReturnType<typeof createOwnedRuntime>) {
+  const accountId = "account-production";
+  const connectionId = "connection-production";
+  const accountContext: EventStoreContext = {
+    tenantId: testContext.tenantId,
+    audit: { performedByUserId: testContext.audit.performedByUserId, forAccountId: accountId as never },
+  };
+  const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+  const marketplaceReactions = buildChannelMarketplaceDesiredStateReactionHandlers(
+    pools.channels,
+    services.listingComposition,
+  );
+  const outboundReaction = buildChannelOwnedDesiredStateReactionHandlers(
+    services.listingComposition,
+    services.outboundSync,
+  );
+  const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+  const catalog = buildChannelCatalogFactsProjectionHandlers(pools.channels);
+  const listingEvent = (listingId: string, type: string, data: Record<string, unknown>, streamVersion: number) =>
+    buildTransportEvent(type, data, {
+      id: `${listingId}-${streamVersion}`,
+      streamId: `marketplace.listing-${listingId}`,
+      streamVersion,
+      globalPosition: `${listingId}:${streamVersion}`,
+      tenantId: accountContext.tenantId,
+      audit: accountContext.audit,
+    });
+  const enqueueDesiredStates = async () => {
+    const rows = await pools.channels.query<{
+      event_id: string;
+      event_type: string;
+      stream_id: string;
+      stream_version: number | string;
+      global_position: string;
+      occurred_at: string | Date;
+      recorded_at: string | Date;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT event_id,event_type,stream_id,stream_version,global_position::text,occurred_at,recorded_at,payload
+       FROM event_store_events
+       WHERE event_type='channels.channel-listing.desired-state-changed' ORDER BY global_position`,
+    );
+    for (const row of rows.rows) {
+      await outboundReaction["channels.channel-listing.desired-state-changed"]!(
+        buildTransportEvent(row.event_type, row.payload, {
+          id: row.event_id,
+          streamId: row.stream_id,
+          streamVersion: Number(row.stream_version),
+          globalPosition: row.global_position,
+          timing: {
+            occurredAt: new Date(row.occurred_at).toISOString(),
+            recordedAt: new Date(row.recorded_at).toISOString(),
+          },
+        }),
+      );
+    }
+  };
+
+  await buildChannelListingStateProjectionHandlers(pools.channels)[
+    "channels.channel-publication-configuration.settings-replaced"
+  ]!(
+    buildTransportEvent(
+      "channels.channel-publication-configuration.settings-replaced",
+      {
+        connectionId,
+        settings: {
+          titlePrefix: "",
+          titleSuffix: "",
+          descriptionFooter: "",
+          categoryAllowlist: ["cards"],
+          excludedListingIds: [],
+        },
+      },
+      { streamId: `channels.channel-publication-configuration-${connectionId}`, streamVersion: 1 },
+    ),
+  );
+  for (const listing of clampRevertListings) {
+    const catalogItemId = `catalog-${listing.listingId}`;
+    const inventoryItemId = `item-${listing.listingId}`;
+    await marketplace["marketplace.listing.created"]!(
+      listingEvent(
+        listing.listingId,
+        "marketplace.listing.created",
+        {
+          listingId: listing.listingId,
+          accountId,
+          inventoryItemId,
+          catalogItemId,
+          priceAmount: listing.canary.price,
+          priceCurrencyCode: "USD",
+          quantityCap: listing.canary.quantity,
+          selectedOptions: [],
+          itemTitle: "Synthetic revert card",
+          itemSubtitle: null,
+          productSummary: "Synthetic clamp revert proof",
+          gradedCard: null,
+        },
+        1,
+      ),
+    );
+    await marketplace["marketplace.listing.published"]!(
+      listingEvent(listing.listingId, "marketplace.listing.published", {}, 2),
+    );
+    await inventory["inventory.item.created"]!(
+      buildTransportEvent(
+        "inventory.item.created",
+        { itemId: inventoryItemId, accountId, catalogItemId, totalQuantity: 10 },
+        { streamId: `inventory.item-${inventoryItemId}`, streamVersion: 1 },
+      ),
+    );
+    await catalog["catalog.catalog-item.category-assigned"]!(
+      buildTransportEvent(
+        "catalog.catalog-item.category-assigned",
+        { categoryId: "cards" },
+        { streamId: `catalog.item-${catalogItemId}`, streamVersion: 1 },
+      ),
+    );
+    await catalog["catalog.catalog-item.external-catalog-item-reference-linked"]!(
+      buildTransportEvent(
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        { providerKey: "tcgplayer", externalKey: `product:${listing.externalId}` },
+        { streamId: `catalog.item-${catalogItemId}`, streamVersion: 2 },
+      ),
+    );
+    await expect(
+      services.listingComposition.recordChannelListingDesiredState(
+        { connectionId, listingId: listing.listingId },
+        accountContext,
+      ),
+    ).resolves.toMatchObject({ kind: "applied", streamVersion: 1 });
+  }
+  await enqueueDesiredStates();
+
+  return {
+    enqueueDesiredStates,
+    applyListingEvent: async (
+      listingId: string,
+      type: string,
+      data: Record<string, unknown>,
+      streamVersion: number,
+    ) => {
+      const signal = listingEvent(listingId, type, data, streamVersion);
+      await marketplace[type]!(signal);
+      await marketplaceReactions[type]!(signal);
+      await enqueueDesiredStates();
+    },
+  };
+}
 
 function replayRun(): ChannelSyncRun {
   return {
@@ -1450,7 +2132,10 @@ type ProductionListingFixture = Readonly<{
   gradedCard: ReturnType<typeof gradedCard> | null;
 }>;
 
-function createOwnedRuntime(now?: string) {
+function createOwnedRuntime(
+  now?: string,
+  { recordLinkOutcomes = false }: Readonly<{ recordLinkOutcomes?: boolean }> = {},
+) {
   const eventStore = createPostgresEventStore({ pool: pools.channels });
   const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
   const listingComposition = createChannelListingCompositionRuntime({
@@ -1463,13 +2148,17 @@ function createOwnedRuntime(now?: string) {
     {
       db: pools.channels,
       ...(now ? { clock: { now: () => new Date(now) } } : {}),
-      recordOutcome: async () => "applied",
+      recordOutcome: recordLinkOutcomes
+        ? createChannelListingPublicationOutcomeRecorder(listingComposition)
+        : async () => "applied",
       readAdditionalOutboundHold: async () => ({ held: false, sources: [] }),
       claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
     },
     { assertDelistDirective: () => undefined },
   );
   return {
+    eventStore,
+    listingComposition,
     outboundSync,
     tcgplayerCsv: createTcgplayerCsvRuntime({
       db: pools.channels,
@@ -1682,7 +2371,10 @@ async function initialCompositionState(runId: string) {
   return { events: row.events, runs: row.runs, pending: row.pending, inFlight: row.in_flight };
 }
 
-async function seedProductionCompositionFacts(listings: readonly ProductionListingFixture[]): Promise<void> {
+async function seedProductionCompositionFacts(
+  listings: readonly ProductionListingFixture[],
+  { projectLinks = true }: Readonly<{ projectLinks?: boolean }> = {},
+): Promise<void> {
   await pools.channels.query(
     `INSERT INTO channel_connections
      (connection_id,account_id,provider_key,environment,status,created_at,created_at_instant,bindings,projection_updated_at,last_stream_version)
@@ -1708,12 +2400,13 @@ async function seedProductionCompositionFacts(listings: readonly ProductionListi
         listing.gradedCard === null ? null : JSON.stringify(listing.gradedCard),
       ],
     );
-    await pools.channels.query(
-      `INSERT INTO channels_channel_listing_links
+    if (projectLinks)
+      await pools.channels.query(
+        `INSERT INTO channels_channel_listing_links
        (connection_id,listing_id,channel_listing_id,publish_state,blocking_reason_codes,operation_bindings,updated_at,last_stream_version)
        VALUES ('connection-production',$1,$2,'pending','[]'::jsonb,'{}'::jsonb,'2026-09-09T00:00:00Z',1)`,
-      [listing.listingId, listing.channelListingId],
-    );
+        [listing.listingId, listing.channelListingId],
+      );
     if (listing.externalKey !== null) {
       await pools.channels.query(
         `INSERT INTO channels_external_catalog_item_reference_facts
@@ -1723,6 +2416,90 @@ async function seedProductionCompositionFacts(listings: readonly ProductionListi
       );
     }
   }
+}
+
+async function seedProductReference(listing: ProductionListingFixture, externalKey: string): Promise<void> {
+  await pools.channels.query(
+    `INSERT INTO channels_external_product_reference_facts
+     (provider_key,external_key,catalog_item_id,selected_options,selected_option_key,link_state,updated_at,reference_stream_version)
+     VALUES ('tcgplayer',$1,$2,'[]'::jsonb,'','linked','2026-09-09T00:00:00Z',1)`,
+    [externalKey, listing.catalogItemId],
+  );
+}
+
+function operationListing(): ProductionListingFixture {
+  return {
+    listingId: "synthetic-listing-operation",
+    channelListingId: "synthetic-channel-listing-operation",
+    catalogItemId: "synthetic-catalog-operation",
+    externalKey: "product:99009198",
+    gradedCard: null,
+  };
+}
+
+async function seedConditionMapping(
+  connectionId: string,
+  sourceKey: string,
+  targetKey: string,
+  reviewStatus: "accepted" | "auto-accepted" | "proposed",
+): Promise<void> {
+  await pools.channels.query(
+    `INSERT INTO channels_channel_mappings
+     (connection_id,dimension,source_key,target_key,confidence_tier,review_status,provenance,evidence,updated_at,last_stream_version)
+     VALUES ($1,'condition',$2,$3,'manual',$4,'operator','{}'::jsonb,'2026-09-09T00:00:00Z',1)`,
+    [connectionId, sourceKey, targetKey, reviewStatus],
+  );
+}
+
+async function expectNoProjectedLinks(): Promise<void> {
+  const result = await pools.channels.query("SELECT count(*)::text AS count FROM channels_channel_listing_links");
+  expect(result.rows).toEqual([{ count: "0" }]);
+}
+
+async function appendAndEnqueueDesiredState(
+  services: ReturnType<typeof createOwnedRuntime>,
+  listing: ProductionListingFixture,
+): Promise<void> {
+  const desired = desiredState(listing.listingId, listing.channelListingId, 1, 1, 26);
+  const event = {
+    type: "channels.channel-listing.desired-state-changed" as const,
+    data: {
+      connectionId: desired.connectionId,
+      channelListingId: desired.channelListingId,
+      listingId: desired.listingId,
+      listingRevision: desired.listingRevision,
+      desiredStateSequence: desired.desiredStateSequence,
+      desiredStateHash: desired.desiredStateHash,
+      intent: desired.operationKind,
+      draft: desired.payload.draft,
+    },
+  };
+  const [stored] = await services.eventStore.appendToStream({
+    streamId: desired.envelope.sourceStreamId,
+    expectedVersion: "no_stream",
+    context: testContext,
+    events: [channelListingEventCodec.encode(event)],
+  });
+  if (!stored) throw new Error("Synthetic desired state was not appended.");
+  const handlers = buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition, services.outboundSync);
+  await handlers[event.type]!(
+    buildTransportEvent(event.type, event.data, {
+      id: stored.eventId,
+      streamId: stored.streamId,
+      streamVersion: stored.streamVersion,
+      globalPosition: stored.globalPosition,
+    }),
+  );
+  expect(
+    await pools.channels.query(
+      "SELECT listing_id,channel_listing_id,source_event_id FROM channel_outbound_operations WHERE source_event_id=$1",
+      [stored.eventId],
+    ),
+  ).toMatchObject({
+    rows: [
+      { listing_id: listing.listingId, channel_listing_id: listing.channelListingId, source_event_id: stored.eventId },
+    ],
+  });
 }
 
 async function cloneConnection(connectionId: string): Promise<void> {

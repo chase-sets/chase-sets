@@ -2,12 +2,14 @@ import process from "node:process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { readEnvFile } from "./lib/env.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { syncLocalEnvFiles } from "./local-env.mjs";
+import { driftBound, validateDbDurationBaseline } from "./check-structure/db-duration-baseline.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const inheritedEnvKeys = new Set(Object.keys(process.env));
@@ -313,6 +315,16 @@ export function parseRunWorkspacesArgs(argv) {
     : undefined;
   const includeTestProfile = runnerArgs.find((arg) => arg.startsWith("--test-profile="))?.split("=")[1];
   const excludeTestProfile = runnerArgs.find((arg) => arg.startsWith("--exclude-test-profile="))?.split("=")[1];
+  const groupArgs = runnerArgs.filter(
+    (arg) => arg === "--db-workspace-group" || arg.startsWith("--db-workspace-group="),
+  );
+  const dbWorkspaceGroup = groupArgs[0]?.slice("--db-workspace-group=".length);
+  if (
+    groupArgs.length > 1 ||
+    (groupArgs.length === 1 && (scriptName !== DB_TEST_SCRIPT_SELECTOR || !["api", "other"].includes(dbWorkspaceGroup)))
+  ) {
+    throw new Error("--db-workspace-group requires exactly one api|other value with test:db*.");
+  }
   const workspaceNames = new Set(
     runnerArgs
       .filter((arg) => arg.startsWith("--workspace="))
@@ -332,6 +344,7 @@ export function parseRunWorkspacesArgs(argv) {
     passthroughArgs,
     includeTestProfile,
     excludeTestProfile,
+    ...(dbWorkspaceGroup === undefined ? {} : { dbWorkspaceGroup }),
     workspaceNames,
     concurrency,
     commandTimeoutMs,
@@ -377,11 +390,15 @@ function filterWorkspaces(workspaces, options) {
       return false;
     }
 
-    return true;
+    // Intersect the eligible set, never turn an empty group into all workspaces.
+    return (
+      options.dbWorkspaceGroup === undefined ||
+      (workspace.name === "@chase-sets/app-platform-api") === (options.dbWorkspaceGroup === "api")
+    );
   });
 }
 
-function workspaceScriptNames(workspace, scriptName) {
+export function workspaceScriptNames(workspace, scriptName) {
   const scripts = workspace.packageJson.scripts ?? {};
   if (scriptName !== DB_TEST_SCRIPT_SELECTOR) {
     return typeof scripts[scriptName] === "string" ? [scriptName] : [];
@@ -401,20 +418,61 @@ async function runWorkspace(workspace, options) {
 
   console.log(`Running ${scriptName} in ${workspace.name}...`);
   const invocation = buildInvocation(["--filter", workspace.name, "run", scriptName, ...passthroughArgs]);
-  await run(invocation.command, invocation.args, {
-    ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
-    ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
-  });
+  const measured = options.dbWorkspaceGroup === "api";
+  const startedAt = new Date().toISOString();
+  const started = performance.now();
+  let outcome = "failed";
+  if (measured)
+    console.log(
+      `RUN_WORKSPACES_COMMAND_START ${JSON.stringify({ workspace: workspace.name, script: scriptName, startedAt })}`,
+    );
+  try {
+    await run(invocation.command, invocation.args, {
+      ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
+      ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
+    });
+    outcome = "passed";
+  } finally {
+    if (measured)
+      console.log(
+        `RUN_WORKSPACES_COMMAND_END ${JSON.stringify({
+          workspace: workspace.name,
+          script: scriptName,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          elapsedMs: Math.ceil(performance.now() - started),
+          outcome,
+        })}`,
+      );
+  }
 }
 
 async function runConcurrent(tasks, options) {
   const failures = [];
-  let nextIndex = 0;
+  const pending = tasks.slice();
+  const waitingWorkers = new Set();
+  let seedOrApiDbActive = false;
+
+  function needsSeedApiExclusion(task) {
+    return (
+      (task.workspace.name === "@chase-sets/marketplace-seed-testing" ||
+        task.workspace.name === "@chase-sets/app-platform-api") &&
+      (task.scriptNames ?? [options.scriptName]).some((script) => script === "test:db" || script.startsWith("test:db:"))
+    );
+  }
 
   async function worker() {
-    while (nextIndex < tasks.length) {
-      const task = tasks[nextIndex];
-      nextIndex += 1;
+    while (pending.length > 0) {
+      // Preserve priority among runnable tasks without letting the contending
+      // seed/API pair occupy both DB slots. Unrelated tasks can pass the waiter.
+      const nextIndex = pending.findIndex((task) => !seedOrApiDbActive || !needsSeedApiExclusion(task));
+      if (nextIndex === -1) {
+        await new Promise((resolve) => waitingWorkers.add(resolve));
+        continue;
+      }
+      const [task] = pending.splice(nextIndex, 1);
+      const excludesSeedApi = needsSeedApiExclusion(task);
+      if (excludesSeedApi) seedOrApiDbActive = true;
       const workspace = task.workspace;
       const startedAt = options.now();
       const taskResult = options.taskResults
@@ -447,6 +505,10 @@ async function runConcurrent(tasks, options) {
         if (taskResult) {
           taskResult.actualDurationMs = Math.min(3_600_000, Math.max(0, options.now() - startedAt));
         }
+        // Hold admission across every partition, releasing it on failure too.
+        if (excludesSeedApi) seedOrApiDbActive = false;
+        for (const wake of waitingWorkers) wake();
+        waitingWorkers.clear();
       }
     }
   }
@@ -544,6 +606,7 @@ export async function runWorkspaceScripts(options) {
     loadEnvironment = loadTestEnvironment,
     now = Date.now,
     run = runCommand,
+    readDbBaseline = () => JSON.parse(readFileSync(new URL("./db-duration-baseline-v1.json", import.meta.url), "utf8")),
   } = options;
   const parsed = parseRunWorkspacesArgs(argv);
 
@@ -560,6 +623,7 @@ export async function runWorkspaceScripts(options) {
   const allWorkspaces = listWorkspaces();
   const durationScheduled = isDurationScheduledInvocation(parsed);
   const summaryScriptName = parsed.scriptName === DB_TEST_SCRIPT_SELECTOR ? "test:db" : parsed.scriptName;
+  const dbExecution = summaryScriptName === "test:db" || summaryScriptName.startsWith("test:db:");
   const registry = durationScheduled
     ? validateDurationHintRegistry(
         durationHintRegistry ?? JSON.parse(readFileSync(durationHintRegistryUrl, "utf8")),
@@ -602,10 +666,11 @@ export async function runWorkspaceScripts(options) {
       commandTimeoutMs: parsed.commandTimeoutMs ?? defaultCommandTimeoutMs(parsed.scriptName),
       now,
       run,
-      taskResults: durationScheduled ? taskResults : undefined,
+      taskResults: durationScheduled || dbExecution ? taskResults : undefined,
       usePrefixedLogs: parsed.concurrency > 1,
     });
   } finally {
+    if (dbExecution) annotateDbDurationDrift({ tasks: taskResults }, readDbBaseline);
     if (durationScheduled) {
       const summary = buildRunWorkspacesSummary({
         concurrency: parsed.concurrency,
@@ -620,6 +685,25 @@ export async function runWorkspaceScripts(options) {
         appendSummary(env.GITHUB_STEP_SUMMARY, renderRunWorkspacesSummaryMarkdown(summary), "utf8");
       }
     }
+  }
+}
+
+function annotateDbDurationDrift(summary, readBaseline) {
+  try {
+    const baseline = validateDbDurationBaseline(readBaseline()).recomputes.at(-1);
+    const unbaselined = [];
+    for (const task of summary.tasks) {
+      const ratified = baseline?.workspaces[task.workspace];
+      if (ratified === undefined) unbaselined.push(task.workspace);
+      else if (task.actualDurationMs > driftBound(ratified)) {
+        console.log(
+          `::warning title=DB duration drift::${task.workspace} test:db ${task.actualDurationMs} ms > drift bound ${driftBound(ratified)} ms (ratified ${ratified} ms)`,
+        );
+      }
+    }
+    if (unbaselined.length) console.log(`DB duration drift: unbaselined: ${unbaselined.join(", ")}`);
+  } catch (error) {
+    console.error(`DB duration drift: unknown baseline: ${error.message}`);
   }
 }
 

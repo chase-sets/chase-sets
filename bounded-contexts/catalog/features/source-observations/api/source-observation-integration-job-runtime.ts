@@ -14,7 +14,10 @@ import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import {
   SourceObservationIntegrationJobLifecycleCommandError,
   OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE,
@@ -192,6 +195,7 @@ export function createSourceObservationIntegrationJobRuntime({
       scope.provider,
       profileSelectorFromScope(scope),
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
 
     const targets = await previewProviderAdapterIntegrationImportTargets(scope, providerProfileVersion);
@@ -226,20 +230,27 @@ export function createSourceObservationIntegrationJobRuntime({
       input.action === "reapply"
         ? (normalizeReapplyProfileMode(input.reapplyProfileMode) ?? "current-active-profile")
         : null;
-    const profileSnapshot =
-      importProfileVersion === null
-        ? reapplyProfileMode === null
-          ? null
-          : reapplyProfileMode === "current-active-profile"
-            ? snapshotCatalogReapplyProfileVersion(
-                await requireCatalogReapplyActiveProfileVersion(
-                  profileVersions,
-                  scope.provider,
-                  profileSelectorFromScope(scope),
-                ),
-              )
-            : null
-        : snapshotCatalogProfileVersion(importProfileVersion);
+    // Original-source-profile reapply has no job-wide profile; each work unit
+    // enforces its recorded profile's unit when it executes.
+    const reapplyActiveProfileVersion =
+      reapplyProfileMode === "current-active-profile"
+        ? await requireCatalogReapplyActiveProfileVersion(
+            profileVersions,
+            scope.provider,
+            profileSelectorFromScope(scope),
+          )
+        : null;
+    if (importProfileVersion) {
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", importProfileVersion);
+    }
+    if (reapplyActiveProfileVersion) {
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", reapplyActiveProfileVersion);
+    }
+    const profileSnapshot = importProfileVersion
+      ? snapshotCatalogProfileVersion(importProfileVersion)
+      : reapplyActiveProfileVersion
+        ? snapshotCatalogReapplyProfileVersion(reapplyActiveProfileVersion)
+        : null;
 
     const existingJob = (await integrationJobStore.listActive({ jobKinds: [input.action] }))
       .filter((job) => jobMatchesContext(job, input.context))
@@ -740,6 +751,7 @@ export function createSourceObservationIntegrationJobRuntime({
       input.job.profileSnapshot,
       profileSelectorFromScope(scope),
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
 
     return processProviderAdapterIntegrationImportJobTurn({

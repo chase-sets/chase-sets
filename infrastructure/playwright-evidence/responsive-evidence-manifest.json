@@ -3759,6 +3759,1900 @@
         }
       ],
       "artifact": "facet-list-overbleed"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-methods-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "sign-in-methods",
+        "selector": "main [role=\"list\"]",
+        "populatedSelector": "[role=\"listitem\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-methods-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-email-option-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "sign-in-email-option",
+        "selector": "form:has(input[name=\"intent\"][value=\"magic-link-request\"])",
+        "populatedSelector": "button[type=\"submit\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-email-option-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-methods-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "sign-in-methods",
+        "selector": "main [role=\"list\"]",
+        "populatedSelector": "[role=\"listitem\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-methods-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-email-option-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "sign-in-email-option",
+        "selector": "form:has(input[name=\"intent\"][value=\"magic-link-request\"])",
+        "populatedSelector": "button[type=\"submit\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-email-option-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-typeable-1280x720",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 1280x720 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "target": {
+        "identity": "search-price-filters-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-typeable-1280x720"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-filtered-1280x720",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 1280x720 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set&priceMax=25.00"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "target": {
+        "identity": "search-price-filters-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-filtered-1280x720"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-typeable-360x800",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 360x800 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-price-filters-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-typeable-360x800"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-filtered-360x800",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 360x800 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set&priceMax=25.00"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-price-filters-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-filtered-360x800"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-loading-visible",
+          "scope": "target",
+          "selector": "text=\"Loading channel connections…\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-loading-visible",
+          "scope": "target",
+          "selector": "text=\"Loading channel connections…\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-empty-visible",
+          "scope": "target",
+          "selector": "text=\"No channel connections\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-empty-visible",
+          "scope": "target",
+          "selector": "text=\"No channel connections\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-error-visible",
+          "scope": "target",
+          "selector": "text=\"Channels API error 503\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-error-visible",
+          "scope": "target",
+          "selector": "text=\"Channels API error 503\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list success route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-list-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-success-visible",
+          "scope": "target",
+          "selector": "text=\"fixture-provider\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-list-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-list-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels list success route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:list:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-list-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "list-success-visible",
+          "scope": "target",
+          "selector": "text=\"fixture-provider\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-list-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Connect a channel')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect loading route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Connect a channel')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-empty-visible",
+          "scope": "target",
+          "selector": "text=\"No channel connections\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect empty route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-empty-visible",
+          "scope": "target",
+          "selector": "text=\"No channel connections\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-error-visible",
+          "scope": "target",
+          "selector": "text=\"provider-setup-not-registered\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect error route-state fixture",
+        "path": "/account/channels"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-error-visible",
+          "scope": "target",
+          "selector": "text=\"provider-setup-not-registered\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-connect-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-success-visible",
+          "scope": "target",
+          "selector": "text=\"Pending setup\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-connect-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-connect-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels connect success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:connect:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-connect-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "connect-success-visible",
+          "scope": "target",
+          "selector": "text=\"Pending setup\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-connect-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-error-visible",
+          "scope": "target",
+          "selector": "text=\"binding-not-current\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-error-visible",
+          "scope": "target",
+          "selector": "text=\"binding-not-current\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-setup-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-success-visible",
+          "scope": "target",
+          "selector": "text=\"Active\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-setup-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-setup-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels setup success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:setup:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-setup-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "setup-success-visible",
+          "scope": "target",
+          "selector": "text=\"Active\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-setup-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-loading-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:loading:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-loading-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-loading-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-loading @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate loading route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:loading:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-loading",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-loading-visible",
+          "scope": "target",
+          "selector": "button:has-text('Activate')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-loading-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-empty-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:empty:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-empty-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-empty-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-empty @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate empty route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:empty:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-empty",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-empty-visible",
+          "scope": "target",
+          "selector": "a:has-text('Storage locations')",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-empty-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-error-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:error:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-error-visible",
+          "scope": "target",
+          "selector": "text=\"binding-not-current\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-error-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-error-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-error @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate error route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:error:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-error",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-error-visible",
+          "scope": "target",
+          "selector": "text=\"binding-not-current\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-error-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-success-390",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:success:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "channels-activate-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-success-visible",
+          "scope": "target",
+          "selector": "text=\"Active\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-success-390"
+    },
+    {
+      "kind": "claim",
+      "id": "channels-connect-design-system-activate-success-desktop",
+      "file": "deployables/marketplace/e2e/channel-connection-states.evidence.spec.ts",
+      "testTitle": "channels-connect-design-system-activate-success @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Channels activate success route-state fixture",
+        "path": "/account/channels/connection-pending-setup"
+      },
+      "fixture": {
+        "identity": "channels-existing-route-state:activate:success:v1"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "target": {
+        "identity": "channels-activate-success",
+        "selector": "main",
+        "populatedSelector": "h1"
+      },
+      "measurements": [
+        {
+          "identity": "activate-success-visible",
+          "scope": "target",
+          "selector": "text=\"Active\"",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "channels-connect-design-system-activate-success-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-navigation-desktop-1280",
+      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "testTitle": "records Marketplace owner navigation at 1280x900 @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded owner account home",
+        "path": "/account"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:demo-owner:marketplace-navigation"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "marketplace-top-nav",
+        "selector": "nav[aria-label=\"Primary navigation\"]",
+        "populatedSelector": ":scope a[href=\"/account/notifications\"]"
+      },
+      "measurements": [
+        {
+          "identity": "top-nav-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "top-nav-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "seller-money-visible",
+          "scope": "target",
+          "selector": "a[href=\"/account/desk/money\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "selling-disclosure-visible",
+          "scope": "target",
+          "selector": "button[aria-haspopup=\"dialog\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "marketplace-navigation-desktop-1280"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-navigation-mobile-360",
+      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "testTitle": "records Marketplace owner navigation at 360x800 @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded owner account home",
+        "path": "/account"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:demo-owner:marketplace-navigation"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "marketplace-bottom-nav",
+        "selector": "nav.fixed.inset-x-0.bottom-0",
+        "populatedSelector": ":scope a[href=\"/account/notifications\"]"
+      },
+      "measurements": [
+        {
+          "identity": "bottom-nav-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 360
+          }
+        },
+        {
+          "identity": "bottom-nav-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "seller-money-visible",
+          "scope": "target",
+          "selector": "a[href=\"/account/desk/money\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "selling-disclosure-visible",
+          "scope": "target",
+          "selector": "details > summary",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "marketplace-navigation-mobile-360"
+    },
+    {
+      "kind": "claim",
+      "id": "marketplace-navigation-mobile-390",
+      "file": "deployables/marketplace/e2e/marketplace-navigation.spec.ts",
+      "testTitle": "records Marketplace owner navigation at 390x844 @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded owner account home",
+        "path": "/account"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:demo-owner:marketplace-navigation"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "marketplace-bottom-nav",
+        "selector": "nav.fixed.inset-x-0.bottom-0",
+        "populatedSelector": ":scope a[href=\"/account/notifications\"]"
+      },
+      "measurements": [
+        {
+          "identity": "bottom-nav-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "bottom-nav-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "seller-money-visible",
+          "scope": "target",
+          "selector": "a[href=\"/account/desk/money\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "selling-disclosure-visible",
+          "scope": "target",
+          "selector": "details > summary",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "marketplace-navigation-mobile-390"
     }
   ]
 }

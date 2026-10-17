@@ -16,6 +16,9 @@ describe("operator-extension-manifest-contract", () => {
       "https://admin.staging.chasesets.com/*",
       "https://admin.chasesets.com/*",
     ]);
+    expect(operatorManifest).toHaveProperty("externally_connectable", {
+      matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+    });
     expect(operatorManifest.content_security_policy).toEqual({
       extension_pages: "script-src 'self'; object-src 'none'",
       sandbox: "sandbox allow-scripts; script-src 'self'; object-src 'none'",
@@ -27,6 +30,25 @@ describe("operator-extension-manifest-contract", () => {
     { permissions: ["identity"] },
     { content_scripts: [{ matches: ["<all_urls>"], js: ["inject.js"] }] },
     { externally_connectable: { matches: ["*://*/*"] } },
+    { externally_connectable: { matches: ["https://*.chasesets.com/*"] } },
+    { externally_connectable: { matches: ["http://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"] } },
+    {
+      externally_connectable: {
+        matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*", "https://example.test/*"],
+      },
+    },
+    {
+      externally_connectable: {
+        matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+        ids: ["*"],
+      },
+    },
+    {
+      externally_connectable: {
+        matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+        accepts_tls_channel_id: true,
+      },
+    },
     { host_permissions: ["<all_urls>"] },
     { host_permissions: ["https://*.tcgplayer.com/*"] },
     { host_permissions: ["https://api.chasesets.com/*"] },

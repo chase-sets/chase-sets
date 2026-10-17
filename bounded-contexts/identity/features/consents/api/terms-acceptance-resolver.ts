@@ -2,8 +2,21 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { readConsentActivationAuthority } from "@chase-sets/platform-policy/consent-activation-authority";
 import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
 import { resolveTermsAcceptanceStatus, type TermsAcceptanceStatus } from "../read-model/terms-acceptance";
+import { resolvePaymentsTermsAcceptanceStatus } from "../read-model/terms-acceptance";
 
 export type { TermsAcceptanceStatus };
+export type { PaymentsTermsAcceptanceStatus } from "../read-model/terms-acceptance";
+
+export function createIdentityPaymentsTermsAcceptanceResolver(pool: PgTransactionalPool) {
+  const eventStore = createPostgresEventStore({ pool });
+  const authority: ConsentActivationAuthorityReader = {
+    read: (policyKey) => readConsentActivationAuthority(eventStore, policyKey),
+  };
+  return {
+    resolvePaymentsTermsAcceptanceStatus: (subject: Parameters<typeof resolvePaymentsTermsAcceptanceStatus>[2]) =>
+      resolvePaymentsTermsAcceptanceStatus(pool, authority, subject),
+  };
+}
 
 /**
  * Pool-only cross-context host port factory: builds a

@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PlatformApiBootstrapConfig } from "./config";
 
 const PREVIEW_POSTGRES_READY_TIMEOUT_MS = 120_000;
@@ -15,13 +16,13 @@ const PREVIEW_POSTGRES_READY_RETRY_DELAY_MS = 2_000;
 // importable here without pulling test support or script tooling into the
 // deployable.
 const previewDatabaseExtensionsByContext: Readonly<Record<string, readonly string[]>> = {
-  discovery: ["vector"],
+  discovery: ["vector", "pg_trgm"],
 };
 
-export type PreviewPostgresPool = Readonly<{
-  query: (queryText: string, values?: readonly unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
-  end: () => Promise<void>;
-}>;
+export type PreviewPostgresPool = PgQueryable &
+  Readonly<{
+    end: () => Promise<void>;
+  }>;
 
 export type EnsurePreviewPostgresDatabasesOptions = Readonly<{
   createPool?: (connectionString: string) => PreviewPostgresPool;
@@ -122,10 +123,11 @@ async function ensurePreviewDatabaseExtensions(
     // (notably sslmode=disable) intact.
     const databaseUrl = new URL(adminUrl);
     databaseUrl.pathname = `/${encodeURIComponent(spec.database)}`;
-    const databasePool = createPool(databaseUrl.toString());
+    const databasePool: PreviewPostgresPool = createPool(databaseUrl.toString());
+    const database: PgQueryable = databasePool;
     try {
       for (const extensionName of spec.extensions) {
-        await databasePool.query(`create extension if not exists ${quoteIdentifier(extensionName)}`);
+        await database.query(`create extension if not exists ${quoteIdentifier(extensionName)}`);
       }
     } finally {
       await databasePool.end();

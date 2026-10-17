@@ -92,7 +92,26 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
 }
 
 export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const projectOfferStatus =
+    (status: "submitted" | "paused" | "withdrawn"): ProjectorHandlerMap[string] =>
+    async (event) => {
+      const data = event.data as { offerId: string };
+      await db.query(
+        `UPDATE marketplace_offer_pages
+         SET status = $2,
+             last_stream_version = $3,
+             updated_at = $4
+         WHERE offer_id = $1
+           AND last_stream_version < $3`,
+        [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+      );
+      await emitOfferPatch(db, event, data.offerId);
+    };
+
   return {
+    "marketplace.offer.paused": projectOfferStatus("paused"),
+    "marketplace.offer.resumed": projectOfferStatus("submitted"),
+    "marketplace.offer.withdrawn": projectOfferStatus("withdrawn"),
     "marketplace.offer.managed-evaluated": async (event) => {
       await db.query(
         `UPDATE marketplace_offer_pages SET last_stream_version = $2 WHERE offer_id = $1 AND last_stream_version < $2`,

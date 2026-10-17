@@ -5,8 +5,6 @@ import {
   admin,
   adminPath,
   barrier,
-  database,
-  describeDb,
   keyring,
   mint,
   mounted,
@@ -16,6 +14,7 @@ import {
   transport,
   unpair,
 } from "./fixture";
+import { database, describeDb } from "./db-fixture";
 
 describeDb("atomic acknowledged PUT and irreversible revoke", () => {
   const db = database("operator_grant_lifecycle");

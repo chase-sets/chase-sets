@@ -59,12 +59,30 @@ describe("Channels marketplace route contributions", () => {
   });
 
   it("gates the single Channels top-nav entry on channels.view and points at the reachable connection list", () => {
-    const shellContributions = manifest().shellContributions ?? [];
+    const shellContributions =
+      manifest().shellContributions?.filter((contribution) => contribution.deployable === "marketplace-web") ?? [];
     expect(shellContributions).toHaveLength(1);
     expect(shellContributions[0]).toMatchObject({
       deployable: "marketplace-web",
       href: "/account/channels",
       requiredPermissions: ["channels.view"],
     });
+  });
+
+  it("gates the admin support entry on support.manage", () => {
+    expect(manifest().shellContributions?.filter((contribution) => contribution.deployable === "admin-web")).toEqual([
+      {
+        deployable: "admin-web",
+        slot: "primary-nav",
+        key: "ebay-account-deletion-lookup",
+        label: "eBay Deletion Lookup",
+        icon: "search",
+        href: "/ebay-account-deletion",
+        section: "support",
+        order: 7,
+        visibility: "signed-in",
+        requiredPermissions: ["support.manage"],
+      },
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import {
   Card,
   Form,
   HiddenInput,
+  LinkButton,
   MarketplaceNotice,
   NativeSelect,
   Stack,
@@ -25,6 +26,7 @@ const reasonKeys = {
   "provider-rate": "channels.attention.reason.provider-rate",
   "provider-availability": "channels.attention.reason.provider-availability",
   "sale-follow-up": "channels.attention.reason.sale-follow-up",
+  "connector-liveness": "channels.attention.reason.connector-liveness",
 } as const;
 const stateKeys = {
   unknown: "channels.attention.state.unknown",
@@ -70,7 +72,7 @@ export function ChannelConnectionHealthPanel({
             >
               {t(stateKeys[state.data.healthState])}
             </Badge>
-            {state.data.health.length === 0 ? (
+            {state.data.health.length === 0 && !state.data.orders?.count ? (
               <MarketplaceNotice
                 tone="info"
                 title={t("channels.attention.healthy")}
@@ -99,9 +101,33 @@ export function ChannelConnectionHealthPanel({
                 </Form>
               </Stack>
             ))}
+            {state.data.orders?.items.map((order) => (
+              <Stack key={`${order.externalOrderReference}:${order.reason}:${order.generation}`} gap={2}>
+                <Text>{t("channels.attention.orderReference", { reference: order.externalOrderReference })}</Text>
+                <Text>{t(orderReasonKeys[order.reason])}</Text>
+              </Stack>
+            ))}
+            {state.data.orders && state.data.orders.count > 0 && state.data.orders.items.length === 0 ? (
+              <LinkButton href="?">{t("channels.attention.firstOrders")}</LinkButton>
+            ) : null}
+            {state.data.orders?.nextCursor ? (
+              <LinkButton href={`?${new URLSearchParams({ orderCursor: state.data.orders.nextCursor })}`}>
+                {t("channels.attention.moreOrders")}
+              </LinkButton>
+            ) : null}
           </>
         )}
       </Stack>
     </Card>
   );
 }
+
+const orderReasonKeys = {
+  "channel-order-unmapped": "channels.attention.orderUnmapped",
+  "channel-order-sale-absent": "channels.attention.orderRecordingRefused",
+  "tcgplayer-order-unmapped": "channels.attention.orderUnmapped",
+  "tcgplayer-order-identity-ambiguous": "channels.attention.orderIdentityAmbiguous",
+  "tcgplayer-order-recording-refused": "channels.attention.orderRecordingRefused",
+  "tcgplayer-order-cancelled": "channels.attention.orderCancelled",
+  "backdated-sale": "channels.attention.orderBackdated",
+} as const;

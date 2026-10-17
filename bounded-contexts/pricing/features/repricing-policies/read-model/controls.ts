@@ -1,18 +1,24 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { GoalAdoption } from "../../forecast-ledger/domain/adoption-gate";
 import { repricingCandidateCte } from "../../repricing-engine/read-model/queries";
 import type { RepricingPolicyScope } from "../domain/domain";
 import { candidateAssignmentSql, repricingPolicyAssignmentsSql, scopeMatchSql } from "./schema";
 
-export type RepricingAuthoringPrerequisites = Readonly<{
+export type RepricingAuthoringFacts = Readonly<{
   listingCurrencyCodes: readonly string[];
   hasCostBasis: boolean;
 }>;
 
-export async function getRepricingAuthoringPrerequisites(
-  db: PgQueryable,
-  accountId: string,
-): Promise<RepricingAuthoringPrerequisites> {
-  const result = await db.query<RepricingAuthoringPrerequisites>(
+/**
+ * The account's authoring facts, and which registered goal versions the
+ * Adoption Gate lets a seller select and why; the platform-wide grades it
+ * compared stay out of a seller's response.
+ */
+export type RepricingAuthoringPrerequisites = RepricingAuthoringFacts &
+  Readonly<{ goalAdoption: readonly Omit<GoalAdoption, "grades">[] }>;
+
+export async function getRepricingAuthoringFacts(db: PgQueryable, accountId: string): Promise<RepricingAuthoringFacts> {
+  const result = await db.query<RepricingAuthoringFacts>(
     `-- #7905 Option A discovers account-wide facts, including withdrawn listings.
      SELECT COALESCE(array_agg(DISTINCT listing.price_currency_code ORDER BY listing.price_currency_code)
        FILTER (WHERE listing.price_currency_code IS NOT NULL), ARRAY[]::text[]) AS "listingCurrencyCodes",

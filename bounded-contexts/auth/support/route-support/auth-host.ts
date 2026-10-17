@@ -29,6 +29,14 @@ import {
 } from "../auth-support/http";
 import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import { createAuthApiClient } from "../request-support/api-client";
+import {
+  authActionIntent,
+  authApiActionError,
+  authFormFailure,
+  type AuthActionError,
+  type AuthActionIntent,
+} from "./auth-action-errors";
+export type { AuthActionError } from "./auth-action-errors";
 export { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -44,11 +52,6 @@ export type AccountSelectionLoaderData = Readonly<{
   memberships: readonly AccountSelectionMembership[];
 }>;
 
-type AuthActionError = Readonly<{
-  error: string;
-  identifier?: string;
-  method?: SignInMethod;
-}>;
 export type AuthActionNotice =
   | Readonly<{
       status: "magic-link-sent";
@@ -235,15 +238,13 @@ export async function requireActorFromAuthContext(
   }
 }
 
-function toActionError(error: unknown): AuthActionError {
+export function toAuthActionError(error: unknown, intent: AuthActionIntent): AuthActionError {
   if (error instanceof AuthApiError) {
-    return { error: error.message };
+    return authApiActionError(error, intent);
   }
 
   if (isTransientInternalAuthFetchError(error)) {
-    return {
-      error: t("auth.support.routeSupport.authHost.sign.in.temporarily.unavailable"),
-    };
+    return authFormFailure(t("auth.support.routeSupport.authHost.sign.in.temporarily.unavailable"), intent);
   }
 
   throw error;
@@ -259,12 +260,8 @@ function withSignInAttempt(error: AuthActionError, formData: FormData): AuthActi
         : intent === "passkey-sign-in"
           ? "passkey"
           : "password";
-  const submittedIdentifier = formData.get(method === "phone-code" ? "phone" : "email");
-  const identifier = typeof submittedIdentifier === "string" ? submittedIdentifier.trim() : "";
-
   return {
     ...error,
-    ...(identifier ? { identifier } : {}),
     method,
   };
 }
@@ -532,9 +529,10 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
 
           if (intent === "magic-link-consume" && !allowManualMagicLinkTokenEntry) {
             return withSignInAttempt(
-              {
-                error: t("auth.support.routeSupport.authHost.magic.link.token.entry.is.not"),
-              },
+              authFormFailure(
+                t("auth.support.routeSupport.authHost.magic.link.token.entry.is.not"),
+                "magic-link-consume",
+              ),
               submittedFormData,
             );
           }
@@ -571,17 +569,18 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
             freshWriteSource: identityFreshWriteSource(result),
           });
         } catch (error) {
-          const actionError = toActionError(error);
+          const actionError = toAuthActionError(error, authActionIntent(formData?.get("intent")));
           return formData ? withSignInAttempt(actionError, formData) : actionError;
         }
       };
     },
     createRegisterAction() {
       return async ({ request }) => {
+        let intent: AuthActionIntent = "password";
         try {
           const formData = await request.formData();
           const api = createAuthRequestApiClientInternal(request);
-          const intent = String(formData.get("intent") ?? "password");
+          intent = authActionIntent(formData.get("intent"));
           if (intent === "phone-code-request") {
             const result = await api.requestPhoneCode<PhoneCodeRequestResult>({
               phone: formData.get("phone"),
@@ -657,7 +656,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
                 },
           );
         } catch (error) {
-          return toActionError(error);
+          return toAuthActionError(error, intent);
         }
       };
     },
@@ -690,7 +689,7 @@ export function defineAuthHost(options: AuthHostConfig): AuthHost {
 
           return completeAuthentication(request, result);
         } catch (error) {
-          return toActionError(error);
+          return toAuthActionError(error, "account-selection");
         }
       };
     },

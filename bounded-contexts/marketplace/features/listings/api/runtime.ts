@@ -12,7 +12,15 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import { createPostgresAggregateSnapshotStore } from "@chase-sets/event-core-postgres";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
-import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
+import {
+  createId,
+  type AccountId,
+  type ListingId,
+  type ListingEnforcementActionId,
+  type ReportedContentActionId,
+  type TenantId,
+  type UserId,
+} from "@chase-sets/primitives/typed-ids";
 import type { CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
@@ -133,7 +141,7 @@ const LISTING_PHOTO_JPEG_MAX_BYTES = 15_000_000;
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 6;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 7;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -176,6 +184,15 @@ export class MarketplaceListingEvidenceIncompleteError extends Error {
 export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
 
 export type MarketplaceListingServices = Readonly<{
+  operatorUnlistListing: (
+    params: Readonly<{
+      listingId: ListingId;
+      sourceActionId: ReportedContentActionId;
+      listingEnforcementActionId: ListingEnforcementActionId;
+      recordedAt: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ listingId: ListingId; version: number }>;
   getListingPhotoJpeg: (
     params: Readonly<{
       accountId: string;
@@ -2024,6 +2041,19 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         context,
       });
 
+      return { listingId: params.listingId, version: result.version };
+    },
+    operatorUnlistListing: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `marketplace.listing-${params.listingId}`,
+        command: {
+          type: "OperatorUnlistListing",
+          reportedContentActionId: params.sourceActionId,
+          listingEnforcementActionId: params.listingEnforcementActionId,
+          recordedAt: params.recordedAt,
+        },
+        context,
+      });
       return { listingId: params.listingId, version: result.version };
     },
     withdrawListing: async (params, context) => {

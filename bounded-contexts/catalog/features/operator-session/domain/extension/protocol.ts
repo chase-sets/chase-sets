@@ -1,4 +1,5 @@
 export const operatorEnvironments = ["staging", "production"] as const;
+export const operatorExtensionId = "ghemdloifdkoadnapmigabiekchlholm";
 export type OperatorEnvironment = (typeof operatorEnvironments)[number];
 export const operatorOrigins = {
   staging: "https://admin.staging.chasesets.com",

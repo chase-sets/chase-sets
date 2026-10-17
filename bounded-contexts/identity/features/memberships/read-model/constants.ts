@@ -12,6 +12,7 @@ export const PERMISSION_PRESETS = {
 
 export const ROLE_PERMISSIONS = {
   "platform-admin": [
+    "payouts.platform.view",
     "provider-connections.view",
     "accounts.manage",
     "accounts.view",
@@ -33,6 +34,9 @@ export const ROLE_PERMISSIONS = {
     "postage-policies.view",
     "return-intake.manage",
     "return-intake.view",
+    "projection-operations.operate",
+    "projection-operations.rebuild",
+    "projection-operations.view",
     // Customer feedback operator capabilities: platform-staff only.
     // Export is a distinct grant from view/manage so the sensitive free-text
     // comment download can be withheld independently.
@@ -46,6 +50,7 @@ export const ROLE_PERMISSIONS = {
     "recovered-inventory.evidence",
     "recovered-inventory.manage",
     "recovered-inventory.view",
+    "reported-content.view",
     "security.manage",
     "support.manage",
     "support.remedies.approve",

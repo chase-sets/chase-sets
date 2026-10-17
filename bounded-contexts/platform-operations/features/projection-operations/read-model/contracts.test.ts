@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeWorkerCount,
   buildAttentionItems,
   buildProjectionRepairQueue,
   buildProjectionSubscriptionRows,
   normalizeProjectionOperationsSnapshot,
   resolveProjectionOperatorState,
+  staleWorkerCount,
   stateSeverity,
 } from "./contracts";
 
@@ -45,9 +47,10 @@ describe("projection operation view models", () => {
     expect(snapshot.projectionStatusSource).toBe("runtime-memory");
   });
 
-  it("keeps the repair queue bounded while stale-worker attention reflects truncated history", () => {
+  it.each([0, 1])("keeps truncated expired history informational with %i live stale workers", (staleCount) => {
     const workers = [
       { worker_id: "active", worker_kind: "platform-worker", worker_state: "active" },
+      ...Array.from({ length: staleCount }, () => ({ worker_id: "stale", worker_state: "stale" })),
       ...Array.from({ length: 100 }, (_, index) => ({
         worker_id: `expired-${index}`,
         worker_kind: "platform-worker",
@@ -59,9 +62,9 @@ describe("projection operation view models", () => {
       projectionStatusSource: "worker-snapshot",
       workers,
       workerHeartbeatHistory: {
-        activeOrStaleCount: 1,
+        activeOrStaleCount: 1 + staleCount,
         expiredTotalCount: 20_000,
-        expiredWithinDiagnosticWindowCount: 20_000,
+        expiredWithinDiagnosticWindowCount: 150,
         expiredReturnedCount: 100,
         expiredTruncated: true,
         expiredDiagnosticLimit: 100,
@@ -69,9 +72,54 @@ describe("projection operation view models", () => {
       },
     });
 
-    expect(buildProjectionRepairQueue(snapshot)).toHaveLength(100);
-    expect(buildAttentionItems(snapshot)).toContainEqual(
-      expect.objectContaining({ id: "stale-workers", count: 20_000 }),
+    expect(activeWorkerCount(snapshot)).toBe(1);
+    expect(staleWorkerCount(snapshot)).toBe(staleCount);
+    expect(buildProjectionRepairQueue(snapshot).map((item) => item.targetId)).toEqual(staleCount ? ["stale"] : []);
+    expect(buildAttentionItems(snapshot).filter((item) => item.id === "stale-workers")).toEqual(
+      staleCount ? [expect.objectContaining({ count: 1 })] : [],
+    );
+    expect(snapshot.workerHeartbeatHistory.expiredWithinDiagnosticWindowCount).toBe(150);
+    expect(snapshot.workers.filter((worker) => worker.worker_state === "expired")).toHaveLength(100);
+  });
+
+  it.each([
+    {
+      name: "aggregate-only",
+      counts: [
+        [8, 8],
+        [6, 6],
+      ],
+      poison: 14,
+    },
+    { name: "unequal poison and stream counts", counts: [[2, 1]], poison: 2 },
+    { name: "recovered", counts: [[0, 0]], poison: 0 },
+  ])("uses group aggregates for $name repair details and poison attention", ({ counts, poison }) => {
+    const snapshot = normalizeProjectionOperationsSnapshot({
+      projectionStatusSource: "worker-snapshot",
+      projectionGroups: counts.map(([poisonEventCount, blockedStreamCount], index) => ({
+        targetContextName: `context-${index}`,
+        projectionName: `projection-${index}`,
+        state: poisonEventCount ? "degraded" : "caught-up",
+        poisonEventCount,
+        blockedStreamCount,
+      })),
+      blockedProjections: [],
+    });
+
+    expect(buildProjectionRepairQueue(snapshot)).toEqual(
+      poison
+        ? counts.map(([poisons, blocked], index) =>
+            expect.objectContaining({
+              kind: "projection-group",
+              contextName: `context-${index}`,
+              projectionName: `projection-${index}`,
+              detail: `context-${index} projection group; poison events: ${poisons}; blocked streams: ${blocked}`,
+            }),
+          )
+        : [],
+    );
+    expect(buildAttentionItems(snapshot).filter((item) => item.id === "poison-events")).toEqual(
+      poison ? [expect.objectContaining({ count: poison })] : [],
     );
   });
 
@@ -149,7 +197,7 @@ describe("projection operation view models", () => {
           blockedStreams: [{ streamId: "catalog.item-1", state: "blocked" }],
         },
       ],
-      workers: [{ worker_id: "worker_1", worker_state: "expired" }],
+      workers: [{ worker_id: "worker_1", worker_state: "stale" }],
     });
 
     expect(buildAttentionItems(snapshot).map((item) => item.id)).toEqual([

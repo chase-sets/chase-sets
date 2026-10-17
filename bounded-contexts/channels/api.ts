@@ -1,13 +1,15 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelsServices } from "./support/runtime-support/services";
-import { channelConnectionRoutes } from "./features/connections/api/route";
+import { channelConnectionRoutes, type ChannelConnectionRouteOptions } from "./features/connections/api/route";
 import { createOutboundOperationRoutes } from "./features/outbound-sync/api/route";
 import { channelListingCompositionRoutes } from "./features/listing-composition/api/route";
 import { createManualSyncRoutes } from "./features/manual-sync/api/route";
 import type { ManualSyncServices } from "./features/manual-sync/api/runtime";
 import { createConnectionAttentionRoutes } from "./features/connection-attention/api/route";
 import { createChannelDriftRoutes } from "./features/reconciliation/api/route";
+import { createSellerConnectorRoutes } from "./features/connector-feed/api/routes";
+import type { ConnectorIdentity, ConnectorAuditReason } from "./features/connector-feed/domain/contracts";
 
 export type ChannelsActor = Readonly<{
   accountId: string;
@@ -18,6 +20,9 @@ export type ChannelsApiEnv = {
   Variables: {
     actor: ChannelsActor;
     context: EventStoreContext;
+    connectorIdentity: ConnectorIdentity | null;
+    connectorReason: ConnectorAuditReason;
+    connectorOutcome: "accepted" | "refused" | null;
   };
 };
 
@@ -26,6 +31,7 @@ export function buildChannelsApi(
     Readonly<{
       manualSync?: ManualSyncServices;
     }>,
+  options: ChannelConnectionRouteOptions = {},
 ) {
   const app = new Hono<ChannelsApiEnv>();
 
@@ -39,9 +45,10 @@ export function buildChannelsApi(
     await next();
   });
 
-  app.route("/connections", channelConnectionRoutes(services.connections));
+  app.route("/connections", channelConnectionRoutes(services.connections, options));
   app.route("/connections", createConnectionAttentionRoutes(services.connectionAttention));
   app.route("/connections", createChannelDriftRoutes(services.reconciliation));
+  app.route("/connections", createSellerConnectorRoutes(services.connectorFeed));
   app.route("/connections", createOutboundOperationRoutes(services.connections, services.outboundSync));
   app.route("/publication", channelListingCompositionRoutes(services.listingComposition));
   if (services.manualSync) app.route("/connections", createManualSyncRoutes(services.manualSync));

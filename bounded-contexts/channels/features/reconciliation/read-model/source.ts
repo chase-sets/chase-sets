@@ -28,15 +28,23 @@ export function observedMaterialFingerprint(row: ChannelInventorySnapshotRow): s
 export function indexClaimedMaterial(
   connectionId: string,
   source: ClaimedChannelStateRead,
+  maxListings: number,
 ): ClaimedMaterialIndex | null {
+  const authority = source.sourceAuthority;
+  if (authority.kind !== "complete" && authority.kind !== "present-rows") return null;
+  const localRowTotal = authority.kind === "complete" ? authority.authorityTotal : authority.snapshotRowTotal;
   if (
-    source.sourceAuthority.kind !== "complete" ||
+    !Number.isSafeInteger(maxListings) ||
+    maxListings < 1 ||
+    source.rows.length > maxListings ||
+    source.appliedChannelListingIds.length > maxListings ||
     source.freshness !== "current" ||
+    !connectionId ||
     !source.snapshotId ||
-    !Number.isSafeInteger(source.sourceAuthority.authorityTotal) ||
-    source.sourceAuthority.authorityTotal < 0 ||
-    source.sourceAuthority.collectedCount !== source.sourceAuthority.authorityTotal ||
-    source.rows.length !== source.sourceAuthority.authorityTotal ||
+    !Number.isSafeInteger(localRowTotal) ||
+    localRowTotal < 0 ||
+    authority.collectedCount !== localRowTotal ||
+    source.rows.length !== localRowTotal ||
     source.rows.some(
       (row) =>
         row.connectionId !== connectionId ||
@@ -70,16 +78,20 @@ export function indexClaimedMaterial(
     );
   }
   return {
-    sourceAuthority: source.sourceAuthority,
+    sourceAuthority: authority,
     items,
     appliedChannelListingIds: new Set(source.appliedChannelListingIds),
+    appliedMaterialIdentities: source.appliedMaterialIdentities
+      ? new Map(source.appliedMaterialIdentities.map((member) => [member.channelListingId, member.materialIdentity]))
+      : null,
   };
 }
 
-type ClaimedMaterialIndex = Readonly<{
-  sourceAuthority: ClaimedChannelStateRead["sourceAuthority"];
+export type ClaimedMaterialIndex = Readonly<{
+  sourceAuthority: Extract<ClaimedChannelStateRead["sourceAuthority"], { kind: "complete" | "present-rows" }>;
   items: ReadonlyMap<string, ChannelObservedMaterial | null>;
   appliedChannelListingIds: ReadonlySet<string>;
+  appliedMaterialIdentities: ReadonlyMap<string, string> | null;
 }>;
 
 export function resolveClaimedMaterial(
@@ -101,10 +113,15 @@ export function resolveClaimedMaterial(
     listing.externalOfferId !== null
   )
     return unavailable;
+  if (
+    source.appliedMaterialIdentities &&
+    source.appliedMaterialIdentities.get(listing.channelListingId) !== listing.externalListingId
+  )
+    return unavailable;
   const observed = source.items.get(listing.externalListingId);
-  if (observed === null) return unavailable;
+  if (!observed) return unavailable;
   return {
-    observed: observed ?? { present: false },
+    observed,
     sourceAuthority: source.sourceAuthority,
     expectedMaterialIdentity: listing.externalListingId,
   };
@@ -168,7 +185,7 @@ export async function readExpectedReconciliationListings(
   input: Readonly<{ connectionId: string; limit: number; channelListingId?: string }>,
 ): Promise<Readonly<{ items: readonly ReconciliationExpectedListing[]; bounded: boolean }>> {
   const result = await db.query<Record<string, unknown>>(
-    `SELECT link.connection_id,listing.account_id,link.channel_listing_id,link.listing_id,
+    `SELECT link.connection_id,listing.account_id,connection.account_id AS connection_account_id,link.channel_listing_id,link.listing_id,
             link.external_listing_id,link.external_offer_id,link.last_desired_listing_revision,
             link.last_desired_state_sequence,link.last_desired_state_hash,link.last_desired_intent,
             link.last_desired_payload,link.last_pushed_listing_revision,
@@ -176,22 +193,24 @@ export async function readExpectedReconciliationListings(
             event.payload AS source_event_payload
      FROM channels_channel_listing_links AS link
      JOIN channel_connections AS connection ON connection.connection_id=link.connection_id
-     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=link.listing_id
+     LEFT JOIN channels_listing_publication_facts AS listing ON listing.listing_id=link.listing_id
      LEFT JOIN event_store_events AS event
        ON event.stream_id=('channels.channel-listing-' || link.channel_listing_id)
       AND event.stream_version=link.last_desired_state_sequence
       AND event.event_type='channels.channel-listing.desired-state-changed'
-     WHERE link.connection_id=$1 AND listing.account_id=connection.account_id
+     WHERE link.connection_id=$1
        AND ($3::text IS NULL OR link.channel_listing_id=$3)
        AND link.last_desired_state_sequence IS NOT NULL
-       AND link.last_desired_listing_revision IS NOT NULL AND link.last_desired_state_hash IS NOT NULL
-       AND link.last_desired_payload IS NOT NULL
        AND NOT (link.last_desired_intent='delist' AND link.publish_state='delisted')
      ORDER BY link.channel_listing_id LIMIT $2`,
     [input.connectionId, input.limit + 1, input.channelListingId ?? null],
   );
   const bounded = result.rows.length > input.limit;
-  return { items: result.rows.slice(0, input.limit).map(mapExpectedListing), bounded };
+  try {
+    return { items: result.rows.slice(0, input.limit).map(mapExpectedListing), bounded };
+  } catch {
+    return { items: [], bounded: true };
+  }
 }
 
 export async function listDueReconciliationConnectionIds(
@@ -210,6 +229,8 @@ export async function listDueReconciliationConnectionIds(
 }
 
 function mapExpectedListing(row: Record<string, unknown>): ReconciliationExpectedListing {
+  if (row.account_id !== row.connection_account_id || row.last_desired_payload === null)
+    throw new Error("Channel Reconciliation expected material is unavailable.");
   const payload = asRecord(row.source_event_payload);
   const intent = requiredText(row.last_desired_intent);
   const listingRevision = positive(row.last_desired_listing_revision);

@@ -28,6 +28,10 @@ const terraformPatterns = [/^infrastructure\/digitalocean\//];
 const planOnlyTerraformPatterns = [/^infrastructure\/digitalocean\/doks\//];
 const helmPatterns = [/^infrastructure\/helm\//];
 const dockerPatterns = [/^Dockerfile$/, /^\.dockerignore$/, /^deployables\/[^/]+\/Dockerfile$/];
+const imageAssetPatterns = [
+  /^scripts\/discovery-search-identity-terms-populate\.mjs$/,
+  /^scripts\/typescript-resolver-caller-manifests\/discovery-search-identity-terms-populate\.manifest$/,
+];
 const rootRuntimePatterns = [
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
@@ -105,7 +109,7 @@ const exposurePosturePatterns = {
     /^scripts\/marketplace-transactional-email/,
     /^docs\/runbooks\/email-operations\.md$/,
   ],
-  "ucp-signed-write": [/ucp/i, /ap2/i, /^docs\/adr\/0002-adopt-ucp-for-agent-commerce\.md$/],
+  "ucp-signed-write": [/ucp/i, /^docs\/adr\/0002-adopt-ucp-for-agent-commerce\.md$/],
   "rollout-policy": [/^scripts\/release-lock/, /^docs\/runbooks\/release-process-evolution\.md$/],
 };
 
@@ -233,6 +237,7 @@ export function classifyChanges({
   let previewDeployTerraformChanged = false;
   let helmChanged = false;
   let dockerChanged = false;
+  let imageAssetChanged = false;
   let rootRuntimeChanged = false;
   let rootTestTypecheckChanged = false;
   let rootTestConfigChanged = false;
@@ -248,6 +253,9 @@ export function classifyChanges({
   let nonDocumentationChanged = false;
   const platformApiWorkspace = platformApiWorkspaceName(workspaces);
   const platformRuntimeWorkspace = platformRuntimeWorkspaceName(workspaces);
+  const publicPresenceWorkspace = workspaces.find(
+    (workspace) => workspace.root === "bounded-contexts" && workspace.dirName === "public-presence",
+  )?.name;
 
   for (const filePath of normalizedFiles) {
     for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
@@ -311,6 +319,7 @@ export function classifyChanges({
     previewDeployTerraformChanged ||= terraformFileChanged && !matchesAny(filePath, planOnlyTerraformPatterns);
     helmChanged ||= matchesAny(filePath, helmPatterns);
     dockerChanged ||= matchesAny(filePath, dockerPatterns);
+    imageAssetChanged ||= matchesAny(filePath, imageAssetPatterns);
     rootRuntimeChanged ||= matchesAny(filePath, rootRuntimePatterns);
     rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
     rootTestConfigChanged ||= matchesAny(filePath, rootTestConfigPatterns);
@@ -358,15 +367,12 @@ export function classifyChanges({
     ...directlyTestOnlyAffectedWorkspaces,
     ...(schedulerOwnedArtifactChanged ? workspaces.map((workspace) => workspace.name) : []),
   ]);
-  const affectedWorkspaces = workspaces
-    .map((workspace) => workspace.name)
-    .filter((workspaceName) => affectedWorkspaceSet.has(workspaceName));
   const runtimeAffectedWorkspaces = workspaces
     .map((workspace) => workspace.name)
     .filter((workspaceName) => runtimeAffectedWorkspaceSet.has(workspaceName));
 
   const runtimeChanged = runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged;
-  const dockerImageRequired = runtimeChanged || dockerChanged;
+  const dockerImageRequired = runtimeChanged || dockerChanged || imageAssetChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
   const deployRequired = dockerImageRequired || deploymentScriptChanged || previewDeployTerraformChanged || helmChanged;
   // Cluster-preview scoping: narrower than `deployRequired` above.
@@ -413,7 +419,6 @@ export function classifyChanges({
       .some((relativeFilePath) => testDbScripts.some((script) => script.includes(relativeFilePath)));
   }
 
-  const unitTestsRequired = affectedWorkspaces.length > 0;
   // A scheduler-owned artifact is the process that selects, orders, times, and
   // bounds every DB execution unit, so a change to one must run those units.
   // The fan-out above already unions every workspace into `affectedWorkspaceSet`
@@ -422,7 +427,7 @@ export function classifyChanges({
   // DB-capability rule so it can never require a job with nothing to run.
   const schedulerOwnedChangeRequiresDbTests =
     schedulerOwnedArtifactChanged &&
-    affectedWorkspaces.some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
+    [...affectedWorkspaceSet].some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
   const dbTestsRequired =
     normalizedFiles.includes(".github/workflows/platform-pr.yml") ||
     [...runtimeAffectedWorkspaceSet, ...devDependencyTestAffectedWorkspaceSet].some((workspaceName) => {
@@ -431,6 +436,21 @@ export function classifyChanges({
     }) ||
     [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange) ||
     schedulerOwnedChangeRequiresDbTests;
+  // Public Presence source-authority tests read cited line spans and partition
+  // tracked source across the whole repository, so no path vocabulary can name
+  // every file they read: any nonempty diff enrolls them test-only. Enrolling
+  // after every capability decision above keeps it from adding any, and no
+  // foreign path is recorded as a Public Presence test file. An empty list is
+  // how both DB-profile runners sweep every DB workspace, so enrollment never
+  // narrows that sweep to this one workspace.
+  if (publicPresenceWorkspace && normalizedFiles.length > 0 && !(dbTestsRequired && affectedWorkspaceSet.size === 0)) {
+    directlyTestOnlyAffectedWorkspaces.add(publicPresenceWorkspace);
+    affectedWorkspaceSet.add(publicPresenceWorkspace);
+  }
+  const affectedWorkspaces = workspaces
+    .map((workspace) => workspace.name)
+    .filter((workspaceName) => affectedWorkspaceSet.has(workspaceName));
+  const unitTestsRequired = affectedWorkspaces.length > 0;
   return {
     changedFiles: normalizedFiles,
     affectedWorkspaces,

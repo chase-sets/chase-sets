@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withOperatorSessionBackend } from "../api/operation";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 function connection() {
   const query = vi.fn<PgPoolClient["query"]>().mockResolvedValue({ rows: [{ locked: true, unlocked: true }] });
   const release = vi.fn<PgPoolClient["release"]>();
@@ -17,6 +20,36 @@ function connection() {
   return { client, pool, query, release, connect };
 }
 describe("operation-local physical backend ownership", () => {
+  it.each(["22P02", "23505", "synthetic-secret-code", undefined])(
+    "logs only a bounded SQLSTATE for a poisoned query (%s)",
+    async (code) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const c = connection();
+      c.query.mockResolvedValueOnce({ rows: [{ locked: true }] }).mockRejectedValueOnce(
+        Object.assign(new Error("synthetic-sensitive-cookie"), {
+          code,
+          detail: "synthetic-token-hash",
+          query: "SELECT synthetic-secret-value",
+        }),
+      );
+      await expect(
+        withOperatorSessionBackend(c.pool, async (pool) => {
+          await expect(pool.query("synthetic-secret SQL", ["synthetic-session"])).rejects.toMatchObject({
+            code: "custody-unavailable",
+          });
+          await expect(pool.query("retry")).rejects.toMatchObject({ code: "custody-unavailable" });
+        }),
+      ).rejects.toMatchObject({ code: "custody-unavailable", status: 503 });
+      expect(warn.mock.calls).toEqual([
+        [
+          JSON.stringify({
+            operation: "operator-session.query",
+            sqlstate: code === "22P02" || code === "23505" ? code : "unknown",
+          }),
+        ],
+      ]);
+    },
+  );
   it("one checkout holds the lock across sequential transactions; inner releases retain the session", async () => {
     const c = connection();
     await withOperatorSessionBackend(c.pool, async (pool) => {

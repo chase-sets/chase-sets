@@ -8,11 +8,8 @@ import { createDiscoveryMarketRuntime, type DiscoveryMarketServices } from "../m
 import {
   createDiscoveryItemSearchRuntime,
   type DiscoveryItemSearchServices,
-  type DiscoverySearchQuerySignal,
+  type DiscoverySearchRetrievalOptions,
 } from "../../features/search/api/runtime";
-import type { QueryEmbeddingCache } from "../../features/search/domain/query-embedding-cache";
-import type { DiscoveryEmbeddingProvider } from "../../features/search/integrations/voyage-embedding-provider";
-import type { DiscoveryRetrievalMode } from "../../features/search/read-model/hybrid-retrieval";
 
 export type DiscoveryItemsServices = Readonly<{
   market: DiscoveryMarketServices;
@@ -23,13 +20,7 @@ export type DiscoveryItemsServices = Readonly<{
 
 export function createDiscoveryItemRuntime(
   deps: DiscoveryRuntimeDeps,
-  searchRetrieval: Readonly<{
-    provider?: DiscoveryEmbeddingProvider;
-    cache?: QueryEmbeddingCache;
-    rescueEnabled?: boolean;
-    hybridEnabled?: boolean;
-    recordSearchQuery?: (signal: DiscoverySearchQuerySignal) => void;
-  }> = {},
+  searchRetrieval: DiscoverySearchRetrievalOptions = {},
 ): DiscoveryItemsServices {
   const market = createDiscoveryMarketRuntime(deps);
   const search = createDiscoveryItemSearchRuntime(deps, searchRetrieval);

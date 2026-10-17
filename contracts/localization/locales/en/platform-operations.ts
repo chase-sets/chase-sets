@@ -1,4 +1,10 @@
 export const platformOperationsEnglishTranslations = {
+  "support.participantAttempt.checkBeforeRetry": "Check status before retrying this support action.",
+  "support.participantAttempt.ambiguous":
+    "We could not confirm whether your support action completed. Do not submit it again yet.",
+  "support.participantAttempt.checkStatus": "Check status",
+  "support.participantAttempt.accountChanged": "Support account changed. Reload before submitting.",
+  "support.participantAttempt.statusUnavailable": "Support status could not be checked. Reload before submitting.",
   "platformOperations.providerConnections.title": "Provider connections",
   "platformOperations.providerConnections.metaTitle": "Provider Connections | Chase Sets Admin",
   "platformOperations.providerConnections.description":
@@ -154,7 +160,9 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.opsDashboard.verifiedTradeCount": "Verified trades",
   "platformOperations.projectionOperations.actions": "Actions",
   "platformOperations.projectionOperations.activeWorkers": "Active workers",
-  "platformOperations.projectionOperations.activeWorkerSummary": "{active} / {stale} stale",
+  "platformOperations.projectionOperations.activeWorkerSummary": "{active} active · {stale} stale",
+  "platformOperations.projectionOperations.expiredHeartbeatHistory":
+    "{count} expired heartbeats in the last 7 days: no action needed",
   "platformOperations.projectionOperations.all": "all",
   "platformOperations.projectionOperations.allContexts": "All contexts",
   "platformOperations.projectionOperations.allProjections": "All projections",
@@ -280,6 +288,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.recentOperationsDescription":
     "Open an operation to follow live progress or request cancellation at the next safe boundary.",
   "platformOperations.projectionOperations.reference": "Settings and reference",
+  "platformOperations.projectionOperations.groupReference": "View group in reference",
   "platformOperations.projectionOperations.referenceDescription":
     "Read-only projection groups, subscription wiring, worker state, diagnostics, and push-wake operational references.",
   "platformOperations.projectionOperations.referenceMetaTitle": "Projection Settings and Reference | Chase Sets Admin",

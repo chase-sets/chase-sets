@@ -11,12 +11,15 @@ import { createPriceSignalRuntime } from "../../features/price-signals/api/runti
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
 import { createMarketEstimatesRuntime } from "../../features/market-estimates/api/runtime";
+import { createDemandCurveCloser } from "../../features/market-estimates/api/demand-curve-closer";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
 import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
 import { createRepricingActivityDigestRunner } from "../../features/repricing-engine/api/activity-digest";
+import { createForecastLedgerRuntime } from "../../features/forecast-ledger/api/runtime";
+import { pricingGoalDefinitions } from "../../features/repricing-policies/domain/domain";
 import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { ChannelConnectionIdentityReader } from "../../features/economics/domain/contracts";
 import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
@@ -35,9 +38,11 @@ export type PricingServices = Readonly<{
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
+  demandCurves: ReturnType<typeof createDemandCurveCloser>;
   repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> &
     ReturnType<typeof createRepricingPolicyActivationServices>;
   repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
+  forecastLedger: ReturnType<typeof createForecastLedgerRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**
    * The shared platform-policy runtime, mounted for this context's
@@ -89,8 +94,15 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   });
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
   const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
-  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool });
+  const demandCurves = createDemandCurveCloser({ pool, eventStore, policies });
+  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool, economics });
   const runRepricingActivityDigest = createRepricingActivityDigestRunner({ pool, eventStore, policies });
+  const forecastLedger = createForecastLedgerRuntime({
+    pool,
+    eventStore,
+    policies,
+    goalDefinitions: pricingGoalDefinitions,
+  });
   /**
    * The Market-Value Estimate recompute RIDES the market-rollups closer job
    * (the m112 blended-estimate slice): platform-worker already schedules
@@ -107,13 +119,15 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     runDailyRollupCloser: async (params) => {
       const result = await marketRollupsBase.runDailyRollupCloser(params);
       await marketEstimates.runMarketPriceEstimateCloser({ now: params?.now, limit: params?.limit });
+      await demandCurves.runDemandCurveCloser({ now: params?.now, limit: params?.limit });
       await repricingEngine.enqueueDailyDriftSweep({ now: params?.now, limit: params?.limit });
       await runRepricingActivityDigest({ now: params?.now });
+      await forecastLedger.runForecastGrading({ now: params?.now });
       return result;
     },
   };
   const repricingPolicies = {
-    ...createRepricingPolicyRuntime({ eventStore, db }),
+    ...createRepricingPolicyRuntime({ eventStore, db, goalAdoptions: () => forecastLedger.listGoalAdoptions() }),
     ...createRepricingPolicyActivationServices({ eventStore, pool }),
   };
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
@@ -124,8 +138,10 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     recommendations,
     marketRollups,
     marketEstimates,
+    demandCurves,
     repricingPolicies,
     repricingEngine,
+    forecastLedger,
     publicMarketPages,
     policies,
     bulkRepriceIngestion,
@@ -138,6 +154,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
       ...repricingEngine.projectors,
       ...economics.overrides.projectors,
       ...policies.projectors,
+      ...forecastLedger.projectors,
     ],
     pool,
     db,

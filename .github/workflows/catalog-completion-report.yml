@@ -1,0 +1,184 @@
+name: Catalog Completion Report
+
+# Generates the Production Catalog Completion Report (#9221) from a deployed
+# environment's Catalog database. The report reads every fact in one
+# read-only repeatable-read transaction through the Catalog context URL only;
+# it never writes and never calls a provider. With a frozen manifest artifact
+# the report can prove completion; without one the universe comes from the
+# batch plan and the report carries `completionProof: false`.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployed environment whose Catalog database is read.
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      batch_id:
+        description: Scope Sync Batch id to report on.
+        required: true
+        type: string
+      manifest_run_id:
+        description: Optional workflow run id that uploaded the frozen manifest artifact.
+        required: false
+        default: ""
+        type: string
+      manifest_artifact:
+        description: Optional artifact name holding catalog-completion-manifest.json; requires manifest_run_id.
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: catalog-completion-report-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  completion-report:
+    name: Generate Catalog Completion Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TARGET_ENVIRONMENT: ${{ inputs.environment }}
+      BATCH_ID: ${{ inputs.batch_id }}
+      MANIFEST_RUN_ID: ${{ inputs.manifest_run_id }}
+      MANIFEST_ARTIFACT: ${{ inputs.manifest_artifact }}
+      REPORT_DIR: artifacts/catalog-completion-report
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - name: Validate report inputs
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$BATCH_ID" | grep -Eq '^[A-Za-z0-9_-]{1,128}$'; then
+            echo "batch-id-invalid: batch_id must be a Scope Sync Batch id." >&2
+            exit 1
+          fi
+          if [ -n "$MANIFEST_ARTIFACT" ] && ! printf '%s' "$MANIFEST_RUN_ID" | grep -Eq '^[0-9]{1,20}$'; then
+            echo "manifest-run-id-invalid: manifest_artifact requires a numeric manifest_run_id." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Download frozen manifest artifact
+        if: ${{ inputs.manifest_artifact != '' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.manifest_artifact }}
+          path: artifacts/catalog-completion-manifest
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.manifest_run_id }}
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Export catalog database URL and TLS trust
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          environment: ${{ env.TARGET_ENVIRONMENT }}
+          contexts: catalog
+          connection-mode: direct
+
+      - name: Require catalog database authority
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL_CATALOG:-}" ]; then
+            echo "catalog-database-url-missing: the Catalog context URL was not exported." >&2
+            exit 1
+          fi
+          if [ -z "${PGSSLROOTCERT:-}" ] || [ ! -s "$PGSSLROOTCERT" ]; then
+            echo "managed-postgres-ca-missing: the managed Postgres CA was not exported." >&2
+            exit 1
+          fi
+
+      - name: Generate catalog completion report
+        id: report
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          manifest_args=()
+          if [ -n "$MANIFEST_ARTIFACT" ]; then
+            manifest_path="artifacts/catalog-completion-manifest/catalog-completion-manifest.json"
+            if [ ! -f "$manifest_path" ]; then
+              echo "manifest-artifact-missing: the artifact holds no catalog-completion-manifest.json." >&2
+              exit 1
+            fi
+            manifest_args=(--manifest "$manifest_path")
+          fi
+          set +e
+          pnpm run ops catalog:production-completion-report -- \
+            --facts database \
+            --batch-id "$BATCH_ID" \
+            --environment "$TARGET_ENVIRONMENT" \
+            "${manifest_args[@]}" \
+            --out "$REPORT_DIR/catalog-completion-report.json"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "result=complete" >> "$GITHUB_OUTPUT"
+          elif [ "$status" -eq 2 ]; then
+            echo "result=blocked" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+            exit "$status"
+          fi
+
+      - name: Remove managed Postgres CA
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PGSSLROOTCERT:-}" ]; then
+            rm -f -- "$PGSSLROOTCERT"
+          fi
+
+      - name: Summarize catalog completion report
+        if: ${{ always() && steps.report.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          record="$REPORT_DIR/catalog-completion-report.json"
+          if [ ! -f "$record" ]; then
+            echo "No catalog completion report was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node - "$record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## Catalog Completion Report");
+          console.log("");
+          console.log(`- Environment: ${record.environment}`);
+          console.log(`- Batch: ${record.report.batch.batchId}`);
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Completion proof: ${record.completionProof ? "yes" : "no"}`);
+          console.log(`- Blockers: ${record.report.blockers.length}`);
+          console.log(`- Unknown facts: ${record.unknownFacts.length}`);
+          NODE
+
+      - name: Upload catalog completion report
+        if: ${{ always() && steps.report.outcome != 'skipped' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-completion-report-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-completion-report/catalog-completion-report.json
+          if-no-files-found: error
+          retention-days: 90

@@ -4,7 +4,7 @@ import {
   evaluateEvidenceCoverage,
   type MarketplaceListingEvidenceCoverage,
   type ResolvedListingEvidenceRequirements,
-} from "../../../support/request-support/marketplace-listing-evidence";
+} from "../../../support/request-support/marketplace-listing-evidence.server";
 import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 import type { SellListLineEvidenceReadiness, SellListReadinessLine } from "../domain/readiness";
 

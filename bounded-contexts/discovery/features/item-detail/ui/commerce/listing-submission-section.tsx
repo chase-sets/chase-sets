@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
+import { Form } from "../../../../support/ui-support/mutation-form";
 import { useEffect, useState, type ReactNode } from "react";
 import {
   HiddenInput,
-  Form,
   Button,
   CurrencyInput,
   FormPanel,
@@ -32,7 +32,7 @@ export function ListingStockShipFromSetupSection({
 }) {
   return (
     <FormPanel variant="card">
-      <Form spacing="none" id={formId} method="post">
+      <Form family="location-create" targetId="draft" spacing="none" id={formId} method="post">
         <Stack gap={3}>
           <HiddenInput type="hidden" name="intent" value="create-listing-stock-location" />
           <Stack gap={1}>
@@ -140,6 +140,9 @@ export function MarketplaceListingSubmissionSection({
 
   const form = (
     <Form
+      family="listing-stock-ensure"
+      targetId="listing-stock"
+      enabled={!listing && !allowDraftWithoutShipFromSetup}
       spacing="none"
       id={formId}
       method="post"

@@ -1,7 +1,9 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ADMIN_QA_ACTOR_FIXTURES } from "@chase-sets/identity/server";
 import {
   assertAdminQaActorFixturesRunAllowed,
   assertAdminQaActorFixturesEvidenceIsSupportSafe,
@@ -83,6 +85,33 @@ describe("admin-qa actor fixtures run guardrails", () => {
   });
 });
 
+describe("admin-qa actor fixtures Capability Grant boundary", () => {
+  it("provisions and reports no any-case Capability Grant from the platform-api fixture runner", () => {
+    const sourceRoot = join(import.meta.dirname, "..", "src");
+    const assignmentCallers = listSources(sourceRoot).filter((file) =>
+      /\b(grant|revoke)AccountCapability\b|accountCapabilities\.(?!initializeAdministrationAuthority\b)/.test(
+        readFileSync(file, "utf8"),
+      ),
+    );
+
+    expect(assignmentCallers).toEqual([]);
+    expect(ADMIN_QA_ACTOR_FIXTURES.flatMap(({ capabilities }) => capabilities)).not.toContain(
+      "support.evidence.any-case",
+    );
+    expect(supportSafeEvidence().fixtures.flatMap(({ capabilities }) => capabilities)).not.toContain(
+      "support.evidence.any-case",
+    );
+  });
+});
+
+function listSources(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = join(directory, entry.name);
+    if (entry.isDirectory()) return listSources(entryPath);
+    return /\.(ts|tsx)$/.test(entry.name) ? [entryPath] : [];
+  });
+}
+
 describe("admin-qa actor fixtures evidence artifact", () => {
   it("writes the support-safe evidence payload", async () => {
     const dir = await mkdtemp(join(tmpdir(), "admin-qa-actor-fixtures-"));
@@ -115,7 +144,6 @@ describe("admin-qa actor fixtures evidence artifact", () => {
             createdAccount: true,
             createdUser: true,
             createdMembership: true,
-            createdConsent: true,
             // @ts-expect-error intentionally injecting a leak for the test
             leakedAccountId: "acc_admin_qa_owner",
           },
@@ -149,7 +177,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-owner",
@@ -159,7 +186,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-manager",
@@ -169,7 +195,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-fulfillment",
@@ -179,7 +204,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-viewer",
@@ -189,7 +213,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-catalog-admin",
@@ -199,7 +222,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
     ],
     requiredActorMatrixSize: 6,

@@ -1,6 +1,9 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { createVitest, parseCLI } from "vitest/node";
+import { derivePlatformApiDbTestCensus } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
   DB_TEST_SCRIPT_SELECTOR,
@@ -45,7 +48,7 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-async function captureDbRun({ workspaces, registry, run = async () => {}, now = () => 0, argv = [] }) {
+async function captureDbRun({ workspaces, registry, run = async () => {}, now = () => 0, argv = [], readDbBaseline }) {
   const invocations = [];
   const appended = [];
   const output = await captureConsole(() =>
@@ -58,6 +61,7 @@ async function captureDbRun({ workspaces, registry, run = async () => {}, now = 
       env: { GITHUB_STEP_SUMMARY: "summary.md" },
       appendSummary: (...args) => appended.push(args),
       now,
+      readDbBaseline,
       run: async (_command, args, options) => {
         invocations.push(args);
         await run(args, options);
@@ -71,6 +75,82 @@ async function captureDbRun({ workspaces, registry, run = async () => {}, now = 
   expect(appended).toHaveLength(1);
   return { ...output, summary, appended, invocations };
 }
+
+describe("DB duration drift annotation", () => {
+  it("DB drift annotation never changes exit status", async () => {
+    const name = "@chase-sets/synthetic-db";
+    const other = "@chase-sets/new-db";
+    const empty = { schemaVersion: "db-duration-baseline/v1", recomputes: [] };
+    const baseline = {
+      ...empty,
+      recomputes: [
+        {
+          recomputedAt: "2026-10-05T00:00:00Z",
+          sampleJobIds: Array.from({ length: 20 }, (_, i) => i + 1),
+          workspaces: { [name]: 240000 },
+          jobWallMs: 240000,
+          cause: "initial (#6660 split)",
+        },
+      ],
+    };
+    for (const failure of [false, true]) {
+      for (const mode of ["empty", "valid", "unreadable", "malformed"]) {
+        for (const elapsed of [299999, 300000, 300001]) {
+          let clock = 0;
+          const result = await captureDbRun({
+            workspaces: [
+              workspace(name, { "test:db": "vitest" }, "db"),
+              workspace(other, { "test:db": "vitest" }, "db"),
+            ],
+            registry: durationRegistry([durationEntry(name, "test:db", 240)]),
+            now: () => clock,
+            readDbBaseline: () => {
+              if (mode === "unreadable") throw new Error("EACCES");
+              return mode === "valid" ? baseline : mode === "empty" ? empty : {};
+            },
+            run: async () => {
+              clock += elapsed;
+              if (failure) throw new Error("original failure");
+            },
+          });
+          expect(result.result instanceof Error).toBe(failure);
+          if (failure) expect(result.result.message).toContain("workspace script run(s) failed");
+          const warnings = result.stdout.filter((line) => line.startsWith("::warning title=DB duration drift::"));
+          expect(warnings).toEqual(
+            mode === "valid" && elapsed > 300000
+              ? [
+                  `::warning title=DB duration drift::${name} test:db 300001 ms > drift bound 300000 ms (ratified 240000 ms)`,
+                ]
+              : [],
+          );
+          const unbaselined = result.stdout.filter((line) => line.includes("unbaselined:"));
+          expect(unbaselined).toEqual(
+            mode === "empty"
+              ? [`DB duration drift: unbaselined: ${other}, ${name}`]
+              : mode === "valid"
+                ? [`DB duration drift: unbaselined: ${other}`]
+                : [],
+          );
+          if (["unreadable", "malformed"].includes(mode))
+            expect(result.stderr.some((line) => line.includes("unknown baseline"))).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("does not read the DB baseline for non-DB invocations", async () => {
+    await captureConsole(() =>
+      runWorkspaceScripts({
+        argv: ["lint"],
+        listWorkspaces: () => [],
+        run: async () => {},
+        readDbBaseline: () => {
+          throw new Error("must not read");
+        },
+      }),
+    );
+  });
+});
 
 async function captureConsole(action) {
   const stdout = [];
@@ -489,8 +569,361 @@ describe("run-workspaces", () => {
 });
 
 describe("DB duration scheduling", () => {
+  it.each(
+    [
+      [],
+      ["--workspace=@chase-sets/app-platform-api"],
+      ["--workspace=@chase-sets/marketplace-seed-testing"],
+      ["--workspace=@chase-sets/not-present"],
+    ].map((scope) => [scope]),
+  )("partitions the actual eligible census without overlap or empty-to-all fallback: %j", async (scope) => {
+    const workspaces = listWorkspacePackages();
+    const registry = readJson("scripts/workspace-test-duration-hints-v1.json");
+    const run = (group) =>
+      captureDbRun({
+        workspaces,
+        registry,
+        argv: ["--concurrency=2", ...scope, ...(group ? [`--db-workspace-group=${group}`] : [])],
+      });
+    const whole = await run();
+    const api = await run("api");
+    const other = await run("other");
+    const calls = (output) => output.invocations.map((args) => `${args[1]} ${args[3]}`).sort();
+    expect([...calls(api), ...calls(other)].sort()).toEqual(calls(whole));
+    expect(api.invocations.every((args) => args[1] === "@chase-sets/app-platform-api")).toBe(true);
+    expect(other.invocations.every((args) => args[1] !== "@chase-sets/app-platform-api")).toBe(true);
+    expect(api.summary.eligibleCount + other.summary.eligibleCount).toBe(whole.summary.eligibleCount);
+    expect(api.result).toBeUndefined();
+    expect(other.result).toBeUndefined();
+  });
+
+  it("intersects grouping after profile eligibility", async () => {
+    const calls = [];
+    await runWorkspaceScripts({
+      argv: ["test:db*", "--db-workspace-group=api", "--exclude-test-profile=db"],
+      listWorkspaces: () => [workspace("@chase-sets/app-platform-api", { "test:db": "db" }, "db")],
+      loadEnvironment: () => {},
+      run: async (...args) => calls.push(args),
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it.each(["api", "other"])(
+    "preserves serial partitions, deadlines, failures and future enrollment in %s",
+    async (group) => {
+      const api = workspace("@chase-sets/app-platform-api", { "test:db:1": "one", "test:db:2": "two" }, "db");
+      const future = workspace("@chase-sets/future-db", { "test:db:1": "one", "test:db:2": "two" }, "db");
+      const registered = workspace("@chase-sets/registered-db", { "test:db": "db" }, "db");
+      let active = 0;
+      let peak = 0;
+      const output = await captureDbRun({
+        workspaces: [api, future, registered],
+        registry: durationRegistry([durationEntry(registered.name, "test:db", 1)]),
+        argv: ["--concurrency=2", `--db-workspace-group=${group}`],
+        run: async (args, options) => {
+          expect(options.timeoutMs).toBe(600_000);
+          peak = Math.max(peak, ++active);
+          await delay(0);
+          active--;
+          if (args[3] === "test:db:2") throw new Error("synthetic second-unit failure");
+        },
+      });
+      expect(peak).toBe(group === "api" ? 1 : 2);
+      expect(output.result).toBeInstanceOf(Error);
+      expect(output.summary.failedCount).toBe(1);
+      const walls = output.stdout
+        .filter((line) => line.startsWith("RUN_WORKSPACES_COMMAND_END "))
+        .map((line) => JSON.parse(line.slice("RUN_WORKSPACES_COMMAND_END ".length)));
+      if (group === "api") {
+        expect(walls.map((wall) => [wall.script, wall.outcome])).toEqual([
+          ["test:db:1", "passed"],
+          ["test:db:2", "failed"],
+        ]);
+        expect(
+          walls.every(
+            (wall) =>
+              Number.isSafeInteger(wall.elapsedMs) &&
+              wall.elapsedMs >= 0 &&
+              Date.parse(wall.completedAt) >= Date.parse(wall.startedAt),
+          ),
+        ).toBe(true);
+      } else expect(walls).toEqual([]);
+      expect(
+        output.invocations
+          .filter((args) => args[1] === (group === "api" ? api.name : future.name))
+          .map((args) => args[3]),
+      ).toEqual(["test:db:1", "test:db:2"]);
+    },
+  );
+
+  it.each([
+    ["test", "--db-workspace-group=api"],
+    ["test:db", "--db-workspace-group=api"],
+    ["test:db:1", "--db-workspace-group=other"],
+    ["test:db*", "--db-workspace-group=unknown"],
+    ["test:db*", "--db-workspace-group"],
+    ["test:db*", "--db-workspace-group="],
+    ["test:db*", "--db-workspace-group=api", "--db-workspace-group=api"],
+    ["test:db*", "--db-workspace-group=api", "--db-workspace-group=other"],
+  ])("rejects noncanonical group arguments before loading or execution: %j", async (...argv) => {
+    const unexpected = () => {
+      throw new Error("must not execute");
+    };
+    await expect(
+      runWorkspaceScripts({ argv, loadEnvironment: unexpected, listWorkspaces: unexpected, run: unexpected }),
+    ).rejects.toThrow("--db-workspace-group");
+  });
+
   const db = workspace("@chase-sets/db", { "test:db": "aggregate", "test:db:2": "two", "test:db:1": "one" }, "db");
   const registry = durationRegistry([durationEntry(db.name, "test:db", 2)]);
+
+  it.each([
+    ["API first", 927, 346, undefined, "api"],
+    ["seed first", 346, 927, undefined, "seed"],
+    ["unhinted API", undefined, 346, undefined, "api"],
+    ["unhinted seed", 927, undefined, undefined, "seed"],
+    ["both unhinted", undefined, undefined, undefined, "api"],
+    ["failed API first partition", 927, 346, "test:db:1", "api"],
+    ["failed API second partition", 927, 346, "test:db:2", "api"],
+    ["failed seed", 346, 927, "test:db", "seed"],
+  ])(
+    "excludes seed/API DB overlap with %s while filling unrelated slots",
+    async (_label, apiHint, seedHint, failure, firstName) => {
+      const api = workspace(
+        "@chase-sets/app-platform-api",
+        { "test:db": "aggregate", "test:db:1": "one", "test:db:2": "two" },
+        "db",
+      );
+      const seed = workspace("@chase-sets/marketplace-seed-testing", { "test:db": "seed" }, "db");
+      const peers = ["other-one", "other-two"].map((name) =>
+        workspace(`@chase-sets/${name}`, { "test:db": "db" }, "db"),
+      );
+      const first = firstName === "api" ? api : seed;
+      const held = Promise.withResolvers();
+      const peersFinished = Promise.withResolvers();
+      const active = new Set();
+      const overlaps = [];
+      const starts = [];
+      let maxActive = 0;
+      let completedPeers = 0;
+      const outputPromise = captureDbRun({
+        workspaces: [seed, ...peers, api],
+        registry: durationRegistry([
+          ...[durationEntry(api.name, "test:db", apiHint), durationEntry(seed.name, "test:db", seedHint)].filter(
+            (entry) => entry.estimatedDurationSeconds !== undefined,
+          ),
+          ...peers.map((peer) => durationEntry(peer.name, "test:db", 1)),
+        ]),
+        argv: ["--concurrency=2"],
+        run: async (args, options) => {
+          const [, name, , script] = args;
+          starts.push([name, script]);
+          active.add(name);
+          maxActive = Math.max(maxActive, active.size);
+          if (active.has(api.name) && active.has(seed.name)) overlaps.push([name, script]);
+          try {
+            expect(options.timeoutMs).toBe(600_000);
+            if (name === first.name) await held.promise;
+            if (name === first.name && script === failure) throw new Error("synthetic DB failure");
+          } finally {
+            active.delete(name);
+            if (peers.some((peer) => peer.name === name) && ++completedPeers === peers.length) peersFinished.resolve();
+          }
+        },
+      });
+      // Keep the first DB owner active after every unrelated task has drained.
+      // The idle worker must wait, then wake on either success or failure.
+      await peersFinished.promise;
+      await delay(0);
+      const startsWhileHeld = starts.slice();
+      held.resolve();
+      const output = await outputPromise;
+
+      expect(overlaps).toEqual([]);
+      expect(maxActive).toBe(2);
+      expect(startsWhileHeld.map(([name]) => name)).toEqual([first.name, ...peers.map((peer) => peer.name)]);
+      expect(output.result instanceof Error).toBe(failure !== undefined);
+      expect(output.summary).toMatchObject({ eligibleCount: 4, completedCount: 4, failedCount: failure ? 1 : 0 });
+      expect(output.summary.tasks.map((task) => task.workspace).sort()).toEqual(
+        [api, seed, ...peers].map((task) => task.name).sort(),
+      );
+      expect(starts.filter(([name]) => name === api.name).map(([, script]) => script)).toEqual(
+        failure === "test:db:1" ? ["test:db:1"] : ["test:db:1", "test:db:2"],
+      );
+      expect(starts.filter(([name]) => name === seed.name)).toEqual([[seed.name, "test:db"]]);
+      if (failure) {
+        expect(output.result.message).toBe("1 workspace script run(s) failed.");
+        expect(output.stderr.join("\n")).toContain("synthetic DB failure");
+        expect(output.summary.tasks.find((task) => task.workspace === first.name).outcome).toBe("failed");
+      }
+    },
+  );
+
+  it.each(["test:db", "test:db:1", "test:unit", "test", "build"])(
+    "limits exclusion to DB commands for exact selector %s",
+    async (script) => {
+      const active = new Set();
+      let maxActive = 0;
+      const names = ["@chase-sets/marketplace-seed-testing", "@chase-sets/app-platform-api"];
+      const invocations = [];
+      await runWorkspaceScripts({
+        argv: [script, "--concurrency=4"],
+        buildInvocation,
+        listWorkspaces: () => names.map((name) => workspace(name, { [script]: "command" }, "db")),
+        loadEnvironment: () => {},
+        run: async (_command, args) => {
+          invocations.push(args[1]);
+          active.add(args[1]);
+          maxActive = Math.max(maxActive, active.size);
+          await delay(0);
+          active.delete(args[1]);
+        },
+      });
+      expect(invocations).toEqual(names);
+      expect(maxActive).toBe(script.startsWith("test:db") ? 1 : 2);
+    },
+  );
+
+  it("retains the real DB sweep membership and invokes seed and API partitions only", async () => {
+    const workspaces = listWorkspacePackages();
+    const output = await captureDbRun({
+      workspaces,
+      registry: readJson("scripts/workspace-test-duration-hints-v1.json"),
+      argv: ["--concurrency=2"],
+    });
+    const eligible = workspaces.filter((entry) => typeof entry.packageJson.scripts?.["test:db"] === "string");
+    expect(output.result).toBeUndefined();
+    expect(output.summary.tasks.map((task) => task.workspace).sort()).toEqual(
+      eligible.map((entry) => entry.name).sort(),
+    );
+    for (const [name, scripts] of [
+      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
+    ]) {
+      expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
+    }
+  });
+
+  it("discovers every seed DB file exactly once through the commands selected by the runner", async () => {
+    const seed = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/marketplace-seed-testing");
+    const scripts = seed.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [seed],
+      registry: durationRegistry([durationEntry(seed.name, "test:db", 346)]),
+    });
+    const vitest = await createVitest("test", { root: seed.dir, config: "./tests/vitest.config.mjs", watch: false });
+    try {
+      const discover = async (command) => {
+        const args = command.split(/\s+/);
+        expect(args.slice(0, 4)).toEqual(["vitest", "run", "--config", "./tests/vitest.config.mjs"]);
+        return (await vitest.globTestSpecifications(args.slice(4))).map((spec) => spec.moduleId).sort();
+      };
+      const aggregate = await discover(scripts["test:db"]);
+      const onDisk = globSync("tests/**/*.test.ts", { cwd: seed.dir })
+        .map((file) => path.resolve(seed.dir, file).replaceAll("\\", "/"))
+        .sort();
+      expect(aggregate).toEqual(onDisk);
+      const partitions = await Promise.all(output.invocations.map((args) => discover(scripts[args[3]])));
+      const assertCompleteDisjoint = (groups) => expect(groups.flat().sort()).toEqual(aggregate);
+      assertCompleteDisjoint(partitions);
+      expect(partitions.map((files) => files.length)).toEqual([1, 3]);
+      const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
+      expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
+      expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
+    } finally {
+      await vitest.close();
+    }
+  });
+
+  it("keeps all real API DB entries in the API cell and out of unit and fast discovery", async () => {
+    const api = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/app-platform-api");
+    const scripts = api.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [api],
+      registry: durationRegistry([durationEntry(api.name, "test:db", 1)]),
+      argv: ["--db-workspace-group=api"],
+    });
+    const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
+    expect(census.violations).toEqual([]);
+    expect(census.entries).toHaveLength(58);
+    expect(census.entries).toContain("__tests__/ucp-checkout-dispatch.test.ts");
+    expect(census.dbEntries).not.toContain("__tests__/ucp-checkout-dispatch.test.ts");
+    expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
+    expect(census.dbEntries).not.toContain("__tests__/activate-agent-grant-revocation.test.ts");
+    expect(census.entries).toContain("__tests__/ucp-profile-negotiation.test.ts");
+    expect(census.dbEntries).not.toContain("__tests__/ucp-profile-negotiation.test.ts");
+    expect(census.entries).toContain("__tests__/channels-services-production-ports.test.ts");
+    expect(census.entries).toContain("__tests__/connector-transport-composition.test.ts");
+    expect(census.entries).toContain("__tests__/ebay-account-deletion-composition.test.ts");
+    expect(census.entries).toContain("__tests__/ebay-account-deletion-config.test.ts");
+    expect(census.entries).toContain("__tests__/ebay-account-deletion-staff-composition.test.ts");
+    expect(census.entries).toContain("__tests__/staging-proof-credit-environment.test.ts");
+    expect(census.dbEntries).not.toContain("__tests__/staging-proof-credit-environment.test.ts");
+    expect(census.dbEntries).toHaveLength(18);
+    expect(census.bootstrapEntries).toHaveLength(12);
+    expect(census.dbEntries).toEqual(census.suffixEntries);
+    const onDisk = census.dbEntries.map((file) => path.resolve(api.dir, file).replaceAll("\\", "/")).sort();
+    const vitest = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false });
+    try {
+      const groups = [];
+      for (const args of output.invocations) {
+        const parts = scripts[args[3]].split(" && ");
+        expect(parts[0]).toBe("node ./scripts/check-bootstrap-db-enrollment.mjs");
+        expect(parts[1]).toContain("--maxWorkers=3");
+        const { filter } = parseCLI(parts[1]);
+        groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
+      }
+      expect(groups.flat().sort()).toEqual(onDisk);
+      expect(groups.map((files) => files.length)).toEqual([3, 12, 3]);
+      expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
+      expect(groups[1]).toContain(
+        path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
+      );
+      const expectedOrdinary = census.entries
+        .filter((entry) => !census.dbEntries.includes(entry))
+        .map((entry) => path.resolve(api.dir, entry).replaceAll("\\", "/"))
+        .sort();
+      const operatorOrdinary = expectedOrdinary.filter((entry) => entry.includes("/operator-session/"));
+      expect(operatorOrdinary).toHaveLength(3);
+      for (const name of ["test:unit", "test:fast"]) {
+        const {
+          options: { exclude },
+        } = parseCLI(scripts[name]);
+        const unit = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false, exclude });
+        try {
+          const discovered = (await unit.globTestSpecifications()).map((spec) => spec.moduleId);
+          expect(discovered.length).toBeGreaterThan(0);
+          expect(discovered.filter((file) => onDisk.includes(file))).toEqual([]);
+          expect(discovered.sort()).toEqual(expectedOrdinary);
+          expect(discovered).toEqual(expect.arrayContaining(operatorOrdinary));
+        } finally {
+          await unit.close();
+        }
+        for (const missing of [
+          "__tests__/seed-command-catalog.db.test.ts",
+          "__tests__/operator-session/operator-session-push.db.test.ts",
+        ]) {
+          const leaking = await createVitest("test", {
+            root: api.dir,
+            config: "./vitest.config.ts",
+            watch: false,
+            exclude: exclude.filter((entry) => entry !== missing),
+          });
+          try {
+            const discovered = (await leaking.globTestSpecifications()).map((spec) => spec.moduleId);
+            expect(discovered.filter((file) => onDisk.includes(file))).toEqual([
+              path.resolve(api.dir, missing).replaceAll("\\", "/"),
+            ]);
+            expect(() => expect(discovered.sort()).toEqual(expectedOrdinary)).toThrow();
+          } finally {
+            await leaking.close();
+          }
+        }
+      }
+    } finally {
+      await vitest.close();
+    }
+  });
 
   it("DB selector preserves LPT order and serialized partition invocations", async () => {
     const candidates = [
@@ -684,6 +1117,7 @@ describe("DB duration scheduling", () => {
       `Running test:db in ${unhinted.name}...`,
       `Running test:db:1 in ${db.name}...`,
       `Running test:db:2 in ${db.name}...`,
+      `DB duration drift: unbaselined: ${unhinted.name}, ${db.name}`,
       `RUN_WORKSPACES_SUMMARY ${JSON.stringify(summary)}`,
     ]);
     expect(output.stderr).toEqual([
@@ -709,6 +1143,7 @@ describe("DB duration scheduling", () => {
   it("DB hints equal the named hosted sweep", () => {
     // Green merge-group run 36392844721, job 108832742783, attempt 1.
     // Each row records the immutable log line(s) and observed seconds, not lane timings.
+    // commercial-terms: Platform PR run 37353357078, job 111909665450, attempt 1, head a2be85f750267106cc7d30a595841d7c2d272702 (first DB sweep after its profile registration, #8723).
     const source = [
       ["app-platform-api", [24616, 42321], [516.11, 410.29]],
       ["app-platform-worker", [999], [30.37]],
@@ -718,6 +1153,7 @@ describe("DB duration scheduling", () => {
       ["channels", [20802], [189.07]],
       ["checkout", [22038], [26.03]],
       ["collections", [22163], [4.55]],
+      ["commercial-terms", [555], [2.32]],
       ["customer-feedback", [22385], [3.66]],
       ["discovery", [24665], [104.08]],
       ["event-core-postgres", [24688], [7.34]],
@@ -807,7 +1243,7 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(65);
+    expect(unitEntries).toHaveLength(66);
     expect(replay.observations).toHaveLength(90);
   });
 
@@ -1024,7 +1460,7 @@ describe("closed duration scheduling contracts", () => {
     expect(stdout.at(-1)).toBe(summaryLines[0]);
   });
 
-  it("DB admission leaves other invocation behavior unchanged", async () => {
+  it("DB admission preserves selection and summaries while adding DB-only telemetry", async () => {
     const cases = [
       ["build", "--concurrency=2"],
       ["test:db", "--concurrency=2"],
@@ -1069,7 +1505,12 @@ describe("closed duration scheduling contracts", () => {
       expect(stdout).toEqual(
         excluded
           ? [`No workspaces matched ${scriptName}.`]
-          : workspaces.map(({ name }) => `Running ${invokedScript} in ${name}...`),
+          : [
+              ...workspaces.map(({ name }) => `Running ${invokedScript} in ${name}...`),
+              ...(scriptName.startsWith("test:db")
+                ? ["DB duration drift: unbaselined: @test/z, @test/a, @test/m"]
+                : []),
+            ],
       );
       expect(stdout.some((line) => line.startsWith("RUN_WORKSPACES_SUMMARY "))).toBe(false);
     }
@@ -1310,7 +1751,7 @@ describe("closed duration scheduling contracts", () => {
     ]);
     expect([...phases.keys()]).toEqual([...observedPhaseBoundaries.keys()]);
     expect(fifoMs).toBe(984_200);
-    expect(lptMs).toBe(794_800);
-    expect(reduction).toBe("19.2");
+    expect(lptMs).toBe(787_400);
+    expect(reduction).toBe("20.0");
   });
 });

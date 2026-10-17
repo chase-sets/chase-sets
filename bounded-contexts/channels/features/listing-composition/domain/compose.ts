@@ -34,11 +34,14 @@ export function composeChannelListingPublication(
   const settings = input.settings.settings;
   const listingReasons: ChannelPublicationBlockingReason[] = [];
   if (input.connection.connectionStatus !== "active") listingReasons.push("connection-not-active");
-  if (listing.listingStatus !== "active") listingReasons.push("listing-not-active");
+  if (listing.listingStatus !== "active" && !isPausedByChannelInboundClamp(listing)) {
+    listingReasons.push("listing-not-active");
+  }
   if (listing.sellerAvailabilityStatus !== "available") listingReasons.push("seller-unavailable");
   if (listing.offer.publishableQuantity.kind === "resolved" && listing.offer.publishableQuantity.value === 0) {
     listingReasons.push("sold-out");
   }
+  if (listing.offer.publishableQuantity.kind === "low-stock-withheld") listingReasons.push("low-stock-withheld");
   if (settings.excludedListingIds.includes(listing.listingId)) listingReasons.push("listing-excluded");
   if (listing.identity.categoryIds.some((categoryId) => !settings.categoryAllowlist.includes(categoryId))) {
     listingReasons.push("category-not-allowed");
@@ -143,6 +146,12 @@ export function composeChannelListingPublication(
     draft,
     desiredStateHash: hashChannelDesiredState({ intent, draft }),
   };
+}
+
+function isPausedByChannelInboundClamp(
+  listing: Extract<ChannelListingCompositionInput["listing"], { kind: "present" }>,
+): boolean {
+  return listing.listingStatus === "paused" && listing.pauseReason === "channel-inbound-dark";
 }
 
 function collectConfigurationReasons(

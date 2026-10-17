@@ -19,7 +19,6 @@ import {
   createCheckoutPaymentThroughPayments,
   normalizeRequestedBalanceCreditAmount,
   previewCheckoutFulfillmentThroughOrdering,
-  previewBuyNowCheckoutSupplyThroughOrdering,
   submitPurchaseIntentThroughMarketplace,
 } from "../../../support/request-support/checkout-confirmation";
 import { readCheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
@@ -29,6 +28,7 @@ import {
   unsupportedCustomerEconomicsInputCode,
 } from "./checkout-economics-runtime";
 import { unresolvedFulfillmentError } from "./checkout-fulfillment-runtime";
+import { prepareBuyNowCheckout } from "./buy-now-preparation";
 import {
   recordAddressServiceabilityFailure,
   recordActiveSessionStaleRecovery,
@@ -411,6 +411,10 @@ function sessionHasCommittedCheckoutSideEffects(session: CheckoutSessionRow) {
   );
 }
 
+function fulfillmentPreviewRevisionRequired() {
+  return new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
+}
+
 async function recordCheckoutFulfillmentPreviewSnapshot(
   request: Request,
   services: CheckoutSessionServices,
@@ -431,12 +435,13 @@ async function recordCheckoutFulfillmentPreviewSnapshot(
       shippingOption: options.shippingOption,
       shippingAddress: options.shippingAddress,
     }));
-  const fulfillmentPreviewRevision = String(
-    options.fulfillmentPreviewRevision ?? calculatedSnapshot?.revision ?? "",
-  ).trim();
+  // A blank caller revision falls back to the server-calculated revision, never to a caller-supplied snapshot's.
+  const fulfillmentPreviewRevision =
+    options.fulfillmentPreviewRevision?.trim() ||
+    (suppliedSnapshot ? "" : String(calculatedSnapshot?.revision ?? "").trim());
 
   if (!fulfillmentPreviewRevision) {
-    throw new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
+    throw fulfillmentPreviewRevisionRequired();
   }
 
   return services.recordFulfillmentPreview(
@@ -561,13 +566,6 @@ function buyNowPreflightSessionId(params: {
     .digest("hex")
     .slice(0, 32);
   return `chk_${digest}`;
-}
-
-function buyNowOrderingPreflightMessage(reason: string | null | undefined) {
-  const normalized = reason?.trim();
-  return normalized && normalized !== "Locked listing is unavailable."
-    ? normalized
-    : "This listing is still becoming available for checkout. Try again shortly.";
 }
 
 export function createAccountCheckoutSessionRoutes(
@@ -766,95 +764,41 @@ export function createAccountCheckoutSessionRoutes(
         shippingOption,
         optimizationGoal,
       });
-      const buyNowLine = {
-        listingId,
-        cartLineId: null,
-        catalogItemId,
-        productId,
-        itemTitle: String(source.itemTitle ?? ""),
-        itemSubtitle:
-          source.itemSubtitle === null || source.itemSubtitle === undefined ? null : String(source.itemSubtitle),
-        selectedOptions,
-        productSummary:
-          source.productSummary === null || source.productSummary === undefined ? null : String(source.productSummary),
-        quantity,
-        fulfillmentMode: "locked-listing" as const,
-        lockedListingId,
-        sellerPreferenceId,
-      };
-      const supplyPreview = await previewBuyNowCheckoutSupplyThroughOrdering(c.req.raw, {
-        checkoutSessionId:
-          sessionIdOverride ??
-          buyNowPreflightSessionId({
-            accountId: access.actor.accountId as AccountId,
-            source: buyNowSource,
-            shippingOption,
-            optimizationGoal,
-          }),
-        shippingOption,
-        optimizationGoal,
-        line: buyNowLine,
-      });
-      if (supplyPreview.readyLineKeys.length === 0) {
-        throw new CheckoutDomainError(
-          buyNowOrderingPreflightMessage(supplyPreview.unavailableLines[0]?.reason),
-          "unresolved_fulfillment",
-        );
-      }
-      const result = await services.createBuyNow(
-        {
-          accountId: access.actor.accountId as AccountId,
+      const prepared = await prepareBuyNowCheckout({
+        request: c.req.raw,
+        services,
+        accountId: access.actor.accountId as AccountId,
+        listing: {
           listingId,
           catalogItemId,
           productId,
-          itemTitle: buyNowLine.itemTitle,
-          itemSubtitle: buyNowLine.itemSubtitle,
+          itemTitle: String(source.itemTitle ?? ""),
+          itemSubtitle:
+            source.itemSubtitle === null || source.itemSubtitle === undefined ? null : String(source.itemSubtitle),
+          productSummary:
+            source.productSummary === null || source.productSummary === undefined
+              ? null
+              : String(source.productSummary),
           selectedOptions,
-          productSummary: buyNowLine.productSummary,
-          quantity,
-          fulfillmentMode: "locked-listing",
-          lockedListingId,
-          sellerPreferenceId,
-          optimizationGoal,
-          shippingOption,
-          fulfillmentPreviewRevision: supplyPreview.revision,
-          fulfillmentPreviewSnapshot: supplyPreview,
-          sessionIdOverride,
         },
+        quantity,
         context,
-      );
-      if (sessionIdOverride && result.sessionId !== sessionIdOverride) {
-        const replacementSupplyPreview = await previewBuyNowCheckoutSupplyThroughOrdering(c.req.raw, {
-          checkoutSessionId: result.sessionId,
+        sessionIdOverride,
+        preflightSessionId: buyNowPreflightSessionId({
+          accountId: access.actor.accountId as AccountId,
+          source: buyNowSource,
           shippingOption,
           optimizationGoal,
-          line: buyNowLine,
-        });
-        if (replacementSupplyPreview.readyLineKeys.length === 0) {
-          throw new CheckoutDomainError(
-            buyNowOrderingPreflightMessage(replacementSupplyPreview.unavailableLines[0]?.reason),
-            "unresolved_fulfillment",
-          );
-        }
-        const fulfillmentPreviewResult = await services.recordFulfillmentPreview(
-          {
-            sessionId: result.sessionId,
-            accountId: access.actor.accountId as AccountId,
-            fulfillmentPreviewRevision: replacementSupplyPreview.revision,
-            fulfillmentPreviewSnapshot: replacementSupplyPreview,
-          },
-          context,
-        );
-        return c.json(
-          checkoutSessionStartedResponse({
-            ...result,
-            ...checkoutCommitMetadataFromSources([result, fulfillmentPreviewResult]),
-          }),
-          201,
-        );
-      }
-
-      return c.json(checkoutSessionStartedResponse(result), 201);
+        }),
+        lockedListingId,
+        sellerPreferenceId,
+        shippingOption,
+        optimizationGoal,
+      });
+      return c.json(
+        checkoutSessionStartedResponse({ ...prepared, ...checkoutCommitMetadataFromSources(prepared.writeSources) }),
+        201,
+      );
     } catch (error) {
       const code = errorCode(error);
       recordUnassignedFulfillmentFailure(checkoutObservabilityTelemetry, access.actor, code);
@@ -1087,7 +1031,7 @@ export function createAccountCheckoutSessionRoutes(
     const parsedBody = await c.req.json().catch(() => ({}));
     const body = parsedBody && typeof parsedBody === "object" ? (parsedBody as Record<string, unknown>) : {};
     const fulfillmentPreviewRevision =
-      typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : "";
+      typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision.trim() : "";
 
     try {
       const session = await services.getSession(sessionId, access.actor.accountId);
@@ -1105,6 +1049,9 @@ export function createAccountCheckoutSessionRoutes(
 
       const suppliedPreview = body.fulfillmentPreviewSnapshot ?? body.fulfillmentPreview;
       const hasReviewInput = "shippingOption" in body || "shippingAddress" in body;
+      if (!fulfillmentPreviewRevision && !hasReviewInput) {
+        throw fulfillmentPreviewRevisionRequired();
+      }
       const result =
         fulfillmentPreviewRevision && !suppliedPreview && !hasReviewInput
           ? await services.recordFulfillmentPreview(

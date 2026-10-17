@@ -9,6 +9,7 @@ import type { SignedRegistrationConsentResolution } from "../features/consents/d
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
+import { registrationConsentBundlesFixture } from "./consent-activation-authority-fixtures";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -53,6 +54,7 @@ function createServices(
 ) {
   return {
     eventStore: createInMemoryEventStore(),
+    registrationConsentBundles: registrationConsentBundlesFixture(),
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
         if (sql.includes("identity_account_display_name_reservations")) {
@@ -968,6 +970,7 @@ describe("Identity API mutation snapshots", () => {
       userId: actor.userId as never,
       name: "Automation",
       keyPrefix: "key_secret_1",
+      verifierHash: null,
       status,
       lastUsedAt: null,
     });

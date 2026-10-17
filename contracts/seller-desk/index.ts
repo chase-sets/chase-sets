@@ -452,14 +452,6 @@ export const SELLER_DESK_ACTIONS: readonly SellerDeskAction[] = [
     replaces: ["decline-offer"],
   },
   {
-    id: "offer.mute-buyer",
-    entity: "offer",
-    permission: "offers.manage",
-    feedback: "row-transition",
-    disclosure: "inline",
-    replaces: ["mute-offer-buyer", "unmute-offer-buyer"],
-  },
-  {
     id: "offer.manage-sell-list",
     entity: "offer",
     permission: "offers.manage",

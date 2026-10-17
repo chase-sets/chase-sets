@@ -222,6 +222,43 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
+  await services.productMeasures.upsertProfile({
+    profileId: "pmp_seed_one_piece_raw_single",
+    key: "one-piece-raw-single",
+    name: "One Piece raw single",
+    matchBlueprintId: catalogSeedIds.blueprints.onePieceCardPrint,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+      },
+    ],
+    precedence: 10,
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.012,
+    unitWeightOunces: 0.064,
+    physicalFlags: ["raw-card", "bendable"],
+    stackBehavior: "stackable-thickness",
+    confidence: "conservative-estimate",
+  });
+
+  await services.productMeasures.upsertProfile({
+    profileId: "pmp_seed_one_piece_booster_box",
+    key: "one-piece-booster-box",
+    name: "One Piece booster box",
+    matchBlueprintId: catalogSeedIds.blueprints.onePieceSealedProduct,
+    matchCategoryIds: [catalogSeedIds.categories.onePieceBoosterBoxes],
+    precedence: 40,
+    unitLengthInches: 5.5,
+    unitWidthInches: 5,
+    unitHeightInches: 2.75,
+    unitWeightOunces: 27,
+    physicalFlags: ["sealed", "rigid"],
+    stackBehavior: "non-stackable",
+    confidence: "conservative-estimate",
+  });
+
   if (options.resolveExistingCatalogItems ?? true) {
     await services.productMeasures.resolveAllCatalogItemMeasures(seedContext);
   }

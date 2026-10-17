@@ -2,12 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useLoaderData, useRouteLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import {
-  defineFormAction,
-  defineResourceRoute,
-  formActionRedirect,
-  type PlatformPostWriteTelemetry,
-} from "@chase-sets/platform-runtime/http";
+import { defineResourceRoute, type PlatformPostWriteTelemetry } from "@chase-sets/platform-runtime/http";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -40,17 +35,9 @@ export const loader = defineResourceRoute({
   },
   errorAdapter: marketplaceApiErrorAdapter,
   load: ({ request }) => createMarketplaceRequestApiClient(request).listOfferMatches(DEFAULT_OFFER_QUERY),
-  map: async (offerMatches, { request }) => ({
-    offerMatches,
-    offerBuyerMutes: await createMarketplaceRequestApiClient(request).listOfferBuyerMutes(),
-  }),
+  map: (offerMatches) => ({ offerMatches }),
   onPending: () => ({
     offerMatches: {
-      items: [],
-      total: 0,
-      count: 0,
-    },
-    offerBuyerMutes: {
       items: [],
       total: 0,
       count: 0,
@@ -61,30 +48,6 @@ export const loader = defineResourceRoute({
     throw new Response(t("marketplace.routes.accountOfferMatches.request.failed"), { status: 503 });
   },
   telemetry: OFFER_MATCH_LIST_POST_WRITE_TELEMETRY,
-});
-
-export const action = defineFormAction({
-  authorization: async ({ request }) => {
-    const actor = await requireActorFromAuthApi({ request, permission: "offers.manage" });
-    if (!actor.permissions.includes("listings.view")) {
-      throw new Response(t("marketplace.routes.accountOfferMatches.forbidden.2"), { status: 403 });
-    }
-    return actor;
-  },
-  intents: {
-    "unmute-offer-buyer": async ({ request, formData }) =>
-      formActionRedirect(
-        await createMarketplaceRequestApiClient(request).unmuteOfferBuyer(
-          String(formData.get("listingId") ?? ""),
-          String(formData.get("buyerAccountId") ?? ""),
-        ),
-        "/account/offers/matches",
-        {
-          telemetry: OFFER_MATCH_LIST_POST_WRITE_TELEMETRY,
-        },
-      ),
-  },
-  onUnknownIntent: () => null,
 });
 
 export const meta: MetaFunction = () =>
@@ -130,7 +93,7 @@ function MarketplaceAccountOfferMatchesRealtimeView({
     onSyncRequired: reloadForRealtimeSync,
   });
 
-  return <MarketplaceOfferMatchListPage data={offerMatches} buyerMutes={data.offerBuyerMutes} />;
+  return <MarketplaceOfferMatchListPage data={offerMatches} />;
 }
 
 function reloadForRealtimeSync() {

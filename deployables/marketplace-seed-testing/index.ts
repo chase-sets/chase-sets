@@ -189,7 +189,12 @@ export function createMarketplaceSeedRuntime(
       pool: pools.fulfillment,
       ports: undefined,
     },
-    { contextName: "identity", module: identityModule, pool: pools.identity, ports: undefined },
+    {
+      contextName: "identity",
+      module: identityModule,
+      pool: pools.identity,
+      ports: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
+    },
     { contextName: "inventory", module: inventoryModule, pool: pools.inventory, ports: undefined },
     {
       contextName: "marketplace",

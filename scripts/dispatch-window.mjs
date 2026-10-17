@@ -1,16 +1,6 @@
 import { classified } from "./backlog-classify.mjs";
 import { compareOutcomeMilestones, isExecutableOutcome, readOutcomePolicy } from "./milestone-policy.mjs";
 
-export const THROUGHPUT_SERIES = /^(Wave|Mobile)\s+(\d+)\b/;
-
-export function seriesIdentity(title) {
-  if (typeof title !== "string") return null;
-  const match = THROUGHPUT_SERIES.exec(title);
-  if (!match) return null;
-  const ordinal = Number(match[2]);
-  return Number.isSafeInteger(ordinal) && ordinal > 0 ? { family: match[1], ordinal } : null;
-}
-
 export function isRunnableRefined(issue) {
   if (!issue || issue.state !== "open" || !Array.isArray(issue.blockedBy) || !isExecutableOutcome(issue.milestone)) {
     return false;
@@ -34,7 +24,7 @@ export function isRunnableRefined(issue) {
 }
 
 /**
- * Select one pull milestone per exact managed or migration-compatible track. Input is the
+ * Select one pull milestone per exact outcome track. Input is the
  * normalized, complete authority published by roadmap-status; this helper has
  * no provider or mutation operation.
  */

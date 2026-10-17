@@ -141,9 +141,9 @@ describe("Privacy Policy candidate", () => {
     );
     const [capture, strategy, onboarding] = section.reviewManifest.assumptions;
     expect(capture.assertion).toContain("records capture");
-    expect(capture.evidenceRef).toContain("runtime.ts:2527-2568");
+    expect(capture.evidenceRef).toContain("runtime.ts:2627-2668");
     expect(capture.evidenceRef).toContain("domain.ts:968-1005");
-    expect(capture.evidenceRef).not.toMatch(/1464-1494|0006-stripe-connect/);
+    expect(capture.evidenceRef).not.toMatch(/1485-1515|0006-stripe-connect/);
     expect(strategy.evidenceRef).toBe("docs/adr/0006-stripe-connect-custom-account-experience.md:15");
     expect(onboarding.assertion).toContain("seller onboarding uses Stripe embedded components");
     expect(onboarding.evidenceRef).not.toContain("stripe-payments");
@@ -237,6 +237,16 @@ describe("Privacy Policy candidate", () => {
 describe(
   "Privacy Policy one-variable controls",
   () => {
+    it("removing the revocation attempt key reds only its Web Storage disclosure", () => {
+      const mutant = withSection("cookies-and-analytics", (text) =>
+        text.replace("agent-grant-revocation:", "connected-agent attempt"),
+      );
+      expectSoleViolation(
+        evaluate(mutant),
+        /does not disclose 'agent-grant-revocation:' required by binding 'web-storage-agent-grant-revocation'\./,
+      );
+    });
+
     it("control 1: removing exactly chase_sets_anonymous_cart reds only that cookie binding", () => {
       const mutant = withSection("cookies-and-analytics", (text) =>
         text.replace("a signed-out cart (chase_sets_anonymous_cart), ", "a signed-out cart, "),

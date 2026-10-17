@@ -26,6 +26,8 @@ export const paymentsWakeRegistryEntry = registryEntry({
     "payments:payments-fraud-alert-projection",
     "payments:payments-order-cancellation-refund-effect",
     "payments:payments-payment-projection",
+    "payments:payments-wallet-funding-projection",
+    "payments:platform-policy-document-projection",
     "platform-operations:risk-alert-queue-projection",
     "platform-operations:seller-compliance-sales-projection",
     "platform-operations:support-affected-line-amount-projection",

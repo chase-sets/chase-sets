@@ -19,9 +19,10 @@ export type AgentGrantGuardrailViolation = Readonly<{
 }>;
 
 // The payment rails an agent grant can be authorized to move money over. `handoff-only`
-// keeps the human in the loop through the trusted checkout UI; `stored-pm` and `ap2`
-// are autonomous rails opened by the stored-payment-method setup and AP2 mandates.
-export const AGENT_GRANT_RAILS = ["handoff-only", "stored-pm", "ap2"] as const;
+// keeps the human in the loop through the trusted checkout UI; `stored-pm` is the autonomous
+// rail opened by the stored-payment-method setup. Stored mandates are read through
+// `isAgentGrantRail`, so a rail retired from this list reads as absent and authority only narrows.
+export const AGENT_GRANT_RAILS = ["handoff-only", "stored-pm"] as const;
 export type AgentGrantRail = (typeof AGENT_GRANT_RAILS)[number];
 
 export function isAgentGrantRail(value: unknown): value is AgentGrantRail {
@@ -84,7 +85,7 @@ export type AgentGrantSpendPolicyInput = Readonly<{
   // Whether a person is actively present for this purchase (trusted-UI review).
   humanPresent?: boolean;
   // Whether the rail carries an explicit human-not-present authorization
-  // (an AP2 human-not-present mandate or a standing instruction).
+  // (a standing off-session instruction such as a saved payment method).
   humanNotPresentAuthorized?: boolean;
   occurredAt?: Date;
 }>;
@@ -248,7 +249,7 @@ export function decideAgentGrantSpend(
         allowed: false,
         limitKind: "human-not-present-unsupported",
         reason:
-          "This purchase cannot be completed while the buyer is away without an AP2 human-not-present mandate. Continue in a trusted checkout.",
+          "This purchase cannot be completed while the buyer is away without a standing payment authorization. Continue in a trusted checkout.",
         remainingCents: 0,
         capCents: 0,
       };
