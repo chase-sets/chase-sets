@@ -31,7 +31,7 @@ const operatorRead = (
   targetType: string,
 ) => ({
   ...readTool("identity", name, title, description, permission, inputSchema, targetType, [], "operator"),
-  availability: "available" as const,
+  availability: "planned" as const,
 });
 const operatorWrite = (
   name: string,
@@ -43,7 +43,7 @@ const operatorWrite = (
   risk: "sensitive" | "destructive" = "sensitive",
 ) => ({
   ...writeTool("identity", name, title, description, permission, inputSchema, targetType, [], risk, "operator"),
-  availability: "available" as const,
+  availability: "planned" as const,
 });
 const accountId = stringProperty("Target account identifier.");
 const userId = stringProperty("Target user identifier.");
