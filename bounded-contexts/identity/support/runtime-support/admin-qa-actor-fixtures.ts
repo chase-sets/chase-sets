@@ -1,8 +1,7 @@
-import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { RoleKey } from "./common";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import type { IdentityServices } from "./services";
-import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 
 const ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT = "2026-07-13T00:00:00.000Z";
@@ -33,7 +32,6 @@ export type AdminQaActorFixtureDefinition = Readonly<{
   accountId: AccountId;
   userId: UserId;
   membershipId: MembershipId;
-  consentId: ConsentId;
   accountName: string;
   displayName: string;
   givenName: string;
@@ -49,7 +47,6 @@ export type AdminQaActorFixtureResult = Readonly<{
   createdAccount: boolean;
   createdUser: boolean;
   createdMembership: boolean;
-  createdConsent?: boolean;
 }>;
 
 const makeFixture = (
@@ -68,7 +65,6 @@ const makeFixture = (
   accountId: `acc_${actorAlias.replaceAll("-", "_")}` as AccountId,
   userId: `usr_${actorAlias.replaceAll("-", "_")}` as UserId,
   membershipId: `mbr_${actorAlias.replaceAll("-", "_")}` as MembershipId,
-  consentId: `cns_${actorAlias.replaceAll("-", "_")}` as ConsentId,
   accountName,
   displayName: accountName,
   givenName,
@@ -106,6 +102,14 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
   ),
 ] as const;
 
+/** The viewer's second Account and Membership, bound to the same User. */
+const ADMIN_QA_VIEWER_SECONDARY_FIXTURE: AdminQaActorFixtureDefinition = {
+  ...ADMIN_QA_ACTOR_FIXTURES[4],
+  accountId: "acc_admin_qa_viewer_secondary" as AccountId,
+  membershipId: "mbr_admin_qa_viewer_secondary" as MembershipId,
+  accountName: "Admin QA Viewer Secondary",
+};
+
 const CONTACT_KEY_BY_ALIAS: Readonly<Record<string, keyof AdminQaActorFixtureContacts>> = {
   "admin-qa-platform-admin": "ADMIN_QA_PLATFORM_ADMIN_EMAIL",
   "admin-qa-owner": "ADMIN_QA_OWNER_EMAIL",
@@ -115,36 +119,33 @@ const CONTACT_KEY_BY_ALIAS: Readonly<Record<string, keyof AdminQaActorFixtureCon
   "admin-qa-catalog-admin": "ADMIN_QA_CATALOG_ADMIN_EMAIL",
 };
 
-/** Reconciles stream state, appending only the missing canonical suffix. */
+/**
+ * Reconciles stream state, appending only the missing canonical suffix. No
+ * Consent is recorded or read: no human affirms anything here, so provisioning
+ * authors no synthetic Consent fact (#6120, #8945).
+ */
 export async function provisionAdminQaActorFixtures(
   services: IdentityServices,
-  contacts?: AdminQaActorFixtureContacts,
+  contacts: AdminQaActorFixtureContacts,
 ): Promise<readonly AdminQaActorFixtureResult[]> {
-  const resolved = resolveContacts(services, contacts);
+  const resolved = validateContacts(contacts);
   const context = createIdentityBootstrapContext();
   const results: AdminQaActorFixtureResult[] = [];
-  for (const actor of ADMIN_QA_ACTOR_FIXTURES) {
-    results.push(await reconcileFixture(services, context, actor, resolved[CONTACT_KEY_BY_ALIAS[actor.actorAlias]]));
+  for (const fixture of ADMIN_QA_ACTOR_FIXTURES) {
+    const email = resolved[CONTACT_KEY_BY_ALIAS[fixture.actorAlias]];
+    if (!services.eventStore) {
+      // In-memory harnesses have no streams to classify, so they report creation flags only.
+      const { outcome: _outcome, ...flags } = await provisionAdminQaActorFixture(services, context, fixture, email);
+      results.push(flags);
+    } else if (fixture.actorAlias === ADMIN_QA_VIEWER_SECONDARY_FIXTURE.actorAlias) {
+      results.push(await provisionAdminQaViewerFixture(services, context, fixture, email));
+    } else {
+      results.push(await provisionAdminQaActorFixture(services, context, fixture, email));
+    }
   }
   return results;
 }
 
-function resolveContacts(
-  services: IdentityServices,
-  contacts?: AdminQaActorFixtureContacts,
-): AdminQaActorFixtureContacts {
-  if (contacts) return validateContacts(contacts);
-  // In-memory unit harnesses have no event store. Production composition must supply all six values.
-  if (services.eventStore) throw new Error("Admin QA fixture provisioning requires all six ADMIN_QA_*_EMAIL inputs.");
-  return {
-    ADMIN_QA_PLATFORM_ADMIN_EMAIL: "admin-qa-platform-admin@invalid.test",
-    ADMIN_QA_OWNER_EMAIL: "admin-qa-owner@invalid.test",
-    ADMIN_QA_MANAGER_EMAIL: "admin-qa-manager@invalid.test",
-    ADMIN_QA_FULFILLMENT_EMAIL: "admin-qa-fulfillment@invalid.test",
-    ADMIN_QA_VIEWER_EMAIL: "admin-qa-viewer@invalid.test",
-    ADMIN_QA_CATALOG_ADMIN_EMAIL: "admin-qa-catalog-admin@invalid.test",
-  };
-}
 function validateContacts(contacts: AdminQaActorFixtureContacts): AdminQaActorFixtureContacts {
   for (const key of Object.values(CONTACT_KEY_BY_ALIAS)) {
     if (typeof contacts[key] !== "string" || contacts[key].trim() === "") throw new Error(`Missing ${key}.`);
@@ -152,119 +153,61 @@ function validateContacts(contacts: AdminQaActorFixtureContacts): AdminQaActorFi
   return contacts;
 }
 
-type StateRead = { kind: "missing" | "present" | "invalid" | "error"; value?: unknown };
-async function readState(reader: ((id: string) => Promise<unknown>) | undefined, id: string): Promise<StateRead> {
-  if (!reader) return { kind: "missing" };
-  try {
-    const value = await reader(id);
-    return value ? { kind: "present", value } : { kind: "missing" };
-  } catch {
-    return { kind: "error" };
-  }
-}
-async function readFixtureState(
-  services: IdentityServices,
-  reader: ((id: string) => Promise<unknown>) | undefined,
-  table: string,
-  column: string,
-  id: string,
-): Promise<StateRead> {
-  if (reader) return readState(reader, id);
-  if (!services.db?.query) return { kind: "missing" };
-  try {
-    const result = await services.db.query(`SELECT 1 FROM ${table} WHERE ${column} = $1 LIMIT 1`, [id]);
-    return result.rows.length > 0 ? { kind: "present" } : { kind: "missing" };
-  } catch {
-    return { kind: "error" };
-  }
-}
-const isLegacy = (services: IdentityServices) => !services.eventStore;
-
-async function reconcileFixture(
+/** Reads the secondary binding before the viewer appends; one outcome covers both. */
+async function provisionAdminQaViewerFixture(
   services: IdentityServices,
   context: ReturnType<typeof createIdentityBootstrapContext>,
-  actor: AdminQaActorFixtureDefinition,
+  fixture: AdminQaActorFixtureDefinition,
+  email: string,
+): Promise<AdminQaActorFixtureResult> {
+  const secondary = await inspectAdminQaActorFixture(services, ADMIN_QA_VIEWER_SECONDARY_FIXTURE, email);
+  if (secondary.kind !== "readable") return outcomeOnly(fixture, secondary.kind);
+  const primary = await provisionAdminQaActorFixture(services, context, fixture, email);
+  if (primary.outcome === "conflict" || primary.outcome === "error") return primary;
+  const second = await provisionAdminQaActorFixture(services, context, ADMIN_QA_VIEWER_SECONDARY_FIXTURE, email);
+  if (second.outcome === "conflict" || second.outcome === "error") return outcomeOnly(fixture, second.outcome);
+  // The User is shared, so the secondary binding is judged by its own Account and Membership.
+  const secondaryReads = [secondary.account.kind, secondary.membership.kind];
+  const outcome =
+    primary.outcome === "created" && secondaryReads.every((kind) => kind === "missing")
+      ? "created"
+      : primary.outcome === "steady" && secondaryReads.every((kind) => kind === "present")
+        ? "steady"
+        : "reconciled";
+  return {
+    ...primary,
+    outcome,
+    createdAccount: primary.createdAccount || second.createdAccount,
+    createdUser: primary.createdUser || second.createdUser,
+    createdMembership: primary.createdMembership || second.createdMembership,
+  };
+}
+
+async function provisionAdminQaActorFixture(
+  services: IdentityServices,
+  context: ReturnType<typeof createIdentityBootstrapContext>,
+  fixture: AdminQaActorFixtureDefinition,
   email: string,
   attempt = 0,
 ): Promise<AdminQaActorFixtureResult> {
-  const base = {
-    actorAlias: actor.actorAlias,
-    roleKey: actor.roleKey,
-    signInHost: actor.signInHost,
-    capabilities: actor.capabilities,
-  };
+  let createdAccount = false;
+  let createdUser = false;
+  let createdMembership = false;
+  let outcome: AdminQaActorFixtureOutcome;
   try {
-    if (services.eventStore) {
-      const history = await Promise.all([
-        inspectHistory(services.eventStore, `identity.account-${actor.accountId}`, ["identity.account.created"]),
-        inspectHistory(services.eventStore, `identity.user-${actor.userId}`, [
-          "identity.user.created",
-          "identity.user.auth-method-enabled",
-        ]),
-        inspectHistory(services.eventStore, `identity.membership-${actor.membershipId}`, [
-          "identity.membership.granted",
-        ]),
-        inspectHistory(services.eventStore, `identity.consent-${actor.consentId}`, ["identity.consent.recorded"]),
-      ]);
-      if (history.some((entry) => entry === "error")) return result(base, "error");
-      if (history.some((entry) => entry === "conflict")) return result(base, "conflict");
-    }
-    const [account, user, membership, consent] = await Promise.all([
-      readFixtureState(
-        services,
-        services.accounts?.getAccountState,
-        "identity_accounts",
-        "account_id",
-        actor.accountId,
-      ),
-      readFixtureState(services, services.users?.getUserState, "identity_users", "user_id", actor.userId),
-      readFixtureState(
-        services,
-        services.memberships?.getMembershipState,
-        "identity_memberships",
-        "membership_id",
-        actor.membershipId,
-      ),
-      isLegacy(services)
-        ? Promise.resolve<StateRead>({ kind: "missing" })
-        : readFixtureState(
-            services,
-            services.consents?.getConsentState,
-            "identity_consents",
-            "consent_id",
-            actor.consentId,
-          ),
-    ]);
-    if ([account, user, membership, consent].some((x) => x.kind === "error"))
-      return legacyAware(services, result(base, "error"));
-    if (!isLegacy(services)) {
-      if (account.kind === "present" && account.value && !matchesAccount(account.value, actor))
-        return legacyAware(services, result(base, "conflict"));
-      if (user.kind === "present" && user.value && !matchesUser(user.value, actor, email))
-        return legacyAware(services, result(base, "conflict"));
-      if (membership.kind === "present" && membership.value && !matchesMembership(membership.value, actor))
-        return legacyAware(services, result(base, "conflict"));
-      if (consent.kind === "present" && consent.value && !matchesConsent(consent.value, actor))
-        return legacyAware(services, result(base, "conflict"));
-    }
-    let createdAccount = false,
-      createdUser = false,
-      createdMembership = false,
-      createdConsent = false;
-    const initiallyAbsent =
-      account.kind === "missing" &&
-      user.kind === "missing" &&
-      membership.kind === "missing" &&
-      consent.kind === "missing";
+    const state = await inspectAdminQaActorFixture(services, fixture, email);
+    if (state.kind !== "readable") return outcomeOnly(fixture, state.kind);
+    const { account, user, membership } = state;
+
     if (account.kind === "missing") {
       await services.accounts.commandHandler({
-        streamId: `identity.account-${actor.accountId}`,
+        streamId: `identity.account-${fixture.accountId}`,
         command: {
           type: "CreateAccount",
-          accountId: actor.accountId,
-          name: actor.accountName,
+          accountId: fixture.accountId,
+          name: fixture.accountName,
           accountType: "business",
-          displayName: actor.accountName,
+          displayName: fixture.accountName,
         },
         context,
       });
@@ -272,16 +215,16 @@ async function reconcileFixture(
     }
     if (user.kind === "missing") {
       await services.users.commandHandler({
-        streamId: `identity.user-${actor.userId}`,
+        streamId: `identity.user-${fixture.userId}`,
         command: {
           type: "CreateUser",
-          userId: actor.userId,
-          displayName: actor.displayName,
+          userId: fixture.userId,
+          displayName: fixture.displayName,
           primaryEmail: email,
-          givenName: actor.givenName,
-          familyName: actor.familyName,
+          givenName: fixture.givenName,
+          familyName: fixture.familyName,
           primaryContactMethod: {
-            contactMethodId: `ctm_${actor.userId.slice(4)}_email`,
+            contactMethodId: `ctm_${fixture.userId.slice(4)}_email`,
             type: "email",
             value: email,
             verifiedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
@@ -289,15 +232,11 @@ async function reconcileFixture(
         },
         context,
       });
+    }
+    if (user.kind === "missing" || userNeedsAuthMethod(user.value)) {
+      // Also resumes a User created before its magic-link method was enabled.
       await services.users.commandHandler({
-        streamId: `identity.user-${actor.userId}`,
-        command: { type: "EnableAuthMethod", authMethod: "magic-link" },
-        context,
-      });
-      createdUser = true;
-    } else if (user.kind === "present" && user.value && userNeedsAuthMethod(user.value)) {
-      await services.users.commandHandler({
-        streamId: `identity.user-${actor.userId}`,
+        streamId: `identity.user-${fixture.userId}`,
         command: { type: "EnableAuthMethod", authMethod: "magic-link" },
         context,
       });
@@ -305,178 +244,132 @@ async function reconcileFixture(
     }
     if (membership.kind === "missing") {
       await services.memberships.commandHandler({
-        streamId: `identity.membership-${actor.membershipId}`,
+        streamId: `identity.membership-${fixture.membershipId}`,
         command: {
           type: "GrantMembership",
-          membershipId: actor.membershipId,
-          userId: actor.userId,
-          accountId: actor.accountId,
-          roleKey: actor.roleKey,
-          assignmentAuthority: actor.roleKey === "platform-admin" ? { type: "platform-bootstrap" } : { type: "system" },
+          membershipId: fixture.membershipId,
+          userId: fixture.userId,
+          accountId: fixture.accountId,
+          roleKey: fixture.roleKey,
+          assignmentAuthority:
+            fixture.roleKey === "platform-admin" ? { type: "platform-bootstrap" } : { type: "system" },
         },
         context,
       });
       createdMembership = true;
     }
-    if (consent.kind === "missing" && services.consents?.recordTermsConsent) {
-      await services.consents.recordTermsConsent({
-        streamId: `identity.consent-${actor.consentId}`,
-        consentId: actor.consentId,
-        subjectType: "user",
-        userId: actor.userId,
-        accountId: actor.accountId,
-        recordedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
-        context,
-        authorization: authorizeConsentForProvisioning(actor.userId, actor.accountId),
-        activationAuthority: services.policies.consentActivation,
-      });
-      createdConsent = true;
-    }
-    if (actor.actorAlias === "admin-qa-viewer") {
-      await reconcileViewerSecondary(services, context, actor);
-    }
-    const steady =
-      account.kind === "present" &&
-      user.kind === "present" &&
-      membership.kind === "present" &&
-      consent.kind === "present";
-    return legacyAware(services, {
-      ...base,
-      outcome: steady ? "steady" : initiallyAbsent ? "created" : "reconciled",
-      createdAccount,
-      createdUser,
-      createdMembership,
-      createdConsent,
-    });
+    const absent = [account, user, membership].filter((read) => read.kind === "missing").length;
+    outcome = absent === 0 && !createdUser ? "steady" : absent === 3 ? "created" : "reconciled";
   } catch (error) {
-    if (
-      services.eventStore &&
-      attempt < 2 &&
-      typeof error === "object" &&
-      error &&
-      "code" in error &&
-      error.code === "concurrency_conflict"
-    ) {
-      return reconcileFixture(services, context, actor, email, attempt + 1);
+    if (services.eventStore && attempt < 2 && isConcurrencyConflict(error)) {
+      return provisionAdminQaActorFixture(services, context, fixture, email, attempt + 1);
     }
-    return legacyAware(services, result(base, "error"));
+    return outcomeOnly(fixture, "error");
+  }
+
+  return {
+    actorAlias: fixture.actorAlias,
+    roleKey: fixture.roleKey,
+    signInHost: fixture.signInHost,
+    capabilities: fixture.capabilities,
+    outcome,
+    createdAccount,
+    createdUser,
+    createdMembership,
+  };
+}
+
+type StateRead = { kind: "missing" | "present" | "error"; value?: unknown };
+type FixtureInspection =
+  | { kind: "readable"; account: StateRead; user: StateRead; membership: StateRead }
+  | { kind: "conflict" | "error" };
+
+/** Inspects complete stream histories and rehydrated state before any append. */
+async function inspectAdminQaActorFixture(
+  services: IdentityServices,
+  fixture: AdminQaActorFixtureDefinition,
+  email: string,
+): Promise<FixtureInspection> {
+  if (services.eventStore) {
+    const history = await Promise.all([
+      inspectHistory(services.eventStore, `identity.account-${fixture.accountId}`, ["identity.account.created"]),
+      inspectHistory(services.eventStore, `identity.user-${fixture.userId}`, [
+        "identity.user.created",
+        "identity.user.auth-method-enabled",
+      ]),
+      inspectHistory(services.eventStore, `identity.membership-${fixture.membershipId}`, [
+        "identity.membership.granted",
+      ]),
+    ]);
+    if (history.some((entry) => entry === "error")) return { kind: "error" };
+    if (history.some((entry) => entry === "conflict")) return { kind: "conflict" };
+  }
+  const [account, user, membership] = await Promise.all([
+    readFixtureState(
+      services.db,
+      services.accounts?.getAccountState,
+      "identity_accounts",
+      "account_id",
+      fixture.accountId,
+    ),
+    readFixtureState(services.db, services.users?.getUserState, "identity_users", "user_id", fixture.userId),
+    readFixtureState(
+      services.db,
+      services.memberships?.getMembershipState,
+      "identity_memberships",
+      "membership_id",
+      fixture.membershipId,
+    ),
+  ]);
+  if ([account, user, membership].some((read) => read.kind === "error")) return { kind: "error" };
+  if (services.eventStore) {
+    if (account.kind === "present" && !matchesAccount(account.value, fixture)) return { kind: "conflict" };
+    if (user.kind === "present" && !matchesUser(user.value, fixture, email)) return { kind: "conflict" };
+    if (membership.kind === "present" && !matchesMembership(membership.value, fixture)) return { kind: "conflict" };
+  }
+  return { kind: "readable", account, user, membership };
+}
+
+async function readFixtureState(
+  db: IdentityServices["db"],
+  reader: ((id: string) => Promise<unknown>) | undefined,
+  table: string,
+  column: string,
+  id: string,
+): Promise<StateRead> {
+  try {
+    if (reader) {
+      const value = await reader(id);
+      return value ? { kind: "present", value } : { kind: "missing" };
+    }
+    // In-memory harnesses without stream readers fall back to the projection row.
+    const result = await db.query(`SELECT 1 FROM ${table} WHERE ${column} = $1 LIMIT 1`, [id]);
+    return result.rows.length > 0 ? { kind: "present" } : { kind: "missing" };
+  } catch {
+    return { kind: "error" };
   }
 }
 
-async function reconcileViewerSecondary(
-  services: IdentityServices,
-  context: ReturnType<typeof createIdentityBootstrapContext>,
-  actor: AdminQaActorFixtureDefinition,
-): Promise<void> {
-  if (!services.eventStore) return;
-  const secondaryAccountId = "acc_admin_qa_viewer_secondary" as AccountId;
-  const secondaryMembershipId = "mbr_admin_qa_viewer_secondary" as MembershipId;
-  const secondaryConsentId = "cns_admin_qa_viewer_secondary" as ConsentId;
-  if (services.eventStore) {
-    const history = await Promise.all([
-      inspectHistory(services.eventStore, `identity.account-${secondaryAccountId}`, ["identity.account.created"]),
-      inspectHistory(services.eventStore, `identity.membership-${secondaryMembershipId}`, [
-        "identity.membership.granted",
-      ]),
-      inspectHistory(services.eventStore, `identity.consent-${secondaryConsentId}`, ["identity.consent.recorded"]),
-    ]);
-    if (history.some((entry) => entry === "error" || entry === "conflict"))
-      throw new Error("Viewer secondary history conflict.");
-  }
-  const account = await readFixtureState(
-    services,
-    services.accounts?.getAccountState,
-    "identity_accounts",
-    "account_id",
-    secondaryAccountId,
-  );
-  const membership = await readFixtureState(
-    services,
-    services.memberships?.getMembershipState,
-    "identity_memberships",
-    "membership_id",
-    secondaryMembershipId,
-  );
-  const consent = await readFixtureState(
-    services,
-    services.consents?.getConsentState,
-    "identity_consents",
-    "consent_id",
-    secondaryConsentId,
-  );
-  if ([account, membership, consent].some((x) => x.kind === "error"))
-    throw new Error("Viewer secondary state could not be read.");
-  if (account.kind === "present" && !matchesSecondaryAccount(account.value, secondaryAccountId))
-    throw new Error("Viewer secondary account conflict.");
-  if (
-    membership.kind === "present" &&
-    !matchesSecondaryMembership(membership.value, actor, secondaryAccountId, secondaryMembershipId)
-  )
-    throw new Error("Viewer secondary membership conflict.");
-  if (
-    consent.kind === "present" &&
-    !matchesSecondaryConsent(consent.value, actor, secondaryAccountId, secondaryConsentId)
-  )
-    throw new Error("Viewer secondary consent conflict.");
-  if (account.kind === "missing")
-    await services.accounts.commandHandler({
-      streamId: `identity.account-${secondaryAccountId}`,
-      command: {
-        type: "CreateAccount",
-        accountId: secondaryAccountId,
-        name: "Admin QA Viewer Secondary",
-        accountType: "business",
-        displayName: "Admin QA Viewer Secondary",
-      },
-      context,
-    });
-  if (membership.kind === "missing")
-    await services.memberships.commandHandler({
-      streamId: `identity.membership-${secondaryMembershipId}`,
-      command: {
-        type: "GrantMembership",
-        membershipId: secondaryMembershipId,
-        userId: actor.userId,
-        accountId: secondaryAccountId,
-        roleKey: "viewer",
-        assignmentAuthority: { type: "system" },
-      },
-      context,
-    });
-  if (consent.kind === "missing" && services.consents?.recordTermsConsent)
-    await services.consents.recordTermsConsent({
-      streamId: `identity.consent-${secondaryConsentId}`,
-      consentId: secondaryConsentId,
-      subjectType: "user",
-      userId: actor.userId,
-      accountId: secondaryAccountId,
-      recordedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
-      context,
-      authorization: authorizeConsentForProvisioning(actor.userId, secondaryAccountId),
-      activationAuthority: services.policies.consentActivation,
-    });
-}
-function result(
-  base: Omit<
-    AdminQaActorFixtureResult,
-    "outcome" | "createdAccount" | "createdUser" | "createdMembership" | "createdConsent"
-  >,
+function outcomeOnly(
+  fixture: AdminQaActorFixtureDefinition,
   outcome: AdminQaActorFixtureOutcome,
 ): AdminQaActorFixtureResult {
   return {
-    ...base,
+    actorAlias: fixture.actorAlias,
+    roleKey: fixture.roleKey,
+    signInHost: fixture.signInHost,
+    capabilities: fixture.capabilities,
     outcome,
     createdAccount: false,
     createdUser: false,
     createdMembership: false,
-    createdConsent: false,
   };
 }
-function legacyAware(services: IdentityServices, value: AdminQaActorFixtureResult): AdminQaActorFixtureResult {
-  if (services.eventStore) return value;
-  const { outcome: _outcome, createdConsent: _createdConsent, ...legacy } = value;
-  return legacy as AdminQaActorFixtureResult;
+
+function isConcurrencyConflict(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
 }
+
 async function inspectHistory(
   eventStore: NonNullable<IdentityServices["eventStore"]>,
   streamId: string,
@@ -485,34 +378,31 @@ async function inspectHistory(
   try {
     const events = await readCompleteStream(eventStore, { streamId, maxEvents: 10_000 });
     if (events.length === 0) return "missing";
-    if (events.length > allowed.length || events.some((event) => !allowed.includes(event.eventType))) return "conflict";
-    for (let index = 0; index < events.length; index += 1) {
-      if (events[index].eventType !== allowed[index]) return "conflict";
-    }
-    return "present";
+    if (events.length > allowed.length) return "conflict";
+    return events.every((event, index) => event.eventType === allowed[index]) ? "present" : "conflict";
   } catch {
     return "error";
   }
 }
 
-function matchesAccount(value: unknown, actor: AdminQaActorFixtureDefinition): boolean {
+function matchesAccount(value: unknown, fixture: AdminQaActorFixtureDefinition): boolean {
   const state = value as Record<string, unknown>;
   return (
-    state.id === actor.accountId &&
-    state.name === actor.accountName &&
-    state.displayName === actor.accountName &&
+    state.id === fixture.accountId &&
+    state.name === fixture.accountName &&
+    state.displayName === fixture.accountName &&
     state.accountType === "business" &&
     state.status === "active"
   );
 }
-function matchesUser(value: unknown, actor: AdminQaActorFixtureDefinition, email: string): boolean {
+function matchesUser(value: unknown, fixture: AdminQaActorFixtureDefinition, email: string): boolean {
   const state = value as Record<string, unknown>;
   const contacts = Array.isArray(state.contactMethods) ? (state.contactMethods as Array<Record<string, unknown>>) : [];
   return (
-    state.id === actor.userId &&
-    state.displayName === actor.displayName &&
-    state.givenName === actor.givenName &&
-    state.familyName === actor.familyName &&
+    state.id === fixture.userId &&
+    state.displayName === fixture.displayName &&
+    state.givenName === fixture.givenName &&
+    state.familyName === fixture.familyName &&
     state.status === "active" &&
     state.primaryEmail === email &&
     Array.isArray(state.authMethods) &&
@@ -523,68 +413,16 @@ function matchesUser(value: unknown, actor: AdminQaActorFixtureDefinition, email
   );
 }
 function userNeedsAuthMethod(value: unknown): boolean {
-  const methods = (value as Record<string, unknown>).authMethods;
+  const methods = (value as Record<string, unknown> | undefined)?.authMethods;
   return Array.isArray(methods) && methods.length === 0;
 }
-function matchesMembership(value: unknown, actor: AdminQaActorFixtureDefinition): boolean {
+function matchesMembership(value: unknown, fixture: AdminQaActorFixtureDefinition): boolean {
   const state = value as Record<string, unknown>;
   return (
-    state.id === actor.membershipId &&
-    state.userId === actor.userId &&
-    state.accountId === actor.accountId &&
-    state.roleKey === actor.roleKey &&
+    state.id === fixture.membershipId &&
+    state.userId === fixture.userId &&
+    state.accountId === fixture.accountId &&
+    state.roleKey === fixture.roleKey &&
     state.status === "active"
-  );
-}
-function matchesConsent(value: unknown, actor: AdminQaActorFixtureDefinition): boolean {
-  const state = value as Record<string, unknown>;
-  return (
-    state.id === actor.consentId &&
-    state.userId === actor.userId &&
-    state.accountId === actor.accountId &&
-    state.subjectType === "user" &&
-    state.status === "recorded" &&
-    state.policyKey === "terms-of-service"
-  );
-}
-function matchesSecondaryAccount(value: unknown, id: string): boolean {
-  const state = value as Record<string, unknown>;
-  return (
-    state.id === id &&
-    state.name === "Admin QA Viewer Secondary" &&
-    state.displayName === "Admin QA Viewer Secondary" &&
-    state.accountType === "business" &&
-    state.status === "active"
-  );
-}
-function matchesSecondaryMembership(
-  value: unknown,
-  actor: AdminQaActorFixtureDefinition,
-  accountId: string,
-  membershipId: string,
-): boolean {
-  const state = value as Record<string, unknown>;
-  return (
-    state.id === membershipId &&
-    state.userId === actor.userId &&
-    state.accountId === accountId &&
-    state.roleKey === "viewer" &&
-    state.status === "active"
-  );
-}
-function matchesSecondaryConsent(
-  value: unknown,
-  actor: AdminQaActorFixtureDefinition,
-  accountId: string,
-  consentId: string,
-): boolean {
-  const state = value as Record<string, unknown>;
-  return (
-    state.id === consentId &&
-    state.userId === actor.userId &&
-    state.accountId === accountId &&
-    state.subjectType === "user" &&
-    state.status === "recorded" &&
-    state.policyKey === "terms-of-service"
   );
 }
