@@ -71,7 +71,7 @@ export function createImportResolutionAttentionSourceFromReadModel(db: PgQueryab
       }>(
         `SELECT
            batch.batch_id,
-           batch.source_filename,
+           NULL::text AS source_filename,
            COUNT(*)::integer AS unresolved_count,
            MIN(row.updated_at) AS observed_at
          FROM inventory_import_batches AS batch
@@ -79,7 +79,7 @@ export function createImportResolutionAttentionSourceFromReadModel(db: PgQueryab
            ON row.batch_id = batch.batch_id
          WHERE batch.account_id = $1
            AND ${importResolutionRowPredicateSql}
-         GROUP BY batch.batch_id, batch.source_filename
+         GROUP BY batch.batch_id
          ORDER BY MIN(row.updated_at) ASC, batch.batch_id ASC`,
         [context.accountId],
       );
