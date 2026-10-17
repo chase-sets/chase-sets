@@ -72,6 +72,18 @@ describe("issue-7169-c3-upload-recovery: real upload form", () => {
     expect(inventoryApi.getMutationAttempt).toHaveBeenCalledExactlyOnceWith(id);
   });
 
+  it("confirms unresolved metadata again after a provider remount instead of remaining confirming", async () => {
+    const id = createInventoryMutationRecovery(authority, "import-create", sessionStorage).begin("draft");
+    const first = view();
+    await waitFor(() => expect(statusContaining("uncertain").textContent).toContain("uncertain"));
+    first.unmount();
+    view();
+    await waitFor(() => expect(statusContaining("uncertain").textContent).toContain("uncertain"));
+    expect(inventoryApi.getMutationAttempt).toHaveBeenNthCalledWith(1, id);
+    expect(inventoryApi.getMutationAttempt).toHaveBeenNthCalledWith(2, id);
+    expect(screen.getByRole("button", { name: "Validate import" }).matches(":disabled")).toBe(true);
+  });
+
   it("refuses before sending when bounded recovery metadata cannot be persisted", async () => {
     const rendered = view();
     await waitFor(() =>

@@ -78,6 +78,7 @@ export function registerImportRecoveryBrowserTests(
       test(`restored upload ${recovery} is read-only, focused and responsive`, async ({ page }, testInfo) => {
         await signIn(page, String(testInfo.project.use.baseURL));
         await page.goto("/account/inventory/imports");
+        await expect(page.getByRole("button", { name: "Validate import", exact: true })).toBeEnabled();
         const attemptId = randomUUID();
         await page.evaluate(
           ({ attemptId, recovery, accountId, userId }) => {

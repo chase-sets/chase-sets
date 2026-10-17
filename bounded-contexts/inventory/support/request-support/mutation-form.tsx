@@ -20,21 +20,6 @@ const families: readonly InventoryMutationFamily[] = [
 ];
 
 type Controller = ReturnType<typeof createInventoryMutationRecovery>;
-const AUTOMATIC_CONFIRMATION_TTL_MS = 5_000;
-const AUTOMATIC_CONFIRMATION_STORAGE_KEY_PREFIX = "inventory-mutation/v1:";
-
-function recentlyAutomaticallyConfirmed(attemptId: string) {
-  try {
-    const previous = Number(window.localStorage.getItem(`${AUTOMATIC_CONFIRMATION_STORAGE_KEY_PREFIX}${attemptId}`));
-    if (Number.isFinite(previous) && Date.now() - previous < AUTOMATIC_CONFIRMATION_TTL_MS) return true;
-    window.localStorage.setItem(`${AUTOMATIC_CONFIRMATION_STORAGE_KEY_PREFIX}${attemptId}`, String(Date.now()));
-    return false;
-  } catch {
-    // Recovery remains fail-safe if browser storage is unavailable.
-  }
-  return false;
-}
-
 const RecoveryContext = createContext<Readonly<{
   controllers: ReadonlyMap<InventoryMutationFamily, Controller>;
   changed: () => void;
@@ -56,13 +41,7 @@ export function InventoryMutationProvider({
   const wasNavigating = useRef(false);
   const changed = () => render((value) => value + 1);
   const confirmAutomatically = (controller: Controller) => {
-    const attemptId = controller.snapshot().record?.attemptId;
-    if (!attemptId || recentlyAutomaticallyConfirmed(attemptId)) return;
-    void controller
-      .confirm((id) => inventoryApi.getMutationAttempt(id))
-      .then(() => {
-        changed();
-      });
+    void controller.confirm((id) => inventoryApi.getMutationAttempt(id)).then(changed);
   };
   useEffect(() => {
     try {

@@ -321,14 +321,12 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "inventory-mutation/v1:*",
     evidenceRefs: [
-      "bounded-contexts/inventory/support/request-support/mutation-form.tsx:28",
-      "bounded-contexts/inventory/support/request-support/mutation-form.tsx:30",
       "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:83",
       "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:87",
       "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:92",
     ],
     factualSummary:
-      "Inventory recovery reads, writes, and removes storage entries in the inventory-mutation/v1: key family through an injected Storage seam, while the mutation form uses browser localStorage in that family for a short-lived automatic-confirmation timestamp. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
+      "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["inventory-mutation/v1:"] }],
   },
   {
