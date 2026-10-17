@@ -271,7 +271,7 @@ function buildContext(repoRoot, context) {
 export function evaluateReleaseQualificationApplicability({
   repoRoot = process.cwd(),
   rootPath,
-  
+
   applicability,
   files = {},
   readFile = null,
@@ -378,4 +378,3 @@ export function evaluateReleaseQualificationApplicability({
     }));
   return result(codes.size === 0, [...codes], graph);
 }
-
