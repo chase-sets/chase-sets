@@ -329,8 +329,8 @@ describe("platform worker projection wake interest graph", () => {
     expect(
       fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
     ).toEqual({
-      count: 256,
-      sha256: "e1bcbbdfdf0765defa95110a7a333e19ffc36cb35b103d878cb83ceda8d9e544",
+      count: 258,
+      sha256: "0c55630437c3f073cc44b09ddbcf96edf1b8fdcc5af391f058fbc7706e95c06e",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -358,8 +358,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 256,
-      sha256: "544736446622d626972c650b5cc91480122777629388fbdf31e0172cde26994b",
+      count: 258,
+      sha256: "aa470f9bd579fa5bae87272d5b17677dee4ecce6be2273f4de919cf491bc4e79",
     });
     expect(
       fingerprint(
@@ -369,22 +369,22 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 159,
-      sha256: "c3e7699411661926a03f1e2be17800ce8b8c750907a844abf49ef6feb7749bb5",
+      count: 161,
+      sha256: "b2c991882ddb067f02c8beb0c63f1430ad094b605f462b9f4488767693dce031",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 159,
-      sha256: "ee3830e0000be54e6c457eef282d01afdb88d79cb3b55fef0ca41bcb777e15d7",
+      count: 161,
+      sha256: "283b9181e9fc13c073b63a524c2b7ab4005838164be58af990668d7d8f0018c1",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 256,
-      sha256: "36b8c77302ef82d50a7d8dd2bb4426ae9cb720a16d8b45d4aacd31a1cc70e9d0",
+      count: 258,
+      sha256: "e3e9eac6fe33112bda5492bc0a11f349180e453826fca95784595d3b491458bc",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 123,
+      distinctNames: 125,
       distinctSharedNames: 21,
       runnersUsingSharedNames: 57,
     });
