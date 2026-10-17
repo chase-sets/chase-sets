@@ -157,12 +157,18 @@ BEGIN
   END LOOP;
 END $migration$`;
 
+const reconciliationIndexes = [
+  "CREATE INDEX IF NOT EXISTS channel_sync_runs_applied_idx ON channel_sync_runs (connection_id,sequence DESC,run_id) WHERE state='applied'",
+  "CREATE INDEX IF NOT EXISTS channel_sync_run_listing_idx ON channel_sync_run_rows (channel_listing_id,run_id) WHERE member_kind<>'refused'",
+] as const;
+
 export const tcgplayerCsvSchemaSql = `
 ${createChannelExportSchemaPinsSql};
 ${createChannelInventorySnapshotsSql};
 ${createChannelInventorySnapshotRowsSql};
 ${createChannelSyncRunsSql};
 ${createChannelSyncRunRowsSql};
+${reconciliationIndexes.join(";\n")};
 
 CREATE INDEX IF NOT EXISTS channel_inventory_snapshot_rows_latest_idx
   ON channel_inventory_snapshot_rows (connection_id, surface, snapshot_generation DESC, snapshot_id DESC);
@@ -190,5 +196,10 @@ export const tcgplayerCsvSchemaMigrations: readonly BcSchemaMigration[] = [
     migrationId: "20261010_channels_live_export_snapshot",
     description: "Admit connector-captured capture instants without rewriting existing snapshots.",
     statements: [widenCapturedAtSourceChecksSql, validateCapturedAtSourceChecksSql],
+  },
+  {
+    migrationId: "20261012_channels_claimed_reconciliation_membership",
+    description: "Bound applied listing membership reads for persisted reconciliation.",
+    statements: reconciliationIndexes.map((sql) => sql.replace("CREATE INDEX ", "CREATE INDEX CONCURRENTLY ")),
   },
 ];

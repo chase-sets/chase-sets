@@ -27,8 +27,8 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:989-1009; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:418-443; ${listingDomain}:551-583; ${listingDomain}:996-1025; ${listingRuntime}:1449-1494; ${currentQuoteEvidence}`;
+const currentQuoteEvidence = `${listingRuntime}:1006-1026; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const creationEvidence = `${listingDomain}:418-443; ${listingDomain}:551-583; ${listingDomain}:996-1025; ${listingRuntime}:1466-1511; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -91,8 +91,8 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         decisionRefs: [4068, 6798, 7101],
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
-          "bounded-contexts/identity/api.ts:815-827",
-          `${listingRuntime}:1813-1953`,
+          "bounded-contexts/identity/api.ts:869-881",
+          `${listingRuntime}:1830-1970`,
           `${feeLock}:106-180`,
         ],
         openQuestions: [
@@ -101,7 +101,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         assumptions: [
           {
             assertion: "Beta access starts the 60-day window independently of badge claim.",
-            evidenceRef: "bounded-contexts/identity/api.ts:815-827; bounded-contexts/identity/GLOSSARY.md:108-120",
+            evidenceRef: "bounded-contexts/identity/api.ts:869-881; bounded-contexts/identity/GLOSSARY.md:120-132",
           },
           {
             assertion:
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1813-1829; ${listingRuntime}:1830-1938; ${feeQuotes}:154-176; ${listingDomain}:758-766; ${feeLock}:106-135`,
+            evidenceRef: `${listingRuntime}:1830-1846; ${listingRuntime}:1847-1955; ${feeQuotes}:154-176; ${listingDomain}:758-766; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -127,7 +127,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:790-809; ${feeLock}:143-180; ${listingRuntime}:1941-1953; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:790-809; ${feeLock}:143-180; ${listingRuntime}:1958-1970; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",

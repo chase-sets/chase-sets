@@ -49,6 +49,17 @@ function buildApp(
   });
 }
 
+it("rejects raw message and token markers", async () => {
+  const marker = "Bearer synthetic-social-token-marker";
+  const services = createServices({ existingUser: null });
+  const app = buildApp(services);
+  const response = await app.request(`/social/tampered/callback?error=${encodeURIComponent(marker)}`);
+  const url = new URL(response.headers.get("Location")!, "https://marketplace.test");
+  expect(url.searchParams.get("socialLoginError")).toBe("unsupported_provider");
+  expect(url.toString()).not.toContain(marker);
+  expect([...url.searchParams.keys()]).toEqual(["socialLoginError"]);
+});
+
 function createServices(
   options: Readonly<{
     profile?: {

@@ -75,5 +75,5 @@ A **Trusted Checkout Handoff** is a Checkout-owned continuation URL that lets an
 
 Notes:
 
-- Trusted Checkout Handoff is required for UCP checkout completion unless a supported AP2 Mandate is verified.
+- UCP checkout completion returns a Trusted Checkout Handoff; the buyer confirms orders and payment in Chase Sets UI.
 - Checkout remains the owner of session state, source intent, shipping selection, and orchestration into Ordering and Payments.

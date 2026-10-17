@@ -277,6 +277,7 @@ function createSessionPageRow(
     order_write_commit_positions: [],
     payment_id: null,
     submitted_offer_id: null,
+    handoff_expires_at: null,
     created_at: "2026-06-09T00:00:00.000Z",
     updated_at: "2026-06-09T00:00:00.000Z",
     ...overrides,
@@ -982,6 +983,59 @@ describe("checkout session runtime", () => {
       expect(cart.listAuthorizedCartLines).not.toHaveBeenCalled();
     },
   );
+
+  it("AC6 refuses expired handoffs before orders, but orders and web sessions ignore the timer", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: createBuyNowReadinessDb(),
+      cart: createCartServices() as never,
+    });
+    const params = {
+      accountId: "acc_buyer" as never,
+      listingId: "lst_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      quantity: 1,
+      fulfillmentPreviewRevision: "ready",
+      createdAt: "2026-10-16T00:00:00Z",
+      handoffExpiresAt: "2026-10-16T06:00:00Z",
+    };
+    const created = await services.createBuyNow(params, context);
+    const key = { sessionId: created.sessionId, accountId: params.accountId };
+    await services.setShippingAddress({ ...key, shippingAddress: serviceableShippingAddress }, context);
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-16T05:59:00Z"));
+      await expect(services.assertReadyForOrderCreation(key)).resolves.toMatchObject({ order_ids: [] });
+      vi.setSystemTime(new Date("2026-10-16T06:00:00Z"));
+      const count = allEvents.length;
+      await expect(services.assertReadyForOrderCreation(key)).rejects.toMatchObject({ code: "checkout_expired" });
+      await expect(services.recordOrdersCreated({ ...key, orderIds: ["ord_late"] }, context)).rejects.toMatchObject({
+        code: "checkout_expired",
+      });
+      expect(allEvents).toHaveLength(count);
+      vi.setSystemTime(new Date("2026-10-16T05:59:00Z"));
+      await services.recordOrdersCreated({ ...key, orderIds: ["ord_live"] }, context);
+      vi.setSystemTime(new Date("2026-10-16T07:00:00Z"));
+      await expect(services.assertReadyForOrderCreation(key)).resolves.toMatchObject({ order_ids: ["ord_live"] });
+      const web = await services.createBuyNow({ ...params, handoffExpiresAt: null }, context);
+      await services.setShippingAddress(
+        { sessionId: web.sessionId, accountId: params.accountId, shippingAddress: serviceableShippingAddress },
+        context,
+      );
+      await expect(
+        services.assertReadyForOrderCreation({ sessionId: web.sessionId, accountId: params.accountId }),
+      ).resolves.toMatchObject({ handoff_expires_at: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("can update a just-created Buy Now session before checkout_session_pages has projected it", async () => {
     const { eventStore } = createInMemoryEventStore();

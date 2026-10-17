@@ -310,6 +310,11 @@ describe("admin web section layouts", () => {
         });
         return Response.json({
           preferences: {
+            density: "comfortable",
+            reducedMotion: "user",
+            locale: "en",
+            timeZone: "UTC",
+            userId: allSectionsActor.userId,
             colorMode: "light",
           },
         });

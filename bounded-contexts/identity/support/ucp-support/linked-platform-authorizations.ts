@@ -1,4 +1,5 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { withDormantAgentGrantWrite } from "../../features/agent-grants/api/revocation-release";
 
 export const identityLinkedPlatformAuthorizationSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_linked_platform_authorizations (
@@ -76,6 +77,11 @@ export type LinkedPlatformAuthorizationStore = Readonly<{
   ) => Promise<LinkedPlatformAuthorizationRow>;
   resolveAccessToken: (accessTokenHash: string) => Promise<LinkedPlatformAuthorizationRow | null>;
   resolveToken: (tokenHash: string) => Promise<LinkedPlatformAuthorizationRow | null>;
+  resolveRevocationToken: (tokenHash: string) => Promise<LinkedPlatformAuthorizationRow | null>;
+  revokeToken: (tokenHash: string, revokedAt: string) => Promise<boolean>;
+  revokeAuthorization: (
+    params: Readonly<{ authorizationId: string; accountId: string; revokedAt: string; reason?: string | null }>,
+  ) => Promise<boolean>;
   rotateRefreshToken: (
     params: Readonly<{
       refreshTokenHash: string;
@@ -86,19 +92,10 @@ export type LinkedPlatformAuthorizationStore = Readonly<{
       refreshedAt: string;
     }>,
   ) => Promise<LinkedPlatformAuthorizationRow | null>;
-  revokeToken: (tokenHash: string, revokedAt: string) => Promise<boolean>;
-  revokeAuthorization: (
-    params: Readonly<{
-      authorizationId: string;
-      accountId: string;
-      revokedAt: string;
-      reason?: string | null;
-    }>,
-  ) => Promise<boolean>;
   listForAccount: (accountId: string) => Promise<readonly LinkedPlatformAuthorizationRow[]>;
 }>;
 
-export function createLinkedPlatformAuthorizationStore(db: PgQueryable): LinkedPlatformAuthorizationStore {
+export function createLinkedPlatformAuthorizationStore(db: PgTransactionalPool): LinkedPlatformAuthorizationStore {
   return {
     grant: async (params) => {
       const result = await db.query<LinkedPlatformAuthorizationRow>(
@@ -175,6 +172,14 @@ export function createLinkedPlatformAuthorizationStore(db: PgQueryable): LinkedP
       );
       return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
     },
+    resolveRevocationToken: async (tokenHash) => {
+      const result = await db.query<LinkedPlatformAuthorizationRow>(
+        `SELECT * FROM identity_linked_platform_authorizations
+         WHERE access_token_hash = $1 OR refresh_token_hash = $1 LIMIT 1`,
+        [tokenHash],
+      );
+      return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
+    },
     rotateRefreshToken: async (params) => {
       const result = await db.query<LinkedPlatformAuthorizationRow>(
         `UPDATE identity_linked_platform_authorizations
@@ -201,33 +206,27 @@ export function createLinkedPlatformAuthorizationStore(db: PgQueryable): LinkedP
       );
       return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
     },
-    revokeToken: async (tokenHash, revokedAt) => {
-      const result = await db.query(
-        `UPDATE identity_linked_platform_authorizations
-         SET status = 'revoked',
-             revoked_at = $2::timestamptz,
-             revocation_reason = COALESCE(revocation_reason, 'token_revocation'),
-             updated_at = now()
-         WHERE status = 'active'
-           AND (access_token_hash = $1 OR refresh_token_hash = $1)`,
-        [tokenHash, revokedAt],
-      );
-      return (result.rowCount ?? 0) > 0;
-    },
-    revokeAuthorization: async (params) => {
-      const result = await db.query(
-        `UPDATE identity_linked_platform_authorizations
-         SET status = 'revoked',
-             revoked_at = $3::timestamptz,
-             revocation_reason = $4,
-             updated_at = now()
-         WHERE authorization_id = $1
-           AND account_id = $2
-           AND status = 'active'`,
-        [params.authorizationId, params.accountId, params.revokedAt, params.reason ?? "account_consent_revoked"],
-      );
-      return (result.rowCount ?? 0) > 0;
-    },
+    revokeToken: (tokenHash, revokedAt) =>
+      withDormantAgentGrantWrite(db, async (db) => {
+        const result = await db.query(
+          `UPDATE identity_linked_platform_authorizations
+         SET status = 'revoked', revoked_at = $2::timestamptz,
+             revocation_reason = COALESCE(revocation_reason, 'token_revocation'), updated_at = now()
+         WHERE status = 'active' AND (access_token_hash = $1 OR refresh_token_hash = $1)`,
+          [tokenHash, revokedAt],
+        );
+        return (result.rowCount ?? 0) > 0;
+      }),
+    revokeAuthorization: (params) =>
+      withDormantAgentGrantWrite(db, async (db) => {
+        const result = await db.query(
+          `UPDATE identity_linked_platform_authorizations
+         SET status = 'revoked', revoked_at = $3::timestamptz, revocation_reason = $4, updated_at = now()
+         WHERE authorization_id = $1 AND account_id = $2 AND status = 'active'`,
+          [params.authorizationId, params.accountId, params.revokedAt, params.reason ?? "account_consent_revoked"],
+        );
+        return (result.rowCount ?? 0) > 0;
+      }),
     listForAccount: async (accountId) => {
       const result = await db.query<LinkedPlatformAuthorizationRow>(
         `SELECT *

@@ -44,12 +44,10 @@ export interface OfferMatchListItem extends MarketplaceOffer {
 
 export interface OfferMatchDetail extends OfferMatchListItem {}
 
-export interface OfferBuyerMute {
-  seller_account_id: string;
-  buyer_account_id: string;
-  buyer_display_name: string | null;
-  listing_id: string;
-  product_id: string;
-  muted_at: string;
-  updated_at: string;
-}
+export type SubmittedOfferStatus = "submitted" | "paused" | "withdrawn" | "accepted";
+export type SubmittedOfferStatusFilter = "all" | SubmittedOfferStatus;
+export type SubmittedOfferStatusCounts = Readonly<Record<SubmittedOfferStatus, number>>;
+export type SubmittedOfferLifecycleAction = "pause" | "resume" | "withdraw";
+export type SubmittedOfferLifecycleOutcome =
+  | Readonly<{ offerId: string; outcome: "changed" | "unchanged"; status: string; version: number }>
+  | Readonly<{ offerId: string; outcome: "rejected"; code: string }>;

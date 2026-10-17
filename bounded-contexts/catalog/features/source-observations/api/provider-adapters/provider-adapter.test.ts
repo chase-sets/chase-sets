@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 import type {
   CatalogIntegrationUnitDescriptor,
@@ -15,6 +16,7 @@ import {
 } from "./reference-cards";
 import {
   createMtgjsonValidationProviderAdapter,
+  createMtgjsonProviderAdapter,
   MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
   MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
   runMtgjsonSourceObservationValidationDryRun,
@@ -71,6 +73,172 @@ import type {
   TcgplayerAutomationProductDetail,
 } from "../providers/tcgplayer-automation-catalog-client";
 import { tcgplayerAutomationResponseFixtures } from "../providers/tcgplayer-automation-response-fixtures.test-data";
+import { createSourceObservationProviderImportRuntime } from "../source-observation-provider-import-runtime";
+import { createIntegrationJobClaimHandoffHarness } from "../seeding/runtime-test-harness";
+import type { CatalogItemServices } from "../../../catalog-items/api/runtime";
+import { listAcceptedProviderScopeMappingsByScopeRecord } from "../../../provider-scope-mapping/read-model/queries";
+import type { ProviderScopeMappingRow } from "../../../provider-scope-mapping/read-model/queries";
+import {
+  catalogSyncAcceptedScopeMappingFromRow,
+  previewCatalogSyncProviderParticipation,
+} from "../providers/catalog-sync-scope-planner";
+
+describe("MTGJSON coordinate compatibility and refusal", () => {
+  const unitKeys = [MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY, MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY];
+
+  it.each(unitKeys)("preserves explicit aliases and whole-set execution parity for %s", async (unitKey) => {
+    const deniedFetch = vi.fn<typeof fetch>(async () => {
+      throw new Error("Live fetch denied.");
+    });
+    const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
+    const fixtureAdapter = createMtgjsonValidationProviderAdapter();
+    const {
+      items: [option],
+    } = await fixtureAdapter.listOptions({ unitKey, optionKind: "sets" });
+    expect(option).toMatchObject({ value: "TSP", label: "Time Spiral" });
+    const version = getActiveCatalogProviderIntegrationProfileVersion("mtgjson", {
+      profileKey:
+        unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "mtg-set-reference-data" : "mtg-card-reference-data",
+    })!;
+    const harness = createIntegrationJobClaimHandoffHarness();
+    const unused = vi.fn(async () => {
+      throw new Error("Import side effects denied.");
+    });
+    const runtime = createSourceObservationProviderImportRuntime({
+      deps: harness.deps,
+      items: {} as CatalogItemServices,
+      referenceData: harness.referenceData,
+      aliasCandidateSink: unused,
+      commandHandler: unused,
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+      mergeCandidates: {
+        persistCatalogMergeCandidatesFromObservations: unused,
+        sourceObservationRecordToCandidateRow: () => {
+          throw new Error("Import side effects denied.");
+        },
+      },
+    });
+    const [target] = await runtime.resolveProviderAdapterImportTargets(
+      {
+        provider: "mtgjson",
+        ingestionUnitKey: unitKey,
+        setName: option!.value,
+      },
+      version,
+    );
+    const executionPlan = await adapter.planImport({ unitKey, scopeKey: target!.scopeKey, values: target!.values });
+    const expectedKey =
+      unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "mtgjson:set:TSP" : "mtgjson:cards:set:TSP";
+    const executionPayloads = await collectPayloads(fixtureAdapter.fetchPayloads(executionPlan));
+    expect(executionPayloads).toHaveLength(1);
+    expect(executionPayloads[0]?.payload.kind).toBe(
+      unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "set-reference" : "single-card",
+    );
+
+    const coordinateInputs: Readonly<Record<string, string>>[] = [
+      { setCode: "TSP" },
+      { code: "TSP" },
+      { setName: option!.value },
+      { setCode: " TSP ", code: "NOT_THE_CODE", setName: "Not the option value" },
+      { code: " TSP ", setName: "Not the option value" },
+    ];
+    for (const values of coordinateInputs) {
+      const plan = await adapter.planImport({ unitKey, scopeKey: "set-name", values });
+      expect(plan).toMatchObject({ planKey: expectedKey, scope: { scopeKey: "set", values: { setCode: "TSP" } } });
+      expect(plan.scope.values.cardName).toBeUndefined();
+      expect(plan.scope.values.uuid).toBeUndefined();
+      expect(await collectPayloads(fixtureAdapter.fetchPayloads(plan))).toEqual(executionPayloads);
+    }
+    const singleCardPlan = await adapter.planImport({
+      unitKey,
+      scopeKey: "single-card",
+      values: {
+        setCode: "TSP",
+        code: "OTHER",
+        setName: "Other",
+        cardName: "Fury Sliver",
+        collectorNumber: "157",
+      },
+    });
+    expect(singleCardPlan.planKey).toBe(
+      unitKey === MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY ? "mtgjson:set:TSP" : "mtgjson:card:TSP:Fury Sliver:157",
+    );
+    expect(deniedFetch).not.toHaveBeenCalled();
+    expect(unused).not.toHaveBeenCalled();
+  });
+
+  it.each(unitKeys)("refuses absent and blank coordinates without alias fallthrough for %s", async (unitKey) => {
+    const deniedFetch = vi.fn<typeof fetch>(async () => {
+      throw new Error("Live fetch denied.");
+    });
+    const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
+    const coordinateInputs: Readonly<Record<string, string>>[] = [
+      {},
+      { setId: "TSP" },
+      { name: "Time Spiral" },
+      { setName: " " },
+      { setCode: "" },
+      { code: " " },
+      { setCode: " ", code: "TSP", setName: "TSP" },
+      { code: "", setName: "TSP" },
+    ];
+    for (const values of coordinateInputs) {
+      await expect(adapter.planImport({ unitKey, scopeKey: "set-name", values })).rejects.toThrow(
+        "MTGJSON import planning requires setCode.",
+      );
+    }
+    expect(deniedFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["absent", "rejected", "revoked", "proposed"])(
+    "does not substitute the canonical TSP id for a %s mapping",
+    async (status) => {
+      const unitKey = MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY;
+      const db: PgQueryable = {
+        async query<Row>(sql: string, values?: readonly unknown[]) {
+          expect(sql).toContain("review_status IN ('accepted', 'auto-accepted')");
+          expect(values).toEqual(["TSP"]);
+          const storedRows = status === "absent" ? [] : [{ review_status: status, set_name: "TSP" }];
+          return {
+            rows: storedRows.filter((row) => ["accepted", "auto-accepted"].includes(row.review_status)) as Row[],
+          };
+        },
+      };
+      const mappings: readonly ProviderScopeMappingRow[] = await listAcceptedProviderScopeMappingsByScopeRecord(
+        db,
+        "TSP",
+      );
+      const deniedFetch = vi.fn<typeof fetch>(async () => {
+        throw new Error("Live fetch denied.");
+      });
+      const adapter = createMtgjsonProviderAdapter({ fetch: deniedFetch });
+      const planImport = vi.spyOn(adapter, "planImport");
+      const version = getActiveCatalogProviderIntegrationProfileVersion("mtgjson", {
+        profileKey: "mtg-set-reference-data",
+      })!;
+      const preview = await previewCatalogSyncProviderParticipation({
+        scope: {
+          scopeVersion: "catalog-sync-scope-v2",
+          productDomain: "magic",
+          reference: { kind: "set", scopeRecordId: "TSP" },
+        },
+        acceptedScopeMappings: mappings.map(catalogSyncAcceptedScopeMappingFromRow),
+        providerProfileVersions: [version],
+        providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+      });
+      expect(preview.units).toEqual([
+        expect.objectContaining({
+          unitKey,
+          childExecutionScope: null,
+          eligibility: "ineligible",
+          blockers: [expect.objectContaining({ code: "provider-scope-mapping-missing" })],
+        }),
+      ]);
+      expect(planImport).not.toHaveBeenCalled();
+      expect(deniedFetch).not.toHaveBeenCalled();
+    },
+  );
+});
 
 type ReferenceCardPayload = Readonly<{
   providerCardId: string;

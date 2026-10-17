@@ -69,6 +69,7 @@ const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.enter.contact
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable",
 );
+const CHECKOUT_HANDOFF_EXPIRED_MESSAGE = t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description");
 const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
 const GUEST_SAVED_PAYMENT_UNAVAILABLE =
   "Saved payment methods are available after sign-in. Continue with card payment.";
@@ -543,6 +544,14 @@ function hasCommittedCheckoutSideEffects(session: CheckoutSessionForReviewedPrev
   );
 }
 
+function isExpiredCheckoutHandoff(session: CheckoutSessionForReviewedPreview, now: number) {
+  return (
+    !(Array.isArray(session.order_ids) && session.order_ids.length > 0) &&
+    typeof session.handoff_expires_at === "string" &&
+    Date.parse(session.handoff_expires_at) <= now
+  );
+}
+
 function requestWithoutReadAfterWrite(request: Request) {
   const url = new URL(request.url);
   const hadAfterWrite = url.searchParams.has("afterWrite");
@@ -724,6 +733,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (session.submitted_offer_id) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
   }
+  const expiredCheckout = isExpiredCheckoutHandoff(session, Date.now());
 
   const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
   const wallet =
@@ -736,7 +746,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
   const guestCheckoutContact = await loadGuestCheckoutContact(ancillaryRequest, actor);
-  const preparedPayment = session.payment_id ? await api.getCheckoutPaymentConfirmation(session.session_id) : null;
+  const preparedPayment =
+    !expiredCheckout && session.payment_id ? await api.getCheckoutPaymentConfirmation(session.session_id) : null;
   const paymentElementDefaultValues: PaymentElementDefaultValues | null = session.shipping_address?.email?.trim()
     ? {
         billingDetails: {
@@ -755,7 +766,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     : guestCheckoutContact?.contactEmail
       ? { billingDetails: { email: guestCheckoutContact.contactEmail } }
       : null;
-  const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(session);
+  const { fulfillmentPreview, previewError } = expiredCheckout
+    ? { fulfillmentPreview: null, previewError: null }
+    : await loadFulfillmentPreview(session);
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
     savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready")
@@ -763,13 +776,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready")?.payment_method_category;
   const selectedPaymentMethodCategory =
     searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
-  const paymentPreview = loadPaymentPreview(
-    actor,
-    fulfillmentPreview,
-    wallet,
-    selectedPaymentMethodCategory,
-    session.order_ids,
-  );
+  const paymentPreview = expiredCheckout
+    ? null
+    : loadPaymentPreview(actor, fulfillmentPreview, wallet, selectedPaymentMethodCategory, session.order_ids);
   const reservationUnavailableLines = loadReservationUnavailableLines(searchParams, session, fulfillmentPreview);
 
   return {
@@ -803,6 +812,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
     preparedPayment,
     paymentElementDefaultValues,
+    expiredCheckout,
   };
 }
 
@@ -893,6 +903,9 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
       const session =
         typeof readApi.getCheckoutSession === "function" ? await readApi.getCheckoutSession(params.sessionId) : null;
+      if (session && isExpiredCheckoutHandoff(session, Date.now())) {
+        return { code: "checkout_expired", error: CHECKOUT_HANDOFF_EXPIRED_MESSAGE };
+      }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
       const shippingOptionResult = hasCommittedSideEffects
         ? null
@@ -1058,6 +1071,7 @@ export default function CheckoutSessionRoute() {
 
   return (
     <CheckoutSessionPage
+      expiredCheckout={data.expiredCheckout}
       session={data.session}
       wallet={data.wallet}
       walletUnavailable={data.walletUnavailable}
@@ -1072,7 +1086,9 @@ export default function CheckoutSessionRoute() {
       canManageShippingAddresses={data.canManageShippingAddresses}
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}
-      errorMessage={actionData?.error ?? data.previewError ?? null}
+      errorMessage={
+        actionData?.error ?? (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ?? null
+      }
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
       autoResumePaymentStart={!actionData?.error && data.autoResumePaymentStart}

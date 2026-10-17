@@ -1,7 +1,7 @@
 # Pressure Test — adversarial plan review
 
-Run in a FRESH context (independent agent, different exact model instance than
-the planner — see model-routing). Input: the drafted milestone/epic/issues.
+Run in a fresh session (new agent, no planning context) on the row-8 routing pick,
+which may be the model that wrote the plan. Input: the drafted milestone/epic/issues.
 Never transfer evidence or a veto from a predecessor model version.
 
 Return `PASS`, `BLOCK_FIXABLE`, or `BLOCK_REPLAN`. Plain `BLOCK` is invalid.

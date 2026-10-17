@@ -2,6 +2,14 @@
   "schemaVersion": 1,
   "positions": [
     {
+      "path": "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "exempt-permanent",
+      "reason": "Atomic Invitation acceptance grants an existing User membership in an existing Account; any new personal identity was created through the Consent-bound registration owner.",
+      "composition": "invitation-acceptance"
+    },
+    {
       "path": "bounded-contexts/identity/api.ts",
       "command": "CreateAccount",
       "occurrences": 1,
@@ -94,6 +102,13 @@
       "occurrences": 5,
       "disposition": "test-fixture",
       "reason": "These fixtures drive the Membership decider directly to verify command-to-event behavior without a transport or registration subject."
+    },
+    {
+      "path": "bounded-contexts/identity/features/memberships/api/operator-authority.test.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This fixture grants platform-admin and owner memberships on an in-memory event store so the operator authority is checked against the real Membership aggregate."
     },
     {
       "path": "bounded-contexts/identity/features/memberships/domain/domain.ts",

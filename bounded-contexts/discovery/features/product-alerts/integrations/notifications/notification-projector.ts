@@ -2,6 +2,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { mapProductAlertMatchToNotification } from "./notification-intents";
 
 export const DISCOVERY_PRODUCT_ALERT_NOTIFICATION_PROJECTION = "discovery-product-alert-notification-projection";
@@ -71,10 +72,10 @@ function thresholdMatches(
     return false;
   }
 
-  const threshold = Number.parseFloat(alert.threshold_amount);
-  const price = Number.parseFloat(activity.price_amount);
+  const threshold = tryMoneyToCents(alert.threshold_amount);
+  const price = tryMoneyToCents(activity.price_amount);
 
-  if (!Number.isFinite(threshold) || !Number.isFinite(price)) {
+  if (threshold === null || price === null) {
     return false;
   }
 
@@ -183,6 +184,8 @@ export function buildProductAlertNotificationProjectionHandlers(
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.listing.auto-unlisted": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
+    "marketplace.listing.operator-unlisted": (event) =>
+      projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.listing.withdrawn": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.offer.submitted": (event) =>
@@ -191,7 +194,30 @@ export function buildProductAlertNotificationProjectionHandlers(
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.offer.accepted": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
+    "marketplace.offer.paused": (event) => projectOfferLifecycleActivity(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectOfferLifecycleActivity(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectOfferLifecycleActivity(db, event, "withdrawn"),
   };
+}
+
+/**
+ * Keeps Offer activity status current without entering the dispatch path, so
+ * Resume never reads as newly open demand and never sends a Product Alert.
+ */
+async function projectOfferLifecycleActivity(
+  db: PgQueryable,
+  event: TransportEvent,
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  await db.query(
+    `UPDATE discovery_product_alert_market_activity
+     SET status = $2,
+         source_stream_version = $3,
+         updated_at = $4
+     WHERE activity_id = $1
+       AND source_stream_version < $3`,
+    [String(event.data.offerId ?? ""), status, event.streamVersion, event.timing.recordedAt],
+  );
 }
 
 async function upsertMarketActivityFromEvent(
@@ -299,7 +325,11 @@ async function upsertMarketActivityFromEvent(
          WHERE activity_id = $1`,
         [activityId, event.timing.recordedAt],
       );
-    } else if (event.type === "marketplace.listing.paused" || event.type === "marketplace.listing.auto-unlisted") {
+    } else if (
+      event.type === "marketplace.listing.paused" ||
+      event.type === "marketplace.listing.auto-unlisted" ||
+      event.type === "marketplace.listing.operator-unlisted"
+    ) {
       await db.query(
         `UPDATE discovery_product_alert_market_activity
          SET status = 'paused',

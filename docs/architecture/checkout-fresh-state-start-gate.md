@@ -99,7 +99,7 @@ Guest sell checkout remains a product option, but signed-in sell was the lower-r
 | Guest account claim | Allowed as a post-confirmation or receipt recovery path only when #1118, #1129, and #1135 define recovery, communication, and account-history handoff. |
 | Seller payout setup | Settlement-owned readiness and provider-managed setup. Checkout may link to or embed setup only through #1113/#1121 contracts. |
 | Optimization savings | Allowed before checkout through #1117 when it is customer-safe, optional for valid allocations, and never resolved inside the checkout form. |
-| AP2/headless checkout | Not launch-ready by default. UCP flows use trusted UI handoff unless Payments has approved verifier/provider support. |
+| Headless agent checkout | Not launch-ready by default. UCP flows use trusted UI handoff unless the agent completes with the buyer's saved payment method under its spending mandate. |
 
 ## Change Review Gates
 

@@ -1,6 +1,7 @@
 import type { Economics, EconomicsFact, EconomicsScope, ResolveEconomicsRequest, SignedMoney } from "./contracts";
 import type { AcquisitionLotObservation, SaleObservation } from "./observations";
 import type { CostBasisFacts, CycleFacts, InventoryCostLot } from "./derivation";
+import type { SellerOverheadTerms } from "./overhead";
 
 export type EconomicsEvidenceSnapshot = Readonly<{
   acquisitions: readonly AcquisitionLotObservation[];
@@ -54,30 +55,49 @@ export type EconomicsResolver = Readonly<{
   resolve(request: ResolveEconomicsRequest): Promise<EconomicsResolution>;
 }>;
 
-export type EconomicsForPricingGoal = Readonly<{
-  availability: "resolved" | "unavailable";
-  reason: UnavailableEconomics["reason"] | null;
-  currency: string;
-  effectiveAt: string;
-  dailyReturnHurdle: EconomicsFact<number>;
-}>;
+/** Only resolved Economics carries the six effective overhead terms; an
+ * unavailable result has no fee value to copy. */
+export type EconomicsForPricingGoal =
+  | (Readonly<{
+      availability: "resolved";
+      reason: null;
+      currency: string;
+      effectiveAt: string;
+      dailyReturnHurdle: EconomicsFact<number>;
+    }> &
+      SellerOverheadTerms)
+  | Readonly<{
+      availability: "unavailable";
+      reason: UnavailableEconomics["reason"];
+      currency: string;
+      effectiveAt: string;
+      dailyReturnHurdle: EconomicsFact<number>;
+    }>;
 
 /** Pure goal-facing adapter: it copies already-resolved facts and never
  * derives fees, costs, or hurdles in the goal engine. */
 export function toEconomicsForPricingGoal(resolution: EconomicsResolution): EconomicsForPricingGoal {
-  return resolution.kind === "resolved"
-    ? {
-        availability: "resolved",
-        reason: null,
-        currency: resolution.economics.currency,
-        effectiveAt: resolution.economics.effectiveAt,
-        dailyReturnHurdle: resolution.economics.facts.dailyReturnHurdle,
-      }
-    : {
-        availability: "unavailable",
-        reason: resolution.reason,
-        currency: resolution.currency,
-        effectiveAt: resolution.effectiveAt,
-        dailyReturnHurdle: resolution.facts.dailyReturnHurdle,
-      };
+  if (resolution.kind === "resolved") {
+    const { facts } = resolution.economics;
+    return {
+      availability: "resolved",
+      reason: null,
+      currency: resolution.economics.currency,
+      effectiveAt: resolution.economics.effectiveAt,
+      dailyReturnHurdle: facts.dailyReturnHurdle,
+      platformFeeRelativeBps: facts.platformFeeRelativeBps.effectiveValue,
+      platformFeeFixedPerUnitAmount: facts.platformFeeFixedPerUnitAmount.effectiveValue,
+      platformFeeCapPerUnitAmount: facts.platformFeeCapPerUnitAmount.effectiveValue,
+      sellerHandlingRelativeBps: facts.sellerHandlingRelativeBps.effectiveValue,
+      sellerHandlingFixedPerUnitAmount: facts.sellerHandlingFixedPerUnitAmount.effectiveValue,
+      sellerHandlingCapPerUnitAmount: facts.sellerHandlingCapPerUnitAmount.effectiveValue,
+    };
+  }
+  return {
+    availability: "unavailable",
+    reason: resolution.reason,
+    currency: resolution.currency,
+    effectiveAt: resolution.effectiveAt,
+    dailyReturnHurdle: resolution.facts.dailyReturnHurdle,
+  };
 }

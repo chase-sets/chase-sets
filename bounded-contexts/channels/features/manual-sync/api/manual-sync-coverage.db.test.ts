@@ -73,6 +73,107 @@ describeDb("manual-sync-connector-coverage / manual-sync-coverage-composition", 
     expect(panel?.actions).toEqual([]);
   });
 
+  it.each([
+    { name: "no newer snapshot", uploadAttemptedAt: "2026-10-07T12:05:00.000Z", ingests: [], candidate: null },
+    {
+      name: "only a basis-equal snapshot ingested after the upload attempt",
+      uploadAttemptedAt: "2026-10-07T11:00:00.000Z",
+      ingests: [],
+      candidate: null,
+    },
+    {
+      name: "only a newer snapshot ingested before the upload attempt",
+      uploadAttemptedAt: "2026-10-07T12:05:00.000Z",
+      ingests: ["2026-10-07T12:04:59.999Z"],
+      candidate: null,
+    },
+    {
+      name: "a newer snapshot ingested exactly at the upload attempt",
+      uploadAttemptedAt: "2026-10-07T12:05:00.000Z",
+      ingests: ["2026-10-07T12:05:00.000Z"],
+      candidate: 2,
+    },
+    {
+      name: "the newest of several qualifying snapshots",
+      uploadAttemptedAt: "2026-10-07T12:05:00.000Z",
+      ingests: ["2026-10-07T12:04:00.000Z", "2026-10-07T12:06:00.000Z", "2026-10-07T12:07:00.000Z"],
+      candidate: 4,
+    },
+  ])("verify-candidate-selection: $name", async ({ uploadAttemptedAt, ingests, candidate }) => {
+    await h.enqueue("1001");
+    await h.db.query(
+      `INSERT INTO channels_external_product_reference_facts VALUES ('tcgplayer','sku:2001','catalog_1001','[]','','linked',now(),1)`,
+    );
+    const stagedCsv = "TCGplayer Id,Total Quantity,Add to Quantity,TCG Marketplace Price\n1001,0,0,1.00";
+    const ingest = async (at: string) => {
+      vi.setSystemTime(new Date(at));
+      const receipt = await h.services.manualSync.ingest({
+        ...target,
+        surface: "staged",
+        fileName: "staged.csv",
+        bytes: new TextEncoder().encode(stagedCsv),
+        capturedAt: at,
+        capturedAtSource: "operator-declared",
+      });
+      if (receipt.outcome.kind !== "ingested") throw new Error(`staged ingest refused: ${receipt.outcome.reason}`);
+      return receipt.outcome;
+    };
+    const basis = await ingest("2026-10-07T12:00:00.000Z");
+    const composed = (await h.services.manualSync.compose(target, transportContext)).run!;
+    expect(composed.basisSnapshotGeneration).toBe(basis.snapshotGeneration);
+    const fence = { ...target, runId: composed.runId };
+    const claimed = await h.services.manualSync.claimAndDownload(
+      { ...fence, expectedRevision: composed.revision },
+      transportContext,
+    );
+    const awaiting = await h.services.manualSync.recordUploadAttempt(
+      { ...fence, expectedRevision: claimed.run.revision, uploadAttemptedAt, fileName: claimed.fileName },
+      transportContext,
+    );
+    expect(awaiting.state).toBe("awaiting-verification");
+    const newer: { at: string; snapshotId: string; snapshotGeneration: number }[] = [];
+    for (const at of ingests) newer.push({ at, ...(await ingest(at)) });
+
+    const panel = await h.services.manualSync.readPanel(target);
+    expect(panel?.actions).toEqual(["ingest-staged", "verify"]);
+    const expected = newer.find((snapshot) => snapshot.snapshotGeneration === candidate);
+    expect(panel?.verificationCandidate).toEqual(
+      expected
+        ? {
+            snapshotId: expected.snapshotId,
+            snapshotGeneration: expected.snapshotGeneration,
+            parsedRowCount: 1,
+            capturedAt: expected.at,
+            ingestedAt: expected.at,
+          }
+        : null,
+    );
+    if (!panel?.verificationCandidate) return;
+    const verified = await h.services.manualSync.verify(
+      {
+        ...fence,
+        expectedRevision: awaiting.revision,
+        verificationSnapshotId: panel.verificationCandidate.snapshotId,
+        importSummary: {
+          fileName: claimed.fileName,
+          dateImportedText: "10/7/2026 12:08 PM",
+          numberOfProducts: 1,
+          recordedAt: "2026-10-07T12:08:00.000Z",
+        },
+      },
+      transportContext,
+    );
+    expect(verified.verificationSnapshotId).toBe(panel.verificationCandidate.snapshotId);
+    expect(["applied", "application-unknown"]).toContain(verified.state);
+    await expect(h.services.manualSync.readPanel(target)).resolves.toMatchObject({
+      actions: ["ingest-live", "ingest-staged", "compose"],
+      verificationCandidate: null,
+    });
+    await expect(h.services.manualSync.compose(target, transportContext)).rejects.toMatchObject({
+      code: "staged-basis-stale",
+    });
+  });
+
   it.each([false, true])(
     "real composed authority survives membership loss and admits both write-only kinds with pause=%s",
     async (paused) => {

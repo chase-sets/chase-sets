@@ -125,6 +125,7 @@ export {
   type ChannelDriftObservationV1,
   type ChannelDriftObservation,
   type ChannelObservedMaterial,
+  type ChannelSourceAuthority,
   type ClaimedChannelStateRead,
   type ChannelHealthObservationV1,
   type ChannelHealthObservationIdentity,
@@ -176,3 +177,5 @@ export {
   type EbayAccountDeletionConfiguration,
 } from "./features/ebay-account-deletion/domain/configuration";
 export { CHANNELS_EBAY_ACCOUNT_DELETION_PATH } from "./features/ebay-account-deletion/api/provider-webhook-paths";
+export type { EbayAccountDeletionServices } from "./features/ebay-account-deletion/api/runtime";
+export { createEbayReceiptExpiryRunner } from "./features/ebay-account-deletion/api/expiry-runner";

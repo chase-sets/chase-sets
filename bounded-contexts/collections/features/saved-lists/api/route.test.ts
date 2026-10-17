@@ -9,6 +9,13 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createSavedListRuntime } from "./runtime";
 import { createSavedListDiscoveryRuntime } from "./discovery-runtime";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { attachWriteConsistencyMiddleware } from "@chase-sets/bounded-context-runtime";
+import {
+  attachResponseMetadata,
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  decodeCommitReceipt,
+  getMutationResultCommandReceipt,
+} from "@chase-sets/http/responses";
 
 function additionApp(addProduct: ReturnType<typeof vi.fn>, recorder?: SavedListAnalyticsRecorder) {
   const app = new Hono<CollectionsApiEnv>();
@@ -20,6 +27,7 @@ function additionApp(addProduct: ReturnType<typeof vi.fn>, recorder?: SavedListA
     } as CollectionsApiEnv["Variables"]["context"]);
     await next();
   });
+  attachWriteConsistencyMiddleware(app, [{ mountPath: "/account" }], [], { enabled: false });
   app.route("/", createSavedListRoutes({ addProduct } as never, recorder));
   return app;
 }
@@ -115,13 +123,50 @@ describe("Saved List discovery routes", () => {
           sourceSurface: "search",
         }),
       });
+    const beforeFirst = store.allEvents.length;
     const first = await send(1, "new");
+    const firstEvents = store.allEvents.slice(beforeFirst);
+    const firstPosition = firstEvents.at(-1)!.globalPosition;
     expect(first.status, await first.clone().text()).toBe(200);
+    const firstBody = attachResponseMetadata(await first.json(), first);
+    expect(decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: firstEvents.map((event) => event.eventId),
+        maxGlobalPosition: firstPosition,
+      },
+    ]);
+    expect(first.headers.get("Chase-Sets-Commit-Position")).toBe(firstPosition);
+    expect(getMutationResultCommandReceipt(firstBody)).toMatchObject({
+      mode: "eventual",
+      commitPositions: decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)),
+    });
+    expect(first.headers.get("Chase-Sets-Consistency")).toBe("eventual");
+    expect(first.headers.get("Chase-Sets-Commit-Event-Ids")).toBe(
+      decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))?.[0]?.eventIds.join(","),
+    );
     expect(events.map((item) => item.event)).toEqual(["list_created", "product_added"]);
-    expect(Object.keys(await first.json()).sort()).toEqual(
+    expect(Object.keys(firstBody).sort()).toEqual(
       ["alreadyClaimed", "analyticsLabel", "command", "lineStatus", "listId", "title"].sort(),
     );
-    expect((await send(2)).status).toBe(200);
+    const beforeExisting = store.allEvents.length;
+    const existing = await send(2);
+    const existingEvents = store.allEvents.slice(beforeExisting);
+    const existingPosition = existingEvents.at(-1)!.globalPosition;
+    expect(existing.status).toBe(200);
+    expect(decodeCommitReceipt(existing.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: existingEvents.map((event) => event.eventId),
+        maxGlobalPosition: existingPosition,
+      },
+    ]);
+    expect(existing.headers.get("Chase-Sets-Commit-Position")).toBe(existingPosition);
+    expect(existing.headers.get("Chase-Sets-Consistency")).toBe("eventual");
+    expect(getMutationResultCommandReceipt(attachResponseMetadata(await existing.json(), existing))).toMatchObject({
+      mode: "eventual",
+      commitPositions: decodeCommitReceipt(existing.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)),
+    });
     expect(events.map((item) => item.event)).toEqual(["list_created", "product_added", "product_added"]);
     for (let index = 3; index <= 6; index += 1) {
       const before = events.length;
@@ -134,7 +179,11 @@ describe("Saved List discovery routes", () => {
     expect((await send(7, "existing", "slc_merge", 6)).status).toBe(200);
     expect(events.slice(beforeMerge).map((item) => item.event)).toEqual(["product_added"]);
     const beforeReplay = events.length;
-    expect((await send(5)).status).toBe(400);
+    const exactReplay = await send(5);
+    expect(exactReplay.status).toBe(200);
+    expect(exactReplay.headers.get("Chase-Sets-Commit-Receipt")).toBeNull();
+    expect(exactReplay.headers.get("Chase-Sets-Consistency")).toBeNull();
+    expect(await exactReplay.json()).toMatchObject({ command: { receipt: { replayed: true } } });
     expect(events).toHaveLength(beforeReplay);
     const beforeCreateReplay = events.length;
     expect((await send(8, "new", "slc_new_add_after_create_replay")).status).toBe(200);

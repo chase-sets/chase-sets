@@ -16,6 +16,7 @@ import {
   type SourceObservationState,
 } from "../domain/domain";
 import {
+  type CatalogMergeCandidateAppliedMode,
   type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateReviewSnapshot,
   type CatalogMergeCandidateState,
@@ -106,12 +107,18 @@ export const staticCatalogProviderIntegrationProfileVersions: CatalogProviderInt
     getActiveCatalogProviderIntegrationProfileVersion(providerKey, selector),
 };
 
+// Stable machine-readable cause of a failed promotion outcome, beside the
+// free-text reason. Absent when the failure has no classified cause.
+export const sourceObservationPromotionDiagnosticCodes = ["asset-processing-failed"] as const;
+export type SourceObservationPromotionDiagnosticCode = (typeof sourceObservationPromotionDiagnosticCodes)[number];
+
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
   status: "promoted" | "rejected" | "deferred" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
   referenceRecordId?: ReferenceRecordId | null;
   reason: string | null;
+  diagnosticCode?: SourceObservationPromotionDiagnosticCode;
 }>;
 
 export type BulkSourceObservationPromotionResult = Readonly<{
@@ -238,21 +245,43 @@ export const catalogMergeCandidateBulkJobKinds = ["merge-candidate-promote", "me
 
 export type CatalogMergeCandidateBulkJobKind = (typeof catalogMergeCandidateBulkJobKinds)[number];
 
+/**
+ * Scope promotion jobs that apply approved candidates. Persisted on the job
+ * payload and serialized on every job read; absence means a retained legacy
+ * job whose `promoted` outcomes recorded approval only.
+ */
+export const catalogMergeCandidatePromotionApplicationVersion = 1;
+
 export type CatalogMergeCandidateBulkJobPayload = Readonly<{
   scopeRecordId: string;
   reason: string;
+  promotionApplicationVersion?: typeof catalogMergeCandidatePromotionApplicationVersion;
 }>;
 
 export type CatalogMergeCandidateBulkWorkUnitPayload = Readonly<{
   candidateId: string;
 }>;
 
+/** Inner application failures a report can classify; anything else stays unclassified. */
+export type CatalogMergeCandidateApplicationDiagnosticCode = "asset-processing-failed";
+
 export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   candidateId: string;
   status: "promoted" | "deferred" | "skipped-not-eligible" | "failed";
-  /** The Catalog Item the promoted candidate targets; null when it creates a new item or was not promoted. */
+  /** Historical matched Catalog Item from the reviewed snapshot; never application authority. */
   catalogItemId: string | null;
   reason: string | null;
+  /**
+   * Version-1 promotion results only. A `promoted` result carries the completed
+   * application: the applied Catalog Item, the action actually taken, and the
+   * application identity (approval version and plan fingerprint) that lets
+   * readers count retries once. Every other status carries null.
+   */
+  appliedCatalogItemId?: string | null;
+  appliedMode?: CatalogMergeCandidateAppliedMode | null;
+  approvalVersion?: number | null;
+  planFingerprint?: string | null;
+  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
 }>;
 
 export type CatalogMergeCandidateBulkJobResult = Readonly<{
@@ -267,6 +296,8 @@ export type CatalogMergeCandidateBulkJobResult = Readonly<{
 export type CatalogMergeCandidateBulkJob = Readonly<{
   jobId: string;
   kind: CatalogMergeCandidateBulkJobKind;
+  /** 1 for jobs that apply approved candidates; null for defer jobs and retained legacy promotion jobs. */
+  promotionApplicationVersion: typeof catalogMergeCandidatePromotionApplicationVersion | null;
   scopeRecordId: string;
   reason: string;
   status: SourceObservationBulkJobStatus;

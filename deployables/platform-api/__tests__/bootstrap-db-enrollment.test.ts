@@ -1,10 +1,12 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type RunnerTestCase } from "vitest";
@@ -21,8 +23,24 @@ import {
   type BootstrapDbScheduleModel,
   type PlatformApiNonBootstrapDbCensus,
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
+import {
+  bindFrozenSourceToCapture,
+  canonicalJson,
+  checkBootstrapDbWorkloadFreshness,
+  createBootstrapDbWorkloadBaseline,
+  deriveBootstrapDbWorkload,
+  formatBootstrapDbWorkloadBaseline,
+  type BootstrapDbWorkloadBaseline,
+  type BootstrapDbWorkloadBinding,
+  type BootstrapDbWorkloadCaptureBinding,
+  type BootstrapDbWorkloadDerivation,
+} from "../scripts/db-enrollment-workload.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = join(testDirectory, "../../..");
+// Historical timing captures remain immutable. The current 68-case capture binds
+// all measured DB sources separately from this retained seed-command regression.
+const seedCommandSourceSha256 = "a4add82973906e499b2d9e0cd8dbd399d5187323b0c66acf5157df3b82f8f356";
 // Generate fixture code, not an environment read by this non-DB test module.
 const syntheticDatabaseUrlKey = ["TEST", "DATABASE", "URL"].join("_");
 const syntheticDatabaseUrlRead = `process.env.${syntheticDatabaseUrlKey}`;
@@ -487,6 +505,109 @@ function expectSharedScheduleEquivalence(
   expect(observed).toEqual(expected);
 }
 
+let liveWorkloadDerivation: Promise<BootstrapDbWorkloadDerivation> | undefined;
+
+function liveWorkload() {
+  liveWorkloadDerivation ??= deriveBootstrapDbWorkload({ repositoryRoot });
+  return liveWorkloadDerivation;
+}
+
+function readWorkloadBaseline(provenance: Readonly<Record<string, unknown>>): BootstrapDbWorkloadBaseline {
+  const fileName = `db-enrollment-workload-${String(provenance.runId)}.json`;
+  return JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as BootstrapDbWorkloadBaseline;
+}
+
+function sha256Of(bytes: string | Uint8Array) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function withBindings(
+  baseline: BootstrapDbWorkloadBaseline,
+  edit: (bindings: BootstrapDbWorkloadBinding[]) => BootstrapDbWorkloadBinding[],
+): BootstrapDbWorkloadBaseline {
+  const bindings = edit([...baseline.bindings]);
+  return { ...baseline, bindings, bindingsSha256: sha256Of(canonicalJson(bindings)) };
+}
+
+type WorkloadEdit = string | null | ((source: string) => string);
+
+function replaceOnce(from: string, to: string) {
+  return (source: string) => {
+    expect(source.split(from), from).toHaveLength(2);
+    return source.replace(from, to);
+  };
+}
+
+function editCase(
+  select: (call: ts.CallExpression) => boolean,
+  edit: (call: ts.CallExpression, source: string) => string,
+) {
+  return (source: string) => {
+    const { found } = caseCallExpressions(source);
+    const match = found.find(({ node }) => select(node));
+    expect(match).toBeDefined();
+    return edit(match!.node, source);
+  };
+}
+
+const editFirstCaseCallback = editCase(
+  (call) => Boolean(call.arguments[1] && ts.isArrowFunction(call.arguments[1]) && ts.isBlock(call.arguments[1].body)),
+  (call, source) => {
+    const body = (call.arguments[1] as ts.ArrowFunction).body;
+    const at = body.getStart() + 1;
+    return `${source.slice(0, at)}\n    expect(1).toBe(1);${source.slice(at)}`;
+  },
+);
+
+const editFirstCaseTimeout = editCase(
+  (call) => Boolean(call.arguments[2] && ts.isNumericLiteral(call.arguments[2])),
+  (call, source) => {
+    const timeout = call.arguments[2]!;
+    return `${source.slice(0, timeout.getStart())}240_000${source.slice(timeout.getEnd())}`;
+  },
+);
+
+/**
+ * A disposable view of this checkout with `edits` applied (`null` deletes).
+ * Directories on an edited path are real; every other entry links to the
+ * checkout, which is never written. Links are removed, not followed, on
+ * cleanup, and `.git` is absent, so derivation cannot lean on history.
+ */
+async function createWorkloadMirror(edits: Readonly<Record<string, WorkloadEdit>>): Promise<string> {
+  const mirror = await mkdtemp(join(tmpdir(), "db-enrollment-workload-"));
+  temporaryRoots.push(mirror);
+  const edited = Object.keys(edits);
+  async function populate(path: string) {
+    for (const name of await readdir(join(repositoryRoot, path))) {
+      const child = path ? `${path}/${name}` : name;
+      if (name === ".git" || child in edits) continue;
+      const source = join(repositoryRoot, child);
+      const target = join(mirror, child);
+      if (edited.some((editedPath) => editedPath.startsWith(`${child}/`))) {
+        await mkdir(target);
+        await populate(child);
+      } else if ((await stat(source)).isDirectory()) {
+        await symlink(source, target, "junction");
+      } else {
+        await copyFile(source, target);
+      }
+    }
+  }
+  await populate("");
+  for (const [path, edit] of Object.entries(edits)) {
+    const original = existsSync(join(repositoryRoot, path)) ? readFileSync(join(repositoryRoot, path), "utf8") : null;
+    if (edit === null) {
+      expect(original, path).not.toBeNull();
+      continue;
+    }
+    const content = typeof edit === "function" ? edit(original ?? "") : edit;
+    expect(content, path).not.toBe(original);
+    await mkdir(dirname(join(mirror, path)), { recursive: true });
+    await writeFile(join(mirror, path), content);
+  }
+  return mirror;
+}
+
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -710,7 +831,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "374325dddbce542465d9bb7620a937bc8655de347f697468a0bdb923fdca1852",
+      "54fbc3ccce1f42f9f92914e6be7c8e978ef1640dd9a7c6ec7168c280a6cfa1e0",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -778,20 +899,18 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(67);
+    expect(result.expectedCaseCount).toBe(68);
     expect(result.caseCount).toBe(result.expectedCaseCount);
     expect(result.fileCount).toBe(12);
-    expect(result.partitionUnitCount).toBe(2);
+    expect(result.partitionUnitCount).toBe(3);
   });
 
   it("preserves the complete frozen seed-command file and both separate case identities", () => {
     const fileName = "seed-command-full-pools.db.test.ts";
     const source = readFileSync(join(testDirectory, fileName));
-    expect(createHash("sha256").update(source).digest("hex")).toBe(
-      "21112a33cfbe069967b24c03321a5d35842519376128bae813836dbf4bf79bbe",
-    );
+    expect(createHash("sha256").update(source).digest("hex")).toBe(seedCommandSourceSha256);
     expect(deriveBootstrapDbCaseIdentities(fileName, source.toString()).map((testCase) => testCase.identity)).toEqual([
-      "68dfd0998ec22c33",
+      "0204be7639f55534",
       "9e7b99abfd2756ab",
     ]);
   });
@@ -1606,7 +1725,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(779_000);
   });
 
-  it("binds all 67 cases to the new capture and conservatively projects its complete measured workload", async () => {
+  it("preserves the immutable historical 67-case capture and its complete measured workload projection", async () => {
     const bytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-capture-37916297464.json"));
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(
       "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
@@ -1640,33 +1759,22 @@ describe("Platform API bootstrap DB enrollment", () => {
       maxWorkers: 3,
       laneMode: null,
     });
-    expect(bootstrapDbScheduleModel).toEqual(capture.model);
-    expect(platformApiNonBootstrapDbCensus.referenceRunId).toBe(capture.model.referenceRunId);
-    expect(platformApiNonBootstrapDbCensus.referenceJobId).toBe(capture.model.referenceJobId);
     expect(capture.files).toHaveLength(12);
     expect(capture.files.flatMap((file) => file.cases)).toHaveLength(67);
     for (const file of capture.files) {
-      const partition = bootstrapDbEnrollmentManifest[file.fileName]!;
-      expect(
-        createHash("sha256")
-          .update(readFileSync(join(testDirectory, file.fileName)))
-          .digest("hex"),
-      ).toBe(file.sourceSha256);
-      expect(partition.cases).toEqual(
-        file.cases.map((testCase) => ({
-          name: testCase.name,
-          identity: testCase.identity,
-          referenceDurationMs: Math.ceil(testCase.durationMs),
-        })),
-      );
+      for (const testCase of file.cases) {
+        expect(testCase.durationMs).toBeGreaterThan(0);
+        expect(testCase.referenceDurationMs).toBe(Math.ceil(testCase.durationMs));
+        expect(testCase.identity).toMatch(/^[0-9a-f]{16}$/);
+      }
     }
-    expect(bootstrapDbScheduleModel.testFileFixedCostMs).toBe(
+    expect(capture.model.testFileFixedCostMs).toBe(
       Math.ceil(Math.max(0, ...capture.files.map((file) => file.residualMs))),
     );
-    expect(bootstrapDbScheduleModel.executionUnitFixedCostMs).toBe(
+    expect(capture.model.executionUnitFixedCostMs).toBe(
       Math.ceil(Math.max(0, ...capture.measuredUnits.map((unit) => unit.residualMs))),
     );
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(
+    expect(capture.model.jobOverheadMs).toBe(
       Math.ceil(capture.jobWallMs - capture.measuredUnits.reduce((sum, unit) => sum + unit.observedDurationMs, 0)),
     );
     const fixture = await createShippedFixture(
@@ -1676,7 +1784,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         executionUnit: file.executionUnit,
         cases: file.cases.map((testCase, index) => ({ ...testCase, body: `  expect(${index}).toBe(${index});` })),
       })),
-      { model: acceptedTimingInputs() },
+      { model: capture.model },
     );
     const { schedule, violations } = runFixture(fixture);
     expect(violations).toEqual([
@@ -1690,16 +1798,1606 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(capture.jobWallMs);
   });
 
+  const measuredCaptures = [
+    {
+      label: "preserves the superseded 68-case capture and its measured workload projection",
+      current: false,
+      fileName: "bootstrap-db-capture-38478206964.json",
+      minimumUnitCount: 2,
+      fixtureSha256: "05d84e19977ab53d199fb2445613a9cc07bb86ffe2ef3f4af9a00a3c3fa2f0da",
+      unitProjections: [481486, 364765],
+      provenance: {
+        runId: "38478206964",
+        runAttempt: "1",
+        referenceJobId: 115574071589,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "3b41763494f165c6030278e976800d79bd132a87",
+        sourceBase: "a075c9f534862f412146c0ca2d870dd453b1f0e4",
+        captureParent: "a075c9f534862f412146c0ca2d870dd453b1f0e4",
+        artifactId: 11856152754,
+        artifactSha256: "f2783c89ff4c401f54cb5be2752bb103e3350c6950315328a33d3f25e7e5e54b",
+        sourceManifestSha256: "3ff9aaa0ff95865f677fb307d28d0278a9fe5187ee090e826942a5c38f697c56",
+        caseManifestSha256: "29598f9e830993dc9866e80f8108e641ac33d5ae097988bbe26b6322912fc09f",
+        commandsSha256: "da73890def17bdb3d5f54c802f27cbf0cd86f7b191cd1f16bc92415b97f380f9",
+        censusSha256: "de20ed8bbd70f4a3877cabff894778d2ab7c7ef129d6b8318bdc14c4d89396dd",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38491485544.json",
+      minimumUnitCount: 2,
+      fixtureSha256: "72d0d47bba93a9d5ba8b9acb23e8b3d01e570056b8974c90edd3bd4df56a2ef3",
+      unitProjections: [369695, 410108],
+      provenance: {
+        runId: "38491485544",
+        runAttempt: "1",
+        referenceJobId: 115617460502,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "4d98e441e9143cdeb02baebd426ca38fccdffebb",
+        sourceBase: "502100be6b87b7cda115498217af0e094e201087",
+        captureParent: "502100be6b87b7cda115498217af0e094e201087",
+        artifactId: 11862234069,
+        artifactSha256: "8f3806218e650167a427733b0af8c88bd98e17d1e87b2be34de28dcb812cfe70",
+        sourceManifestSha256: "1a0c8bb7b9246285e6d54d2be2ec06d06dc185102532f68236314596eaca758a",
+        caseManifestSha256: "03011b41a6a674420a496ccae92cb68d64ac14504c7d6756e4575dc1828492fe",
+        commandsSha256: "8751ac4f86520df16f8aabf15b7701e7d4412c994f91b6d41bf3bae273c07a2d",
+        censusSha256: "de20ed8bbd70f4a3877cabff894778d2ab7c7ef129d6b8318bdc14c4d89396dd",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38500650577.json",
+      minimumUnitCount: 3,
+      fixtureSha256: "b599f992fbf9e30508f4da081db91bf82acc5be1f6fc3f6954788a3442f87ff9",
+      unitProjections: [380876, 424006],
+      provenance: {
+        runId: "38500650577",
+        runAttempt: "1",
+        referenceJobId: 115646540742,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "4b8409f85a21b5c2a3064b44aff1a7fd771633fc",
+        sourceBase: "c4cac4e6d2e3fbb77635b61e51c817cb1d0d64b8",
+        captureParent: "c4cac4e6d2e3fbb77635b61e51c817cb1d0d64b8",
+        artifactId: 11866306484,
+        artifactSha256: "073766607d4ed679e80b74c0bd598e13d390e8c4c839b43a2bbd4eb5b8387fdd",
+        sourceManifestSha256: "e942c2885114632b71a5e3916cdfbd325162337b20bee0ec25325849ead74a72",
+        caseManifestSha256: "03011b41a6a674420a496ccae92cb68d64ac14504c7d6756e4575dc1828492fe",
+        commandsSha256: "8751ac4f86520df16f8aabf15b7701e7d4412c994f91b6d41bf3bae273c07a2d",
+        censusSha256: "de20ed8bbd70f4a3877cabff894778d2ab7c7ef129d6b8318bdc14c4d89396dd",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38517513534.json",
+      minimumUnitCount: 2,
+      fixtureSha256: "f81a54ff2d2d0e2b31ff5901872debf650b9115344189f49a4f2207e72cf273d",
+      unitProjections: [399568, 412372, 166253],
+      provenance: {
+        runId: "38517513534",
+        runAttempt: "1",
+        referenceJobId: 115699524339,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "977e2d11995b77795b856a9772ad7b584180e406",
+        sourceBase: "a74beda31e9cf8462c77c84b83d17ff5c60afc1d",
+        captureParent: "a74beda31e9cf8462c77c84b83d17ff5c60afc1d",
+        artifactId: 11873080908,
+        artifactSha256: "8c5a27f0a3112bc87abdf97cdbef2dbb45bb75af351cf734fe3caff8b7c12bfd",
+        sourceManifestSha256: "921c379b35ee2336a69b76803283068024a0b517e62b9c78de5aa4db4cf82262",
+        caseManifestSha256: "daab05f9c55696f6e9c86c967855d4cca43118928a14b7a7e14b5f86eeee717a",
+        commandsSha256: "7c9496ca70fb2946a57bd646c7dea587d6ad6e3d1c725ca74c5cf90897a20be2",
+        censusSha256: "bc6c57c87dace21ce934fe079ceceb2be644e35c6cef95d14f397361ab0ed64a",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38543786543.json",
+      fixtureSha256: "5be8f96982b2590a8c4986c943cd291503ba640cf3746493083e0afe1997fe61",
+      minimumUnitCount: 3,
+      unitProjections: [394829, 432242],
+      provenance: {
+        runId: "38543786543",
+        runAttempt: "1",
+        referenceJobId: 115784717746,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "bc9477d5a4a1f6d55d797318863d43108dc8f6a1",
+        sourceBase: "08e4c976243ac8b52f348143d84e91bd9292a30f",
+        captureParent: "08e4c976243ac8b52f348143d84e91bd9292a30f",
+        artifactId: 11883728740,
+        artifactSha256: "562bdf51fbdd0afc4cfb3384f0e9db75187d93ebf148a335f8d0f181294f1b61",
+        sourceManifestSha256: "1de20e2501e230fc49e5b6138c8e8f10c4034fd80d5efa1ad1908b3c4761ac37",
+        caseManifestSha256: "09a6ca6b585d1c18177b9251d0a77e8223089793d3c0ed79bc2beb826d1c116b",
+        commandsSha256: "c1a85539b4028bf4bf5c0e0306d1b7eb022c07fac039103022d3284c2d66052f",
+        censusSha256: "bc6c57c87dace21ce934fe079ceceb2be644e35c6cef95d14f397361ab0ed64a",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38584224978.json",
+      fixtureSha256: "2120235be5c3912314e136c393d1e926eb9db1b70e72103dc1a9b5fbe4712b7b",
+      minimumUnitCount: 2,
+      unitProjections: [392933, 406996, 164073],
+      provenance: {
+        runId: "38584224978",
+        runAttempt: "1",
+        referenceJobId: 115921775698,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "2ac384d4a61bd003d045c86e804215a0bdc3383f",
+        sourceBase: "11c6f5fdfad8bf73ca844c53fc6009d0a68a40fe",
+        captureParent: "11c6f5fdfad8bf73ca844c53fc6009d0a68a40fe",
+        artifactId: 11906216310,
+        artifactSha256: "aec7101f401d4c84eb43c30fcd061b4487eee20e8c4bebecfb21c4cc2808acc6",
+        sourceManifestSha256: "8340ca42c3c1998b7019e76ceca021dfda492d6288d68959dbd4b03f53c085d6",
+        caseManifestSha256: "3450b30df6078cce8de02e99c70164652da260ccd403a2c09535a83a3a3fcf77",
+        commandsSha256: "7c9496ca70fb2946a57bd646c7dea587d6ad6e3d1c725ca74c5cf90897a20be2",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38608022640.json",
+      fixtureSha256: "7de4540d87ad221c798e4d7086742a878f863af78f0e3b10820fe4c9fb22fbaa",
+      minimumUnitCount: 2,
+      unitProjections: [333277, 362245],
+      provenance: {
+        runId: "38608022640",
+        runAttempt: "1",
+        referenceJobId: 116003819646,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "1b6bd9551692c315ccf54f0207632ffdf23d7a89",
+        sourceBase: "ead4ebb9e8e78a5aeacb92edcc2c8e21dfd508e7",
+        captureParent: "ead4ebb9e8e78a5aeacb92edcc2c8e21dfd508e7",
+        artifactId: 11916893532,
+        artifactSha256: "74b58146a061b54863d2722bc5a9ba85679a3971d862317f05779946eae283a6",
+        sourceManifestSha256: "b3ecfcd039ee4178aa6a84649723e71b25320ff09ff82a94215fbb190c98855b",
+        caseManifestSha256: "09a6ca6b585d1c18177b9251d0a77e8223089793d3c0ed79bc2beb826d1c116b",
+        commandsSha256: "c1a85539b4028bf4bf5c0e0306d1b7eb022c07fac039103022d3284c2d66052f",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38641988070.json",
+      fixtureSha256: "2f2732a5b9d2047be5f698595e21d92f5912f4cf9881b190098f4fc46c1b9b41",
+      minimumUnitCount: 2,
+      unitProjections: [393101, 288780],
+      provenance: {
+        runId: "38641988070",
+        runAttempt: "1",
+        referenceJobId: 116119520455,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "e04bf62981772c43adb0eb6695261679df9f1bd1",
+        sourceBase: "49bc4171e6ac0d127d6e450c786053ee89b26a6f",
+        captureParent: "49bc4171e6ac0d127d6e450c786053ee89b26a6f",
+        artifactId: 11931177997,
+        artifactSha256: "1e1b11f7e988bea6f2f3c3aae0f836149231322301080c10600d8d42137559b8",
+        sourceManifestSha256: "402e5b9be707a31717c578867cee2d1d632ef5ef4d662b9a5fdd380a19bd679b",
+        caseManifestSha256: "558da64b638fde0dd4445d6ee1a5a6c44083de325d257fa9dcaa549220dfdbd7",
+        commandsSha256: "cb05dbb09f5432065a6e234ccc3fd500017b8c1d7472aba764359565a3ea144d",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38737899795.json",
+      fixtureSha256: "8a2dfde27091a8b33e557a99cbab9910f3ed75b9bc5f375a0e8a79d86aa4c5f2",
+      minimumUnitCount: 2,
+      unitProjections: [339401, 258505],
+      provenance: {
+        runId: "38737899795",
+        runAttempt: "1",
+        referenceJobId: 116431778262,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "fc4a11cc994c0ed7a56e511bca9a988b33c679da",
+        sourceBase: "100432d0d59fb1d2df7486313d1f1a4136311a1a",
+        captureParent: "100432d0d59fb1d2df7486313d1f1a4136311a1a",
+        artifactId: 11974764643,
+        artifactSha256: "a30d190fcbebd29ee8ec28c80c29d455452af745d18896bf6ad572790932b380",
+        sourceManifestSha256: "7dafda5d1bb0e0529a17e7850bcf4e1371ef397682ccc50aa973cf02a3310a77",
+        caseManifestSha256: "558da64b638fde0dd4445d6ee1a5a6c44083de325d257fa9dcaa549220dfdbd7",
+        commandsSha256: "cb05dbb09f5432065a6e234ccc3fd500017b8c1d7472aba764359565a3ea144d",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38804356099.json",
+      fixtureSha256: "ec0b832cecbb650d5240d3c42a9f7bc7a654c523b2754c413798daf53ae8bfec",
+      minimumUnitCount: 2,
+      unitProjections: [363545, 403099],
+      provenance: {
+        runId: "38804356099",
+        runAttempt: "1",
+        referenceJobId: 116661229774,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "ae95313278e2e38b541f5fc8b0a311afc076d4e9",
+        sourceBase: "eddd19e3a75d396a0bf66dea15750c0c2ce3a69e",
+        captureParent: "eddd19e3a75d396a0bf66dea15750c0c2ce3a69e",
+        artifactId: 12006597022,
+        artifactSha256: "0ed946d685e439f442a069952de68ccc8d8627b1a9ecc1f61c3feede111275b0",
+        sourceManifestSha256: "3916c219f3e4a5a0cda60d5ffc1656fe034662abd0d10878fd1f7871df336f9d",
+        caseManifestSha256: "438ad72cf3f74e68051ed3367ac29a39bca08accaa7c0fc59c047d67c5e3e880",
+        commandsSha256: "60845b58f8508707b517952b3d7fbc0bf8f086210ca4d27df75379fb50bb449c",
+        censusSha256: "193f894116a13a1a1d48262775a877ffec00f2069a04167e673cbd928dc3571c",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: false,
+      fileName: "bootstrap-db-capture-38958136653.json",
+      fixtureSha256: "dd46d96c5bb35dbc0256ef8e975bf69915627b785c076728d3b46f4fa822b097",
+      minimumUnitCount: 3,
+      unitProjections: [319085, 258071, 234445],
+      provenance: {
+        runId: "38958136653",
+        runAttempt: "1",
+        referenceJobId: 117166086217,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "3f7cc203d63c18fb9fc759b59b450d05d3e81d94",
+        sourceBase: "dd8cb1d3bc00e43c36cb636d97d50b84bde3f686",
+        captureParent: "dd8cb1d3bc00e43c36cb636d97d50b84bde3f686",
+        artifactId: 12072326766,
+        artifactSha256: "aad0400cc9de6ea26546c4410ec7179eea53f94fc5162b72443397eab02fea5a",
+        sourceManifestSha256: "c10c64a6cb8e88ba2dbfde210d1aa3487f6bb97eeadc5a5750b9841f1a91feb2",
+        caseManifestSha256: "a9e0ef9d1d5ce74b90b5bad25e231817e3ab7606bbe71045432e9097c8507eaf",
+        commandsSha256: "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
+        censusSha256: "670efd599e0ccd8844f14695ff97af5d5ec644d04057be4561eca61f611f6369",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+    {
+      label: "binds all 68 current cases to the measured capture without reusing historical timings",
+      current: true,
+      fileName: "bootstrap-db-capture-38993631473.json",
+      fixtureSha256: "32dca1e0b66c28f4578c2959a7b15323a127e86555155c1e23787714482b82e2",
+      minimumUnitCount: 3,
+      unitProjections: [317381, 257917, 233562],
+      provenance: {
+        runId: "38993631473",
+        runAttempt: "1",
+        referenceJobId: 117281188248,
+        jobName: "Diagnostic API Bootstrap Measurement Only",
+        checkoutSha: "6c96ee8ad75f87b6d1877c21cac9dd20d15e3fec",
+        sourceBase: "008a50bb554b485dc29e187d381521a3463e24b6",
+        captureParent: "008a50bb554b485dc29e187d381521a3463e24b6",
+        artifactId: 12086274120,
+        artifactSha256: "c61840e0565ad9157c0461e6b7fce50bdf6a87e1d643ff1afa3d4ad205c13c27",
+        sourceManifestSha256: "90cd34be660d45eb17f8963e4067383d69b3242be821187aa82826b92d9983dc",
+        caseManifestSha256: "acf95739611a9a0d43149339abfb008e9164dc26c5d49b7d02661678d5036013",
+        commandsSha256: "db230c159f8f294a676fab11d92f3ea6a0a7aff52490c9f6d46f322b988fdb63",
+        censusSha256: "670efd599e0ccd8844f14695ff97af5d5ec644d04057be4561eca61f611f6369",
+        maxWorkers: 3,
+        laneMode: null,
+      },
+    },
+  ];
+
+  it.each(measuredCaptures)("$label", async ({ current, fileName, fixtureSha256, ...expected }) => {
+    const { unitProjections, provenance, minimumUnitCount } = expected;
+    const bytes = readFileSync(join(testDirectory, "fixtures", fileName));
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(fixtureSha256);
+    const capture = JSON.parse(bytes.toString("utf8")) as {
+      provenance: Record<string, unknown>;
+      model: BootstrapDbScheduleModel;
+      jobWallMs: number;
+      sourceBindings: Record<string, string>;
+      acceptedAssignment: Record<string, string>;
+      acceptedBootBearingCeilings: Record<string, number>;
+      measuredUnits: { unit: string; observedDurationMs: number; longestWorkerChainMs: number; residualMs: number }[];
+      files: {
+        fileName: string;
+        testPath: string;
+        executionUnit: string;
+        sourceSha256: string;
+        observedDurationMs: number;
+        observedCaseSumMs: number;
+        residualMs: number;
+        cases: { name: string; identity: string; durationMs: number; referenceDurationMs: number }[];
+      }[];
+      nonBootstrapFiles: { testPath: string; executionUnit: string; sourceSha256: string }[];
+    };
+    expect(capture.provenance).toMatchObject(provenance);
+    if (current) {
+      expect(bootstrapDbScheduleModel).toEqual(capture.model);
+      expect(bootstrapDbExecutionUnitBootBearingCaseCeilings).toEqual(capture.acceptedBootBearingCeilings);
+      expect(platformApiNonBootstrapDbCensus).toEqual({
+        referenceRunId: capture.model.referenceRunId,
+        referenceJobId: capture.model.referenceJobId,
+        entries: Object.fromEntries(capture.nonBootstrapFiles.map((file) => [file.testPath, file.executionUnit])),
+      });
+    }
+    expect(capture.files).toHaveLength(12);
+    expect(capture.nonBootstrapFiles).toHaveLength(6);
+    expect(capture.files.flatMap((file) => file.cases)).toHaveLength(68);
+    for (const file of capture.files) {
+      if (current) {
+        const partition = bootstrapDbEnrollmentManifest[file.fileName]!;
+        const source = readFileSync(join(testDirectory, "..", file.testPath));
+        expect(createHash("sha256").update(source).digest("hex")).toBe(file.sourceSha256);
+        expect(deriveBootstrapDbCaseIdentities(file.fileName, source.toString("utf8"))).toEqual(
+          file.cases.map(({ name, identity }) => ({ name, identity })),
+        );
+        expect(partition.executionUnit).toBe(capture.acceptedAssignment[file.fileName]);
+        expect(partition.cases).toEqual(
+          file.cases.map(({ name, identity, durationMs }) => ({
+            name,
+            identity,
+            referenceDurationMs: Math.ceil(durationMs),
+          })),
+        );
+      }
+      for (const testCase of file.cases) {
+        expect(Number.isFinite(testCase.durationMs)).toBe(true);
+        expect(testCase.durationMs).toBeGreaterThan(0);
+        expect(testCase.referenceDurationMs).toBe(Math.ceil(testCase.durationMs));
+      }
+      expect(file.observedCaseSumMs).toBe(file.cases.reduce((sum, testCase) => sum + testCase.durationMs, 0));
+      expect(file.residualMs).toBe(file.observedDurationMs - file.observedCaseSumMs);
+    }
+    for (const file of current ? capture.nonBootstrapFiles : []) {
+      expect(
+        createHash("sha256")
+          .update(readFileSync(join(testDirectory, "..", file.testPath)))
+          .digest("hex"),
+      ).toBe(file.sourceSha256);
+    }
+    // sourceBindings stay immutable capture provenance. Freshness is the
+    // workload the capture measured, re-derived from this checkout.
+    if (current) {
+      const { violations } = checkBootstrapDbWorkloadFreshness({
+        baseline: readWorkloadBaseline(capture.provenance),
+        capture: { fileName, fixtureSha256, provenance: capture.provenance },
+        derivation: await liveWorkload(),
+      });
+      expect(violations).toEqual([]);
+    }
+    const { candidate: scheduler } = exactScheduleProbes();
+    for (const unit of capture.measuredUnits) {
+      expect(unit.longestWorkerChainMs).toBe(
+        scheduler.worstCaseListScheduleMs(
+          capture.files
+            .filter((file) => file.executionUnit === unit.unit)
+            .map((file) => Math.ceil(file.observedDurationMs)),
+          3,
+        ),
+      );
+      expect(unit.residualMs).toBe(unit.observedDurationMs - unit.longestWorkerChainMs);
+    }
+    expect(capture.model.testFileFixedCostMs).toBe(
+      Math.ceil(Math.max(0, ...capture.files.map((file) => file.residualMs))),
+    );
+    expect(capture.model.executionUnitFixedCostMs).toBe(
+      Math.ceil(Math.max(0, ...capture.measuredUnits.map((unit) => unit.residualMs))),
+    );
+    expect(capture.model.jobOverheadMs).toBe(
+      Math.ceil(capture.jobWallMs - capture.measuredUnits.reduce((sum, unit) => sum + unit.observedDurationMs, 0)),
+    );
+    const fixture = await createShippedFixture(
+      capture.files.map((file) => ({
+        ...bootstrapDbEnrollmentManifest[file.fileName]!,
+        fileName: file.fileName,
+        executionUnit: file.executionUnit,
+        cases: file.cases.map((testCase, index) => ({ ...testCase, body: `  expect(${index}).toBe(${index});` })),
+      })),
+      { model: capture.model },
+    );
+    const { schedule, violations } = runFixture(fixture);
+    expect(violations).toEqual([
+      ...unitProjections.flatMap((makespan, index) =>
+        makespan > capture.model.executionUnitCeilingMs
+          ? [
+              `test:db:${index + 1} has a projected makespan of ${makespan}ms, exceeding the ${capture.model.executionUnitCeilingMs}ms per-unit ceiling`,
+            ]
+          : [],
+      ),
+      ...(unitProjections.length < minimumUnitCount
+        ? [
+            `the shipped topology spends ${unitProjections.length} execution units below the schedule model's minimumUnitCount of ${minimumUnitCount}`,
+          ]
+        : unitProjections.length > minimumUnitCount
+          ? [
+              `the shipped topology spends ${unitProjections.length} execution units where the schedule model's minimumUnitCount for the same ` +
+                `file set is ${minimumUnitCount}; execution units of one workspace run serially, so an unnecessary unit is spent aggregate ` +
+                "budget",
+            ]
+          : []),
+    ]);
+    expect(schedule.minimumUnitCount).toBe(minimumUnitCount);
+    expect(schedule.units.map((unit) => unit.makespanMs)).toEqual(unitProjections);
+    schedule.units.forEach((unit, index) =>
+      expect(unit.makespanMs).toBeGreaterThanOrEqual(capture.measuredUnits[index]!.observedDurationMs),
+    );
+    expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(capture.jobWallMs);
+  });
+
+  const currentCaptures = measuredCaptures.filter((capture) => capture.current);
+
+  type CaptureFixture = {
+    provenance: Record<string, unknown>;
+    files: { testPath: string; sourceSha256: string; cases: { name: string; identity: string }[] }[];
+    nonBootstrapFiles: { testPath: string; sourceSha256: string }[];
+    sourceBindings: Record<string, string>;
+  };
+
+  function readCurrentCapture() {
+    const [{ fileName, fixtureSha256 }] = currentCaptures as [(typeof measuredCaptures)[number]];
+    const capture = JSON.parse(readFileSync(join(testDirectory, "fixtures", fileName), "utf8")) as CaptureFixture;
+    const binding: BootstrapDbWorkloadCaptureBinding = { fileName, fixtureSha256, provenance: capture.provenance };
+    return { capture, binding };
+  }
+
+  function currentBaseline() {
+    return readWorkloadBaseline(readCurrentCapture().capture.provenance);
+  }
+
+  // The old broad pins, the producer's frozen-source proof and every collision
+  // reference belong to capture 38641988070 and read its committed frozen
+  // source. Only W1-W5 follows the current capture, so a recapture neither
+  // rebinds them nor regenerates the helper.
+  const historicalCaptureFileName = "bootstrap-db-capture-38641988070.json";
+  const frozenSourceFileName = "bootstrap-db-frozen-source-38641988070.json.gz";
+
+  function readHistoricalCapture() {
+    return JSON.parse(
+      readFileSync(join(testDirectory, "fixtures", historicalCaptureFileName), "utf8"),
+    ) as CaptureFixture;
+  }
+
+  /**
+   * The capture's frozen source as exactly the members it measured, each with
+   * the bytes its digest names. The gzip helper is generated outside CI from
+   * provenance.sourceBase; a missing, corrupt or partial helper is refused.
+   */
+  function loadFrozenSource(gzipped: Uint8Array | null, capture: CaptureFixture): ReadonlyMap<string, Buffer> {
+    const refused = (gaps: readonly string[]) =>
+      new Error(`frozen source ${frozenSourceFileName} refused: ${gaps.join("; ")}`);
+    if (!gzipped) throw refused(["it is missing"]);
+    let helper: { sourceBase?: unknown; files?: Record<string, unknown> };
+    try {
+      helper = JSON.parse(gunzipSync(gzipped).toString("utf8"));
+    } catch (error) {
+      throw refused([`it is unreadable (${(error as Error).message})`]);
+    }
+    if (typeof helper !== "object" || helper === null) {
+      throw refused(["it is unreadable (its root is not a JSON object)"]);
+    }
+    const files = helper.files ?? {};
+    const expected = new Map([
+      ...[...capture.files, ...capture.nonBootstrapFiles].map(
+        ({ testPath, sourceSha256 }) => [`deployables/platform-api/${testPath}`, sourceSha256] as const,
+      ),
+      ...Object.entries(capture.sourceBindings),
+    ]);
+    const gaps = [
+      ...(helper.sourceBase === capture.provenance.sourceBase
+        ? []
+        : [`it was not generated from ${String(capture.provenance.sourceBase)}`]),
+      ...[...expected.keys()].filter((path) => !Object.hasOwn(files, path)).map((path) => `it is missing ${path}`),
+      ...Object.keys(files)
+        .filter((path) => !expected.has(path))
+        .map((path) => `it adds ${path}, which the capture does not bind`),
+      ...[...expected]
+        .filter(([path, digest]) => {
+          const text = files[path];
+          return Object.hasOwn(files, path) && (typeof text !== "string" || sha256Of(text) !== digest);
+        })
+        .map(([path]) => `${path} differs from the capture`),
+    ];
+    if (gaps.length > 0) throw refused(gaps);
+    return new Map(Object.entries(files as Record<string, string>).map(([path, text]) => [path, Buffer.from(text)]));
+  }
+
+  let frozenSource: ReadonlyMap<string, Buffer> | undefined;
+
+  function readFrozenSourceFile(path: string) {
+    const helper = join(testDirectory, "fixtures", frozenSourceFileName);
+    frozenSource ??= loadFrozenSource(existsSync(helper) ? readFileSync(helper) : null, readHistoricalCapture());
+    return frozenSource.get(path) ?? null;
+  }
+
+  // An unmistakably synthetic recapture of this checkout: W1-W5 must follow
+  // it, while the old pins and frozen reads stay on capture 38641988070.
+  async function newerCurrentCapture() {
+    const derivation = await liveWorkload();
+    const { binding } = readCurrentCapture();
+    const sourceBase = "0000000000000000000000000000000000006547";
+    const captureBytes = Buffer.from(
+      JSON.stringify({
+        provenance: {
+          ...binding.provenance,
+          runId: "65440004",
+          checkoutSha: "0000000000000000000000000000000000006548",
+          sourceBase,
+          captureParent: sourceBase,
+        },
+      }),
+    );
+    const newer: BootstrapDbWorkloadCaptureBinding = {
+      fileName: "bootstrap-db-capture-65440004.json",
+      fixtureSha256: sha256Of(captureBytes),
+      provenance: JSON.parse(captureBytes.toString("utf8")).provenance,
+    };
+    expect(
+      checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
+    ).toEqual([
+      `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
+      `baseline was derived from ${currentBaseline().source.commit}, not the capture's frozen source ${sourceBase}`,
+    ]);
+    const baseline = createBootstrapDbWorkloadBaseline({
+      captureFileName: newer.fileName,
+      captureBytes,
+      source: { commit: sourceBase },
+      derivation,
+    }) as BootstrapDbWorkloadBaseline;
+    return { binding: newer, baseline };
+  }
+
+  const runId = "38993631473";
+  const changed = (key: string) => `${key} changed since capture ${runId}; re-enrollment required`;
+  const added = (key: string) => `${key} is workload the capture ${runId} did not measure; re-enrollment required`;
+  const removed = (key: string) =>
+    `${key} measured by capture ${runId} is absent from the derived workload; re-enrollment required`;
+  const refused = (gap: string) => `workload input refused: ${gap}`;
+
+  async function mirrorFreshness(
+    edits: Readonly<Record<string, WorkloadEdit>>,
+    baseline: BootstrapDbWorkloadBaseline = currentBaseline(),
+    capture: BootstrapDbWorkloadCaptureBinding = readCurrentCapture().binding,
+  ) {
+    const mirror = await createWorkloadMirror(edits);
+    const derivation = await deriveBootstrapDbWorkload({ repositoryRoot: mirror });
+    const { violations } = checkBootstrapDbWorkloadFreshness({ baseline, capture, derivation });
+    return { mirror, violations: [...violations].sort() };
+  }
+
+  // The superseded live loop, kept only as the control that shows each
+  // provenance-only edit below was rejected by the old broad pins, which were
+  // capture 38641988070's.
+  function broadSourceBindingMismatches(root: string) {
+    return Object.entries(readHistoricalCapture().sourceBindings)
+      .filter(([path, digest]) => sha256Of(readFileSync(join(root, path))) !== digest)
+      .map(([path]) => path);
+  }
+
+  function selectionKey(contextName: string) {
+    const binding = currentBaseline().bindings.find(
+      ([section, key]) => section === "W3 selection" && key.endsWith(` ${contextName}`),
+    );
+    expect(binding).toBeDefined();
+    return `W3 selection ${binding![1]}`;
+  }
+
+  function platformApiImporter(source: string, edit: (block: string) => string) {
+    const start = source.indexOf("\n  deployables/platform-api:\n");
+    const end = source.indexOf("\n  deployables/", start + 1);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    return source.slice(0, start) + edit(source.slice(start, end)) + source.slice(end);
+  }
+
+  describe("capture provenance remains immutable", () => {
+    it("keeps every measured capture byte-identical and binds the baseline to the sole current capture's frozen source", () => {
+      const fixtures = readdirSync(join(testDirectory, "fixtures"))
+        .sort()
+        .filter((name) => /^bootstrap-db-capture-\d+\.json$/.test(name));
+      expect(
+        Object.fromEntries(
+          fixtures.map((name) => [name, sha256Of(readFileSync(join(testDirectory, "fixtures", name)))]),
+        ),
+      ).toEqual({
+        "bootstrap-db-capture-37467774999.json": "957f5dccb19eb2bde1a906c3b27e9ded81886898ae375899f283a879eb01aff6",
+        "bootstrap-db-capture-37888294087.json": "98f7bda29e144e0c42d78ab421a56191846e903c04d9d95668651c3288b0d9d5",
+        "bootstrap-db-capture-37916297464.json": "ceeaa00f994bcef118b49f2c773facc807e8622f001d6c9e02cfd4476580a71a",
+        ...Object.fromEntries(measuredCaptures.map(({ fileName, fixtureSha256 }) => [fileName, fixtureSha256])),
+      });
+      expect(currentCaptures).toHaveLength(1);
+
+      const { capture, binding } = readCurrentCapture();
+      const baseline = currentBaseline();
+      expect(baseline.capture).toEqual({
+        fileName: binding.fileName,
+        fixtureSha256: binding.fixtureSha256,
+        runId: capture.provenance.runId,
+        checkoutSha: capture.provenance.checkoutSha,
+        sourceBase: capture.provenance.sourceBase,
+        captureParent: capture.provenance.captureParent,
+      });
+      expect(baseline.source).toEqual({
+        commit: "008a50bb554b485dc29e187d381521a3463e24b6",
+        ref: "refs/pull/9710/head",
+      });
+      expect(baseline.source.commit).toBe(capture.provenance.sourceBase);
+      expect(baseline.bindingsSha256).toBe(sha256Of(canonicalJson(baseline.bindings)));
+      expect(Object.keys(capture.sourceBindings)).toHaveLength(43);
+
+      // Every digest the capture measured that is also a workload member
+      // reproduces in the baseline, so the baseline was derived from the
+      // capture's bytes rather than from today's checkout.
+      const bound = new Map(baseline.bindings.map(([section, key, value]) => [`${section} ${key}`, value]));
+      for (const file of [...capture.files, ...capture.nonBootstrapFiles]) {
+        expect(bound.get(`W1 file deployables/platform-api/${file.testPath}`), file.testPath).toBe(file.sourceSha256);
+      }
+      for (const file of capture.files) {
+        expect(bound.get(`W1 case identities deployables/platform-api/${file.testPath}`)).toEqual(
+          file.cases.map(({ name, identity }) => ({ name, identity })),
+        );
+      }
+      const members = new Map(
+        baseline.bindings
+          .filter(([section]) => / file$| json$/.test(section))
+          .map(([section, key, value]) => [key, { section, value }]),
+      );
+      const manifests = new Set(
+        baseline.bindings
+          .filter(([section]) => section === "W3 selection")
+          .map(([, , value]) => (value as { manifest: string }).manifest),
+      );
+      const dispositions = Object.fromEntries(
+        Object.entries(capture.sourceBindings).map(([path, digest]) => {
+          const member = members.get(path);
+          if (member) expect(member.value, path).toBe(digest);
+          return [path, member?.section ?? (manifests.has(path) ? "W3 selection" : "provenance-only")];
+        }),
+      );
+      // Lockfile and shared-config bytes stay provenance; their W5 and W4
+      // values are bound and refuse independently below.
+      expect(dispositions).toEqual({
+        "bounded-contexts/catalog/features/product-measures/api/publication.ts": "provenance-only",
+        "bounded-contexts/catalog/features/product-measures/api/runtime.ts": "provenance-only",
+        "bounded-contexts/catalog/features/product-measures/api/seed.ts": "W3 file",
+        "contracts/product-measures/publication.ts": "provenance-only",
+        "contracts/catalog-seed/representative-commerce-state.ts": "W3 file",
+        "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": "W2 file",
+        "deployables/platform-api/__tests__/catalog-seed-test-support.ts": "W2 file",
+        "deployables/platform-api/src/representative-commerce-state.ts": "W3 file",
+        "deployables/platform-api/__tests__/operator-session/fixture.ts": "W2 file",
+        "bounded-contexts/catalog/features/operator-session/api/operation.ts": "provenance-only",
+        "bounded-contexts/catalog/features/operator-session/read-model/grant-schema.ts": "provenance-only",
+        "bounded-contexts/inventory/api.ts": "provenance-only",
+        "bounded-contexts/inventory/index.ts": "provenance-only",
+        "bounded-contexts/inventory/context.json": "W3 selection",
+        "bounded-contexts/inventory/features/hold-collisions/api/runtime.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/api/runtime.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/api/route.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/api/checkout-reservation-authority.ts": "provenance-only",
+        "bounded-contexts/inventory/features/holds/read-model/schema.ts": "provenance-only",
+        "bounded-contexts/inventory/features/inventory-items/api/runtime.ts": "provenance-only",
+        "bounded-contexts/inventory/features/storage-locations/api/runtime.ts": "provenance-only",
+        "bounded-contexts/checkout/features/sessions/api/inventory-reservation-authority.ts": "provenance-only",
+        "bounded-contexts/checkout/support/request-support/checkout-confirmation.ts": "provenance-only",
+        "deployables/platform-api/src/app.ts": "provenance-only",
+        "bounded-contexts/auth/features/invitation-acceptance/api/journey.ts": "provenance-only",
+        "bounded-contexts/auth/features/invitation-acceptance/read-model/schema.ts": "provenance-only",
+        "bounded-contexts/auth/support/runtime-support/schema.ts": "provenance-only",
+        "bounded-contexts/auth/support/runtime-support/services.ts": "provenance-only",
+        "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts": "provenance-only",
+        "bounded-contexts/identity/server.ts": "provenance-only",
+        "bounded-contexts/auth/support/ucp-support/oauth.ts": "provenance-only",
+        "bounded-contexts/auth/support/ucp-support/agent-webhooks/agent-webhook-registration.ts": "provenance-only",
+        "bounded-contexts/auth/support/ucp-support/agent-webhooks/order-update-payload.ts": "provenance-only",
+        "bounded-contexts/identity/features/agent-grants/api/revocation.ts": "provenance-only",
+        "bounded-contexts/marketplace/context.json": "W3 selection",
+        "bounded-contexts/marketplace/features/offer-policy/api/runtime.ts": "provenance-only",
+        "bounded-contexts/marketplace/features/offers/api/runtime.ts": "provenance-only",
+        "bounded-contexts/payments/features/payments/api/mcp.ts": "provenance-only",
+        "contracts/auth-context/index.ts": "provenance-only",
+        "infrastructure/platform-runtime/ucp-contracts.ts": "provenance-only",
+        "infrastructure/platform-runtime/api.ts": "W3 file",
+        "pnpm-lock.yaml": "provenance-only",
+        "vitest.shared.mjs": "provenance-only",
+      });
+
+      // The baseline's hosted values are the ones the capture executed under.
+      expect(String(capture.provenance.vitest)).toMatch(
+        new RegExp(`^vitest/${String(bound.get("W5 version vitest"))} `),
+      );
+      expect(bound.get("W4 postgres image")).toBe(capture.provenance.postgresImage);
+      expect(bound.get("W4 postgres workspaceConcurrency")).toBe(String(capture.provenance.workspaceConcurrency));
+      for (const unit of ["test:db:1", "test:db:2", "test:db:3"]) {
+        expect(bound.get(`W1 partition ${unit}`)).toMatchObject({ maxWorkers: capture.provenance.maxWorkers });
+        // CI-dependent defaults resolve as on the hosted runner, not this host.
+        expect(bound.get(`W4 unit ${unit}`)).toMatchObject({
+          maxWorkers: capture.provenance.maxWorkers,
+          allowOnly: false,
+        });
+      }
+      expect(capture.provenance.laneMode).toBeNull();
+    });
+
+    it("refuses a substituted or missing capture, frozen source or baseline", async () => {
+      const derivation = await liveWorkload();
+      const baseline = currentBaseline();
+      const { binding } = readCurrentCapture();
+      expect(checkBootstrapDbWorkloadFreshness({ baseline, capture: binding, derivation }).violations).toEqual([]);
+
+      expect(
+        checkBootstrapDbWorkloadFreshness({
+          baseline,
+          capture: { ...binding, fixtureSha256: "f".repeat(64) },
+          derivation,
+        }).violations,
+      ).toEqual([
+        `baseline binds capture ${binding.fileName} but the current capture is ${binding.fileName}; derive the baseline from the current capture's own frozen source`,
+      ]);
+      expect(checkBootstrapDbWorkloadFreshness({ baseline, capture: undefined, derivation }).violations).toEqual([
+        "no current capture is bound; a baseline cannot certify freshness without one",
+      ]);
+      const newer = {
+        fileName: "bootstrap-db-capture-99999999999.json",
+        fixtureSha256: "e".repeat(64),
+        provenance: {
+          ...binding.provenance,
+          runId: "99999999999",
+          sourceBase: "1".repeat(40),
+          captureParent: "1".repeat(40),
+        },
+      };
+      expect(checkBootstrapDbWorkloadFreshness({ baseline, capture: newer, derivation }).violations).toEqual([
+        `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
+        `baseline was derived from ${baseline.source.commit}, not the capture's frozen source ${"1".repeat(40)}`,
+      ]);
+      expect(
+        checkBootstrapDbWorkloadFreshness({
+          baseline: { ...baseline, source: { ...baseline.source, commit: "2".repeat(40) } },
+          capture: binding,
+          derivation,
+        }).violations,
+      ).toEqual([
+        `baseline was derived from ${"2".repeat(40)}, not the capture's frozen source ${baseline.source.commit}`,
+      ]);
+      expect(
+        checkBootstrapDbWorkloadFreshness({ baseline: undefined, capture: binding, derivation }).violations,
+      ).toContain("baseline is missing");
+
+      // The producer's frozen-source proof: capture 38641988070's own digests
+      // decide over its committed frozen source, never this checkout's bytes.
+      const capture = readHistoricalCapture();
+      expect(bindFrozenSourceToCapture({ capture, readSourceFile: readFrozenSourceFile }).violations).toEqual([]);
+      expect(
+        bindFrozenSourceToCapture({
+          capture,
+          readSourceFile: (path) =>
+            path === "deployables/platform-api/src/app.ts" ? null : readFrozenSourceFile(path),
+        }).violations,
+      ).toEqual(["frozen source is missing deployables/platform-api/src/app.ts"]);
+      expect(
+        bindFrozenSourceToCapture({
+          capture,
+          readSourceFile: (path) =>
+            path.endsWith("bootstrap-scenario.db.test.ts") ? Buffer.from("substituted") : readFrozenSourceFile(path),
+        }).violations,
+      ).toEqual([
+        "frozen source deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts differs from the capture; substituted source",
+      ]);
+      expect(bindFrozenSourceToCapture({ capture: {}, readSourceFile: readFrozenSourceFile }).violations).toEqual([
+        "capture records no source digests to bind the frozen source to",
+      ]);
+    });
+
+    it("keeps the producer proof on capture 38641988070's frozen source while W1-W5 follows a newer capture", async () => {
+      const newer = await newerCurrentCapture();
+      expect(
+        checkBootstrapDbWorkloadFreshness({
+          baseline: newer.baseline,
+          capture: newer.binding,
+          derivation: await liveWorkload(),
+        }).violations,
+      ).toEqual([]);
+      const capture = readHistoricalCapture();
+      expect(capture.provenance.runId).toBe("38641988070");
+      expect(bindFrozenSourceToCapture({ capture, readSourceFile: readFrozenSourceFile }).violations).toEqual([]);
+
+      // A recapture that measured other bytes cannot certify, or be served by,
+      // the historical helper.
+      const app = "deployables/platform-api/src/app.ts";
+      const remeasured = {
+        ...capture,
+        provenance: newer.binding.provenance,
+        sourceBindings: { ...capture.sourceBindings, [app]: "0".repeat(64) },
+      };
+      expect(
+        bindFrozenSourceToCapture({ capture: remeasured, readSourceFile: readFrozenSourceFile }).violations,
+      ).toEqual([`frozen source ${app} differs from the capture; substituted source`]);
+      expect(() =>
+        loadFrozenSource(readFileSync(join(testDirectory, "fixtures", frozenSourceFileName)), remeasured),
+      ).toThrow(
+        new Error(
+          `frozen source ${frozenSourceFileName} refused: it was not generated from ${String(newer.binding.provenance.sourceBase)}; ${app} differs from the capture`,
+        ),
+      );
+    });
+
+    it("refuses a missing or corrupt frozen source and any deleted, substituted, added or truncated member", () => {
+      const capture = readHistoricalCapture();
+      const gzipped = readFileSync(join(testDirectory, "fixtures", frozenSourceFileName));
+      const helper = JSON.parse(gunzipSync(gzipped).toString("utf8")) as {
+        sourceBase: string;
+        files: Record<string, string>;
+      };
+      expect(helper.sourceBase).toBe(capture.provenance.sourceBase);
+      expect(Object.keys(helper.files)).toHaveLength(61);
+      expect([...loadFrozenSource(gzipped, capture).keys()].sort()).toEqual(Object.keys(helper.files).sort());
+
+      const rewritten = (edit: (files: Record<string, string>) => void, sourceBase = helper.sourceBase) => {
+        const files = { ...helper.files };
+        edit(files);
+        return gzipSync(JSON.stringify({ sourceBase, files }));
+      };
+      const refusal = (gap: string) => new Error(`frozen source ${frozenSourceFileName} refused: ${gap}`);
+      const app = "deployables/platform-api/src/app.ts";
+      expect(() => loadFrozenSource(null, capture)).toThrow(refusal("it is missing"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => delete files[app]),
+          capture,
+        ),
+      ).toThrow(refusal(`it is missing ${app}`));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files[app] = "substituted")),
+          capture,
+        ),
+      ).toThrow(refusal(`${app} differs from the capture`));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files["synthetic/added.ts"] = "export {};\n")),
+          capture,
+        ),
+      ).toThrow(refusal("it adds synthetic/added.ts, which the capture does not bind"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten((files) => (files["pnpm-lock.yaml"] = files["pnpm-lock.yaml"]!.slice(0, -1))),
+          capture,
+        ),
+      ).toThrow(refusal("pnpm-lock.yaml differs from the capture"));
+      expect(() =>
+        loadFrozenSource(
+          rewritten(() => {}, "1".repeat(40)),
+          capture,
+        ),
+      ).toThrow(refusal(`it was not generated from ${helper.sourceBase}`));
+
+      const corrupt = Buffer.from(gzipped);
+      corrupt[corrupt.length >> 1]! ^= 0xff;
+      expect(() => loadFrozenSource(corrupt, capture)).toThrow(
+        /^frozen source bootstrap-db-frozen-source-38641988070\.json\.gz refused: it is unreadable \(.+\)$/,
+      );
+      expect(() => loadFrozenSource(gzipped.subarray(0, gzipped.length - 1024), capture)).toThrow(
+        refusal("it is unreadable (unexpected end of file)"),
+      );
+      expect(() => loadFrozenSource(gzipSync("null"), capture)).toThrow(
+        refusal("it is unreadable (its root is not a JSON object)"),
+      );
+    });
+  });
+
+  describe("producer reads only local Git objects", () => {
+    const syntheticEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Synthetic Probe",
+      GIT_AUTHOR_EMAIL: "synthetic@example.invalid",
+      GIT_COMMITTER_NAME: "Synthetic Probe",
+      GIT_COMMITTER_EMAIL: "synthetic@example.invalid",
+    };
+    const syntheticGit = (repository: string, args: string[], input?: string) =>
+      execFileSync("git", ["-C", repository, ...args], { env: syntheticEnv, input, encoding: "utf8" }).trim();
+    const objectStore = (gitDirectory: string) =>
+      readdirSync(join(gitDirectory, "objects"), { recursive: true, encoding: "utf8" }).sort();
+
+    // An unmistakably synthetic origin reachable only as a local file:// remote;
+    // the consumer optionally holds the source commit and tree but never the
+    // promised blob, so any lazy fetch would add objects to its store.
+    async function runProducerInSyntheticClone({
+      present,
+      config,
+    }: {
+      present: boolean;
+      config: Record<string, string>;
+    }) {
+      const root = await mkdtemp(join(tmpdir(), "db-enrollment-local-objects-"));
+      temporaryRoots.push(root);
+      const origin = join(root, "origin.git");
+      const consumer = join(root, "consumer");
+      syntheticGit(root, ["init", "--quiet", "--bare", origin]);
+      syntheticGit(root, ["init", "--quiet", consumer]);
+      const bytes = "unmistakably synthetic local-only fixture\n";
+      const blob = syntheticGit(origin, ["hash-object", "-w", "--stdin"], bytes);
+      const tree = syntheticGit(origin, ["mktree"], `100644 blob ${blob}\tsynthetic-marker.txt\n`);
+      const commit = syntheticGit(origin, ["commit-tree", tree, "-m", "synthetic local-only fixture"]);
+      syntheticGit(origin, ["update-ref", "refs/heads/main", commit]);
+      if (present) {
+        for (const id of [commit, tree]) {
+          const loose = join("objects", id.slice(0, 2), id.slice(2));
+          await mkdir(dirname(join(consumer, ".git", loose)), { recursive: true });
+          await copyFile(join(origin, loose), join(consumer, ".git", loose));
+        }
+      }
+      syntheticGit(consumer, ["config", "remote.synthetic.url", pathToFileURL(origin).href]);
+      for (const [key, value] of Object.entries(config)) syntheticGit(consumer, ["config", key, value]);
+
+      const capturePath = join(root, "synthetic-capture.json");
+      await writeFile(
+        capturePath,
+        JSON.stringify({
+          provenance: { runId: "65449999", sourceBase: commit, captureParent: commit },
+          sourceBindings: { "synthetic-marker.txt": sha256Of(bytes) },
+        }),
+      );
+      const outPath = join(root, "synthetic-baseline.json");
+      const tracePath = join(root, "git-trace.log").replaceAll("\\", "/");
+      const gitDirectory = join(consumer, ".git");
+      const before = objectStore(gitDirectory);
+      const run = spawnSync(
+        process.execPath,
+        [
+          join(testDirectory, "../scripts/db-enrollment-workload.mjs"),
+          "--check",
+          "--capture",
+          capturePath,
+          "--out",
+          outPath,
+        ],
+        { env: { ...syntheticEnv, GIT_DIR: gitDirectory, GIT_TRACE: tracePath }, encoding: "utf8" },
+      );
+      const commands = [...readFileSync(tracePath, "utf8").matchAll(/trace: built-in: git (\S+)/g)].map(
+        ([, command]) => command,
+      );
+      return { run, commit, commands, before, after: objectStore(gitDirectory), outputWritten: existsSync(outPath) };
+    }
+
+    it.each<{ label: string; present: boolean; config: Record<string, string>; names: string }>([
+      {
+        label: "a partial clone missing the source commit",
+        present: false,
+        config: {
+          "remote.synthetic.promisor": "true",
+          "remote.synthetic.partialclonefilter": "blob:none",
+          "extensions.partialClone": "synthetic",
+        },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter, extensions.partialclone",
+      },
+      {
+        label: "a partial clone holding the source commit but not its promised blob",
+        present: true,
+        config: {
+          "remote.synthetic.promisor": "true",
+          "remote.synthetic.partialclonefilter": "blob:none",
+          "extensions.partialClone": "synthetic",
+        },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter, extensions.partialclone",
+      },
+      {
+        label: "a filter-only remote",
+        present: false,
+        config: { "remote.synthetic.partialclonefilter": "blob:none" },
+        names: "remote.synthetic.partialclonefilter",
+      },
+      {
+        label: "a disabled promisor that keeps its filter",
+        present: true,
+        config: { "remote.synthetic.promisor": "false", "remote.synthetic.partialclonefilter": "blob:none" },
+        names: "remote.synthetic.promisor, remote.synthetic.partialclonefilter",
+      },
+      {
+        label: "a promisor remote alone",
+        present: true,
+        config: { "remote.synthetic.promisor": "true" },
+        names: "remote.synthetic.promisor",
+      },
+      {
+        label: "the partial-clone extension alone",
+        present: false,
+        config: { "extensions.partialClone": "synthetic" },
+        names: "extensions.partialclone",
+      },
+    ])("refuses $label before any object read", async ({ present, config, names }) => {
+      const { run, commands, before, after, outputWritten } = await runProducerInSyntheticClone({ present, config });
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe(
+        `local Git objects refused: promisor or partial-clone configuration (${names}) could fetch a missing object; materialize the frozen source from a full clone outside CI`,
+      );
+      expect(commands).toEqual(["config"]);
+      expect(after).toEqual(before);
+      expect(outputWritten).toBe(false);
+    });
+
+    it("reports an absent source without fetching when no promisor is configured", async () => {
+      const { run, commit, commands, before, after, outputWritten } = await runProducerInSyntheticClone({
+        present: false,
+        config: {},
+      });
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe(
+        `frozen source ${commit} is not available locally; fetch it outside CI (for example its pull request ref)`,
+      );
+      expect(commands).toEqual(["config", "cat-file"]);
+      expect(after).toEqual(before);
+      expect(outputWritten).toBe(false);
+    });
+  });
+
+  describe("unrelated source edits preserve workload enrollment", () => {
+    const controls = [
+      {
+        label: "an unrelated lockfile entry",
+        path: "pnpm-lock.yaml",
+        edit: (source: string) => {
+          const marker = "resolution: {integrity: sha512-";
+          const at = source.indexOf(marker, source.indexOf("\npackages:\n")) + marker.length;
+          expect(at).toBeGreaterThan(marker.length);
+          return `${source.slice(0, at)}${source[at] === "A" ? "B" : "A"}${source.slice(at + 1)}`;
+        },
+      },
+      {
+        label: "a lane-only Vitest setting whose hosted values are identical",
+        path: "vitest.shared.mjs",
+        edit: replaceOnce("    maxWorkers: 2,\n", "    maxWorkers: 1,\n"),
+      },
+      {
+        label: "an unused type-only Auth export",
+        path: "contracts/auth-context/index.ts",
+        edit: (source: string) => `${source}\nexport type UnusedWorkloadProbe = Readonly<{ probe: true }>;\n`,
+      },
+      {
+        label: "a non-boot app.ts policy registration (#9638)",
+        path: "deployables/platform-api/src/app.ts",
+        edit: replaceOnce(
+          "        checkoutProcessingFeePolicy,\n        authenticityFeePolicy,\n",
+          "        checkoutProcessingFeePolicy,\n",
+        ),
+      },
+      {
+        label: "Auth runtime services (#9644)",
+        path: "bounded-contexts/auth/support/runtime-support/services.ts",
+        edit: replaceOnce('  "pricing.manage",\n]);', '  "pricing.manage",\n  "inventory.manage",\n]);'),
+      },
+    ];
+
+    // A W1-W5-neutral drift that no control's edit makes.
+    const preDrift = (path: string) => (source: string) =>
+      `${source}${path.endsWith(".yaml") ? "#" : "//"} synthetic pre-drift\n`;
+
+    /**
+     * The old broad pins reject `edit`: against a paired reference, the edited
+     * mirror adds exactly `path` to the historical mismatches. `base` is the
+     * unnormalized source and keeps all of its drift; a target it already drifted
+     * is restored to its captured bytes in the reference only, and the edit
+     * applies to those bytes.
+     */
+    async function expectOldPinRejection(
+      { path, edit }: (typeof controls)[number],
+      base: Readonly<Record<string, WorkloadEdit>> = {},
+      current = { binding: readCurrentCapture().binding, baseline: currentBaseline() },
+    ) {
+      const freshness = (edits: Readonly<Record<string, WorkloadEdit>>) =>
+        mirrorFreshness(edits, current.baseline, current.binding);
+      const captured = readFrozenSourceFile(path);
+      expect(captured, path).not.toBeNull();
+      const withTarget = (bytes: string) => {
+        const retained = Object.fromEntries(Object.entries(base).filter(([key]) => key !== path));
+        return readFileSync(join(repositoryRoot, path), "utf8") === bytes ? retained : { ...retained, [path]: bytes };
+      };
+
+      const unnormalized = await freshness(base);
+      expect(unnormalized.violations).toEqual([]);
+      const collision = !readFileSync(join(unnormalized.mirror, path)).equals(captured!);
+      const referenceEdits = collision ? withTarget(captured!.toString("utf8")) : base;
+      const reference = collision ? await freshness(referenceEdits) : unnormalized;
+      expect(reference.violations, "historical paired reference violates current W1-W5").toEqual([]);
+      const edited = await freshness(withTarget(edit(captured!.toString("utf8"))));
+      expect(edited.violations).toEqual([]);
+
+      const before = broadSourceBindingMismatches(reference.mirror);
+      const after = broadSourceBindingMismatches(edited.mirror);
+      expect(before).not.toContain(path);
+      expect([...after].sort()).toEqual([...before, path].sort());
+      return { collision, before };
+    }
+
+    it.each(controls)("accepts $label with W1-W5 fixed while the old broad pins reject it", async (control) => {
+      await expectOldPinRejection(control);
+    });
+
+    it.each(controls.map((control, index) => ({ ...control, drift: controls[(index + 1) % controls.length]! })))(
+      "accepts $label beside retained drift in $drift.path",
+      async ({ drift, ...control }) => {
+        const { before } = await expectOldPinRejection(control, { [drift.path]: drift.edit });
+        expect(before).toContain(drift.path);
+      },
+    );
+
+    it.each(controls)("accepts $label over a pre-drifted target restored to its captured bytes", async (control) => {
+      const { collision } = await expectOldPinRejection(control, { [control.path]: preDrift(control.path) });
+      expect(collision).toBe(true);
+    });
+
+    it.each(controls)("accepts $label while W1-W5 follows a newer current capture", async (control) => {
+      await expectOldPinRejection(control, {}, await newerCurrentCapture());
+    });
+  });
+
+  describe("workload changes require re-enrollment", () => {
+    const fixturesPath = "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex";
+    const seedingPath = "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts";
+    const settlementSupportPath = "bounded-contexts/channels/features/connector-feed/tests/settlement-test-support.ts";
+    const paymentSupportPath = "contracts/payment-processing/test-support.ts";
+
+    it("accepts the unchanged checked-out workload without Git history", async () => {
+      const { mirror, violations } = await mirrorFreshness({});
+      expect(existsSync(join(mirror, ".git"))).toBe(false);
+      expect(violations).toEqual([]);
+    });
+
+    it.each<{
+      label: string;
+      edits: Readonly<Record<string, WorkloadEdit>>;
+      expected: readonly string[] | (() => readonly string[]);
+    }>([
+      {
+        label: "a bootstrap case callback",
+        edits: { "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts": editFirstCaseCallback },
+        expected: [
+          changed("W1 case identities deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts"),
+          changed("W1 file deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts"),
+        ],
+      },
+      {
+        label: "a bootstrap case timeout",
+        edits: { "deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts": editFirstCaseTimeout },
+        expected: [
+          changed("W1 case identities deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts"),
+          changed("W1 file deployables/platform-api/__tests__/authoritative-seed-resume-core.db.test.ts"),
+        ],
+      },
+      {
+        label: "a W2 harness hook",
+        edits: {
+          "deployables/platform-api/__tests__/bootstrap-db-test-support.ts": replaceOnce(
+            "  }, 30_000);\n\n  afterAll(",
+            "  }, 45_000);\n\n  afterAll(",
+          ),
+        },
+        expected: [changed("W2 file deployables/platform-api/__tests__/bootstrap-db-test-support.ts")],
+      },
+      {
+        label: "a W2 closure helper",
+        edits: {
+          "deployables/platform-api/__tests__/catalog-seed-test-support.ts": replaceOnce(
+            "    enabledDataProfiles: profile.profiles,\n",
+            "    enabledDataProfiles: [...profile.profiles].reverse(),\n",
+          ),
+        },
+        expected: [changed("W2 file deployables/platform-api/__tests__/catalog-seed-test-support.ts")],
+      },
+      {
+        label: "a W2 fixture",
+        edits: {
+          "deployables/platform-api/__tests__/operator-session/fixture.ts": replaceOnce(
+            'export const base = "https://admin.example";',
+            'export const base = "https://admin.example.test";',
+          ),
+        },
+        expected: [changed("W2 file deployables/platform-api/__tests__/operator-session/fixture.ts")],
+      },
+      {
+        label: "the API boot list",
+        edits: {
+          "deployables/platform-api/src/generated/api-context-registry.ts": replaceOnce(
+            '  {\n    contextName: "settlement",\n    packageName: "@chase-sets/settlement",\n    manifest: settlementManifest,\n    module: settlementModule,\n  },\n',
+            "",
+          ),
+        },
+        expected: () => [removed(selectionKey("settlement")), removed("W4 alias ^@chase-sets\\/settlement$")],
+      },
+      {
+        label: "a context runtime profile selection",
+        edits: {
+          "bounded-contexts/inventory/context.json": replaceOnce(
+            '"apiRuntimeProfiles": ["proof", "public"],',
+            '"apiRuntimeProfiles": ["proof"],',
+          ),
+        },
+        expected: () => [changed(selectionKey("inventory"))],
+      },
+      {
+        label: "a seed data-profile list",
+        edits: {
+          "infrastructure/platform-runtime/api.ts": replaceOnce(
+            '  "catalog-integration-bootstrap",\n  "admin-qa-actor-fixtures",\n];',
+            '  "admin-qa-actor-fixtures",\n];',
+          ),
+        },
+        expected: [changed("W3 file infrastructure/platform-runtime/api.ts")],
+      },
+      {
+        label: "a feature seed",
+        edits: {
+          "bounded-contexts/catalog/features/product-measures/api/seed.ts": (source: string) =>
+            `${source}\nexport const productMeasuresSeedProbe = "probe";\n`,
+        },
+        expected: [changed("W3 file bounded-contexts/catalog/features/product-measures/api/seed.ts")],
+      },
+      {
+        label: "a support seed helper",
+        edits: {
+          "bounded-contexts/inventory/support/seed-support/ids.ts": (source: string) =>
+            `${source}\nexport const seedInventoryProbe = "probe";\n`,
+        },
+        expected: [changed("W3 file bounded-contexts/inventory/support/seed-support/ids.ts")],
+      },
+      {
+        label: "DB census membership",
+        edits: {
+          "deployables/platform-api/__tests__/workload-probe.db.test.ts": `it("probes", () => {\n  expect(${syntheticDatabaseUrlRead}).toBeDefined();\n});\n`,
+        },
+        expected: [
+          added("W1 case identities deployables/platform-api/__tests__/workload-probe.db.test.ts"),
+          changed("W1 census dbEntries"),
+          added("W1 file deployables/platform-api/__tests__/workload-probe.db.test.ts"),
+        ],
+      },
+      {
+        label: "a DB execution-unit assignment",
+        edits: {
+          "deployables/platform-api/package.json": (source: string) =>
+            replaceOnce(
+              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
+              "__tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/seed-command-catalog.db.test.ts --maxWorkers=3",
+            )(
+              replaceOnce(
+                "__tests__/operator-session/operator-extension-route-contract.db.test.ts __tests__/seed-command-catalog.db.test.ts ",
+                "__tests__/operator-session/operator-extension-route-contract.db.test.ts ",
+              )(source),
+            ),
+        },
+        expected: [changed("W1 partition test:db:1"), changed("W1 partition test:db:2")],
+      },
+      {
+        label: "a hosted CLI override",
+        edits: {
+          "deployables/platform-api/package.json": replaceOnce(
+            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --maxWorkers=3",
+            "__tests__/authoritative-seed-resume-reconciliation.db.test.ts --testTimeout=1 --maxWorkers=3",
+          ),
+        },
+        expected: [changed("W1 partition test:db:1"), changed("W4 unit test:db:1")],
+      },
+      {
+        label: "a hosted shared-config default",
+        edits: { "vitest.shared.mjs": replaceOnce("      hookTimeout: 120_000,\n", "      hookTimeout: 60_000,\n") },
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2"), changed("W4 unit test:db:3")],
+      },
+      {
+        label: "a workspace Vitest override",
+        edits: {
+          "deployables/platform-api/vitest.config.ts": replaceOnce(
+            "    globals: true,\n",
+            "    globals: true,\n    retry: 1,\n",
+          ),
+        },
+        expected: [changed("W4 unit test:db:1"), changed("W4 unit test:db:2"), changed("W4 unit test:db:3")],
+      },
+      {
+        label: "a hosted PostgreSQL setting",
+        edits: {
+          ".github/workflows/platform-pr.yml": replaceOnce(
+            "target_max_connections=300\n",
+            "target_max_connections=200\n",
+          ),
+        },
+        expected: [changed("W4 postgres maxConnections")],
+      },
+      {
+        label: "the resolved pg version",
+        edits: {
+          "pnpm-lock.yaml": (source: string) =>
+            platformApiImporter(
+              source,
+              replaceOnce(
+                "      pg:\n        specifier: ^8.20.0\n        version: 8.20.0\n",
+                "      pg:\n        specifier: ^8.20.0\n        version: 8.21.0\n",
+              ),
+            ),
+        },
+        expected: [changed("W5 version pg")],
+      },
+      {
+        label: "the resolved vitest version",
+        edits: {
+          "pnpm-lock.yaml": (source: string) =>
+            platformApiImporter(source, replaceOnce("        version: 4.1.5(", "        version: 4.1.6(")),
+        },
+        expected: [refused("W4 cannot be evaluated: installed vitest 4.1.5 but the tree resolves 4.1.6")],
+      },
+      {
+        label: "the admin-QA seed profiles",
+        edits: {
+          "deployables/platform-api/src/admin-qa-actor-fixtures.ts": replaceOnce(
+            'const BASELINE_DATA_PROFILES = ["critical-bootstrap", "catalog-integration-bootstrap"] as const;',
+            'const BASELINE_DATA_PROFILES = ["critical-bootstrap"] as const;',
+          ),
+        },
+        expected: [changed("W3 file deployables/platform-api/src/admin-qa-actor-fixtures.ts")],
+      },
+      {
+        label: "the Identity admin-QA actor matrix",
+        edits: {
+          "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts": replaceOnce(
+            'primaryEmail: "admin-qa-owner@chasesets.test"',
+            'primaryEmail: "admin-qa-owner-renamed@chasesets.test"',
+          ),
+        },
+        expected: [changed("W3 file bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts")],
+      },
+      {
+        label: "the Channels settlement work loop",
+        edits: {
+          [settlementSupportPath]: replaceOnce("for (const index of [1, 2]) {", "for (const index of [1, 2, 3]) {"),
+        },
+        expected: [changed(`W2 file ${settlementSupportPath}`)],
+      },
+      {
+        label: "a fake payment processor response",
+        edits: {
+          [paymentSupportPath]: replaceOnce(
+            '["seti_gateway_contract", "requires_payment_method"],',
+            '["seti_gateway_contract", "requires_action"],',
+          ),
+        },
+        expected: [changed(`W2 file ${paymentSupportPath}`)],
+      },
+      {
+        label: "the imported TCGdex JSON fixture",
+        edits: { [`${fixturesPath}/base2-60-scenario.json`]: replaceOnce('"firstEd": 64,', '"firstEd": 65,') },
+        expected: [changed(`W3 json ${fixturesPath}/base2-60-scenario.json`)],
+      },
+      {
+        label: "an added imported JSON fixture",
+        edits: {
+          [`${fixturesPath}/probe-scenario.json`]: '{ "probe": true }\n',
+          [seedingPath]: (source: string) =>
+            `import probeScenario from "../__fixtures__/tcgdex/probe-scenario.json" with { type: "json" };\n${source}\nexport const probeScenarioFixture = probeScenario;\n`,
+        },
+        expected: [added(`W3 json ${fixturesPath}/probe-scenario.json`), changed(`W3 file ${seedingPath}`)],
+      },
+      {
+        label: "a deleted imported JSON fixture",
+        edits: { [`${fixturesPath}/base2-60-scenario.json`]: null },
+        expected: [
+          refused(`${seedingPath}:17 workload import '../__fixtures__/tcgdex/base2-60-scenario.json' is unresolved`),
+        ],
+      },
+      {
+        label: "a new external W2 helper",
+        edits: {
+          "bounded-contexts/channels/features/connector-feed/tests/fee-test-support.ts":
+            'export const settlementFeeProbe = "probe";\n',
+          [settlementSupportPath]: (source: string) => `import "./fee-test-support";\n${source}`,
+        },
+        expected: [
+          added("W2 file bounded-contexts/channels/features/connector-feed/tests/fee-test-support.ts"),
+          changed(`W2 file ${settlementSupportPath}`),
+        ],
+      },
+      {
+        label: "a nonliteral workload import",
+        edits: {
+          [settlementSupportPath]: (source: string) =>
+            `${source}\nexport const loadProbe = (specifier: string) => import(specifier);\n`,
+        },
+        expected: () => {
+          const line = readFileSync(join(repositoryRoot, settlementSupportPath), "utf8").split("\n").length + 1;
+          return [refused(`${settlementSupportPath}:${line} has a nonliteral workload import`)];
+        },
+      },
+    ])("refuses $label", async ({ edits, expected }) => {
+      const { violations } = await mirrorFreshness(edits);
+      expect(violations).toEqual([...(typeof expected === "function" ? expected() : expected)].sort());
+    });
+
+    it("refuses unreadable and unresolved workload inputs", async () => {
+      const deletedHelper = await mirrorFreshness({ [paymentSupportPath]: null });
+      expect(deletedHelper.violations.length).toBeGreaterThan(0);
+      expect(deletedHelper.violations.every((violation) => violation.startsWith("workload input refused: "))).toBe(
+        true,
+      );
+      // A string, not a regex literal: lexical import scanners misread a regex.
+      const unresolvedHelper = "workload import '@chase-sets/payment-processing/test-support' is unresolved";
+      expect(deletedHelper.violations.some((violation) => violation.endsWith(unresolvedHelper))).toBe(true);
+
+      const unreadable = await mirrorFreshness({
+        "infrastructure/platform-runtime/context-pools.ts": null,
+        "infrastructure/platform-runtime/context-pools.ts/placeholder.txt": "not a module\n",
+      });
+      expect(unreadable.violations).toContain(
+        refused("W3 input infrastructure/platform-runtime/context-pools.ts is missing"),
+      );
+    });
+
+    it("refuses an omitted external helper and missing, duplicate, empty or partial bindings", async () => {
+      const derivation = await liveWorkload();
+      const baseline = currentBaseline();
+      const capture = readCurrentCapture().binding;
+      const check = (candidate: unknown) =>
+        checkBootstrapDbWorkloadFreshness({ baseline: candidate, capture, derivation }).violations;
+
+      const omitted = withBindings(baseline, (bindings) =>
+        bindings.filter(([section, key]) => !(section === "W2 file" && key === paymentSupportPath)),
+      );
+      expect(check(omitted)).toEqual([added(`W2 file ${paymentSupportPath}`)]);
+
+      const { bindings: _bindings, ...withoutBindings } = baseline;
+      expect(check(withoutBindings)).toContain("baseline bindings are missing or empty");
+      expect(check(withBindings(baseline, () => []))).toContain("baseline bindings are missing or empty");
+
+      const duplicate = withBindings(baseline, (bindings) => [bindings[0]!, ...bindings]);
+      expect(check(duplicate)).toContain(
+        `baseline binding ${baseline.bindings[0]![0]} ${baseline.bindings[0]![1]} is duplicated`,
+      );
+
+      const empty = withBindings(baseline, (bindings) => bindings.filter(([section]) => section !== "W3 file"));
+      expect(check(empty)).toEqual(["baseline W3 file bindings are empty"]);
+
+      const partial = withBindings(baseline, (bindings) =>
+        bindings.map((binding, index) => (index === 0 ? ([binding[0], binding[1], ""] as const) : binding)),
+      );
+      expect(check(partial)).toEqual(["baseline binding 0 is malformed or partial"]);
+
+      const edited = { ...baseline, bindings: baseline.bindings.slice(1) };
+      expect(check(edited)).toEqual(["baseline bindings do not match bindingsSha256 (partial or edited)"]);
+    });
+  });
+
+  describe("freshness uses workload bindings only", () => {
+    it("is called only by the Unit regression and its own producer, never by the test:db guard", () => {
+      const callers: string[] = [];
+      function visit(directory: string) {
+        for (const entry of readdirSync(join(repositoryRoot, directory)).sort()) {
+          const path = `${directory}/${entry}`;
+          if (["node_modules", "dist", "artifacts"].includes(entry) || entry.startsWith(".")) continue;
+          const absolute = join(repositoryRoot, path);
+          if (statSync(absolute).isDirectory()) visit(path);
+          else if (
+            /\.(?:[cm]?[jt]sx?)$/.test(entry) &&
+            readFileSync(absolute, "utf8").includes("db-enrollment-workload")
+          ) {
+            callers.push(path);
+          }
+        }
+      }
+      for (const directory of ["deployables/platform-api", "scripts"]) visit(directory);
+      expect(callers.sort()).toEqual([
+        "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
+        "deployables/platform-api/scripts/db-enrollment-workload.mjs",
+      ]);
+      const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      };
+      for (const name of ["test:db:1", "test:db:2", "test:db:3"]) {
+        expect(packageScripts.scripts[name]).toMatch(
+          /^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /,
+        );
+      }
+    });
+
+    it("round-trips a newer capture through the shared producer derivation and refuses the stale baseline", async () => {
+      const derivation = await liveWorkload();
+      const { binding } = readCurrentCapture();
+      const captureBytes = Buffer.from(
+        JSON.stringify({
+          provenance: {
+            ...binding.provenance,
+            runId: "65440003",
+            checkoutSha: "0000000000000000000000000000000000006546",
+            sourceBase: "0000000000000000000000000000000000006545",
+            captureParent: "0000000000000000000000000000000000006545",
+          },
+        }),
+      );
+      const newer: BootstrapDbWorkloadCaptureBinding = {
+        fileName: "bootstrap-db-capture-65440003.json",
+        fixtureSha256: sha256Of(captureBytes),
+        provenance: JSON.parse(captureBytes.toString("utf8")).provenance,
+      };
+      const produced = JSON.parse(
+        formatBootstrapDbWorkloadBaseline(
+          createBootstrapDbWorkloadBaseline({
+            captureFileName: newer.fileName,
+            captureBytes,
+            source: { commit: "0000000000000000000000000000000000006545" },
+            derivation,
+          }),
+        ),
+      ) as BootstrapDbWorkloadBaseline;
+      expect(produced.bindings).toEqual(currentBaseline().bindings);
+      expect(checkBootstrapDbWorkloadFreshness({ baseline: produced, capture: newer, derivation }).violations).toEqual(
+        [],
+      );
+      expect(
+        checkBootstrapDbWorkloadFreshness({ baseline: currentBaseline(), capture: newer, derivation }).violations,
+      ).toEqual([
+        `baseline binds capture ${binding.fileName} but the current capture is ${newer.fileName}; derive the baseline from the current capture's own frozen source`,
+        `baseline was derived from 008a50bb554b485dc29e187d381521a3463e24b6, not the capture's frozen source 0000000000000000000000000000000000006545`,
+      ]);
+      expect(() =>
+        createBootstrapDbWorkloadBaseline({
+          captureFileName: newer.fileName,
+          captureBytes,
+          source: { commit: "0000000000000000000000000000000000006545" },
+          derivation: { bindings: derivation.bindings, gaps: ["synthetic unresolved input"] },
+        }),
+      ).toThrow("workload derivation refused:\n- synthetic unresolved input");
+    });
+
+    it("audits the immediate fixture/helper frontier the selectors leave opaque", async () => {
+      const { frontier = [] } = await liveWorkload();
+      const targets = [...new Set(frontier.map(([, target]) => target))].sort();
+      expect(targets.length).toBeGreaterThan(0);
+      expect(
+        targets.filter((target) =>
+          /fixture|test-support|test-data|testing|fake|stub|mock|seed|__fixtures__|\.json$/i.test(target),
+        ),
+      ).toEqual([
+        // Bound through its W3 selection, not its bytes.
+        "bounded-contexts/catalog/context.json",
+        // Catalog fixture-lifecycle governance is product runtime, not fixture data.
+        "bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-fixture-lifecycle.ts",
+      ]);
+    });
+
+    it("refuses a baseline whose workload binding was deleted", async () => {
+      const derivation = await liveWorkload();
+      const deleted = withBindings(currentBaseline(), (bindings) =>
+        bindings.filter(
+          ([section, key]) => !(section === "W3 file" && key === "infrastructure/platform-runtime/api.ts"),
+        ),
+      );
+      expect(
+        checkBootstrapDbWorkloadFreshness({ baseline: deleted, capture: readCurrentCapture().binding, derivation })
+          .violations,
+      ).toEqual([added("W3 file infrastructure/platform-runtime/api.ts")]);
+    });
+  });
+
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(56114);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(52224);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1679725,
+      1893735,
     );
   });
 
@@ -1709,17 +3407,19 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 416359],
-      ["test:db:2", 322492],
+      ["test:db:1", 317381],
+      ["test:db:2", 257917],
+      ["test:db:3", 233562],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [48, 48],
-      [17, 17],
+      [18, 18],
+      [29, 29],
+      [19, 19],
     ]);
-    expect(schedule.aggregateMs).toBe(738851);
-    expect(schedule.aggregateWithOverheadMs).toBe(794965);
-    expect(schedule.minimumUnitCount).toBe(2);
-    expect(schedule.observedUnitCount).toBe(2);
+    expect(schedule.aggregateMs).toBe(808860);
+    expect(schedule.aggregateWithOverheadMs).toBe(861084);
+    expect(schedule.minimumUnitCount).toBe(3);
+    expect(schedule.observedUnitCount).toBe(3);
   });
 
   it("accepts the shipped schedule model as a null-prototype plain record", () => {
@@ -1729,8 +3429,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 416359],
-      ["test:db:2", 322492],
+      ["test:db:1", 317381],
+      ["test:db:2", 257917],
+      ["test:db:3", 233562],
     ]);
   });
 
@@ -2204,11 +3905,11 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
-  it("computes a minimumUnitCount of 2 for the shipped manifest and ships exactly that", () => {
+  it("computes a minimumUnitCount of 3 for the shipped manifest and ships exactly that", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
-    expect(schedule.minimumUnitCount).toBe(2);
-    expect(schedule.observedUnitCount).toBe(2);
+    expect(schedule.minimumUnitCount).toBe(3);
+    expect(schedule.observedUnitCount).toBe(3);
     for (const unit of schedule.units) {
       expect(unit.makespanMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.executionUnitCeilingMs);
     }
@@ -2218,35 +3919,35 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("shows a one-fewer-unit alternative whose binding unit is above the 420-second ceiling", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
-    expect(schedule.oneFewerUnit?.unitCount).toBe(1);
+    expect(schedule.oneFewerUnit?.unitCount).toBe(2);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(756833);
+    expect(worst).toBe(448422);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
   it("rejects an extra execution unit that satisfies every other invariant", async () => {
-    // A deliberately nonminimal three-unit grouping: every unit stays
+    // A deliberately nonminimal four-unit grouping: every unit stays
     // under 420s, the aggregate stays under 1080s, every case keeps its name,
     // file, database suffix, and identity — only the unit count is wasteful.
     const extraUnitAssignment: Record<string, string> = {
-      "bootstrap-shared-seed-command.db.test.ts": "test:db:1",
-      "bootstrap-scenario.db.test.ts": "test:db:1",
       "bootstrap-production-reconciliation.db.test.ts": "test:db:1",
-      "bootstrap-lock-contention.db.test.ts": "test:db:1",
-      "seed-command-full-pools.db.test.ts": "test:db:1",
-      "connector-mount-gate-isolation.db.test.ts": "test:db:1",
-      "authoritative-seed-resume-recovery.db.test.ts": "test:db:1",
-      "inventory-seed-resume.db.test.ts": "test:db:1",
+      "authoritative-seed-resume-core.db.test.ts": "test:db:1",
+      "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:1",
+      "connector-mount-gate-isolation.db.test.ts": "test:db:2",
+      "seed-command-full-pools.db.test.ts": "test:db:2",
+      "bootstrap-lock-contention.db.test.ts": "test:db:2",
+      "bootstrap-scenario.db.test.ts": "test:db:2",
       "catalog-seed-aggregate-state.db.test.ts": "test:db:2",
-      "authoritative-seed-resume-core.db.test.ts": "test:db:2",
-      "authoritative-seed-resume-reconciliation.db.test.ts": "test:db:2",
+      "bootstrap-shared-seed-command.db.test.ts": "test:db:4",
+      "inventory-seed-resume.db.test.ts": "test:db:3",
+      "authoritative-seed-resume-recovery.db.test.ts": "test:db:3",
       "catalog-seed-interruption-resume.db.test.ts": "test:db:3",
     };
     const files = shippedShapedFiles().map((file) => ({
       ...file,
       executionUnit: extraUnitAssignment[file.fileName]!,
     }));
-    const fixture = await createShippedFixture(files);
+    const fixture = await createShippedFixture(files, { model: acceptedTimingInputs() });
     const result = runFixture(fixture);
 
     for (const unit of result.schedule.units) {
@@ -2254,42 +3955,42 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     expect(result.schedule.aggregateWithOverheadMs).toBeLessThanOrEqual(bootstrapDbScheduleModel.aggregateCeilingMs);
     expect(result.violations).toEqual([
-      "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
-        "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
+      "the shipped topology spends 4 execution units where the schedule model's minimumUnitCount for the same " +
+        "file set is 3; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
         "budget",
     ]);
   });
 
   it("fails naming a numbered unit hosted CI executes that owns no manifested DB file", async () => {
-    // The hidden unit is a real `test:db:4` script the `test:db*` selector runs.
+    // The hidden unit is a real `test:db:5` script the `test:db*` selector runs.
     // It stands its own job up, so it has to own manifested executable entries
     // and be carried by the makespan, aggregate, and minimum-unit comparison.
     const fixture = await createShippedFixture(shippedShapedFiles(), {
       model: acceptedTimingInputs(),
-      ceilings: { ...bootstrapDbExecutionUnitBootBearingCaseCeilings, "test:db:4": 0 },
+      ceilings: { ...bootstrapDbExecutionUnitBootBearingCaseCeilings, "test:db:5": 0 },
       extraSources: {
         "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
       },
       mutatePackageJson: (packageJson) => {
-        packageJson.scripts["test:db:4"] = "vitest run __tests__/plain-unit.test.ts --maxWorkers=3";
+        packageJson.scripts["test:db:5"] = "vitest run __tests__/plain-unit.test.ts --maxWorkers=3";
       },
     });
     const result = runFixture(fixture);
 
-    expect(result.partitionUnitCount).toBe(3);
-    expect(result.schedule.observedUnitCount).toBe(3);
+    expect(result.partitionUnitCount).toBe(4);
+    expect(result.schedule.observedUnitCount).toBe(4);
     expect(result.violations).toEqual([
-      "test:db:4 selects non-DB test entry '__tests__/plain-unit.test.ts'",
-      "test:db:4 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
+      "test:db:5 selects non-DB test entry '__tests__/plain-unit.test.ts'",
+      "test:db:5 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
         "unit must own manifested executable DB entries",
-      "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
-        "file set is 2; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
+      "the shipped topology spends 4 execution units where the schedule model's minimumUnitCount for the same " +
+        "file set is 3; execution units of one workspace run serially, so an unnecessary unit is spent aggregate " +
         "budget",
     ]);
     await editScripts(fixture, (scripts) => {
-      delete scripts["test:db:4"];
+      delete scripts["test:db:5"];
     });
-    const { "test:db:4": _emptyUnit, ...ceilings } = fixture.ceilings;
+    const { "test:db:5": _emptyUnit, ...ceilings } = fixture.ceilings;
     expect(runFixture({ ...fixture, ceilings }).violations).toEqual([]);
   });
 
@@ -2315,14 +4016,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(runFixture(fixture).violations).toEqual([]);
   });
 
-  it("keeps the shipped two-unit topology exactly as hosted CI selects it", () => {
+  it("keeps the shipped three-unit topology exactly as hosted CI selects it", () => {
     const packageScripts = JSON.parse(readFileSync(join(testDirectory, "..", "package.json"), "utf8"))
       .scripts as Record<string, string>;
     const selected = Object.keys(packageScripts)
       .filter((name) => name.startsWith("test:db:") && typeof packageScripts[name] === "string")
       .sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
 
-    expect(selected).toEqual(["test:db:1", "test:db:2"]);
+    expect(selected).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
     expect(checkBootstrapDbEnrollment().schedule.units.map((unit) => unit.scriptName)).toEqual(selected);
   });
 
@@ -2631,7 +4332,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       },
       {
         name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
-        identity: "a0661cfb08a350b5",
+        identity: "119d53278b4453d7",
       },
       {
         name: "NC-1 resumes an undrained Dimension seed without duplicate creation",
@@ -2709,7 +4410,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(actual).toEqual(expected);
     expect(deriveBootstrapDbCaseIdentities("catalog-before-split.ts", sources.join("\n"))).toEqual(expected);
     const support = readFileSync(join(testDirectory, "catalog-seed-test-support.ts"), "utf8");
-    // AST digests captured from f8b1c5eb3a1efb51703ff9df61c0aa6554cf6ef7, excluding only export plumbing.
+    // Historical AST digests exclude export plumbing; the deny-all host adaptation is pinned and stripped below.
     const expectedHelpers = {
       CatalogServices: "a8e89b7f2c21b03bc9f44258e94d22397bd36823e944e9c8a3a7c8a5743e6872",
       InterruptionSite: "c4dadca6244573816136cb34ca52f186a2b47b8e32dcf3d6302940783a75d4b2",
@@ -2717,7 +4418,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       profileShapes: "3ac53db3762c52cfff690dc427bea3cdaa82f4b585095736995aab43c1ac00f6",
       databaseUrls: "14168e4de456370321f00dbba9697c134df3470f0fa860257723d60bd2282ff1",
       pools: "5260c751c5ee88b848ffa1899726fad225c3283d06d00721d9c04f5cc43de6f9",
-      createCatalogSeedHost: "25c315bf2f227c021c59f158afaaea76469224c41997e0a9a92b22b9e51abe52",
+      createCatalogSeedHost: "595a21d28805159ba5dccd4f756f478b16780895bc545bd73adab76cf89fbf70",
       prepareCatalog: "7fb847531b8b855767631e51c953bfdb3c1b1afae463f6d63a0c62b6fe22a140",
       catalogServices: "d46e45a440d6e719db7d53d9a6e9e6368733a6e6472b68f11d185ce25e5a4b1a",
       bootstrapOptions: "d24074c11b027484bafc2bac41825f4c71637fc61fe323b4be46a3115e6a3356",
@@ -2737,6 +4438,27 @@ describe("Platform API bootstrap DB enrollment", () => {
     };
     const { assignCatalogSeedState, ...helpers } = catalogDeclarationDigests(support);
     expect(helpers).toEqual(expectedHelpers);
+    const tree = sourceFileOf(support);
+    const removals: { start: number; end: number }[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isPropertyAssignment(node) && node.name.getText(tree) === "capabilityAdministrationAuthority") {
+        expect(node.initializer.getText(tree)).toBe('{ kind: "deny-all", diagnostic: "authority_absent" }');
+        let end = node.end;
+        while (/\s/.test(support[end] ?? "") && end < support.length) end++;
+        if (support[end] === ",") end++;
+        removals.push({ start: node.getStart(tree), end });
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    expect(removals).toHaveLength(1);
+    let historicalShape = support;
+    for (const removal of removals.sort((a, b) => b.start - a.start)) {
+      historicalShape = historicalShape.slice(0, removal.start) + historicalShape.slice(removal.end);
+    }
+    expect(catalogDeclarationDigests(historicalShape).createCatalogSeedHost).toBe(
+      "25c315bf2f227c021c59f158afaaea76469224c41997e0a9a92b22b9e51abe52",
+    );
     expect(assignCatalogSeedState).toBeTruthy();
     for (const [index, source] of sources.entries()) {
       const suffix = index === 0 ? "aggregate_state" : "interruption_resume";
@@ -2819,10 +4541,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     const fixture = await createShippedFixture(relocated, {
       ceilings: bootstrapDbExecutionUnitBootBearingCaseCeilings,
     });
+    const receiverCeiling = new Map(Object.entries(bootstrapDbExecutionUnitBootBearingCaseCeilings)).get(
+      receiver.executionUnit,
+    );
+    if (receiverCeiling === undefined) throw new Error(`Missing ceiling for ${receiver.executionUnit}`);
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([
-        `test:db:1 has ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:1"] + 1} boot-bearing cases, exceeding its declared ceiling of ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:1"]}`,
+        `${receiver.executionUnit} has ${receiverCeiling + 1} boot-bearing cases, exceeding its declared ceiling of ${receiverCeiling}`,
       ]),
     );
   });
@@ -2865,7 +4591,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
-  it("evaluates an unmistakably synthetic twelve-file 62-case shipped-shaped enrollment without changing main", async () => {
+  it("evaluates an unmistakably synthetic twelve-file 63-case shipped-shaped enrollment without changing main", async () => {
     const files = shippedShapedFiles()
       .filter((file) => file.fileName !== "connector-mount-gate-isolation.db.test.ts")
       .map((file, index) => ({
@@ -2877,7 +4603,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         })),
       }));
     expect(files).toHaveLength(11);
-    expect(files.reduce((count, file) => count + file.cases.length, 0)).toBe(57);
+    expect(files.reduce((count, file) => count + file.cases.length, 0)).toBe(58);
     files.push({
       fileName: "synthetic-twelfth-enrollment.db.test.ts",
       databaseSuffix: "synthetic_twelfth_enrollment",
@@ -2893,7 +4619,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = runFixture(fixture);
     expect(result.violations).toEqual([]);
     expect(result.fileCount).toBe(12);
-    expect(result.caseCount).toBe(62);
+    expect(result.caseCount).toBe(63);
     expect(result.schedule.minimumUnitCount).toBe(2);
     expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
     expect(runFixture({ ...fixture, model: { ...fixture.model, maximumScheduledFileCount: 11 } }).violations).toContain(
@@ -2983,7 +4709,7 @@ describe("bootstrap DB evidence", () => {
   it("keeps the guard prefix and both reporters on every numbered DB script", () => {
     const { scripts } = JSON.parse(readFileSync(join(testDirectory, "../package.json"), "utf8"));
     const units = Object.keys(scripts).filter((name) => /^test:db:\d+$/.test(name));
-    expect(units).toEqual(["test:db:1", "test:db:2"]);
+    expect(units).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
     for (const name of units) {
       expect(scripts[name]).toMatch(/^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /);
       expect(scripts[name]).toContain(

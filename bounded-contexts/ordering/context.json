@@ -7,7 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["orders", "postage-policies", "tax-quotes", "tax-nexus"],
   "allowedSupportDirectories": ["account-support", "request-support", "runtime-support", "seed-support", "ucp-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
   "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
@@ -373,7 +373,7 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
-          "routePath": "/purchases/:id",
+          "routePath": "/account/purchases/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -394,7 +394,7 @@
           ]
         },
         {
-          "routePath": "/sales/:id",
+          "routePath": "/account/sales/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -415,7 +415,7 @@
           ]
         },
         {
-          "routePath": "/sales",
+          "routePath": "/account/sales",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -478,7 +478,7 @@
       "destination": {
         "routeId": "account-sales",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales",
+        "apiRoutePath": "/account/sales",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages"],
         "projectionDependencies": ["ordering-marketplace-offer-acceptance"],
         "freshnessDependencyReason": "The sales list must wait for the Marketplace accepted-offer process that creates the Ordering order, then wait on the Ordering-owned sale list read models when an Ordering receipt is present. Account and fulfillment joins are display/cancellation adornments and must not gate the accepted-offer handoff.",
@@ -507,7 +507,7 @@
       "destination": {
         "routeId": "account-purchase",
         "apiContextName": "ordering",
-        "apiRoutePath": "/purchases/:id",
+        "apiRoutePath": "/account/purchases/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -534,7 +534,7 @@
       "destination": {
         "routeId": "account-sale",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales/:id",
+        "apiRoutePath": "/account/sales/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -650,7 +650,7 @@
       "visibleDestination": {
         "routeId": "account-purchase",
         "apiContextName": "ordering",
-        "apiRoutePath": "/purchases/:id",
+        "apiRoutePath": "/account/purchases/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -673,7 +673,7 @@
       "visibleDestination": {
         "routeId": "account-sale",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales/:id",
+        "apiRoutePath": "/account/sales/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -757,6 +757,10 @@
       }
     }
   ],
+  "agentCoverage": {
+    "ordering-postage-policies": { "pending": "#9238" },
+    "ordering-postage-policies-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -794,8 +798,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -806,6 +809,9 @@
             "owner": "ordering",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -846,8 +852,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -858,6 +863,9 @@
             "owner": "ordering",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -909,20 +917,24 @@
       "label": "Purchases",
       "icon": "bag",
       "href": "/account/purchases",
-      "order": 170,
+      "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view"]
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "sales",
       "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
       "icon": "dollar",
       "href": "/account/sales",
+      "parentKey": "selling-workspace",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view", "listings.view"]
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
@@ -931,20 +943,26 @@
       "label": "Purchases",
       "icon": "bag",
       "href": "/account/purchases",
-      "order": 170,
+      "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view"]
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 400
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sales",
       "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
       "icon": "dollar",
       "href": "/account/sales",
+      "parentKey": "selling-workspace",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view", "listings.view"]
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

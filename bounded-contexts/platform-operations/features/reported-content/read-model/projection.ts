@@ -1,5 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { parseMarketplaceListingOperatorUnlistedPayload } from "@chase-sets/event-core";
 
 type ReasonCount = { reason: string; count: number };
 type ReportSummary = {
@@ -113,6 +114,19 @@ export function buildMarketplaceReportedContentProjectionHandlers(db: PgQueryabl
         ],
       );
     },
+    "marketplace.listing.operator-unlisted": async (event) => {
+      const listingId = event.streamId.replace("marketplace.listing-", "");
+      const { listingEnforcement } = parseMarketplaceListingOperatorUnlistedPayload(event.data);
+      await db.query(
+        `UPDATE platform_operations_reported_content_queue_pages
+         SET status = 'manually-unlisted',
+             updated_at = GREATEST(updated_at, $2::timestamptz)
+         WHERE target_type = 'listing'
+           AND target_id = $1
+           AND (last_action_at IS NULL OR last_action_at <= $2::timestamptz)`,
+        [listingId, listingEnforcement.occurredAt],
+      );
+    },
     "marketplace.listing.auto-unlisted": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
       const data = event.data as {
@@ -178,8 +192,12 @@ export function buildPlatformOperationsReportedContentProjectionHandlers(db: PgQ
 }
 
 export function buildReportedContentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const marketplaceHandlers = buildMarketplaceReportedContentProjectionHandlers(db);
   return {
-    ...buildMarketplaceReportedContentProjectionHandlers(db),
+    // Keep the existing local action projection's inferred membership unchanged.
+    // Operator removal is consumed by the declared Marketplace-source subscription.
+    "marketplace.report.submitted": marketplaceHandlers["marketplace.report.submitted"]!,
+    "marketplace.listing.auto-unlisted": marketplaceHandlers["marketplace.listing.auto-unlisted"]!,
     ...buildPlatformOperationsReportedContentProjectionHandlers(db),
   };
 }

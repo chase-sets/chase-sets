@@ -1,5 +1,11 @@
 import type { DomainEvent } from "@chase-sets/event-core";
-import type { RepricingAnchorTrace, RepricingClampTrace } from "./evaluate";
+import type { Forecast } from "../../forecast-ledger/domain/forecast-kinds";
+import type {
+  RepricingAnchorTrace,
+  RepricingClampTrace,
+  RepricingExhaustedAnchor,
+  RepricingListingEvaluation,
+} from "./evaluate";
 
 export const repricingPolicyEvaluatedEventType = "pricing.repricing-policy.evaluated" as const;
 
@@ -19,7 +25,49 @@ export type RepricingEvaluationSkipReason =
   | "spiral-breaker-frozen"
   | "resume-hysteresis"
   | "repause-cooldown"
-  | "command-error";
+  | "command-error"
+  | "hopeless-forecast-hold";
+
+export type RepricingGoalInputs = Readonly<{
+  curveVersion: number | null;
+  economicsResolved: number;
+  economicsUnavailable: number;
+}>;
+
+/**
+ * Every registered Forecast Kind's forecast at an evaluated price, by kind
+ * name, fixed when the price is evaluated; absent from evaluations recorded
+ * before forecasts were fixed.
+ */
+export type RepricingPriceForecasts = Readonly<Record<string, Forecast>>;
+
+/** The outer goal identifies the substitution; the resolved anchor may belong to a fallback goal. */
+export type ShadowGoalTrace = Readonly<{
+  goalId: string;
+  goalVersion: number;
+  anchorIndex: number;
+  forecasts?: RepricingPriceForecasts;
+}> &
+  (
+    | Readonly<{
+        curveVersion: number | null;
+        targetPriceAmount: string | null;
+        action: RepricingListingEvaluation["action"];
+        skipReason: RepricingListingEvaluation["skipReason"];
+        anchor: RepricingAnchorTrace | null;
+        flags: RepricingListingEvaluation["flags"];
+        skipped: null;
+      }>
+    | Readonly<{
+        curveVersion: null;
+        targetPriceAmount: null;
+        action: null;
+        skipReason: null;
+        anchor: null;
+        flags: readonly never[];
+        skipped: "parameters-incompatible";
+      }>
+  );
 
 export type RepricingPolicyListingTrace = Readonly<{
   listingId: string;
@@ -27,13 +75,15 @@ export type RepricingPolicyListingTrace = Readonly<{
   targetPriceAmount: string | null;
   ruleIndex: number;
   anchor: RepricingAnchorTrace | null;
-  exhaustedAnchors: readonly Readonly<{
-    source: string;
-    state: "present" | "stale" | "absent" | "currency-incomplete" | "currency-mismatch";
-  }>[];
+  exhaustedAnchors: readonly RepricingExhaustedAnchor[];
   clamps: RepricingClampTrace;
   flags: readonly string[];
   frozenUntil?: string;
+  /** The listing's quantity when it was evaluated; absent from evaluations recorded before it was traced. */
+  quantity?: number;
+  /** Recorded at a target price read back by a goal. */
+  forecasts?: RepricingPriceForecasts;
+  shadow?: readonly ShadowGoalTrace[];
   outcome: "changed" | "skipped" | "pause-requested" | "notify-only";
   skipReason: RepricingEvaluationSkipReason | null;
 }>;
@@ -58,6 +108,8 @@ export type RepricingPolicyEvaluatedEvent = DomainEvent<
     listingsChanged: number;
     listingsSkipped: number;
     listings: readonly RepricingPolicyListingTrace[];
+    /** Recorded when the policy reads the Demand Curve: its version, and this policy's Economics resolutions. */
+    goalInputs?: RepricingGoalInputs;
     spiralBreaker?: Readonly<{ tripped: boolean; frozenUntil: string }>;
     signalToEvaluationLatencyMs: number;
     evaluatedAt: string;

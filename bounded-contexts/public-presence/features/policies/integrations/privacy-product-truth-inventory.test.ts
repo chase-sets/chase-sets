@@ -225,12 +225,14 @@ describe("privacy product-truth derivation over the real repository", () => {
 
   it("derives Web Storage subjects through direct, helper, alias, Pick<Storage>, and dynamic-key shapes", () => {
     expect(subjectsOf("web-storage")).toEqual([
+      "agent-grant-revocation:*",
       "catalog.primaryWorkbench.observationSelection.*",
       "chase-sets-theme",
       "chase-sets:marketplace:recent-searches",
       "chase-sets:review-draft:*",
       "discovery.search.loader-cache.v1",
       "discovery.search.restoration.v2",
+      "inventory-mutation/v1:*",
     ]);
 
     expect(factFor("web-storage", "chase-sets-theme").derivationShapes).toEqual(["direct-member-access"]);
@@ -363,11 +365,11 @@ describe("privacy product-truth derivation over the real repository", () => {
       "providerName",
       "providerSubject",
     ]);
-    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:210-213"]);
+    expect(google.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:213-216"]);
 
     const facebook = factFor("social-provider-profile", "facebook");
     expect(facebook.detail.mappedProfileFields).not.toContain("hostedDomain");
-    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:218-221"]);
+    expect(facebook.detail.registrationRefs).toEqual(["deployables/platform-api/src/main.ts:221-224"]);
   });
 
   it("resolves every derived evidence reference to real cited source lines", () => {

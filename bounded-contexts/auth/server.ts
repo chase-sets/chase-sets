@@ -1,4 +1,6 @@
 export * from "./support/route-support/auth-host";
+export { resumeAgentGrantRevocation } from "./features/agent-grants/api/revocation";
+export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
 export {
   createConnectorOAuthService,
   ConnectorOAuthError,

@@ -120,6 +120,50 @@ describe("daily reconciliation by currency", () => {
     };
   }
 
+  it.each([
+    { completedRefundAmount: "40.00", sellerPostedAmount: "10.00", platformSettledAmount: "30.00", drift: "0.00" },
+    { completedRefundAmount: "40.00", sellerPostedAmount: "5.00", platformSettledAmount: "30.00", drift: "5.00" },
+    { completedRefundAmount: "40.00", sellerPostedAmount: "15.00", platformSettledAmount: "30.00", drift: "-5.00" },
+    { completedRefundAmount: "0", sellerPostedAmount: "0", platformSettledAmount: "0", drift: "0.00" },
+  ])("returns base-identical amounts through the money primitive: $drift", ({ drift, ...amounts }) => {
+    const [result] = computeDailyReconciliationByCurrency([reconciledRow(amounts)]);
+    expect(result.drift).toBe(drift);
+    expect(result.balanced).toBe(drift === "0.00");
+  });
+
+  describe.each(["completedRefundAmount", "sellerPostedAmount", "platformSettledAmount"] as const)(
+    "%s operand",
+    (operand) => {
+      it.each(["12abc", "1e3", "", "10000000000.00", "-0.01"])(
+        "rejects non-canonical or out-of-range amounts instead of coercing them: %s",
+        (amount) => {
+          expect(() => computeDailyReconciliationByCurrency([reconciledRow({ [operand]: amount })])).toThrow(Error);
+        },
+      );
+    },
+  );
+
+  it("rejects non-canonical or out-of-range amounts instead of coercing them: aggregate overflow", () => {
+    expect(() =>
+      computeDailyReconciliationByCurrency([
+        reconciledRow({ completedRefundAmount: "9999999999.99" }),
+        reconciledRow({ refundId: "rfd_2", completedRefundAmount: "0.01" }),
+      ]),
+    ).toThrow(Error);
+  });
+
+  it("rejects non-canonical or out-of-range amounts instead of coercing them: result overflow", () => {
+    expect(() =>
+      computeDailyReconciliationByCurrency([
+        reconciledRow({
+          completedRefundAmount: "0",
+          sellerPostedAmount: "9999999999.99",
+          platformSettledAmount: "9999999999.99",
+        }),
+      ]),
+    ).toThrow(Error);
+  });
+
   it("balances reconciled refunds against seller and platform postings per currency", () => {
     const rows: readonly RefundReconciliationRow[] = [
       reconciledRow({ refundId: "rfd_1", sellerPostedAmount: "0.00", platformSettledAmount: "40.00" }),

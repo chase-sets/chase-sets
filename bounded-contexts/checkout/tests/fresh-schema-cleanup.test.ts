@@ -20,6 +20,14 @@ import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../fe
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(checkoutRoot, "..", "..");
+
+it("keeps the retained-database expiry boot expansion outside the fresh base schema", () => {
+  const expansion = "ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL";
+  expect(checkoutSessionSchemaSql).not.toContain(expansion);
+  expect(checkoutSchemaSql).toContain(expansion);
+  expect(checkoutSchemaSql.indexOf(expansion)).toBeGreaterThan(checkoutSchemaSql.indexOf(checkoutSessionSchemaSql));
+});
+
 type ForbiddenPattern = Readonly<{
   label: string;
   pattern: RegExp;
@@ -140,6 +148,10 @@ describe("fresh checkout read-model schemas", () => {
       expect.objectContaining({
         migrationId: "20260711_checkout_session_authenticity_opt_in",
         statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS authenticity_check_opt_in jsonb NULL")],
+      }),
+      expect.objectContaining({
+        migrationId: "20261016_checkout_session_handoff_expiry",
+        statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL")],
       }),
     ]);
     expect(checkoutSessionSchemaMigrations[0]?.statements).toHaveLength(1);

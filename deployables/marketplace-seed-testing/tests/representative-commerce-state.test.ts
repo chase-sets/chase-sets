@@ -1,5 +1,6 @@
 import { getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import { createInventoryRepresentativeSeedServices, type InventoryServices } from "@chase-sets/inventory/server";
 import {
   acceptRepresentativeOffers,
   ensureRepresentativeInventoryStock,
@@ -688,7 +689,7 @@ function getCatalogServices(services: Readonly<Record<string, unknown>>): Catalo
 }
 
 function getInventoryServices(services: Readonly<Record<string, unknown>>): RepresentativeInventoryServices {
-  return services.inventory as RepresentativeInventoryServices;
+  return createInventoryRepresentativeSeedServices(services.inventory as InventoryServices);
 }
 
 function getMarketplaceServices(services: Readonly<Record<string, unknown>>): MarketplaceServices {

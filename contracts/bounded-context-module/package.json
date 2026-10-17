@@ -8,7 +8,8 @@
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./link-intents": "./link-intents.ts"
   },
   "types": "./index.ts",
   "dependencies": {

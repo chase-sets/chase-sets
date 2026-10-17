@@ -96,6 +96,11 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import contextManifest from "./context.json" with { type: "json" };
 import { buildChannelsApi } from "./api";
+import { createEbayAccountDeletionRuntime } from "./features/ebay-account-deletion/api/runtime";
+import { createEbayReceiptStaffRoutes } from "./features/ebay-account-deletion/api/staff-route";
+import { createEbayReceiptExpiryStore } from "./features/ebay-account-deletion/read-model/expiry";
+import { ebayReceiptCustomRetention } from "./features/ebay-account-deletion/read-model/retention-policy";
+import { ebayReceiptSchemaSql, ebayReceiptSchemaMigrations } from "./features/ebay-account-deletion/read-model/schema";
 import { createChannelConnectionRuntime } from "./features/connections/api/runtime";
 import { createConnectionPolicyAuthority } from "./features/connections/api/policy-authority";
 import type {
@@ -144,6 +149,7 @@ import {
 } from "./features/connections/read-model/schema";
 import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
 import { createChannelReconciliationRuntime } from "./features/reconciliation/api/runtime";
+import { readPersistedClaimedState } from "./features/reconciliation/read-model/claimed";
 import { readReconciliationConnection } from "./features/reconciliation/read-model/source";
 import type { ChannelsServices } from "./support/runtime-support/services";
 import {
@@ -238,8 +244,9 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}`,
   schemaMigrations: [
+    ...ebayReceiptSchemaMigrations,
     ...channelConnectionSchemaMigrations,
     ...channelCredentialSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
@@ -258,6 +265,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
   ],
   retentionSweeps: [...connectorInboundRetentionSweeps, ...fulfillmentObservationRetentionSweeps],
   retentionExemptions: [
+    ...ebayReceiptCustomRetention,
     ...manualSyncRetentionExemptions,
     ...connectorInboundRetentionExemptions,
     ...fulfillmentObservationRetentionExemptions,
@@ -333,6 +341,10 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
           resolveConnectorPolicy: async () =>
             decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
         },
+        liveExport: {
+          resolveConnectorPolicy: async () =>
+            decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
+        },
         readAdditionalOutboundHold: async ({ connectionId, providerIdentity }) => {
           let killSwitch = null;
           try {
@@ -361,6 +373,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       eventStore,
       outboundSync,
       channelSaleRecorder: ports.channelSaleRecorder,
+      readClaimedChannelState: (input) => readPersistedClaimedState(pool, input),
       resolvePolicy: async () => {
         const resolved = await policies.resolvePolicy(channelReconciliationPolicy);
         const document = resolved.documentId === null ? null : await policies.getPolicyDocument(resolved.documentId);
@@ -394,6 +407,8 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       },
       storageLocationAuthority,
       credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
+      ebayAccountDeletionReceipts: createEbayAccountDeletionRuntime(pool, ports.channelCredentialKeyring),
+      ebayReceiptExpiry: createEbayReceiptExpiryStore(pool),
       connectionHealth,
       connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
       listingComposition,
@@ -444,7 +459,10 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     {
       mountPath: "/api/channels",
       contextMountOrdinal: 1,
-      router: buildChannelsApi(services, { storageLocationAuthority: services.storageLocationAuthority }),
+      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route(
+        "/",
+        buildChannelsApi(services, { storageLocationAuthority: services.storageLocationAuthority }),
+      ),
     },
     {
       mountPath: "/channel-connector/oauth",

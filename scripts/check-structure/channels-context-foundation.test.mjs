@@ -772,7 +772,7 @@ describe("channels glossary alias evidence", () => {
 });
 
 describe("channels-foundation-deployable-registration", () => {
-  it("registers Channels in API, worker, and its marketplace route host while excluding unrelated hosts", () => {
+  it("registers Channels in API, worker, marketplace, and admin-web support hosts while excluding public-web", () => {
     const root = createTempRepo("channels-metadata-");
     writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
     const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
@@ -795,11 +795,11 @@ describe("channels-foundation-deployable-registration", () => {
     syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
     const candidate = readRegistryBytes(root);
 
-    for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[3]]) {
+    for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[2], registryPaths[3]]) {
       expect(candidate[relativePath]).not.toEqual(before[relativePath]);
       expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
     }
-    for (const relativePath of [registryPaths[2], registryPaths[4]]) {
+    for (const relativePath of [registryPaths[4]]) {
       expect(candidate[relativePath]).toEqual(before[relativePath]);
     }
 

@@ -19,6 +19,7 @@ import type { RepricingPolicyListingTrace } from "../../repricing-engine/domain/
 import { dryRunBody, dryRunContext, seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
 import { DryRunResult } from "../ui/dry-run-result";
 import { repricingClampCopyKeys } from "../ui/activity-copy";
+import { economicsNeverResolved } from "../../repricing-engine/tests/round-capture-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -63,7 +64,11 @@ describeDb("integrated 10k rendering", () => {
         { conditions: [], directive: { ...directive, terminal: { kind: "fallback-price" as const, amount: "20" } } },
       ],
     };
-    const services = createRepricingEngineRuntime({ db, eventStore: createPostgresEventStore({ pool: db }) });
+    const services = createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      db,
+      eventStore: createPostgresEventStore({ pool: db }),
+    });
     const app = new Hono<PricingApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", {

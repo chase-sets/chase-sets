@@ -17,6 +17,7 @@ const UCP_ACCESS_TOKEN_PREFIX = "ucp_at_";
 
 export type AuthLinkedPlatformAuthorization = Readonly<{
   authorization_id: string;
+  platform_profile_url: string;
   user_id: string;
   account_id: string;
   scopes: readonly string[];
@@ -137,6 +138,15 @@ async function resolveLinkedPlatformActor(
     return null;
   }
 
+  const current = await linkedPlatformAuthorizations.resolveAccessToken(services.auth.hashSecret(token));
+  if (
+    !current ||
+    current.authorization_id !== linked.authorization_id ||
+    current.account_id !== linked.account_id ||
+    current.user_id !== linked.user_id
+  )
+    return null;
+
   const rolePermissions = membership.role_permissions as readonly string[];
   const scopes = normalizeAgentOAuthScopes(linked.scopes);
 
@@ -150,6 +160,7 @@ async function resolveLinkedPlatformActor(
     permissions: resolveUcpScopedPermissions(scopes, rolePermissions),
     agentGrant: {
       grantId: linked.authorization_id,
+      platformProfileUrl: linked.platform_profile_url,
       scopes,
       rolePermissions,
     },

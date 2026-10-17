@@ -64,6 +64,7 @@ import {
   summarizeReapplyOutcomes,
 } from "./source-observation-job-serialization";
 import {
+  CatalogAssetStorageError,
   capitalize,
   createCatalogDraftFromObservation,
   isPromotableObservationStatus,
@@ -427,6 +428,9 @@ export function createSourceObservationPromotionReapplyRuntime({
             status: "failed",
             catalogItemId: null,
             reason: error instanceof Error ? error.message : "Promotion failed.",
+            ...(error instanceof CatalogAssetStorageError
+              ? { diagnosticCode: "asset-processing-failed" as const }
+              : {}),
           },
         );
       } finally {

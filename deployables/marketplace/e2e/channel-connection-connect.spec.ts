@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse, type Page, type TestInfo } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { ChannelsServices } from "@chase-sets/channels/server";
@@ -426,6 +427,7 @@ async function publishTwoSellerListings(
   for (const selection of selections) {
     const item = await successfulJson<{ id: string }>(
       await page.request.post("/api/inventory/items", {
+        headers: { "Inventory-Mutation-Attempt": randomUUID() },
         data: { ...selection, storageLocationId, totalQuantity: 4 },
       }),
     );

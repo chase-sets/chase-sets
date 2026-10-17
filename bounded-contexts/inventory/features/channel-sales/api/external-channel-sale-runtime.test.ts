@@ -20,6 +20,14 @@ type JournalRow = {
   created_at: string;
 };
 
+type SyntheticHold = {
+  hold_id: string;
+  quantity: number;
+  purpose: "order";
+  source_ref: { orderId: string; reservationRequestId: string };
+  committed_at: string;
+};
+
 function checkpointStore(): ProjectionCheckpointStore {
   const values = new Map<string, GlobalPosition>();
   return {
@@ -51,10 +59,9 @@ function baseCommand(
   };
 }
 
-function createHarness(options: Readonly<{ total?: number; activeHolds?: readonly Record<string, unknown>[] }> = {}) {
+function createHarness(options: Readonly<{ total?: number; activeHolds?: readonly SyntheticHold[] }> = {}) {
   const memory = createInMemoryEventStore();
   const journal = new Map<string, JournalRow>();
-  let activeHolds = [...(options.activeHolds ?? [])];
   let failClaim = false;
   let failHolds = false;
   let failComplete = false;
@@ -120,12 +127,20 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
         const row = journal.get(String(values[0]));
         return { rows: row ? [{ ...row, inserted: false }] : [], rowCount: row ? 1 : 0 };
       }
-      if (sql.includes("WITH placed AS")) {
+      if (sql.includes("WITH candidates AS")) {
         if (failHolds) {
           failHolds = false;
           throw new Error("synthetic after-claim crash");
         }
-        return { rows: activeHolds, rowCount: activeHolds.length };
+        const streams = [...memory.streams.keys()].filter((stream) => stream.startsWith("inventory.hold-")).sort();
+        return {
+          rows: streams.map((stream_id) => ({
+            stream_id,
+            total: String(streams.length),
+            current_version: String(memory.streams.get(stream_id)!.length),
+          })),
+          rowCount: streams.length,
+        };
       }
       throw new Error(`Unexpected synthetic query: ${sql}`);
     }),
@@ -139,6 +154,29 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
   const sales = createInventoryExternalChannelSaleRuntime(deps, holdCollisions);
 
   async function seedItem() {
+    for (const hold of options.activeHolds ?? []) {
+      await memory.eventStore.appendToStream({
+        streamId: `inventory.hold-${hold.hold_id}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "inventory.hold.placed",
+            payload: {
+              holdId: hold.hold_id,
+              accountId: "acc_seller",
+              itemId: "inv_item",
+              quantity: hold.quantity,
+              reason: "Existing order hold",
+              notes: null,
+              purpose: hold.purpose,
+              sourceRef: hold.source_ref,
+              expiresAt: null,
+            },
+          },
+        ],
+      });
+    }
     const [created] = decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
       itemId: "inv_item" as never,
@@ -170,7 +208,25 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
     record: sales.bind(context),
     sales,
     seedItem,
-    setActiveHolds: (rows: readonly Record<string, unknown>[]) => (activeHolds = [...rows]),
+    releaseActiveHolds: async () => {
+      for (const hold of options.activeHolds ?? []) {
+        await memory.eventStore.appendToStream({
+          streamId: `inventory.hold-${hold.hold_id}`,
+          expectedVersion: 1,
+          context,
+          events: [
+            {
+              eventType: "inventory.hold.released",
+              payload: {
+                holdId: hold.hold_id,
+                releasedAt: "2026-10-12T12:00:00Z",
+                releaseReason: "order-cancelled",
+              },
+            },
+          ],
+        });
+      }
+    },
     crashBeforeClaim: () => (failClaim = true),
     crashAfterClaim: () => (failHolds = true),
     crashAfterAppend: () => (failComplete = true),
@@ -180,7 +236,7 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
 const orderHold = (orderId: string, quantity: number) => ({
   hold_id: `hld_${orderId}`,
   quantity,
-  purpose: "order",
+  purpose: "order" as const,
   source_ref: { orderId, reservationRequestId: `rsv_${orderId}` },
   committed_at: "2026-09-06T10:00:00.000Z",
 });
@@ -413,7 +469,7 @@ describe("external-channel-sale-collision-path", () => {
         harness.readAllEvents().filter((event) => event.eventType === "inventory.item.stock-authority-claimed"),
       ).toHaveLength(1);
     }
-    harness.setActiveHolds([]);
+    await harness.releaseActiveHolds();
     expect(await harness.record(baseCommand("line-collision", { requestedQuantity: requested }))).toEqual(result);
   });
 });

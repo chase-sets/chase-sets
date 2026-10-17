@@ -7,7 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["shipments", "return-shipments"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback"],
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
@@ -503,6 +503,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "return-intake": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -572,8 +575,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -584,6 +586,9 @@
             "owner": "fulfillment",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -696,46 +701,31 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "key": "shipments",
-      "label": "Shipments",
-      "icon": "package",
-      "href": "/account/shipments",
-      "order": 150,
-      "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "shipments",
-      "label": "Shipments",
-      "icon": "package",
-      "href": "/account/shipments",
-      "order": 150,
-      "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "top-nav",
       "key": "sale-shipments",
-      "label": "Sale shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
       "icon": "truck",
       "href": "/account/sales/shipments",
-      "order": 155,
+      "parentKey": "selling-workspace",
+      "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
+      "requiredPermissions": ["fulfillment.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sale-shipments",
-      "label": "Sale shipments",
+      "label": "Shipping",
+      "labelKey": "fulfillment.shell.saleShipments.label",
       "icon": "truck",
       "href": "/account/sales/shipments",
-      "order": 155,
+      "parentKey": "selling-workspace",
+      "order": 195,
       "visibility": "signed-in",
-      "requiredPermissions": ["fulfillment.view"]
+      "requiredPermissions": ["fulfillment.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

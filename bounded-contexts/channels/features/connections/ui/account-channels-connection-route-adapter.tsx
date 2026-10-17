@@ -23,8 +23,8 @@ import {
   createChannelsConnectionsRequestApiClient,
 } from "../../../support/request-support/api-client";
 import type { PublicChannelConnection } from "../domain/contracts";
-import type { ManualSyncPanel } from "../../manual-sync/domain/contracts";
-import { ManualSyncPanelView } from "../../manual-sync/ui/manual-sync-panel";
+import { decodeManualSyncIngestReceipt, type ManualSyncPanel } from "../../manual-sync/domain/contracts";
+import { ManualSyncPanelView, type ManualSyncActionOutcome } from "../../manual-sync/ui/manual-sync-panel";
 import type { OutboundOperationLogPage, OutboundOperationSummary } from "../../outbound-sync/domain/contracts";
 import {
   readOutboundOperationLogPosition,
@@ -263,6 +263,7 @@ export async function action(
 ): Promise<
   | ConnectionActionData
   | ManualSyncActionError
+  | ManualSyncActionOutcome
   | AttentionActionError
   | DriftActionResult
   | Readonly<{ kind: "pairing-error"; error: string }>
@@ -346,8 +347,11 @@ export async function action(
   }
   const emptyHeaders = createForwardedAuthHeaders(args.request);
   let response: Response;
-  if (intent === "compose") response = await fetch(`${base}/compose`, { method: "POST", headers: emptyHeaders });
-  else if (intent === "retry-clamp")
+  if (intent === "compose") {
+    response = await fetch(`${base}/compose`, { method: "POST", headers: emptyHeaders });
+    if (!response.ok && stagedBasisRefusals.has((await readApiErrorCode(response)) ?? ""))
+      return { kind: "manual-sync-staged-basis-guidance" };
+  } else if (intent === "retry-clamp")
     response = await fetch(`${base}/runs/${runId}/retry-clamp?expectedRevision=${revision}`, {
       method: "POST",
       headers: emptyHeaders,
@@ -376,6 +380,10 @@ export async function action(
       headers: createForwardedAuthHeaders(args.request, { "x-channel-export-captured-at": new Date().toISOString() }),
       body: upload,
     });
+    const receipt = response.ok ? decodeManualSyncIngestReceipt(await response.json().catch(() => null)) : null;
+    return receipt
+      ? { kind: "manual-sync-ingest", receipt }
+      : { error: t("channels.manualSync.action.failed.description") };
   } else if (intent === "verify")
     response = await fetch(`${base}/runs/${runId}/verify`, {
       method: "POST",
@@ -409,6 +417,25 @@ export async function downloadAction({ request, params }: ActionFunctionArgs): P
     { method: "POST", headers: createForwardedAuthHeaders(request) },
   );
 }
+
+const stagedBasisRefusals = new Set(["staged-basis-stale", "staged-basis-unavailable"]);
+
+async function readApiErrorCode(response: Response): Promise<string | null> {
+  const body: unknown = await response.json().catch(() => null);
+  if (typeof body !== "object" || body === null || !("error" in body)) return null;
+  const error = body.error;
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+}
+
+function readManualSyncOutcome(value: unknown): ManualSyncActionOutcome | null {
+  if (typeof value !== "object" || value === null || !("kind" in value)) return null;
+  return value.kind === "manual-sync-ingest" || value.kind === "manual-sync-staged-basis-guidance"
+    ? (value as ManualSyncActionOutcome)
+    : null;
+}
+
 export function readActionError(value: unknown): string | null {
   return typeof value === "object" && value !== null && "error" in value && typeof value.error === "string"
     ? value.error
@@ -478,7 +505,9 @@ export default function AccountChannelsConnectionRoute() {
             description={actionError}
           />
         ) : null}
-        {data.manualSync.kind === "loaded" ? <ManualSyncPanelView panel={data.manualSync.data} /> : null}
+        {data.manualSync.kind === "loaded" ? (
+          <ManualSyncPanelView panel={data.manualSync.data} outcome={readManualSyncOutcome(actionData)} />
+        ) : null}
         {data.manualSync.kind === "read-error" ? (
           <OperationalStatusBanner
             tone="danger"

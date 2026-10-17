@@ -3,7 +3,6 @@ import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   browserE2eLifecyclePathEnv,
@@ -20,6 +19,7 @@ const temporaryDirectories = [];
 const spawnedChildren = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await Promise.all(
     spawnedChildren.splice(0).map(async (child) => {
@@ -104,40 +104,59 @@ describe("browser e2e lifecycle evidence", () => {
   });
 
   it("does not queue slow process samples or start samples after bootstrap exit", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const pollMs = 10;
+    // runObservedBrowserE2eBootstrap's default sampleGraceMs.
+    const sampleGraceMs = pollMs * 2;
     const child = { pid: 81002, exitCode: null, signalCode: null };
+    const childExit = Promise.withResolvers();
+    const heldSample = Promise.withResolvers();
     let outstanding = 0;
     let maximumOutstanding = 0;
     let sampleCalls = 0;
     let samplesAfterExit = 0;
-    let exitedAt;
+    let settled = false;
     const recorder = { observe: vi.fn(), recordProcessTree: vi.fn(), recordProcessTreeError: vi.fn() };
     const run = async (_command, _args, { onSpawn }) => {
       onSpawn(child);
-      await delay(90);
+      await childExit.promise;
       child.exitCode = 0;
-      exitedAt = Date.now();
     };
 
-    await runObservedBrowserE2eBootstrap("synthetic", [], {
+    const bootstrap = runObservedBrowserE2eBootstrap("synthetic", [], {
       name: "bootstrap-slow",
       recorder,
       run,
-      pollMs: 10,
+      pollMs,
       sampleProcessTree: async () => {
         sampleCalls += 1;
         if (child.exitCode !== null) samplesAfterExit += 1;
         outstanding += 1;
         maximumOutstanding = Math.max(maximumOutstanding, outstanding);
-        await delay(120);
+        await heldSample.promise;
         outstanding -= 1;
         return [];
       },
+    }).finally(() => {
+      settled = true;
     });
+
+    try {
+      // Several poll ticks pass while the first sample is still held.
+      await vi.advanceTimersByTimeAsync(pollMs * 3);
+      childExit.resolve();
+      await vi.advanceTimersByTimeAsync(sampleGraceMs - 1);
+      expect(settled, "bootstrap settled before the sample grace elapsed").toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled, "bootstrap did not settle once the sample grace elapsed").toBe(true);
+      await bootstrap;
+    } finally {
+      heldSample.resolve();
+    }
 
     expect(maximumOutstanding).toBe(1);
     expect(sampleCalls).toBe(1);
     expect(samplesAfterExit).toBe(0);
-    expect(Date.now() - exitedAt).toBeLessThan(240);
   });
 
   it("preserves a bootstrap exit 37 when the process sampler never settles", async () => {

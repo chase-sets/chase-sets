@@ -13,7 +13,16 @@
   "slices": ["notification-center", "preferences"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
-  "allowedContextDependencies": [],
+  "allowedContextDependencies": [
+    "@chase-sets/customer-feedback",
+    "@chase-sets/fulfillment",
+    "@chase-sets/inventory",
+    "@chase-sets/marketplace",
+    "@chase-sets/ordering",
+    "@chase-sets/platform-operations",
+    "@chase-sets/pricing",
+    "@chase-sets/settlement"
+  ],
   "seedRequirements": [],
   "eventSubscriptions": [
     {
@@ -254,11 +263,15 @@
       "slot": "top-nav",
       "key": "notifications",
       "label": "Notifications",
+      "labelKey": "notifications.shell.notifications.label",
       "icon": "bell",
       "href": "/account/notifications",
+      "activation": "route",
       "order": 90,
       "visibility": "signed-in",
-      "requiredPermissions": ["accounts.view"]
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility"
     },
     {
       "deployable": "marketplace-web",
@@ -267,9 +280,13 @@
       "label": "Alerts",
       "icon": "bell",
       "href": "/account/notifications",
+      "activation": "route",
       "order": 90,
       "visibility": "signed-in",
-      "requiredPermissions": ["accounts.view"]
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility",
+      "packingPriority": 600
     }
   ],
   "directoryIntent": {

@@ -1,5 +1,7 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EbayAccountDeletionOptions } from "../../features/ebay-account-deletion/api/route";
+import type { EbayAccountDeletionServices } from "../../features/ebay-account-deletion/api/runtime";
+import type { createEbayReceiptExpiryStore } from "../../features/ebay-account-deletion/read-model/expiry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type {
   ChannelConnectionServices,
@@ -23,6 +25,8 @@ import type { FulfillmentObservationServices } from "../../features/order-fulfil
 
 export type ChannelsServices = Readonly<{
   ebayAccountDeletion: EbayAccountDeletionOptions;
+  ebayAccountDeletionReceipts: EbayAccountDeletionServices;
+  ebayReceiptExpiry: ReturnType<typeof createEbayReceiptExpiryStore>;
   credentials: ChannelCredentialServices;
   connections: ChannelConnectionServices;
   storageLocationAuthority: ChannelStorageLocationAuthorityResolver;
@@ -46,6 +50,8 @@ export type ChannelsServices = Readonly<{
 
 export const channelsServicesMembers = defineChannelsServicesMembers([
   "ebayAccountDeletion",
+  "ebayAccountDeletionReceipts",
+  "ebayReceiptExpiry",
   "credentials",
   "connections",
   "storageLocationAuthority",
@@ -70,6 +76,8 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const connections = Reflect.get(value, "connections");
   const storageLocationAuthority = Reflect.get(value, "storageLocationAuthority");
   const credentials = Reflect.get(value, "credentials");
+  const ebayAccountDeletionReceipts = Reflect.get(value, "ebayAccountDeletionReceipts");
+  const ebayReceiptExpiry = Reflect.get(value, "ebayReceiptExpiry");
   const connectionHealth = Reflect.get(value, "connectionHealth");
   const connectionAttention = Reflect.get(value, "connectionAttention");
   const listingComposition = Reflect.get(value, "listingComposition");
@@ -84,6 +92,13 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
 
   return (
     isObject(Reflect.get(value, "ebayAccountDeletion")) &&
+    isObject(ebayAccountDeletionReceipts) &&
+    typeof Reflect.get(ebayAccountDeletionReceipts, "recordEbayAccountDeletionReceipt") === "function" &&
+    typeof Reflect.get(ebayAccountDeletionReceipts, "lookup") === "function" &&
+    typeof Reflect.get(ebayAccountDeletionReceipts, "countSubjectData") === "function" &&
+    isObject(ebayReceiptExpiry) &&
+    typeof Reflect.get(ebayReceiptExpiry, "cutoff") === "function" &&
+    typeof Reflect.get(ebayReceiptExpiry, "batch") === "function" &&
     isObject(credentials) &&
     typeof Reflect.get(credentials, "resolve") === "function" &&
     typeof Reflect.get(credentials, "create") === "function" &&
@@ -106,6 +121,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
     typeof Reflect.get(outboundSync, "recoverExpiredClaimedOperations") === "function" &&
     typeof Reflect.get(outboundSync, "processNextInlineOperation") === "function" &&
     typeof Reflect.get(outboundSync, "scheduleDueOrderPulls") === "function" &&
+    typeof Reflect.get(outboundSync, "scheduleDueLiveExports") === "function" &&
     isObject(reconciliation) &&
     typeof Reflect.get(reconciliation, "reconcileDueConnections") === "function" &&
     typeof Reflect.get(reconciliation, "readChannelDriftDetail") === "function" &&

@@ -9,10 +9,16 @@ import type {
 import type { DiscoveryEmbeddingProvider } from "../integrations/voyage-embedding-provider";
 import { createHash } from "node:crypto";
 import { normalizeSimpleSearchText } from "../domain/normalization";
-import { retrieveDiscoveryItems, type DiscoverySearchResult } from "../read-model/hybrid-retrieval";
+import {
+  classifyDiscoverySearchCursor,
+  retrieveDiscoveryItems,
+  type DiscoveryHybridRetrievalDependencies,
+  type DiscoverySearchResult,
+} from "../read-model/hybrid-retrieval";
 import {
   previewBulkAddSearchResults,
   type DiscoveryBulkCartPreview,
+  type DiscoverySearchCursorState,
   type DiscoverySearchParams,
 } from "../read-model/queries";
 import { buildDiscoverySearchItemProjectionHandlers, rebuildDiscoverySearchIndex } from "../read-model/projection";
@@ -26,10 +32,12 @@ export type DiscoverySearchQuerySignal = Readonly<{
   resultSetKey: string;
   filterState: string;
   sortOrder: string;
-  cursorState: "cursor" | "fresh";
+  cursorState: DiscoverySearchCursorState;
   resultCount: number | null;
   total: number | null;
   zeroResults: boolean | null;
+  lexicalZero: boolean | null;
+  interpretation: "applied" | "not-applied" | "unknown";
   retrievalMode: DiscoverySearchResult["retrievalMode"] | null;
   outcome: "success" | "failure";
   normalizationDurationMs: number;
@@ -84,24 +92,26 @@ export function createDiscoveryItemSearchRuntime(
       const normalizationDurationMs = performance.now() - startedAt;
       const retrievalStartedAt = performance.now();
       let result: DiscoverySearchResult | undefined;
+      let lexicalZero: boolean | null = null;
       let embeddingWait: QueryEmbeddingWaitObservation = { outcome: "not-attempted", waiterDurationMs: 0 };
+      const retrievalDependencies: DiscoveryHybridRetrievalDependencies = {
+        db: deps.db,
+        provider: retrieval.provider,
+        cache: retrieval.cache,
+        rescueEnabled: retrieval.rescueEnabled ?? false,
+        hybridEnabled: retrieval.hybridEnabled ?? false,
+        signal: options.signal,
+        onLexicalObservation: (observation) => {
+          lexicalZero = observation;
+        },
+        onEmbeddingWait: (observation) => {
+          embeddingWait = observation;
+        },
+        onEmbeddingLoad: retrieval.recordQueryEmbeddingLoad,
+      };
 
       try {
-        result = await retrieveDiscoveryItems(
-          {
-            db: deps.db,
-            provider: retrieval.provider,
-            cache: retrieval.cache,
-            rescueEnabled: retrieval.rescueEnabled ?? false,
-            hybridEnabled: retrieval.hybridEnabled ?? false,
-            signal: options.signal,
-            onEmbeddingWait: (observation) => {
-              embeddingWait = observation;
-            },
-            onEmbeddingLoad: retrieval.recordQueryEmbeddingLoad,
-          },
-          params,
-        );
+        result = await retrieveDiscoveryItems(retrievalDependencies, params);
         return { ...result, queryHash, resultSetKey };
       } finally {
         try {
@@ -110,10 +120,13 @@ export function createDiscoveryItemSearchRuntime(
             resultSetKey,
             filterState: filterState(params),
             sortOrder: observedSortOrder(params.sort),
-            cursorState: params.cursor === undefined ? "fresh" : "cursor",
+            // Effective state: a failed retrieval still reports how its cursor classified.
+            cursorState: result?.cursorState ?? classifyDiscoverySearchCursor(retrievalDependencies, params),
             resultCount: result?.items.length ?? null,
             total: result?.total ?? null,
             zeroResults: result ? result.items.length === 0 : null,
+            lexicalZero,
+            interpretation: result ? (result.interpretation ? "applied" : "not-applied") : "unknown",
             retrievalMode: result?.retrievalMode ?? null,
             outcome: result ? "success" : "failure",
             normalizationDurationMs,
@@ -167,6 +180,8 @@ function searchIdentity(params: DiscoverySearchParams, normalizedSearch: string)
     referenceFilters: params.referenceFilters ?? [],
     dimensionFilters: params.dimensionFilters ?? [],
     sort: params.sort ?? "relevance",
+    // A marked request has its own retrieval policy, so it is a different Result Set.
+    ...(params.interpreted ? { interpreted: true } : {}),
   };
 }
 

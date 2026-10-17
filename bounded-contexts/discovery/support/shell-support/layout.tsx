@@ -12,7 +12,7 @@ import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { MarketplaceHeaderSearch } from "../../features/search/ui/header-search";
 
 export function DiscoveryShellLayout({
-  activeKey = "search",
+  activeKey,
   colorMode = "system",
   reducedMotion = "user",
   topNavItems,

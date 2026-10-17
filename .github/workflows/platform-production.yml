@@ -38,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      activate_agent_grant_revocation:
+        description: Activate Agent Grant revocation after support rollout with fresh serving-set proof.
+        required: false
+        default: false
+        type: boolean
       catalog_provider_send_window_enabled:
         description: Opt staging API and worker into the supervised Catalog provider-send window. Requires force_deploy.
         required: false
@@ -993,9 +998,6 @@ jobs:
       TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
       TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
       TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
-      TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
-      TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
-      TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
       TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
       TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
       TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
@@ -1674,9 +1676,6 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
-          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
-          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \
@@ -2823,6 +2822,11 @@ jobs:
       PRODUCTION_WALLET_FUNDING_APPROVED: ${{ vars.PRODUCTION_WALLET_FUNDING_APPROVED || 'false' }}
       PRODUCTION_WALLET_FUNDING_REFERENCE: ${{ vars.PRODUCTION_WALLET_FUNDING_REFERENCE || '' }}
       PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST: ${{ vars.PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST || '' }}
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE || '' }}
       TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
@@ -2855,9 +2859,6 @@ jobs:
       TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
       TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
       TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
-      TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
-      TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
-      TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
       TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
       TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
       TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
@@ -2950,6 +2951,9 @@ jobs:
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE":') }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -3123,6 +3127,60 @@ jobs:
               exit 1
             fi
           fi
+
+          # Catalog integration writes are admitted by every production control plane mode except
+          # dry-run-only and read-only (unset defaults to dry-run-only). An admitting plane needs the
+          # provider credentials and the code-enforced signoff references; names are printed, never values.
+          catalog_control_plane_mode="$(node -p 'String(require("./infrastructure/helm/platform/runtime-values.json").productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE ?? "").trim().toLowerCase()')"
+          case "$catalog_control_plane_mode" in
+            "" | dry-run-only | read-only) ;;
+            *)
+              trimmed_env() {
+                local value="${!1:-}"
+                value="${value#"${value%%[![:space:]]*}"}"
+                printf '%s' "${value%"${value##*[![:space:]]}"}"
+              }
+              catalog_missing=()
+              # <production GitHub secret>:<deploy-production env var carrying it>
+              for credential in \
+                SCRYDEX_API_KEY:TF_VAR_scrydex_api_key \
+                SCRYDEX_TEAM_ID:TF_VAR_scrydex_team_id \
+                TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE:TF_VAR_tcgplayer_automation_tcg_auth_cookie
+              do
+                if [ -z "$(trimmed_env "${credential#*:}")" ]; then
+                  catalog_missing+=("${credential%%:*}")
+                fi
+              done
+              # The runtime treats a blank, false, none, or open signoff reference as unset.
+              for reference in \
+                CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE \
+                CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE
+              do
+                reference_value="$(trimmed_env "$reference")"
+                case "${reference_value,,}" in
+                  "" | false | none | open) catalog_missing+=("$reference") ;;
+                esac
+              done
+
+              if [ "${#catalog_missing[@]}" -gt 0 ]; then
+                printf 'Missing required production Catalog integration configuration: %s\n' "${catalog_missing[*]}" >&2
+                exit 1
+              fi
+              ;;
+          esac
+          # Per-name presence preserves absence without exposing the variable map.
+          node --input-type=module -e '
+            const invalid = [
+              "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+              "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+              "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+            ].filter((name) => process.env[name + "_PRESENT"] === "true" &&
+              ["", "false", "none", "open"].includes((process.env[name] ?? "").trim().toLowerCase()));
+            if (invalid.length) {
+              console.error("Invalid production Catalog integration signoff reference: " + invalid.join(" "));
+              process.exit(1);
+            }
+          '
 
       - uses: ./.github/actions/setup-pnpm-workspace
         env:
@@ -3776,9 +3834,6 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
-          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
-          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \
@@ -3832,10 +3887,27 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          ADMISSION_RETRY_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result }}
+          ADMISSION_RETRY_ROLLBACK_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs prepare \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
+
+          # A transient DOKS admission-webhook loss (#9662) is retried once after an exact
+          # restore of the captured source, so it is offered only under the workflow
+          # rollback's own eligibility; otherwise the deploy fails exactly as before.
+          admission_retry_args=()
+          if [ "$ADMISSION_RETRY_READINESS_RESULT" = "success" ] && node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "$ADMISSION_RETRY_ROLLBACK_COMMIT"; then
+            admission_retry_args=(--admission-retry-rollback-target "artifacts/release-health/production-rollback-target.json")
+          fi
           catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
           catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
           catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
@@ -3870,6 +3942,11 @@ jobs:
           add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_APPROVED" "${PRODUCTION_WALLET_FUNDING_APPROVED:-false}"
           add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_REFERENCE" "${PRODUCTION_WALLET_FUNDING_REFERENCE:-}"
           add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST" "${PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE:-}"
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
@@ -3907,7 +3984,9 @@ jobs:
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --managed-postgres-ca-sha256 "${{ steps.production_managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
-            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
+            --attempts-out "artifacts/release-health/production-kubernetes-deploy-attempts.json" \
+            "${admission_retry_args[@]}"
 
       - name: Capture production Kubernetes deploy diagnostics
         env:
@@ -4233,14 +4312,22 @@ jobs:
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          ACTIVATE_AGENT_GRANT_REVOCATION: ${{ inputs.activate_agent_grant_revocation == true }}
         run: |
           set -euo pipefail
           pnpm run platform:kubernetes-deployment -- verify-deployment-transition \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollback-target "artifacts/release-health/production-rollback-target.json" \
+            --deploy-attempts "artifacts/release-health/production-kubernetes-deploy-attempts.json" \
             --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
           node ./scripts/production-release-marker.mjs retain-identity
+          if [ "$ACTIVATE_AGENT_GRANT_REVOCATION" = "true" ]; then
+            node ./scripts/agent-grant-revocation-release.mjs activate \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+              --out artifacts/release-health/agent-grant-revocation-activation.json
+          fi
 
       - name: Upload production Kubernetes deployment transition
         if: env.SHOULD_DEPLOY != 'false'
@@ -4258,6 +4345,9 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
           pnpm run platform:kubernetes-deployment -- abort \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
@@ -4286,6 +4376,9 @@ jobs:
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
 
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
@@ -4562,6 +4655,7 @@ jobs:
             --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/production-readiness-gate.json \
             --diagnostics artifacts/release-health/production-rollback.json \
+            --diagnostics artifacts/release-health/production-kubernetes-deploy-attempts.json \
             --out artifacts/release-health/production-deploy-root-cause.json \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             --format github-output >> "$GITHUB_OUTPUT"
@@ -4676,6 +4770,15 @@ jobs:
         with:
           name: served-marketplace-smoke
           path: artifacts/release-health/served-marketplace-smoke.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Agent Grant revocation activation
+        if: always() && env.SHOULD_DEPLOY != 'false' && inputs.activate_agent_grant_revocation == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-grant-revocation-activation
+          path: artifacts/release-health/agent-grant-revocation-activation.json
           if-no-files-found: error
           retention-days: 30
 

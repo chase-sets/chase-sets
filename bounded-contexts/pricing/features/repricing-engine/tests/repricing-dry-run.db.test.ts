@@ -19,6 +19,7 @@ import { createRepricingEngineRuntime } from "../api/runtime";
 import { pricingRepricingDryRunSchemaMigrations } from "../read-model/migrations";
 import { loadRepricingRoundInputsPage } from "../read-model/queries";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "./dry-run-fixture";
+import { economicsNeverResolved, roundCapture } from "./round-capture-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -40,7 +41,11 @@ describeDb("repricing durable dry runs", () => {
   });
 
   function runtime(db = pools.pricing) {
-    return createRepricingEngineRuntime({ db, eventStore: createPostgresEventStore({ pool: pools.pricing }) });
+    return createRepricingEngineRuntime({
+      economics: economicsNeverResolved,
+      db,
+      eventStore: createPostgresEventStore({ pool: pools.pricing }),
+    });
   }
   const claim = (claimOwnerId: string) => ({ claimOwnerId, claimTtlMs: 300_000 });
 
@@ -81,11 +86,12 @@ describeDb("repricing durable dry runs", () => {
       expect(pageStarts).toHaveLength(nonemptyPages + (products % 500 === 0 ? 1 : 0));
       expect(statements.filter((sql) => sql.includes("WITH advanced AS"))).toHaveLength(nonemptyPages);
       for (const index of pageStarts.slice(0, nonemptyPages)) {
-        const page = statements.slice(index, index + 7);
-        expect(page).toHaveLength(7);
+        const page = statements.slice(index, index + 8);
+        expect(page).toHaveLength(8);
         expect(page.filter((sql) => sql.includes("WITH products AS"))).toHaveLength(4);
-        expect(page[5]).toContain("INSERT INTO pricing_repricing_dry_run_traces");
-        expect(page[6]).toContain("WITH advanced AS");
+        expect(page.filter((sql) => sql.includes("pricing_demand_curve_versions"))).toHaveLength(1);
+        expect(page[6]).toContain("INSERT INTO pricing_repricing_dry_run_traces");
+        expect(page[7]).toContain("WITH advanced AS");
       }
       const completed = await services.getDryRun("acc_7910", run!.dryRunId);
       expect(completed?.status).toBe("completed");
@@ -114,7 +120,7 @@ describeDb("repricing durable dry runs", () => {
         artifact,
         [
           `\n## Real PostgreSQL: ${listings} listings\n`,
-          `Listings: ${listings}; products: ${products}; nonempty pages: ${nonemptyPages}; page statements: ${7 * nonemptyPages}; loader queries: ${4 * nonemptyPages}.`,
+          `Listings: ${listings}; products: ${products}; nonempty pages: ${nonemptyPages}; page statements: ${8 * nonemptyPages}; loader queries: ${4 * nonemptyPages}.`,
           `Wall-clock: ${wallClockMs.toFixed(2)} ms; peak sampled heap: ${peakHeap} bytes.`,
           `Observed db.query statements (including empty-page/summary/readback, excluding durable-store connection-local lifecycle queries): ${statements.length}. Timing starts before processNextDryRunJob, after seed/enqueue. Heap sampled at every query, not an asserted latency gate.\n`,
         ].join("\n"),
@@ -217,6 +223,7 @@ describeDb("repricing durable dry runs", () => {
     expect(gateway).not.toHaveBeenCalled();
     await expect(
       loadRepricingRoundInputsPage(pools.pricing, {
+        ...roundCapture(),
         products: Array.from({ length: 501 }, () => ({ catalogItemId: "cat", productId: "product" })),
       }),
     ).rejects.toThrow("500");

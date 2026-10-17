@@ -34,6 +34,7 @@ export type ChannelObservedListing =
 
 export type ChannelSourceAuthority =
   | Readonly<{ kind: "complete"; collectedCount: number; authorityTotal: number }>
+  | Readonly<{ kind: "present-rows"; collectedCount: number; snapshotRowTotal: number }>
   | Readonly<{ kind: "declared-incomplete"; reason: string }>
   | Readonly<{
       kind: "absent-by-design";
@@ -74,13 +75,15 @@ export type ChannelDriftObservation = Omit<ChannelDriftObservationV1, "observed"
     observed: ChannelObservedListing | ChannelObservedMaterial;
   }>;
 
-/** The installed evidence reader owns census, freshness and applied-membership proof, independently of CSV rows. */
+/** The evidence reader owns freshness and applied membership. Local snapshot totals never prove provider census. */
 export type ClaimedChannelStateRead = Readonly<{
   sourceAuthority: ChannelSourceAuthority;
   freshness: "current" | "stale" | "unknown";
   snapshotId: string;
   rows: readonly ChannelInventorySnapshotRow[];
   appliedChannelListingIds: readonly string[];
+  appliedMaterialIdentities?: readonly Readonly<{ channelListingId: string; materialIdentity: string }>[];
+  pair?: Readonly<{ previousRows: readonly ChannelInventorySnapshotRow[]; from: string; to: string }> | null;
 }>;
 
 export type ChannelHealthObservationIdentity = Pick<
@@ -125,12 +128,18 @@ export type ChannelDriftDetailRow =
       expectedMaterialFingerprint: string | null;
       decision: ChannelDriftDecision;
     }>
-  | Readonly<{ rowKind: "finding"; rowIdentity: string; flag: "unmapped"; runGeneration: number }>;
+  | Readonly<{
+      rowKind: "finding";
+      rowIdentity: string;
+      flag: "unmapped" | "stale-snapshot" | "persistent-sale-gap";
+      runGeneration: number;
+    }>;
 
 export type ChannelDriftDetail =
   | Readonly<{ kind: "not-found" | "not-yet-observed" | "unavailable" | "stale-page" }>
   | Readonly<{
       kind: "loaded";
+      salesCoverage: "complete" | "unverified";
       basis: string;
       runState: "idle" | "due" | "running" | "completed" | "bounded-unknown" | "held";
       observedAt: string;
@@ -253,7 +262,13 @@ export type ChannelReconciliationRuntimeDependencies = Readonly<{
   >;
   channelSaleRecorder: RecordExternalChannelSale;
   readClaimedChannelState?: (
-    input: Readonly<{ connectionId: string; observedAt: string; maxListings: number }>,
+    input: Readonly<{
+      connectionId: string;
+      observedAt: string;
+      maxListings: number;
+      snapshots: readonly import("./snapshot-age").SnapshotAgeMetadata[];
+      freshness: ClaimedChannelStateRead["freshness"];
+    }>,
   ) => Promise<ClaimedChannelStateRead>;
   resolvePolicy: () => Promise<
     Readonly<{

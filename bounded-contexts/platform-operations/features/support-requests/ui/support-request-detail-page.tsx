@@ -19,7 +19,7 @@ import {
   Timeline,
   type TimelineItem,
 } from "@chase-sets/design-system";
-import { RouterForm } from "@chase-sets/design-system/react-router";
+import { ParticipantForm as RouterForm } from "./participant-form";
 import { formatMoney, t } from "@chase-sets/localization";
 import type {
   SupportChecklistItem,

@@ -21,6 +21,7 @@ import {
 } from "./software-delivery-concepts.mjs";
 import { findBusinessLiteralGuardViolations, isBusinessLiteralGuardedFile } from "./business-literal-guard.mjs";
 import { validateCrossContextFallbackInventory } from "./cross-context-fallback-inventory.mjs";
+import { validateLinkIntentActionProducers } from "./link-intent-action-producer-inventory.mjs";
 import { validateCrossContextReadInventory } from "./cross-context-read-inventory.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { validateIaRegistry } from "./ia-registry-guard.mjs";
@@ -36,7 +37,9 @@ import { validatePublicPolicyPosture } from "./public-policy-posture.mjs";
 import { validatePolicyValueDiscriminantChokepoint } from "./policy-value-discriminant-chokepoint.mjs";
 import { findGitKeySetTripwireViolations } from "./catalog-localization-keyset-tripwire.mjs";
 import { validateLostUpdateWriteGuard } from "./lost-update-write-guard.mjs";
+import { validateRealClockElapsedBounds } from "./real-clock-elapsed-bounds.mjs";
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
+import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
@@ -276,6 +279,8 @@ const lostUpdateWriteGuard = await validateLostUpdateWriteGuard({ repoRoot });
 violations.push(...lostUpdateWriteGuard.violations);
 const providerScopePickerShapeGuard = await validateProviderScopePickerShapeGuard({ repoRoot });
 violations.push(...providerScopePickerShapeGuard.violations);
+const pricingRegistryConformance = await validatePricingRegistryConformance({ repoRoot });
+violations.push(...pricingRegistryConformance.violations);
 const clientSurfaceConsumers = new Map();
 const supportFileConsumers = new Map();
 const crossContextSqlReadGuards = [
@@ -819,10 +824,23 @@ export function isAllowedPublicExportName(value) {
     value === "./host-config" ||
     value === "./seed-support/*" ||
     value === "./test-support" ||
+    value === "./integration/link-intents" ||
     value === "./server" ||
     value === "./web" ||
     value === "./routes/*"
   );
+}
+
+export function findLinkIntentExportViolation(manifest, target) {
+  if (target !== "./support/runtime-support/link-intents.ts")
+    return "link-intent integration must target the generated runtime-support builder";
+  if (
+    !manifest.deployableContributions?.some((contribution) =>
+      contribution.routes?.some((route) => route.canonicalLink?.kind === "route-derived"),
+    )
+  )
+    return "link-intent integration requires owner-published canonical route metadata";
+  return null;
 }
 
 function isValidDirectoryClassification(value) {
@@ -1904,6 +1922,8 @@ export async function runStructureCheck(options = {}) {
 
   const sqlExecutionSurface = runSqlExecutionSurfaceGuard({ repoRoot });
   violations.push(...sqlExecutionSurface.violations);
+  const realClockElapsedBounds = await validateRealClockElapsedBounds({ repoRoot });
+  violations.push(...realClockElapsedBounds.violations);
 
   for (const violation of findGitKeySetTripwireViolations({ repoRoot })) {
     addPathViolation(violation.testPath, violation.message);
@@ -2079,6 +2099,11 @@ export async function runStructureCheck(options = {}) {
         publicExport === "."
           ? (packageJson.exports?.["."] ?? packageJson.exports)
           : packageJson.exports?.[publicExport];
+
+      if (publicExport === "./integration/link-intents") {
+        const violation = findLinkIntentExportViolation(manifest, exportTarget);
+        if (violation) addPathViolation(`${root}/package.json`, violation);
+      }
 
       if (!exportTarget) {
         addPathViolation(`${root}/package.json`, `package exports must include ${publicExport}`);
@@ -3706,6 +3731,7 @@ export async function runStructureCheck(options = {}) {
     );
   }
 
+  validateLinkIntentActionProducers({ addPathViolation });
   const readAfterWriteInventoryResult = await validateReadAfterWriteRouteInventory({
     repoRoot,
     contextManifests,

@@ -101,7 +101,14 @@
       "projectionName": "checkout.sell-list-projection",
       "subscriptionVersion": 3,
       "filterToEventTypes": true,
-      "eventTypes": ["marketplace.offer.submitted", "marketplace.offer.price-updated", "marketplace.offer.accepted"],
+      "eventTypes": [
+        "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
+        "marketplace.offer.accepted"
+      ],
       "order": 23,
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
     },
@@ -1242,40 +1249,45 @@
       "href": "/account/sell-list",
       "order": 111,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "cart",
       "label": "Buy Cart",
+      "labelKey": "checkout.shell.cart.label",
       "icon": "cart",
       "href": "/account/cart",
-      "order": 110,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "sell-list",
-      "label": "Sell List",
-      "icon": "store",
-      "href": "/account/sell-list",
-      "order": 111,
-      "visibility": "signed-in",
-      "requiredPermissions": []
+      "order": 990,
+      "visibility": "always",
+      "requiredPermissions": [],
+      "placement": "utility",
+      "badge": {
+        "valueKey": "checkout.cart-count",
+        "max": 99,
+        "hideWhenEmptyForSignedOut": true
+      }
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "cart",
       "label": "Buy Cart",
+      "labelKey": "checkout.shell.cart.label",
       "icon": "cart",
       "href": "/account/cart",
-      "order": 110,
-      "visibility": "signed-in",
-      "requiredPermissions": []
+      "order": 50,
+      "visibility": "always",
+      "requiredPermissions": [],
+      "placement": "utility",
+      "packingPriority": 650,
+      "badge": {
+        "valueKey": "checkout.cart-count",
+        "max": 99,
+        "hideWhenEmptyForSignedOut": true
+      }
     }
   ],
   "directoryIntent": {

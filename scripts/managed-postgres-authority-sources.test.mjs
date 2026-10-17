@@ -70,6 +70,28 @@ const reviewedCatalogDelta = [
     secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
     purpose: "application-runtime",
   },
+  // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "managed-postgres-boundary",
+  },
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "SPACES_ACCESS_ID",
+    purpose: "managed-postgres-boundary",
+  },
+  {
+    file: ".github/workflows/catalog-completion-report.yml",
+    jobId: "completion-report",
+    stepAnchor: "uses:./.github/actions/export-managed-postgres-authority",
+    secretName: "SPACES_SECRET_KEY",
+    purpose: "managed-postgres-boundary",
+  },
 ];
 // #9268 delta: the staging preview DNS-01 token converge step in deploy-staging and the on-demand restore workflow.
 const previewWildcardWorkflow = ".github/workflows/platform-preview-wildcard-tls.yml";
@@ -109,6 +131,51 @@ const reviewedPreviewWildcardDelta = [
     stepAnchor: "name:Converge staging preview DNS-01 token and renewal#6",
     secretName: "DIGITALOCEAN_ACCESS_TOKEN",
     purpose: "digitalocean-ops",
+  },
+];
+// #9591 threads the canonical staging Admin keys into only the count preparation run and receipt-validation steps.
+const catalogCountPreparationDelta = [
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Prepare governed Scrydex counts#3",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Prepare governed Scrydex counts#3",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Prepare governed Scrydex counts#3",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Validate count preparation receipt#4",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Validate count preparation receipt#4",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-count-preparation.yml",
+    jobId: "prepare-counts",
+    stepAnchor: "name:Validate count preparation receipt#4",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
   },
 ];
 // #9293 adds only the two deployment values at the five existing Secret-apply sinks.
@@ -184,6 +251,12 @@ const ebayAccountDeletionDelta = [
     purpose: "application-runtime",
   },
 ];
+// #9721 reviewed removal: the retired mandate verifier's URL, auth-token and timeout grants at its five forwarding
+// sinks, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
+// the issue's literal sweep stays exact; parity below binds each index to the generated manifest and source fragments.
+const reviewedRetiredVerifierRemovals = new Set([
+  210, 211, 212, 263, 264, 265, 428, 429, 430, 710, 711, 712, 957, 958, 959,
+]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
 const reviewedStepInsertions = [
@@ -382,17 +455,20 @@ describe("managed Postgres authority source generator", () => {
     const historicalGenerated = await generateManagedPostgresAuthority(historicalRoot);
     expectParity(original, historicalGenerated);
 
+    const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
+    expect(retainedOriginalGrants).toHaveLength(1594);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
       ...original,
       grants: [
-        ...[...original.grants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
+        ...[...retainedOriginalGrants, ...reviewedCatalogDelta].map(applyReviewedStepInsertions),
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
+        ...catalogCountPreparationDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1629);
+    expect(expected.grants).toHaveLength(1623);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),

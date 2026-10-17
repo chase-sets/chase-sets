@@ -285,8 +285,60 @@ export function assertNoSyntheticPrivateTokens(text) {
   }
 }
 
+const COMPONENT_ID = "fignfifoniblkonapihmkfakmlgkbkcf";
+const COMPONENT_PROVENANCE_POLL_INTERVAL_MS = 250;
+// Chrome's ImportantFileWriter first commits preferences after about 10 seconds.
+const COMPONENT_PROVENANCE_DEADLINE_MS = 25000;
+
+function chromeBundledComponentWorker(targetInfo, preparation) {
+  const id = COMPONENT_ID;
+  return (
+    preparation.extensionId !== id &&
+    targetInfo.type === "service_worker" &&
+    targetInfo.url === `chrome-extension://${id}/service_worker.js`
+  );
+}
+
+function componentProvenance(preparation) {
+  let settings;
+  try {
+    const preferences = path.join(preparation.profileDirectory, "Default", "Secure Preferences");
+    realPath(preferences);
+    check(lstatSync(preferences).isFile(), "component_preferences_refused");
+    settings = JSON.parse(readFileSync(preferences, "utf8"))?.extensions?.settings;
+  } catch (error) {
+    if (
+      ["absolute_normalized_path_required", "symlink_refused", "component_preferences_refused"].includes(error.message)
+    )
+      return "refused";
+    return "unavailable";
+  }
+  if (!settings || !Object.hasOwn(settings, COMPONENT_ID)) return "unavailable";
+  const registration = settings[COMPONENT_ID];
+  // Trust the fresh Chrome-owned profile, not preference MACs or hostile local writers.
+  // Chrome's bundled resource path is logical, not necessarily a directory on disk.
+  return registration?.location === 5 &&
+    registration.manifest?.manifest_version === 3 &&
+    registration.manifest.background?.service_worker === "service_worker.js" &&
+    typeof registration.path === "string" &&
+    // Guard cwd-relative resolution even though run() pins the working directory.
+    path.win32.isAbsolute(registration.path) &&
+    /^\d+\.\d+\.\d+\.\d+\\resources\\network_speech_synthesis\\mv3$/.test(
+      path.win32.relative(path.win32.dirname(CHROME), registration.path),
+    )
+    ? "verified"
+    : "refused";
+}
+
 export class WorkerIsolation {
-  constructor(send, metadata, report) {
+  constructor(send, metadata, report, { componentProvenancePoll = {} } = {}) {
+    const { intervalMs = COMPONENT_PROVENANCE_POLL_INTERVAL_MS, deadlineMs = COMPONENT_PROVENANCE_DEADLINE_MS } =
+      componentProvenancePoll;
+    check(
+      Number.isFinite(intervalMs) && intervalMs > 0 && Number.isFinite(deadlineMs) && deadlineMs >= 0,
+      "component_provenance_poll_refused",
+    );
+    this.componentProvenancePoll = { intervalMs, deadlineMs };
     this.send = send;
     this.metadata = metadata;
     this.report = report;
@@ -310,6 +362,33 @@ export class WorkerIsolation {
   }
   async attached({ sessionId, targetInfo, waitingForDebugger }) {
     const p = this.metadata.preparation;
+    if (!this.held && chromeBundledComponentWorker(targetInfo, p)) {
+      const { intervalMs, deadlineMs } = this.componentProvenancePoll;
+      const deadline = performance.now() + deadlineMs;
+      while (!this.held) {
+        const provenance = componentProvenance(p);
+        if (provenance === "verified") break;
+        if (provenance === "refused") {
+          this.hold("component_provenance_refused");
+          return;
+        }
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) {
+          this.hold("component_provenance_unavailable");
+          return;
+        }
+        await pause(Math.min(intervalMs, remaining));
+      }
+      if (this.held) return;
+      try {
+        await this.send("Runtime.runIfWaitingForDebugger", {}, sessionId);
+        await this.send("Target.detachFromTarget", { sessionId });
+        this.report("COMPONENT_DETACHED", "chrome_bundled_network_speech_no_binding");
+      } catch {
+        this.hold("component_worker_detach_refused");
+      }
+      return;
+    }
     if (
       this.held ||
       this.session ||
@@ -325,6 +404,7 @@ export class WorkerIsolation {
       await this.send("Network.enable", {}, sessionId);
       await this.send("Network.setBlockedURLs", { urls: ["http://*", "https://*", "ws://*", "wss://*"] }, sessionId);
       await this.send("Runtime.enable", {}, sessionId);
+      check(!this.held, "worker_detached_during_binding");
       await this.send("Runtime.runIfWaitingForDebugger", {}, sessionId);
       const expression = `(${bindSyntheticFetch.toString()})(${JSON.stringify(`chrome-extension://${p.extensionId}`)},${JSON.stringify(syntheticFixtures())})`;
       const bound = await this.send("Runtime.evaluate", { expression, returnByValue: true }, sessionId);
@@ -398,6 +478,11 @@ export class WorkerCdp {
   send(method, params = {}, sessionId) {
     check(
       method === "Target.setAutoAttach" ||
+        (method === "Target.detachFromTarget" &&
+          !sessionId &&
+          Object.keys(params).length === 1 &&
+          typeof params.sessionId === "string" &&
+          params.sessionId.length > 0) ||
         (sessionId &&
           [
             "Network.enable",

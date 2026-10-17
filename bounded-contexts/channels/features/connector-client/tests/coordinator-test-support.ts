@@ -71,7 +71,7 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
   const result = (work: OperationUnit) =>
     ({
       outcomes: work.members.map((member): ClaimedOperationOutcome => {
-        if (member.operationKind === "tcgplayer-order-pull") throw new Error("listing fixture received a pull");
+        if (!("desiredStateSequence" in member)) throw new Error("listing fixture received a connection subject");
         return {
           operationId: member.operationId,
           attemptId: member.attemptId,

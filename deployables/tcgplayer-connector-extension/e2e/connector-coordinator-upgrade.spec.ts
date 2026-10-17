@@ -16,6 +16,7 @@ import {
   assertUpgradeWitness,
   buildHistoricalRetentionProduct,
   consumeReplacementAuthority,
+  currentSchemaVersion,
   currentStores,
   instrumentUpgradeBundle,
   retentionProductHead,
@@ -260,7 +261,7 @@ for (const round of ["old-bundle-no-swap", 1, 2] as const)
         }
         evidence.currentWorkerWitnessError = error;
         expect(error).toContain("current executed identity");
-        expect(() => expect(historicalRelaunch.version).toBe(3)).toThrow();
+        expect(() => expect(historicalRelaunch.version).toBe(currentSchemaVersion)).toThrow();
         return;
       }
 
@@ -301,7 +302,7 @@ for (const round of ["old-bundle-no-swap", 1, 2] as const)
       await settle(repeatedWorker, false);
       const again = await observe(repeatedWorker, keyId);
       evidence.again = again;
-      expect(again.version).toBe(3);
+      expect(again.version).toBe(currentSchemaVersion);
       expect(again.stores).toEqual(after.stores);
       expect(again.journal).toEqual(after.journal);
       expect(again.rawExports).toEqual([]);
@@ -318,7 +319,7 @@ for (const round of ["old-bundle-no-swap", 1, 2] as const)
     }
   });
 
-test("connector-coordinator-upgrade-chromium v4 owner is preserved with zero writes @tcgplayer-connector-extension-authority", async () => {
+test("connector-coordinator-upgrade-chromium newer owner is preserved with zero writes @tcgplayer-connector-extension-authority", async () => {
   const evidence: Record<string, unknown> = { authority: authority.authority };
   try {
     const first = await launchInstallation(current);
@@ -328,10 +329,10 @@ test("connector-coordinator-upgrade-chromium v4 owner is preserved with zero wri
     await settle(worker, false);
     evidence.before = await observe(worker, null);
     const upgrade = await worker.evaluate(
-      async () =>
+      async (newer) =>
         new Promise<{ oldVersion: number; newVersion: number | null } | null>((resolve, reject) => {
           let upgrade: { oldVersion: number; newVersion: number | null } | null = null;
-          const request = indexedDB.open("connector-raw-exports", 4);
+          const request = indexedDB.open("connector-raw-exports", newer);
           request.onupgradeneeded = (event) => {
             upgrade = { oldVersion: event.oldVersion, newVersion: event.newVersion };
             request.result.createObjectStore("future-owner").put("SYNTHETIC_V4_OWNER", "marker");
@@ -342,9 +343,10 @@ test("connector-coordinator-upgrade-chromium v4 owner is preserved with zero wri
           };
           request.onerror = () => reject(request.error);
         }),
+      currentSchemaVersion + 1,
     );
     evidence.upgrade = upgrade;
-    expect(upgrade).toEqual({ oldVersion: 3, newVersion: 4 });
+    expect(upgrade).toEqual({ oldVersion: currentSchemaVersion, newVersion: currentSchemaVersion + 1 });
     const fixture = await observe(worker, null);
     evidence.fixture = fixture;
     expect(fixture.journal["future-owner"]).toEqual(["SYNTHETIC_V4_OWNER"]);
@@ -356,7 +358,7 @@ test("connector-coordinator-upgrade-chromium v4 owner is preserved with zero wri
     await settle(repeatedWorker, false);
     const after = await observe(repeatedWorker, null);
     evidence.after = after;
-    expect(after.version).toBe(4);
+    expect(after.version).toBe(currentSchemaVersion + 1);
     expect(after.stores).toEqual(["future-owner", ...currentStores]);
     expect(after.journal).toEqual(fixture.journal);
     expect(after.observation?.writes).toEqual({ storage: 0, alarms: 0 });
@@ -377,7 +379,7 @@ test("connector-coordinator-upgrade-chromium witness rejects missing continuity 
   const marker = "SYNTHETIC_9258_MARKER";
   const upgrade = {
     oldVersion: 1,
-    newVersion: 3,
+    newVersion: currentSchemaVersion,
     status: "committed" as const,
     stores: currentStores,
     observedAt: "2026-01-01T00:00:00.000Z",
@@ -385,7 +387,7 @@ test("connector-coordinator-upgrade-chromium witness rejects missing continuity 
   };
   const state = {
     identity: { bundle: identity },
-    version: 3,
+    version: currentSchemaVersion,
     stores: currentStores,
     marker,
     keyPresent: false,

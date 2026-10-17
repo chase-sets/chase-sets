@@ -5,6 +5,7 @@ import type {
   ProviderPayoutReadiness,
 } from "@chase-sets/money-movement";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
+import { moneyToCents } from "@chase-sets/primitives/money";
 import {
   executeGovernedProviderWrite,
   type GovernedProviderWriteOptions,
@@ -218,7 +219,7 @@ function toFormBody(entries: Record<string, string | readonly string[] | null | 
 }
 
 function moneyToMinorUnits(amount: string) {
-  return Math.round(Number.parseFloat(amount) * 100);
+  return Number(moneyToCents(amount));
 }
 
 function moneyFromMinorUnits(amount: number) {
@@ -1111,13 +1112,14 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async transferPlatformBalanceToConnectedAccount(input) {
+      const amountMinorUnits = moneyToMinorUnits(input.amount);
       const transfer = await stripeRequest<StripeTransferResponse>("/v1/transfers", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: toFormBody({
-          amount: String(moneyToMinorUnits(input.amount)),
+          amount: String(amountMinorUnits),
           currency: input.currencyCode,
           destination: input.providerReference,
           transfer_group: `payout:${input.payoutId}`,
@@ -1139,6 +1141,7 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createConnectedAccountPayout(input) {
+      const amountMinorUnits = moneyToMinorUnits(input.amount);
       await configureOnDemandPayouts(input.providerReference, `${input.idempotencyKey}:manual-payouts`);
       const payout = await stripeRequest<StripePayoutResponse>("/v1/payouts", {
         method: "POST",
@@ -1146,7 +1149,7 @@ export function createStripeConnectMoneyMovementGateway(
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: toFormBody({
-          amount: String(moneyToMinorUnits(input.amount)),
+          amount: String(amountMinorUnits),
           currency: input.currencyCode,
           "metadata[funds_strategy]": "platform-held-on-demand-payout",
           "metadata[transfer_group]": `payout:${input.payoutId}`,

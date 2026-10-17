@@ -3,6 +3,12 @@ import {
   hasPermission as hasActorPermission,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
+export type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
+export {
+  DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  parseCapabilityAdministrationAuthority,
+} from "./features/account-capabilities/api/authority";
+export type { CapabilityAdministrationAuthority } from "./features/account-capabilities/api/authority";
 import {
   createPlatformInternalAuthHeaders,
   createForwardedAuthFetch,
@@ -12,6 +18,7 @@ import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
 export { createIdentityWalletFundingEligibilityResolver } from "./features/accounts/api/wallet-funding-eligibility";
+export { createIdentityOperatorAuthority } from "./features/memberships/api/operator-authority";
 export { createIdentityPaymentsTermsAcceptanceResolver } from "./features/consents/api/terms-acceptance-resolver";
 export type { PaymentsTermsAcceptanceStatus } from "./features/consents/read-model/terms-acceptance";
 
@@ -153,11 +160,14 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         userId,
         roleKey,
       }),
-    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash }) =>
+    acceptInvitationForUser: ({ invitationId, userId, acceptanceTokenHash, operation }) =>
       postJson(`invitations/${invitationId}/accept`, {
         userId,
         acceptanceTokenHash,
+        ...(operation ? { operation } : {}),
       }),
+    readInvitationAcceptanceAuthority: ({ invitationId, ...params }) =>
+      postJson(`invitations/${invitationId}/acceptance-authority`, params),
     issueInvitationAcceptanceToken: ({ invitationId, tokenHash, expiresAt }) =>
       postJson(`invitations/${invitationId}/acceptance-token`, {
         tokenHash,
@@ -175,3 +185,17 @@ export function createActorEventStoreContext(actor: ResolvedActor) {
   return createGenericActorEventStoreContext(actor);
 }
 export { identitySeedIds } from "@chase-sets/identity-seed";
+export {
+  createAgentGrantRevocations,
+  createActiveAgentGrantFence,
+  newRevocationAttemptId,
+  type AgentGrantRevocations,
+  type RevocationBinding,
+  type RevocationState,
+} from "./features/agent-grants/api/revocation";
+export {
+  AGENT_GRANT_REVOCATION_SUPPORT_VERSION,
+  assertRevocationActivationProof,
+  revocationActivationProofDigest,
+  type RevocationActivationProof,
+} from "./features/agent-grants/api/revocation-floor";

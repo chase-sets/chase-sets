@@ -7,6 +7,7 @@ export const livenessConfig: RegisteredScheduledRunnerConfig = {
   paymentReconciliationIntervalMs: null,
   paymentDeadlineSweepIntervalMs: null,
   supportRequestDeadlineSweepIntervalMs: null,
+  supportEvidenceCleanupIntervalMs: null,
   customerFeedbackAttentionDigestIntervalMs: null,
   customerFeedbackAttentionTeamRecipientUserIds: [],
   reviewWindowSweepIntervalMs: null,

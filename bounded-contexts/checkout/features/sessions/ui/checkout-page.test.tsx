@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { renderToString } from "react-dom/server";
 import { createMemoryRouter, RouterProvider, useLoaderData, useRevalidator } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "@chase-sets/localization";
 import type { CheckoutFulfillmentPreview } from "../../../support/request-support/api-client";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 
@@ -75,6 +76,7 @@ const session: CheckoutSessionRow = {
   checkout_reservations: [],
   payment_id: null,
   submitted_offer_id: null,
+  handoff_expires_at: null,
   created_at: "2026-05-06T00:00:00.000Z",
   updated_at: "2026-05-06T00:00:00.000Z",
 };
@@ -268,6 +270,21 @@ function expectTintedSurface(root: Element | null, label: string) {
 }
 
 describe("checkout session page", () => {
+  it("expired handoff shows its notice without form, payment entry or sticky commit", () => {
+    const message = t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description");
+    const { container } = render(
+      <CheckoutSessionPage
+        session={session}
+        expiredCheckout
+        errorMessage={message}
+        preparedPaymentEntry={<div>payment-entry-marker</div>}
+      />,
+    );
+    expect(screen.getByText(message)).toBeTruthy();
+    expect(container.querySelector("form")).toBeNull();
+    expect(container.querySelector('[name="intent"]')).toBeNull();
+    expect(screen.queryByText("payment-entry-marker")).toBeNull();
+  });
   it("renders all four checkout form sections as tinted furniture", () => {
     const { container } = render(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
 

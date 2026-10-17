@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
@@ -42,7 +42,11 @@ const completed: RepricingDryRun = {
 type EditorApi = NonNullable<Parameters<typeof PolicyEditorDrawer>[0]["api"]>;
 function apiFixture(): EditorApi {
   return {
-    getRepricingAuthoringPrerequisites: vi.fn(async () => ({ listingCurrencyCodes: ["CAD"], hasCostBasis: false })),
+    getRepricingAuthoringPrerequisites: vi.fn(async () => ({
+      listingCurrencyCodes: ["CAD"],
+      hasCostBasis: false,
+      goalAdoption: [],
+    })),
     listRepricingCategories: vi.fn(async () => [
       { id: "cat_synthetic", name: "Trading cards", status: "active", listingCount: 1 },
     ]),
@@ -63,6 +67,26 @@ function fill(label: string, value: string) {
 }
 
 describe("policy editor prerequisites and gates", () => {
+  it("summary callers preserve Pricing message-only alerts without automatic focus", async () => {
+    const api = apiFixture();
+    vi.mocked(api.startRepricingDryRun).mockRejectedValue(
+      new PricingApiError(400, {
+        error: { code: "validation_failed", details: [{ field: "name", message: "Use a unique policy name." }] },
+      }),
+    );
+    render(<PolicyEditorDrawer api={api} initialBody={body} onSave={vi.fn()} onClose={vi.fn()} />);
+    const name = await screen.findByLabelText("Policy name");
+    expect(screen.queryByRole("alert")).toBeNull();
+    name.focus();
+    fireEvent.click(screen.getByRole("button", { name: "Preview policy" }));
+    await screen.findByText("Use a unique policy name.");
+    const summary = screen.getByRole("alert");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(summary.getAttribute("aria-live")).toBe("assertive");
+    expect(summary.getAttribute("tabindex")).toBe("-1");
+    expect(within(summary).queryByRole("link")).toBeNull();
+    expect(document.activeElement).toBe(name);
+  });
   it.each([[], ["CAD"], ["CAD", "USD"]].map((listingCurrencyCodes) => ({ listingCurrencyCodes })))(
     "authoring prerequisites never invent currency or amounts: $listingCurrencyCodes",
     async ({ listingCurrencyCodes }) => {
@@ -70,6 +94,7 @@ describe("policy editor prerequisites and gates", () => {
       vi.mocked(api.getRepricingAuthoringPrerequisites).mockResolvedValue({
         listingCurrencyCodes,
         hasCostBasis: false,
+        goalAdoption: [],
       });
       render(<PolicyEditorDrawer api={api} onSave={vi.fn()} onClose={vi.fn()} />);
       expect(screen.getByText("Loading listing currencies and cost availability")).toBeTruthy();
@@ -94,6 +119,7 @@ describe("policy editor prerequisites and gates", () => {
     vi.mocked(api.getRepricingAuthoringPrerequisites).mockResolvedValue({
       listingCurrencyCodes: ["CAD"],
       hasCostBasis: true,
+      goalAdoption: [],
     });
     render(<PolicyEditorDrawer api={api} onSave={vi.fn()} onClose={vi.fn()} />);
     await screen.findByLabelText("Margin above cost (%)");

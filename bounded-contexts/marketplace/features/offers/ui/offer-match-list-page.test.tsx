@@ -42,6 +42,12 @@ const offer: OfferMatchListItem = {
 afterEach(cleanup);
 
 describe("MarketplaceOfferMatchListPage", () => {
+  it("has no Mute action or Muted buyers section and retains Add to Sell List", () => {
+    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
+    expect(markup).not.toMatch(/Mute buyer|Muted buyers|mute-offer-buyer|unmute-offer-buyer/i);
+    expect(markup).toContain("Add selected offer to Sell List");
+    expect(markup).toContain("decline-offer");
+  });
   it("renders the sell-list explanation as tinted furniture", () => {
     render(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
 

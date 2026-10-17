@@ -4,6 +4,8 @@
 
 Accepted.
 
+The AP2 mandate scaffold this ADR describes is superseded: the UCP `2026-04-08` AP2 mandate verification, checkout merchant authorization signing, the `ap2` agent grant rail and their configuration were removed without replacement ([#9721](https://github.com/chase-sets/chase-sets/issues/9721)). Headless checkout completion uses only a saved checkout instrument under the agent grant spending mandate; business signing keys are still published in `/.well-known/ucp`. The rest of this ADR remains accepted.
+
 ## Context
 
 Chase Sets needs a standards-facing commerce surface so custom AI agents can discover products, create and update checkout sessions, hand buyers to trusted confirmation, and read order state without bypassing bounded-context ownership.

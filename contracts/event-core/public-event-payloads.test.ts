@@ -12,6 +12,7 @@ import {
   marketplaceListingEnforcementSources,
   parseMarketplaceListingAutoUnlistedPayload,
   parseMarketplaceListingOperatorUnlistedPayload,
+  parsePlatformOperationsListingRemovalDirectedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
   ChannelOrderFulfillmentAcceptedPayload,
@@ -45,6 +46,7 @@ import type {
   MarketplaceListingCreatedPayload,
   MarketplaceListingOperatorUnlistedPayload,
   MarketplaceListingPriceUpdatedPayload,
+  MarketplaceOfferLifecyclePayload,
   MarketplaceOperatorListingEnforcementData,
   MarketplaceSalesFeeLineSnapshotPayload,
   OrderingOrderCancelledPayload,
@@ -73,6 +75,7 @@ import type { OrderingEventPayloads } from "./public-event-payloads/ordering";
 import type { PaymentsEventPayloads } from "./public-event-payloads/payments";
 import type {
   PlatformOperationsEventPayloads,
+  PlatformOperationsListingRemovalDirectedPayload,
   SupportRequestPlatformCoverageEventPayloads,
 } from "./public-event-payloads/platform-operations";
 import type { PublicPresenceEventPayloads } from "./public-event-payloads/public-presence";
@@ -376,6 +379,57 @@ function partitionShardModules(moduleFileNames: readonly string[], reExportedFil
     danglingReExports: reExportedFileNames.filter((fileName) => !present.has(fileName)),
   };
 }
+
+describe("marketplace Offer lifecycle payloads", () => {
+  it("registers paused, resumed and withdrawn on one closed buyer lifecycle payload", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.paused"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.resumed"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.withdrawn"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<keyof MarketplaceOfferLifecyclePayload>().toEqualTypeOf<"offerId" | "buyerAccountId" | "at">();
+  });
+});
+
+describe("Listing Removal Directive contract", () => {
+  const directive = {
+    actionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    listingId: "lst_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    operatorUserId: null,
+    directedAt: "2026-10-06T09:00:00.000-05:00",
+  };
+  it("accepts exactly four fields and preserves timezone instants and a nullable actor", () => {
+    expect(parsePlatformOperationsListingRemovalDirectedPayload(directive)).toEqual(directive);
+    expect(
+      parsePlatformOperationsListingRemovalDirectedPayload({
+        ...directive,
+        operatorUserId: "usr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        directedAt: "2026-10-06T14:00:00.000Z",
+      }),
+    ).toMatchObject({ operatorUserId: "usr_01ARZ3NDEKTSV4RRFFQ69G5FAV", directedAt: "2026-10-06T14:00:00.000Z" });
+  });
+  it.each([
+    null,
+    [],
+    {},
+    { ...directive, actionId: "rca_1" },
+    { ...directive, listingId: "rev_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+    { ...directive, operatorUserId: "usr_1" },
+    { ...directive, operatorUserId: undefined },
+    { ...directive, extra: true },
+    { ...directive, directedAt: "2026-02-30T12:00:00Z" },
+    { ...directive, directedAt: "2026-10-06" },
+    { ...directive, directedAt: "2026-10-06T12:00:00" },
+    { ...directive, directedAt: "2026-10-06T24:00:00Z" },
+    { ...directive, directedAt: "2026-10-06T12:00:00+00:60" },
+  ])("rejects malformed or open payload %j", (value) => {
+    expect(() => parsePlatformOperationsListingRemovalDirectedPayload(value)).toThrow();
+  });
+});
 
 describe("public event payload shard partition", () => {
   it("channel-order-observation-callers: registers accepted and PII-free status facts in the Channels shard", () => {
@@ -717,6 +771,18 @@ const publicPresenceReferralTypeIdentity = {
  * must not migrate to a `platform-operations` map.
  */
 const preservedCrossRegistration = {
+  "platform operations registers listing-removal-directed": true satisfies IsExactly<
+    PlatformOperationsEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
+  "marketplace registers listing-removal-directed": true satisfies IsExactly<
+    MarketplaceEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
+  "aggregate resolves listing-removal-directed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
   "marketplace map owns reported-content.action-recorded": true satisfies IsExactly<
     MarketplaceEventPayloads["platform-operations.reported-content.action-recorded"],
     PlatformOperationsReportedContentActionRecordedPayload

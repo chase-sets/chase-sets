@@ -6,7 +6,7 @@ import { chromeFixture, retained, platformOrigin } from "./chrome-test-support";
 import { syntheticClaim } from "../__tests__/harness/claim";
 import { settlement } from "../__tests__/harness/executors.harness";
 
-type Executor = Parameters<typeof composeConnectorBackground>[0]["executors"][number];
+type Executor = ReturnType<Parameters<typeof composeConnectorBackground>[0]["executors"]>[number];
 const providerOrigin = "https://synthetic-floor.invalid";
 afterEach(() => {
   vi.restoreAllMocks();
@@ -127,7 +127,7 @@ describe("synthetic staged-import production bootstrap binding, not provider qua
             await send.send(`synthetic-${i}`, new Request(`${providerOrigin}/request`, { redirect: "error" }));
           return {
             outcomes: unit.members.map((m) => {
-              if (m.operationKind === "tcgplayer-order-pull") throw new Error("synthetic-listing-only");
+              if (!("desiredStateSequence" in m)) throw new Error("synthetic-listing-only");
               return {
                 operationId: m.operationId,
                 attemptId: m.attemptId,
@@ -140,7 +140,7 @@ describe("synthetic staged-import production bootstrap binding, not provider qua
           };
         },
       };
-      const product = (await import("../src/compose")).composeConnectorBackground({ executors: [executor] });
+      const product = (await import("../src/compose")).composeConnectorBackground({ executors: () => [executor] });
       await product.background.boot();
       const claim = syntheticClaim(base);
       claims.push({

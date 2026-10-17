@@ -3,145 +3,53 @@ import {
   assertOfferSubmissionAllowed,
   DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY,
   MarketplaceOfferAbuseControlError,
-  requiredOfferFloorAmount,
 } from "./offer-abuse-policy";
 
-const policy = {
-  ...DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY,
-  buyerDailySubmissionCap: 2,
-  buyerListingDailySubmissionCap: 2,
-  lowballCooldownWindowMs: 60_000,
-};
-
-const listingGuard = {
-  listingId: "lst_1",
-  sellerAccountId: "acc_seller",
-  listingPriceAmount: "100.00",
-  listingPriceCurrencyCode: "USD",
-  buyerListingDailyOfferCount: 1,
-  mutedAt: null,
-  lowballCooldownUntil: null,
-  lastLowballDeclinedAmount: null,
-} as const;
-
-function expectControlCode(callback: () => void, code: string) {
-  expect(callback).toThrow(MarketplaceOfferAbuseControlError);
-  try {
-    callback();
-  } catch (error) {
-    expect(error).toBeInstanceOf(MarketplaceOfferAbuseControlError);
-    expect((error as MarketplaceOfferAbuseControlError).code).toBe(code);
-  }
-}
-
 describe("marketplace offer abuse policy", () => {
-  it("calculates listing-relative price floors with cent rounding", () => {
-    expect(requiredOfferFloorAmount("99.99", 5000)).toBe("50.00");
-    expect(requiredOfferFloorAmount("100.00", 5000)).toBe("50.00");
+  it("admits a $1 Offer against $10, $14 and $20 Listings despite legacy controls", () => {
+    const legacyInput = {
+      buyerDailySubmissionCount: 3,
+      now: new Date("2026-10-12T12:00:00.000Z"),
+      offerPriceAmount: "1.00",
+      offerPriceCurrencyCode: "USD",
+      listingGuards: ["10.00", "14.00", "20.00"].map((listingPriceAmount, index) => ({
+        listingId: `lst_${index}`,
+        listingPriceAmount,
+        listingPriceCurrencyCode: "USD",
+        sellerAccountId: `acc_seller_${index}`,
+        buyerListingDailyOfferCount: 3,
+        mutedAt: "2026-10-01T00:00:00.000Z",
+        lowballCooldownUntil: "2099-01-01T00:00:00.000Z",
+        lastLowballDeclinedAmount: "2.00",
+      })),
+    };
+    expect(() => assertOfferSubmissionAllowed(legacyInput)).not.toThrow();
   });
 
-  it("allows cap and floor boundary values", () => {
-    expect(() =>
-      assertOfferSubmissionAllowed({
-        policy,
-        now: new Date("2026-07-05T12:00:00.000Z"),
-        buyerDailySubmissionCount: 1,
-        offerPriceAmount: "50.00",
-        offerPriceCurrencyCode: "USD",
-        listingGuards: [listingGuard],
-      }),
-    ).not.toThrow();
-  });
-
-  it("rejects buyer and listing cap boundaries once reached", () => {
-    expectControlCode(
-      () =>
-        assertOfferSubmissionAllowed({
-          policy,
-          now: new Date("2026-07-05T12:00:00.000Z"),
-          buyerDailySubmissionCount: 2,
-          offerPriceAmount: "50.00",
-          offerPriceCurrencyCode: "USD",
-          listingGuards: [listingGuard],
-        }),
-      "offer_daily_submission_cap_reached",
+  it("retains only the unchanged daily cap under policy v2", () => {
+    expect(DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY).toEqual({
+      policyVersion: "marketplace-offer-abuse-controls-v2",
+      buyerDailySubmissionCap: 25,
+    });
+    expect(() => assertOfferSubmissionAllowed({ buyerDailySubmissionCount: 24 })).not.toThrow();
+    expect(() => assertOfferSubmissionAllowed({ buyerDailySubmissionCount: 25 })).toThrow(
+      MarketplaceOfferAbuseControlError,
     );
-
-    expectControlCode(
-      () =>
-        assertOfferSubmissionAllowed({
-          policy,
-          now: new Date("2026-07-05T12:00:00.000Z"),
-          buyerDailySubmissionCount: 1,
-          offerPriceAmount: "50.00",
-          offerPriceCurrencyCode: "USD",
-          listingGuards: [{ ...listingGuard, buyerListingDailyOfferCount: 2 }],
-        }),
-      "offer_listing_submission_cap_reached",
-    );
+    try {
+      assertOfferSubmissionAllowed({ buyerDailySubmissionCount: 25 });
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "offer_daily_submission_cap_reached",
+        details: { policyVersion: "marketplace-offer-abuse-controls-v2", limit: 25 },
+      });
+    }
   });
 
-  it("rejects offers below every matching listing floor", () => {
-    expectControlCode(
-      () =>
-        assertOfferSubmissionAllowed({
-          policy,
-          now: new Date("2026-07-05T12:00:00.000Z"),
-          buyerDailySubmissionCount: 0,
-          offerPriceAmount: "49.99",
-          offerPriceCurrencyCode: "USD",
-          listingGuards: [listingGuard],
-        }),
-      "offer_price_floor_not_met",
+  it("enforces the caller's daily cap at its boundary", () => {
+    const policy = { ...DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY, buyerDailySubmissionCap: 2 };
+    expect(() => assertOfferSubmissionAllowed({ policy, buyerDailySubmissionCount: 1 })).not.toThrow();
+    expect(() => assertOfferSubmissionAllowed({ policy, buyerDailySubmissionCount: 2 })).toThrow(
+      MarketplaceOfferAbuseControlError,
     );
-  });
-
-  it("rejects lower repeated lowball offers during the cooldown window", () => {
-    expectControlCode(
-      () =>
-        assertOfferSubmissionAllowed({
-          policy,
-          now: new Date("2026-07-05T12:00:00.000Z"),
-          buyerDailySubmissionCount: 0,
-          offerPriceAmount: "60.00",
-          offerPriceCurrencyCode: "USD",
-          listingGuards: [
-            {
-              ...listingGuard,
-              lowballCooldownUntil: "2026-07-05T12:01:00.000Z",
-              lastLowballDeclinedAmount: "70.00",
-            },
-          ],
-        }),
-      "offer_lowball_cooldown",
-    );
-  });
-
-  it("rejects when every matching seller has muted the buyer", () => {
-    expectControlCode(
-      () =>
-        assertOfferSubmissionAllowed({
-          policy,
-          now: new Date("2026-07-05T12:00:00.000Z"),
-          buyerDailySubmissionCount: 0,
-          offerPriceAmount: "80.00",
-          offerPriceCurrencyCode: "USD",
-          listingGuards: [{ ...listingGuard, mutedAt: "2026-07-05T11:00:00.000Z" }],
-        }),
-      "offer_muted_by_sellers",
-    );
-  });
-
-  it("does not compare a buyer Offer with a differently denominated Listing", () => {
-    expect(() =>
-      assertOfferSubmissionAllowed({
-        policy,
-        now: new Date("2026-07-05T12:00:00.000Z"),
-        buyerDailySubmissionCount: 0,
-        offerPriceAmount: "1.00",
-        offerPriceCurrencyCode: "EUR",
-        listingGuards: [listingGuard],
-      }),
-    ).not.toThrow();
   });
 });

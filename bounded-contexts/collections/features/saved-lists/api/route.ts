@@ -12,6 +12,9 @@ import { SavedListDiscoveryError, type SavedListDiscoveryServices } from "./disc
 import type { SavedListProductSelection } from "../domain/contracts";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { additionAnalytics, recordSavedListAnalytics, type SavedListAnalyticsRecorder } from "./analytics-telemetry";
+import { savedListCanonicalIdentifier, savedListCanonicalProduct } from "./anonymous-owner";
+import { createSavedListRecoveryRoutes } from "./recovery-route";
+import type { SavedListRecoveryServices } from "./recovery-runtime";
 
 const CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CAPTURE_RATE_LIMIT_MAX = 30;
@@ -77,8 +80,13 @@ export function createGuestSavedListRoutes(
   return app;
 }
 
-export function createSavedListRoutes(services: SavedListDiscoveryServices, recorder?: SavedListAnalyticsRecorder) {
+export function createSavedListRoutes(
+  services: SavedListDiscoveryServices,
+  recorder?: SavedListAnalyticsRecorder,
+  recovery?: SavedListRecoveryServices,
+) {
   const app = new Hono<CollectionsApiEnv>();
+  if (recovery) app.route("/", createSavedListRecoveryRoutes(recovery));
 
   app.get("/account/lists/recent", async (c) => {
     const access = requireAccess(c);
@@ -259,15 +267,11 @@ function parseDestination(value: unknown): SavedListDestination {
 }
 
 function parseProduct(value: unknown): SavedListProductSelection {
-  const product = asRecord(value);
-  const options = Array.isArray(product.selectedOptions) ? product.selectedOptions : [];
+  const [catalogItemId, productId, options] = savedListCanonicalProduct(value as SavedListProductSelection);
   return {
-    catalogItemId: String(product.catalogItemId ?? "") as SavedListProductSelection["catalogItemId"],
-    productId: String(product.productId ?? "") as SavedListProductSelection["productId"],
-    selectedOptions: options.map((entry) => {
-      const option = asRecord(entry);
-      return { dimensionId: String(option.dimensionId ?? ""), optionId: String(option.optionId ?? "") };
-    }),
+    catalogItemId: catalogItemId as SavedListProductSelection["catalogItemId"],
+    productId: productId as SavedListProductSelection["productId"],
+    selectedOptions: options.map(([dimensionId, optionId]) => ({ dimensionId, optionId })),
   };
 }
 
@@ -277,8 +281,12 @@ function parseSurface(value: unknown): SavedListDiscoverySurface {
 }
 
 function readAnonymousOwnerId(value: string | undefined) {
-  const normalized = value?.trim() ?? "";
-  return normalized.startsWith("anon_") ? normalized : null;
+  try {
+    const normalized = savedListCanonicalIdentifier(value);
+    return normalized.startsWith("anon_") ? normalized : null;
+  } catch {
+    return null;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

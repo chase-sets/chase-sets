@@ -60,9 +60,9 @@ describe("raw Playwright artifact upload fence (#6895)", () => {
     expect(result.status).toBe("pass");
     expect(result.findings).toEqual([]);
     expect(result.discovery).toMatchObject({
-      trackedFiles: 65,
-      parsedFiles: 65,
-      workflowFiles: 61,
+      trackedFiles: 67,
+      parsedFiles: 67,
+      workflowFiles: 63,
       compositeActionFiles: 4,
     });
     expect(result.discovery.uploadSteps).toBeGreaterThan(0);
@@ -198,6 +198,19 @@ runs:
 
     expect(result.status).toBe("pass");
     expect(result.findings).toEqual([]);
+  });
+
+  it("publishes only the exact whole-game rehearsal receipt from the Catalog staging provider UAT (#9220)", () => {
+    const result = scanPlaywrightArtifactUploads();
+    const uploads = result.uploads.filter(({ file }) => file === ".github/workflows/catalog-staging-provider-uat.yml");
+
+    expect(result.findings.filter(({ file }) => file === ".github/workflows/catalog-staging-provider-uat.yml")).toEqual(
+      [],
+    );
+    expect(uploads.map(({ paths }) => paths)).toEqual([
+      ["artifacts/catalog-scale-probe/preview.json"],
+      ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
+    ]);
   });
 
   it("rejects a safe-summary upload that retains a raw Playwright sibling", () => {

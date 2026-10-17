@@ -2,11 +2,13 @@
   "schemaVersion": "platform-runtime-values/v1",
   "productionEnvOverrides": {
     "CHASE_SETS_CHECKOUT_CLOSED": "true",
-    "CATALOG_INTEGRATION_ACTIVATION_MODE": "test-profiles-only",
-    "CATALOG_INTEGRATION_CONTROL_PLANE_MODE": "dry-run-only",
-    "CATALOG_INTEGRATION_IMPORTS_DISABLED": "mtgjson,scryfall,tcgplayer",
-    "CATALOG_INTEGRATION_PROMOTION_DISABLED": "mtgjson,scryfall,tcgplayer",
-    "CATALOG_INTEGRATION_REAPPLY_DISABLED": "mtgjson,scryfall,tcgplayer",
+    "CATALOG_INTEGRATION_ACTIVATION_MODE": "open",
+    "CATALOG_INTEGRATION_CONTROL_PLANE_MODE": "open",
+    "CATALOG_INTEGRATION_IMPORTS_DISABLED": "tcgdex,ygoprodeck,ygojson",
+    "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED": "lorcanajson:lorcana:set:reference-data,lorcanajson:lorcana:single-card:reference-data,lorcast:lorcana:set:reference-data,lorcast:lorcana:single-card:reference-data,scrydex:lorcana:sealed-product:source-observation-import,scrydex:lorcana:set:reference-data,scrydex:lorcana:single-card:source-observation-import,tcgplayer:lorcana:sealed-product:source-observation-import,tcgplayer:lorcana:single-card:source-observation-import",
+    "CATALOG_INTEGRATION_PROMOTION_DISABLED": "tcgdex,ygoprodeck,ygojson",
+    "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED": "lorcanajson:lorcana:set:reference-data,lorcanajson:lorcana:single-card:reference-data,lorcast:lorcana:set:reference-data,lorcast:lorcana:single-card:reference-data,scrydex:lorcana:sealed-product:source-observation-import,scrydex:lorcana:set:reference-data,scrydex:lorcana:single-card:source-observation-import,tcgplayer:lorcana:sealed-product:source-observation-import,tcgplayer:lorcana:single-card:source-observation-import",
+    "CATALOG_INTEGRATION_REAPPLY_DISABLED": "tcgdex,ygoprodeck,ygojson",
     "CHASE_SETS_PUBLIC_INDEXING": "true",
     "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED": "true",
     "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS": "public-presence",
@@ -392,7 +394,23 @@
       "command": "pnpm --filter @chase-sets/app-platform-api run start:production",
       "env": [
         {
+          "name": "CHASE_SETS_DEPLOYMENT_INSTANCE",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_IMPLEMENTATION_SHA",
+          "value": ""
+        },
+        {
+          "name": "SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON",
+          "value": ""
+        },
+        {
           "name": "CHASE_SETS_CHECKOUT_CLOSED",
+          "value": "false"
+        },
+        {
+          "name": "CHASE_SETS_OFFER_LIFECYCLE_OPEN",
           "value": "false"
         },
         {
@@ -446,7 +464,31 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
           "value": ""
         },
         {
@@ -459,6 +501,10 @@
         },
         {
           "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
         {
@@ -915,21 +961,6 @@
           "secretKey": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
         },
         {
-          "name": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-          "secret": true,
-          "secretKey": "UCP_AP2_VERIFIER_AUTH_TOKEN"
-        },
-        {
-          "name": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-          "secret": true,
-          "secretKey": "UCP_AP2_VERIFIER_TIMEOUT_MS"
-        },
-        {
-          "name": "UCP_AP2_VERIFIER_URL",
-          "secret": true,
-          "secretKey": "UCP_AP2_VERIFIER_URL"
-        },
-        {
           "name": "UCP_BUSINESS_SIGNING_ALG",
           "secret": true,
           "secretKey": "UCP_BUSINESS_SIGNING_ALG"
@@ -1013,6 +1044,18 @@
       "command": "pnpm --filter @chase-sets/app-platform-worker run start:production",
       "env": [
         {
+          "name": "CHASE_SETS_DEPLOYMENT_INSTANCE",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_IMPLEMENTATION_SHA",
+          "value": ""
+        },
+        {
+          "name": "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON",
+          "value": ""
+        },
+        {
           "name": "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
           "secret": true,
           "secretKey": "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
@@ -1080,7 +1123,31 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
           "value": ""
         },
         {
@@ -1093,6 +1160,10 @@
         },
         {
           "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
         {
@@ -1658,7 +1729,31 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
           "value": ""
         },
         {
@@ -1671,6 +1766,10 @@
         },
         {
           "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
         {
