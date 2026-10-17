@@ -314,7 +314,7 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     expect((await inventory.importBatches.getBatch(job.payload.batchId!, accountId))?.status).toBe("failed-safe");
     await pools.inventory.query(
       `UPDATE inventory_import_batch_jobs
-       SET status = 'completed', progress = jsonb_set(progress, '{total}', '1'::jsonb)
+       SET status = 'completed', progress = jsonb_set(progress, '{total}', '999'::jsonb)
        WHERE job_id = $1`,
       [job.jobId],
     );
