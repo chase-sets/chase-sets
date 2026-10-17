@@ -2,7 +2,6 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import { readMcpStringArgument, type McpResourceHandler, type McpToolHandler } from "@chase-sets/platform-runtime/mcp";
 import type { RecoveredItemServices } from "./runtime";
 import type { RecoveredItemCommand, RecoveredItemDisposition, RecoveredValueType } from "../domain/recovered-item";
-import { recoveredItemDispositions, recoveredValueTypes } from "../domain/recovered-item";
 
 export type RecoveredItemMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -22,7 +21,7 @@ function requiredArray(args: Readonly<Record<string, unknown>>, key: string): re
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
     throw new Error(`${key} must be an array of strings.`);
   }
-  return value.map((entry) => entry.trim()).filter(Boolean);
+  return value;
 }
 
 function optionalString(args: Readonly<Record<string, unknown>>, key: string): string | null {
@@ -54,7 +53,16 @@ export function createRecoveredItemMcpHandlers(services: RecoveredItemServices):
     if (!Number.isInteger(limit) || limit <= 0) throw new Error("limit must be a positive integer.");
     if (!Number.isInteger(offset) || offset < 0) throw new Error("offset must be a non-negative integer.");
     const result = await services.list({ status: optionalString(args, "status"), limit, offset });
-    return { items: result.items, total: result.total, count: result.items.length };
+    const canViewEvidence = actor!.permissions.includes("recovered-inventory.evidence");
+    return {
+      ...result,
+      items: result.items.map((item) => ({
+        ...item,
+        evidence_references: canViewEvidence ? item.evidence_references : [],
+        disposition_authority: canViewEvidence ? item.disposition_authority : null,
+      })),
+      count: result.items.length,
+    };
   };
 
   const metrics: McpToolHandler = async ({ actor }) => {
@@ -88,9 +96,7 @@ export function createRecoveredItemMcpHandlers(services: RecoveredItemServices):
           const option = entry as Record<string, unknown>;
           return { dimensionId: requiredString(option, "dimensionId"), optionId: requiredString(option, "optionId") };
         })
-      : (() => {
-          throw new Error("selectedOptions must be an array.");
-        })(),
+      : [],
     identifiedByUserId: actor.userId,
     evidenceReferences: requiredArray(args, "evidenceReferences"),
     identifiedAt: timestamp(args),
@@ -181,9 +187,6 @@ export function createRecoveredItemMcpHandlers(services: RecoveredItemServices):
     mergedAt: timestamp(args),
   }));
 
-  // Keep the frozen route-to-command vocabulary visible at the composition seam.
-  void recoveredItemDispositions;
-  void recoveredValueTypes;
   return {
     toolHandlers: {
       "inventory.list-recovered-items": list,
