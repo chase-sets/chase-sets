@@ -159,16 +159,12 @@ describe("staging count capture lifecycle", () => {
         body.collection = {
           ...authority.collection,
           outcome: "unknown",
-          reason:
-            mode === "cap-overflow"
-              ? "inventory-cap"
-              : mode === "replay"
-                ? "inventory-duplicate"
-                : mode === "scope-refresh"
-                  ? "inventory-changed"
-                  : "authority-invalid",
+          reason: "authority-invalid",
           binding: null,
-          collectedAt: mode === "scope-refresh" ? "2026-10-13T08:05:00.000Z" : fixture.clock.now,
+          collectedAt: fixture.clock.now,
+          ...(mode === "cap-overflow" ? { pageCount: 10_000 } : {}),
+          ...(mode === "replay" ? { runCount: 0 } : {}),
+          ...(mode === "scope-refresh" ? { jobCount: 1 } : {}),
         };
       const response = await post(routePaths[intent]!, body);
       const value = await response.json();
