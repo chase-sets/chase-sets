@@ -242,13 +242,12 @@ export async function listPendingCreditEntriesMaturedBy(
              AND fulfillment.delivered_at <= (
                $1::timestamptz - CASE
                  WHEN COALESCE((
-                   SELECT COALESCE(
-                     CASE WHEN COALESCE((SELECT current_version FROM event_store_streams WHERE stream_id = 'settlement.payout-review-hold-' || settlement_ledger_entry_pages.account_id), 0) > risk.payout_review_hold_stream_version
+                   SELECT CASE
+                     WHEN COALESCE((SELECT current_version FROM event_store_streams WHERE stream_id = 'settlement.payout-review-hold-' || settlement_ledger_entry_pages.account_id), 0) > risk.payout_review_hold_stream_version
                        THEN TRUE
-                       ELSE risk.payout_review_hold
-                     END,
-                     risk.manual_payout_review
-                   )
+                     WHEN risk.payout_review_hold_stream_version > 0 THEN risk.payout_review_hold
+                     ELSE risk.manual_payout_review
+                   END
                    FROM settlement_account_risk_sources risk
                    WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                  ), FALSE)
@@ -393,13 +392,12 @@ export async function listPendingCreditEntriesMaturedBy(
            AND fulfillment.delivered_at <= (
              $1::timestamptz - CASE
                WHEN COALESCE((
-                 SELECT COALESCE(
-                   CASE WHEN COALESCE((SELECT current_version FROM event_store_streams WHERE stream_id = 'settlement.payout-review-hold-' || settlement_ledger_entry_pages.account_id), 0) > risk.payout_review_hold_stream_version
+                 SELECT CASE
+                   WHEN COALESCE((SELECT current_version FROM event_store_streams WHERE stream_id = 'settlement.payout-review-hold-' || settlement_ledger_entry_pages.account_id), 0) > risk.payout_review_hold_stream_version
                      THEN TRUE
-                     ELSE risk.payout_review_hold
-                   END,
-                   risk.manual_payout_review
-                 )
+                   WHEN risk.payout_review_hold_stream_version > 0 THEN risk.payout_review_hold
+                   ELSE risk.manual_payout_review
+                 END
                  FROM settlement_account_risk_sources risk
                  WHERE risk.account_id = settlement_ledger_entry_pages.account_id
                ), FALSE)

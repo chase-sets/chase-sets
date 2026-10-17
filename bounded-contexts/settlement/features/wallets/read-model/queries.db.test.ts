@@ -345,6 +345,70 @@ describeDb("settlement money maturity query persistence boundary", () => {
     ).resolves.toEqual([]);
   });
 
+  it("payout review hold governs extended clearance in both maturity paths", async () => {
+    // Each account is a trusted, reviewed, unlinked seller, so only the hold or badge can extend clearance.
+    const cases = [
+      { accountId: "acc_hold_control", matures: true },
+      { accountId: "acc_badge_only_empty_stream", manualPayoutReview: true, matures: false },
+      { accountId: "acc_hold_active", hold: true, projectedVersion: 1, streamVersion: 1, matures: false },
+      {
+        accountId: "acc_hold_released_badged",
+        manualPayoutReview: true,
+        projectedVersion: 2,
+        streamVersion: 2,
+        matures: true,
+      },
+      {
+        accountId: "acc_hold_tombstone_badged",
+        manualPayoutReview: true,
+        projectedVersion: 1,
+        streamVersion: 1,
+        matures: true,
+      },
+      { accountId: "acc_hold_placed_unprojected", streamVersion: 1, matures: false },
+      { accountId: "acc_hold_released_unprojected", hold: true, projectedVersion: 1, streamVersion: 2, matures: false },
+    ];
+    for (const holdCase of cases) {
+      await seedWallet(holdCase.accountId);
+      await seedTrustedSeller(holdCase.accountId, {
+        manualPayoutReview: holdCase.manualPayoutReview,
+        payoutReviewHold: holdCase.hold,
+        payoutReviewHoldStreamVersion: holdCase.projectedVersion,
+      });
+      if (holdCase.streamVersion) {
+        await pool.query(
+          `INSERT INTO event_store_streams (stream_id, current_version, updated_at) VALUES ($1, $2, $3)`,
+          [`settlement.payout-review-hold-${holdCase.accountId}`, holdCase.streamVersion, now],
+        );
+      }
+      await seedMaturityCandidate({
+        ledgerEntryId: `led_${holdCase.accountId}`,
+        accountId: holdCase.accountId,
+        orderId: `ord_${holdCase.accountId}`,
+        amount: "40.00",
+        postedDaysAgo: 3,
+        deliveredDaysAgo: 3,
+      });
+    }
+    const clearancePolicy = { now, baseClearanceDays: 2, extendedClearanceDays: 7, highValueThresholdAmount: "250.00" };
+    const matured = cases
+      .filter((holdCase) => holdCase.matures)
+      .map((holdCase) => `led_${holdCase.accountId}`)
+      .sort();
+    const ids = (rows: readonly { ledger_entry_id: string }[]) => rows.map((row) => row.ledger_entry_id).sort();
+
+    expect(ids(await listPendingCreditEntriesMaturedBy(pool, clearancePolicy))).toEqual(matured);
+    expect(
+      ids(
+        await listPendingCreditEntriesMaturedBy(pool, {
+          ...clearancePolicy,
+          claimOwnerId: "worker-hold",
+          claimTtlMs: 120_000,
+        }),
+      ),
+    ).toEqual(matured);
+  });
+
   async function seedWallet(accountId: string) {
     await pool.query(
       `INSERT INTO settlement_wallet_pages (
@@ -368,6 +432,9 @@ describeDb("settlement money maturity query persistence boundary", () => {
       sharedAddressClusterCount?: number;
       reviewCount?: number;
       averageRating?: number | null;
+      manualPayoutReview?: boolean;
+      payoutReviewHold?: boolean;
+      payoutReviewHoldStreamVersion?: number;
     } = {},
   ) {
     const reviewCount = risk.reviewCount ?? 4;
@@ -378,15 +445,20 @@ describeDb("settlement money maturity query persistence boundary", () => {
          account_created_at,
          trusted_seller,
          manual_payout_review,
+         payout_review_hold,
+         payout_review_hold_stream_version,
          shared_instrument_cluster_count,
          shared_address_cluster_count,
          review_count,
          average_rating,
          updated_at
-       ) VALUES ($1, $2, TRUE, FALSE, $3, $4, $5, $6, $7)`,
+       ) VALUES ($1, $2, TRUE, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         accountId,
         daysAgo(365),
+        risk.manualPayoutReview ?? false,
+        risk.payoutReviewHold ?? false,
+        risk.payoutReviewHoldStreamVersion ?? 0,
         risk.sharedInstrumentClusterCount ?? 0,
         risk.sharedAddressClusterCount ?? 0,
         reviewCount,
