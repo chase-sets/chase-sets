@@ -130,6 +130,7 @@ describeDb("applies a migration data step atomically", () => {
       await locker.query("LOCK TABLE data_step_locked IN ACCESS EXCLUSIVE MODE");
       await bootstrap([migration], pool, {
         lockTimeoutMs: 100,
+        lockTimeoutRetryBudgetMs: 30_000,
         lockTimeoutRetryBaseDelayMs: 1,
         lockTimeoutRetryJitterMs: 0,
       });
