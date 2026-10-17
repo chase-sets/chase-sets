@@ -9,6 +9,8 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { type PgQueryFunction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
+import { createPostgresDurableJobWorkUnitStore } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { module as inventoryModule } from "../../../index";
@@ -151,19 +153,154 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     const columns = await pools.inventory.query(`SELECT column_name FROM information_schema.columns
       WHERE table_schema = current_schema() AND table_name IN ('inventory_import_batch_job_inputs', 'inventory_import_batches')
         AND column_name IN ('csv_text', 'parsed_rows', 'source_filename')`);
-    expect(columns.rows).toEqual([]);
+    expect(columns.rows).toHaveLength(4);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     expect(
       (
         await pools.inventory.query(`SELECT column_name FROM information_schema.columns
       WHERE table_schema = current_schema() AND table_name = 'inventory_import_batch_job_inputs' AND column_name = 'csv_text'`)
       ).rows,
-    ).toEqual([]);
+    ).toHaveLength(1);
     expect(
       (await loadInventoryImportSnapshotPage(pools.inventory, job.payload.create!.inputId, accountId)).rows,
     ).toHaveLength(1);
     await inventory.importBatches.processNextImportBatchJob(claim);
     expect((await inventory.importBatches.getImportBatchJob(job.jobId))?.status).toBe("completed");
+  });
+
+  it("issue-7169-c3-safe-rollout: base workers ignore fenced jobs before and after legacy conversion", async () => {
+    const inventory = services();
+    const job = await inventory.importBatches.enqueueCreateBatchJob(
+      params,
+      withInventoryMutationAttempt(authority, randomUUID()),
+    );
+    const baseJobStore = createPostgresDurableJobStore<
+      Record<string, unknown>,
+      Record<string, unknown>,
+      Record<string, unknown>
+    >(pools.inventory, { jobsTable: "inventory_import_batch_jobs", eventsTable: "inventory_import_batch_job_events" });
+    const baseUnitStore = createPostgresDurableJobWorkUnitStore<
+      Record<string, unknown>,
+      Record<string, unknown>,
+      Record<string, unknown>,
+      { rowNumber: number },
+      Record<string, unknown>
+    >(
+      pools.inventory,
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+        workUnitsTable: "inventory_import_batch_work_units",
+      },
+      { workflowName: "inventory.import-batch" },
+    );
+    expect(
+      (await pools.inventory.query("SELECT job_kind FROM inventory_import_batch_jobs WHERE job_id = $1", [job.jobId]))
+        .rows,
+    ).toEqual([{ job_kind: "create-snapshot-v1" }]);
+    expect(
+      (
+        await baseUnitStore.claimNext({
+          claimOwnerId: "base-old",
+          claimTtlMs: 30_000,
+          workflowMaxActiveClaims: 1,
+          jobMaxActiveClaims: 1,
+          jobKinds: ["create"],
+        })
+      ).claim,
+    ).toBeNull();
+    expect(
+      await baseJobStore.claimNext({ claimOwnerId: "base-old", claimTtlMs: 30_000, jobKinds: ["create"] }),
+    ).toBeNull();
+
+    await pools.inventory.query(
+      "ALTER TABLE inventory_import_batch_job_inputs ADD COLUMN csv_text text, ADD COLUMN parsed_rows jsonb, ADD COLUMN source_filename text",
+    );
+    await pools.inventory.query("DELETE FROM inventory_import_snapshot_rows WHERE input_id = $1", [
+      job.payload.create!.inputId,
+    ]);
+    await pools.inventory.query(
+      `UPDATE inventory_import_batch_job_inputs SET snapshot_version = NULL, snapshot_hash = NULL, csv_text = $2, source_filename = 'legacy.csv' WHERE input_id = $1`,
+      [job.payload.create!.inputId, params.csvText],
+    );
+    await pools.inventory.query("UPDATE inventory_import_batch_jobs SET job_kind = 'create' WHERE job_id = $1", [
+      job.jobId,
+    ]);
+    await pools.inventory.query("UPDATE inventory_import_batch_work_units SET unit_kind = 'create' WHERE job_id = $1", [
+      job.jobId,
+    ]);
+    await contractInventoryImportSources(pools.inventory);
+    expect(
+      (await pools.inventory.query("SELECT job_kind FROM inventory_import_batch_jobs WHERE job_id = $1", [job.jobId]))
+        .rows,
+    ).toEqual([{ job_kind: "create-snapshot-v1" }]);
+    expect(
+      (
+        await baseUnitStore.claimNext({
+          claimOwnerId: "base-old-2",
+          claimTtlMs: 30_000,
+          workflowMaxActiveClaims: 1,
+          jobMaxActiveClaims: 1,
+          jobKinds: ["create"],
+        })
+      ).claim,
+    ).toBeNull();
+    expect(
+      await baseJobStore.claimNext({ claimOwnerId: "base-old-2", claimTtlMs: 30_000, jobKinds: ["create"] }),
+    ).toBeNull();
+    expect(
+      (
+        await pools.inventory.query(
+          "SELECT csv_text, snapshot_version FROM inventory_import_batch_job_inputs WHERE input_id = $1",
+          [job.payload.create!.inputId],
+        )
+      ).rows,
+    ).toEqual([{ csv_text: null, snapshot_version: 1 }]);
+  });
+
+  it("issue-7169-c3-safe-rollout: isolates poison retained records and continues valid work", async () => {
+    await pools.inventory.query(
+      `ALTER TABLE inventory_import_batch_job_inputs ADD COLUMN csv_text text, ADD COLUMN parsed_rows jsonb, ADD COLUMN source_filename text`,
+    );
+    const inventory = services();
+    const valid = await inventory.importBatches.enqueueCreateBatchJob(
+      params,
+      withInventoryMutationAttempt(authority, randomUUID()),
+    );
+    await pools.inventory.query("DELETE FROM inventory_import_snapshot_rows WHERE input_id = $1", [
+      valid.payload.create!.inputId,
+    ]);
+    await pools.inventory.query(
+      `UPDATE inventory_import_batch_job_inputs SET snapshot_version = NULL, snapshot_hash = NULL, csv_text = $2 WHERE input_id = $1`,
+      [valid.payload.create!.inputId, params.csvText],
+    );
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batches (batch_id, account_id, status, total_count, accepted_count, created_at, updated_at, source_key)
+       VALUES ('imb_poison_synthetic', $1, 'uploaded', 1, 1, now(), now(), 'native-csv')`,
+      [accountId],
+    );
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batch_rows (row_id, batch_id, row_number, status, raw_row, created_at, updated_at)
+       VALUES ('imr_poison_synthetic', 'imb_poison_synthetic', 1, 'accepted', $1::jsonb, now(), now())`,
+      [JSON.stringify({ rowNote: "restocked, see https://synthetic.invalid/listing" })],
+    );
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batch_job_inputs (input_id, account_id, csv_text, source_filename, created_at)
+       VALUES ('input_poison_synthetic', $1, $2, 'legacy.csv', now())`,
+      [accountId, "catalogItemId,totalQuantity\n" + "x".repeat(1_025)],
+    );
+    await contractInventoryImportSources(pools.inventory);
+    const poisonedInput = await pools.inventory.query(
+      "SELECT csv_text, parsed_rows, source_filename FROM inventory_import_batch_job_inputs WHERE input_id = 'input_poison_synthetic'",
+    );
+    expect(poisonedInput.rows).toEqual([{ csv_text: null, parsed_rows: null, source_filename: null }]);
+    const retained = await pools.inventory.query<{ raw_row: Record<string, unknown> }>(
+      "SELECT raw_row FROM inventory_import_batch_rows WHERE row_id = 'imr_poison_synthetic'",
+    );
+    expect(JSON.stringify(retained.rows[0].raw_row)).not.toContain("https://synthetic.invalid");
+    expect(JSON.stringify(retained.rows[0].raw_row)).toContain("legacy import value redacted");
+    await inventory.importBatches.processNextImportBatchJob(claim);
+    expect((await inventory.importBatches.getImportBatchJob(valid.jobId))?.status).toBe("completed");
   });
 
   it("issue-7169-c3-create-row-recovery: reads all 10k source rows in bounded pages and reaches a decisive row beyond the first page", async () => {

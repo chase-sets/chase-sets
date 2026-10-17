@@ -2,33 +2,88 @@ import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@
 import { InventoryDomainError } from "../../../support/runtime-support/common";
 import type { InventoryImportBatchJobPayload } from "./runtime";
 import {
+  INVENTORY_IMPORT_LEGACY_VALUE_MARKER,
   loadInventoryImportSnapshotHeader,
   prepareInventoryImportLegacySnapshot,
+  sanitizeInventoryImportLegacyText,
   stageInventoryImportSnapshot,
   type InventoryImportSnapshotInput,
 } from "./safe-snapshot";
 import type { ImportCsvRow } from "../domain/csv";
 import type { InventoryImportSourceKey } from "../domain/import-source-adapters";
 
-function safeRetainedResult(value: unknown, sourceKey?: InventoryImportSourceKey): unknown {
-  if (Array.isArray(value)) return value.map((item) => safeRetainedResult(item, sourceKey));
+const SNAPSHOT_JOB_KIND = "create-snapshot-v1";
+const LEGACY_JOB_KIND = "create";
+type MigrationWarning = Readonly<{ recordType: string; recordId: string; field: string; reason: string }>;
+let savepointSequence = 0;
+
+async function isolateConversionFailure(
+  db: PgQueryable,
+  savepoint: string,
+  inputId: string,
+  accountId: string,
+  error: unknown,
+) {
+  if (!(error instanceof InventoryDomainError)) throw error;
+  await db.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+  await isolateLegacySource(db, inputId, accountId);
+}
+
+function sanitizeRetainedValue(
+  value: unknown,
+  path: string,
+  warnings: MigrationWarning[],
+  recordType: string,
+  recordId: string,
+): unknown {
+  if (typeof value === "string") {
+    const sanitized = sanitizeInventoryImportLegacyText(value);
+    if (sanitized === INVENTORY_IMPORT_LEGACY_VALUE_MARKER)
+      warnings.push({ recordType, recordId, field: path, reason: "unsafe-retained-text" });
+    return sanitized;
+  }
+  if (Array.isArray(value))
+    return value.map((item, index) => sanitizeRetainedValue(item, `${path}[${index}]`, warnings, recordType, recordId));
   if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  const source = (record.source_key ?? sourceKey) as InventoryImportSourceKey | undefined;
   return Object.fromEntries(
-    Object.entries(record).map(([key, item]) => {
-      if (key === "source_filename" || key === "sourceFilename") return [key, null];
-      if (key === "raw_row") {
-        const snapshot = prepareInventoryImportLegacySnapshot({
-          accountId: "legacy-result",
-          sourceKey: source,
-          parsedRows: [{ rowNumber: 1, values: item as Record<string, string> }],
-        });
-        return [key, snapshot.rows[0].rawRow];
-      }
-      return [key, safeRetainedResult(item, source)];
-    }),
+    Object.entries(value as Record<string, unknown>).map(([key, item]) =>
+      key === "source_filename" || key === "sourceFilename"
+        ? [key, null]
+        : [key, sanitizeRetainedValue(item, path ? `${path}.${key}` : key, warnings, recordType, recordId)],
+    ),
   );
+}
+
+function safeRetainedResult(
+  value: unknown,
+  sourceKey: InventoryImportSourceKey | undefined,
+  recordType: string,
+  recordId: string,
+  warnings: MigrationWarning[],
+): unknown {
+  const sanitized = sanitizeRetainedValue(value, "result", warnings, recordType, recordId);
+  if (!sanitized || typeof sanitized !== "object" || Array.isArray(sanitized)) return sanitized;
+  const record = sanitized as Record<string, unknown>;
+  if (!Object.hasOwn(record, "raw_row")) return record;
+  const source = (record.source_key ?? sourceKey) as InventoryImportSourceKey | undefined;
+  try {
+    const snapshot = prepareInventoryImportLegacySnapshot({
+      accountId: "legacy-result",
+      sourceKey: source,
+      parsedRows: [{ rowNumber: 1, values: record.raw_row as Record<string, string> }],
+    });
+    return { ...record, raw_row: snapshot.rows[0].rawRow };
+  } catch {
+    warnings.push({ recordType, recordId, field: "result.raw_row", reason: "unsafe-retained-text" });
+    return { ...record, raw_row: { rowNote: INVENTORY_IMPORT_LEGACY_VALUE_MARKER } };
+  }
+}
+
+function addWarnings(value: unknown, warnings: readonly MigrationWarning[]): unknown {
+  if (!warnings.length) return value;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>), legacyMigrationWarnings: warnings }
+    : { value, legacyMigrationWarnings: warnings };
 }
 
 export function isImportMigrationPool(db: PgQueryable): db is PgTransactionalPool {
@@ -105,9 +160,43 @@ async function convertSource(
 async function bindJobs(db: PgQueryable, inputId: string, accountId: string, hash: string, rowCount: number) {
   await db.query(
     `UPDATE inventory_import_batch_jobs SET payload = jsonb_set(payload, '{create}',
-      ((payload->'create') - 'normalizedRows') || jsonb_build_object('snapshotVersion', 1, 'snapshotHash', $3::text, 'rowCount', $4::integer))
+      ((payload->'create') - 'normalizedRows') || jsonb_build_object('snapshotVersion', 1, 'snapshotHash', $3::text, 'rowCount', $4::integer)),
+      job_kind = CASE WHEN job_kind = $5::text THEN $6::text ELSE job_kind END
       WHERE payload->>'accountId' = $2 AND payload #>> '{create,inputId}' = $1`,
-    [inputId, accountId, hash, rowCount],
+    [inputId, accountId, hash, rowCount, LEGACY_JOB_KIND, SNAPSHOT_JOB_KIND],
+  );
+  await db.query(
+    `UPDATE inventory_import_batch_work_units AS unit
+        SET unit_kind = $3::text
+       FROM inventory_import_batch_jobs AS job
+      WHERE unit.job_id = job.job_id
+        AND unit.unit_kind = $4::text
+        AND unit.state = 'queued'
+        AND job.job_kind = $3::text
+        AND job.payload->>'accountId' = $2
+        AND job.payload #>> '{create,inputId}' = $1`,
+    [inputId, accountId, SNAPSHOT_JOB_KIND, LEGACY_JOB_KIND],
+  );
+}
+
+async function isolateLegacySource(db: PgQueryable, inputId: string, accountId: string) {
+  await db.query(
+    `UPDATE inventory_import_batch_job_inputs
+        SET csv_text = NULL, parsed_rows = NULL, source_filename = NULL
+      WHERE input_id = $1 AND account_id = $2`,
+    [inputId, accountId],
+  );
+  await db.query(
+    `UPDATE inventory_import_batch_jobs
+        SET status = 'failed',
+            progress = jsonb_set(jsonb_set(progress, '{phase}', '"failed"'::jsonb), '{message}', '"import_job_failed_reconciliation_required"'::jsonb),
+            error_message = 'import_job_failed_reconciliation_required',
+            claim_owner_id = NULL, claimed_until = NULL,
+            completed_at = COALESCE(completed_at, now()), updated_at = now()
+      WHERE payload->>'accountId' = $2
+        AND payload #>> '{create,inputId}' = $1
+        AND status IN ('queued', 'running')`,
+    [inputId, accountId],
   );
 }
 
@@ -119,7 +208,7 @@ export async function contractInventoryImportSources(pool: PgTransactionalPool) 
       WHERE table_schema = current_schema() AND table_name = 'inventory_import_batch_job_inputs'
         AND column_name = 'csv_text'`);
     if (!columns.rows.length) return;
-    // Old writers cannot insert between the final census and column retirement.
+    // Old writers cannot insert between the final census and source nulling.
     await db.query(`LOCK TABLE inventory_import_batch_job_inputs, inventory_import_batch_jobs,
       inventory_import_batches, inventory_import_batch_rows, inventory_import_batch_job_events IN SHARE ROW EXCLUSIVE MODE`);
     let after = "";
@@ -130,21 +219,38 @@ export async function contractInventoryImportSources(pool: PgTransactionalPool) 
         [after],
       );
       if (!page.rows.length) break;
-      for (const row of page.rows) await convertSource(db, row.input_id, row.account_id);
+      for (const row of page.rows) {
+        const savepoint = `import_source_${savepointSequence++}`;
+        await db.query(`SAVEPOINT ${savepoint}`);
+        try {
+          await convertSource(db, row.input_id, row.account_id);
+        } catch (error) {
+          await isolateConversionFailure(db, savepoint, row.input_id, row.account_id, error);
+        }
+        await db.query(`RELEASE SAVEPOINT ${savepoint}`);
+      }
       after = page.rows[page.rows.length - 1].input_id;
     }
     after = "";
     for (;;) {
       const page = await db.query<{ job_id: string; payload: InventoryImportBatchJobPayload }>(
         `SELECT job_id, payload
-        FROM inventory_import_batch_jobs WHERE job_id > $1 AND payload #> '{create,normalizedRows}' IS NOT NULL
+        FROM inventory_import_batch_jobs WHERE job_id > $1 AND status IN ('queued', 'running')
+          AND payload #> '{create,normalizedRows}' IS NOT NULL
         ORDER BY job_id LIMIT 100`,
         [after],
       );
       if (!page.rows.length) break;
       for (const job of page.rows) {
         if (!job.payload.create?.inputId) throw new InventoryDomainError("Import source requires reconciliation.");
-        await convertSource(db, job.payload.create.inputId, job.payload.accountId, job.payload.create);
+        const savepoint = `import_source_${savepointSequence++}`;
+        await db.query(`SAVEPOINT ${savepoint}`);
+        try {
+          await convertSource(db, job.payload.create.inputId, job.payload.accountId, job.payload.create);
+        } catch (error) {
+          await isolateConversionFailure(db, savepoint, job.payload.create.inputId, job.payload.accountId, error);
+        }
+        await db.query(`RELEASE SAVEPOINT ${savepoint}`);
       }
       after = page.rows[page.rows.length - 1].job_id;
     }
@@ -165,14 +271,28 @@ export async function contractInventoryImportSources(pool: PgTransactionalPool) 
       );
       if (!page.rows.length) break;
       for (const row of page.rows) {
-        const safe = prepareInventoryImportLegacySnapshot({
-          accountId: row.account_id,
-          sourceKey: row.source_key,
-          parsedRows: [{ rowNumber: row.row_number, values: row.raw_row }],
-        });
+        const warnings: MigrationWarning[] = [];
+        const sanitized = sanitizeRetainedValue(row.raw_row, "raw_row", warnings, "batch-row", row.row_id);
+        let rawRow: Record<string, string>;
+        try {
+          const safe = prepareInventoryImportLegacySnapshot({
+            accountId: row.account_id,
+            sourceKey: row.source_key,
+            parsedRows: [{ rowNumber: row.row_number, values: sanitized as Record<string, string> }],
+          });
+          rawRow = safe.rows[0].rawRow;
+        } catch {
+          warnings.push({
+            recordType: "batch-row",
+            recordId: row.row_id,
+            field: "raw_row",
+            reason: "unsafe-retained-text",
+          });
+          rawRow = { rowNote: INVENTORY_IMPORT_LEGACY_VALUE_MARKER };
+        }
         await db.query("UPDATE inventory_import_batch_rows SET raw_row = $2::jsonb WHERE row_id = $1", [
           row.row_id,
-          JSON.stringify(safe.rows[0].rawRow),
+          JSON.stringify(addWarnings(rawRow, warnings)),
         ]);
       }
       after = page.rows[page.rows.length - 1].row_id;
@@ -186,9 +306,12 @@ export async function contractInventoryImportSources(pool: PgTransactionalPool) 
       );
       if (!page.rows.length) break;
       for (const job of page.rows) {
+        const warnings: MigrationWarning[] = [];
         await db.query("UPDATE inventory_import_batch_jobs SET result = $2::jsonb WHERE job_id = $1", [
           job.job_id,
-          JSON.stringify(safeRetainedResult(job.result)),
+          JSON.stringify(
+            addWarnings(safeRetainedResult(job.result, undefined, "job-result", job.job_id, warnings), warnings),
+          ),
         ]);
         let sequence = 0;
         for (;;) {
@@ -198,20 +321,35 @@ export async function contractInventoryImportSources(pool: PgTransactionalPool) 
             [job.job_id, sequence],
           );
           if (!events.rows.length) break;
-          for (const event of events.rows)
+          for (const event of events.rows) {
+            const warnings: MigrationWarning[] = [];
             await db.query(
               `UPDATE inventory_import_batch_job_events SET snapshot = $3::jsonb
             WHERE job_id = $1 AND sequence = $2`,
-              [job.job_id, event.sequence, JSON.stringify(safeRetainedResult(event.snapshot))],
+              [
+                job.job_id,
+                event.sequence,
+                JSON.stringify(
+                  addWarnings(
+                    safeRetainedResult(
+                      event.snapshot,
+                      undefined,
+                      "job-event",
+                      `${job.job_id}:${event.sequence}`,
+                      warnings,
+                    ),
+                    warnings,
+                  ),
+                ),
+              ],
             );
+          }
           sequence = events.rows[events.rows.length - 1].sequence;
         }
       }
       after = page.rows[page.rows.length - 1].job_id;
     }
-    await db.query(`ALTER TABLE inventory_import_batch_job_inputs
-      DROP COLUMN csv_text, DROP COLUMN parsed_rows, DROP COLUMN source_filename`);
-    await db.query("ALTER TABLE inventory_import_batches DROP COLUMN IF EXISTS source_filename");
+    // Keep raw columns through this release so a base worker can roll back safely.
     await db.query(`INSERT INTO bounded_context_schema_migrations (migration_id, description, applied_at)
       VALUES ('20261016_inventory_import_source_contracted', 'Safe sources converted before raw writer retirement', now())
       ON CONFLICT (migration_id) DO NOTHING`);

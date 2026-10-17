@@ -246,10 +246,15 @@ type ExistingImportTargetItem = Readonly<{
 
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
 const IMPORT_BATCH_JOB_KIND_CREATE = "create";
+const IMPORT_BATCH_JOB_KIND_SNAPSHOT = "create-snapshot-v1";
 const IMPORT_BATCH_JOB_KIND_COMMIT = "commit";
 export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND = PRODUCT_RESOLUTION_JOB_ID;
 export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND = PRODUCT_RESOLUTION_UNIT_ID;
 const INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION = 1;
+
+function isCreateBatchJobKind(jobKind: string): boolean {
+  return jobKind === IMPORT_BATCH_JOB_KIND_CREATE || jobKind === IMPORT_BATCH_JOB_KIND_SNAPSHOT;
+}
 
 export type InventoryImportBatchJobPayload = Readonly<{
   batchId?: string;
@@ -994,7 +999,11 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     {
       jobsTable: "inventory_import_batch_jobs",
       eventsTable: "inventory_import_batch_job_events",
-      retentionExemptJobKinds: [INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND, IMPORT_BATCH_JOB_KIND_CREATE],
+      retentionExemptJobKinds: [
+        INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND,
+        IMPORT_BATCH_JOB_KIND_CREATE,
+        IMPORT_BATCH_JOB_KIND_SNAPSHOT,
+      ],
     },
     { notificationWaiterPool: deps.notificationWaiterPool },
   );
@@ -1588,7 +1597,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     accountId: AccountId,
   ): void {
     if (
-      job.jobKind !== IMPORT_BATCH_JOB_KIND_CREATE ||
+      !isCreateBatchJobKind(job.jobKind) ||
       job.payload.accountId !== accountId ||
       job.payload.batchId !== identity.batchId ||
       job.payload.create?.batchId !== identity.batchId ||
@@ -1598,12 +1607,16 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     }
   }
 
-  function enqueueCreateWorkUnits(jobId: string, rows: readonly NormalizedInventoryImportRow[]) {
+  function enqueueCreateWorkUnits(
+    jobId: string,
+    rows: readonly NormalizedInventoryImportRow[],
+    unitKind = IMPORT_BATCH_JOB_KIND_SNAPSHOT,
+  ) {
     return workUnitStore.enqueue({
       jobId,
       units: rows.map((row) => ({
         unitId: String(row.rowNumber),
-        unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
+        unitKind,
         payload: { rowNumber: row.rowNumber },
       })),
     });
@@ -1649,7 +1662,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     try {
       job = await jobStore.enqueue({
         jobId,
-        jobKind: IMPORT_BATCH_JOB_KIND_CREATE,
+        jobKind: IMPORT_BATCH_JOB_KIND_SNAPSHOT,
         payload: {
           batchId,
           accountId: params.accountId,
@@ -2070,7 +2083,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       const claimed = await jobStore.claimNext({
         claimOwnerId: input.claimOwnerId,
         claimTtlMs: input.claimTtlMs,
-        jobKinds: [IMPORT_BATCH_JOB_KIND_CREATE, IMPORT_BATCH_JOB_KIND_COMMIT],
+        jobKinds: [IMPORT_BATCH_JOB_KIND_SNAPSHOT, IMPORT_BATCH_JOB_KIND_CREATE, IMPORT_BATCH_JOB_KIND_COMMIT],
       });
       if (!claimed) {
         return 0;
@@ -2098,15 +2111,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
         });
 
-        stagedInput =
-          claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE
-            ? await loadCreateBatchJobInput(
-                requireCreateInputId(claimed.payload),
-                claimed.payload.accountId as AccountId,
-                undefined,
-                claimed.payload.create,
-              )
-            : null;
+        stagedInput = isCreateBatchJobKind(claimed.jobKind)
+          ? await loadCreateBatchJobInput(
+              requireCreateInputId(claimed.payload),
+              claimed.payload.accountId as AccountId,
+              undefined,
+              claimed.payload.create,
+            )
+          : null;
         if (stagedInput) {
           let rows = stagedInput.normalizedRows ?? [];
           while (rows.length > 0) {
@@ -2157,10 +2169,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             claimOwnerId: input.claimOwnerId,
             progress: importBatchJobProgress(
               "completed",
-              claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE ? batch.total_count : batch.committed_count,
-              claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE ? batch.total_count : batch.accepted_count,
+              isCreateBatchJobKind(claimed.jobKind) ? batch.total_count : batch.committed_count,
+              isCreateBatchJobKind(claimed.jobKind) ? batch.total_count : batch.accepted_count,
               null,
-              claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE ? "Import validation completed." : "Commit completed.",
+              isCreateBatchJobKind(claimed.jobKind) ? "Import validation completed." : "Commit completed.",
             ),
             result: {
               batch,
@@ -2207,7 +2219,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       claimTtlMs: input.claimTtlMs,
       workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
       jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
-      jobKinds: [IMPORT_BATCH_JOB_KIND_CREATE],
+      jobKinds: [IMPORT_BATCH_JOB_KIND_SNAPSHOT, IMPORT_BATCH_JOB_KIND_CREATE],
       laneName: input.laneName ?? null,
     });
     const claim = claimResult.claim;

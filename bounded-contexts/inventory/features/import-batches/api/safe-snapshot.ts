@@ -151,6 +151,16 @@ function safeText(value: unknown): string {
   return value.trim();
 }
 
+export const INVENTORY_IMPORT_LEGACY_VALUE_MARKER = "[legacy import value redacted during source migration]";
+
+export function sanitizeInventoryImportLegacyText(value: unknown): string {
+  try {
+    return safeText(value);
+  } catch {
+    return INVENTORY_IMPORT_LEGACY_VALUE_MARKER;
+  }
+}
+
 function safeValues(value: unknown): Readonly<Record<string, string>> {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalid();
   const result: Record<string, string> = {};
