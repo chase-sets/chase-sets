@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
-import { createMarketplaceSeedRuntime, describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
+import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
   demoAccountId: "acc_seed_demo_account",
@@ -11,6 +11,8 @@ const seedIds = {
     resolvedPartialRefund: "sup_seed_resolved_partial_refund",
   },
 } as const;
+
+type MarketplaceSeedServices = NonNullable<Parameters<NonNullable<typeof marketplaceModule.seed>>[1]>;
 
 describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   const seedRuntime = useMarketplaceSeedRuntime("marketplace-development-seed");
@@ -293,9 +295,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   it("survives an owner write between classify and append and converges on the next run", async () => {
     const { pools } = seedRuntime;
     const runtime = await seedRuntime.seed();
-    const services = runtime.services.marketplace as ReturnType<
-      typeof createMarketplaceSeedRuntime
-    >["services"]["marketplace"];
+    const services = runtime.services.marketplace as MarketplaceSeedServices;
     await pools.marketplace.query(
       `UPDATE event_store_events
        SET payload = payload - 'priceCurrencyCode'
@@ -338,9 +338,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   it("refuses missing supply without creating the absent listing and remains idempotent across boots", async () => {
     const { pools } = seedRuntime;
     const runtime = await seedRuntime.seed();
-    const services = runtime.services.marketplace as ReturnType<
-      typeof createMarketplaceSeedRuntime
-    >["services"]["marketplace"];
+    const services = runtime.services.marketplace as MarketplaceSeedServices;
     const listingId = marketplaceReservedSeedIds.listings.mewtwoBlackStarPromoPremium;
     const streamId = listingStream(listingId);
     const created = await pools.marketplace.query<{ inventory_item_id: string }>(
