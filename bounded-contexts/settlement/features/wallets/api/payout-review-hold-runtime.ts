@@ -7,32 +7,30 @@ import {
   evolvePayoutReviewHold,
   initialPayoutReviewHoldState,
   payoutReviewHoldStreamId,
+  type PayoutReviewHoldCommand,
   type PayoutReviewHoldEvent,
   type PayoutReviewHoldView,
   type PayoutReviewHoldState,
 } from "../domain/payout-review-hold";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
+export type PayoutReviewHoldCommandInput = Readonly<{
+  accountId: AccountId;
+  reason: string;
+  source: PayoutReviewHoldCommand["source"];
+  sourceReference?: string | null;
+  /** Required for `risk-alert`: Settlement re-checks the operator's grant behind the cross-context port. */
+  actorPermissions?: readonly string[];
+}>;
+
 export type PayoutReviewHoldServices = Readonly<{
   get: (accountId: AccountId) => Promise<PayoutReviewHoldView>;
   place: (
-    input: {
-      accountId: AccountId;
-      reason: string;
-      source: "operator" | "risk-alert" | "badge-migration";
-      sourceReference?: string | null;
-      actorPermissions?: readonly string[];
-    },
+    input: PayoutReviewHoldCommandInput,
     context: EventStoreContext,
   ) => Promise<{ outcome: "placed" | "noop"; version: number }>;
   release: (
-    input: {
-      accountId: AccountId;
-      reason: string;
-      source: "operator" | "risk-alert" | "badge-migration";
-      sourceReference?: string | null;
-      actorPermissions?: readonly string[];
-    },
+    input: PayoutReviewHoldCommandInput,
     context: EventStoreContext,
   ) => Promise<{ outcome: "released" | "noop"; version: number }>;
 }>;
@@ -50,14 +48,8 @@ export function createPayoutReviewHoldRuntime(deps: { eventStore: EventStore }):
     decide: decidePayoutReviewHold,
   });
   async function run(
-    input: {
-      accountId: AccountId;
-      reason: string;
-      source: "operator" | "risk-alert" | "badge-migration";
-      sourceReference?: string | null;
-      actorPermissions?: readonly string[];
-    },
-    type: "PlacePayoutReviewHold" | "ReleasePayoutReviewHold",
+    input: PayoutReviewHoldCommandInput,
+    type: PayoutReviewHoldCommand["type"],
     context: EventStoreContext,
   ) {
     if (input.source === "risk-alert" && !input.actorPermissions?.includes("payout-review-holds.manage")) {

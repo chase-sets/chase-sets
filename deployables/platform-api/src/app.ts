@@ -129,6 +129,7 @@ import {
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
   createSettlementBalanceCreditResolver,
+  createSettlementPayoutReviewHoldPort,
   createSettlementWalletSpendHoldPort,
   getProtectionReserveSummary,
   lookupPayoutBySupportId,
@@ -357,25 +358,9 @@ export function createPlatformApiHost(
       : []),
   ];
   const payoutReviewHoldCrossContext: PayoutReviewHoldCrossContextPort | undefined = settlementPool
-    ? {
-        placeRiskAlertHold: (input, context) => {
-          const settlement = runtime?.services.settlement as SettlementServices | undefined;
-          if (!settlement) throw new Error("Settlement services are not composed on this host.");
-          if (!input.actorPermissions.includes("payout-review-holds.manage")) {
-            throw new Error("Payout review hold permission is required.");
-          }
-          return settlement.payoutReviewHold.place(
-            {
-              accountId: input.accountId as never,
-              reason: input.reason,
-              source: "risk-alert",
-              sourceReference: input.sourceReference,
-              actorPermissions: input.actorPermissions,
-            },
-            context,
-          );
-        },
-      }
+    ? createSettlementPayoutReviewHoldPort(
+        () => (runtime?.services.settlement as SettlementServices | undefined)?.payoutReviewHold,
+      )
     : undefined;
   const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),

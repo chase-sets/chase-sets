@@ -14,6 +14,7 @@ export type {
   WalletSpendHoldPort,
 } from "./features/wallets/api/balance-credit-resolver";
 export { createSettlementWalletSpendHoldPort } from "./features/wallets/api/balance-credit-hold-port";
+export { createSettlementPayoutReviewHoldPort } from "./features/wallets/api/payout-review-hold-port";
 export {
   activateMarketplaceLabelPostage,
   MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
