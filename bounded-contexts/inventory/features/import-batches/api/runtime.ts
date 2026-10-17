@@ -1556,7 +1556,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
        LEFT JOIN inventory_import_batch_rows AS row ON row.batch_id = $2
          AND row.row_number = (unit.payload->>'rowNumber')::integer
          AND unit.result->>'rowId' = row.row_id AND unit.result->>'status' = row.status
-       WHERE unit.job_id = $1 AND unit.unit_kind = 'create'`,
+       WHERE unit.job_id = $1 AND unit.unit_kind = ANY(ARRAY['create', 'create-snapshot-v1']::text[])`,
       [job.jobId, batchId],
     );
     const count = counts.rows[0];
