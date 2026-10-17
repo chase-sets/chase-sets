@@ -611,7 +611,12 @@ export function createCountCaptureLifecycle(deps: {
           reason: "reason" in receipt ? receipt.reason : "missing-observation",
           evidence:
             "effects" in receipt
-              ? { startedAt: receipt.startedAt, frozenAt: receipt.frozenAt, sends: receipt.sends, effects: receipt.effects }
+              ? {
+                  startedAt: receipt.startedAt,
+                  frozenAt: receipt.frozenAt,
+                  sends: receipt.sends,
+                  effects: receipt.effects,
+                }
               : receipt.evidence,
           classification: receipt.classification,
         };
