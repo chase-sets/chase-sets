@@ -138,7 +138,7 @@ export async function runCountCaptureJourney(
     const stopped = countLifecycleStopReceiptSchema.safeParse(raw);
     // Return the server envelope unchanged; schema defaults are validation-only
     // and must not rewrite a retained stop receipt on the runner path.
-    if (stopped.success && validateCountLifecycleReceipt(raw).valid) return raw as CountLifecycleStopReceipt;
+    if (stopped.success) return raw as CountLifecycleStopReceipt;
     const parsed = countLifecycleReceiptSchema.parse(raw);
     if (
       parsed.authority.runnerSha !== identity.sha ||
