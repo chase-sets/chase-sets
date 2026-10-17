@@ -24,6 +24,7 @@ import { createMarketplaceListingMcpHandlers } from "./features/listings/api/mcp
 import { createMarketplaceOfferMcpHandlers } from "./features/offers/api/mcp";
 import { createMarketplaceReviewMcpHandlers } from "./features/reviews/api/mcp";
 import { createSellerDeskMcpHandlers } from "./features/seller-desk/api/mcp";
+import { createListingEvidencePolicyMcpHandlers } from "./features/listing-evidence-policy/api/mcp";
 import {
   buildReviewAccountProjectionHandlers,
   buildReviewOrderSourceProjectionHandlers,
@@ -97,6 +98,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
     const offers = createMarketplaceOfferMcpHandlers(services.offers);
     const reviews = createMarketplaceReviewMcpHandlers(services.reviews);
     const sellerDesk = createSellerDeskMcpHandlers(services.sellerAttentionQueue);
+    const listingEvidencePolicy = createListingEvidencePolicyMcpHandlers(services.listingEvidencePolicies);
 
     return {
       toolHandlers: {
@@ -104,6 +106,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
         ...offers.toolHandlers,
         ...reviews.toolHandlers,
         ...sellerDesk.toolHandlers,
+        ...listingEvidencePolicy.toolHandlers,
       },
       resourceHandlers: {
         ...listings.resourceHandlers,
