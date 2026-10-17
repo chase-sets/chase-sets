@@ -87,7 +87,7 @@ export function SearchRowHeaderFrame({
                 searchRowState === "collapsed" ? "pointer-events-none grid-rows-[0fr]" : "grid-rows-[1fr]",
               ),
             },
-            createElement("div", { className: "min-h-0 max-md:overflow-hidden" }, search),
+            createElement("div", { className: "pointer-events-auto min-h-0 max-md:overflow-hidden" }, search),
           ),
           actions,
         ),

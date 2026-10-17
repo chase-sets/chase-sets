@@ -1302,7 +1302,7 @@ describe("marketplace shell search-row collapse (#5709)", () => {
     const tailwind = await import("tailwindcss");
     const classes = (element.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
     const compiler = await tailwind.compile("@tailwind utilities;", {
-      loadStylesheet: async () => ({ content: "", base: "" }),
+      loadStylesheet: async (path, base) => ({ path, content: "", base }),
     });
     const css = compiler.build(classes);
     const declarations: Array<{ rem: number; requiredAttribute?: { name: string; value: string } }> = [];

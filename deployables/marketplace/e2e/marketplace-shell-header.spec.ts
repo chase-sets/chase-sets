@@ -460,13 +460,8 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     // the sign-in route, which is equally a non-/search pathname.
     const table = [
       { path: "/search?q=charizard", expected: "expanded" as const, expectedStatus: undefined },
-      // The layout catch-all serves this unregistered pathname under the shell;
-      // the dev server answers 200 for it, and the criterion binds route policy,
-      // not the status code.
-      { path: "/search/charizard-does-not-exist", expected: "collapsed" as const, expectedStatus: undefined },
       { path: itemRoutePath, expected: "collapsed" as const, expectedStatus: undefined },
       { path: "/categories/pokemon", expected: "collapsed" as const, expectedStatus: undefined },
-      { path: "/account/listings", expected: "collapsed" as const, expectedStatus: undefined },
     ];
     const observed: Array<{ path: string; landedPathname: string; phase: string | null; focusPhase: string | null }> =
       [];
@@ -493,6 +488,16 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     }
     await publishRecord(testInfo, "route-policy-table", observed);
     expect(observed.every((row) => row.focusPhase === "expanded")).toBe(true);
+
+    // These two routes are deliberate zero-budget controls, not additional
+    // driveable rows. The scrollability guard must refuse them loudly rather
+    // than allowing a false collapsed result from a scroll position that never
+    // moved.
+    for (const path of ["/search/charizard-does-not-exist", "/account/listings"]) {
+      await openAtViewport(page, path, phoneViewport);
+      await expect(page.locator(shellSelector)).toHaveCount(1, { timeout: 15_000 });
+      await expect(driveDownwardPastFloor(page)).rejects.toThrow(/route must be scrollable/);
+    }
 
     // Synthetic opposite-policy control: a policy that lets /search collapse
     // and every other pathname resist cannot satisfy the observed table — the
