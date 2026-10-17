@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { cleanup, screen } from "@testing-library/react";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
@@ -346,14 +347,9 @@ function productContentsResolvedEvent(
     lines: TransportEvent["data"][];
   }>,
 ): TransportEvent {
-  return {
-    id: "evt_contents" as never,
-    type: "catalog.product-contents.resolved",
-    streamId: "catalog.product-contents-cat_box" as never,
-    streamVersion: 2 as never,
-    globalPosition: 2 as never,
-    tenantId: "tnt_test" as never,
-    data: {
+  return buildTransportEvent(
+    "catalog.product-contents.resolved",
+    {
       containerCatalogItemId: "cat_box",
       containerSelectedOptions: null,
       containerProductId: null,
@@ -361,15 +357,20 @@ function productContentsResolvedEvent(
       resolvedFactHash: "hash_1",
       resolverVersion: 1,
       resolvedAt: "2026-07-01T00:00:00.000Z",
-    } as never,
-    metadata: {},
-    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
-    trace: {},
-    timing: {
-      occurredAt: "2026-07-01T00:00:00.000Z" as never,
-      recordedAt: "2026-07-01T00:00:00.000Z" as never,
     },
-  };
+    {
+      id: "evt_contents",
+      streamId: "catalog.product-contents-cat_box",
+      streamVersion: 2,
+      globalPosition: "2",
+      tenantId: "tnt_test",
+      audit: { performedByUserId: "usr_test", forAccountId: "acc_test" },
+      timing: {
+        occurredAt: "2026-07-01T00:00:00.000Z",
+        recordedAt: "2026-07-01T00:00:00.000Z",
+      },
+    },
+  );
 }
 
 function pageRow(overrides: Partial<PageRow>): PageRow {

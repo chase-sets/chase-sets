@@ -7,7 +7,7 @@ import {
   navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
   navigateAfterWriteWithPlatformPostWriteToken,
 } from "@chase-sets/platform-runtime/post-write-tokens";
-import { appendFreshWriteToken, type PostWriteHandoff } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readApiErrorCode, type PostWriteHandoff } from "@chase-sets/http/responses";
 import { createDiscoveryRequestApiClient } from "../../request-support/api-client";
 import {
   appendAnonymousProductAlertCookie,
@@ -143,6 +143,8 @@ function selectedListingSnapshotFromListing(listing: DiscoveryItemDetail["market
     sellerDisplayName: listing.seller_display_name,
     sellerSlug: listing.seller_slug ?? null,
     priceAmount: listing.price_amount,
+    priceCurrencyCode: listing.price_currency_code,
+    listingStreamVersion: listing.listing_stream_version,
     source: "discovery.item-detail.add-to-cart",
   };
 }
@@ -189,7 +191,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
   }
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const inventoryApi = createInventoryRequestApiClient(request);
+  const inventoryApi = createInventoryRequestApiClient(request, {
+    mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+  });
   const checkoutApi = createCheckoutRequestApiClient(request);
 
   try {
@@ -206,6 +210,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
           optional: true,
           invalidMessage: t("discovery.routes.itemDetail.validation.threshold.invalid"),
         }),
+        thresholdCurrencyCode:
+          String(formData.get("thresholdCurrencyCode") ?? "")
+            .trim()
+            .toUpperCase() || null,
       } as const;
 
       const actor = await resolveActorFromAuthApi({ request });
@@ -238,6 +246,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const offerPriceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
         invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
       });
+      const offerPriceCurrencyCode = String(formData.get("priceCurrencyCode") ?? "")
+        .trim()
+        .toUpperCase();
       const quantity = parsePositiveQuantity(formData.get("quantityRequested"));
       const query = new URLSearchParams({
         source: "offer-intent",
@@ -248,6 +259,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         selectedOptions: String(formData.get("selectedOptions") ?? "[]"),
         productSummary: String(formData.get("productSummary") ?? ""),
         offerPriceAmount,
+        offerPriceCurrencyCode,
         quantity: String(quantity),
       });
 
@@ -377,6 +389,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           productSummary: source.productSummary ?? "",
           quantity: String(source.quantity),
           priceAmount: lockedListing?.price_amount ?? "",
+          priceCurrencyCode: lockedListing?.price_currency_code ?? "",
           sellerName: lockedListing?.seller_display_name ?? "",
           availability: lockedListing
             ? t("discovery.routes.itemDetail.inventory.option.label", {
@@ -386,7 +399,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             : "",
           fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
         });
-        return redirect(`/checkout/buy/readiness?${query.toString()}`);
+        return redirect(`/checkout/buy/readiness?${query.toString()}`, { status: 307 });
       }
 
       const session = await checkoutApi.createCheckoutSession({
@@ -520,6 +533,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const priceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
         invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
       });
+      const priceCurrencyCode = String(formData.get("priceCurrencyCode") ?? "");
       const quantityCap = parsePositiveQuantity(formData.get("quantityCap"));
 
       if (listingId) {
@@ -530,6 +544,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         const quote = await marketplaceApi.previewListingTerms({ priceAmount });
         const priceResult = await marketplaceApi.updateListingPrice(listingId, {
           priceAmount,
+          priceCurrencyCode,
           feeQuoteFingerprint: quote.fee_quote_fingerprint,
         });
         const result = await marketplaceApi.updateListingQuantityCap(listingId, {
@@ -560,6 +575,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           selectedOptions,
           productSummary,
           priceAmount,
+          priceCurrencyCode,
           quantityCap,
         });
         const response = redirect(buildRegisterToClaimListingDraftHref(draft.intent_id));
@@ -575,11 +591,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
         ? {
             inventoryItemId,
             priceAmount,
+            priceCurrencyCode,
             quantityCap,
           }
         : {
             inventoryItemId: "",
             priceAmount,
+            priceCurrencyCode,
             quantityCap,
             inventorySnapshot: (
               await inventoryApi.ensureListingStock({
@@ -616,7 +634,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
   } catch (error) {
     if (error instanceof Error) {
       return {
-        error: error.message,
+        error:
+          "status" in error &&
+          error.status === 503 &&
+          "body" in error &&
+          readApiErrorCode(error.body) === "checkout_closed"
+            ? t("discovery.routes.itemDetail.checkout.closed")
+            : error.message,
         intent,
       };
     }

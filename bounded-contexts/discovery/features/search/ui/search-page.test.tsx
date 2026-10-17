@@ -3,14 +3,27 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchPage } from "./search-page";
 import { productAlertSettingsHref } from "./product-alert-settings-link";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { searchDiscoveryItems } from "../read-model/queries";
+
+const titleOverrides = vi.hoisted(() => new Map<string, string>());
+vi.mock("@chase-sets/localization", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@chase-sets/localization")>();
+  return {
+    ...original,
+    t: (key: string, values?: Parameters<typeof original.t>[1]) => titleOverrides.get(key) ?? original.t(key, values),
+  };
+});
 
 afterEach(() => {
   cleanup();
+  titleOverrides.clear();
   vi.unstubAllGlobals();
 });
 
@@ -68,6 +81,7 @@ const japaneseSearchResult: DiscoverySearchItem = {
   image_fallback: null,
   market_summary: {
     lowest_price_amount: "10.00",
+    lowest_price_currency_code: "USD",
     active_listing_count: 1,
     total_visible_quantity: 2,
   },
@@ -111,6 +125,219 @@ const searchResponse: DiscoverySearchResponse = {
   queryHash: "a".repeat(64),
   resultSetKey: "b".repeat(64),
 };
+
+const heroHeadline = "Find trading cards worth chasing.";
+const heroDescription =
+  "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
+
+const imageBearingNewArrival: DiscoverySearchItem = {
+  ...searchResult,
+  catalog_item_id: "cat_pikachu_arrival",
+  slug: "pikachu-cat_pikachu_arrival",
+  title: "Pikachu",
+  subtitle: "Jungle 60/64 Common",
+  image_urls: ["/pikachu-jungle.webp"],
+};
+
+type RouteStateObservation = Readonly<{
+  hero: boolean;
+  inlineCount: boolean;
+  spinner: boolean;
+  busyTransition: boolean;
+  featuredCategories: boolean;
+  newArrivals: boolean;
+  newArrivalImage: boolean;
+  focusedHeading: boolean;
+  focusedSummary: boolean;
+  mobileFilterBar: boolean;
+  resultGrid: boolean;
+  zeroRecovery: boolean;
+  catalogEmptyCopy: boolean;
+  filteredEmptyCopy: boolean;
+  errorBanner: boolean;
+  rescue: boolean;
+  loadMore: boolean;
+}>;
+
+// Every probe reads owned markup or exact localized copy, never a visibility-
+// dependent role lookup, so a hidden or stale branch cannot satisfy a row.
+function observeRouteState(): RouteStateObservation {
+  const newArrivalsSection = screen.queryByRole("heading", { name: "New arrivals" })?.closest("section") ?? null;
+  const resultCards = Array.from(document.querySelectorAll("article[data-card-layout='search-result']"));
+
+  return {
+    hero: document.querySelectorAll("[data-search-home-hero]").length === 1,
+    inlineCount: document.querySelectorAll("[data-search-result-set-count]").length === 1,
+    spinner: screen.queryByText("Searching...") !== null,
+    busyTransition: screen.queryByText("Updating results...") !== null,
+    featuredCategories: screen.queryByRole("heading", { name: "Featured categories" }) !== null,
+    newArrivals: newArrivalsSection !== null,
+    newArrivalImage: newArrivalsSection?.querySelector("article img") instanceof HTMLImageElement,
+    focusedHeading: screen
+      .queryAllByRole("heading", { level: 1 })
+      .some((heading) => heading.classList.contains("sr-only")),
+    focusedSummary: screen
+      .queryAllByText(/results in All Categories$/)
+      .some((summary) => summary.closest("[data-search-home-hero]") === null),
+    mobileFilterBar: screen.queryByRole("button", { name: "Open filters" }) !== null,
+    resultGrid: resultCards.some((card) => !newArrivalsSection?.contains(card)),
+    zeroRecovery: screen.queryByRole("heading", { name: "No items found" }) !== null,
+    catalogEmptyCopy: screen.queryByText("No catalog items are available yet.") !== null,
+    filteredEmptyCopy: screen.queryByText("Try adjusting your search or filters.") !== null,
+    errorBanner: screen.queryByText("Search failed.") !== null,
+    rescue: screen.queryByRole("heading", { name: "Closest matches" }) !== null,
+    loadMore:
+      screen.queryByText("Loading more results...") !== null ||
+      screen.queryByRole("button", { name: /^(Load more results|Retry loading results)$/ }) !== null,
+  };
+}
+
+const absentRouteState: RouteStateObservation = {
+  hero: false,
+  inlineCount: false,
+  spinner: false,
+  busyTransition: false,
+  featuredCategories: false,
+  newArrivals: false,
+  newArrivalImage: false,
+  focusedHeading: false,
+  focusedSummary: false,
+  mobileFilterBar: false,
+  resultGrid: false,
+  zeroRecovery: false,
+  catalogEmptyCopy: false,
+  filteredEmptyCopy: false,
+  errorBanner: false,
+  rescue: false,
+  loadMore: false,
+};
+
+// The eleven registered #7205 route-state rows, one executable fixture each.
+const inkFoilRouteStateRows: ReadonlyArray<{
+  row: string;
+  props: Partial<Parameters<typeof SearchPage>[0]>;
+  expected: RouteStateObservation;
+}> = [
+  {
+    row: "Initial loading, no data/Home payload",
+    props: { data: null, loading: true, homeMerchandising: null },
+    expected: { ...absentRouteState, hero: true, spinner: true, busyTransition: true },
+  },
+  {
+    row: "Home, both sections",
+    props: {
+      data: { ...searchResponse, total: 352 },
+      homeMerchandising: { featuredCategories: categories.slice(0, 1), newArrivals: [imageBearingNewArrival] },
+    },
+    expected: {
+      ...absentRouteState,
+      hero: true,
+      inlineCount: true,
+      featuredCategories: true,
+      newArrivals: true,
+      newArrivalImage: true,
+    },
+  },
+  {
+    row: "Home, Category only",
+    props: {
+      data: { ...searchResponse, total: 352 },
+      homeMerchandising: { featuredCategories: categories.slice(0, 1), newArrivals: [] },
+    },
+    expected: { ...absentRouteState, hero: true, inlineCount: true, featuredCategories: true },
+  },
+  {
+    row: "Home, New Arrivals only",
+    props: {
+      data: { ...searchResponse, total: 352 },
+      homeMerchandising: { featuredCategories: [], newArrivals: [imageBearingNewArrival] },
+    },
+    expected: { ...absentRouteState, hero: true, inlineCount: true, newArrivals: true, newArrivalImage: true },
+  },
+  {
+    row: "Home, resolved no merchandising",
+    props: {
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+      homeMerchandising: { featuredCategories: [], newArrivals: [] },
+    },
+    expected: { ...absentRouteState, hero: true, inlineCount: true, zeroRecovery: true, catalogEmptyCopy: true },
+  },
+  {
+    row: "Focused populated Result Set",
+    props: {
+      committedSearch: "abra",
+      data: searchResponse,
+      homeMerchandising: { featuredCategories: categories.slice(0, 1), newArrivals: [imageBearingNewArrival] },
+    },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+    },
+  },
+  {
+    row: "Focused zero Result Set",
+    props: {
+      search: "missing",
+      committedSearch: "missing",
+      data: { ...searchResponse, items: [], total: 0, count: 0 },
+    },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      zeroRecovery: true,
+      filteredEmptyCopy: true,
+    },
+  },
+  {
+    row: "Focused error with no data",
+    props: { committedSearch: "abra", data: null, error: "Search failed." },
+    expected: { ...absentRouteState, focusedHeading: true, mobileFilterBar: true, errorBanner: true },
+  },
+  {
+    row: "Focused Rescue with results",
+    props: {
+      committedSearch: "electric mascot",
+      data: { ...searchResponse, retrievalMode: "rescue", lexicalCount: 0 },
+    },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+      rescue: true,
+    },
+  },
+  {
+    row: "Focused updating with retained data",
+    props: { committedSearch: "abra", loading: true, data: searchResponse },
+    expected: {
+      ...absentRouteState,
+      busyTransition: true,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+    },
+  },
+  {
+    row: "Focused load-more",
+    props: { committedSearch: "abra", loadingMore: true, data: { ...searchResponse, nextCursor: "cursor_2" } },
+    expected: {
+      ...absentRouteState,
+      focusedHeading: true,
+      focusedSummary: true,
+      mobileFilterBar: true,
+      resultGrid: true,
+      loadMore: true,
+    },
+  },
+];
 
 function createCategory(overrides: Partial<DiscoveryCategoryItem>): DiscoveryCategoryItem {
   return {
@@ -165,11 +392,247 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
   return props;
 }
 
+describe("6110 result heading hierarchy", () => {
+  it.each(["lexical", "rescue", "empty", "Home"] as const)("6110 result heading hierarchy: %s", (state) => {
+    titleOverrides.set("discovery.features.search.ui.searchPage.results", "Fresh catalogue matches");
+    renderSearchPage({
+      committedSearch: state === "Home" ? "" : "pokemon",
+      data:
+        state === "empty"
+          ? { ...searchResponse, items: [], total: 0, count: 0 }
+          : { ...searchResponse, retrievalMode: state === "rescue" ? "rescue" : "lexical" },
+      homeMerchandising:
+        state === "Home" ? { featuredCategories: categories.slice(0, 1), newArrivals: [imageBearingNewArrival] } : null,
+    });
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.queryAllByRole("heading", { level: 2, name: "Fresh catalogue matches" })).toHaveLength(
+      state === "lexical" ? 1 : 0,
+    );
+    expect(screen.queryAllByRole("heading", { level: 2, name: "Closest matches" })).toHaveLength(
+      state === "rescue" ? 1 : 0,
+    );
+    if (state === "lexical" || state === "rescue") {
+      const sectionHeading = screen.getByRole("heading", {
+        level: 2,
+        name: state === "lexical" ? "Fresh catalogue matches" : "Closest matches",
+      });
+      const cardHeading = within(
+        document.querySelector('article[data-card-layout="search-result"]') as HTMLElement,
+      ).getByRole("heading", { level: 3 });
+      expect(sectionHeading.compareDocumentPosition(cardHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { level: 1 }).compareDocumentPosition(sectionHeading) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    if (state === "empty")
+      expect(document.querySelectorAll('article[data-card-layout="search-result"]')).toHaveLength(0);
+  });
+});
+
 describe("SearchPage", () => {
-  it("dispatches a Result Set click through the rail analytics path without raw query text", () => {
+  it("two-variant read model drives the selected card price and Buy cue", async () => {
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    const db: PgQueryable = {
+      query: async <Row,>(sql: string, values: readonly unknown[] = []) => {
+        const rows = sql.startsWith("SELECT catalog_item_id")
+          ? [japaneseSearchResult]
+          : sql.startsWith("WITH startable_listing")
+            ? [
+                {
+                  catalog_catalog_item_id: japaneseSearchResult.catalog_item_id,
+                  lowest_price_amount: values.includes(JSON.stringify(dimensionFilters)) ? "20.00" : "2.00",
+                  lowest_price_currency_code: "USD",
+                  active_listing_count: 1,
+                  total_visible_quantity: 1,
+                },
+              ]
+            : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    const result = await searchDiscoveryItems(db, { dimensionFilters }, { loadFacets: false });
+    renderSearchPage({
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: { ...searchResponse, items: [{ ...japaneseSearchResult, market_summary: result.items[0].market_summary }] },
+    });
+    expect(document.querySelector("[data-listing-card-price-value]")?.textContent).toBe("$20.00");
+    expect(screen.queryByText("$2.00")).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Add product to Buy Cart" }).closest('[data-primary-action-count="1"]'),
+    ).toBeTruthy();
+  });
+  it.each([
+    { name: "nonfoil", amount: "2.00", currency: "USD", count: 1, quantity: 1, expected: "$2.00", buy: true },
+    { name: "foil", amount: "20.00", currency: "USD", count: 1, quantity: 1, expected: "$20.00", buy: true },
+    { name: "demand-only", amount: null, currency: null, count: 0, quantity: 0, expected: null, buy: false },
+    { name: "mixed currency", amount: null, currency: null, count: 2, quantity: 2, expected: null, buy: true },
+  ])("selected variant card price and Buy cue: $name", ({ amount, currency, count, quantity, expected, buy }) => {
+    renderSearchPage({
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: {
+        ...searchResponse,
+        items: [
+          {
+            ...japaneseSearchResult,
+            market_summary: {
+              lowest_price_amount: amount,
+              lowest_price_currency_code: currency,
+              active_listing_count: count,
+              total_visible_quantity: quantity,
+            },
+          },
+        ],
+      },
+      categories: [],
+    });
+    expect(document.querySelector("[data-listing-card-price-value]")?.textContent ?? null).toBe(expected);
+    expect(
+      screen.getByRole("link", { name: "View details for Bulbasaur — Japanese Base Set" }).getAttribute("href"),
+    ).toContain("dimension.finish=foil");
+    const action = screen.getByRole("link", { name: buy ? "Add product to Buy Cart" : "Add product to Sell List" });
+    expect(action.getAttribute("href")).toContain(`market=${buy ? "buy" : "sell"}`);
+    expect(action.closest('[data-primary-action-count="1"]')).toBeTruthy();
+  });
+
+  it("retains selected-zero variant facet options", () => {
+    renderSearchPage({
+      committedSearch: "variant",
+      dynamicFilters: [{ kind: "dimension", id: "finish", value: "foil" }],
+      data: {
+        ...searchResponse,
+        facets: [
+          {
+            id: "finish",
+            kind: "dimension",
+            label: "Finish",
+            values: [
+              { id: "foil", label: "Foil", count: 0, selected: true },
+              { id: "nonfoil", label: "Nonfoil", count: 1, selected: false },
+            ],
+          },
+        ],
+      },
+    });
+    expect(screen.getAllByText("Foil").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Remove Finish: Foil" })).toBeTruthy();
+  });
+  it.each(["desktop", "mobile"] as const)(
+    "keeps ordered independent %s facet state across toggles, removal, reopening and remount",
+    (presentation) => {
+      const facet = {
+        id: "condition",
+        kind: "dimension" as const,
+        label: "Condition",
+        values: [{ id: "nm", label: "Near Mint", count: 2, selected: true }],
+      };
+      const props = renderSearchPage({ committedSearch: "abra", data: { ...searchResponse, facets: [facet] } });
+      cleanup();
+      const view = render(<SearchPage {...props} />);
+      const openMobile = () => fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
+      const root = (name: string) => document.querySelector<HTMLElement>(`[data-facet-list-presentation="${name}"]`)!;
+      const defaults = ["categories", "price-and-stock"];
+      const assertState = (name: string, values: string[]) => {
+        expect(JSON.parse(root(name).dataset.facetExpandedValues!)).toEqual(values);
+        for (const trigger of root(name).querySelectorAll<HTMLElement>("[data-facet-item-value]")) {
+          expect(trigger.getAttribute("aria-expanded")).toBe(String(values.includes(trigger.dataset.facetItemValue!)));
+        }
+      };
+      const toggle = (value: string) =>
+        fireEvent.click(root(presentation).querySelector(`[data-facet-item-value="${value}"]`)!);
+      openMobile();
+      expect(document.querySelectorAll("[data-facet-list-presentation]")).toHaveLength(2);
+      for (const name of ["desktop", "mobile"]) {
+        assertState(name, defaults);
+        expect(
+          Array.from(
+            root(name).querySelectorAll<HTMLElement>("[data-facet-item-value]"),
+            (node) => node.dataset.facetItemValue,
+          ),
+        ).toEqual(["categories", "price-and-stock", "language", "market-activity", "dimension:condition"]);
+      }
+      const other = presentation === "desktop" ? "mobile" : "desktop";
+      toggle("language");
+      assertState(presentation, [...defaults, "language"]);
+      assertState(other, defaults);
+      toggle("categories");
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      toggle("dimension:condition");
+      assertState(presentation, ["price-and-stock", "language", "dimension:condition"]);
+      assertState(other, defaults);
+      view.rerender(<SearchPage {...props} data={{ ...searchResponse, facets: [] }} />);
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      view.rerender(<SearchPage {...props} />);
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
+      openMobile();
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      view.unmount();
+      render(<SearchPage {...props} />);
+      openMobile();
+      assertState("desktop", defaults);
+      assertState("mobile", defaults);
+    },
+  );
+
+  it("rejects duplicate dynamic facet values before rendering a section list", () => {
+    const facet = { id: "condition", kind: "dimension" as const, label: "Condition", values: [] };
+    expect(() => renderSearchPage({ data: { ...searchResponse, facets: [facet, facet] } })).toThrow(
+      "Duplicate Search facet section value",
+    );
+  });
+
+  it.each(["desktop", "mobile"] as const)(
+    "qualifies every simultaneous ARIA reference and retains %s keyboard focus",
+    async (presentation) => {
+      const user = userEvent.setup();
+      renderSearchPage({ committedSearch: "abra" });
+      const opener = screen.getByRole("button", { name: "Open filters" });
+      await user.click(opener);
+      await waitFor(() =>
+        expect(screen.getByRole("dialog", { name: "Filters" }).contains(document.activeElement)).toBe(true),
+      );
+      const ids = Array.from(document.querySelectorAll("[id]"), (node) => node.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      for (const trigger of document.querySelectorAll<HTMLElement>("[data-facet-item-value]")) {
+        const root = trigger.closest<HTMLElement>("[data-facet-list-presentation]")!;
+        expect(trigger.id).toBe(`${root.id}-trigger-${trigger.dataset.facetItemValue}`);
+        const panel = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+        expect(panel.id).toBe(`${root.id}-panel-${trigger.dataset.facetItemValue}`);
+        expect(panel.getAttribute("aria-labelledby")).toBe(trigger.id);
+      }
+      if (presentation === "desktop") {
+        await user.click(screen.getByRole("button", { name: "Close filters" }));
+        await waitFor(() => expect(document.activeElement).toBe(opener));
+      }
+      const root = document.querySelector(`[data-facet-list-presentation="${presentation}"]`)!;
+      const trigger = root.querySelector<HTMLElement>('[data-facet-item-value="language"]')!;
+      const before = Array.from(root.querySelectorAll("[data-facet-item-value]"), (node) =>
+        node.getAttribute("aria-expanded"),
+      );
+      trigger.focus();
+      expect(document.activeElement).toBe(trigger);
+      await user.keyboard("{Enter}");
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(document.activeElement).toBe(trigger);
+      await user.keyboard(" ");
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(trigger);
+      expect(
+        Array.from(root.querySelectorAll("[data-facet-item-value]"), (node) => node.getAttribute("aria-expanded")),
+      ).toEqual(before);
+    },
+  );
+
+  it("dispatches only base Result Set detail activation through search_result_selected", async () => {
     const events: unknown[] = [];
     const listener = (event: Event) => events.push((event as CustomEvent).detail);
     window.addEventListener("chase-sets:item-detail-rail-analytics", listener);
+    const user = userEvent.setup();
 
     try {
       renderSearchPage({
@@ -177,20 +640,37 @@ describe("SearchPage", () => {
         resultSetKey: "b".repeat(64),
         data: { ...searchResponse, queryHash: "a".repeat(64), resultSetKey: "b".repeat(64) },
       });
-      fireEvent.click(screen.getByRole("link", { name: /View details for Prismatic Evolutions Booster Pack/i }));
+      const detailLink = screen.getByRole("link", { name: /View details for Prismatic Evolutions Booster Pack/i });
+      const primaryAction = screen.getByRole("link", { name: "Add product to Sell List" });
+      const modifierStates: boolean[] = [];
+      detailLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        modifierStates.push(event.ctrlKey);
+      });
+      primaryAction.addEventListener("click", (event) => event.preventDefault());
+
+      await user.click(detailLink);
+      await user.keyboard("{Control>}");
+      await user.click(detailLink);
+      await user.keyboard("{/Control}");
+      detailLink.focus();
+      await user.keyboard("{Enter}");
+      await user.click(primaryAction);
+
+      expect(modifierStates).toEqual([false, true, false]);
     } finally {
       window.removeEventListener("chase-sets:item-detail-rail-analytics", listener);
     }
 
-    expect(events).toEqual([
-      {
+    expect(events).toEqual(
+      Array.from({ length: 3 }, () => ({
         event: "search_result_selected",
         position: 1,
         queryHash: "a".repeat(64),
         resultSetKey: "b".repeat(64),
         surface: "search_results",
-      },
-    ]);
+      })),
+    );
     expect(JSON.stringify(events)).not.toContain("private pikachu query");
   });
 
@@ -219,18 +699,16 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
     const filterSheet = screen.getByRole("dialog", { name: "Filters" });
     const facetSummary = (container: HTMLElement) =>
-      Array.from(container.querySelectorAll<HTMLElement>("[id^=search-facet-]"))
-        .filter((group) => !group.id.includes("-panel-"))
-        .map((group) => ({
-          id: group.id.replace("search-facet-", ""),
-          label: group.querySelector("h3")?.textContent,
-          options: Array.from(group.querySelectorAll("button")).map((option) => {
-            const label = option.getAttribute("aria-label") ?? option.textContent ?? "";
-            const count = / \((\d+)\)$/.exec(label);
+      Array.from(container.querySelectorAll<HTMLElement>("[data-accordion-item-value]")).map((group) => ({
+        id: group.dataset.accordionItemValue,
+        label: group.querySelector("h3")?.textContent,
+        options: Array.from(group.querySelectorAll("button")).map((option) => {
+          const label = option.getAttribute("aria-label") ?? option.textContent ?? "";
+          const count = / \((\d+)\)$/.exec(label);
 
-            return { label: label.replace(/ \(\d+\)$/, ""), count: count ? Number(count[1]) : null };
-          }),
-        }));
+          return { label: label.replace(/ \(\d+\)$/, ""), count: count ? Number(count[1]) : null };
+        }),
+      }));
 
     expect(facetSummary(desktopRail!)).toEqual(facetSummary(filterSheet));
     expect(facetSummary(filterSheet)).toEqual(
@@ -239,7 +717,7 @@ describe("SearchPage", () => {
         expect.objectContaining({ id: "market-activity", label: "Market activity" }),
       ]),
     );
-    expect(filterSheet.querySelectorAll("[id^=search-facet-] button[aria-pressed] svg")).toHaveLength(0);
+    expect(filterSheet.querySelectorAll("[data-accordion-item-value] button[aria-pressed] svg")).toHaveLength(0);
   });
 
   it("allows wide desktop search result grids to use a third column", () => {
@@ -316,15 +794,130 @@ describe("SearchPage", () => {
     expect(screen.getAllByText("Showing 24 of 352 results in All Categories").length).toBeGreaterThan(0);
   });
 
-  it("uses only Result Set and catalog-depth metrics in the landing hero", () => {
+  it("preserves the complete no-query hero contract while replacing landing metrics", () => {
+    const props = renderSearchPage({ data: { ...searchResponse, total: 352 } });
+    const hero = document.querySelector("[data-search-home-hero]");
+    expect(hero).toBeTruthy();
+    const heroView = within(hero as HTMLElement);
+
+    // Exactly one display h1 carrying the byte-identical localized headline, with
+    // the landed BrandFoilText wrapping only the treated word and the punctuation outside.
+    const pageHeadings = screen.getAllByRole("heading", { level: 1 });
+    expect(pageHeadings).toHaveLength(1);
+    const headline = pageHeadings[0]!;
+    expect(hero!.contains(headline)).toBe(true);
+    expect(headline.className).toContain("font-display");
+    expect(headline.textContent).toBe(heroHeadline);
+    const foilSites = document.querySelectorAll(".ds-brand-foil-text");
+    expect(foilSites).toHaveLength(1);
+    expect(headline.contains(foilSites[0]!)).toBe(true);
+    expect(foilSites[0]!.textContent).toBe("chasing");
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, "Find trading cards worth "],
+      [Node.ELEMENT_NODE, "chasing"],
+      [Node.TEXT_NODE, "."],
+    ]);
+
+    // Both badges and the exact description.
+    expect(heroView.getByText("Marketplace")).toBeTruthy();
+    expect(heroView.getByText("Verified supply")).toBeTruthy();
+    expect(heroView.getByText(heroDescription)).toBeTruthy();
+
+    // The hero search form is the existing one-search-input call site.
+    const searchForm = heroView.getByRole("search");
+    expect(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }).getAttribute("placeholder")).toBe(
+      "Search Charizard, Black Lotus, Dark Magician, Luffy...",
+    );
+    fireEvent.change(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }), {
+      target: { value: "charizard" },
+    });
+    expect(props.onSearchChange).toHaveBeenCalledWith("charizard");
+    fireEvent.submit(searchForm);
+    expect(props.onSearchSubmit).toHaveBeenCalledTimes(1);
+
+    // The complete featured-category label set, the selected state, and slug callbacks.
+    const categoryButtons = heroView.getAllByRole("button");
+    expect(categoryButtons.map((button) => button.textContent)).toEqual([
+      "All",
+      "Booster Packs",
+      "Generation I",
+      "Fire",
+      "Singles",
+      "Pokemon TCG",
+    ]);
+    expect(categoryButtons[0]!.className).toContain("bg-accent");
+    for (const button of categoryButtons.slice(1)) {
+      expect(button.className).not.toContain("bg-accent");
+    }
+    fireEvent.click(heroView.getByRole("button", { name: "Fire" }));
+    expect(props.onCategoryChange).toHaveBeenLastCalledWith("fire");
+    fireEvent.click(heroView.getByRole("button", { name: "Pokemon TCG" }));
+    expect(props.onCategoryChange).toHaveBeenLastCalledWith("pokemon-tcg");
+    fireEvent.click(heroView.getByRole("button", { name: "All" }));
+    expect(props.onCategoryChange).toHaveBeenLastCalledWith("");
+
+    // One resolved inline Result Set count replaces the two landing Stat panels.
+    expect(document.querySelectorAll("[data-search-result-set-count]")).toHaveLength(1);
+    expect(heroView.getByText("352 results in All Categories")).toBeTruthy();
+    expect(heroView.queryByText("Results")).toBeNull();
+    expect(hero!.contains(screen.getByRole("heading", { level: 2, name: "Results" }))).toBe(false);
+    expect(screen.queryByText("352")).toBeNull();
+    expect(screen.queryByText("Catalog depth")).toBeNull();
+    expect(screen.queryByText(/tracked items/)).toBeNull();
+
+    // The PromoStrip is unchanged.
+    expect(screen.getByText("Order confidence is built into discovery.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Verified supply, transparent pricing, and item-level market history help buyers move with confidence.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    { match: "zero", title: "Find trading cards worth collecting." },
+    { match: "subword-only", title: "Find the chasingest trading cards." },
+    { match: "multiple whole-word", title: "Keep chasing trading cards worth chasing." },
+  ])("renders the entire hero title plain for $match matches without throwing", ({ title }) => {
+    titleOverrides.set("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and", title);
+
     renderSearchPage({ data: { ...searchResponse, total: 352 } });
 
-    expect(screen.getByText("Results")).toBeTruthy();
-    expect(screen.getByText("352")).toBeTruthy();
-    expect(screen.getByText("Catalog depth")).toBeTruthy();
-    expect(screen.queryByText("Available Now")).toBeNull();
-    expect(screen.queryByText("Market Only")).toBeNull();
+    const headline = screen.getByRole("heading", { level: 1 });
+    expect(headline.textContent).toBe(title);
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, title],
+    ]);
+    expect(document.querySelectorAll(".ds-brand-foil-text")).toHaveLength(0);
   });
+
+  it("foils the single whole-word hero subject after an earlier subword match", () => {
+    const title = "The chasingest cards worth chasing.";
+    titleOverrides.set("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and", title);
+
+    renderSearchPage({ data: { ...searchResponse, total: 352 } });
+
+    const headline = screen.getByRole("heading", { level: 1 });
+    expect(headline.textContent).toBe(title);
+    const foilSites = document.querySelectorAll(".ds-brand-foil-text");
+    expect(foilSites).toHaveLength(1);
+    expect(headline.contains(foilSites[0]!)).toBe(true);
+    expect(foilSites[0]!.textContent).toBe("chasing");
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, "The chasingest cards worth "],
+      [Node.ELEMENT_NODE, "chasing"],
+      [Node.TEXT_NODE, "."],
+    ]);
+  });
+
+  it.each(inkFoilRouteStateRows)(
+    "renders every Ink & Foil route-state row exclusively: $row",
+    ({ props, expected }) => {
+      renderSearchPage(props);
+
+      expect(observeRouteState()).toEqual(expected);
+    },
+  );
 
   it("marks stale results busy and shows transition feedback", () => {
     renderSearchPage({ committedSearch: "abra", loading: true });
@@ -388,13 +981,20 @@ describe("SearchPage", () => {
     expect(screen.getByText("No catalog items are available yet.")).toBeTruthy();
   });
 
-  it("formats search-card prices with the discovery money formatter", () => {
+  it("keeps the localized Search price phrase while separating its Sans prefix from the mono value", () => {
     renderSearchPage({
       committedSearch: "bulbasaur",
       data: { ...searchResponse, items: [japaneseSearchResult] },
     });
 
-    expect(screen.getByText("From $10.00")).toBeTruthy();
+    const prefix = document.querySelector("[data-listing-card-price-prefix]");
+    const value = document.querySelector("[data-listing-card-price-value]");
+
+    expect(prefix?.textContent).toBe("From");
+    expect(prefix?.getAttribute("class")).toBeNull();
+    expect(value?.textContent).toBe("$10.00");
+    expect(value?.className).toBe("font-mono tabular-nums");
+    expect(value?.parentElement?.textContent).toBe("From $10.00");
   });
 
   it("uses Product Asset Set search variants before compatibility image URLs", () => {
@@ -587,7 +1187,7 @@ describe("SearchPage", () => {
       categories: [],
     });
 
-    expect(screen.getByText("From $10.00")).toBeTruthy();
+    expect(document.querySelector("[data-listing-card-price-value]")?.parentElement?.textContent).toBe("From $10.00");
   });
 
   it("labels semantic zero-result recovery as closest matches", () => {
@@ -602,6 +1202,101 @@ describe("SearchPage", () => {
       screen.getByText("No text matches were found. These related items are ranked by semantic similarity."),
     ).toBeTruthy();
     expect(screen.queryByText("No items found")).toBeNull();
+  });
+
+  it.each(["success", "loading", "empty", "error"] as const)(
+    "corrected notice executes the %s state without load more",
+    (state) => {
+      const query = '<img src=x onerror="alert(1)">';
+      const corrected: DiscoverySearchResponse = {
+        ...searchResponse,
+        retrievalMode: "corrected",
+        lexicalCount: 0,
+        nextCursor: null,
+      };
+      renderSearchPage({
+        search: query,
+        committedSearch: query,
+        data:
+          state === "empty" ? { ...corrected, items: [], count: 0, total: 0 } : state === "error" ? null : corrected,
+        loading: state === "loading",
+        error: state === "error" ? "Search failed." : null,
+      });
+      if (state === "success" || state === "loading") {
+        expect(screen.getByText(`No exact matches for ${query}. Showing close spellings.`)).toBeTruthy();
+        expect(screen.queryByRole("heading", { name: "Closest matches" })).toBeNull();
+        expect(document.querySelector("img[src=x]")).toBeNull();
+      } else {
+        expect(screen.queryByText(/Showing close spellings/)).toBeNull();
+        expect(screen.getByText(state === "empty" ? "No items found" : "Search failed.")).toBeTruthy();
+      }
+      expect(screen.queryByRole("button", { name: /Load more results/ })).toBeNull();
+    },
+  );
+
+  describe("interpretation notice", () => {
+    const gradeFacet = {
+      id: "dim_seed_grade",
+      kind: "dimension" as const,
+      label: "Grade",
+      values: [{ id: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10", count: 1, selected: true }],
+    };
+    const companyFacet = {
+      id: "dim_seed_grading_company",
+      kind: "dimension" as const,
+      label: "Grading Company",
+      values: [{ id: "chc_seed_grading_company_psa", label: "PSA", count: 1, selected: true }],
+    };
+    const grade = { kind: "dimension" as const, id: "dim_seed_grade", value: "chc_seed_grade_gem_mint_10" };
+    const company = {
+      kind: "dimension" as const,
+      id: "dim_seed_grading_company",
+      value: "chc_seed_grading_company_psa",
+    };
+    const notice = (filters: string) => `Filters applied from your search: ${filters}`;
+
+    it.each(["success", "empty"] as const)("lists only marked filters still present (%s)", (state) => {
+      renderSearchPage({
+        committedSearch: "charizard",
+        language: "ja",
+        dynamicFilters: [grade, company],
+        interpretedFilters: ["dimension.dim_seed_grade", "language", "dimension.dim_seed_finish"],
+        data: {
+          ...searchResponse,
+          facets: [gradeFacet, companyFacet],
+          ...(state === "empty" ? { items: [], count: 0, total: 0 } : {}),
+        },
+      });
+      expect(screen.getByText(notice("Grade: Gem Mint 10, Japanese"))).toBeTruthy();
+      expect(screen.queryByText(/Grading Company: PSA,/)).toBeNull();
+      if (state === "empty") expect(screen.getByText("No items found")).toBeTruthy();
+    });
+
+    it("dismissing hides the notice and keeps every filter applied", () => {
+      const props = renderSearchPage({
+        committedSearch: "charizard",
+        dynamicFilters: [grade],
+        interpretedFilters: ["dimension.dim_seed_grade"],
+        data: { ...searchResponse, facets: [gradeFacet] },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+      expect(screen.queryByText(notice("Grade: Gem Mint 10"))).toBeNull();
+      expect(screen.getByRole("button", { name: "Remove Grade: Gem Mint 10" })).toBeTruthy();
+      expect(props.onDynamicFilterChange).not.toHaveBeenCalled();
+      expect(props.onDynamicFilterClear).not.toHaveBeenCalled();
+    });
+
+    it("renders no notice without a marker or once every marked filter was removed", () => {
+      const view = renderSearchPage({
+        committedSearch: "charizard",
+        dynamicFilters: [grade],
+        data: { ...searchResponse, facets: [gradeFacet] },
+      });
+      expect(screen.queryByText(/Filters applied from your search/)).toBeNull();
+      cleanup();
+      renderSearchPage({ ...view, dynamicFilters: [], interpretedFilters: ["dimension.dim_seed_grade"] });
+      expect(screen.queryByText(/Filters applied from your search/)).toBeNull();
+    });
   });
 
   it("renders variant badges that distinguish same-title search results", () => {
@@ -664,6 +1359,38 @@ describe("SearchPage", () => {
     expect(screen.getByRole("link", { name: "Add product to Sell List" }).textContent).toBe("Sell");
     expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).textContent).toBe("Buy");
     expect(screen.getByRole("link", { name: "Watch product" }).textContent).toBe("Watch");
+  });
+
+  it("keeps active and no-active-listing Search Results on the exact Detail Page state contract", () => {
+    renderSearchPage({
+      data: { ...searchResponse, items: [japaneseSearchResult] },
+      categories: [],
+    });
+
+    const activeDetailLink = screen.getByRole("link", { name: "View details for Bulbasaur — Japanese Base Set" });
+    expect(activeDetailLink.getAttribute("href")).toBe("/items/bulbasaur-cat_bulbasaur");
+    expect(activeDetailLink.getAttribute("href")).not.toContain("market=");
+    expect(document.querySelector("[data-listing-card-price-value]")?.parentElement?.textContent).toBe("From $10.00");
+    expect(screen.getByRole("link", { name: "Add product to Buy Cart" }).getAttribute("href")).toBe(
+      "/items/bulbasaur-cat_bulbasaur?market=buy",
+    );
+
+    cleanup();
+    renderSearchPage({
+      data: { ...searchResponse, items: [standardAbraSearchResult] },
+      categories: [],
+    });
+
+    const inactiveDetailLink = screen.getByRole("link", {
+      name: "View details for Abra — Base Set 43 Standard Set Common",
+    });
+    expect(inactiveDetailLink.getAttribute("href")).toBe("/items/abra-standard-cat_abra_standard");
+    expect(inactiveDetailLink.getAttribute("href")).not.toContain("market=");
+    expect(document.querySelector("[data-listing-card-price-prefix]")).toBeNull();
+    expect(document.querySelector("[data-listing-card-price-value]")).toBeNull();
+    expect(screen.getByRole("link", { name: "Add product to Sell List" }).getAttribute("href")).toBe(
+      "/items/abra-standard-cat_abra_standard?market=sell",
+    );
   });
 
   it("renders language as a top-level desktop filter", () => {

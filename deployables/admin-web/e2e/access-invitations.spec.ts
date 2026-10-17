@@ -45,7 +45,7 @@ test.describe("access admin invitations", () => {
     await page.goto(`${createUrl.pathname}${createUrl.search}`, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: accountHeading });
     const invitationRow = page.getByRole("row").filter({ hasText: invitationEmail });
-    await expect(invitationRow.getByText("pending", { exact: true })).toBeVisible();
+    await expect(invitationRow.getByText("Pending", { exact: true })).toBeVisible();
     await invitationRow.getByRole("button", { name: "Cancel" }).click();
     const confirmationDialog = page.getByRole("dialog", { name: `Cancel invitation for ${invitationEmail}?` });
     await expect(confirmationDialog).toBeVisible();
@@ -62,7 +62,7 @@ test.describe("access admin invitations", () => {
     await page.goto(`${cancelUrl.pathname}${cancelUrl.search}`, { waitUntil: "domcontentloaded" });
     await expectAdminPageReady(page, { heading: accountHeading });
     const cancelledInvitationRow = page.getByRole("row").filter({ hasText: invitationEmail });
-    await expect(cancelledInvitationRow.getByText("cancelled", { exact: true })).toBeVisible();
+    await expect(cancelledInvitationRow.getByText("Cancelled", { exact: true })).toBeVisible();
     await expect(cancelledInvitationRow.getByRole("button", { name: "Cancel" })).toHaveCount(0);
   });
 });

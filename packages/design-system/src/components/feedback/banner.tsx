@@ -25,6 +25,7 @@ export function Banner({
   return (
     <Surface
       {...rest}
+      elevation="tinted"
       tone={toneToSemantic(tone)}
       element="div"
       role={role ?? liveRole}

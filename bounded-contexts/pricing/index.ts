@@ -17,6 +17,7 @@ import {
   buildPricingMarketplaceInputProjectionHandlers,
   buildPricingOrderingInputProjectionHandlers,
 } from "./features/recommendations/integrations/source/source-projection";
+import { buildPricingOwnSaleObservationProjectionHandlers } from "./features/own-sale-observations/integrations/inventory/projection";
 import { buildPricingMarketTradesProjectionHandlers } from "./features/market-trades/integrations/source/source-projection";
 import {
   buildPricingMarketTradesAuthenticityIntegrityProjectionHandlers,
@@ -27,21 +28,25 @@ import {
 import { pricingFeatureSchemaMigrations, pricingSchemaSql } from "./support/runtime-support/schema";
 import { pricingUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { seedPricingDatabase } from "./support/runtime-support/seed";
-import type { PricingServices } from "./support/runtime-support/services";
+import type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
 import { createPricingServices } from "./support/runtime-support/services";
 import { createPricingRecommendationMcpHandlers } from "./features/recommendations/api/mcp";
 import {
   buildCompetingAskRepricingReactionHandlers,
   buildMarketPriceRepricingReactionHandlers,
 } from "./features/repricing-engine/integrations/signal-reactions";
+import { composePricingInventoryEconomicsProjectionHandlers } from "./features/economics/integrations/inventory/projection";
 
 const pricingContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, void>({
+export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, PricingHostPorts>({
   manifest: pricingContextManifest,
   schemaSql: pricingSchemaSql,
-  schemaMigrations: [...pricingUnloggedProjectionSchemaMigrations, ...pricingFeatureSchemaMigrations],
-  createServices: (pool) => createPricingServices(pool),
+  // Evolve feature tables before applying their physical replay posture. This
+  // ordering matters on an upgrade where a newly introduced projection table
+  // does not exist yet for its later SET UNLOGGED migration.
+  schemaMigrations: [...pricingFeatureSchemaMigrations, ...pricingUnloggedProjectionSchemaMigrations],
+  createServices: (pool, ports) => createPricingServices(pool, ports),
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildPricingApi(services) },
   ],
@@ -60,7 +65,10 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
             ...buildPricingPriceSignalCatalogProjectionHandlers(services.db),
           }),
           "inventory.pricing-inventory-input-projection": () =>
-            buildPricingInventoryInputProjectionHandlers(services.db),
+            composePricingInventoryEconomicsProjectionHandlers(services.db, {
+              ...buildPricingInventoryInputProjectionHandlers(services.db),
+              ...buildPricingOwnSaleObservationProjectionHandlers(services.db),
+            }),
           "marketplace.pricing-market-input-projection": () =>
             buildPricingMarketplaceInputProjectionHandlers(services.db),
           "ordering.pricing-order-input-projection": () => buildPricingOrderingInputProjectionHandlers(services.db),
@@ -70,8 +78,10 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
           "fulfillment.pricing-market-trades-projection": () => marketTradesHandlers,
           "identity.pricing-market-trades-projection": () =>
             buildPricingMarketTradesIdentityIntegrityProjectionHandlers(services.db),
-          "payments.pricing-market-trades-projection": () =>
-            buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
+          "payments.pricing-market-trades-projection": () => ({
+            ...marketTradesHandlers,
+            ...buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
+          }),
           "settlement.pricing-market-trades-projection": () =>
             buildPricingMarketTradesSettlementIntegrityProjectionHandlers(services.db),
           "authenticity.pricing-market-trades-projection": () =>

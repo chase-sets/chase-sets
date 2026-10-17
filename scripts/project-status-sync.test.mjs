@@ -15,6 +15,7 @@ import {
   LABELS_QUERY,
   main,
   planDateUpdates,
+  planOutcomeOrderUpdates,
   planStatusUpdates,
   projectItemFromNode,
   readConfiguration,
@@ -24,12 +25,13 @@ import {
 } from "./project-status-sync.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const outcomeDescription = '<!-- outcome: {"version":1,"track":"wave","order":2,"status":"committed"} -->';
 
 function issue(overrides = {}) {
   return {
     number: 1,
     state: "open",
-    milestone: { title: "Wave 2" },
+    milestone: { title: "Wave 2", description: outcomeDescription },
     labels: [{ name: "priority:p1" }, { name: "area:catalog" }, { name: "kind:product" }],
     blockedBy: 0,
     hasParent: false,
@@ -52,7 +54,7 @@ function boardNode({
   stateReason = null,
   status = "Refined",
   targetDate = null,
-  milestone = { title: "Wave 2", dueOn: "2026-08-12T00:00:00Z" },
+  milestone = { title: "Wave 2", description: outcomeDescription, dueOn: "2026-08-12T00:00:00Z" },
   labels = labelConnection(["priority:p1", "area:catalog", "kind:product"]),
   blockedBy = 0,
   parent = null,
@@ -142,6 +144,91 @@ function mutationRequests(requests) {
 }
 
 describe("project status derivation", () => {
+  it.each([false, true])("projects outcome set, clear and unchanged through main (dryRun=%s)", async (dryRun) => {
+    const milestone = (number, order, status = "committed") => ({
+      number,
+      title: `Outcome ${number}`,
+      state: "OPEN",
+      dueOn: null,
+      description: `<!-- outcome: {"version":1,"track":"commerce","order":${order},"status":"${status}"} -->`,
+    });
+    const nodes = [
+      { ...boardNode({ id: "set", number: 1, milestone: milestone(100, 20) }), outcomeOrder: null },
+      { ...boardNode({ id: "keep", number: 2, milestone: milestone(200, 10) }), outcomeOrder: { number: 1 } },
+      {
+        ...boardNode({ id: "clear", number: 3, milestone: milestone(300, 30, "candidate"), status: "Backlog" }),
+        outcomeOrder: { number: 3 },
+      },
+    ];
+    const { request, requests } = scriptedRequest(({ query }) =>
+      query === ITEMS_QUERY ? itemPage(nodes) : { mutation: { ok: true } },
+    );
+    const result = await main({
+      env: validEnv({ OUTCOME_ORDER_FIELD_ID: "outcome-field-id" }),
+      request,
+      logger: { log: vi.fn() },
+      dryRun,
+    });
+    expect(result.outcomeOrderUpdates).toEqual([
+      { type: "set", itemId: "set", number: 1, from: null, to: 2 },
+      { type: "clear", itemId: "clear", number: 3, from: 3, to: null },
+    ]);
+    expect(mutationRequests(requests)).toEqual(
+      dryRun
+        ? []
+        : [
+            expect.objectContaining({
+              query: expect.stringMatching(/number:\s*\$n/),
+              variables: { p: "project-id", i: "set", f: "outcome-field-id", n: 2 },
+            }),
+            expect.objectContaining({
+              query: expect.stringContaining("clearProjectV2ItemFieldValue"),
+              variables: { p: "project-id", i: "clear", f: "outcome-field-id" },
+            }),
+          ],
+    );
+  });
+  it("projects shared outcome order independently of creation number and clears non-executable rows", () => {
+    const milestone = (number, order, status = "committed") => ({
+      number,
+      title: `Outcome ${number}`,
+      state: "OPEN",
+      description: `<!-- outcome: {"version":1,"track":"commerce","order":${order},"status":"${status}"} -->`,
+    });
+    const a = { itemId: "a", outcomeOrder: null, issue: issue({ milestone: milestone(100, 50) }) };
+    const b = { itemId: "b", outcomeOrder: null, issue: issue({ number: 2, milestone: milestone(200, 10) }) };
+    const candidate = {
+      itemId: "c",
+      outcomeOrder: 3,
+      issue: issue({ number: 3, milestone: milestone(300, 1, "candidate") }),
+    };
+    expect(planOutcomeOrderUpdates([a, b, candidate]).map(({ itemId, to }) => [itemId, to])).toEqual([
+      ["a", 2],
+      ["b", 1],
+      ["c", null],
+    ]);
+    expect(
+      planOutcomeOrderUpdates([
+        { ...a, outcomeOrder: 2 },
+        { ...b, outcomeOrder: 1 },
+      ]),
+    ).toEqual([]);
+    expect(() => planOutcomeOrderUpdates([a, { ...b, issue: issue({ milestone: milestone(100, 10) }) }])).toThrow(
+      "changed during collection",
+    );
+  });
+  it("keeps candidate outcome work out of Refined using live milestone metadata", () => {
+    const milestone = {
+      number: 200,
+      title: "Seller improvements",
+      state: "OPEN",
+      description: '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"candidate"} -->',
+    };
+    const collected = projectItemFromNode(boardNode({ milestone })).issue;
+    expect(deriveStatus(collected)).toBe("Backlog");
+    expect(planStatusUpdates([{ itemId: "candidate", status: "In lane", issue: collected }])).toEqual([]);
+    expect(ITEMS_QUERY).toContain("milestone { number title description state dueOn }");
+  });
   it("derives Refined when placed and fully classified", () => {
     expect(deriveStatus(issue())).toBe("Refined");
   });
@@ -293,7 +380,10 @@ describe("project status derivation", () => {
       boardNode({
         number: 6169,
         parent: { number: 6100 },
-        milestone: { title: "Wave 1" },
+        milestone: {
+          title: "Wave 1",
+          description: '<!-- outcome: {"version":1,"track":"wave","order":1,"status":"committed"} -->',
+        },
       }),
       ["priority:p1", "area:ops", "kind:tech-debt"],
     );
@@ -528,12 +618,37 @@ describe("Epic and Tracking derivation contract", () => {
 });
 
 describe("planner correction and lane ownership", () => {
+  it("reconciles close and reopen events with serialized hourly and manual fallback runs", () => {
+    const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/project-status-sync.yml"), "utf8"));
+    expect(workflow.on).toEqual({
+      issues: { types: ["closed", "reopened"] },
+      schedule: [{ cron: "17 * * * *" }],
+      workflow_dispatch: null,
+    });
+    expect(workflow.concurrency).toEqual({ group: "project-status-sync", "cancel-in-progress": false });
+    expect(workflow.permissions).toEqual({ contents: "read" });
+  });
+
   const LANE_OWNED_STATUSES = ["In lane", "In review"];
-  const CURRENT_STATUSES = [null, "Backlog", "Refined", "Blocked", "Epic", "Tracking", ...LANE_OWNED_STATUSES];
+  const CURRENT_STATUSES = [
+    null,
+    "Backlog",
+    "Refined",
+    "Blocked",
+    "Epic",
+    "Tracking",
+    ...LANE_OWNED_STATUSES,
+    ...TERMINAL_STATUSES,
+  ];
   const PLANNER_SUBJECTS = [
     {
       name: "native Epic",
       subject: issue({ number: 5496, issueType: { name: "Epic" }, labels: [], milestone: null }),
+      derived: "Epic",
+    },
+    {
+      name: "untyped legacy Epic",
+      subject: issue({ labels: [{ name: "kind:epic" }], milestone: null }),
       derived: "Epic",
     },
     {
@@ -558,11 +673,16 @@ describe("planner correction and lane ownership", () => {
   ];
 
   it.each(PLANNER_SUBJECTS)(
-    "corrects every wrong repository-derived status and preserves lane ownership for a $name",
+    "corrects non-executable placement and preserves executable lane ownership for a $name",
     ({ subject, derived }) => {
       const items = CURRENT_STATUSES.map((status, index) => ({ itemId: `item-${index}`, status, issue: subject }));
       const expected = CURRENT_STATUSES.map((status, index) => ({ status, index }))
-        .filter(({ status }) => !LANE_OWNED_STATUSES.includes(status) && status !== derived)
+        .filter(
+          ({ status }) =>
+            status !== derived &&
+            (["Epic", "Tracking"].includes(derived) ||
+              ![...LANE_OWNED_STATUSES, ...TERMINAL_STATUSES].includes(status)),
+        )
         .map(({ status, index }) => ({
           itemId: `item-${index}`,
           number: subject.number,

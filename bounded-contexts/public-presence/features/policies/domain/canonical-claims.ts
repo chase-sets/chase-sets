@@ -1,8 +1,11 @@
 export type CanonicalClaimStatus = "settled" | "unresolved";
 
 /**
- * The closed set of shared sensitive money/custody/processor claims that more
- * than one Public Policy Artifact may need to reference. Adding an id here is
+ * The closed set of shared sensitive money/custody/processor and
+ * authorized-agent-boundary claims that more than one Public Policy Artifact,
+ * or more than one section of the same artifact, may need to reference. A
+ * claim earns an id here when the same governed proposition surfaces in more
+ * than one place and must carry one status everywhere. Adding an id here is
  * the one place a claim's settled/unresolved status is decided; no artifact
  * section may assert a different status for the same id.
  */
@@ -12,6 +15,8 @@ export const canonicalClaimIds = [
   "payout-release-hold-mechanism",
   "wallet-no-interest",
   "wallet-deposit-and-fdic-posture",
+  "authorized-agent-principal-responsibility-and-liability-boundary",
+  "agent-access-and-agent-caused-account-sanction-boundary",
 ] as const;
 
 export type CanonicalClaimId = (typeof canonicalClaimIds)[number];
@@ -57,13 +62,32 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
   "payment-charge-timing-and-capture": {
     status: "settled",
     description:
-      "Stripe charges/captures the buyer's selected payment method as part of completing a Marketplace " +
-      "purchase, following Chase Sets' standard payment-session-create/confirm and capture path.",
+      "For ordinary Marketplace payments with a nonzero processor amount, Chase Sets requests a Stripe " +
+      "payment session or confirmation of a saved payment method; creation and confirmation requests do not " +
+      "establish capture. The Stripe adapter distinguishes setup and authorization from capture outcomes, " +
+      "and Payments records capture from mapped webhook or reconciliation results.",
     productTruthRefs: [
-      "bounded-contexts/payments/features/payments/api/runtime.ts:1890-1943",
-      "infrastructure/stripe-payments/index.ts:1464-1512",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2051-2071",
+      "infrastructure/stripe-payments/index.ts:1669-1723",
+      "infrastructure/stripe-payments/index.ts:1725-1814",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2179-2186",
+      "infrastructure/stripe-payments/index.ts:930-1012",
+      "infrastructure/stripe-payments/index.ts:1057-1083",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2627-2668",
+      "infrastructure/stripe-payments/index.ts:411-486",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:269-299",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:1231-1273",
+      "bounded-contexts/payments/features/payments/domain/domain.ts:968-1005",
     ],
-    requiredEvidenceKeywords: ["createPaymentSession", "payment_intent", "RecordPaymentCapture"],
+    requiredEvidenceKeywords: [
+      "createPaymentSession",
+      "payment_intent",
+      "pending-confirmation",
+      "payment-authorized",
+      "payment-captured",
+      "RecordPaymentCapture",
+      "mapPaymentIntentReconciliationResult",
+    ],
   },
   "payment-chargeback-recovery-mechanism": {
     status: "settled",
@@ -83,9 +107,11 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
   "wallet-no-interest": {
     status: "unresolved",
     description:
-      "Whether Chase Sets pays no interest on Wallet-balance funds is not yet supported by any ratified " +
+      "Whether Chase Sets pays no interest on ordinary Wallet balances or Marketplace payment activity, " +
+      "including amounts pending payout, is not yet supported by any ratified " +
       "product-truth source; it remains an explicit open question pending qualified counsel confirmation " +
-      "before publication, not a productTruthRef-backed fact.",
+      "before publication, not a productTruthRef-backed fact. This ordinary-interest proposition is distinct " +
+      "from #7808's specifically ruled Prepaid Balance no-interest product term, which remains counsel-required.",
     productTruthRefs: [],
     requiredEvidenceKeywords: [],
     unresolvedPublicDisclosure:
@@ -96,6 +122,66 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "does not earn interest",
       "will not earn interest",
       "no interest is paid",
+      "does not pay you interest on funds connected to your marketplace payment activity",
+      "does not pay interest on funds connected to your marketplace payment activity",
+      "does not pay you interest on wallet",
+      "does not pay interest on wallet",
+      "does not pay you interest on ordinary",
+      "does not pay interest on ordinary",
+      "does not pay you interest on marketplace payment activity",
+      "does not pay interest on marketplace payment activity",
+      "does not pay you interest on amounts pending payout",
+      "does not pay interest on amounts pending payout",
+      "does not pay interest on your wallet",
+      "does not pay you interest on your wallet",
+      "does not pay interest on any wallet",
+      "does not pay you interest on any wallet",
+      "does not pay interest on the wallet",
+      "does not pay you interest on the wallet",
+      "does not pay interest on a wallet",
+      "does not pay you interest on a wallet",
+      "does not pay interest on funds in your wallet",
+      "does not pay you interest on funds in your wallet",
+      "does not pay interest on funds in any wallet",
+      "does not pay you interest on funds in any wallet",
+      "does not pay interest on funds in the wallet",
+      "does not pay you interest on funds in the wallet",
+      "does not pay interest on funds in a wallet",
+      "does not pay you interest on funds in a wallet",
+      "does not pay interest on your marketplace payment activity",
+      "does not pay you interest on your marketplace payment activity",
+      "does not pay interest on any marketplace payment activity",
+      "does not pay you interest on any marketplace payment activity",
+      "does not pay interest on the marketplace payment activity",
+      "does not pay you interest on the marketplace payment activity",
+      "does not pay interest on your ordinary",
+      "does not pay you interest on your ordinary",
+      "does not pay interest on any ordinary",
+      "does not pay you interest on any ordinary",
+      "does not pay interest on the ordinary",
+      "does not pay you interest on the ordinary",
+      "does not pay interest on an ordinary",
+      "does not pay you interest on an ordinary",
+      "does not pay interest on pending payout",
+      "does not pay you interest on pending payout",
+      "does not pay interest on your pending payout",
+      "does not pay you interest on your pending payout",
+      "does not pay interest on any pending payout",
+      "does not pay you interest on any pending payout",
+      "does not pay interest on the pending payout",
+      "does not pay you interest on the pending payout",
+      "does not pay interest on any amount pending payout",
+      "does not pay you interest on any amount pending payout",
+      "does not pay interest on any amounts pending payout",
+      "does not pay you interest on any amounts pending payout",
+      "does not pay interest on your amount pending payout",
+      "does not pay you interest on your amount pending payout",
+      "does not pay interest on your amounts pending payout",
+      "does not pay you interest on your amounts pending payout",
+      "does not pay interest on the amount pending payout",
+      "does not pay you interest on the amount pending payout",
+      "does not pay interest on the amounts pending payout",
+      "does not pay you interest on the amounts pending payout",
     ],
   },
   "wallet-deposit-and-fdic-posture": {
@@ -110,6 +196,47 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "Whether Wallet balances are treated as a bank deposit or are covered by FDIC or other deposit " +
       "insurance is not yet resolved and is not addressed by this document pending qualified counsel review.",
     forbiddenAssertionPhrases: ["insured by the fdic", "fdic insur", "not a deposit", "non-deposit", "deposit insurer"],
+  },
+  "authorized-agent-principal-responsibility-and-liability-boundary": {
+    status: "unresolved",
+    description:
+      "Whether, and how far, an account holder is responsible or liable for actions an authorized software agent " +
+      "takes on the Account is not yet supported by any ratified product-truth source; it remains an explicit " +
+      "open question pending qualified counsel confirmation before publication, not a productTruthRef-backed fact.",
+    productTruthRefs: [],
+    requiredEvidenceKeywords: [],
+    unresolvedPublicDisclosure:
+      "The extent to which an account holder is responsible or liable for actions taken by an authorized agent " +
+      "remains unresolved pending qualified counsel review.",
+    forbiddenAssertionPhrases: [
+      "you are fully responsible for",
+      "you are solely responsible for",
+      "is liable for all",
+      "assumes all liability",
+      "accepts full liability",
+    ],
+  },
+  "agent-access-and-agent-caused-account-sanction-boundary": {
+    status: "unresolved",
+    description:
+      "Whether, on what grounds, and with what process and consequences Chase Sets may suspend or revoke an " +
+      "authorized software agent's access, and may separately suspend, restrict, close or otherwise sanction the " +
+      "underlying Account because of that agent's conduct is not yet supported by any ratified product-truth " +
+      "source; it remains an explicit open question pending qualified counsel confirmation before publication, " +
+      "not a productTruthRef-backed fact.",
+    productTruthRefs: [],
+    requiredEvidenceKeywords: [],
+    unresolvedPublicDisclosure:
+      "The grounds, process, and consequences for suspending or revoking agent access, and for suspending, " +
+      "restricting, or closing an Account because of agent conduct, remain unresolved pending qualified counsel " +
+      "review.",
+    forbiddenAssertionPhrases: [
+      "may suspend or revoke at any time",
+      "at chase sets' sole discretion",
+      "without notice or liability",
+      "immediately terminate agent access",
+      "reserves the right to revoke",
+    ],
   },
 } as const;
 

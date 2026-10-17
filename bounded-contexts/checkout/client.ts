@@ -51,6 +51,8 @@ export type CheckoutSelectedListingSnapshotInput = Readonly<{
   sellerDisplayName?: string | null;
   sellerSlug?: string | null;
   priceAmount?: string | null;
+  priceCurrencyCode?: string | null;
+  listingStreamVersion?: number | null;
   source?: string | null;
 }>;
 
@@ -98,6 +100,11 @@ export type AddCheckoutSellListLineRequest = Readonly<{
   buyerAccountId?: string | null;
   buyerDisplayName?: string | null;
   offerPriceAmount?: string | null;
+  offerPriceCurrencyCode?: string | null;
+  offerStreamVersion?: number | null;
+  listingPriceAmount?: string | null;
+  listingPriceCurrencyCode?: string | null;
+  listingStreamVersion?: number | null;
   catalogItemId: string;
   productId: string;
   itemTitle: string;

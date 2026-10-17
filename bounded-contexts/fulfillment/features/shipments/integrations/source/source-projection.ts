@@ -84,12 +84,20 @@ export function buildFulfillmentOrderProjectionHandlers(
       orderId: string;
       readyForFulfillmentAt: string;
       context: EventStoreContext;
+      sourceIdentity: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
     }) => Promise<void>;
-    onOrderCancelled?: (params: { orderId: string; cancelledAt: string; context: EventStoreContext }) => Promise<void>;
+    onOrderCancelled?: (params: {
+      orderId: string;
+      cancelledAt: string;
+      reason: string | null;
+      context: EventStoreContext;
+      sourceIdentity: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
+    }) => Promise<void>;
     onFraudWarningReceived?: (params: {
       orderId: string;
       receivedAt: string;
       context: EventStoreContext;
+      sourceIdentity: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
     }) => Promise<void>;
   }> = {},
 ): ProjectorHandlerMap {
@@ -206,6 +214,7 @@ export function buildFulfillmentOrderProjectionHandlers(
       const data = event.data as {
         orderId: string;
         cancelledAt: string;
+        reason?: string | null;
       };
 
       await db.query(
@@ -220,11 +229,18 @@ export function buildFulfillmentOrderProjectionHandlers(
       await options.onOrderCancelled?.({
         orderId: data.orderId,
         cancelledAt: data.cancelledAt,
+        reason: data.reason ?? null,
         context: {
           tenantId: event.tenantId,
           audit: event.audit,
           trace: event.trace,
         } as EventStoreContext,
+        sourceIdentity: {
+          eventId: String(event.id),
+          streamId: event.streamId,
+          streamVersion: event.streamVersion,
+          eventType: event.type,
+        },
       });
     },
     "payments.payment-fraud-warning-received": async (event) => {
@@ -242,6 +258,12 @@ export function buildFulfillmentOrderProjectionHandlers(
             audit: event.audit,
             trace: event.trace,
           } as EventStoreContext,
+          sourceIdentity: {
+            eventId: String(event.id),
+            streamId: event.streamId,
+            streamVersion: event.streamVersion,
+            eventType: event.type,
+          },
         });
       }
     },
@@ -330,6 +352,12 @@ export function buildFulfillmentOrderProjectionHandlers(
           audit: event.audit,
           trace: event.trace,
         } as EventStoreContext,
+        sourceIdentity: {
+          eventId: String(event.id),
+          streamId: event.streamId,
+          streamVersion: event.streamVersion,
+          eventType: event.type,
+        },
       });
     },
   };

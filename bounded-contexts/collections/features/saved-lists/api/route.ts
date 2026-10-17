@@ -11,22 +11,82 @@ import type {
 import { SavedListDiscoveryError, type SavedListDiscoveryServices } from "./discovery-runtime";
 import type { SavedListProductSelection } from "../domain/contracts";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { additionAnalytics, recordSavedListAnalytics, type SavedListAnalyticsRecorder } from "./analytics-telemetry";
+import { savedListCanonicalIdentifier, savedListCanonicalProduct } from "./anonymous-owner";
+import { createSavedListRecoveryRoutes } from "./recovery-route";
+import type { SavedListRecoveryServices } from "./recovery-runtime";
 
 const CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CAPTURE_RATE_LIMIT_MAX = 30;
 const CAPTURE_RATE_LIMIT_SURFACE = "collections.saved-list.anonymous-capture";
+const CAPTURE_SURFACE_RATE_LIMIT_MAX = 3_000;
+const CAPTURE_SURFACE_RATE_LIMIT_SURFACE = "collections.saved-list.anonymous-capture-surface";
 
-export function createSavedListRoutes(
+export function createGuestSavedListRoutes(
   services: SavedListDiscoveryServices,
   resolveRateLimitRule?: RateLimitRuleResolver,
 ) {
   const app = new Hono<CollectionsApiEnv>();
-  const captureRateLimiter = createPolicyBackedRateLimiter(
+  const ownerCaptureRateLimiter = createPolicyBackedRateLimiter(
     CAPTURE_RATE_LIMIT_SURFACE,
     { max: CAPTURE_RATE_LIMIT_MAX, windowMs: CAPTURE_RATE_LIMIT_WINDOW_MS },
     resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
     { keyPrefix: "collections:anonymous-saved-list-capture" },
   );
+  const surfaceCaptureRateLimiter = createPolicyBackedRateLimiter(
+    CAPTURE_SURFACE_RATE_LIMIT_SURFACE,
+    { max: CAPTURE_SURFACE_RATE_LIMIT_MAX, windowMs: CAPTURE_RATE_LIMIT_WINDOW_MS },
+    resolveRateLimitRule ?? (async (_surface, defaults) => defaults),
+    { keyPrefix: "collections:anonymous-saved-list-capture-surface" },
+  );
+
+  app.post("/saved-list-intents", async (c) => {
+    const anonymousOwnerId = readAnonymousOwnerId(c.req.header("x-collections-anonymous-saved-list-id"));
+    if (!anonymousOwnerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_saved_list_required",
+            message: t("collections.features.savedLists.api.route.anonymous.owner.required"),
+          },
+        },
+        400,
+      );
+    }
+    const ownerRateLimit = await ownerCaptureRateLimiter.check(anonymousOwnerId);
+    if (ownerRateLimit.limited) return rateLimitedResponse(ownerRateLimit.retryAfterSeconds);
+    const surfaceRateLimit = await surfaceCaptureRateLimiter.check("all");
+    if (surfaceRateLimit.limited) return rateLimitedResponse(surfaceRateLimit.retryAfterSeconds);
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      const request: CreateAnonymousSavedListIntentRequest = {
+        sourcePath: String(body.sourcePath ?? ""),
+        sourceSurface: parseSurface(body.sourceSurface),
+        product: parseProduct(body.product),
+        productSummary: body.productSummary == null ? null : String(body.productSummary),
+      };
+      return c.json(
+        {
+          intent: await services.createAnonymousIntent({ ...request, anonymousOwnerId }),
+          analyticsLabel: "saved-list.guest-intent-created" as const,
+        },
+        201,
+      );
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
+
+  return app;
+}
+
+export function createSavedListRoutes(
+  services: SavedListDiscoveryServices,
+  recorder?: SavedListAnalyticsRecorder,
+  recovery?: SavedListRecoveryServices,
+) {
+  const app = new Hono<CollectionsApiEnv>();
+  if (recovery) app.route("/", createSavedListRecoveryRoutes(recovery));
 
   app.get("/account/lists/recent", async (c) => {
     const access = requireAccess(c);
@@ -43,55 +103,12 @@ export function createSavedListRoutes(
     const body = await c.req.json().catch(() => ({}));
     try {
       const request = parseAdditionRequest(body);
-      return c.json(
-        await services.addProduct({ ...request, ownerAccountId: access.actor.accountId as AccountId }, context),
+      const { response, createReceipt } = await services.addProduct(
+        { ...request, ownerAccountId: access.actor.accountId as AccountId },
+        context,
       );
-    } catch (error) {
-      return errorResponse(error);
-    }
-  });
-
-  app.post("/guest/saved-list-intents", async (c) => {
-    const anonymousOwnerId = readAnonymousOwnerId(c.req.header("x-collections-anonymous-saved-list-id"));
-    if (!anonymousOwnerId) {
-      return c.json(
-        {
-          error: {
-            code: "anonymous_saved_list_required",
-            message: t("collections.features.savedLists.api.route.anonymous.owner.required"),
-          },
-        },
-        400,
-      );
-    }
-    const rateLimit = await captureRateLimiter.check(c.req.raw);
-    if (rateLimit.limited) {
-      return c.json(
-        {
-          error: {
-            code: "rate_limited",
-            message: t("collections.features.savedLists.api.route.rate.limited"),
-          },
-        },
-        429,
-        { "Retry-After": String(rateLimit.retryAfterSeconds) },
-      );
-    }
-    const body = await c.req.json().catch(() => ({}));
-    try {
-      const request: CreateAnonymousSavedListIntentRequest = {
-        sourcePath: String(body.sourcePath ?? ""),
-        sourceSurface: parseSurface(body.sourceSurface),
-        product: parseProduct(body.product),
-        productSummary: body.productSummary == null ? null : String(body.productSummary),
-      };
-      return c.json(
-        {
-          intent: await services.createAnonymousIntent({ ...request, anonymousOwnerId }),
-          analyticsLabel: "saved-list.guest-intent-created" as const,
-        },
-        201,
-      );
+      recordSavedListAnalytics(recorder, additionAnalytics(response, request.sourceSurface, createReceipt));
+      return c.json(response);
     } catch (error) {
       return errorResponse(error);
     }
@@ -163,6 +180,18 @@ export function createSavedListRoutes(
   });
 
   return app;
+}
+
+function rateLimitedResponse(retryAfterSeconds: number) {
+  return Response.json(
+    {
+      error: {
+        code: "rate_limited",
+        message: t("collections.features.savedLists.api.route.rate.limited"),
+      },
+    },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+  );
 }
 
 function requireAccess(c: { get(key: "actor"): CollectionsApiEnv["Variables"]["actor"] }) {
@@ -238,15 +267,11 @@ function parseDestination(value: unknown): SavedListDestination {
 }
 
 function parseProduct(value: unknown): SavedListProductSelection {
-  const product = asRecord(value);
-  const options = Array.isArray(product.selectedOptions) ? product.selectedOptions : [];
+  const [catalogItemId, productId, options] = savedListCanonicalProduct(value as SavedListProductSelection);
   return {
-    catalogItemId: String(product.catalogItemId ?? "") as SavedListProductSelection["catalogItemId"],
-    productId: String(product.productId ?? "") as SavedListProductSelection["productId"],
-    selectedOptions: options.map((entry) => {
-      const option = asRecord(entry);
-      return { dimensionId: String(option.dimensionId ?? ""), optionId: String(option.optionId ?? "") };
-    }),
+    catalogItemId: catalogItemId as SavedListProductSelection["catalogItemId"],
+    productId: productId as SavedListProductSelection["productId"],
+    selectedOptions: options.map(([dimensionId, optionId]) => ({ dimensionId, optionId })),
   };
 }
 
@@ -256,8 +281,12 @@ function parseSurface(value: unknown): SavedListDiscoverySurface {
 }
 
 function readAnonymousOwnerId(value: string | undefined) {
-  const normalized = value?.trim() ?? "";
-  return normalized.startsWith("anon_") ? normalized : null;
+  try {
+    const normalized = savedListCanonicalIdentifier(value);
+    return normalized.startsWith("anon_") ? normalized : null;
+  } catch {
+    return null;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

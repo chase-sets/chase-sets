@@ -1,7 +1,46 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import {
+  buildProductMeasurePublicationHandlers,
+  resetProductMeasurePublicationParts,
+} from "@chase-sets/event-core-postgres";
+import { assertSqlIdentifier } from "@chase-sets/event-core-postgres/sql-identifier";
+import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recomputeCheckoutSellerOptionSupply } from "../inventory/inventory-projection";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" &&
+      subscription.projectionName === "checkout-marketplace-listing-options-projection",
+  )!,
+);
+
+export function withCheckoutProductMeasurePublicationReset(group: BcProjectionGroup): BcProjectionGroup {
+  return group.projectionName === "checkout-marketplace-listing-options-projection"
+    ? {
+        ...group,
+        reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+          await resetProductMeasurePublicationParts(
+            db,
+            createCheckpointKey(
+              contextManifest.eventSubscriptions.find(
+                (subscription) =>
+                  subscription.sourceContextName === "catalog" && subscription.projectionName === group.projectionName,
+              )!,
+            ),
+          );
+          if (group.resetStrategy === "truncate-owned-tables" && group.ownedTables.length > 0) {
+            await db.query(`TRUNCATE TABLE ${group.ownedTables.map(assertSqlIdentifier).join(", ")}`);
+          }
+        }),
+      }
+    : group;
+}
 
 function productMeasureSnapshotFromUnknown(value: unknown) {
   return value && typeof value === "object" ? JSON.stringify(value) : null;
@@ -73,6 +112,7 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         productId: string;
         productSummary?: string | null;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityCap: number;
         productMeasureSnapshot?: unknown;
         evidenceRequirements?: unknown;
@@ -86,6 +126,8 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
            product_id,
            catalog_catalog_item_id,
            price_amount,
+           price_currency_code,
+           listing_stream_version,
            listing_quantity_cap,
            product_summary,
            product_measure_snapshot,
@@ -94,25 +136,30 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
            inventory_item_id,
            evidence_requirements,
            evidence
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $12, $13, $14)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              product_id = EXCLUDED.product_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
+             listing_stream_version = EXCLUDED.listing_stream_version,
              listing_quantity_cap = EXCLUDED.listing_quantity_cap,
              product_summary = EXCLUDED.product_summary,
              product_measure_snapshot = EXCLUDED.product_measure_snapshot,
              inventory_item_id = EXCLUDED.inventory_item_id,
              evidence_requirements = EXCLUDED.evidence_requirements,
              evidence = EXCLUDED.evidence,
-             updated_at = EXCLUDED.updated_at`,
+             updated_at = EXCLUDED.updated_at
+         WHERE checkout_marketplace_seller_options.listing_stream_version < EXCLUDED.listing_stream_version`,
         [
           data.listingId,
           data.accountId,
           data.productId,
           data.catalogItemId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
           data.quantityCap,
           data.productSummary ?? null,
           productMeasureSnapshotFromUnknown(data.productMeasureSnapshot),
@@ -221,13 +268,14 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         ],
       );
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
 
-      await db.query(
+      await projectionDb.query(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -247,16 +295,25 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
           event.timing.recordedAt,
         ],
       );
-    },
+    }),
     "marketplace.listing.price-updated": async (event) => {
-      const data = event.data as { priceAmount: string };
+      const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
 
       await db.query(
         `UPDATE checkout_marketplace_seller_options
          SET price_amount = $2,
-             updated_at = $3
-         WHERE listing_id = $1`,
-        [extractIdFromStreamId(event.streamId, "marketplace.listing-"), data.priceAmount, event.timing.recordedAt],
+             price_currency_code = $3,
+             listing_stream_version = $4,
+             updated_at = $5
+         WHERE listing_id = $1
+           AND listing_stream_version < $4`,
+        [
+          extractIdFromStreamId(event.streamId, "marketplace.listing-"),
+          data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
+          event.timing.recordedAt,
+        ],
       );
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {

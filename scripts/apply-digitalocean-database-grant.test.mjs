@@ -1,11 +1,288 @@
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import {
   GRANT_KINDS,
   WAKE_LISTENER_EVENT_STORE_TABLES,
+  managedPostgresGrantUrl,
   quoteIdentifier,
   readGrants,
+  runDatabaseGrantMain,
   statementsForGrant,
 } from "./apply-digitalocean-database-grant.mjs";
+
+const TEST_CERTIFICATE = "-----BEGIN CERTIFICATE-----\nY2EtbWFya2Vy\n-----END CERTIFICATE-----\n";
+const SECRET_MARKERS = [
+  "provider-secret-marker",
+  "password-secret-marker",
+  "grant-json-secret-marker",
+  "ambient-secret-marker",
+  "BEGIN CERTIFICATE",
+  "postgresql://",
+];
+
+// Compile the real body and both independent mutants in one declaration graph.
+// Unique virtual paths keep every diagnostic attributable to exactly one case
+// while the real .d.mts, Node, and pg declarations are parsed only once.
+function grantBoundaryMatrix() {
+  const runtimeSource = readFileSync(new URL("./apply-digitalocean-database-grant.mjs", import.meta.url), "utf8");
+  const cases = [
+    { id: "base", mutate: (source) => source, caller: "" },
+    {
+      id: "implementation-mutant",
+      mutate: (source) =>
+        source
+          .replace("await client.query(statement);", "await client.query({ sql: statement });")
+          .replace("return 0;", 'return "success";'),
+      caller: "",
+    },
+    {
+      id: "caller-mutant",
+      mutate: (source) =>
+        source.replace("export async function applyDatabaseGrants", "async function applyDatabaseGrants"),
+      caller: `boundary.runDatabaseGrantMain({}, { statementsForGrant: () => [42] });`,
+    },
+  ].map((testCase) => {
+    const runtimePath = join(
+      import.meta.dirname,
+      `apply-digitalocean-database-grant.${testCase.id}.implementation.mjs`,
+    ).replaceAll("\\", "/");
+    const callerPath = join(
+      import.meta.dirname,
+      `apply-digitalocean-database-grant.${testCase.id}.boundary.mts`,
+    ).replaceAll("\\", "/");
+    return { ...testCase, runtimePath, callerPath };
+  });
+  const sources = new Map();
+  for (const testCase of cases) {
+    sources.set(testCase.runtimePath, testCase.mutate(runtimeSource));
+    sources.set(
+      testCase.callerPath,
+      `
+      import * as implementation from "./apply-digitalocean-database-grant.${testCase.id}.implementation.mjs";
+      import type * as contract from "./apply-digitalocean-database-grant.mjs";
+      const boundary: typeof contract = implementation;
+      ${testCase.caller}
+    `,
+    );
+  }
+  const options = {
+    allowJs: true,
+    strict: true,
+    skipLibCheck: false,
+    noEmit: true,
+    target: ts.ScriptTarget.ES2022,
+    lib: ["lib.es2022.d.ts"],
+    module: ts.ModuleKind.Preserve,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    types: ["node"],
+  };
+  const host = ts.createCompilerHost(options);
+  host.jsDocParsingMode = ts.JSDocParsingMode.ParseForTypeErrors;
+  const read = host.readFile;
+  const exists = host.fileExists;
+  host.readFile = (path) => sources.get(path.replaceAll("\\", "/")) ?? read(path);
+  host.fileExists = (path) => sources.has(path.replaceAll("\\", "/")) || exists(path);
+  const started = performance.now();
+  const program = ts.createProgram({ rootNames: cases.map(({ callerPath }) => callerPath), options, host });
+  const diagnostics = ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
+    file: diagnostic.file?.fileName.replaceAll("\\", "/"),
+    code: diagnostic.code,
+    message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+  }));
+  const elapsedMs = performance.now() - started;
+  const paths = new Map(
+    cases.flatMap((testCase) => [
+      [testCase.runtimePath, testCase.id],
+      [testCase.callerPath, testCase.id],
+    ]),
+  );
+  const byCase = Object.fromEntries(cases.map(({ id }) => [id, []]));
+  const unpartitioned = [];
+  for (const diagnostic of diagnostics) {
+    const id = paths.get(diagnostic.file);
+    (id ? byCase[id] : unpartitioned).push(diagnostic);
+  }
+  return {
+    byCase,
+    unpartitioned,
+    work: {
+      programs: { before: 3, after: 1 },
+      rootNames: cases.length,
+      virtualSources: sources.size,
+      diagnostics: Object.fromEntries(cases.map(({ id }) => [id, byCase[id].length])),
+      elapsedMs,
+    },
+  };
+}
+
+function documentationFixture(source, extension, jsDocParsingMode) {
+  const path = join(import.meta.dirname, `synthetic-jsdoc-preservation.${extension}`).replaceAll("\\", "/");
+  const options = {
+    allowJs: true,
+    strict: true,
+    skipLibCheck: false,
+    noEmit: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.Preserve,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    types: ["node"],
+  };
+  const host = ts.createCompilerHost(options);
+  host.jsDocParsingMode = jsDocParsingMode;
+  const read = host.readFile;
+  const exists = host.fileExists;
+  host.readFile = (file) => (file.replaceAll("\\", "/") === path ? source : read(file));
+  host.fileExists = (file) => file.replaceAll("\\", "/") === path || exists(file);
+  const program = ts.createProgram({ rootNames: [path], options, host });
+  const describeDiagnostic = (diagnostic) => ({
+    file: diagnostic.file?.fileName.replaceAll("\\", "/"),
+    code: diagnostic.code,
+    category: diagnostic.category,
+    start: diagnostic.start,
+    length: diagnostic.length,
+    message: diagnostic.messageText,
+    relatedInformation: diagnostic.relatedInformation?.map(describeDiagnostic),
+  });
+  const diagnostics = ts
+    .getPreEmitDiagnostics(program)
+    .map(describeDiagnostic)
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  const documentation = [];
+  function visitDocumentation(node) {
+    if (ts.isJSDocSeeTag(node) || ts.isJSDocLink(node)) {
+      documentation.push({ kind: node.kind, start: node.pos, end: node.end, text: node.getText() });
+    }
+    ts.forEachChild(node, visitDocumentation);
+  }
+  function visit(node) {
+    for (const doc of node.jsDoc ?? []) visitDocumentation(doc);
+    ts.forEachChild(node, visit);
+  }
+  visit(program.getSourceFile(path));
+  return { path, diagnostics, documentation };
+}
+
+describe("database grant typed module boundary", () => {
+  it("checks the real boundary and rejects both mutants in one declaration graph", () => {
+    const matrix = grantBoundaryMatrix();
+    expect(matrix.unpartitioned).toEqual([]);
+    expect(matrix.byCase.base).toEqual([]);
+    expect(matrix.byCase["implementation-mutant"]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 2769, message: expect.stringContaining("sql") }),
+        expect.objectContaining({ code: 2322, message: expect.stringContaining("0 | 1") }),
+      ]),
+    );
+    expect(matrix.byCase["caller-mutant"]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 2741, message: expect.stringContaining("applyDatabaseGrants") }),
+        expect.objectContaining({ code: 2322, message: expect.stringContaining("number") }),
+      ]),
+    );
+    console.info(JSON.stringify({ boundaryMatrix: matrix.work }));
+  });
+
+  describe.each([
+    ["ParseAll", ts.JSDocParsingMode.ParseAll],
+    ["ParseForTypeErrors", ts.JSDocParsingMode.ParseForTypeErrors],
+    ["ParseNone rejecting control", ts.JSDocParsingMode.ParseNone],
+  ])("%s", (_name, mode) => {
+    it("retains JS JSDoc type errors", () => {
+      const source = '// @ts-check\n/** @type {number} */\nexport const syntheticValue = "wrong";';
+      const result = documentationFixture(source, "mjs", mode);
+      const expected = [
+        {
+          file: result.path,
+          code: 2322,
+          category: ts.DiagnosticCategory.Error,
+          start: 48,
+          length: 14,
+          message: "Type 'string' is not assignable to type 'number'.",
+          relatedInformation: undefined,
+        },
+      ];
+      if (mode === ts.JSDocParsingMode.ParseNone) {
+        expect(result.diagnostics).toEqual([]);
+        expect(() => expect(result.diagnostics).toEqual(expected)).toThrow();
+      } else {
+        expect(result.diagnostics).toEqual(expected);
+      }
+    });
+
+    it("retains TS see/link parsing and diagnostics", () => {
+      const source =
+        "/** @see syntheticMissingReference */\n/** {@link syntheticMissingReference} */\nexport declare const syntheticValue: number;";
+      const result = documentationFixture(source, "mts", mode);
+      const expected = [
+        { kind: ts.SyntaxKind.JSDocSeeTag, start: 4, end: 34, text: "@see syntheticMissingReference" },
+        { kind: ts.SyntaxKind.JSDocLink, start: 42, end: 75, text: "{@link syntheticMissingReference}" },
+      ];
+      expect(result.diagnostics).toEqual([]);
+      if (mode === ts.JSDocParsingMode.ParseNone) {
+        expect(result.documentation).toEqual([]);
+        expect(() => expect(result.documentation).toEqual(expected)).toThrow();
+      } else {
+        expect(result.documentation).toEqual(expected);
+      }
+    });
+  });
+});
+
+function grantEnvironment(overrides = {}) {
+  return {
+    DATABASE_GRANTS_JSON: JSON.stringify([
+      { database: "database_a", user: "owner_a" },
+      { database: "database_b", user: "listener_b", kind: "wake-listener" },
+    ]),
+    DIGITALOCEAN_ACCESS_TOKEN: "provider-secret-marker",
+    DIGITALOCEAN_DATABASE_CLUSTER_ID: "cluster-exact-7312",
+    PGHOST: "managed-db.example.test",
+    PGPASSWORD: "password-secret-marker",
+    PGPORT: "25060",
+    PGUSER: "cluster_admin",
+    PGHOSTADDR: "ambient-secret-marker",
+    PGSERVICE: "ambient-secret-marker",
+    PGDATABASE: "ambient-secret-marker",
+    PGSSLMODE: "disable",
+    PGSSLROOTCERT: "ambient-secret-marker",
+    NODE_TLS_REJECT_UNAUTHORIZED: "0",
+    ...overrides,
+  };
+}
+
+function providerCaResponse(payload = { ca: { certificate: Buffer.from(TEST_CERTIFICATE).toString("base64") } }) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function testTemporaryRoot() {
+  return mkdtemp(join(tmpdir(), "grant-tls-unit-"));
+}
+
+function outputRecorder() {
+  const stdout = [];
+  const stderr = [];
+  return {
+    stdout,
+    stderr,
+    log: (value) => stdout.push(String(value)),
+    error: (value) => stderr.push(String(value)),
+    retained: () => JSON.stringify({ stdout, stderr }),
+  };
+}
+
+function expectCredentialSafeOutput(output) {
+  for (const marker of SECRET_MARKERS) {
+    expect(output).not.toContain(marker);
+  }
+}
 
 describe("database grant kinds", () => {
   it("keeps owner grants on the existing full-usage statements", () => {
@@ -85,5 +362,386 @@ describe("grant input parsing", () => {
     expect(readGrants({ DATABASE_GRANT_NAME: "db_a", DATABASE_GRANT_USER: "user_a" })).toEqual([
       { database: "db_a", user: "user_a", kind: "owner" },
     ]);
+  });
+});
+
+describe("managed Postgres grant TLS main", () => {
+  it("fetches the exact cluster CA once and creates one canonical verified client per ordered grant", async () => {
+    const root = await testTemporaryRoot();
+    const output = outputRecorder();
+    const providerRequests = [];
+    const clientConfigs = [];
+    const canonicalUrls = [];
+    const queries = [];
+    const modes = [];
+    let ended = 0;
+
+    class RecordingClient {
+      constructor(config) {
+        clientConfigs.push(config);
+        const caPath = new URL(canonicalUrls.at(-1)).searchParams.get("sslrootcert");
+        modes.push({
+          directory: statSync(dirname(caPath)).mode & 0o777,
+          file: statSync(caPath).mode & 0o777,
+        });
+      }
+
+      async connect() {}
+
+      async query(statement) {
+        queries.push(statement);
+      }
+
+      async end() {
+        ended += 1;
+      }
+    }
+
+    try {
+      const result = await runDatabaseGrantMain(grantEnvironment(), {
+        ...output,
+        Client: RecordingClient,
+        managedPostgresGrantUrl: (grant, env, caPath) => {
+          const url = managedPostgresGrantUrl(grant, env, caPath);
+          canonicalUrls.push(url);
+          return url;
+        },
+        tmpdir: () => root,
+        fetch: async (url, options) => {
+          providerRequests.push({ url, options });
+          return providerCaResponse();
+        },
+      });
+
+      expect(result).toBe(0);
+      expect(providerRequests).toEqual([
+        {
+          url: "https://api.digitalocean.com/v2/databases/cluster-exact-7312/ca",
+          options: {
+            headers: {
+              Accept: "application/json",
+              Authorization: "Bearer provider-secret-marker",
+            },
+          },
+        },
+      ]);
+      expect(clientConfigs).toHaveLength(2);
+      expect(
+        canonicalUrls.map((connectionString) => {
+          const url = new URL(connectionString);
+          return {
+            host: url.hostname,
+            port: url.port,
+            database: decodeURIComponent(url.pathname.slice(1)),
+            sslmode: url.searchParams.get("sslmode"),
+            sslrootcert: url.searchParams.get("sslrootcert"),
+            uselibpqcompat: url.searchParams.get("uselibpqcompat"),
+          };
+        }),
+      ).toEqual([
+        {
+          host: "managed-db.example.test",
+          port: "25060",
+          database: "database_a",
+          sslmode: "verify-full",
+          sslrootcert: expect.stringMatching(/ca\.crt$/),
+          uselibpqcompat: "true",
+        },
+        {
+          host: "managed-db.example.test",
+          port: "25060",
+          database: "database_b",
+          sslmode: "verify-full",
+          sslrootcert: expect.stringMatching(/ca\.crt$/),
+          uselibpqcompat: "true",
+        },
+      ]);
+      for (const config of clientConfigs) {
+        expect(config.ssl).toEqual({
+          rejectUnauthorized: true,
+          ca: TEST_CERTIFICATE,
+          checkServerIdentity: expect.any(Function),
+        });
+        expect(config).not.toHaveProperty("connectionString");
+        expect(config).toMatchObject({
+          host: "managed-db.example.test",
+          port: 25060,
+          user: "cluster_admin",
+          password: "password-secret-marker",
+        });
+        expect(
+          config.ssl.checkServerIdentity("localhost", { subjectaltname: "DNS:managed-db.example.test" }),
+        ).toBeUndefined();
+        expect(config.ssl.checkServerIdentity("localhost", { subjectaltname: "DNS:localhost" })).toMatchObject({
+          code: "ERR_TLS_CERT_ALTNAME_INVALID",
+        });
+      }
+      expect(clientConfigs.map(({ database }) => database)).toEqual(["database_a", "database_b"]);
+      if (process.platform !== "win32") {
+        expect(modes).toEqual([
+          { directory: 0o700, file: 0o600 },
+          { directory: 0o700, file: 0o600 },
+        ]);
+      }
+      expect(queries).toEqual([
+        ...statementsForGrant({ database: "database_a", user: "owner_a", kind: "owner" }),
+        ...statementsForGrant({ database: "database_b", user: "listener_b", kind: "wake-listener" }),
+      ]);
+      expect(ended).toBe(2);
+      expect(readdirSync(root)).toEqual([]);
+      expect(output.stderr).toEqual([]);
+      expect(output.stdout).toEqual([
+        JSON.stringify({ classification: "managed-postgres-grants-applied", grantCount: 2 }),
+      ]);
+      expectCredentialSafeOutput(output.retained());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      name: "withheld cluster identity",
+      env: { DIGITALOCEAN_DATABASE_CLUSTER_ID: "" },
+      fetch: async () => {
+        throw new Error("fetch must not run");
+      },
+      classification: "managed-postgres-grant-input-invalid",
+    },
+    {
+      name: "withheld token",
+      env: { DIGITALOCEAN_ACCESS_TOKEN: "" },
+      fetch: async () => {
+        throw new Error("fetch must not run");
+      },
+      classification: "missing-digitalocean-token",
+    },
+    {
+      name: "withheld CA",
+      fetch: async () => providerCaResponse({ ca: {} }),
+      classification: "digitalocean-ca-response-invalid",
+      status: 200,
+    },
+    {
+      name: "malformed provider payload",
+      fetch: async () =>
+        new Response("provider-secret-marker malformed", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      classification: "digitalocean-ca-response-invalid",
+      status: 200,
+    },
+    {
+      name: "rejected provider response",
+      fetch: async () =>
+        new Response("provider-secret-marker rejected", {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        }),
+      classification: "digitalocean-ca-request-rejected",
+      status: 403,
+    },
+    {
+      name: "provider request failure",
+      fetch: async () => {
+        throw new Error("provider-secret-marker request");
+      },
+      classification: "digitalocean-ca-request-failed",
+    },
+  ])("fails closed for $name without creating or retaining a trust path", async (testCase) => {
+    const root = await testTemporaryRoot();
+    const output = outputRecorder();
+    try {
+      const result = await runDatabaseGrantMain(grantEnvironment(testCase.env), {
+        ...output,
+        tmpdir: () => root,
+        fetch: testCase.fetch,
+        Client: class RefusedClient {
+          constructor() {
+            throw new Error("client must not be constructed");
+          }
+        },
+      });
+
+      expect(result).toBe(1);
+      expect(output.stdout).toEqual([]);
+      expect(JSON.parse(output.stderr.at(-1))).toEqual({
+        classification: testCase.classification,
+        ...(testCase.status ? { status: testCase.status } : {}),
+      });
+      expect(readdirSync(root)).toEqual([]);
+      expectCredentialSafeOutput(output.retained());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      name: "missing sslmode",
+      mutate: (url) => url.searchParams.delete("sslmode"),
+      classification: "managed-postgres-grant-trust-invalid",
+    },
+    {
+      name: "downgraded sslmode",
+      mutate: (url) => url.searchParams.set("sslmode", "require"),
+      classification: "managed-postgres-grant-trust-invalid",
+    },
+    {
+      name: "missing CA path",
+      mutate: (url) => url.searchParams.delete("sslrootcert"),
+      classification: "managed-postgres-grant-trust-invalid",
+    },
+    {
+      name: "wrong CA path",
+      mutate: (url) => url.searchParams.set("sslrootcert", "wrong-ca-secret-marker"),
+      classification: "managed-postgres-grant-trust-invalid",
+    },
+    {
+      name: "missing libpq compatibility",
+      mutate: (url) => url.searchParams.delete("uselibpqcompat"),
+      classification: "managed-postgres-grant-trust-invalid",
+    },
+    {
+      name: "ambient hostaddr escape",
+      mutate: (url) => url.searchParams.set("hostaddr", "ambient-secret-marker"),
+      classification: "managed-postgres-grant-trust-invalid",
+    },
+    {
+      name: "wrong hostname",
+      mutate: (url) => {
+        url.hostname = "wrong-host.example.test";
+      },
+      classification: "managed-postgres-grant-authority-mismatch",
+    },
+    {
+      name: "first database pinned",
+      mutate: (url) => {
+        url.pathname = "/database_a";
+      },
+      classification: "managed-postgres-grant-authority-mismatch",
+    },
+  ])("rejects the $name bypass mutant at the exact URL/client boundary", async ({ name, mutate, classification }) => {
+    const root = await testTemporaryRoot();
+    const output = outputRecorder();
+    let constructed = 0;
+    try {
+      const result = await runDatabaseGrantMain(grantEnvironment(), {
+        ...output,
+        tmpdir: () => root,
+        fetch: async () => providerCaResponse(),
+        managedPostgresGrantUrl: (grant, env, caPath) => {
+          const url = new URL(managedPostgresGrantUrl(grant, env, caPath));
+          if (grant.database === "database_b" || !["first database pinned"].includes(name)) mutate(url);
+          return url.toString();
+        },
+        Client: class RefusedClient {
+          constructor() {
+            constructed += 1;
+          }
+
+          async connect() {}
+
+          async query() {}
+
+          async end() {}
+        },
+      });
+
+      expect(result).toBe(1);
+      expect(constructed).toBe(name === "first database pinned" ? 1 : 0);
+      expect(JSON.parse(output.stderr.at(-1))).toEqual({ classification });
+      expect(readdirSync(root)).toEqual([]);
+      expectCredentialSafeOutput(output.retained());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { stage: "CA write", classification: "managed-postgres-grant-ca-write-failed" },
+    { stage: "missing CA file", classification: "certificate-authority-file-unavailable" },
+    { stage: "connect", classification: "postgres-connect-failed" },
+    { stage: "grant query", classification: "postgres-grant-query-failed" },
+  ])("removes the whole process-owned trust path after $stage failure", async ({ stage, classification }) => {
+    const root = await testTemporaryRoot();
+    const output = outputRecorder();
+    let ownedPath;
+    class FailingClient {
+      async connect() {
+        if (stage === "connect") throw new Error("password-secret-marker connect");
+      }
+
+      async query() {
+        if (stage === "grant query") throw new Error("grant-json-secret-marker query");
+      }
+
+      async end() {}
+    }
+
+    try {
+      const result = await runDatabaseGrantMain(grantEnvironment(), {
+        ...output,
+        tmpdir: () => root,
+        fetch: async () => providerCaResponse(),
+        Client: FailingClient,
+        mkdtemp: async (prefix) => {
+          ownedPath = await mkdtemp(prefix);
+          return ownedPath;
+        },
+        ...(stage === "CA write"
+          ? {
+              writeManagedPostgresCa: async (caPath) => {
+                ownedPath = dirname(caPath);
+                throw new Error("provider-secret-marker write");
+              },
+            }
+          : {}),
+        ...(stage === "missing CA file" ? { writeManagedPostgresCa: async () => undefined } : {}),
+      });
+
+      expect(result).toBe(1);
+      expect(JSON.parse(output.stderr.at(-1))).toMatchObject({ classification });
+      expect(ownedPath ? existsSync(ownedPath) : false).toBe(false);
+      expect(readdirSync(root)).toEqual([]);
+      expectCredentialSafeOutput(output.retained());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("detects the no-finally cleanup bypass mutant after an injected connect failure", async () => {
+    const root = await testTemporaryRoot();
+    const output = outputRecorder();
+    let ownedPath;
+    class FailingClient {
+      async connect() {
+        throw new Error("password-secret-marker connect");
+      }
+
+      async end() {}
+    }
+
+    try {
+      const result = await runDatabaseGrantMain(grantEnvironment(), {
+        ...output,
+        tmpdir: () => root,
+        fetch: async () => providerCaResponse(),
+        Client: FailingClient,
+        mkdtemp: async (prefix) => {
+          ownedPath = await mkdtemp(prefix);
+          return ownedPath;
+        },
+        rm: async () => undefined,
+      });
+
+      expect(result).toBe(1);
+      expect(ownedPath && existsSync(ownedPath)).toBe(true);
+      expect(JSON.parse(output.stderr.at(-1))).toMatchObject({ classification: "postgres-connect-failed" });
+      expectCredentialSafeOutput(output.retained());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

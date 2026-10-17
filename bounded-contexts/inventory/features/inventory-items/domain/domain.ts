@@ -2,7 +2,13 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import type {
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
+  AcquisitionOccurrence,
+  InventoryItemCreatedPayload,
+  InventoryItemOfflineSaleRecordedPayload,
+  InventoryOfflineSaleChannel,
 } from "@chase-sets/event-core/public-event-payloads";
+import { inventoryOfflineSaleChannels } from "@chase-sets/event-core/public-event-payloads";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -25,6 +31,7 @@ export type InventoryItemState = Readonly<{
   storageLocationId: string | null;
   totalQuantity: number;
   acquisitionCostAmount: string | null;
+  acquisitionCostCurrencyCode: string | null;
 }>;
 
 export type GradedCardPopulation = Readonly<{
@@ -52,6 +59,7 @@ export const initialInventoryItemState: InventoryItemState = {
   storageLocationId: null,
   totalQuantity: 0,
   acquisitionCostAmount: null,
+  acquisitionCostCurrencyCode: null,
 };
 
 export type CreateInventoryItemCommand = Readonly<{
@@ -66,6 +74,9 @@ export type CreateInventoryItemCommand = Readonly<{
   storageLocationId: string;
   totalQuantity: number;
   acquisitionCostAmount?: string | null;
+  acquisitionCostCurrencyCode?: string | null;
+  acquisitionOccurrence: AcquisitionOccurrence;
+  commandOccurredAt: string;
 }>;
 
 export type AdjustInventoryItemQuantityCommand = Readonly<{
@@ -77,6 +88,25 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   reasonCode?: InventoryAdjustmentReason;
   note?: string | null;
   sourceRef?: InventoryAdjustmentSourceRef;
+  acquisitionOccurrence?: AcquisitionOccurrence;
+  commandOccurredAt?: string;
+}>;
+
+export type RecordOfflineSaleCommand = Readonly<{
+  type: "RecordOfflineSale";
+  csatOutcomeFact?: JsonObject;
+  quantity: number;
+  heldQuantity: number;
+  salePriceAmount?: string | null;
+  channel: InventoryOfflineSaleChannel;
+  note?: string | null;
+  recordedAt: string;
+}>;
+
+export type RecordExternalChannelSaleAdjustmentCommand = Readonly<{
+  type: "RecordExternalChannelSaleAdjustment";
+  quantity: number;
+  heldQuantity: number;
 }>;
 
 export type ClaimInventoryStockAuthorityCommand = Readonly<{
@@ -89,22 +119,23 @@ export type ClaimInventoryStockAuthorityCommand = Readonly<{
 export type InventoryItemCommand =
   | CreateInventoryItemCommand
   | AdjustInventoryItemQuantityCommand
+  | RecordOfflineSaleCommand
+  | RecordExternalChannelSaleAdjustmentCommand
   | ClaimInventoryStockAuthorityCommand;
 
 export type InventoryItemCreatedEvent = DomainEvent<
   "inventory.item.created",
-  Readonly<{
-    itemId: InventoryItemId;
-    accountId: AccountId;
-    catalogItemId: CatalogItemId;
-    productId: ProductKey;
-    selectedOptions: InventorySelectedOptionEntry[];
-    gradedCard: GradedCardDetails | null;
-    storageLocationId: string;
-    totalQuantity: number;
-    acquisitionCostAmount: string | null;
-    csatOutcomeFact?: JsonObject;
-  }>
+  InventoryItemCreatedPayload &
+    Readonly<{
+      itemId: InventoryItemId;
+      accountId: AccountId;
+      catalogItemId: CatalogItemId;
+      productId: ProductKey;
+      selectedOptions: InventorySelectedOptionEntry[];
+      gradedCard: GradedCardDetails | null;
+      storageLocationId: string;
+      csatOutcomeFact?: JsonObject;
+    }>
 >;
 
 export type InventoryItemAdjustedEvent = DomainEvent<
@@ -116,6 +147,7 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     reasonCode?: InventoryAdjustmentReason;
     note?: string | null;
     sourceRef?: InventoryAdjustmentSourceRef;
+    acquisitionOccurrence?: AcquisitionOccurrence;
     csatOutcomeFact?: JsonObject;
   }>
 >;
@@ -130,9 +162,15 @@ export type InventoryItemStockAuthorityClaimedEvent = DomainEvent<
   }>
 >;
 
+export type InventoryItemOfflineSaleRecordedEvent = DomainEvent<
+  "inventory.item.offline-sale-recorded",
+  InventoryItemOfflineSaleRecordedPayload
+>;
+
 export type InventoryItemEvent =
   | InventoryItemCreatedEvent
   | InventoryItemAdjustedEvent
+  | InventoryItemOfflineSaleRecordedEvent
   | InventoryItemStockAuthorityClaimedEvent;
 
 export const decideInventoryItem: AggregateDecider<InventoryItemState, InventoryItemCommand, InventoryItemEvent> = (
@@ -143,6 +181,14 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
     case "CreateInventoryItem":
       assert(state.id === null, "Inventory item has already been created.");
       ensurePositiveInteger(command.totalQuantity, "Inventory items require a positive total quantity.");
+      const createAcquisitionOccurrence = normalizeAcquisitionOccurrence(
+        command.acquisitionOccurrence,
+        command.commandOccurredAt,
+      );
+      const acquisitionCost = normalizeAcquisitionCost(
+        command.acquisitionCostAmount,
+        command.acquisitionCostCurrencyCode,
+      );
       return [
         {
           type: "inventory.item.created",
@@ -158,7 +204,9 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             gradedCard: normalizeGradedCardDetails(command.gradedCard ?? null),
             storageLocationId: normalizeLabel(command.storageLocationId),
             totalQuantity: command.totalQuantity,
-            acquisitionCostAmount: command.acquisitionCostAmount ?? null,
+            acquisitionCostAmount: acquisitionCost.amount,
+            acquisitionCostCurrencyCode: acquisitionCost.currencyCode,
+            acquisitionOccurrence: createAcquisitionOccurrence,
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
@@ -169,10 +217,22 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
       ensureInteger(command.heldQuantity, "Inventory adjustments require a whole-number held quantity.");
       assert(command.heldQuantity >= 0, "Inventory held quantity cannot be negative.");
       assert(command.quantityDelta !== 0, "Quantity adjustments must change inventory.");
+      assert(
+        command.reasonCode !== "sold-external-channel",
+        "External channel sale adjustments require the Inventory-owned external sale command.",
+      );
       assert(state.totalQuantity + command.quantityDelta >= 0, "Inventory quantity cannot fall below zero.");
       assert(
         state.totalQuantity + command.quantityDelta >= command.heldQuantity,
         `${command.heldQuantity} units are committed to open orders.`,
+      );
+      const adjustmentAcquisitionOccurrence =
+        command.quantityDelta > 0
+          ? normalizeAcquisitionOccurrence(command.acquisitionOccurrence, command.commandOccurredAt)
+          : undefined;
+      assert(
+        command.quantityDelta > 0 || command.acquisitionOccurrence === undefined,
+        "Stock reductions cannot claim an acquisition occurrence.",
       );
       return [
         {
@@ -184,10 +244,78 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             ...(command.reasonCode !== undefined ? { reasonCode: command.reasonCode } : {}),
             ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
             sourceRef: command.sourceRef ?? null,
+            ...(adjustmentAcquisitionOccurrence ? { acquisitionOccurrence: adjustmentAcquisitionOccurrence } : {}),
             ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
           },
         },
       ];
+    case "RecordExternalChannelSaleAdjustment":
+      requireCreatedInventoryItem(state);
+      ensurePositiveInteger(command.quantity, "External channel sales require a positive applied quantity.");
+      ensureInteger(command.heldQuantity, "External channel sales require a whole-number held quantity.");
+      assert(command.heldQuantity >= 0, "Inventory held quantity cannot be negative.");
+      assert(state.totalQuantity - command.quantity >= 0, "Inventory quantity cannot fall below zero.");
+      assert(
+        state.totalQuantity - command.quantity >= command.heldQuantity,
+        `${command.heldQuantity} units are committed to open orders.`,
+      );
+      return [
+        {
+          type: "inventory.item.adjusted",
+          data: {
+            itemId: state.id!,
+            quantityDelta: -command.quantity,
+            reason: "External channel sale",
+            reasonCode: "sold-external-channel",
+            sourceRef: null,
+          },
+        },
+      ];
+    case "RecordOfflineSale": {
+      requireCreatedInventoryItem(state);
+      ensurePositiveInteger(command.quantity, "Offline sales require a positive whole-number quantity.");
+      ensureInteger(command.heldQuantity, "Offline sales require a whole-number held quantity.");
+      assert(command.heldQuantity >= 0, "Inventory held quantity cannot be negative.");
+      assert(state.totalQuantity - command.quantity >= 0, "Inventory quantity cannot fall below zero.");
+      assert(
+        state.totalQuantity - command.quantity >= command.heldQuantity,
+        `${command.heldQuantity} units are committed to open orders.`,
+      );
+      assert(inventoryOfflineSaleChannels.includes(command.channel), "Offline sales require a supported channel.");
+      const salePriceAmount =
+        command.salePriceAmount === undefined || command.salePriceAmount === null
+          ? null
+          : normalizeMoneyAmount(command.salePriceAmount);
+      const recordedAt = new Date(command.recordedAt);
+      assert(!Number.isNaN(recordedAt.getTime()), "Offline sales require a valid server-recorded time.");
+
+      return [
+        {
+          type: "inventory.item.adjusted",
+          data: {
+            itemId: state.id!,
+            quantityDelta: -command.quantity,
+            reason: "Offline sale",
+            reasonCode: "sold-offline",
+            ...(command.note !== undefined ? { note: normalizeOptionalText(command.note) } : {}),
+            sourceRef: null,
+            ...(command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {}),
+          },
+        },
+        {
+          type: "inventory.item.offline-sale-recorded",
+          data: {
+            itemId: state.id!,
+            quantity: command.quantity,
+            salePriceAmount,
+            channel: command.channel,
+            storageLocationId: state.storageLocationId!,
+            acquisitionCostAmount: state.acquisitionCostAmount,
+            recordedAt: recordedAt.toISOString(),
+          },
+        },
+      ];
+    }
     case "ClaimInventoryStockAuthority":
       requireCreatedInventoryItem(state);
       ensurePositiveInteger(command.quantity, "Inventory stock authority requires a positive quantity.");
@@ -220,12 +348,15 @@ export const evolveInventoryItem: AggregateEvolver<InventoryItemState, Inventory
         storageLocationId: event.data.storageLocationId,
         totalQuantity: event.data.totalQuantity,
         acquisitionCostAmount: event.data.acquisitionCostAmount,
+        acquisitionCostCurrencyCode: event.data.acquisitionCostCurrencyCode ?? null,
       };
     case "inventory.item.adjusted":
       return {
         ...state,
         totalQuantity: state.totalQuantity + event.data.quantityDelta,
       };
+    case "inventory.item.offline-sale-recorded":
+      return state;
     case "inventory.item.stock-authority-claimed":
       return state;
     default:
@@ -240,6 +371,59 @@ function requireCreatedInventoryItem(state: InventoryItemState) {
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeAcquisitionCost(
+  amount: string | null | undefined,
+  currencyCode: string | null | undefined,
+): Readonly<{ amount: string | null; currencyCode: string | null }> {
+  const hasAmount = amount !== null && amount !== undefined;
+  const hasCurrency = currencyCode !== null && currencyCode !== undefined;
+  assert(hasAmount === hasCurrency, "Acquisition cost amount and currency must be supplied together.");
+  if (!hasAmount || !hasCurrency) return { amount: null, currencyCode: null };
+  assert(/^[A-Z]{3}$/.test(currencyCode), "Acquisition cost currency must be an uppercase three-letter code.");
+  return {
+    amount: normalizeMoneyAmount(amount),
+    currencyCode,
+  };
+}
+
+function normalizeAcquisitionOccurrence(
+  occurrence: AcquisitionOccurrence | undefined,
+  commandOccurredAt: string | undefined,
+): AcquisitionOccurrence {
+  assert(occurrence !== undefined, "Positive inventory quantities require an explicit acquisition occurrence.");
+  const commandAt = parseOccurrenceInstant(commandOccurredAt, "Inventory command occurrence");
+  const keys = Object.keys(occurrence).sort();
+  if (occurrence.kind === "unknown") {
+    assert(keys.length === 1 && keys[0] === "kind", "Unknown acquisition occurrence must contain only kind.");
+    return { kind: "unknown" };
+  }
+  assert(occurrence.kind === "occurred", "Acquisition occurrence kind is not supported.");
+  assert(
+    keys.join("\u0000") === ["kind", "occurredAt", "source"].join("\u0000"),
+    "Occurred acquisition occurrence must contain exactly kind, occurredAt, and source.",
+  );
+  assert(
+    occurrence.source === "seller-supplied" || occurrence.source === "import-supplied",
+    "Acquisition occurrence source is not supported.",
+  );
+  const occurredAt = parseOccurrenceInstant(occurrence.occurredAt, "Acquisition occurrence");
+  assert(
+    Date.parse(occurredAt) <= Date.parse(commandAt),
+    "Acquisition occurrence cannot be later than the Inventory command occurrence.",
+  );
+  return { kind: "occurred", occurredAt, source: occurrence.source };
+}
+
+function parseOccurrenceInstant(value: unknown, name: string): string {
+  assert(
+    typeof value === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+      Number.isFinite(Date.parse(value)),
+    `${name} must be a timezone-bearing RFC3339 instant.`,
+  );
+  return value;
 }
 
 function normalizeGradedCardDetails(details: GradedCardDetails | null): GradedCardDetails | null {

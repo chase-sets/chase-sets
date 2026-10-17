@@ -11,6 +11,11 @@ import {
   ZERO_GLOBAL_POSITION,
   toTransportEvent,
 } from "@chase-sets/event-core";
+import { createTransientProjectionError } from "@chase-sets/event-core/projector";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { compareGlobalPosition, EVENT_STORE_READ_PAGE_SIZE_MAX } from "@chase-sets/event-core/storage";
+import type { TransportEvent } from "@chase-sets/event-core/transport";
+import { isDeepStrictEqual } from "node:util";
 import type {
   ProjectionBlockedStream,
   ProjectionPoisonEvent,
@@ -509,6 +514,69 @@ export function createSubscriptionRunner(
   );
   const cascadeChunkSize = normalizeCascadeChunkSize(subscription.projectionCascadeChunkSize);
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
+  const sourceHistoryReader = (trigger: TransportEvent, context?: ProjectionRunContext) => {
+    // Capture the invocation, not a mutable cursor or a caller-selected stream.
+    const bound = structuredClone(trigger);
+    return async (): Promise<readonly TransportEvent[]> => {
+      context?.throwIfLeaseLost?.();
+      if (
+        !matchesSubscriptionEvent(bound, { ...subscription, eventTypes: subscriptionEventTypes }) ||
+        !Number.isSafeInteger(bound.streamVersion) ||
+        bound.streamVersion < 1
+      ) {
+        throw new Error(`Invalid source history trigger '${bound.id}' on '${bound.streamId}'.`);
+      }
+      const history = await readCompleteStream(
+        {
+          readStream: async ({ fromVersion = 1, limit = EVENT_STORE_READ_PAGE_SIZE_MAX }) => {
+            context?.throwIfLeaseLost?.();
+            if (fromVersion > bound.streamVersion) return [];
+            const pageLimit = Math.min(limit, EVENT_STORE_READ_PAGE_SIZE_MAX, bound.streamVersion - fromVersion + 1);
+            let page;
+            try {
+              page = await sourceEventStore.readStream({ streamId: bound.streamId, fromVersion, limit: pageLimit });
+            } catch (error) {
+              if (isPgRetryableTransientError(error)) {
+                throw createTransientProjectionError(
+                  `Source history unavailable for '${bound.streamId}': ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+              throw error;
+            }
+            context?.throwIfLeaseLost?.();
+            if (
+              page.length > pageLimit ||
+              page.some(
+                (event) =>
+                  event.streamId !== bound.streamId ||
+                  event.tenantId !== bound.tenantId ||
+                  !Number.isSafeInteger(event.streamVersion) ||
+                  event.streamVersion < 1 ||
+                  event.streamVersion > bound.streamVersion ||
+                  compareGlobalPosition(event.globalPosition, bound.globalPosition) > 0,
+              )
+            ) {
+              throw new Error(`Invalid source history page for '${bound.streamId}' through '${bound.id}'.`);
+            }
+            return page;
+          },
+        },
+        { streamId: bound.streamId },
+      );
+      context?.throwIfLeaseLost?.();
+      const last = history.at(-1);
+      if (
+        !last ||
+        history.length !== bound.streamVersion ||
+        !isDeepStrictEqual(structuredClone(toTransportEvent(last)), bound)
+      ) {
+        throw new Error(`Incomplete or contradictory source history for '${bound.streamId}' through '${bound.id}'.`);
+      }
+      return history
+        .map(toTransportEvent)
+        .filter((event) => matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }));
+    };
+  };
   const status: {
     checkpointKey: string;
     subscriptionName: string;
@@ -573,10 +641,13 @@ export function createSubscriptionRunner(
     return sourceHead;
   };
   const shouldPersistIdleCheckpointFastForward = (
-    fromGlobalPosition: GlobalPosition,
+    fromGlobalPosition: GlobalPosition | null,
     toGlobalPosition: GlobalPosition,
     force = false,
   ): boolean => {
+    if (fromGlobalPosition === null) {
+      return true;
+    }
     const gap = BigInt(toGlobalPosition) - BigInt(fromGlobalPosition);
     if (gap <= 0n) {
       return false;
@@ -588,7 +659,7 @@ export function createSubscriptionRunner(
     return Date.now() - lastIdleCheckpointFastForwardAtMs >= IDLE_CHECKPOINT_FAST_FORWARD_HEARTBEAT_MS;
   };
   const persistIdleCheckpointFastForward = async (
-    fromGlobalPosition: GlobalPosition,
+    fromGlobalPosition: GlobalPosition | null,
     toGlobalPosition: GlobalPosition,
     saveCheckpoint: (lastGlobalPosition: GlobalPosition) => Promise<void>,
     force = false,
@@ -733,7 +804,11 @@ export function createSubscriptionRunner(
                 }
 
                 await runInProjectionDbContext(client, () =>
-                  handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                  handler(event, {
+                    db: client,
+                    throwIfLeaseLost: context?.throwIfLeaseLost,
+                    readSourceStreamHistory: sourceHistoryReader(event, context),
+                  }),
                 );
                 context?.throwIfLeaseLost?.();
                 await recordSubscriptionApplicationCompleted(
@@ -848,19 +923,28 @@ export function createSubscriptionRunner(
       status.state = "running";
       status.lastError = null;
       status.updatedAt = new Date().toISOString();
+      let hasPersistedCheckpoint = false;
       const saveLeasedSubscriptionCheckpoint = async (lastGlobalPosition: GlobalPosition) => {
         context?.throwIfLeaseLost?.();
         await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition, context);
+        hasPersistedCheckpoint = true;
       };
 
       try {
         const recoveryState = await loadSubscriptionCheckpointRecoveryState(targetPool, checkpointKey);
-        const storedCheckpoint = recoveryState.recoveryRequired ? null : recoveryState.checkpoint;
-        const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
-        status.initialized = storedCheckpoint !== null;
         status.recoveryRequired = recoveryState.recoveryRequired;
+        hasPersistedCheckpoint = recoveryState.checkpoint !== null && !recoveryState.recoveryRequired;
+        status.initialized = hasPersistedCheckpoint;
+        if (recoveryState.recoveryRequired) {
+          throw new Error(
+            `Subscription '${checkpointKey}' recovery requires a committed projection group reset before replay.`,
+          );
+        }
+        const storedCheckpoint = recoveryState.checkpoint;
+        const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
         status.lastGlobalPosition = checkpoint;
-        status.sourceHeadGlobalPosition = await readSourceHeadForRun(context);
+        const sourceHeadGlobalPosition = await readSourceHeadForRun(context);
+        status.sourceHeadGlobalPosition = sourceHeadGlobalPosition;
         status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
         applyLagMetrics(status);
 
@@ -872,21 +956,27 @@ export function createSubscriptionRunner(
         });
 
         if (storedEvents.length === 0) {
+          const lastGlobalPosition = isGlobalPositionGreater(checkpoint, sourceHeadGlobalPosition)
+            ? checkpoint
+            : sourceHeadGlobalPosition;
           await persistIdleCheckpointFastForward(
-            checkpoint,
-            status.sourceHeadGlobalPosition,
+            storedCheckpoint,
+            lastGlobalPosition,
             saveLeasedSubscriptionCheckpoint,
             context?.settleIdleCheckpoints === true,
           );
           const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
           status.blockedStreamCount = errorSummary.blockedStreamCount;
           status.poisonEventCount = errorSummary.poisonEventCount;
-          status.initialized = true;
-          status.lastGlobalPosition = status.sourceHeadGlobalPosition;
-          status.outstandingEventCount = "0";
-          applyLagMetrics(status, "0");
-          status.state = deriveSubscriptionReplayState(
+          status.initialized = hasPersistedCheckpoint;
+          status.lastGlobalPosition = lastGlobalPosition;
+          status.outstandingEventCount = calculateOutstandingEventCount(
+            lastGlobalPosition,
             status.sourceHeadGlobalPosition,
+          );
+          applyLagMetrics(status, status.outstandingEventCount === "0" ? "0" : null);
+          status.state = deriveSubscriptionReplayState(
+            lastGlobalPosition,
             status.sourceHeadGlobalPosition,
             errorSummary,
           );
@@ -894,8 +984,8 @@ export function createSubscriptionRunner(
 
           return {
             processed: 0,
-            lastGlobalPosition: status.sourceHeadGlobalPosition,
-            state: status.state === "degraded" ? "degraded" : "caught-up",
+            lastGlobalPosition,
+            state: status.state === "behind" ? "running" : status.state,
             blockedStreams: status.blockedStreamCount,
             poisonEvents: status.poisonEventCount,
           };
@@ -1002,7 +1092,11 @@ export function createSubscriptionRunner(
                     });
                     await runInProjectionCascadeContext(cascadeController, () =>
                       runInProjectionDbContext(client, () =>
-                        handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                        handler(event, {
+                          db: client,
+                          throwIfLeaseLost: context?.throwIfLeaseLost,
+                          readSourceStreamHistory: sourceHistoryReader(event, context),
+                        }),
                       ),
                     );
                     context?.throwIfLeaseLost?.();
@@ -1187,7 +1281,11 @@ export function createSubscriptionRunner(
                 try {
                   const runHandler = () =>
                     runInProjectionDbContext(client, () =>
-                      handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                      handler(event, {
+                        db: client,
+                        throwIfLeaseLost: context?.throwIfLeaseLost,
+                        readSourceStreamHistory: sourceHistoryReader(event, context),
+                      }),
                     );
                   await (cascadeController
                     ? runInProjectionCascadeContext(cascadeController, runHandler)
@@ -1270,17 +1368,15 @@ export function createSubscriptionRunner(
         // A cascade still in progress leaves an unapplied event at
         // `lastGlobalPosition + 1`; the idle tail fast-forward must not skip it.
         if (storedEvents.length < batchSize && !progress.cascadeInProgress) {
-          const observedSourceHeadGlobalPosition = isGlobalPositionGreater(
-            lastGlobalPosition,
-            status.sourceHeadGlobalPosition,
-          )
+          // Only the head captured before readAll certifies an irrelevant tail.
+          // A concurrent refresh can observe applicable events outside this pass.
+          const consumedSourceHeadGlobalPosition = isGlobalPositionGreater(lastGlobalPosition, sourceHeadGlobalPosition)
             ? lastGlobalPosition
-            : status.sourceHeadGlobalPosition;
+            : sourceHeadGlobalPosition;
 
-          status.sourceHeadGlobalPosition = observedSourceHeadGlobalPosition;
-          if (lastGlobalPosition !== observedSourceHeadGlobalPosition) {
+          if (lastGlobalPosition !== consumedSourceHeadGlobalPosition) {
             const checkpointBeforeTailFastForward = lastGlobalPosition;
-            lastGlobalPosition = observedSourceHeadGlobalPosition;
+            lastGlobalPosition = consumedSourceHeadGlobalPosition;
             const persistedTailFastForward = await persistIdleCheckpointFastForward(
               checkpointBeforeTailFastForward,
               lastGlobalPosition,
@@ -1292,15 +1388,18 @@ export function createSubscriptionRunner(
             }
           }
         }
-        status.initialized = true;
+        const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
+        status.initialized = hasPersistedCheckpoint;
         status.lastGlobalPosition = lastGlobalPosition;
+        if (isGlobalPositionGreater(lastGlobalPosition, status.sourceHeadGlobalPosition)) {
+          status.sourceHeadGlobalPosition = lastGlobalPosition;
+        }
         status.outstandingEventCount = calculateOutstandingEventCount(
           lastGlobalPosition,
           status.sourceHeadGlobalPosition,
         );
         applyLagMetrics(status, processed > 0 ? null : "0");
         status.processedEvents += processed;
-        const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
         status.blockedStreamCount = errorSummary.blockedStreamCount;
         status.poisonEventCount = errorSummary.poisonEventCount;
         status.state = deriveSubscriptionReplayState(lastGlobalPosition, status.sourceHeadGlobalPosition, errorSummary);

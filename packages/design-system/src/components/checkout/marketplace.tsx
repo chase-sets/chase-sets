@@ -52,7 +52,7 @@ export function PriceBreakdown({
   const isQuiet = deferred || pending;
 
   return (
-    <Card>
+    <Card elevation="tinted">
       {title || description ? (
         <Card.Header>
           {title ? <Card.Title>{title}</Card.Title> : null}
@@ -118,7 +118,7 @@ export function ListingPurchasePanel({
   reassurance,
 }: ListingPurchasePanelProps) {
   return (
-    <Card>
+    <Card elevation="elevated">
       <Card.Header>
         <Card.Title>{title}</Card.Title>
         {reassurance ? <Card.Description>{reassurance}</Card.Description> : null}
@@ -180,7 +180,7 @@ export function OrderIntentSummary({
   paymentStatus,
 }: OrderIntentSummaryProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Body>
         <Stack gap={4}>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -218,7 +218,7 @@ export interface OrderProtectionModuleProps {
 
 export function OrderProtectionModule({ title, items }: OrderProtectionModuleProps) {
   return (
-    <Card>
+    <Card elevation="tinted" data-card-emitter="order-protection">
       {title ? (
         <Card.Header>
           <Card.Title>
@@ -305,7 +305,7 @@ export function PaymentRecoveryPanel({
   secondaryAction,
 }: PaymentRecoveryPanelProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Header>
         <div>
           <Badge tone="warning" variant="soft">
@@ -337,10 +337,8 @@ export interface StickyCtaBarProps {
    * `totalLabel`/`total`/`context` triple unified with `CheckoutStickyActionBar`.
    */
   totalLabel?: ReactNode;
-  /** The headline money value. Use this over the deprecated `price` alias. */
+  /** The headline money value. */
   total?: ReactNode;
-  /** @deprecated Use {@link StickyCtaBarProps.total}. */
-  price?: ReactNode;
   context?: ReactNode;
   /** Canonical reassurance slot — pass a `SecurePaymentIndicator`. */
   reassurance?: ReactNode;
@@ -353,15 +351,12 @@ export interface StickyCtaBarProps {
 export function StickyCtaBar({
   totalLabel,
   total,
-  price,
   context,
   reassurance,
   primaryAction,
   secondaryAction,
   label = "Checkout",
 }: StickyCtaBarProps) {
-  const resolvedTotal = total ?? price;
-
   return (
     <div
       role="region"
@@ -371,7 +366,7 @@ export function StickyCtaBar({
       <div className="mx-auto grid max-w-7xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="min-w-0">
           {totalLabel ? <div className="text-xs font-medium text-secondary">{totalLabel}</div> : null}
-          {resolvedTotal ? <div className="text-lg font-bold tabular-nums text-foreground">{resolvedTotal}</div> : null}
+          {total ? <div className="text-lg font-bold tabular-nums text-foreground">{total}</div> : null}
           {context ? <div className="text-xs leading-5 text-tertiary sm:truncate">{context}</div> : null}
           {reassurance ? <div className="mt-1">{reassurance}</div> : null}
         </div>

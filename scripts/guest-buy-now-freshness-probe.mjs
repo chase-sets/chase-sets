@@ -75,6 +75,7 @@ const CHECKOUT_START_RECOVERY_PATTERN =
 const CHECKOUT_REVIEW_PATTERN = /Continue to payment|Checkout Summary|Payable total/i;
 const BUY_READINESS_URL_PATTERN = /\/checkout\/buy\/readiness(?:[/?#]|$)/;
 const BUY_SESSION_URL_PATTERN = /\/checkout\/buy\/session\/chk_[^/?#]+(?:[/?#]|$)/;
+const GUEST_ENTRY_STALLED_AT_READINESS_FAILURE_REASON = "guest-entry-stalled-at-readiness";
 const CHASE_SETS_COMMIT_RECEIPT_HEADER = "chase-sets-commit-receipt";
 const SYNTHETIC_INVITATION_PROJECTION_TIMEOUT_MS = 90_000;
 const SYNTHETIC_INVITATION_PROJECTION_POLL_MS = 1_000;
@@ -1039,13 +1040,17 @@ export async function runProjectionConvergenceGate(options) {
 
 async function observeBuyNowCheckout(options) {
   const { chromium } = await import("@playwright/test");
-  const browser = await chromium.launch({ headless: options.headless });
+  const browser =
+    typeof options.launchBrowser === "function"
+      ? await options.launchBrowser()
+      : await chromium.launch({ headless: options.headless });
   const context = await browser.newContext();
   const page = await context.newPage();
   const baseUrl = normalizeUrl(options.baseUrl);
   const flow = normalizeFlow(options.flow) ?? "guest";
   let stage = "initialize-browser";
   const checkoutDocumentStatuses = [];
+  let guestReadinessDocumentCommitCount = 0;
   page.on("response", (response) => {
     if (response.request().resourceType() !== "document") {
       return;
@@ -1056,6 +1061,11 @@ async function observeBuyNowCheckout(options) {
       }
     } catch {
       // Ignore non-URL response identifiers from browser internals.
+    }
+  });
+  page.on("framenavigated", (frame) => {
+    if (flow === "guest" && frame === page.mainFrame() && isBuyReadinessUrl(frame.url())) {
+      guestReadinessDocumentCommitCount += 1;
     }
   });
 
@@ -1078,6 +1088,7 @@ async function observeBuyNowCheckout(options) {
       stage = "load-buy-now-item-page";
       let accountItemPageFallback = null;
       let startedAt;
+      let sessionStart;
       if (flow === "account") {
         try {
           await page.goto(itemUrl.toString(), buyNowItemPageNavigationWaitOptions(options.timeoutMs));
@@ -1116,20 +1127,21 @@ async function observeBuyNowCheckout(options) {
             'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
           )
           .first();
+        const readinessDocumentCommitCountBeforeClick = guestReadinessDocumentCommitCount;
+        startedAt = Date.now();
         stage = "click-guest-buy-now";
         await buyNowButton.click({ timeout: options.timeoutMs });
-        stage = "wait-guest-buy-readiness";
-        await page.waitForURL(BUY_READINESS_URL_PATTERN, buyNowRouteTransitionWaitOptions(options.timeoutMs));
-        stage = "fill-guest-contact";
-        await page.getByLabel(/contact name/i).fill(options.contactName);
-        await page.getByLabel(/email/i).fill(options.guestEmail);
-        startedAt = Date.now();
-        stage = "submit-guest-contact";
-        await page.getByRole("button", { name: /continue as guest/i }).click({ timeout: options.timeoutMs });
+        stage = "wait-buy-checkout-session";
+        sessionStart = await waitForBuyCheckoutSessionStart(page, startedAt, options.timeoutMs, {
+          guestReadinessDocumentCommitted: () =>
+            guestReadinessDocumentCommitCount > readinessDocumentCommitCountBeforeClick,
+        });
       }
 
-      stage = "wait-buy-checkout-session";
-      const sessionStart = await waitForBuyCheckoutSessionStart(page, startedAt, options.timeoutMs);
+      if (!sessionStart) {
+        stage = "wait-buy-checkout-session";
+        sessionStart = await waitForBuyCheckoutSessionStart(page, startedAt, options.timeoutMs);
+      }
       if (sessionStart.kind === "checkout-start-recovery") {
         checkoutStartRecoveryObservation = await checkoutStartRecoveryObservationFromPage({
           context,
@@ -1535,21 +1547,40 @@ function parseFetchBody(body) {
   }
 }
 
-async function waitForBuyCheckoutSessionStart(page, startedAt, timeoutMs) {
+async function waitForBuyCheckoutSessionStart(page, startedAt, timeoutMs, options = {}) {
   const deadline = Date.now() + normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS);
   let pageText = "";
 
   while (Date.now() <= deadline) {
+    if (options.guestReadinessDocumentCommitted?.()) {
+      await page
+        .waitForLoadState("domcontentloaded", { timeout: normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS) })
+        .catch(() => {});
+      pageText = await page
+        .locator("body")
+        .innerText({ timeout: normalizePositiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS) })
+        .catch(() => "");
+      if (CHECKOUT_START_RECOVERY_PATTERN.test(pageText)) {
+        return { kind: "checkout-start-recovery", observedAt: Date.now(), pageText };
+      }
+
+      const error = new Error("Guest entry committed the Checkout readiness document.");
+      error.reason = GUEST_ENTRY_STALLED_AT_READINESS_FAILURE_REASON;
+      throw error;
+    }
+
     if (BUY_SESSION_URL_PATTERN.test(page.url())) {
       return { kind: "checkout-session", observedAt: Date.now() };
     }
 
-    pageText = await page
-      .locator("body")
-      .innerText({ timeout: READY_POLL_INTERVAL_MS * 4 })
-      .catch(() => pageText);
-    if (CHECKOUT_START_RECOVERY_PATTERN.test(pageText)) {
-      return { kind: "checkout-start-recovery", observedAt: Date.now(), pageText };
+    if (!options.guestReadinessDocumentCommitted) {
+      pageText = await page
+        .locator("body")
+        .innerText({ timeout: READY_POLL_INTERVAL_MS * 4 })
+        .catch(() => pageText);
+      if (CHECKOUT_START_RECOVERY_PATTERN.test(pageText)) {
+        return { kind: "checkout-start-recovery", observedAt: Date.now(), pageText };
+      }
     }
 
     await page.waitForTimeout(READY_POLL_INTERVAL_MS);

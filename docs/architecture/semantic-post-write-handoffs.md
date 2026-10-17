@@ -8,7 +8,7 @@ It does not replace `afterWrite`, `readFreshnessRoutes`, `readAfterWriteRouteInv
 
 ## Contract
 
-- Source routes use `navigateAfterWrite` or `navigateAfterWriteFromSources` with a `handoff` option when the destination needs semantic recovery. Use lower-level `appendPostWriteHandoff` or `appendPostWriteHandoffFromSources` only for bespoke routing helpers that cannot call the default navigation primitive.
+- Source routes use `navigateAfterWrite` with a `handoff` option when the destination needs semantic recovery. Use lower-level `appendPostWriteHandoff` only for bespoke routing helpers that cannot call the default navigation primitive.
 - The resulting browser URL carries both `afterWrite` and `postWriteHandoff`.
 - Production routes must not hand-build the `postWriteHandoff` query value. Contexts may export semantic constants and destination predicates, but URL construction stays in the shared `@chase-sets/http` helpers so expiry, redaction, and receipt pairing stay consistent.
 - Server-side API fetches still forward only freshness receipt metadata through `Chase-Sets-Read-After-Write` and `Chase-Sets-Read-Target-Context`.
@@ -49,7 +49,7 @@ Semantic handoffs are part of the existing `fresh-read` strategy. They are not a
 
 - Keep the write surface classified in `mutationConsistencyInventory` as `fresh-read` when semantic pending recovery protects the immediate read.
 - Keep exact API dependencies in `apiMounts[].readFreshnessRoutes`; semantic metadata does not broaden the projection wait.
-- Record helper uses in `readAfterWriteRouteInventory`: prefer source helpers such as `navigateAfterWrite`/`navigateAfterWriteFromSources`, destination helpers such as `loadAfterWrite`, and route-owned `transientRecovery` that names both projection-lag and unmet-semantic-expectation behavior. Record lower-level helpers such as `appendPostWriteHandoff` or `evaluatePostWriteHandoff` only when a bespoke route actually imports them.
+- Record helper uses in `readAfterWriteRouteInventory`: prefer source helpers such as `navigateAfterWrite`, destination helpers such as `loadAfterWrite`, and route-owned `transientRecovery` that names both projection-lag and unmet-semantic-expectation behavior. Record lower-level helpers such as `appendPostWriteHandoff` or `evaluatePostWriteHandoff` only when a bespoke route actually imports them.
 - Use an exception only when the helper is not the owner of the post-write read, using the same owner, reason, and `reviewBy` rules as other fresh-write helper exceptions.
 
 Marketplace and admin audits should migrate only flows where stale reads can hide a successful command. An empty account cart after add-line, a listing detail `404` after publish, or a stale account detail after create/update are candidates. Durable job/status pages, operator work queues with explicit lag states, and command responses that already return the visible committed snapshot are not candidates by default.

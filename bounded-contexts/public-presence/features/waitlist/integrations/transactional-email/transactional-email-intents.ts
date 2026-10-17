@@ -74,7 +74,7 @@ export function mapWaitlistNurtureEmail(
       templateData: {
         headline: "You are on the early access list.",
         intro:
-          "Chase Sets opens to everyone September 1, 2026. Before then, beta access opens in measured invite waves.",
+          "You are on the waitlist. Numbered beta invite waves come next, followed by open signup for everyone. No launch or wave dates are promised.",
         founders:
           "Beta access starts a 60-day window: listings confirmed during that window lock a 0% marketplace sales fee. Your first listing or offer claims a numbered founder badge while one of 500 remains.",
         foundersTermsLink: trackedPublicUrl("/founders", step, "founders_terms"),
@@ -125,9 +125,9 @@ export function mapWaitlistNurtureEmail(
     subject: "Get ready for your Chase Sets invite wave",
     templateId: "waitlist_nurture_wave_approaching",
     templateData: {
-      headline: "Invite waves are approaching; public launch is September 1, 2026.",
+      headline: "Get ready for numbered beta invite waves.",
       intro:
-        "Market context is part of the product direction, but per-grade price guides are not a shipped promise. For now, prepare the listing facts the marketplace can use on day one.",
+        "The waitlist comes first, then numbered beta invite waves, then open signup for everyone. No launch or wave dates are promised. Market context is part of the product direction, but per-grade price guides are not a shipped promise. For now, prepare the listing facts the marketplace can use on day one.",
       checklist:
         "Choose the games you sell; note a realistic inventory-size range; keep a TCGplayer or eBay store link handy; prepare clear front-and-back photos and grading certification details where applicable.",
       detailsLink: welcomeLink,

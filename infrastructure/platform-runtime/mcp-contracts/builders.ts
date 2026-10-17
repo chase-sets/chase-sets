@@ -44,12 +44,21 @@ export type McpPermissionBoundary = Readonly<{
 export type McpConfirmationPolicy = Readonly<{
   required: boolean;
   prompt?: string;
+  /** Title-bound: this input and the confirmation text must both equal the tool title. */
   matchInputField?: string;
+  /**
+   * Input-bound: names a required string input; the confirmation text must
+   * equal that input's exact per-call value. Exclusive with `matchInputField`.
+   * Binds the confirmation to the value only; the handler still validates it.
+   */
+  matchInputValue?: string;
 }>;
 
 export type McpGuardrails = Readonly<{
   confirmation: McpConfirmationPolicy;
   idempotencyKey: McpIdempotencyPolicy;
+  /** Omitted historical/generated descriptors are platform-authoritative. */
+  idempotencyAuthority?: "platform" | "owner";
   dryRunSupported: boolean;
   notes: readonly string[];
 }>;
@@ -181,7 +190,8 @@ export const objectSchema = (
 export const readBoundary = (permission: string, scope: McpAccessScope = "account"): McpPermissionBoundary => ({
   scope,
   requiredPermissions: [permission],
-  requiredScopes: agentOAuthScopesForPermissions([permission]),
+  // Commerce scopes neither gate nor satisfy an operator capability; the operator predicate admits it.
+  requiredScopes: scope === "operator" ? [] : agentOAuthScopesForPermissions([permission]),
   accountScoped: scope === "account",
   auditPrincipal: "actor",
 });
@@ -206,6 +216,7 @@ export const guardrails = (risk: McpToolRisk, options: Partial<McpGuardrails> = 
     ...options.confirmation,
   },
   idempotencyKey: risk === "read" ? "not-applicable" : "required",
+  idempotencyAuthority: "platform",
   dryRunSupported: risk !== "read",
   notes:
     risk === "read"
@@ -225,7 +236,7 @@ export const audit = (
   sensitiveInputFields,
 });
 
-const sensitiveWriteInputFieldNames = ["amount", "confirmationText", "email", "reason"] as const;
+const sensitiveWriteInputFieldNames = ["amount", "confirmationText", "email", "reason", "idempotencyKey"] as const;
 
 function sensitiveInputFieldsForWriteTool(inputSchema: McpJsonSchema): readonly string[] {
   const properties = inputSchema.properties ?? {};

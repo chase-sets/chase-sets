@@ -44,11 +44,18 @@ describe("Observation Pack manifest v1", () => {
       adapter: createScryfallValidationProviderAdapter(),
       packVersion: "v1-adapter-proof",
       capturedAt: "2026-07-22T18:00:00-05:00",
-      fetch: async () =>
-        new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), {
+      fetch: async (_resource, options) => {
+        const headers = new Headers(options?.headers);
+        if (!headers.get("User-Agent")?.startsWith("ChaseSets/")) {
+          return new Response(null, { status: 400 });
+        }
+        expect(options).toMatchObject({ method: "GET", redirect: "error", signal: expect.any(AbortSignal) });
+        expect(headers.get("Accept")).toContain("image/webp");
+        return new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), {
           status: 200,
           headers: { "content-type": "image/png" },
-        }),
+        });
+      },
       credentialValues: ["credential-that-must-never-appear"],
     });
 

@@ -14,6 +14,18 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
+### Account Management Mutation Attempt
+
+An **Account Management Mutation Attempt** binds one explicit account-management
+submission to its tenant, User, Account, action, and normalized caller intent.
+Its private immutable receipt commits atomically with the owning aggregate's
+events. Replaying the same attempt returns that original result and separately
+identified current owner state, never another write or a recovered API key secret.
+
+### Consent Activation
+
+**Consent Activation** is the authenticated operator act that makes a published policy version required through its Consent Activation Authority. Registration only declares a consent-capable key; a policy document revision alone does not activate it. Deactivation removes the active requirement without deleting authority history or Consent facts.
+
 ### User
 
 A **User** represents a person or system that can perform actions in the marketplace.
@@ -164,6 +176,10 @@ Notes:
 - Viewer presentation preferences live in Identity because they describe the signed-in user's cross-device presentation choices.
 - Behavior-coupled settings stay with the context that owns the behavior, such as Notifications-owned delivery settings.
 - Device ephemera and anonymous visitor fallbacks stay client-local and are not Identity facts.
+
+### User Preference Write Attempt
+
+A **User Preference Write Attempt** is one User-scoped try to change canonical User Preferences, represented durably by a hashed opaque key and a one-event private receipt committed atomically with the User Preferences version guard. It is distinct from client lifecycle state and Notifications preferences. An exact replay returns the immutable first receipt separately from current authoritative User Preferences and never reapplies the earlier choice.
 
 ## Permission Model
 
@@ -525,17 +541,37 @@ The following rules must always hold:
 Closing an Account preserves its Memberships for audit. Membership teardown is explicit and is permitted only after the
 Account is closed; closing the Account itself does not revoke or demote Memberships.
 
-## Planned Account Capabilities And Channel Connections
-
-These planned terms pre-register upcoming account capability, store team, and external channel connection language. They are not shipped behavior until Identity adds the corresponding consent, membership, authorization, and account-management facts.
+## Account Capabilities
 
 ### Account Capability
 
-An **Account Capability** is the planned account-level ability to use a marketplace or integration workflow.
+An **Account Capability** is a named durable product-policy dimension describing functionality that may be made available to an Account.
+
+### Account Capability Declaration
+
+An **Account Capability Declaration** is context-owned catalog metadata that gives an Account Capability its key, description, kind, and kind-shaped default. A tier declaration separately lists its allowed values; an allowed value is not itself a default or a grant.
+
+### Account Capability Registry
+
+An **Account Capability Registry** is the complete immutable, key-sorted catalog assembled from every registered context manifest independently of the mounted runtime profile. Its `owningContext` comes from module registration, not from the capability key's product namespace.
+
+The shipped catalog contains `authenticity.seller-included`, `inventory.locations`, `mcp.rate-tier`, and `support.evidence.any-case`. These are inert declarations without grants, resolution, enforcement, pricing, or UI behavior; declaring a key, including its default, never creates a Capability Grant. In particular, the `mcp` namespace does not change the `platform-operations` owner of `mcp.rate-tier`, and `platform-operations` likewise owns the boolean, default-false `support.evidence.any-case` declaration.
 
 ### Capability Grant
 
-A **Capability Grant** is the planned fact that an Account has been approved for an Account Capability.
+A **Capability Grant** is Identity's fact that an Account currently holds an Account Capability. It ships for `support.evidence.any-case` only; Identity rejects every other key before recording anything. Each tenant, Account and key has one assignment stream that moves absent, granted, revoked and granted again (`identity.account-capability.granted` and `identity.account-capability.revoked`), each transition at a new assignment version under the assignment's stable id. An exact retry records no assignment fact; a stale or contradictory request fails. Grant and revoke routes require the Capability Administration Authority and audit every attempt. Seeds, fixtures, roles and declaration defaults never assign grants. Auth projects current grants onto Actors; see the [Auth glossary](../auth/GLOSSARY.md#projected-capability-grants).
+
+### Capability Administration Authority
+
+The **Capability Administration Authority** is Identity's dedicated admission for `support.evidence.any-case` grant and revoke, not evidence access or a Role. A closed, versioned deployment allow-list names at most sixteen exact User ids and binds its environment and instance to the canonical `["support-deployment-instance/v1", namespace, release]` tuple. Only a listed Session-backed human with active Membership, matching request context and authentication age at most fifteen minutes can assign an explicit Account in its tenant. Account switching and token refresh do not change the original authentication instant. Absent or invalid configuration admits nobody.
+
+Each API process compare-and-records its authority id, revision, effective-configuration digest and implementation SHA before serving. Equal revisions record nothing; a conflicting digest refuses boot. Every assignment atomically guards the observed receipt and commits its attempt audit with the grant or revoke. A higher revision with an empty list retires admission, not existing grants. Deployment-time retirement is complete only after old processes and their in-flight work are drained; there is no instantaneous in-process revocation. Worker and seed hosts explicitly supply deny-all.
+
+## Planned Account Capabilities And Channel Connections
+
+These planned terms pre-register upcoming Account Capability lifecycle and store team language. They are not shipped behavior until Identity adds the corresponding facts and workflows.
+
+Channels owns Sales Channel and Channel Connection language, including BYO Channel, Channel Account, Channel Authorization, Channel Credential, Channel Webhook, Channel Health, and Channel Mapping; see the [Channels glossary](../channels/GLOSSARY.md).
 
 ### Capability Restriction
 
@@ -561,42 +597,6 @@ A **Capability Level** is the planned graduated operating range for an Account C
 
 **Capability Review** is the planned workflow that evaluates whether an Account should receive, keep, or lose a Capability Grant.
 
-### Sales Channel
-
-A **Sales Channel** is the planned external or native commerce surface connected to an Account.
-
-### Channel Connection
-
-A **Channel Connection** is the planned linked relationship between a Chase Sets Account and a Sales Channel.
-
-### BYO Channel
-
-A **BYO Channel** is the planned account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.
-
-### Channel Account
-
-A **Channel Account** is the planned external account identity linked to a Chase Sets Account for a Sales Channel.
-
-### Channel Authorization
-
-A **Channel Authorization** is the planned consent that allows Chase Sets to act with scoped access on a Sales Channel.
-
-### Channel Credential
-
-A **Channel Credential** is the planned secret or token reference used to access a Sales Channel.
-
-### Channel Webhook
-
-A **Channel Webhook** is the planned inbound event subscription configured for a Sales Channel.
-
-### Channel Health
-
-**Channel Health** is the planned account-visible operational state of a Sales Channel connection.
-
-### Channel Mapping
-
-A **Channel Mapping** is the planned account-owned configuration that maps channel fields, SKUs, locations, or policies to Chase Sets terms.
-
 ### Store Team
 
 A **Store Team** is the planned group of Memberships that can operate a Store.
@@ -608,6 +608,10 @@ A **Store Role** is the planned role assignment that scopes a Membership's autho
 ### Store Invitation
 
 A **Store Invitation** is the planned request for a User or email address to join a Store Team.
+
+### Agent Grant Revocation Operation
+
+An **Agent Grant Revocation Operation** is Identity's retained owner of one Account's withdrawal of an Agent Grant. It records the first revocation time, reason and provenance, then tracks Identity terminal authority, Payments cleanup, webhook exclusion and completion. Repeated token and Account requests resume that owner rather than creating another revocation. Adoption records system recovery of an already-revoked Grant; it does not invent historical user intent or cleanup completion.
 
 ## Language Rules
 

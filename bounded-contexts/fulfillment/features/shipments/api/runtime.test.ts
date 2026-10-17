@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { buildTransportEvent, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
@@ -14,7 +15,265 @@ import { PostageLabelProviderError } from "@chase-sets/postage-labels";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { recordFulfillmentPostageLabelOperationPending } from "../read-model/queries";
+import { buildFulfillmentOrderProjectionHandlers } from "../integrations/source/source-projection";
 import { createFulfillmentShipmentRuntime } from "./runtime";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import { parseAdmissionIdentity } from "@chase-sets/order-groups";
+import { ShipmentAdmissionBusyError } from "../domain/common";
+import { ShipmentHistoryPoisonedError } from "../domain/mutation-attempt";
+
+describe("Shipment Group admission authority", () => {
+  const now = "2026-10-04T00:00:00.000Z";
+  const context = {
+    tenantId: "tnt_admission" as never,
+    audit: { performedByUserId: "usr_buyer" as never, forAccountId: "acc_buyer" as never },
+  };
+  const identity = parseAdmissionIdentity({
+    requestId: "request",
+    sourceGeneration: 1,
+    draftKey: "draft",
+    anchorShipmentId: createId("shp"),
+    anchorOrderId: createId("ord"),
+    proposedMemberOrderId: createId("ord"),
+    groupId: createId("ogr"),
+    quoteFingerprint: "quote",
+  });
+  async function fixture(wrap: (store: EventStore) => EventStore = (store) => store) {
+    const memory = createInMemoryEventStore();
+    const runtime = createFulfillmentShipmentRuntime({
+      eventStore: wrap(memory.eventStore),
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn().mockResolvedValue({
+          rows: [
+            createPackedShipmentRow({
+              shipment_id: identity.anchorShipmentId,
+              status: "awaiting-package",
+              package_status: "pending",
+            }),
+          ],
+        }),
+      },
+    });
+    const streamId = `fulfillment.shipment-${identity.anchorShipmentId}`;
+    await runtime.commandHandler({
+      streamId,
+      context,
+      command: {
+        type: "CreateShipment",
+        shipmentId: identity.anchorShipmentId,
+        orderId: identity.anchorOrderId,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        createdAt: now,
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        lines: [
+          {
+            lineId: "spl_test" as never,
+            orderLineId: "line",
+            catalogItemId: "cat_test" as never,
+            productId: "cat_test::",
+            itemTitle: "Card",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      },
+    });
+    return { ...memory, runtime, streamId, authority: runtime.shipmentGroupAdmissionAuthority };
+  }
+  it.each(["startPackingShipment", "packShipment", "cancelShipment"] as const)(
+    "busy %s consumes no attempt and the same ID succeeds after Abort",
+    async (method) => {
+      const f = await fixture();
+      await f.authority.reserve(identity, context);
+      const params = {
+        shipmentId: identity.anchorShipmentId,
+        sellerAccountId: "acc_seller",
+        packageCount: 1,
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c7829a",
+      };
+      const before = f.readAllEvents();
+      await expect(f.runtime[method](params, context)).rejects.toBeInstanceOf(ShipmentAdmissionBusyError);
+      expect(f.readAllEvents()).toEqual(before);
+      await f.authority.abort({ ...identity, reason: "cancelled" }, context);
+      if (method === "packShipment") {
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: { type: "StartShipmentPacking", startedAt: now },
+        });
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: { type: "ConfirmShipmentPackingLine", lineId: "spl_test" as never, confirmedAt: now },
+        });
+      }
+      if (method === "cancelShipment") {
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: { type: "StartShipmentPacking", startedAt: now },
+        });
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: {
+            type: "CancelShipment",
+            cancelledAt: now,
+            cancellationSignal: {
+              orderId: identity.anchorOrderId,
+              origin: "order-cancelled",
+              reason: "buyer-cancelled",
+            },
+          },
+        });
+      }
+      await expect(f.runtime[method](params, context)).resolves.toMatchObject({
+        shipmentId: identity.anchorShipmentId,
+      });
+      expect(f.readAllEvents().filter((event) => event.streamId !== f.streamId)).toHaveLength(1);
+    },
+  );
+  it.each(["StartShipmentPacking", "CancelShipment"] as const)(
+    "reloads a reserve after concurrent %s wins the expected-version append",
+    async (type) => {
+      let enter!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        enter = resolve;
+      });
+      const resume = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let gated = false;
+      const f = await fixture((store) => ({
+        ...store,
+        appendToStream: async (input) => {
+          if (!gated && input.events[0]?.eventType === "fulfillment.shipment-group.admission-reserved") {
+            gated = true;
+            enter();
+            await resume;
+          }
+          return store.appendToStream(input);
+        },
+      }));
+      const reserve = f.authority.reserve(identity, context);
+      await entered;
+      await f.runtime.commandHandler({
+        streamId: f.streamId,
+        context,
+        command: type === "StartShipmentPacking" ? { type, startedAt: now } : { type, cancelledAt: now },
+      });
+      release();
+      expect(await reserve).toEqual({ status: type === "CancelShipment" ? "cancelled" : "packing-started" });
+      expect(f.readAllEvents().at(-1)).toMatchObject({
+        eventType: "fulfillment.shipment-group.admission-rejected",
+        streamVersion: 3,
+      });
+      expect(f.readAllEvents().some((event) => event.eventType.endsWith("admission-reserved"))).toBe(false);
+    },
+  );
+  it("serializes competing reservations and replays a duplicate without another receipt", async () => {
+    const f = await fixture();
+    const other = {
+      ...identity,
+      requestId: "other",
+      sourceGeneration: 2,
+      groupId: createId("ogr"),
+      quoteFingerprint: "other",
+    };
+    const results = await Promise.all([f.authority.reserve(identity, context), f.authority.reserve(other, context)]);
+    expect(results.map((result) => result.status).sort()).toEqual(["accepted", "identity-conflict"]);
+    const before = f.readAllEvents();
+    await Promise.all([f.authority.reserve(identity, context), f.authority.reserve(other, context)]);
+    expect(f.readAllEvents()).toEqual(before);
+  });
+  it.each(["missing", "order", "tenant"])("rejects %s binding with no write", async (kind) => {
+    const f = await fixture();
+    const before = f.readAllEvents();
+    const input =
+      kind === "missing"
+        ? { ...identity, anchorShipmentId: createId("shp") }
+        : kind === "order"
+          ? { ...identity, anchorOrderId: createId("ord") }
+          : identity;
+    expect(
+      await f.authority.reserve(input, kind === "tenant" ? { ...context, tenantId: "tnt_foreign" as never } : context),
+    ).toEqual({ status: "identity-conflict" });
+    expect(f.readAllEvents()).toEqual(before);
+  });
+  it.each(["reserve", "commit", "abort"] as const)(
+    "strictly rejects malformed and extra %s fields before append",
+    async (method) => {
+      const f = await fixture();
+      const before = f.readAllEvents();
+      const valid =
+        method === "commit"
+          ? { ...identity, anchorOrderVersion: 2 }
+          : method === "abort"
+            ? { ...identity, reason: "cancelled" as const }
+            : identity;
+      const invalid: unknown[] = [
+        null,
+        [],
+        { ...valid, callerClock: now },
+        { ...valid, sellerAccountId: "acc_seller" },
+      ];
+      for (const key of Object.keys(valid)) invalid.push({ ...valid, [key]: undefined }, { ...valid, [key]: {} });
+      for (const input of invalid) {
+        // Deliberately malformed boundary values, not a production capability cast.
+        await expect(f.authority[method](input as never, context)).rejects.toThrow();
+      }
+      expect(f.readAllEvents()).toEqual(before);
+    },
+  );
+  it.each(["unexpected", "mixed tenant", "repeated creation", "repeated reservation", "wrong receipt version"])(
+    "poisons %s history before any write",
+    async (kind) => {
+      const f = await fixture();
+      await f.authority.reserve(identity, context);
+      const events = f.streams.get(f.streamId)!;
+      const last = events.at(-1)!;
+      if (kind === "unexpected") events[1] = { ...last, eventType: "fulfillment.unknown" };
+      if (kind === "mixed tenant") events[1] = { ...last, tenantId: "tnt_foreign" as never };
+      if (kind === "repeated creation") events[1] = { ...events[0]!, streamVersion: 2 };
+      if (kind === "repeated reservation")
+        events.push({ ...last, streamVersion: 3, payload: { ...last.payload, shipmentVersion: 3 } });
+      if (kind === "wrong receipt version") events[1] = { ...last, payload: { ...last.payload, shipmentVersion: 9 } };
+      const count = f.readAllEvents().length;
+      await expect(f.authority.reserve(identity, context)).rejects.toBeInstanceOf(ShipmentHistoryPoisonedError);
+      expect(f.readAllEvents()).toHaveLength(count);
+    },
+  );
+});
+
+function webhookReceiptQueryResult(sql: string, values: readonly unknown[] = []) {
+  if (sql.includes("WITH inserted AS") && sql.includes("fulfillment_postage_provider_events")) {
+    return {
+      rows: [
+        {
+          provider_event_id: values[0],
+          payload_hash: values[11],
+          handoff_state: "reserved",
+          processing_result: "reserved",
+          inserted: true,
+        },
+      ],
+      rowCount: 1,
+    };
+  }
+  if (sql.includes("SET claim_token") && sql.includes("fulfillment_postage_provider_events")) {
+    return { rows: [{ provider_event_id: values[0] }], rowCount: 1 };
+  }
+  if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
+    return { rows: [{ provider_event_id: values[0] }], rowCount: 1 };
+  }
+  return null;
+}
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -209,6 +468,31 @@ async function seedPackedShipmentAggregate(
   });
 }
 
+async function seedAttachedShipmentAggregate(
+  services: ReturnType<typeof createFulfillmentShipmentRuntime>,
+  context: Parameters<ReturnType<typeof createFulfillmentShipmentRuntime>["commandHandler"]>[0]["context"],
+) {
+  await seedPackedShipmentAggregate(services, context);
+  await services.commandHandler({
+    streamId: "fulfillment.shipment-shp_1",
+    command: {
+      type: "AttachShipmentLabel",
+      shippingMethod: "standard",
+      carrierName: "USPS",
+      labelReference: "synthetic_label_A",
+      trackingIdentifier: "synthetic_tracking_A",
+      postageProviderName: "synthetic-postage",
+      postageProviderMode: "test",
+      postageProviderShipmentId: "synthetic_shipment_A",
+      postageProviderLabelId: "synthetic_label_A",
+      postageAmountCents: 499,
+      postageCurrency: "USD",
+      attachedAt: "2026-09-10T00:01:00.000Z",
+    },
+    context,
+  });
+}
+
 function createPackedShipmentRow(overrides: Record<string, unknown> = {}) {
   return {
     shipment_id: "shp_1",
@@ -270,18 +554,19 @@ function createPostageOperationDb(shipmentRow = createPackedShipmentRow()) {
           operation = {
             operation_key: params?.[0],
             operation_kind: params?.[1],
-            shipment_id: params?.[2],
-            provider_name: params?.[3],
-            provider_mode: params?.[4],
-            idempotency_key: params?.[5],
-            request_json: JSON.parse(String(params?.[6] ?? "{}")),
+            subject_kind: params?.[2],
+            subject_id: params?.[3],
+            provider_name: params?.[4],
+            provider_mode: params?.[5],
+            idempotency_key: params?.[6],
+            request_json: JSON.parse(String(params?.[7] ?? "{}")),
             status: "pending",
             provider_shipment_id: null,
             provider_label_id: null,
             tracking_identifier: null,
             error_message: null,
-            created_at: params?.[7],
-            updated_at: params?.[7],
+            created_at: params?.[8],
+            updated_at: params?.[8],
             completed_at: null,
           };
           return { rows: [{ ...operation, operation_reserved: true }] };
@@ -342,7 +627,533 @@ function createPostageOperationDb(shipmentRow = createPackedShipmentRow()) {
   return db;
 }
 
+function createAuthoritativeVoidOperationDb(
+  input: Readonly<{
+    status: "reserved" | "provider-succeeded";
+    providerResult: Readonly<{ refundStatus: "refunded" | "rejected"; refundReference: string; voidedAt: string }>;
+    reserveAsExisting?: boolean;
+  }>,
+) {
+  let operation = {
+    operation_key: "postage-operation/v1:tnt_test:acc_seller:synthetic_digest_A",
+    operation_id: "pop_synthetic_void_A",
+    operation_kind: "void-label",
+    subject_kind: "shipment",
+    subject_id: "shp_1",
+    tenant_id: "tnt_test",
+    seller_account_id: "acc_seller",
+    key_digest: "synthetic_digest_A",
+    request_hash: "synthetic_request_hash_A",
+    target_key: "void:shp_1:synthetic_label_A",
+    provider_name: "synthetic-postage",
+    provider_mode: "test",
+    provider_idempotency_key: "synthetic_idempotency_A",
+    provider_result_json: input.status === "provider-succeeded" ? input.providerResult : null,
+    request_json: {
+      providerShipmentId: "synthetic_shipment_A",
+      providerLabelId: "synthetic_label_A",
+      trackingIdentifier: "synthetic_tracking_A",
+    },
+    status: input.status as string,
+    lifecycle_generation: 0,
+    claim_token: null as string | null,
+    claim_expires_at: null as string | null,
+    closed_reason: null,
+    provider_invoked: input.status === "provider-succeeded",
+    provider_shipment_id: "synthetic_shipment_A",
+    provider_label_id: "synthetic_label_A",
+    tracking_identifier: "synthetic_tracking_A",
+    created_at: "2026-09-10T00:01:00.000Z",
+    updated_at: "2026-09-10T00:02:00.000Z",
+    completed_at: null,
+  };
+  let inserted = false;
+  const db = {
+    query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+      if (sql.includes("FROM fulfillment_shipment_pages AS page")) {
+        return {
+          rows: [
+            createPackedShipmentRow({
+              tenant_id: "tnt_test",
+              status: "label-attached",
+              label_status: "purchased",
+              tracking_identifier: "synthetic_tracking_A",
+              postage_provider_shipment_id: "synthetic_shipment_A",
+              postage_provider_label_id: "synthetic_label_A",
+            }),
+          ],
+        };
+      }
+      if (sql.includes("INSERT INTO fulfillment_postage_label_operations")) {
+        if (input.reserveAsExisting || inserted) {
+          operation = {
+            ...operation,
+            operation_key: String(values[0]),
+            operation_kind: String(values[2]),
+            subject_kind: String(values[3]),
+            subject_id: String(values[4]),
+            tenant_id: String(values[5]),
+            seller_account_id: String(values[6]),
+            key_digest: String(values[7]),
+            request_hash: String(values[8]),
+            target_key: String(values[9]),
+          };
+          return { rows: [] };
+        }
+        inserted = true;
+        return { rows: [operation] };
+      }
+      if (sql.includes("FROM fulfillment_postage_label_operations AS operation")) {
+        return { rows: [operation] };
+      }
+      if (sql.includes("SET claim_token = $4") && sql.includes("status = 'reserved'")) {
+        if (operation.status !== "reserved") return { rows: [] };
+        operation = {
+          ...operation,
+          lifecycle_generation: operation.lifecycle_generation + 1,
+          claim_token: String(values[3]),
+          claim_expires_at: String(values[4]),
+        };
+        return { rows: [operation] };
+      }
+      if (sql.includes("SET claim_token = $4") && sql.includes("status = 'provider-succeeded'")) {
+        if (operation.status !== "provider-succeeded") return { rows: [] };
+        operation = {
+          ...operation,
+          lifecycle_generation: operation.lifecycle_generation + 1,
+          claim_token: String(values[3]),
+          claim_expires_at: String(values[4]),
+        };
+        return { rows: [operation] };
+      }
+      if (sql.includes("SET status = $6")) {
+        operation = {
+          ...operation,
+          status: String(values[5]) as typeof operation.status,
+          provider_result_json: values[10] == null ? operation.provider_result_json : JSON.parse(String(values[10])),
+          updated_at: String(values[4]),
+        };
+        return { rows: [operation] };
+      }
+      return { rows: [], rowCount: 0 };
+    }),
+  };
+  return db;
+}
+
+type RaceStatus =
+  | "awaiting-package"
+  | "packing"
+  | "awaiting-label"
+  | "label-attached"
+  | "dispatched"
+  | "delivered"
+  | "returned"
+  | "exception"
+  | "cancelled";
+
+async function driveRaceStatus(
+  services: ReturnType<typeof createFulfillmentShipmentRuntime>,
+  context: Parameters<ReturnType<typeof createFulfillmentShipmentRuntime>["commandHandler"]>[0]["context"],
+  status: RaceStatus,
+) {
+  const streamId = "fulfillment.shipment-shp_race";
+  const dispatch = (command: Parameters<typeof services.commandHandler>[0]["command"]) =>
+    services.commandHandler({ streamId, command, context });
+  await dispatch({
+    type: "CreateShipment",
+    shipmentId: "shp_race" as never,
+    orderId: "ord_race" as never,
+    buyerAccountId: "acc_buyer" as never,
+    sellerAccountId: "acc_seller" as never,
+    shippingOption: "standard",
+    shippingDestinationSnapshot,
+    shippingOriginSnapshot,
+    lines: [
+      {
+        lineId: "spl_race" as never,
+        orderLineId: "oli_race",
+        catalogItemId: "cat_race",
+        productId: "cat_race::",
+        itemTitle: "Race fixture",
+        itemSubtitle: null,
+        productSummary: null,
+        quantity: 1,
+      },
+    ],
+    createdAt: "2026-08-02T11:00:00.000Z",
+  });
+  if (status === "awaiting-package") return;
+  if (status === "cancelled") {
+    await dispatch({ type: "CancelShipment", cancelledAt: "2026-08-02T11:30:00.000Z" });
+    return;
+  }
+  await dispatch({ type: "StartShipmentPacking", startedAt: "2026-08-02T11:10:00.000Z" });
+  if (status === "packing") return;
+  if (status === "exception") {
+    await dispatch({
+      type: "RaiseShipmentException",
+      exceptionType: "other",
+      notes: null,
+      raisedAt: "2026-08-02T11:11:00.000Z",
+    });
+    return;
+  }
+  await dispatch({
+    type: "ConfirmShipmentPackingLine",
+    lineId: "spl_race" as never,
+    confirmedAt: "2026-08-02T11:15:00.000Z",
+  });
+  await dispatch({ type: "PrepareShipmentPackage", packageCount: 1, preparedAt: "2026-08-02T11:20:00.000Z" });
+  if (status === "awaiting-label") return;
+  await dispatch({
+    type: "AttachShipmentLabel",
+    shippingMethod: "standard",
+    carrierName: "USPS",
+    labelReference: "lbl_race",
+    trackingIdentifier: "trk_race",
+    postageAmountCents: 499,
+    postageCurrency: "USD",
+    attachedAt: "2026-08-02T11:25:00.000Z",
+  });
+  if (status === "label-attached") return;
+  await dispatch({ type: "DispatchShipment", dispatchedAt: "2026-08-02T11:30:00.000Z" });
+  if (status === "dispatched") return;
+  if (status === "delivered") {
+    await dispatch({ type: "RecordShipmentDelivery", deliveredAt: "2026-08-02T11:40:00.000Z" });
+    return;
+  }
+  await dispatch({ type: "ReturnShipment", reason: "return-to-sender", returnedAt: "2026-08-02T11:40:00.000Z" });
+}
+
+async function raceHarness(status: RaceStatus, pageStatus: RaceStatus = status) {
+  const store = createInMemoryEventStore();
+  const db = {
+    query: vi.fn(async (sql: string) =>
+      sql.includes("FROM fulfillment_shipment_pages")
+        ? { rows: [{ shipment_id: "shp_race", status: pageStatus, package_status: pageStatus }] }
+        : { rows: [] },
+    ),
+  };
+  const services = createFulfillmentShipmentRuntime({
+    eventStore: store.eventStore,
+    checkpointStore: createCheckpointStore(),
+    db: db as never,
+  });
+  const context = {
+    tenantId: "tnt_test" as never,
+    audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_buyer" as never },
+  };
+  await driveRaceStatus(services, context, status);
+  const handlers = buildFulfillmentOrderProjectionHandlers(db as never, {
+    onOrderCancelled: async (params) => {
+      await services.cancelShipmentForCancelledOrder({ ...params, origin: "order-cancelled" });
+    },
+  });
+  const cancel = (data: Record<string, unknown>, streamVersion = 2) =>
+    handlers["ordering.order.cancelled"]!(
+      buildTransportEvent("ordering.order.cancelled", data, {
+        id: `evt_cancel_${streamVersion}`,
+        streamId: "ordering.order-ord_race",
+        streamVersion,
+        globalPosition: String(streamVersion),
+        tenantId: "tnt_test",
+        audit: context.audit,
+        timing: {
+          occurredAt: "2026-08-02T12:00:00.000Z",
+          recordedAt: "2026-08-02T12:00:00.000Z",
+        },
+      }),
+    );
+  return { ...store, services, context, cancel };
+}
+
+async function recordFraudSignal(harness: Awaited<ReturnType<typeof raceHarness>>, eventId: string) {
+  return harness.services.cancelShipmentForCancelledOrder({
+    orderId: "ord_race",
+    cancelledAt: "2026-08-02T12:00:00.000Z",
+    reason: null,
+    origin: "payment-fraud-warning",
+    context: harness.context,
+    sourceIdentity: {
+      eventId,
+      streamId: "payments.payment-pay_race",
+      streamVersion: 3,
+      eventType: "payments.payment-fraud-warning-received",
+    },
+  });
+}
+
+const overLengthCancellationReason = "x".repeat(4097);
+
 describe("fulfillment shipment runtime", () => {
+  it.each(["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const)(
+    "records one verbatim order-cancellation conflict from %s through the real seam",
+    async (status) => {
+      const harness = await raceHarness(status);
+      await harness.cancel({
+        orderId: "ord_race",
+        cancelledAt: "2026-08-02T12:00:00.000Z",
+        reason: "buyer-cancelled",
+      });
+      const conflicts = harness
+        .readAllEvents()
+        .filter((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded");
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]?.payload).toEqual({
+        shipmentId: "shp_race",
+        orderId: "ord_race",
+        reason: "buyer-cancelled",
+        shipmentStatus: status,
+        origin: "order-cancelled",
+      });
+    },
+  );
+
+  it.each(
+    (
+      ["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const
+    ).flatMap((status) =>
+      (["support-cancel-order", "seller-cannot-fulfill"] as const).map((reason) => [status, reason] as const),
+    ),
+  )("records designed-flow reason %s/%s without rewriting it", async (status, reason) => {
+    const harness = await raceHarness(status);
+    await harness.cancel({ orderId: "ord_race", cancelledAt: "2026-08-02T12:00:00.000Z", reason });
+    const conflicts = harness
+      .readAllEvents()
+      .filter((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded");
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]?.payload).toMatchObject({ shipmentStatus: status, reason, origin: "order-cancelled" });
+  });
+
+  it.each([
+    ["omitted", {}, null],
+    ["whitespace", { reason: "   " }, "   "],
+    ["unrecognized", { reason: "zzz-not-a-reason" }, "zzz-not-a-reason"],
+    ["over-length", { reason: overLengthCancellationReason }, overLengthCancellationReason],
+  ] as const)("preserves the synthetic %s reason control", async (_name, reasonInput, expectedReason) => {
+    const harness = await raceHarness("packing");
+    await harness.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      ...reasonInput,
+    });
+    const conflict = harness
+      .readAllEvents()
+      .find((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded");
+    expect(conflict?.payload.reason).toBe(expectedReason);
+  });
+
+  it("keeps both cancellation origins idempotent and commutative, including after the seller exit", async () => {
+    const orderThenFraud = await raceHarness("packing");
+    await orderThenFraud.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "support-cancel-order",
+    });
+    await recordFraudSignal(orderThenFraud, "evt_fraud_a");
+    await orderThenFraud.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "support-cancel-order",
+    });
+    await recordFraudSignal(orderThenFraud, "evt_fraud_a");
+
+    const fraudThenOrder = await raceHarness("packing");
+    await recordFraudSignal(fraudThenOrder, "evt_fraud_b");
+    await fraudThenOrder.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "support-cancel-order",
+    });
+
+    const conflictPayloads = (harness: Awaited<ReturnType<typeof raceHarness>>) =>
+      harness
+        .readAllEvents()
+        .filter((event) => event.eventType === "fulfillment.shipment.cancellation-conflict-recorded")
+        .map((event) => event.payload)
+        .sort((left, right) => String(left.origin).localeCompare(String(right.origin), "en"));
+
+    expect(conflictPayloads(orderThenFraud)).toEqual(conflictPayloads(fraudThenOrder));
+    expect(conflictPayloads(orderThenFraud)).toHaveLength(2);
+
+    await orderThenFraud.services.commandHandler({
+      streamId: "fulfillment.shipment-shp_race",
+      context: orderThenFraud.context,
+      command: { type: "CancelShipment", cancelledAt: "2026-08-02T12:02:00.000Z" },
+    });
+    const afterExit = orderThenFraud.readAllEvents().length;
+    await expect(
+      orderThenFraud.services.cancelShipmentForCancelledOrder({
+        orderId: "ord_race",
+        cancelledAt: "2026-08-02T12:03:00.000Z",
+        reason: "support-cancel-order",
+        origin: "order-cancelled",
+        context: orderThenFraud.context,
+        sourceIdentity: {
+          eventId: "evt_cancel_after_exit",
+          streamId: "ordering.order-ord_race",
+          streamVersion: 4,
+          eventType: "ordering.order.cancelled",
+        },
+      }),
+    ).resolves.toEqual({ shipmentId: null });
+    expect(orderThenFraud.readAllEvents()).toHaveLength(afterExit);
+  });
+
+  it("keeps a fraud-only conflict visible but refuses the seller cancellation exit", async () => {
+    const harness = await raceHarness("packing");
+    await recordFraudSignal(harness, "evt_fraud_only");
+    const before = harness.readAllEvents();
+    await expect(
+      harness.services.cancelShipment({ shipmentId: "shp_race", sellerAccountId: "acc_seller" }, harness.context),
+    ).rejects.toThrow("Cannot cancel shipment without an order cancellation conflict.");
+    expect(harness.readAllEvents()).toEqual(before);
+    expect(before.map((event) => event.eventType)).not.toContain("fulfillment.shipment.cancelled");
+  });
+
+  it("decides from the aggregate when the page row lags in either direction", async () => {
+    const advanced = await raceHarness("packing", "awaiting-package");
+    await advanced.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "buyer-cancelled",
+    });
+    expect(advanced.readAllEvents().map((event) => event.eventType)).toContain(
+      "fulfillment.shipment.cancellation-conflict-recorded",
+    );
+    expect(advanced.readAllEvents().map((event) => event.eventType)).not.toContain("fulfillment.shipment.cancelled");
+
+    const early = await raceHarness("awaiting-package", "packing");
+    await early.cancel({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "buyer-cancelled",
+    });
+    expect(early.readAllEvents().map((event) => event.eventType)).toContain("fulfillment.shipment.cancelled");
+    expect(early.readAllEvents().map((event) => event.eventType)).not.toContain(
+      "fulfillment.shipment.cancellation-conflict-recorded",
+    );
+  });
+
+  it("keeps the no-shipment and cancelled redelivery branches inert", async () => {
+    const cancelled = await raceHarness("cancelled");
+    const before = cancelled.readAllEvents().length;
+    const result = await cancelled.services.cancelShipmentForCancelledOrder({
+      orderId: "ord_race",
+      cancelledAt: "2026-08-02T12:00:00.000Z",
+      reason: "buyer-cancelled",
+      origin: "order-cancelled",
+      context: cancelled.context,
+      sourceIdentity: {
+        eventId: "evt_cancel_2",
+        streamId: "ordering.order-ord_race",
+        streamVersion: 2,
+        eventType: "ordering.order.cancelled",
+      },
+    });
+    expect(result).toEqual({ shipmentId: null });
+    expect(cancelled.readAllEvents()).toHaveLength(before);
+
+    const empty = await raceHarness("packing");
+    vi.mocked(empty.services.cancelShipmentForCancelledOrder);
+    const noShipmentDb = { query: vi.fn(async () => ({ rows: [] })) };
+    const noShipment = createFulfillmentShipmentRuntime({
+      eventStore: empty.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: noShipmentDb as never,
+    });
+    await expect(
+      noShipment.cancelShipmentForCancelledOrder({
+        orderId: "ord_race",
+        cancelledAt: "2026-08-02T12:00:00.000Z",
+        reason: "buyer-cancelled",
+        origin: "order-cancelled",
+        context: empty.context,
+        sourceIdentity: {
+          eventId: "evt_cancel_3",
+          streamId: "ordering.order-ord_race",
+          streamVersion: 3,
+          eventType: "ordering.order.cancelled",
+        },
+      }),
+    ).resolves.toEqual({ shipmentId: null });
+  });
+  it("validates internal cancellation identity, tenant history, and expected Shipment version", async () => {
+    const store = createInMemoryEventStore();
+    const appendToStream = vi.fn(store.eventStore.appendToStream);
+    const eventStore: EventStore = { ...store.eventStore, appendToStream };
+    const shipment = createPackedShipmentRow({ status: "awaiting-package", package_status: "awaiting-package" });
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("FROM fulfillment_shipment_pages") ? { rows: [shipment] } : { rows: [] },
+      ),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
+    };
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      context,
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-08-24T00:00:00.000Z",
+      },
+    });
+    const cancellation = {
+      orderId: "ord_1",
+      cancelledAt: "2026-08-24T00:01:00.000Z",
+      reason: "buyer-cancelled",
+      origin: "order-cancelled" as const,
+      context,
+      sourceIdentity: {
+        eventId: "evt_cancel_1",
+        streamId: "ordering.order-ord_1",
+        streamVersion: 2,
+        eventType: "ordering.order.cancelled",
+      },
+    };
+    await services.cancelShipmentForCancelledOrder(cancellation);
+    await services.cancelShipmentForCancelledOrder(cancellation);
+
+    const cancelledAppends = appendToStream.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.events.some((event) => event.eventType === "fulfillment.shipment.cancelled"));
+    expect(cancelledAppends).toHaveLength(1);
+    expect(cancelledAppends[0]?.expectedVersion).toBe(1);
+    await expect(
+      services.cancelShipmentForCancelledOrder({
+        ...cancellation,
+        sourceIdentity: { ...cancellation.sourceIdentity, streamVersion: 0 },
+      }),
+    ).rejects.toThrow("source identity is invalid");
+  });
+
   it("creates a shipment from a ready local order source", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const db = {
@@ -545,6 +1356,8 @@ describe("fulfillment shipment runtime", () => {
 
     expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
       expect.objectContaining({
+        subjectKind: "shipment",
+        subjectId: "shp_1",
         deliveryConfirmation: "signature",
         insuranceAmount: null,
         sender: expect.objectContaining({
@@ -570,7 +1383,7 @@ describe("fulfillment shipment runtime", () => {
       String(sql).includes("INSERT INTO fulfillment_postage_label_operations"),
     );
     expect(providerOperationCall).toBeTruthy();
-    const operationRequest = String(providerOperationCall?.[1]?.[6]);
+    const operationRequest = String(providerOperationCall?.[1]?.[7]);
     expect(operationRequest).toContain('"postagePolicySnapshot"');
     expect(operationRequest).toContain('"signatureRequired":true');
     expect(operationRequest).toContain('"insuranceRequired":false');
@@ -815,7 +1628,8 @@ describe("fulfillment shipment runtime", () => {
     await recordFulfillmentPostageLabelOperationPending(db as never, {
       operationKey: "shipment:shp_1:purchase-usps-label:initial",
       operationKind: "purchase-usps-label",
-      shipmentId: "shp_1",
+      subjectKind: "shipment",
+      subjectId: "shp_1",
       providerName: "sandbox-usps",
       providerMode: "test",
       idempotencyKey: "shipment:shp_1:purchase-usps-label:initial",
@@ -854,7 +1668,8 @@ describe("fulfillment shipment runtime", () => {
     await recordFulfillmentPostageLabelOperationPending(db as never, {
       operationKey: "shipment:shp_1:void-label:2026-04-02T00:15:00.000Z",
       operationKind: "void-label",
-      shipmentId: "shp_1",
+      subjectKind: "shipment",
+      subjectId: "shp_1",
       providerName: "sandbox-usps",
       providerMode: "test",
       idempotencyKey: "shipment:shp_1:void-label:2026-04-02T00:15:00.000Z",
@@ -1203,7 +2018,7 @@ describe("fulfillment shipment runtime", () => {
   });
 
   it("uses the original shipping plan snapshot when a voided label is re-bought", async () => {
-    const { eventStore } = createInMemoryEventStore();
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
     let purchaseCount = 0;
     const postageLabelProvider: PostageLabelProvider = {
       providerName: "sandbox-usps",
@@ -1339,6 +2154,10 @@ describe("fulfillment shipment runtime", () => {
       context,
     );
     await services.voidLabel({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }, context);
+    expect(readAllEvents().at(-1)?.eventType).toBe("fulfillment.shipment.label-voided");
+    expect(
+      readAllEvents().filter((event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded"),
+    ).toEqual([]);
     await expect(
       services.purchaseUspsLabel(
         {
@@ -1459,6 +2278,177 @@ describe("fulfillment shipment runtime", () => {
       expect.stringContaining("INSERT INTO fulfillment_postage_label_operations"),
       expect.anything(),
     );
+  });
+
+  describe("shipment-label-refund-producer-callers", () => {
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    const terminalResult = {
+      refundStatus: "refunded" as const,
+      refundReference: "synthetic_refund_A",
+      voidedAt: "2026-09-10T00:02:00.000Z",
+    };
+
+    function expectStoredOriginalLabelFact(
+      readAllEvents: () => readonly StoredEvent[],
+      expected: Readonly<{
+        refundStatus: "refunded" | "rejected";
+        refundReference: string;
+        voidedAt: string;
+      }> = terminalResult,
+    ) {
+      const stored = readAllEvents().find(
+        (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
+      );
+      expect(stored).toBeDefined();
+      expect(toTransportEvent(stored!)).toMatchObject({
+        type: "fulfillment.shipment.label-refund-status-recorded",
+        data: {
+          shipmentId: "shp_1",
+          postageProviderLabelId: "synthetic_label_A",
+          refundStatus: expected.refundStatus,
+          refundReference: expected.refundReference,
+          resolvedAt: expected.voidedAt,
+        },
+      });
+    }
+
+    it("stores the terminal fact from the non-attempt void runtime after its aggregate preflight", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const db = createPostageOperationDb(
+        createPackedShipmentRow({
+          tenant_id: "tnt_test",
+          status: "label-attached",
+          label_status: "purchased",
+          tracking_identifier: "synthetic_tracking_A",
+          postage_provider_shipment_id: "synthetic_shipment_A",
+          postage_provider_label_id: "synthetic_label_A",
+        }),
+      );
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        postageLabelProvider: {
+          providerName: "synthetic-postage",
+          providerMode: "test",
+          purchaseUspsLabel: vi.fn(),
+          voidLabel: vi.fn(async () => ({
+            providerName: "synthetic-postage",
+            providerMode: "test" as const,
+            ...terminalResult,
+          })),
+        },
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await services.voidLabel({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }, context);
+
+      expect(
+        readAllEvents()
+          .slice(-2)
+          .map((event) => event.eventType),
+      ).toEqual(["fulfillment.shipment.label-voided", "fulfillment.shipment.label-refund-status-recorded"]);
+      expectStoredOriginalLabelFact(readAllEvents);
+    });
+
+    it("stores the terminal fact from a newly reserved authoritative void attempt", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const rejectedResult = {
+        refundStatus: "rejected" as const,
+        refundReference: "synthetic_refund_A_rejected",
+        voidedAt: "2026-09-10T00:02:01.000Z",
+      };
+      const db = createAuthoritativeVoidOperationDb({ status: "reserved", providerResult: rejectedResult });
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        postageLabelProvider: {
+          providerName: "synthetic-postage",
+          providerMode: "test",
+          purchaseUspsLabel: vi.fn(),
+          voidLabel: vi.fn(async () => ({
+            providerName: "synthetic-postage",
+            providerMode: "test" as const,
+            ...rejectedResult,
+          })),
+        },
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await services.voidLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c7829a",
+        },
+        context,
+      );
+
+      expectStoredOriginalLabelFact(readAllEvents, rejectedResult);
+    });
+
+    it("stores the terminal fact when a retry finds the provider-succeeded void operation", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const db = createAuthoritativeVoidOperationDb({
+        status: "provider-succeeded",
+        providerResult: terminalResult,
+        reserveAsExisting: true,
+      });
+      const providerVoid = vi.fn();
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        postageLabelProvider: {
+          providerName: "synthetic-postage",
+          providerMode: "test",
+          purchaseUspsLabel: vi.fn(),
+          voidLabel: providerVoid,
+        },
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await services.voidLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          mutationAttemptId: "118f47d2-9d2a-4d68-8f33-6fb718c7829b",
+        },
+        context,
+      );
+
+      expect(providerVoid).not.toHaveBeenCalled();
+      expectStoredOriginalLabelFact(readAllEvents);
+    });
+
+    it("stores the terminal fact when operation reconciliation finalizes the provider result", async () => {
+      const { eventStore, readAllEvents } = createInMemoryEventStore();
+      const db = createAuthoritativeVoidOperationDb({ status: "provider-succeeded", providerResult: terminalResult });
+      const services = createFulfillmentShipmentRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      });
+      await seedAttachedShipmentAggregate(services, context);
+
+      await expect(
+        services.reconcilePostageOperationLocator({
+          operationId: "pop_synthetic_void_A",
+          tenantId: "tnt_test",
+          subjectKind: "shipment",
+          subjectId: "shp_1",
+        }),
+      ).resolves.toEqual({ outcome: "effect-applied" });
+
+      expectStoredOriginalLabelFact(readAllEvents);
+    });
   });
 
   it("purchases Letter Mail postage from the committed package plan weight", async () => {
@@ -1620,6 +2610,8 @@ describe("fulfillment shipment runtime", () => {
           return {
             rows: [
               {
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 shipment_id: "shp_1",
                 order_id: "ord_1",
                 seller_account_id: "acc_seller",
@@ -1849,26 +2841,26 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "label-attached",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
               },
             ],
           };
-        }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          expect(sql).toContain("processing_result <> 'received'");
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_tracker_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -2005,31 +2997,31 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 label_refund_status: "submitted",
                 label_voided_at: "2026-05-30T11:58:00.000Z",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
                 matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
                 matched_void_operation_status: "provider-succeeded",
               },
             ],
           };
-        }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          expect(sql).toContain("processing_result <> 'received'");
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_1" }], rowCount: 1 };
         }
         if (sql.includes("SET status = 'succeeded'")) {
           return { rows: [], rowCount: 1 };
@@ -2074,6 +3066,7 @@ describe("fulfillment shipment runtime", () => {
       streamId: "fulfillment.shipment-shp_1",
       command: {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: "pl_1",
         refundStatus: "submitted",
         refundReference: "rfnd_provider_1",
         voidedAt: "2026-05-30T11:58:00.000Z",
@@ -2099,9 +3092,19 @@ describe("fulfillment shipment runtime", () => {
       processingResult: "refund-refunded",
     });
 
-    expect(readAllEvents().map((event) => event.eventType)).toContain(
-      "fulfillment.shipment.label-refund-status-recorded",
+    const storedRefund = readAllEvents().find(
+      (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
     );
+    expect(toTransportEvent(storedRefund!)).toMatchObject({
+      type: "fulfillment.shipment.label-refund-status-recorded",
+      data: {
+        shipmentId: "shp_1",
+        postageProviderLabelId: "pl_1",
+        refundStatus: "refunded",
+        refundReference: "rfnd_provider_1",
+        resolvedAt: "2026-05-30T12:00:02.000Z",
+      },
+    });
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO fulfillment_postage_provider_events"),
       expect.arrayContaining([
@@ -2115,6 +3118,121 @@ describe("fulfillment shipment runtime", () => {
         "refunded",
         "refund-refunded",
       ]),
+    );
+  });
+
+  it("records a current-label refund webhook without a void request and finalizes its receipt", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageWebhookGateway: PostageProviderWebhookGateway = {
+      processPostageProviderWebhook: vi.fn(async () => ({
+        providerEventId: "evt_refund_without_request_1",
+        providerName: "easypost",
+        providerMode: "production" as const,
+        eventKind: "refund-status" as const,
+        providerObjectReference: "rfnd_provider_1",
+        providerShipmentId: "shp_provider_1",
+        trackingIdentifier: "940000000000000000",
+        status: "refunded",
+        occurredAt: "2026-05-30T12:00:02.000Z",
+        receivedAt: "2026-05-30T12:00:04.000Z",
+        payload: { id: "evt_refund_without_request_1" },
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                subject_kind: "shipment",
+                subject_id: "shp_1",
+                shipment_id: "shp_1",
+                tenant_id: "tnt_test",
+                seller_account_id: "acc_seller",
+                status: "label-attached",
+                label_status: "purchased",
+                label_refund_status: null,
+                label_voided_at: null,
+                tracking_identifier: "940000000000000000",
+                postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
+                matched_void_operation_key: null,
+                matched_void_operation_id: null,
+              },
+            ],
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageWebhookGateway,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+    await seedPackedShipmentAggregate(services, context);
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "pl_1",
+        labelDocumentUrl: "https://labels.easypost.test/pl_1.pdf",
+        trackingIdentifier: "940000000000000000",
+        postageProviderName: "easypost",
+        postageProviderMode: "production",
+        postageProviderShipmentId: "shp_provider_1",
+        postageProviderLabelId: "pl_1",
+        postageAmountCents: 499,
+        postageCurrency: "USD",
+        attachedAt: "2026-05-30T11:55:00.000Z",
+      },
+      context,
+    });
+    const eventCountBeforeWebhook = readAllEvents().length;
+
+    await expect(
+      services.processPostageProviderWebhook(
+        {
+          rawBody: "{}",
+          method: "POST",
+          path: "/api/fulfillment/provider/postage/webhooks",
+          headers: new Headers(),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      providerEventId: "evt_refund_without_request_1",
+      eventKind: "refund-status",
+      shipmentId: "shp_1",
+      processingResult: "recorded",
+    });
+
+    expect(readAllEvents()).toHaveLength(eventCountBeforeWebhook);
+    const candidateCall = db.query.mock.calls.find(([sql]) => sql.includes("WITH candidate_subjects AS"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("page.postage_provider_name = $4"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("page.postage_provider_mode = $5"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("operation.provider_name = $4"));
+    expect(candidateCall?.[0]).toEqual(expect.stringContaining("operation.provider_mode = $5"));
+    expect(candidateCall?.[1]).toEqual(["940000000000000000", "shp_provider_1", true, "easypost", "production"]);
+    const finalizationCall = db.query.mock.calls.find(([sql]) =>
+      sql.includes("SET subject_kind = EXCLUDED.subject_kind"),
+    );
+    expect(finalizationCall?.[1]).toEqual(
+      expect.arrayContaining(["evt_refund_without_request_1", "shipment", "shp_1", "recorded"]),
     );
   });
 
@@ -2136,33 +3254,34 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "awaiting-label",
                 label_status: "void-requested",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 label_refund_status: "submitted",
                 label_voided_at: "2026-05-30T11:58:00.000Z",
                 tracking_identifier: "940000000000000000",
                 postage_provider_shipment_id: "shp_provider_1",
+                postage_provider_label_id: "pl_1",
+                refund_postage_provider_label_id: "pl_1",
                 matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
                 matched_void_operation_status: "provider-succeeded",
               },
             ],
           };
         }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          return { rows: [], rowCount: 0 };
-        }
         if (sql.includes("SET status = 'failed'")) {
           return { rows: [], rowCount: 1 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_rejected_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -2204,6 +3323,7 @@ describe("fulfillment shipment runtime", () => {
       streamId: "fulfillment.shipment-shp_1",
       command: {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: "pl_1",
         refundStatus: "submitted",
         refundReference: "rfnd_provider_1",
         voidedAt: "2026-05-30T11:58:00.000Z",
@@ -2233,6 +3353,7 @@ describe("fulfillment shipment runtime", () => {
       (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
     );
     expect(refundEvent?.payload).toMatchObject({
+      postageProviderLabelId: "pl_1",
       refundStatus: "rejected",
       refundReference: "rfnd_provider_1",
     });
@@ -2256,33 +3377,34 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        const receipt = webhookReceiptQueryResult(sql, values);
+        if (receipt) return receipt;
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
               {
                 shipment_id: "shp_1",
+                tenant_id: "tnt_test",
                 seller_account_id: "acc_seller",
                 status: "label-attached",
                 label_status: "purchased",
+                subject_kind: "shipment",
+                subject_id: "shp_1",
                 label_refund_status: null,
                 label_voided_at: null,
                 tracking_identifier: "940000000000000001",
                 postage_provider_shipment_id: "new_provider_shipment_1",
+                postage_provider_label_id: "new_pl_1",
+                refund_postage_provider_label_id: "old_pl_1",
                 matched_void_operation_key: "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
                 matched_void_operation_status: "provider-succeeded",
               },
             ],
           };
         }
-        if (sql.includes("FROM fulfillment_postage_provider_events")) {
-          return { rows: [], rowCount: 0 };
-        }
         if (sql.includes("SET status = 'failed'")) {
           return { rows: [], rowCount: 1 };
-        }
-        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
-          return { rows: [{ provider_event_id: "evt_refund_after_rebuy_1" }], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -2321,6 +3443,7 @@ describe("fulfillment shipment runtime", () => {
       streamId: "fulfillment.shipment-shp_1",
       command: {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: "old_pl_1",
         refundStatus: "submitted",
         refundReference: "rfnd_provider_1",
         voidedAt: "2026-05-30T11:58:00.000Z",
@@ -2363,14 +3486,36 @@ describe("fulfillment shipment runtime", () => {
       processingResult: "refund-rejected-after-rebuy",
     });
 
-    expect(readAllEvents()).toHaveLength(eventCountBeforeWebhook);
-    expect(db.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE fulfillment_postage_label_operations"),
-      expect.arrayContaining([
-        "shipment:shp_1:void-label:2026-05-30T11:58:00.000Z",
-        "Postage label refund was rejected after a replacement label was purchased.",
-      ]),
-    );
+    expect(readAllEvents()).toHaveLength(eventCountBeforeWebhook + 1);
+    const storedRefund = readAllEvents().at(-1)!;
+    expect(toTransportEvent(storedRefund)).toMatchObject({
+      type: "fulfillment.shipment.label-refund-status-recorded",
+      data: {
+        shipmentId: "shp_1",
+        postageProviderLabelId: "old_pl_1",
+        refundStatus: "rejected",
+        refundReference: "rfnd_provider_1",
+        resolvedAt: "2026-05-30T12:10:00.000Z",
+      },
+    });
+    const replay = await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "RecordShipmentLabelRefundStatus",
+        postageProviderLabelId: "old_pl_1",
+        refundStatus: "rejected",
+        refundReference: "rfnd_provider_1",
+        resolvedAt: "2026-05-30T12:10:00.000Z",
+      },
+      context,
+    });
+    expect(replay.newEvents).toEqual([]);
+    expect(replay.state).toMatchObject({
+      postageProviderLabelId: "new_pl_1",
+      trackingIdentifier: "940000000000000001",
+      labelStatus: "purchased",
+      status: "label-attached",
+    });
   });
 
   it("blocks dispatch while a Stripe Radar review hold is open for the order", async () => {

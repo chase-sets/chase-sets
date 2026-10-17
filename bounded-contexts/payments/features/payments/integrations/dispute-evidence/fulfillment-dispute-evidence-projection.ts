@@ -1,21 +1,24 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        buyerAccountId: string;
-        sellerAccountId: string;
-        shippingDestinationSnapshot: unknown;
-        lines: unknown;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        | "fulfillment.shipment.created"
+        | "fulfillment.shipment.label-attached"
+        | "fulfillment.shipment.dispatched"
+        | "fulfillment.shipment.delivered"
+        | "fulfillment.shipment.cancelled"
+      >
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO payments_fulfillment_dispute_evidence_sources (
+        await db.query(
+          `INSERT INTO payments_fulfillment_dispute_evidence_sources (
            shipment_id,
            order_id,
            buyer_account_id,
@@ -32,28 +35,22 @@ export function buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers(db: Pg
              shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
              lines = EXCLUDED.lines,
              updated_at = EXCLUDED.updated_at`,
-        [
-          data.shipmentId,
-          data.orderId,
-          data.buyerAccountId,
-          data.sellerAccountId,
-          JSON.stringify(data.shippingDestinationSnapshot ?? null),
-          JSON.stringify(data.lines ?? []),
-          data.createdAt,
-        ],
-      );
-    },
-    "fulfillment.shipment.label-attached": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        shippingMethod: string;
-        carrierName: string;
-        trackingIdentifier: string;
-        attachedAt: string;
-      };
+          [
+            data.shipmentId,
+            data.orderId,
+            data.buyerAccountId,
+            data.sellerAccountId,
+            JSON.stringify(data.shippingDestinationSnapshot ?? null),
+            JSON.stringify(data.lines ?? []),
+            data.createdAt,
+          ],
+        );
+      },
+      "fulfillment.shipment.label-attached": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE payments_fulfillment_dispute_evidence_sources
+        await db.query(
+          `UPDATE payments_fulfillment_dispute_evidence_sources
          SET status = 'label-attached',
              shipping_method = $2,
              carrier_name = $3,
@@ -61,36 +58,26 @@ export function buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers(db: Pg
              label_attached_at = $5,
              updated_at = $5
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.shippingMethod, data.carrierName, data.trackingIdentifier, data.attachedAt],
-      );
-    },
-    "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        dispatchedAt: string;
-      };
+          [data.shipmentId, data.shippingMethod, data.carrierName, data.trackingIdentifier, data.attachedAt],
+        );
+      },
+      "fulfillment.shipment.dispatched": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE payments_fulfillment_dispute_evidence_sources
+        await db.query(
+          `UPDATE payments_fulfillment_dispute_evidence_sources
          SET status = 'dispatched',
              dispatched_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.dispatchedAt],
-      );
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        buyerAccountId: string;
-        shippingDestinationSnapshot: unknown;
-        trackingIdentifier: string | null;
-        deliveredAt: string;
-      };
+          [data.shipmentId, data.dispatchedAt],
+        );
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE payments_fulfillment_dispute_evidence_sources
+        await db.query(
+          `UPDATE payments_fulfillment_dispute_evidence_sources
          SET order_id = $2,
              buyer_account_id = $3,
              status = 'delivered',
@@ -99,23 +86,21 @@ export function buildPaymentsFulfillmentDisputeEvidenceProjectionHandlers(db: Pg
              delivered_at = $6,
              updated_at = $6
          WHERE shipment_id = $1`,
-        [
-          data.shipmentId,
-          data.orderId,
-          data.buyerAccountId,
-          JSON.stringify(data.shippingDestinationSnapshot ?? null),
-          data.trackingIdentifier,
-          data.deliveredAt,
-        ],
-      );
-    },
-    "fulfillment.shipment.cancelled": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        cancelledAt: string;
-      };
-      await recordTerminalShipmentStatus(db, data.shipmentId, "cancelled", data.cancelledAt);
-    },
+          [
+            data.shipmentId,
+            data.orderId,
+            data.buyerAccountId,
+            JSON.stringify(data.shippingDestinationSnapshot ?? null),
+            data.trackingIdentifier,
+            data.deliveredAt,
+          ],
+        );
+      },
+      "fulfillment.shipment.cancelled": async (event) => {
+        const { data } = event;
+        await recordTerminalShipmentStatus(db, data.shipmentId, "cancelled", data.cancelledAt);
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;

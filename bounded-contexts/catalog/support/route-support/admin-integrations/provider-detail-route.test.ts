@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { providerDetailAction } from "./provider-detail-action";
 import { loadProviderDetail } from "./provider-detail-loader";
 
-const { mockCreateCatalogRequestApiClient, mockLoadHealthSurface } = vi.hoisted(() => ({
+const { mockCreateCatalogRequestApiClient, mockLoadHealthSurface, mockResolveActorFromAuthApi } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
   mockLoadHealthSurface: vi.fn(),
+  mockResolveActorFromAuthApi: vi.fn(),
+}));
+
+vi.mock("@chase-sets/platform-runtime/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/platform-runtime/auth")>()),
+  resolveActorFromAuthApi: mockResolveActorFromAuthApi,
 }));
 
 vi.mock("../../request-support/api-client", () => ({
@@ -40,6 +46,31 @@ describe("provider detail route support", () => {
     const delegatedRequest = mockLoadHealthSurface.mock.calls[0]?.[0].request as Request;
     expect(new URL(delegatedRequest.url).searchParams.get("providerKey")).toBe("tcgdex");
     expect(result.providerRefreshSchedules).toEqual([schedule("tcgdex")]);
+    expect(result.operatorSessionActorKey).toBeNull();
+    expect(mockResolveActorFromAuthApi).not.toHaveBeenCalled();
+  });
+
+  it("keys the Operator session section only for a platform-admin actor on TCGplayer", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({});
+    mockResolveActorFromAuthApi.mockResolvedValueOnce(actor("platform-admin"));
+
+    const result = await loadProviderDetail(loaderArgs("tcgplayer"));
+
+    expect(result.operatorSessionActorKey).toBe("user-1:membership-1");
+    expect(mockResolveActorFromAuthApi).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a non-platform-admin actor", () => mockResolveActorFromAuthApi.mockResolvedValueOnce(actor("catalog-admin"))],
+    ["an anonymous request", () => mockResolveActorFromAuthApi.mockResolvedValueOnce(null)],
+    ["a failed actor resolution", () => mockResolveActorFromAuthApi.mockRejectedValueOnce(new Error("auth down"))],
+  ])("hides the Operator session section from %s", async (_label, arrange) => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({});
+    arrange();
+
+    const result = await loadProviderDetail(loaderArgs("tcgplayer"));
+
+    expect(result.operatorSessionActorKey).toBeNull();
   });
 
   it("runs and pauses refreshes for the path provider without leaving its selected profile", async () => {
@@ -66,6 +97,26 @@ describe("provider detail route support", () => {
     }
   });
 });
+
+function loaderArgs(providerKey: string): Parameters<typeof loadProviderDetail>[0] {
+  return {
+    request: new Request(`https://admin.example/catalog/providers/${providerKey}`),
+    params: { providerKey },
+    context: {},
+  } as unknown as Parameters<typeof loadProviderDetail>[0];
+}
+
+function actor(roleKey: string) {
+  return {
+    sessionId: "session-1",
+    tenantId: "tenant-1",
+    userId: "user-1",
+    accountId: "account-1",
+    membershipId: "membership-1",
+    roleKey,
+    permissions: ["catalog.view", "catalog.manage"],
+  };
+}
 
 function actionArgs(intent: string, url: string): Parameters<typeof providerDetailAction>[0] {
   return {

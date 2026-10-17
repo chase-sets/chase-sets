@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { Hono } from "hono";
+import {
+  createEvidenceWindowSourceAdmissionMiddleware,
+  type EvidenceWindowById,
+} from "@chase-sets/platform-runtime/control-plane";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -6,9 +13,31 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  eventCorePostgresSchemaSql,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import type { OrderingApiEnv } from "../../../api";
+import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { module as orderingModule } from "../../../index";
-import { releasePurchaseLimitClaimsForOrder } from "./purchase-limits";
+import { createAccountPurchaseOrderRoutes } from "./route";
+import { claimPlanPurchaseLimitUsage, releasePurchaseLimitClaimsForOrder } from "./purchase-limits";
+import { claimOrderSource, compensatePendingOrderSourceClaim, getOrderSourceClaim } from "./order-source-claims";
+import { closeEvidenceWindowSource, readEvidenceWindowSources } from "./evidence-window-source-release";
+import {
+  context,
+  createCheckpointStore,
+  createOrderingOrderRuntimeForTest,
+  productMeasureForCandidate,
+  shipFromAddress,
+  shippingAddress,
+  type SupplyCandidate,
+} from "./runtime-test-harness";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -19,9 +48,11 @@ const contextNames = ["ordering"] as const;
 
 describeDb("ordering purchase limits db", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
+  let orderingDatabaseUrl: string;
 
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "ordering_purchase_limits");
+    orderingDatabaseUrl = databaseUrls.ordering;
     await ensureMultiContextTestDatabases(databaseBaseUrl!, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
   });
@@ -29,10 +60,845 @@ describeDb("ordering purchase limits db", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await pools.ordering.query(orderingModule.schemaSql);
+    await pools.ordering.query(eventCorePostgresSchemaSql);
   });
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function supply(listingId: string, limit = 1) {
+    const candidate: SupplyCandidate = {
+      listingId,
+      sellerAccountId: `acc_${listingId}`,
+      inventoryItemId: `inv_${listingId}`,
+      catalogItemId: `cat_${listingId}`,
+      productId: `cat_${listingId}::`,
+      itemTitle: "Card",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      storageLocationName: null,
+      shipFromCode: "CHI",
+      priceAmount: "150.00",
+      availableQuantity: 10,
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    };
+    await pools.ordering.query(
+      `INSERT INTO ordering_inventory_item_inputs
+       (item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity, updated_at, last_stream_version)
+       VALUES ($1, $2, $3, $4, 10, now(), 1)`,
+      [candidate.inventoryItemId, candidate.sellerAccountId, candidate.catalogItemId, candidate.productId],
+    );
+    await pools.ordering.query(
+      `INSERT INTO ordering_market_listing_inputs
+       (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, item_title,
+        ship_from_code, ship_from_address, product_measure_snapshot, price_amount, price_currency_code,
+        listing_stream_version, marketplace_sales_fee_unit_amount, seller_net_unit_amount, terms_resolved_at,
+        quantity_cap, max_units_per_day, max_units_per_customer_account, status, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'Card', 'CHI', $6::jsonb, $7::jsonb, 150, 'USD', 1, 1, 149, now(), 10, $8, $8, 'active', now())`,
+      [
+        listingId,
+        candidate.sellerAccountId,
+        candidate.inventoryItemId,
+        candidate.catalogItemId,
+        candidate.productId,
+        JSON.stringify(shipFromAddress),
+        JSON.stringify(productMeasureForCandidate(candidate)),
+        limit,
+      ],
+    );
+  }
+
+  function checkout(listingIds = ["lst_a"], checkoutSessionId = "chk_limit") {
+    return {
+      buyerAccountId: context.audit.forAccountId,
+      checkoutSessionId,
+      sourceType: "cart-checkout" as const,
+      shippingOption: "standard" as const,
+      shippingAddress,
+      lines: listingIds.map((listingId) => ({
+        listingId,
+        cartLineId: `cli_${listingId}`,
+        catalogItemId: `cat_${listingId}`,
+        productId: `cat_${listingId}::`,
+        itemTitle: "Card",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      })),
+    };
+  }
+
+  function runtime(eventStore: EventStore = createPostgresEventStore({ pool: pools.ordering }), db = pools.ordering) {
+    return createOrderingOrderRuntimeForTest({
+      db,
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" }),
+      },
+    });
+  }
+
+  async function snapshot() {
+    const [claims, usage, sources, streams] = await Promise.all([
+      pools.ordering.query(
+        "SELECT source_reference_id, buyer_account_id, listing_id, quantity, status, claimed_at::date::text AS claimed_day FROM ordering_listing_purchase_limit_claims ORDER BY source_reference_id, listing_id",
+      ),
+      pools.ordering.query(
+        "SELECT buyer_account_id, listing_id, marketplace_day::text, day_quantity, customer_account_quantity FROM ordering_listing_purchase_limit_usage ORDER BY buyer_account_id, listing_id",
+      ),
+      pools.ordering.query(
+        "SELECT source_reference_id, buyer_account_id, order_ids, status FROM ordering_order_source_claims ORDER BY source_reference_id",
+      ),
+      pools.ordering.query(
+        "SELECT stream_id FROM event_store_streams WHERE stream_id LIKE 'ordering.order-%' ORDER BY stream_id",
+      ),
+    ]);
+    return { claims: claims.rows, usage: usage.rows, sources: sources.rows, streams: streams.rows };
+  }
+
+  function failQuery(match: string): PgTransactionalPool {
+    const wrap =
+      (db: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+        if (sql.includes(match)) throw new Error("injected database failure");
+        return db.query<Row>(sql, params);
+      };
+    return {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+  }
+
+  it("AC-01 actual checkout handler durably binds before its first source write; late-bind mutant is refused", async () => {
+    await supply("lst_a");
+    const windowId = "abcdef0123456789abcdef0123456789";
+    const windowOpenedAt = new Date().toISOString();
+    let observedInsideFirstWrite = false;
+    const wrap =
+      (client: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("INSERT INTO ordering_order_source_claims")) {
+          const sources = await readEvidenceWindowSources(pools.ordering, windowId);
+          expect(sources).toHaveLength(1);
+          expect(sources[0]?.sourceIdentity).toEqual({
+            sourceType: "cart-checkout",
+            sourceReferenceId: "chk_limit",
+            buyerAccountId: context.audit.forAccountId,
+          });
+          observedInsideFirstWrite = true;
+          throw new Error("first-write fence observed");
+        }
+        return client.query<Row>(sql, params);
+      };
+    const guardedDb: PgTransactionalPool = {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+    const admitted = { windowId, subInvocation: "2a" as const, windowOpenedAt };
+    await expect(
+      runtime(undefined, guardedDb).createOrdersFromCheckout(
+        { ...checkout(), evidenceWindowSource: admitted },
+        context,
+      ),
+    ).rejects.toThrow("first-write fence observed");
+    expect(observedInsideFirstWrite).toBe(true);
+    const source = (await readEvidenceWindowSources(pools.ordering, windowId))[0]!;
+    expect(source.creatorState).toBe("open");
+    expect(
+      (
+        await closeEvidenceWindowSource(pools.ordering, {
+          windowId,
+          subInvocation: "2a",
+          expectedVersion: 1,
+        })
+      ).outcome,
+    ).toBe("closed");
+    await expect(
+      runtime().createOrdersFromCheckout({ ...checkout(), evidenceWindowSource: admitted }, context),
+    ).rejects.toThrow("binding refused");
+    await expect(
+      runtime().createOrdersFromCheckout({ ...checkout(), evidenceWindowSourceAdmissionConfigured: true }, context),
+    ).rejects.toThrow("requires admitted creation context");
+    await expect(
+      runtime().commandHandler({
+        streamId: "ordering.order-ord_late",
+        command: {
+          type: "CreateOrder",
+          sourceType: "cart-checkout",
+          sourceReferenceId: "chk_limit",
+          buyerAccountId: context.audit.forAccountId,
+        } as never,
+        context,
+      }),
+    ).rejects.toThrow("creator is closed");
+    expect((await snapshot()).streams).toHaveLength(0);
+
+    const lateBindDb: PgTransactionalPool = {
+      query: pools.ordering.query.bind(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return {
+          query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) =>
+            sql.includes("INSERT INTO ordering_evidence_window_sources")
+              ? { rows: [] as Row[], rowCount: 0 }
+              : client.query<Row>(sql, params),
+          release: client.release.bind(client),
+        };
+      },
+    };
+    await expect(
+      runtime(undefined, lateBindDb).createOrdersFromCheckout(
+        {
+          ...checkout(["lst_a"], "chk_late"),
+          evidenceWindowSource: { ...admitted, windowId: "123456789abcdef0123456789abcdef0" },
+        },
+        context,
+      ),
+    ).rejects.toThrow("binding refused");
+    expect((await snapshot()).streams).toHaveLength(0);
+  });
+
+  function checkoutApp(
+    options: Readonly<{ mode?: "test" | "live"; registration?: EvidenceWindowById; db?: PgTransactionalPool }>,
+  ) {
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: context.tenantId,
+        userId: context.audit.performedByUserId,
+        accountId: context.audit.forAccountId,
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      });
+      c.set("context", context);
+      await next();
+    });
+    if (options.mode) {
+      app.use(
+        "/account/purchases/checkout",
+        createEvidenceWindowSourceAdmissionMiddleware({
+          authority: {
+            effectiveMode: options.mode,
+            gatewayKinds: { paymentProcessor: "stripe", moneyMovement: "stripe" },
+          },
+          registrationById: async (id) => (options.registration?.windowId === id ? options.registration : null),
+        }),
+      );
+    }
+    app.route("/account", createAccountPurchaseOrderRoutes(runtime(undefined, options.db)));
+    return (body: unknown, headers: Readonly<Record<string, string>> = {}) =>
+      app.fetch(
+        new Request("http://ordering.test/account/purchases/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(body),
+        }),
+      );
+  }
+
+  it("F3 HTTP checkout binds through the header pair, host admission and actor before its first claim write", async () => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const windowId = "0123456789abcdef0123456789abcdef";
+    const registration: EvidenceWindowById = {
+      windowId,
+      openedAt: new Date(Date.now() - 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      state: "open",
+      observedMode: "test",
+    };
+    const pair = { "x-evidence-window-id": windowId, "x-evidence-window-sub-invocation": "2a" };
+    const sourceRows = async () =>
+      (await pools.ordering.query(`SELECT source_reference_id FROM ordering_evidence_window_sources`)).rows;
+    let observedInsideFirstWrite = false;
+    const wrap =
+      (client: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("INSERT INTO ordering_order_source_claims")) {
+          const sources = await readEvidenceWindowSources(pools.ordering, windowId);
+          expect(sources).toHaveLength(1);
+          expect(sources[0]).toMatchObject({
+            subInvocation: "2a",
+            windowOpenedAt: registration.openedAt,
+            creatorState: "open",
+            sourceIdentity: {
+              sourceType: "cart-checkout",
+              sourceReferenceId: "chk_http",
+              buyerAccountId: context.audit.forAccountId,
+            },
+          });
+          observedInsideFirstWrite = true;
+          throw new Error("first-write fence observed");
+        }
+        return client.query<Row>(sql, params);
+      };
+    const guardedDb: PgTransactionalPool = {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+    // Caller identity injection: the body forges a buyer, a source and its
+    // timing; the bound source must carry the actor and the registration.
+    const forged = {
+      ...checkout(["lst_a"], "chk_http"),
+      buyerAccountId: "acc_intruder",
+      windowOpenedAt: "2000-01-01T00:00:00.000Z",
+      evidenceWindowSource: { windowId, subInvocation: "2b", windowOpenedAt: "2000-01-01T00:00:00.000Z" },
+    };
+    const fenced = await checkoutApp({ mode: "test", registration, db: guardedDb })(forged, pair);
+    expect(fenced.status).toBe(409);
+    await expect(fenced.json()).resolves.toEqual({ error: { code: "evidence-window-source-failed" } });
+    expect(observedInsideFirstWrite).toBe(true);
+    expect(await sourceRows()).toEqual([{ source_reference_id: "chk_http" }]);
+
+    // Same-source no-header retry with admission mounted is refused before
+    // any Order write.
+    const retry = await checkoutApp({ mode: "test", registration })(checkout(["lst_a"], "chk_http"));
+    expect(retry.status).toBe(400);
+    expect(((await retry.json()) as { error: { message: string } }).error.message).toContain(
+      "requires admitted creation context",
+    );
+    expect((await snapshot()).streams).toHaveLength(0);
+
+    const refusals: ReadonlyArray<readonly [Parameters<typeof checkoutApp>[0], Record<string, string>, number]> = [
+      [{}, pair, 409],
+      [{ mode: "live", registration }, pair, 409],
+      [
+        { mode: "test", registration: { ...registration, expiresAt: new Date(Date.now() - 1).toISOString() } },
+        pair,
+        409,
+      ],
+      [{ mode: "test", registration: { ...registration, state: "closed" } }, pair, 409],
+      [{ mode: "test" }, pair, 409],
+      [{ mode: "test", registration }, { "x-evidence-window-id": windowId }, 400],
+      [{ mode: "test", registration }, { "x-evidence-window-sub-invocation": "2a" }, 400],
+    ];
+    for (const [options, headers, status] of refusals) {
+      const response = await checkoutApp(options)(checkout(["lst_b"], "chk_refused"), headers);
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: status === 400 ? "evidence-window-source-admission-refused" : "evidence-window-source-failed",
+        },
+      });
+    }
+    expect(await sourceRows()).toEqual([{ source_reference_id: "chk_http" }]);
+    expect((await snapshot()).streams).toHaveLength(0);
+
+    // Without the host admission, a no-header checkout stays ungoverned.
+    const plain = await checkoutApp({})(checkout(["lst_b"], "chk_plain"));
+    expect(plain.status).toBe(201);
+    expect(await sourceRows()).toEqual([{ source_reference_id: "chk_http" }]);
+    expect((await snapshot()).streams).toHaveLength(1);
+  });
+
+  it("AC-10 creates a production checkout without governance or source-recovery I/O", async () => {
+    await supply("lst_a");
+    let recoveryQueries = 0;
+    const wrap =
+      (client: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.includes("ordering_evidence_window_sources")) {
+          recoveryQueries++;
+          throw new Error("production recovery I/O");
+        }
+        return client.query<Row>(sql, values);
+      };
+    const productionDb: PgTransactionalPool = {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+    const created = await runtime(undefined, productionDb).createOrdersFromCheckout(checkout(), context);
+    expect(created.orderIds).toHaveLength(1);
+    expect(recoveryQueries).toBe(0);
+    expect((await snapshot()).streams).toHaveLength(1);
+  });
+
+  it("AC-06 last Order commit without a runner result recovers in a fresh process by identity alone", async () => {
+    await supply("lst_a");
+    const windowId = "fedcba9876543210fedcba9876543210";
+    const windowOpenedAt = new Date().toISOString();
+    const script = fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url));
+    const childEnv = {
+      ...process.env,
+      TEST_SOURCE_DB_URL: orderingDatabaseUrl,
+      TEST_SOURCE_OPENED_AT: windowOpenedAt,
+      TEST_SOURCE_LINES: "lst_a",
+    };
+    const creator = spawn(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      env: { ...childEnv, TEST_SOURCE_CUT: "last Order/pre-complete" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let stderr = "";
+    creator.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    const reached = new Promise<void>((resolve, reject) => {
+      creator.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+        if (output.includes("CUT:last Order/pre-complete\n")) resolve();
+      });
+      creator.on("error", reject);
+      creator.on("exit", (code) => reject(new Error(`creator exited before last Order: ${code} ${stderr}`)));
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        reached,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error(`creator did not reach last Order: ${stderr}`)), 8000);
+        }),
+      ]);
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+      creator.kill();
+      if (creator.exitCode === null) await new Promise<void>((resolve) => creator.once("exit", () => resolve()));
+    }
+    expect((await snapshot()).streams).toHaveLength(1);
+    expect(await readEvidenceWindowSources(pools.ordering, windowId)).toHaveLength(1);
+    expect(
+      (
+        await closeEvidenceWindowSource(pools.ordering, {
+          windowId,
+          subInvocation: "2a",
+          expectedVersion: 1,
+        })
+      ).outcome,
+    ).toBe("closed");
+    const child = spawnSync(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: childEnv,
+    });
+    expect(child.status, child.stderr).toBe(0);
+    expect(JSON.parse(child.stdout.trim())).toEqual({ outcome: "discharged" });
+    expect((await snapshot()).sources).toEqual([]);
+    const retained = (await readEvidenceWindowSources(pools.ordering, windowId))[0];
+    expect(retained?.terminalReport).toMatchObject({ outcome: "discharged" });
+  });
+
+  it.each([
+    "pre-source",
+    "source/pre-usage",
+    "claim-insert/pre-increment",
+    "increment/pre-flip",
+    "usage/pre-capacity",
+    "capacity/pre-Order",
+    "between Orders",
+    "last Order/pre-complete",
+    "complete/pre-response",
+  ])("AC-03/AC-04 read-only observation and real process kill/restart at %s", async (cut) => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const windowId = "fedcba9876543210fedcba9876543210";
+    const windowOpenedAt = new Date().toISOString();
+    const sourceReferenceId = `chk_crash_${cut.replaceAll(/[^a-zA-Z0-9]/g, "_")}`;
+    const childEnv = {
+      ...process.env,
+      TEST_SOURCE_DB_URL: orderingDatabaseUrl,
+      TEST_SOURCE_OPENED_AT: windowOpenedAt,
+      TEST_SOURCE_REFERENCE_ID: sourceReferenceId,
+    };
+    const script = fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url));
+    const creator = spawn(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      env: { ...childEnv, TEST_SOURCE_CUT: cut },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let errorOutput = "";
+    creator.stderr.on("data", (chunk: Buffer) => {
+      errorOutput += chunk.toString();
+    });
+    const reached = new Promise<void>((resolve, reject) => {
+      creator.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+        if (output.includes(`CUT:${cut}\n`)) resolve();
+      });
+      creator.on("error", reject);
+      creator.on("exit", (code) => reject(new Error(`creator exited before cut ${cut}: ${code} ${errorOutput}`)));
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        reached,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error(`creator did not reach ${cut}: ${errorOutput}`)), 8000);
+        }),
+      ]);
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+      creator.kill();
+      if (creator.exitCode === null) await new Promise<void>((resolve) => creator.once("exit", () => resolve()));
+    }
+    if (cut === "pre-source") {
+      expect(await readEvidenceWindowSources(pools.ordering, windowId)).toHaveLength(0);
+      expect((await snapshot()).streams).toHaveLength(0);
+      return;
+    }
+    expect(await readEvidenceWindowSources(pools.ordering, windowId)).toHaveLength(1);
+    const observerQueries: string[] = [];
+    const readOnlyDb: PgTransactionalPool = {
+      query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        observerQueries.push(sql);
+        if (/\b(INSERT|UPDATE|DELETE|CREATE|ALTER)\b/i.test(sql)) throw new Error("observation wrote");
+        return pools.ordering.query<Row>(sql, values);
+      },
+      connect: async () => {
+        throw new Error("observation opened a write transaction");
+      },
+    };
+    const observation = await runtime(
+      createPostgresEventStore({ pool: readOnlyDb }),
+      readOnlyDb,
+    ).evidenceWindowSources.observe({ sourceType: "cart-checkout", sourceReferenceId, buyerAccountId: "acc_buyer" });
+    expect(observation).not.toBeNull();
+    const inventory = observerQueries.join("\n");
+    const requiredSurfaces = [
+      "ordering_evidence_window_sources",
+      "ordering_listing_purchase_limit_claims",
+      "ordering_listing_purchase_limit_usage",
+      "ordering_order_source_claims",
+      "ordering_seller_open_order_claims",
+    ];
+    expect(requiredSurfaces.every((table) => inventory.includes(table))).toBe(true);
+    expect(
+      requiredSurfaces.every((table) =>
+        inventory.replaceAll("ordering_seller_open_order_claims", "omitted-surface").includes(table),
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await closeEvidenceWindowSource(pools.ordering, {
+          windowId,
+          subInvocation: "2a",
+          expectedVersion: 1,
+        })
+      ).outcome,
+    ).toBe("closed");
+    const restarted = spawnSync(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: childEnv,
+    });
+    expect(restarted.status, restarted.stderr).toBe(0);
+    expect(JSON.parse(restarted.stdout.trim())).toEqual({ outcome: "discharged" });
+    const after = await snapshot();
+    expect(after.sources).toHaveLength(0);
+    expect(after.claims.every((row) => row.status === "released")).toBe(true);
+    expect((await readEvidenceWindowSources(pools.ordering, windowId))[0]?.terminalReport).toMatchObject({
+      outcome: "discharged",
+    });
+  });
+
+  it.each([false, true])("purchase-limit-plan-claim-is-atomic: reversed=%s", async (reversed) => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const plan = (sourceReferenceId: string, listingIds: string[]) => ({
+      orderDrafts: [
+        {
+          sourceType: "cart-checkout" as const,
+          sourceReferenceId,
+          lines: listingIds.map((listingId) => ({ listingId, quantity: 1 })),
+        },
+      ],
+    });
+    await claimPlanPurchaseLimitUsage(pools.ordering, context.audit.forAccountId, plan("chk_prior", ["lst_b"]));
+    const before = await snapshot();
+    await expect(
+      claimPlanPurchaseLimitUsage(
+        pools.ordering,
+        context.audit.forAccountId,
+        plan("chk_atomic", reversed ? ["lst_b", "lst_a"] : ["lst_a", "lst_b"]),
+      ),
+    ).rejects.toThrow("purchase limit reached");
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("AC-12 actual PostgreSQL backend kill after an intra-loop flip rolls the entire usage transaction back", async () => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const killedPool: PgTransactionalPool = {
+      query: pools.ordering.query.bind(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        const pid = (await client.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`)).rows[0]!.pid;
+        let killed = false;
+        return {
+          query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+            const result = await client.query<Row>(sql, params);
+            if (
+              !killed &&
+              sql.includes("UPDATE ordering_listing_purchase_limit_claims") &&
+              sql.includes("SET status = 'claimed'")
+            ) {
+              killed = true;
+              await pools.ordering.query(`SELECT pg_terminate_backend($1)`, [pid]);
+            }
+            return result;
+          },
+          release: client.release.bind(client),
+        };
+      },
+    };
+    await expect(
+      claimPlanPurchaseLimitUsage(killedPool, context.audit.forAccountId, {
+        orderDrafts: [
+          {
+            sourceType: "cart-checkout",
+            sourceReferenceId: "chk_killed",
+            lines: [
+              { listingId: "lst_a", quantity: 1 },
+              { listingId: "lst_b", quantity: 1 },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+    const after = await snapshot();
+    expect(after.claims).toEqual([]);
+    expect(after.usage).toEqual([]);
+  });
+
+  it.each(["source", "admission", "first append"])("checkout-no-order-failure-releases-limit: %s", async (failure) => {
+    await supply("lst_a");
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    const failingStore: EventStore = {
+      ...store,
+      appendToStream: async () => {
+        throw new Error("first append failed");
+      },
+    };
+    const db =
+      failure === "source"
+        ? failQuery("INSERT INTO ordering_order_source_claims")
+        : failure === "admission"
+          ? failQuery("SET day_quantity = day_quantity +")
+          : pools.ordering;
+    await expect(
+      runtime(failure === "first append" ? failingStore : store, db).createOrdersFromCheckout(checkout(), context),
+    ).rejects.toThrow(failure === "first append" ? "first append failed" : "injected database failure");
+    const after = await snapshot();
+    expect(after.claims).toEqual([]);
+    expect(after.sources).toEqual([]);
+    expect(after.streams).toEqual([]);
+    expect(after.usage.every((row) => row.day_quantity === 0 && row.customer_account_quantity === 0)).toBe(true);
+    const result = await runtime().createOrdersFromCheckout(checkout(["lst_a"], "chk_another"), context);
+    expect(result.orderIds).toHaveLength(1);
+    expect((await snapshot()).usage).toEqual([
+      expect.objectContaining({ day_quantity: 1, customer_account_quantity: 1 }),
+    ]);
+  });
+
+  it("checkout-partial-order-failure-preserves-source-limit", async () => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    let appends = 0;
+    const failingStore: EventStore = {
+      ...store,
+      appendToStream: async (input) => {
+        if (++appends === 2) throw new Error("later append failed");
+        return store.appendToStream(input);
+      },
+    };
+    const params = checkout(["lst_a", "lst_b"]);
+    await expect(runtime(failingStore).createOrdersFromCheckout(params, context)).rejects.toThrow(
+      "later append failed",
+    );
+    const beforeRetry = await snapshot();
+    expect(beforeRetry.sources).toEqual([expect.objectContaining({ status: "pending", order_ids: expect.any(Array) })]);
+    const claim = await getOrderSourceClaim(pools.ordering, params.sourceType, params.checkoutSessionId);
+    expect(claim?.orderIds).toHaveLength(2);
+    expect(beforeRetry.streams).toEqual([{ stream_id: `ordering.order-${claim!.orderIds[0]}` }]);
+    expect(beforeRetry.claims).toHaveLength(2);
+    expect(beforeRetry.claims.every((row) => row.status === "claimed")).toBe(true);
+    expect(beforeRetry.usage.every((row) => row.day_quantity === 1 && row.customer_account_quantity === 1)).toBe(true);
+    await expect(runtime().createOrdersFromCheckout(params, context)).rejects.toThrow("already in progress");
+    expect(await snapshot()).toEqual(beforeRetry);
+  });
+
+  it("preserves limits when source completion fails after durable append", async () => {
+    await supply("lst_a");
+    await expect(
+      runtime(undefined, failQuery("UPDATE ordering_order_source_claims")).createOrdersFromCheckout(
+        checkout(),
+        context,
+      ),
+    ).rejects.toThrow("injected database failure");
+    const before = await snapshot();
+    expect(before.streams).toHaveLength(1);
+    expect(before.claims).toEqual([expect.objectContaining({ status: "claimed" })]);
+    const result = await runtime().createOrdersFromCheckout(checkout(), context);
+    const after = await snapshot();
+    expect(after.streams).toEqual(before.streams);
+    expect(after.claims).toEqual(before.claims);
+    expect(after.usage).toEqual(before.usage);
+    expect(after.sources).toEqual([expect.objectContaining({ status: "created", order_ids: result.orderIds })]);
+  });
+
+  it.each([0, 1])("purchase-limit-source-retry-concurrency: day +%i", async (daysUntilRetry) => {
+    const clock = await pools.ordering.query<{ now: Date }>("SELECT now() AS now");
+    const retryAt = clock.rows[0]!.now;
+    const claimedAt = new Date(retryAt.getTime() - daysUntilRetry * 24 * 60 * 60 * 1_000);
+    const claimedDay = claimedAt.toISOString().slice(0, 10);
+    const retryDay = retryAt.toISOString().slice(0, 10);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(claimedAt);
+    await supply("lst_a");
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    let signalEntered!: () => void;
+    let signalResume!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      signalEntered = resolve;
+    });
+    const resume = new Promise<void>((resolve) => {
+      signalResume = resolve;
+    });
+    const failingStore: EventStore = {
+      ...store,
+      appendToStream: async () => {
+        if (daysUntilRetry > 0) {
+          // Model the historical attempt in PostgreSQL too: its now() does not follow Vitest's clock.
+          await pools.ordering.query(
+            `UPDATE ordering_listing_purchase_limit_claims SET claimed_at = $1::timestamptz
+             WHERE source_type = 'cart-checkout' AND source_reference_id = 'chk_limit'
+               AND buyer_account_id = $2`,
+            [claimedAt.toISOString(), context.audit.forAccountId],
+          );
+        }
+        signalEntered();
+        await resume;
+        throw new Error("owned attempt failed");
+      },
+    };
+    const pending = runtime(failingStore).createOrdersFromCheckout(checkout(), context);
+    const failed = expect(pending).rejects.toThrow("owned attempt failed");
+    await entered;
+    const owned = (await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_limit"))!;
+    const before = await snapshot();
+    expect(before.claims).toEqual([expect.objectContaining({ claimed_day: claimedDay, status: "claimed" })]);
+    expect(before.usage).toEqual([
+      expect.objectContaining({ marketplace_day: claimedDay, day_quantity: 1, customer_account_quantity: 1 }),
+    ]);
+    await expect(runtime().createOrdersFromCheckout(checkout(), context)).rejects.toThrow("already in progress");
+    expect(await snapshot()).toEqual(before);
+    signalResume();
+    await failed;
+    const compensated = await snapshot();
+    expect(compensated.claims).toEqual([]);
+    expect(compensated.sources).toEqual([]);
+    expect(compensated.streams).toEqual([]);
+    expect(compensated.usage).toEqual([
+      expect.objectContaining({ marketplace_day: claimedDay, day_quantity: 0, customer_account_quantity: 0 }),
+    ]);
+    vi.setSystemTime(retryAt);
+    const result = await runtime().createOrdersFromCheckout(checkout(), context);
+    expect((await runtime().createOrdersFromCheckout(checkout(), context)).orderIds).toEqual(result.orderIds);
+    const succeeded = await snapshot();
+    const authorityProbe = vi.fn(async () => false);
+    await compensatePendingOrderSourceClaim(pools.ordering, owned, authorityProbe);
+    expect(authorityProbe).not.toHaveBeenCalled();
+    expect(await snapshot()).toEqual(succeeded);
+    expect(succeeded.claims).toEqual([expect.objectContaining({ claimed_day: retryDay, status: "claimed" })]);
+    expect(succeeded.usage).toEqual([
+      expect.objectContaining({ marketplace_day: retryDay, day_quantity: 1, customer_account_quantity: 1 }),
+    ]);
+    const projection = buildOrderingOrderProjectionHandlers(pools.ordering);
+    const orderEvents = await store.readStream({ streamId: `ordering.order-${result.orderIds[0]}` });
+    for (const stored of orderEvents) {
+      const event = toTransportEvent(stored);
+      await projection[event.type]?.(event);
+    }
+    await runtime().cancelPurchase(
+      { orderId: result.orderIds[0]!, buyerAccountId: context.audit.forAccountId },
+      context,
+    );
+    const order = {
+      source_type: "cart-checkout",
+      source_reference_id: "chk_limit",
+      buyer_account_id: context.audit.forAccountId,
+      lines: [{ listing_id: "lst_a" }],
+    };
+    await Promise.all([
+      releasePurchaseLimitClaimsForOrder(pools.ordering, order),
+      releasePurchaseLimitClaimsForOrder(pools.ordering, order),
+    ]);
+    expect((await snapshot()).usage).toEqual([
+      expect.objectContaining({ marketplace_day: retryDay, day_quantity: 0, customer_account_quantity: 0 }),
+    ]);
+  });
+
+  it("stale compensation cannot release a replacement pending source", async () => {
+    const source = {
+      sourceType: "cart-checkout" as const,
+      sourceReferenceId: "chk_limit",
+      buyerAccountId: context.audit.forAccountId,
+    };
+    const old = { ...source, orderIds: ["ord_old" as OrderId] };
+    await claimOrderSource(pools.ordering, { ...source, orderIds: ["ord_replacement" as OrderId] });
+    const before = await snapshot();
+    const authorityProbe = vi.fn(async () => false);
+    await compensatePendingOrderSourceClaim(pools.ordering, old, authorityProbe);
+    expect(authorityProbe).not.toHaveBeenCalled();
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("compensates only the owned source once while another source uses the same listing", async () => {
+    await supply("lst_a", 2);
+    const claim = async (sourceReferenceId: string) => {
+      const source = {
+        sourceType: "cart-checkout" as const,
+        sourceReferenceId,
+        buyerAccountId: context.audit.forAccountId,
+        orderIds: [`ord_${sourceReferenceId}` as OrderId],
+      };
+      await claimOrderSource(pools.ordering, source);
+      await claimPlanPurchaseLimitUsage(pools.ordering, source.buyerAccountId, {
+        orderDrafts: [{ ...source, lines: [{ listingId: "lst_a", quantity: 1 }] }],
+      });
+      return source;
+    };
+    const failed = await claim("chk_failed");
+    await claim("chk_other");
+    expect((await snapshot()).usage).toEqual([
+      expect.objectContaining({ day_quantity: 2, customer_account_quantity: 2 }),
+    ]);
+    await Promise.all([
+      compensatePendingOrderSourceClaim(pools.ordering, failed, async () => false),
+      compensatePendingOrderSourceClaim(pools.ordering, failed, async () => false),
+    ]);
+    const after = await snapshot();
+    expect(after.claims).toEqual([expect.objectContaining({ source_reference_id: "chk_other", status: "claimed" })]);
+    expect(after.sources).toEqual([expect.objectContaining({ source_reference_id: "chk_other", status: "pending" })]);
+    expect(after.usage).toEqual([expect.objectContaining({ day_quantity: 1, customer_account_quantity: 1 })]);
+    await claim("chk_failed");
+    expect((await snapshot()).usage).toEqual([
+      expect.objectContaining({ day_quantity: 2, customer_account_quantity: 2 }),
+    ]);
   });
 
   it("restores day and customer account quantities when released claim timestamps are parsed as Date", async () => {

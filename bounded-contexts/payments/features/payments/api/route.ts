@@ -8,11 +8,12 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
-import { providerWebhookErrorFromUnknown } from "@chase-sets/http/provider-errors";
-import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
+import { paymentWebhookErrorFromUnknown } from "./webhook-errors";
+import { PaymentDeclineLimitUnavailableError, PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
+import { parseProviderModeObservation, type ProviderModeObservation } from "./contracts";
 
 export type PaymentsApiEnv = AuthenticatedApiEnv;
 
@@ -69,7 +70,7 @@ function errorMessage(error: unknown) {
 }
 
 function providerWebhookFailureResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
-  const classified = providerWebhookErrorFromUnknown(error);
+  const classified = paymentWebhookErrorFromUnknown(error);
   const ignored =
     classified.failureClass === "unknown-event" ||
     classified.failureClass === "schema-mismatch" ||
@@ -133,6 +134,12 @@ function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Re
 }
 
 function paymentRateLimitResponse(error: unknown) {
+  if (error instanceof PaymentDeclineLimitUnavailableError) {
+    return new Response(JSON.stringify({ error: { code: error.code, message: error.message } }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (!(error instanceof PaymentsRateLimitExceededError)) {
     return null;
   }
@@ -171,8 +178,6 @@ function readAgenticPayment(value: unknown) {
   return {
     kind: "stripe-shared-payment-token" as const,
     sharedPaymentGrantedToken: token,
-    ap2CheckoutMandateId: typeof source.ap2CheckoutMandateId === "string" ? source.ap2CheckoutMandateId : null,
-    ap2PaymentMandateId: typeof source.ap2PaymentMandateId === "string" ? source.ap2PaymentMandateId : null,
   };
 }
 
@@ -200,6 +205,16 @@ function enforcePaymentCreationLimit(request: Request, accountId: string) {
     return rateLimitExceededJsonResponse("payments.payment.create.ip", ipDecision);
   }
   return null;
+}
+
+export function preflightPaymentStart(
+  c: Parameters<typeof requirePaymentAccess>[0],
+  request: Request,
+): ReturnType<typeof requirePaymentAccess> {
+  const access = requirePaymentAccess(c, "orders.manage", { allowGuestCheckout: true });
+  if (access.response) return access;
+  const response = enforcePaymentCreationLimit(request, access.actor.accountId);
+  return response ? { actor: null, response } : access;
 }
 
 type SavedCheckoutInstrumentForApi = Awaited<ReturnType<PaymentServices["listSavedCheckoutInstruments"]>>[number];
@@ -279,15 +294,9 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
   const app = new Hono<PaymentsApiEnv>();
 
   app.post("/payments", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage", {
-      allowGuestCheckout: true,
-    });
+    const access = preflightPaymentStart(c, c.req.raw);
     if (access.response) {
       return access.response;
-    }
-    const rateLimited = enforcePaymentCreationLimit(c.req.raw, access.actor.accountId);
-    if (rateLimited) {
-      return rateLimited;
     }
 
     const context = c.get("context");
@@ -609,15 +618,9 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
   });
 
   app.post("/checkout/recover", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage", {
-      allowGuestCheckout: true,
-    });
+    const access = preflightPaymentStart(c, c.req.raw);
     if (access.response) {
       return access.response;
-    }
-    const rateLimited = enforcePaymentCreationLimit(c.req.raw, access.actor.accountId);
-    if (rateLimited) {
-      return rateLimited;
     }
 
     const context = c.get("context");
@@ -755,6 +758,37 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
     }
 
     return c.json(timeline);
+  });
+
+  return app;
+}
+
+/**
+ * The read-only payment provider mode observation. It reports the locally loaded platform
+ * configuration and is never the payment provider's own opinion: the handler performs no provider
+ * call, reads no storage, and derives nothing beyond the one request-time instant it stamps.
+ *
+ * A missing or malformed observation fails closed with a bounded server error rather than defaulting
+ * to any mode, gateway kind or deployment environment.
+ */
+export function createPaymentProviderModeRoutes(observation: ProviderModeObservation | undefined) {
+  const app = new Hono<PaymentsApiEnv>();
+
+  app.get("/payment-provider-mode", (c) => {
+    const observed = parseProviderModeObservation(observation);
+    if (!observed) {
+      return c.json(
+        {
+          error: {
+            code: "payment_provider_mode_observation_unavailable",
+            message: t("payments.features.payments.api.route.request.failed"),
+          },
+        },
+        500,
+      );
+    }
+
+    return c.json({ ...observed, observedAt: new Date(Date.now()).toISOString() });
   });
 
   return app;

@@ -1,5 +1,6 @@
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { Hono } from "hono";
+import { createProviderConnectionsRoutes } from "./features/provider-connections/api/routes";
 import { createOpsDashboardRoutes } from "./features/insights-dashboards/api/ops-http";
 import { createOfferEconomicsRoutes } from "./features/offer-economics/api/offer-economics-http";
 import { createPolicyConsoleRoutes } from "./features/policy-console/api/policy-console-route";
@@ -14,6 +15,7 @@ export type PlatformOperationsApiEnv = AuthenticatedApiEnv;
 
 export function buildPlatformOperationsApi(services: PlatformOperationsServices) {
   const app = new Hono<PlatformOperationsApiEnv>();
+  app.route("/provider-connections", createProviderConnectionsRoutes(services.providerConnections));
 
   app.route("/rate-limit-policy", createRateLimitPolicyRoutes(services.policies));
   app.route("/support-deadline-policy", createSupportDeadlinePolicyRoutes(services.policies));

@@ -14,8 +14,13 @@ export const inventoryWakeRegistryEntry = registryEntry({
   expectedEventVolume: "high",
   wakeStoreLoadEstimate: "high",
   affectedProjectionNames: [
+    "channels:channel-fulfillment-item-facts",
+    "channels:channel-fulfillment-observation-retry",
+    "channels:channel-inventory-publication-facts",
+    "channels:channel-listing-desired-state-reaction",
     "checkout:checkout-inventory-supply-projection",
     "discovery:discovery-market-projection",
+    "inventory:inventory-channel-stock-allocation-projection",
     "inventory:inventory-hold-collision-projection",
     "inventory:inventory-hold-projection",
     "inventory:inventory-item-ledger-projection",

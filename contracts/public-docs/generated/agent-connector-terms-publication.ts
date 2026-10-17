@@ -12,6 +12,6 @@ export const publicAgentConnectorTermsPublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: true,
-  contentFingerprint: "sha256:c527cca70b8e0f5055e8fc480f2deefc61629a422af3249dd452a192b06c5c98",
+  contentFingerprint: "sha256:7c764c1f17bacbc6d711f892971e159ffab42af2dadff877e50b1e4767d38988",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"agent-connector-terms">;

@@ -60,59 +60,67 @@ describeDb("settlement liability reconciliation persistence boundary", () => {
     );
   }
 
-  async function seedPayout(payoutId: string, accountId: string, amount: string, status: string) {
+  async function seedPayout(
+    payoutId: string,
+    accountId: string,
+    requestedAmount: string,
+    feeAmount: string,
+    netAmount: string,
+    status: string,
+  ) {
     await pool.query(
       `INSERT INTO settlement_payout_pages (
-         payout_id, account_id, amount, currency_code, status, requested_at, updated_at
-       ) VALUES ($1, $2, $3, 'usd', $4, '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z')`,
-      [payoutId, accountId, amount, status],
+         payout_id, account_id, amount, requested_amount, fee_amount, net_amount,
+         currency_code, status, requested_at, updated_at
+       ) VALUES ($1, $2, $3, $3, $4, $5, 'usd', $6, '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z')`,
+      [payoutId, accountId, requestedAmount, feeAmount, netAmount, status],
     );
   }
 
   it("sums wallet liabilities and in-flight payout demand, and reports ok when the provider covers them", async () => {
     await seedWallet("acc_1", "600.00", "150.00");
     await seedWallet("acc_2", "250.00", "0.00");
-    await seedPayout("pyo_inflight", "acc_1", "100.00", "in-transit");
-    await seedPayout("pyo_requested", "acc_2", "50.00", "requested");
+    await seedPayout("pyo_inflight", "acc_1", "100.00", "5.00", "95.00", "in-transit");
+    await seedPayout("pyo_requested", "acc_2", "50.00", "2.00", "48.00", "requested");
     // Excluded from in-flight demand: a completed payout is no longer an obligation.
-    await seedPayout("pyo_done", "acc_2", "999.00", "completed");
+    await seedPayout("pyo_done", "acc_2", "999.00", "9.00", "990.00", "completed");
 
     const runtime = createLiabilityReconciliationRuntime({
       db: pool,
-      // liabilities 1000.00 + in-flight demand 150.00 = 1150.00
-      moneyMovementGateway: gatewayWithBalance("1150.00"),
+      // liabilities 1000.00 + net in-flight demand 143.00 = 1143.00
+      moneyMovementGateway: gatewayWithBalance("1143.00"),
     });
 
     const result = await runtime.reconcileLedgerAgainstProvider({ currencyCode: "usd" });
     expect(result.walletLiabilityAmount).toBe("1000.00");
-    expect(result.inFlightPayoutDemandAmount).toBe("150.00");
-    expect(result.expectedObligationAmount).toBe("1150.00");
+    expect(result.inFlightPayoutDemandAmount).toBe("143.00");
+    expect(result.expectedObligationAmount).toBe("1143.00");
     expect(result.driftAmount).toBe("0.00");
     expect(result.status).toBe("ok");
 
     const runs = await runtime.listReconciliationRuns({ limit: 10 });
     expect(runs).toHaveLength(1);
     expect(runs[0]?.status).toBe("ok");
-    expect(runs[0]?.expected_obligation_amount).toBe("1150.00");
+    expect(runs[0]?.expected_obligation_amount).toBe("1143.00");
   });
 
   it("flags an injected divergence when the provider balance falls short of the obligation", async () => {
     await seedWallet("acc_1", "1000.00", "0.00");
-    await seedPayout("pyo_inflight", "acc_1", "250.00", "in-transit");
+    await seedPayout("pyo_inflight", "acc_1", "250.00", "10.00", "240.00", "in-transit");
 
     const runtime = createLiabilityReconciliationRuntime({
       db: pool,
-      // Obligation is 1250.00 but the provider only holds 1200.00 — a $50 leak.
+      // Obligation is 1240.00 but the provider only holds 1200.00 — a $40 leak.
       moneyMovementGateway: gatewayWithBalance("1200.00"),
     });
 
     const result = await runtime.reconcileLedgerAgainstProvider({ currencyCode: "usd" });
-    expect(result.expectedObligationAmount).toBe("1250.00");
-    expect(result.driftAmount).toBe("-50.00");
+    expect(result.expectedObligationAmount).toBe("1240.00");
+    expect(result.driftAmount).toBe("-40.00");
     expect(result.status).toBe("shortfall-alarm");
 
     const runs = await runtime.listReconciliationRuns({ limit: 10 });
     expect(runs[0]?.status).toBe("shortfall-alarm");
-    expect(runs[0]?.drift_amount).toBe("-50.00");
+    expect(runs[0]?.drift_amount).toBe("-40.00");
   });
 });

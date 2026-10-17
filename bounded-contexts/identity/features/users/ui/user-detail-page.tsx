@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { formatDateTime, t } from "@chase-sets/localization";
 import {
   AdminResourceDetailPage,
   HiddenInput,
@@ -14,14 +14,14 @@ import {
 import type { User } from "./contracts";
 import type { OneTimeApiKeySecret } from "../../api-keys/ui/contracts";
 import { ApiKeySecretReveal } from "../../api-keys/ui/api-key-secret-reveal";
-
-const authMethodItems = [
-  { value: "password", label: "password" },
-  { value: "magic-link", label: "magic-link" },
-  { value: "passkey", label: "passkey" },
-  { value: "sms-code", label: "sms-code" },
-  { value: "social-login", label: "social-login" },
-];
+import {
+  contactMethodTypeLabel,
+  contactMethodTypeSelectItems,
+  identityAuthenticationMethodLabel,
+  identityAuthenticationMethodSelectItems,
+  identityDateUnavailable,
+  userStatusLabel,
+} from "../../../support/ui-support/value-labels";
 
 export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSecret?: OneTimeApiKeySecret | null }) {
   return (
@@ -31,7 +31,7 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
         { label: data.display_name },
       ]}
       title={data.display_name}
-      status={data.status}
+      status={userStatusLabel(data.status)}
       actions={
         <Stack gap={3}>
           <ApiKeySecretReveal secret={oneTimeSecret} />
@@ -97,10 +97,7 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
                 <NativeSelect
                   name="contactMethodType"
                   label={t("identity.features.users.ui.userDetailPage.contact.method.type")}
-                  items={[
-                    { value: "email", label: t("identity.features.users.ui.userDetailPage.email") },
-                    { value: "phone", label: t("identity.features.users.ui.userDetailPage.phone") },
-                  ]}
+                  items={[...contactMethodTypeSelectItems]}
                   required
                 />
                 <TextInput
@@ -119,7 +116,7 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
                 <NativeSelect
                   name="authMethod"
                   label={t("identity.features.users.ui.userDetailPage.auth.method")}
-                  items={authMethodItems}
+                  items={[...identityAuthenticationMethodSelectItems]}
                   required
                 />
                 <Button type="submit" tone="secondary">
@@ -165,7 +162,7 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
               ? data.contact_methods.map((method) => (
                   <Stack key={method.contactMethodId} gap={1}>
                     <Text>
-                      {method.type}: {method.value}{" "}
+                      {contactMethodTypeLabel(method.type)}: {method.value}{" "}
                       {method.verifiedAt
                         ? t("identity.features.users.ui.userDetailPage.verified")
                         : t("identity.features.users.ui.userDetailPage.unverified")}
@@ -189,7 +186,7 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
             data.auth_methods.length > 0
               ? data.auth_methods.map((authMethod) => (
                   <Inline key={authMethod} align="center" gap={2}>
-                    <Text>{authMethod}</Text>
+                    <Text>{identityAuthenticationMethodLabel(authMethod)}</Text>
                     <Form spacing="none" method="post">
                       <HiddenInput type="hidden" name="intent" value="disable-auth-method" readOnly />
                       <HiddenInput type="hidden" name="authMethod" value={authMethod} readOnly />
@@ -201,7 +198,10 @@ export function UserDetailPage({ data, oneTimeSecret }: { data: User; oneTimeSec
                 ))
               : t("identity.features.users.ui.userDetailPage.none.4"),
         },
-        { label: t("identity.features.users.ui.userDetailPage.updated.at"), value: data.updated_at },
+        {
+          label: t("identity.features.users.ui.userDetailPage.updated.at"),
+          value: formatDateTime(data.updated_at, { fallback: identityDateUnavailable() }),
+        },
       ]}
     />
   );

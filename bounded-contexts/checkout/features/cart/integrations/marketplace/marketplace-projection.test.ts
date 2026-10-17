@@ -1,3 +1,7 @@
+import {
+  assertMeasurePublicationConsumer,
+  withMeasurePublicationStaging,
+} from "@chase-sets/event-core-postgres/measure-publication-test-support";
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -10,6 +14,8 @@ type SellerOptionRow = {
   product_id: string;
   catalog_catalog_item_id: string;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   product_summary: string | null;
   product_measure_snapshot: string | null;
@@ -29,38 +35,46 @@ class ProjectionDb implements PgQueryable {
   public readonly options = new Map<string, SellerOptionRow>();
   public readonly availabilities = new Map<string, { available: boolean; version: number }>();
   public readonly recomputedInventoryItemIds: string[] = [];
+  public readonly statements: string[] = [];
 
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    this.statements.push(sql);
     if (sql.includes("INSERT INTO checkout_marketplace_seller_options")) {
       const listingId = String(values[0]);
       const existing = this.options.get(listingId);
+      if (existing && existing.listing_stream_version >= Number(values[6])) return { rows: [], rowCount: 0 };
       this.options.set(listingId, {
         listing_id: listingId,
         seller_account_id: String(values[1]),
         product_id: String(values[2]),
         catalog_catalog_item_id: String(values[3]),
         price_amount: String(values[4]),
-        listing_quantity_cap: Number(values[5]),
-        product_summary: values[6] === null ? null : String(values[6]),
-        product_measure_snapshot: values[7] === null ? null : String(values[7]),
+        price_currency_code: values[5] === null ? null : String(values[5]),
+        listing_stream_version: Number(values[6]),
+        listing_quantity_cap: Number(values[7]),
+        product_summary: values[8] === null ? null : String(values[8]),
+        product_measure_snapshot: values[9] === null ? null : String(values[9]),
         status: existing?.status ?? "draft",
-        updated_at: String(values[8]),
-        inventory_item_id: values[9] === null ? null : String(values[9]),
+        updated_at: String(values[10]),
+        inventory_item_id: values[11] === null ? null : String(values[11]),
         at_capacity: existing?.at_capacity ?? false,
-        evidence_requirements: values[10] === null ? null : JSON.parse(String(values[10])),
-        evidence: JSON.parse(String(values[11])) as Record<string, unknown>[],
+        evidence_requirements: values[12] === null ? null : JSON.parse(String(values[12])),
+        evidence: JSON.parse(String(values[13])) as Record<string, unknown>[],
       });
       return { rows: [], rowCount: 1 };
     }
 
     if (sql.includes("SET price_amount = $2")) {
       const row = this.options.get(String(values[0]));
+      if (row && row.listing_stream_version >= Number(values[3])) return { rows: [], rowCount: 0 };
       if (row) {
         row.price_amount = String(values[1]);
-        row.updated_at = String(values[2]);
+        row.price_currency_code = values[2] === null ? null : String(values[2]);
+        row.listing_stream_version = Number(values[3]);
+        row.updated_at = String(values[4]);
       }
       return { rows: [], rowCount: row ? 1 : 0 };
     }
@@ -172,6 +186,7 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 0 };
     }
 
+    if (sql.includes("DELETE FROM event_projection_measure_publication_parts")) return { rows: [], rowCount: 0 };
     throw new Error(`Unexpected query: ${sql}`);
   }
 
@@ -252,6 +267,70 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("checkout marketplace seller-options projection", () => {
+  it("keeps equal and older created/price redelivery distinct from a rebuild", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+    await handlers["marketplace.listing.created"]!(createdEvent({ priceCurrencyCode: "USD" }));
+    const created = structuredClone(db.options.get("lst_1"));
+    await handlers["marketplace.listing.created"]!(createdEvent({ productSummary: "must not replace" }));
+    expect(db.options.get("lst_1")).toEqual(created);
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        "marketplace.listing-lst_1",
+        { priceAmount: "135.00", priceCurrencyCode: "USD" },
+        3,
+      ),
+    );
+    const current = structuredClone(db.options.get("lst_1"));
+    for (const version of [2, 3]) {
+      await handlers["marketplace.listing.price-updated"]!(
+        event(
+          "marketplace.listing.price-updated",
+          "marketplace.listing-lst_1",
+          { priceAmount: "1.00", priceCurrencyCode: "CAD" },
+          version,
+        ),
+      );
+    }
+    await handlers["marketplace.listing.created"]!(createdEvent());
+    expect(db.options.get("lst_1")).toEqual(current);
+    expect(db.statements.find((sql) => sql.includes("INSERT INTO checkout_marketplace_seller_options"))).toContain(
+      "WHERE checkout_marketplace_seller_options.listing_stream_version < EXCLUDED.listing_stream_version",
+    );
+    expect(db.statements.find((sql) => sql.includes("SET price_amount"))).toContain("AND listing_stream_version < $4");
+  });
+
+  it.each(["disabled", "enabled"] as const)(
+    "ignores equal-version availability %s without flipping listings",
+    async (action) => {
+      const db = new ProjectionDb();
+      const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+      await handlers["marketplace.listing.created"]!(createdEvent());
+      await handlers["marketplace.listing.published"]!(
+        event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+      );
+      const streamId = "marketplace.seller-listing-availability-acc_seller";
+      const opposite = action === "disabled" ? "enabled" : "disabled";
+      await handlers[`marketplace.seller-listing-availability.${opposite}`]!(
+        event(`marketplace.seller-listing-availability.${opposite}`, streamId, { accountId: "acc_seller" }, 2),
+      );
+      const before = structuredClone(db.options.get("lst_1"));
+      await handlers[`marketplace.seller-listing-availability.${action}`]!(
+        event(`marketplace.seller-listing-availability.${action}`, streamId, { accountId: "acc_seller" }, 2),
+      );
+      expect(db.options.get("lst_1")).toEqual(before);
+      expect(db.availabilities.get("acc_seller")).toEqual({ available: action === "disabled", version: 2 });
+      for (const sql of db.statements.filter((statement) =>
+        statement.includes("INSERT INTO checkout_marketplace_seller_availability"),
+      )) {
+        expect(sql).toContain(
+          "WHERE checkout_marketplace_seller_availability.last_stream_version < EXCLUDED.last_stream_version",
+        );
+      }
+    },
+  );
+
   it("inserts a draft seller option on listing created", async () => {
     const db = new ProjectionDb();
     const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
@@ -340,7 +419,7 @@ describe("checkout marketplace seller-options projection", () => {
 
     await handlers["marketplace.listing.created"]!(createdEvent());
     await handlers["marketplace.listing.price-updated"]!(
-      event("marketplace.listing.price-updated", "marketplace.listing-lst_1", { priceAmount: "99.50" }),
+      event("marketplace.listing.price-updated", "marketplace.listing-lst_1", { priceAmount: "99.50" }, 2),
     );
 
     expect(db.options.get("lst_1")?.price_amount).toBe("99.50");
@@ -600,5 +679,21 @@ describe("checkout marketplace seller-options projection", () => {
 
     expect(db.options.get("lst_1")).toMatchObject({ status: "draft", at_capacity: false });
     expect(db.options.get("lst_other")).toMatchObject({ at_capacity: false });
+  });
+});
+
+it("stages 85 Products without partial visibility, rejects mismatch without mutation, and selects from the last part", async () => {
+  const db = new ProjectionDb();
+  const staging = withMeasurePublicationStaging(db);
+  const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(staging.db);
+  await handlers["marketplace.listing.created"]!(createdEvent());
+  await assertMeasurePublicationConsumer({
+    handlers,
+    staging,
+    visible: () => ({ rows: [...db.options.values()] }),
+    assertProducts: (products) =>
+      expect(JSON.parse(db.options.get("lst_1")!.product_measure_snapshot ?? "null")).toEqual(
+        products.find((product) => product.productId === "prd_1") ?? null,
+      ),
   });
 });

@@ -720,6 +720,17 @@ describe("guest checkout auth routes", () => {
       userId: "usr_passkey",
       credentialId: expect.stringMatching(/^crd_/),
     });
+    expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
+      services,
+      expect.objectContaining({
+        membershipsOverride: [
+          expect.objectContaining({
+            roleKey: "owner",
+            rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
+          }),
+        ],
+      }),
+    );
     expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("SET revoked_at = now()"), [
       "hashed:guest_token",
     ]);
@@ -775,6 +786,17 @@ describe("guest checkout auth routes", () => {
       sessionToken: "session_token",
     });
     expect(services.auth.hashSecret).toHaveBeenCalledWith("continuation_token");
+    expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
+      services,
+      expect.objectContaining({
+        membershipsOverride: [
+          expect.objectContaining({
+            roleKey: "owner",
+            rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
+          }),
+        ],
+      }),
+    );
     expect(mockClaimGuestAccount).toHaveBeenCalledWith({
       accountId: "acc_guest",
       userId: "usr_existing",

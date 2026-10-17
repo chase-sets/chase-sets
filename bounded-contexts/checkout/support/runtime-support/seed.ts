@@ -2,7 +2,7 @@ import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-mod
 import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createCartReadinessSnapshot, type CartReadinessLine } from "../../features/cart/domain/readiness";
@@ -90,6 +90,8 @@ function demoSellerOptionFor(lockedListingId: string | null): CartReadinessLine[
     seller_account_id: line.sellerAccountId,
     seller_display_name: line.sellerDisplayName,
     price_amount: line.priceAmount,
+    price_currency_code: "USD",
+    listing_stream_version: 1,
     available_quantity: line.availableQuantity,
     product_summary: line.productSummary,
     product_measure_snapshot: {

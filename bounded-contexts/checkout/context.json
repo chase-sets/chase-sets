@@ -15,8 +15,7 @@
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
     "@chase-sets/ordering",
-    "@chase-sets/payments",
-    "@chase-sets/settlement"
+    "@chase-sets/payments"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
@@ -47,7 +46,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "checkout-marketplace-listing-options-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
@@ -100,9 +99,16 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "checkout.sell-list-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "filterToEventTypes": true,
-      "eventTypes": ["marketplace.offer.submitted", "marketplace.offer.accepted"],
+      "eventTypes": [
+        "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
+        "marketplace.offer.accepted"
+      ],
       "order": 23,
       "projectionHandlerSetNames": ["checkout.sell-list-projection"]
     },
@@ -134,7 +140,11 @@
       "projectionName": "checkout-marketplace-listing-options-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 11,
       "projectionHandlerSetNames": ["checkout.marketplace-seller-options-projection"]
     },
@@ -202,7 +212,7 @@
     {
       "projectionName": "checkout.cart-projection",
       "sourceContextNames": ["checkout"],
-      "ownedTables": ["checkout_cart_line_pages"],
+      "ownedTables": ["checkout_cart_line_pages", "checkout_cart_claims"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"
     },
@@ -253,11 +263,11 @@
     },
     {
       "projectionName": "checkout-marketplace-listing-options-projection",
-      "projectionRevision": 2,
+      "projectionRevision": 3,
       "sourceContextNames": ["marketplace", "catalog", "ordering"],
       "ownedTables": ["checkout_marketplace_seller_options", "checkout_marketplace_seller_availability"],
       "requiredDuringBootstrap": true,
-      "resetStrategy": "replay-only"
+      "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "checkout-inventory-supply-projection",
@@ -434,7 +444,7 @@
         "routeId": "buy-checkout-readiness",
         "actions": ["Start account checkout session", "Start guest Buy Now checkout session"],
         "command": "StartCheckoutSession",
-        "helperUses": ["appendFreshWriteToken", "navigateAfterWriteFromSourcesWithPlatformPostWriteToken"]
+        "helperUses": ["navigateAfterWriteFromSourcesWithPlatformPostWriteToken"]
       },
       "destination": {
         "routeId": "buy-checkout-session",
@@ -844,29 +854,6 @@
       }
     },
     {
-      "id": "checkout.cart-self-refresh-fresh-read-forms",
-      "owner": "checkout",
-      "risk": "important",
-      "strategy": "fresh-read",
-      "surfaces": ["post-form:bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx:H2df726441e2a#1"],
-      "visibleDestination": {
-        "routeId": "account-cart",
-        "apiContextName": "checkout",
-        "apiRoutePath": "/account/cart",
-        "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "Buy Cart add-to-cart forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages plus checkout seller-options data and shows temporary cart recovery for valid fresh-write projection lag."
-        }
-      },
-      "proof": {
-        "tests": [
-          "bounded-contexts/checkout/features/cart/ui/cart-page.test.tsx",
-          "bounded-contexts/checkout/routes/account-cart-route.test.ts"
-        ]
-      }
-    },
-    {
       "id": "checkout.sell-list-api-command-snapshots",
       "owner": "checkout",
       "risk": "important",
@@ -963,7 +950,6 @@
       "surfaces": [
         "post-form:bounded-contexts/checkout/features/cart/ui/cart-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/checkout/features/sessions/ui/checkout-start-page.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/checkout/features/sessions/ui/checkout-start-page.tsx:Hb08a81ecfd73#2",
         "route-action:bounded-contexts/checkout/support/route-support/buy-checkout-readiness/checkout-start-action.ts"
       ],
       "visibleDestination": {
@@ -973,7 +959,7 @@
         "readModelTables": ["checkout_session_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Signed-in and guest checkout-start forms redirect to the buy checkout session with a Checkout commit receipt; the session loader waits on checkout_session_pages and renders bounded preparing-checkout recovery for fresh projection lag."
+          "behavior": "Buy Cart and signed-in checkout-start forms redirect to the buy checkout session with a Checkout commit receipt; the session loader waits on checkout_session_pages and renders bounded preparing-checkout recovery for fresh projection lag."
         }
       },
       "proof": {
@@ -1052,56 +1038,203 @@
           "routePath": "account/cart",
           "fileExport": "./routes/account-cart",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sell-list",
           "routePath": "account/sell-list",
           "fileExport": "./routes/account-sell-list",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-desk-offers",
           "routePath": "account/desk/offers",
           "fileExport": "./routes/account-desk-offers",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "sell-checkout-session",
           "routePath": "checkout/sell/session/:sessionId",
           "fileExport": "./routes/sell-checkout-session",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "sell-checkout-confirmation",
           "routePath": "checkout/sell/session/:sessionId/confirmation",
           "fileExport": "./routes/sell-checkout-confirmation",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "buy-checkout-readiness",
           "routePath": "checkout/buy/readiness",
           "fileExport": "./routes/checkout-start",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "buy-checkout-session",
           "routePath": "checkout/buy/session/:sessionId",
           "fileExport": "./routes/checkout-session",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "buy-checkout-confirmation",
           "routePath": "checkout/buy/session/:sessionId/confirmation",
           "fileExport": "./routes/buy-checkout-confirmation",
           "routeType": "route",
-          "sourceContext": "checkout"
+          "sourceContext": "checkout",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "checkout",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }
@@ -1116,40 +1249,45 @@
       "href": "/account/sell-list",
       "order": 111,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "cart",
       "label": "Buy Cart",
+      "labelKey": "checkout.shell.cart.label",
       "icon": "cart",
       "href": "/account/cart",
-      "order": 110,
-      "visibility": "signed-in",
-      "requiredPermissions": []
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "sell-list",
-      "label": "Sell List",
-      "icon": "store",
-      "href": "/account/sell-list",
-      "order": 111,
-      "visibility": "signed-in",
-      "requiredPermissions": []
+      "order": 990,
+      "visibility": "always",
+      "requiredPermissions": [],
+      "placement": "utility",
+      "badge": {
+        "valueKey": "checkout.cart-count",
+        "max": 99,
+        "hideWhenEmptyForSignedOut": true
+      }
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "cart",
       "label": "Buy Cart",
+      "labelKey": "checkout.shell.cart.label",
       "icon": "cart",
       "href": "/account/cart",
-      "order": 110,
-      "visibility": "signed-in",
-      "requiredPermissions": []
+      "order": 50,
+      "visibility": "always",
+      "requiredPermissions": [],
+      "placement": "utility",
+      "packingPriority": 650,
+      "badge": {
+        "valueKey": "checkout.cart-count",
+        "max": 99,
+        "hideWhenEmptyForSignedOut": true
+      }
     }
   ],
   "directoryIntent": {
@@ -1182,7 +1320,7 @@
     "route-support": {
       "classification": "support",
       "purpose": "Provide checkout route loader/action modules for buy checkout and sell checkout route adapters.",
-      "expectedConsumers": ["routes"]
+      "expectedConsumers": ["sessions"]
     },
     "runtime-support": {
       "classification": "support",
@@ -1191,7 +1329,7 @@
     },
     "seed-support": {
       "classification": "support",
-      "purpose": "Publish deterministic checkout session seed ids for checkout-owned cart and started-session development data.",
+      "purpose": "Publish deterministic Checkout seed ids and browser recovery fixtures for Checkout-owned development and test data.",
       "expectedConsumers": ["Tests and development seed orchestration"]
     },
     "ucp-support": {

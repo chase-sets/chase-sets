@@ -1,0 +1,431 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Confirm catalog-assets CDN state repair#1",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Confirm catalog-assets CDN state repair#1",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Confirm catalog-assets CDN state repair#1",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Confirm catalog-assets CDN state repair#1",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Confirm catalog-assets CDN state repair#1",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Confirm catalog-assets CDN state repair#1",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Repair catalog-assets CDN state#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Repair catalog-assets CDN state#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Repair catalog-assets CDN state#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Repair catalog-assets CDN state#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Repair catalog-assets CDN state#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Repair catalog-assets CDN state#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Summarize catalog-assets CDN state repair#10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Summarize catalog-assets CDN state repair#10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Summarize catalog-assets CDN state repair#10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Summarize catalog-assets CDN state repair#10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Summarize catalog-assets CDN state repair#10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Summarize catalog-assets CDN state repair#10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform format catalog assets#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform format catalog assets#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform format catalog assets#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform format catalog assets#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform format catalog assets#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform format catalog assets#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform init catalog assets#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform init catalog assets#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform init catalog assets#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform init catalog assets#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform init catalog assets#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform init catalog assets#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform validate catalog assets#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform validate catalog assets#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform validate catalog assets#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform validate catalog assets#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform validate catalog assets#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "name:Terraform validate catalog assets#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-state-repair.yml",
+      "jobId": "repair-cdn-state",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

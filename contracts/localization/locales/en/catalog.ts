@@ -8,6 +8,8 @@ import { catalogComponentsEnglishTranslations } from "./catalog/components";
 import { catalogDimensionsEnglishTranslations } from "./catalog/dimensions";
 import { catalogDisplayTemplatesEnglishTranslations } from "./catalog/display-templates";
 import { catalogFieldsEnglishTranslations } from "./catalog/fields";
+import { catalogOperatorExtensionEnglishTranslations } from "./catalog/operator-extension";
+import { catalogOperatorSessionEnglishTranslations } from "./catalog/operator-session";
 import { catalogProviderScopeDiscoveryEnglishTranslations } from "./catalog/provider-scope-discovery";
 import { catalogProviderScopeMappingEnglishTranslations } from "./catalog/provider-scope-mapping";
 import { catalogReferenceDataEnglishTranslations } from "./catalog/reference-data";
@@ -34,6 +36,8 @@ export const catalogEnglishTranslations = {
   ...catalogDimensionsEnglishTranslations,
   ...catalogDisplayTemplatesEnglishTranslations,
   ...catalogFieldsEnglishTranslations,
+  ...catalogOperatorExtensionEnglishTranslations,
+  ...catalogOperatorSessionEnglishTranslations,
   ...catalogProviderScopeDiscoveryEnglishTranslations,
   ...catalogProviderScopeMappingEnglishTranslations,
   ...catalogReferenceDataEnglishTranslations,

@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "@chase-sets/typescript-compiler-api";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadStripeProviderConfig } from "@chase-sets/platform-runtime/config-schema";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadDeploymentEnvironment, loadStripeProviderConfig } from "@chase-sets/platform-runtime/config-schema";
 import { PLATFORM_INTERNAL_AUTH_SECRET_ENV } from "@chase-sets/platform-runtime/http";
 import { DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS } from "@chase-sets/platform-runtime/ucp";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
@@ -18,6 +18,21 @@ import {
 } from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
+
+const loadStripeProviderConfigCallCount = vi.hoisted(() => ({ value: 0 }));
+
+// Module-level call counter for the single shared Stripe provider load. It delegates to the real
+// classifier, so every existing case keeps its exact behaviour while the call count stays observable.
+vi.mock("@chase-sets/platform-runtime/config-schema", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/platform-runtime/config-schema")>();
+  return {
+    ...actual,
+    loadStripeProviderConfig: (input: Parameters<typeof actual.loadStripeProviderConfig>[0]) => {
+      loadStripeProviderConfigCallCount.value += 1;
+      return actual.loadStripeProviderConfig(input);
+    },
+  };
+});
 
 const defaultCriticalReadConsistencyRouteTuning = [
   {
@@ -103,6 +118,7 @@ const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+  "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
   ...platformApiContextNames().map((contextName) => getContextDatabaseEnvName(contextName)),
   ...platformApiContextNames().map((contextName) => getContextWaiterDatabaseEnvName(contextName)),
 ];
@@ -126,6 +142,7 @@ function resetConfigEnv() {
   delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS;
   delete process.env.STRIPE_CONNECT_ACCOUNTS_API;
   delete process.env.STRIPE_API_BASE_URL;
+  delete process.env.EVIDENCE_WINDOW_ADMISSION_SECRET;
   delete process.env.EASYPOST_API_KEY;
   delete process.env.EASYPOST_WEBHOOK_SECRET;
   delete process.env.EASYPOST_API_BASE_URL;
@@ -139,6 +156,7 @@ function resetConfigEnv() {
   delete process.env.VOYAGE_EMBEDDING_MODEL;
   delete process.env.VOYAGE_EMBEDDING_BATCH_SIZE;
   delete process.env.VOYAGE_EMBEDDING_TIMEOUT_MS;
+  delete process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS;
   delete process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS;
   delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS;
   delete process.env.VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS;
@@ -225,12 +243,130 @@ function resetConfigEnv() {
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_WINDOW_MS;
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
   delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
+  delete process.env.CHASE_SETS_CHECKOUT_CLOSED;
+  delete process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN;
 }
 
 beforeEach(resetConfigEnv);
 afterEach(resetConfigEnv);
 
+describe("release-scoped Capability Administration Authority configuration", () => {
+  afterEach(() => {
+    delete process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON;
+    delete process.env.CHASE_SETS_DEPLOYMENT_INSTANCE;
+    delete process.env.CHASE_SETS_IMPLEMENTATION_SHA;
+  });
+  it("loads effective configuration independently from its declaration scope; malformed values deny all", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/synthetic";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = '["support-deployment-instance/v1","preview-9385","release-a"]';
+    process.env.CHASE_SETS_IMPLEMENTATION_SHA = "a".repeat(40);
+    const declaration = {
+      version: 1,
+      environment: "preview",
+      deploymentInstance: process.env.CHASE_SETS_DEPLOYMENT_INSTANCE,
+      authorityId: "support-admin",
+      revision: 1,
+      adminUserIds: ["usr_synthetic"],
+    };
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({ kind: "deny-all" });
+    process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON = JSON.stringify(declaration);
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({
+      kind: "configured",
+      adminUserIds: ["usr_synthetic"],
+    });
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = '["support-deployment-instance/v1","preview-9385","release-b"]';
+    expect(loadConfig().capabilityAdministrationAuthority).toMatchObject({ kind: "deny-all" });
+    process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON = "PLANTED_SECRET";
+    expect(loadConfig().capabilityAdministrationAuthority).toEqual({
+      kind: "deny-all",
+      diagnostic: "authority_invalid",
+    });
+  });
+});
+
 describe("platform api config", () => {
+  it("keeps the online query embedding deadline separate from batch policy", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.VOYAGE_EMBEDDING_TIMEOUT_MS = "60000";
+    process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS = "8";
+    expect(loadConfig().discoverySearchEmbeddings).toMatchObject({
+      timeoutMs: 60_000,
+      maxAttempts: 8,
+      queryTimeoutMs: 800,
+    });
+    process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = "250";
+    expect(loadConfig().discoverySearchEmbeddings.queryTimeoutMs).toBe(250);
+    for (const invalid of ["0", "-1", "NaN", "Infinity", "2147483648"]) {
+      process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = invalid;
+      expect(() => loadConfig()).toThrow("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS");
+    }
+  });
+  it("loads the Channels keyring, fails malformed startup, and leaves bootstrap credential-free", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    const previous = process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+    try {
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = "";
+      expect(loadConfig().channelCredentialKeyring).toBeNull();
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = JSON.stringify({
+        activeKeyId: "synthetic",
+        keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
+      });
+      expect(loadConfig().channelCredentialKeyring?.activeKeyId).toBe("synthetic");
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = "malformed-synthetic-marker";
+      expect(() => loadConfig()).toThrow("invalid-keyring");
+      expect(() => loadBootstrapConfig()).not.toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+      else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
+    }
+  });
+  it("loads the optional Catalog operator-session keyring without affecting bootstrap", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = "";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    const keyBase64 = Buffer.alloc(32, 7).toString("base64");
+    const logs = ["log", "error", "warn", "info", "debug"] as const;
+    const spies = logs.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
+    try {
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+        activeKeyId: "synthetic",
+        keys: [{ keyId: "synthetic", keyBase64 }],
+      });
+      expect(loadConfig().catalogOperatorSessionKeyring?.activeKeyId).toBe("synthetic");
+      expect(loadConfig().tcgplayerAutomation).toMatchObject({ auth: { tcgAuthCookie: null } });
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = `malformed-synthetic-marker${keyBase64}`;
+      let message = "";
+      try {
+        loadConfig();
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toBe("invalid-keyring");
+      expect(() => loadBootstrapConfig()).not.toThrow();
+      const output = JSON.stringify({ message, logs: spies.map((spy) => spy.mock.calls) });
+      expect(output).not.toContain("malformed-synthetic-marker");
+      expect(output).not.toContain(keyBase64);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+  });
+  it("defaults checkout admission open and parses the explicit closure switch", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().checkoutClosed).toBe(false);
+    process.env.CHASE_SETS_CHECKOUT_CLOSED = "true";
+    expect(loadConfig().checkoutClosed).toBe(true);
+    process.env.CHASE_SETS_CHECKOUT_CLOSED = "false";
+    expect(loadConfig().checkoutClosed).toBe(false);
+  });
+  it("defaults the Offer lifecycle switch closed and parses the explicit opening", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().offerLifecycleOpen).toBe(false);
+    process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN = "true";
+    expect(loadConfig().offerLifecycleOpen).toBe(true);
+  });
   it("loads the shared database url", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
 
@@ -519,6 +655,8 @@ describe("platform api config", () => {
 
     expect(loadConfig().paymentProcessor).toEqual({ kind: "fake" });
     expect(loadConfig().moneyMovement).toEqual({ kind: "fake" });
+    expect(loadConfig().stripeEffectiveMode).toBe("unconfigured");
+    expect(loadConfig().evidenceWindowAdmissionSecret).toBeUndefined();
     expect(loadConfig().mobileMessaging).toEqual({ kind: "noop" });
     expect(loadConfig().catalogAssetStorage).toEqual({
       kind: "filesystem",
@@ -531,6 +669,24 @@ describe("platform api config", () => {
       publicBaseUrl: "http://localhost:6182/marketplace-listing-photos",
     });
     expect(loadConfig().taxProviderBackedQuotesRequired).toBe(false);
+  });
+
+  it("loads only the dedicated evidence-window secret and preserves the constructed-gateway mode authority", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "shared-internal-secret";
+
+    expect(loadConfig().evidenceWindowAdmissionSecret).toBeUndefined();
+
+    process.env.EVIDENCE_WINDOW_ADMISSION_SECRET = "  dedicated-window-secret  ";
+    process.env.STRIPE_SECRET_KEY = "sk_test_asymmetric";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_asymmetric";
+    const config = loadConfig();
+
+    expect(config.evidenceWindowAdmissionSecret).toBe("dedicated-window-secret");
+    expect(config.evidenceWindowAdmissionSecret).not.toBe(process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV]);
+    expect(config.paymentProcessor).toEqual({ kind: "fake" });
+    expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
+    expect(config.stripeEffectiveMode).toBe("test");
   });
 
   it("matches the pre-extraction shared config shape for a representative environment", () => {
@@ -983,35 +1139,20 @@ describe("platform api config", () => {
     expect(loadConfig().ucpSignatureCreatedFreshnessWindowMs).toBe(120_000);
   });
 
-  it("loads a complete AP2 verifier configuration", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
-    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
-    process.env.UCP_AP2_VERIFIER_TIMEOUT_MS = "2400";
-
-    expect(loadConfig().ucpAp2Verifier).toEqual({
-      endpoint: "https://verifier.example/verify",
-      authorizationToken: "verifier-secret",
-      timeoutMs: 2_400,
-    });
-  });
-
-  it("rejects partial AP2 verifier configuration", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.UCP_AP2_VERIFIER_URL = "https://verifier.example/verify";
-
-    expect(() => loadConfig()).toThrow(
-      "UCP_AP2_VERIFIER_URL and UCP_AP2_VERIFIER_AUTH_TOKEN must be configured together.",
-    );
-  });
-
-  it("requires HTTPS for a staging AP2 verifier", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+  it("ignores retired AP2 settings", () => {
+    setSyntheticStripeTestModeEnv();
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
     process.env.UCP_AP2_VERIFIER_URL = "http://verifier.example/verify";
-    process.env.UCP_AP2_VERIFIER_AUTH_TOKEN = "verifier-secret";
+    process.env.UCP_AP2_VERIFIER_TIMEOUT_MS = "not-a-number";
 
-    expect(() => loadConfig()).toThrow("UCP_AP2_VERIFIER_URL must use HTTPS in staging and production.");
+    const config = loadConfig();
+
+    expect(config.deploymentEnvironment).toBe("staging");
+    expect(config).not.toHaveProperty("ucpAp2Verifier");
+    expect(config.ucpBusinessSigningKeys).toBeUndefined();
   });
 
   it("loads social login provider credentials", () => {
@@ -5089,5 +5230,201 @@ describe("AC-F2 clause (1j) symbol-resolved caller inventory", () => {
     const spelled = inventory.calls.filter((call) => call.callee.includes(LOADER_NAME));
 
     expect(spelled).toHaveLength(inventory.calls.length);
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// Provider mode observation retention (#7414).
+//
+// The serving loader retains one closed observation from the single shared Stripe provider load. The
+// bootstrap loader never classifies a provider key, so the credential-free bootstrap Job keeps
+// loading in staging and production with zero STRIPE_* variables present.
+// -------------------------------------------------------------------------------------------------
+
+const PROVIDER_MODE_OBSERVATION_MEMBERS = [
+  "deploymentEnvironment",
+  "mode",
+  "moneyMovementKind",
+  "paymentProcessorKind",
+] as const;
+
+function setSyntheticStripeTestModeEnv() {
+  process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+  process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETICAPI";
+  process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_SYNTHETICAPI";
+  process.env.STRIPE_WEBHOOK_SECRET = SYNTHETIC_API_PAYMENTS_WEBHOOK_SECRET;
+  process.env.STRIPE_CONNECT_WEBHOOK_SECRET = SYNTHETIC_API_CONNECT_WEBHOOK_SECRET;
+}
+
+function setCredentialFreeBootstrapEnv(deploymentEnvironment: string) {
+  // Freezes every STRIPE_* input rather than a named subset: a hosted runner can carry ambient
+  // Stripe-prefixed tooling variables (e.g. STRIPE_WEBHOOK_FORWARD_URL) that a fixed name list would
+  // miss, and AC-03 requires this environment provably carry zero.
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("STRIPE_")) delete process.env[name];
+  }
+  process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+  process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+  process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+  process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+  process.env.CATALOG_ASSET_S3_BUCKET = "assets";
+  process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+  process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.test";
+  process.env.DEPLOYMENT_ENVIRONMENT = deploymentEnvironment;
+}
+
+function stripeVariablesPresent() {
+  return Object.keys(process.env).filter((name) => name.startsWith("STRIPE_"));
+}
+
+describe("platform api provider mode observation", () => {
+  it("retains one provider observation in main config", () => {
+    setSyntheticStripeTestModeEnv();
+    loadStripeProviderConfigCallCount.value = 0;
+
+    const config = loadConfig();
+
+    expect(loadStripeProviderConfigCallCount.value, "the serving loader must classify exactly once").toBe(1);
+    expect(config.providerModeObservation).toEqual({
+      mode: "test",
+      paymentProcessorKind: "stripe",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "dev",
+    });
+    expect(Object.keys(config.providerModeObservation).sort()).toEqual([...PROVIDER_MODE_OBSERVATION_MEMBERS]);
+
+    // Differing-second-read mutant. A member re-derived from the environment after the load diverges
+    // from the retained observation, and the equality asserted above is what turns that mutant red.
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    const rereadMutant = {
+      ...config.providerModeObservation,
+      deploymentEnvironment: loadDeploymentEnvironment(),
+    };
+    expect(rereadMutant).not.toEqual(config.providerModeObservation);
+    expect(config.providerModeObservation.deploymentEnvironment).toBe("dev");
+  });
+
+  it("never classifies provider keys in bootstrap config", () => {
+    setSyntheticStripeTestModeEnv();
+    loadStripeProviderConfigCallCount.value = 0;
+
+    const bootstrapConfig = loadBootstrapConfig();
+
+    expect(loadStripeProviderConfigCallCount.value, "the bootstrap loader must never classify").toBe(0);
+    expect(Object.keys(bootstrapConfig)).not.toContain("providerModeObservation");
+    expect("providerModeObservation" in bootstrapConfig).toBe(false);
+  });
+
+  it("loads bootstrap config with no Stripe variables in staging and production", () => {
+    for (const deploymentEnvironment of ["staging", "production"] as const) {
+      setCredentialFreeBootstrapEnv(deploymentEnvironment);
+      loadStripeProviderConfigCallCount.value = 0;
+
+      expect(stripeVariablesPresent(), `${deploymentEnvironment} must carry zero STRIPE_* variables`).toEqual([]);
+
+      const bootstrapConfig = loadBootstrapConfig();
+
+      expect(bootstrapConfig.deploymentEnvironment).toBe(deploymentEnvironment);
+      expect("providerModeObservation" in bootstrapConfig).toBe(false);
+      expect(
+        loadStripeProviderConfigCallCount.value,
+        `${deploymentEnvironment} bootstrap must not reach the classifier`,
+      ).toBe(0);
+
+      // The classifier-reintroduction mutant: the same frozen environment run through the serving
+      // loader still refuses, which is exactly what adding that call to the bootstrap loader would do
+      // to the credential-free Job.
+      expect(() => loadConfig(), `${deploymentEnvironment} serving load must still refuse`).toThrow();
+    }
+
+    setCredentialFreeBootstrapEnv("staging");
+    expect(() => loadConfig()).toThrow(
+      "STRIPE_CONNECT_WEBHOOK_SECRET is required when DEPLOYMENT_ENVIRONMENT=staging; staging must use a distinct Connect webhook secret.",
+    );
+  });
+
+  it("reports the merged 6829 provider test-mode observation without contacting Stripe", () => {
+    const transport = vi.spyOn(globalThis, "fetch");
+
+    // Connect-only: a synthetic test-mode secret key plus a Connect webhook secret, with no
+    // publishable key, is the supported shape that keeps the payment processor fake while money
+    // movement is Stripe. The fixtures are unmistakably synthetic and nothing leaves this process.
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test_SYNTHETICAPI";
+    delete process.env.STRIPE_PUBLISHABLE_KEY;
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = SYNTHETIC_API_CONNECT_WEBHOOK_SECRET;
+
+    const config = loadConfig();
+
+    expect(config.providerModeObservation).toEqual({
+      mode: "test",
+      paymentProcessorKind: "fake",
+      moneyMovementKind: "stripe",
+      deploymentEnvironment: "dev",
+    });
+    expect(config.paymentProcessor.kind).toBe("fake");
+    expect(config.moneyMovement.kind).toBe("stripe");
+    expect(transport, "the observation is locally configured, never a provider call").not.toHaveBeenCalled();
+
+    transport.mockRestore();
+  });
+
+  it("has one Stripe mode classifier and no observation-side classifier", () => {
+    const repositoryRoot = normalizeAnalysisPath(join(stripeProvenanceTestDirectory, "../../.."));
+    const readRepositorySource = (relativePath: string) => readFileSync(join(repositoryRoot, relativePath), "utf8");
+
+    // Key-classification constructs. A surface that carries any of them is deciding provider mode for
+    // itself instead of transporting the single shared decision.
+    const classifierConstructs = [
+      "classifyStripeKeys",
+      "loadStripeProviderConfig",
+      "serverKeyMode",
+      "serverKeyClass",
+      "publishableKeyMode",
+      "keyClassification",
+      "STRIPE_SECRET_KEY",
+      "STRIPE_PUBLISHABLE_KEY",
+      "sk_test",
+      "sk_live",
+      "pk_test",
+      "pk_live",
+      "rk_test",
+      "rk_live",
+    ] as const;
+    const constructsIn = (source: string) => classifierConstructs.filter((construct) => source.includes(construct));
+
+    // The observation-side surfaces: the Payments contract, handler, router and services, plus the
+    // platform host composition and the actor middleware.
+    const observationSurfaces = [
+      "bounded-contexts/payments/features/payments/api/contracts.ts",
+      "bounded-contexts/payments/features/payments/api/route.ts",
+      "bounded-contexts/payments/api.ts",
+      "bounded-contexts/payments/support/runtime-support/services.ts",
+      "deployables/platform-api/src/app.ts",
+      "deployables/platform-api/src/middleware/auth-context.ts",
+    ] as const;
+
+    for (const surface of observationSurfaces) {
+      expect(constructsIn(readRepositorySource(surface)), `${surface} must carry no classifier construct`).toEqual([]);
+    }
+
+    // The semantically equivalent widening mutant: a surface that re-derives the mode from the
+    // classification under a different spelling is still caught, so this is not a syntax-only guard.
+    const wideningMutant = [
+      "const mode = keyClassification.serverKeyMode === 'live' ? 'live' : 'test';",
+      "export const observedMode = mode;",
+    ].join("\n");
+    expect(constructsIn(wideningMutant)).toEqual(["serverKeyMode", "keyClassification"]);
+
+    // The single classifier and the single serving-loader call site.
+    const classifierSource = readRepositorySource("infrastructure/platform-runtime/config-schema.ts");
+    expect(classifierSource.split("export function loadStripeProviderConfig(").length - 1).toBe(1);
+    expect(classifierSource.split("function classifyStripeKeys(").length - 1).toBe(1);
+
+    const platformApiConfigSource = readRepositorySource("deployables/platform-api/src/config.ts");
+    expect(platformApiConfigSource.split("loadStripeProviderConfig({").length - 1).toBe(1);
+    expect(platformApiConfigSource.includes("classifyStripeKeys")).toBe(false);
+    expect(platformApiConfigSource.split("effectiveMode").length - 1).toBe(2);
   });
 });

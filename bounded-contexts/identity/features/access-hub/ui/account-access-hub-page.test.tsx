@@ -189,7 +189,7 @@ describe("Account access hub", () => {
     expect(html).toContain("Decline");
     expect(html).toContain("Add Contact Method");
     expect(html).toContain("Enable Auth Method");
-    expect(html).toContain("Disable password");
+    expect(html).toContain("Disable Password");
   });
 
   it("creates and rotates API keys in context while revealing the transient secret", () => {

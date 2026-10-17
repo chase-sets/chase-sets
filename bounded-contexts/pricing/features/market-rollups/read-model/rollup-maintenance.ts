@@ -72,6 +72,7 @@ export type DailyRollupCloserResult = Readonly<{
   marketStateSnapshotsRecomputed: number;
   productAggregatesRecomputed: number;
   platformDaysRecomputed: number;
+  undenominatedTradeCount: number;
 }>;
 
 const DEFAULT_CLOSER_LIMIT = 500;
@@ -104,6 +105,10 @@ export async function runDailyRollupCloser(
     listQueuedTradeRollupRederives(db, rederiveQueueLimit),
   ]);
   const rollupTuples = dedupeProductDayTuples([...queuedRollupTuples, ...recentRollupTuples]);
+  const undenominatedTradeCount = await db.query<{ count: number }>(
+    `SELECT COUNT(*)::integer AS count FROM pricing_market_trades
+     WHERE sold_at IS NOT NULL AND excluded = false AND currency_code IS NULL`,
+  );
   for (const tuple of rollupTuples) {
     await recomputeDailyProductRollup(db, tuple);
   }
@@ -153,6 +158,7 @@ export async function runDailyRollupCloser(
     marketStateSnapshotsRecomputed: productTuples.length,
     productAggregatesRecomputed: productTuples.length,
     platformDaysRecomputed: platformDays.length,
+    undenominatedTradeCount: undenominatedTradeCount.rows[0]?.count ?? 0,
   };
 }
 
@@ -257,11 +263,9 @@ async function listActiveOrTradedProductTuples(
  */
 export async function recomputeDailyProductRollup(db: PgQueryable, params: ProductDayTuple): Promise<void> {
   const existingBinding = await db.query<{ stat_hygiene_policy_revision_id: string }>(
-    `SELECT stat_hygiene_policy_revision_id
-     FROM pricing_daily_product_rollups
-     WHERE catalog_catalog_item_id = $1
-       AND product_id = $2
-       AND day = $3`,
+    `SELECT stat_hygiene_policy_revision_id FROM pricing_daily_product_rollups
+     WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3
+     ORDER BY currency_code LIMIT 1`,
     [params.catalogItemId, params.productId, params.day],
   );
   const policyRevision = existingBinding.rows[0]
@@ -270,6 +274,7 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
   const policy = policyRevision.value;
 
   const aggregate = await db.query<{
+    currency_code: string;
     first_price_amount: string | null;
     last_price_amount: string | null;
     min_price_amount: string | null;
@@ -280,15 +285,16 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
     verified_trade_count: number;
   }>(
     `WITH included_trades AS (
-       SELECT unit_price_amount, quantity, verified, sold_at, line_id
+       SELECT currency_code, unit_price_amount, quantity, verified, sold_at, line_id
        FROM pricing_market_trades
        WHERE catalog_catalog_item_id = $1
          AND product_id = $2
          AND sold_at >= ($3::date)::timestamp AT TIME ZONE 'UTC'
          AND sold_at < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
-         AND excluded = false
+         AND excluded = false AND currency_code IS NOT NULL
      ), trim_bounds AS (
        SELECT
+         currency_code,
          CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
            THEN percentile_cont($4::double precision / 100) WITHIN GROUP (ORDER BY unit_price_amount)
            ELSE NULL
@@ -298,8 +304,10 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
            ELSE NULL
          END AS upper_price_amount
        FROM included_trades
+       GROUP BY currency_code
      )
      SELECT
+       trade.currency_code,
        (array_agg(unit_price_amount ORDER BY sold_at ASC, line_id ASC))[1]
          AS first_price_amount,
        (array_agg(unit_price_amount ORDER BY sold_at DESC, line_id DESC))[1]
@@ -307,27 +315,36 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
        MIN(unit_price_amount) AS min_price_amount,
        MAX(unit_price_amount) AS max_price_amount,
        (SELECT ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount))::numeric, 2)
-        FROM included_trades
-        WHERE (SELECT lower_price_amount FROM trim_bounds) IS NULL
-           OR unit_price_amount BETWEEN (SELECT lower_price_amount FROM trim_bounds)
-                                    AND (SELECT upper_price_amount FROM trim_bounds)) AS median_price_amount,
+        FROM included_trades AS median_trade
+        WHERE median_trade.currency_code = trade.currency_code
+          AND (bounds.lower_price_amount IS NULL
+            OR median_trade.unit_price_amount BETWEEN bounds.lower_price_amount
+                                                   AND bounds.upper_price_amount)) AS median_price_amount,
        COALESCE(SUM(quantity), 0)::integer AS unit_volume,
        COUNT(*)::integer AS trade_count,
        COUNT(*) FILTER (WHERE verified = true)::integer AS verified_trade_count
-     FROM included_trades`,
+     FROM included_trades AS trade
+     JOIN trim_bounds AS bounds ON bounds.currency_code = trade.currency_code
+     GROUP BY trade.currency_code, bounds.lower_price_amount, bounds.upper_price_amount`,
     [params.catalogItemId, params.productId, params.day, policy.outlierTrimPercentile],
   );
-  const row = aggregate.rows[0];
   const updatedAt = new Date().toISOString();
 
   await db.query(
     `INSERT INTO pricing_daily_product_rollups (
-       catalog_catalog_item_id, product_id, day,
+       catalog_catalog_item_id, product_id, day, currency_code,
        first_price_amount, last_price_amount, min_price_amount, max_price_amount, median_price_amount,
        stat_hygiene_policy_revision_id,
        unit_volume, trade_count, verified_trade_count, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-     ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+     ) SELECT $1, $2, $3, row.currency_code,
+              row.first_price_amount, row.last_price_amount, row.min_price_amount, row.max_price_amount,
+              row.median_price_amount, $5, row.unit_volume, row.trade_count, row.verified_trade_count, $6
+       FROM jsonb_to_recordset($4::jsonb) AS row (
+         currency_code text, first_price_amount numeric, last_price_amount numeric,
+         min_price_amount numeric, max_price_amount numeric, median_price_amount numeric,
+         unit_volume integer, trade_count integer, verified_trade_count integer
+       )
+     ON CONFLICT (catalog_catalog_item_id, product_id, day, currency_code) DO UPDATE
      SET first_price_amount = EXCLUDED.first_price_amount,
          last_price_amount = EXCLUDED.last_price_amount,
          min_price_amount = EXCLUDED.min_price_amount,
@@ -342,17 +359,16 @@ export async function recomputeDailyProductRollup(db: PgQueryable, params: Produ
       params.catalogItemId,
       params.productId,
       params.day,
-      row?.first_price_amount ?? null,
-      row?.last_price_amount ?? null,
-      row?.min_price_amount ?? null,
-      row?.max_price_amount ?? null,
-      row?.median_price_amount ?? null,
+      JSON.stringify(aggregate.rows),
       policyRevision.revisionId,
-      row?.unit_volume ?? 0,
-      row?.trade_count ?? 0,
-      row?.verified_trade_count ?? 0,
       updatedAt,
     ],
+  );
+  await db.query(
+    `DELETE FROM pricing_daily_product_rollups
+     WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3
+       AND NOT (currency_code = ANY($4::text[]))`,
+    [params.catalogItemId, params.productId, params.day, aggregate.rows.map((row) => row.currency_code)],
   );
 }
 
@@ -443,6 +459,7 @@ export async function recomputeMarketStateSnapshot(db: PgQueryable, params: Prod
 }
 
 type TradeWindowStats = Readonly<{
+  currencyCode: string;
   medianPriceAmount: string | null;
   unitVolume: number;
   tradeCount: number;
@@ -454,17 +471,23 @@ async function queryTradeWindowStats(
   since: string,
   minimumTradeSample: number,
   outlierTrimPercentile: number,
-): Promise<TradeWindowStats> {
-  const result = await db.query<{ median_price_amount: string | null; unit_volume: number; trade_count: number }>(
+): Promise<readonly TradeWindowStats[]> {
+  const result = await db.query<{
+    currency_code: string;
+    median_price_amount: string | null;
+    unit_volume: number;
+    trade_count: number;
+  }>(
     `WITH included_trades AS (
-       SELECT unit_price_amount, quantity
+       SELECT currency_code, unit_price_amount, quantity
        FROM pricing_market_trades
        WHERE catalog_catalog_item_id = $1
          AND product_id = $2
          AND sold_at >= $3
-         AND excluded = false
+         AND excluded = false AND currency_code IS NOT NULL
      ), trim_bounds AS (
        SELECT
+         currency_code,
          CASE WHEN COUNT(*) * $4::numeric / 100 >= 1
            THEN percentile_cont($4::double precision / 100) WITHIN GROUP (ORDER BY unit_price_amount)
            ELSE NULL
@@ -474,27 +497,32 @@ async function queryTradeWindowStats(
            ELSE NULL
          END AS upper_price_amount
        FROM included_trades
+       GROUP BY currency_code
      )
      SELECT
+       trade.currency_code,
        (SELECT ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY unit_price_amount))::numeric, 2)
-        FROM included_trades
-        WHERE (SELECT lower_price_amount FROM trim_bounds) IS NULL
-           OR unit_price_amount BETWEEN (SELECT lower_price_amount FROM trim_bounds)
-                                    AND (SELECT upper_price_amount FROM trim_bounds)) AS median_price_amount,
+        FROM included_trades AS median_trade
+        WHERE median_trade.currency_code = trade.currency_code
+          AND (bounds.lower_price_amount IS NULL
+            OR median_trade.unit_price_amount BETWEEN bounds.lower_price_amount
+                                                   AND bounds.upper_price_amount)) AS median_price_amount,
        COALESCE(SUM(quantity), 0)::integer AS unit_volume,
        COUNT(*)::integer AS trade_count
-     FROM included_trades`,
+     FROM included_trades AS trade
+     JOIN trim_bounds AS bounds ON bounds.currency_code = trade.currency_code
+     GROUP BY trade.currency_code, bounds.lower_price_amount, bounds.upper_price_amount`,
     [params.catalogItemId, params.productId, since, outlierTrimPercentile],
   );
-  const row = result.rows[0]!;
-  return {
+  return result.rows.map((row) => ({
+    currencyCode: row.currency_code,
     // Convenience-aggregate columns are pre-gated at write time (see schema
     // header) -- this table exists specifically for cheap reads with no
     // further query-layer logic required.
     medianPriceAmount: row.trade_count >= minimumTradeSample ? row.median_price_amount : null,
     unitVolume: row.unit_volume,
     tradeCount: row.trade_count,
-  };
+  }));
 }
 
 /**
@@ -510,19 +538,19 @@ export async function recomputeProductMarketAggregate(
   const nowIso = now.toISOString();
   const since30 = new Date(now.getTime() - policy.lookbackDays.short * 24 * 60 * 60 * 1000).toISOString();
   const since90 = new Date(now.getTime() - policy.lookbackDays.long * 24 * 60 * 60 * 1000).toISOString();
-
   const [lastSoldResult, window30, window90, activeListingResult] = await Promise.all([
     // `sold_at` is timestamptz -- the driver returns it as a JS Date, not a
     // string (pg's default type parser; no OID override in this repo, and
     // `::text` would render Postgres's non-ISO DateStyle output instead of a
     // proper ISO string). Convert with `.toISOString()` below, matching the
     // convention other read models use for timestamptz output.
-    db.query<{ last_sold_at: Date | null; last_sold_price_amount: string | null }>(
-      `SELECT sold_at AS last_sold_at, unit_price_amount AS last_sold_price_amount
+    db.query<{ currency_code: string; last_sold_at: Date; last_sold_price_amount: string }>(
+      `SELECT DISTINCT ON (currency_code)
+         currency_code, sold_at AS last_sold_at, unit_price_amount AS last_sold_price_amount
        FROM pricing_market_trades
-       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND excluded = false AND sold_at IS NOT NULL
-       ORDER BY sold_at DESC
-       LIMIT 1`,
+       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND excluded = false
+         AND sold_at IS NOT NULL AND currency_code IS NOT NULL
+       ORDER BY currency_code, sold_at DESC, line_id DESC`,
       [params.catalogItemId, params.productId],
     ),
     queryTradeWindowStats(db, params, since30, policy.minimumTradeSample, policy.outlierTrimPercentile),
@@ -535,27 +563,53 @@ export async function recomputeProductMarketAggregate(
     ),
   ]);
 
-  const last = lastSoldResult.rows[0] ?? null;
-  const lastSoldAt = last?.last_sold_at ? new Date(last.last_sold_at).toISOString() : null;
+  const window30ByCurrency = new Map(window30.map((row) => [row.currencyCode, row]));
+  const window90ByCurrency = new Map(window90.map((row) => [row.currencyCode, row]));
   const activeListingQuantity = activeListingResult.rows[0]?.active_listing_quantity ?? 0;
-  // Sell-Through Rate (GLOSSARY.md): the share of recent 30-day supply
-  // (units sold plus units still actively listed) that actually sold.
-  // Documented approximation of "ratio of sold quantity to available
-  // quantity over a pricing window" -- available = sold + still-listed,
-  // since units that already sold were also part of the available supply
-  // at listing time.
-  const supply30d = window30.unitVolume + activeListingQuantity;
-  const sellThroughRate = supply30d > 0 ? (window30.unitVolume / supply30d).toFixed(4) : null;
+  const rows = lastSoldResult.rows.map((last) => {
+    const short = window30ByCurrency.get(last.currency_code);
+    const long = window90ByCurrency.get(last.currency_code);
+    const volume30d = short?.unitVolume ?? 0;
+    // Sell-Through Rate (GLOSSARY.md): the share of recent 30-day supply
+    // (units sold plus units still actively listed) that actually sold.
+    // Documented approximation of "ratio of sold quantity to available
+    // quantity over a pricing window" -- available = sold + still-listed,
+    // since units that already sold were also part of the available supply
+    // at listing time.
+    const supply30d = volume30d + activeListingQuantity;
+    return {
+      currency_code: last.currency_code,
+      last_sold_at: new Date(last.last_sold_at).toISOString(),
+      last_sold_price_amount: last.last_sold_price_amount,
+      median_price_30d: short?.medianPriceAmount ?? null,
+      volume_30d: volume30d,
+      trade_count_30d: short?.tradeCount ?? 0,
+      median_price_90d: long?.medianPriceAmount ?? null,
+      volume_90d: long?.unitVolume ?? 0,
+      trade_count_90d: long?.tradeCount ?? 0,
+      sell_through_rate: supply30d > 0 ? (volume30d / supply30d).toFixed(4) : null,
+    };
+  });
 
   await db.query(
     `INSERT INTO pricing_product_market_aggregates (
-       catalog_catalog_item_id, product_id,
+       catalog_catalog_item_id, product_id, currency_code,
        last_sold_at, last_sold_price_amount,
        median_price_30d, volume_30d, trade_count_30d,
        median_price_90d, volume_90d, trade_count_90d,
        sell_through_rate, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-     ON CONFLICT (catalog_catalog_item_id, product_id) DO UPDATE
+     ) SELECT $1, $2, row.currency_code,
+              row.last_sold_at, row.last_sold_price_amount,
+              row.median_price_30d, row.volume_30d, row.trade_count_30d,
+              row.median_price_90d, row.volume_90d, row.trade_count_90d,
+              row.sell_through_rate, $4
+       FROM jsonb_to_recordset($3::jsonb) AS row (
+         currency_code text, last_sold_at timestamptz, last_sold_price_amount numeric,
+         median_price_30d numeric, volume_30d integer, trade_count_30d integer,
+         median_price_90d numeric, volume_90d integer, trade_count_90d integer,
+         sell_through_rate numeric
+       )
+     ON CONFLICT (catalog_catalog_item_id, product_id, currency_code) DO UPDATE
      SET last_sold_at = EXCLUDED.last_sold_at,
          last_sold_price_amount = EXCLUDED.last_sold_price_amount,
          median_price_30d = EXCLUDED.median_price_30d,
@@ -566,20 +620,13 @@ export async function recomputeProductMarketAggregate(
          trade_count_90d = EXCLUDED.trade_count_90d,
          sell_through_rate = EXCLUDED.sell_through_rate,
          updated_at = EXCLUDED.updated_at`,
-    [
-      params.catalogItemId,
-      params.productId,
-      lastSoldAt,
-      last?.last_sold_price_amount ?? null,
-      window30.medianPriceAmount,
-      window30.unitVolume,
-      window30.tradeCount,
-      window90.medianPriceAmount,
-      window90.unitVolume,
-      window90.tradeCount,
-      sellThroughRate,
-      nowIso,
-    ],
+    [params.catalogItemId, params.productId, JSON.stringify(rows), nowIso],
+  );
+  await db.query(
+    `DELETE FROM pricing_product_market_aggregates
+     WHERE catalog_catalog_item_id = $1 AND product_id = $2
+       AND NOT (currency_code = ANY($3::text[]))`,
+    [params.catalogItemId, params.productId, rows.map((row) => row.currency_code)],
   );
 }
 

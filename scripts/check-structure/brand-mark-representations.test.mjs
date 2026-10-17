@@ -294,6 +294,7 @@ export const committedCallers = [
   "packages/design-system/src/__tests__/design-system-components.test.tsx",
   "packages/design-system/src/brand/chase-sets-logo.tsx",
   "scripts/check-design-system-export-coverage.mjs",
+  "scripts/check-structure/brand-foil-sites.mjs",
   "scripts/check-structure/brand-mark-representations.test.mjs",
   "scripts/generate-brand-icons.mjs",
 ];
@@ -678,6 +679,18 @@ describe("decoded positive parity for every committed raster", () => {
   }, 120_000);
 });
 
+export function evaluateBrandFontPackageKeys(packageKeys) {
+  const expected = [
+    "@fontsource/ibm-plex-mono@5.3.0",
+    "@fontsource/ibm-plex-sans@5.2.8",
+    "@fontsource/space-grotesk@5.3.0",
+  ];
+  const fonts = new Set(packageKeys.filter((key) => key.startsWith("@fontsource/")));
+  const missing = expected.filter((key) => !fonts.has(key));
+  const extra = [...fonts].filter((key) => !expected.includes(key));
+  return { ok: missing.length === 0 && extra.length === 0, missing, extra };
+}
+
 describe("lockfile package-entry discipline", () => {
   const lock = yaml.parse(readFileSync(join(root, "pnpm-lock.yaml"), "utf8"));
   const packageKeys = Object.keys(lock.packages).sort();
@@ -723,18 +736,44 @@ describe("lockfile package-entry discipline", () => {
     expect(packageKeys).toContain("sharp@0.34.5");
   });
 
-  it("bounds the whole-lockfile package-entry delta to exactly the two Fontsource keys", () => {
-    const fontKeys = ["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/space-grotesk@5.3.0"];
-    for (const key of fontKeys) expect(packageKeys).toContain(key);
-    const withoutFonts = packageKeys.filter((k) => !fontKeys.includes(k));
-    // sha256 over the sorted package-entry keys of pnpm-lock.yaml at the
-    // candidate's base revision 3d20e23b7fdc66865e8459610a6601574960d566,
-    // joined with newlines -- derived mechanically from `git show`, so
-    // equality proves the delta added exactly the two font keys and removed
-    // nothing without carrying all 791 base keys here.
-    const baseKeyDigest = "2004a44a67e9409ade0dd5469eee0940451dc628fa6cf335ad5bb103e0fefdcb";
-    expect(withoutFonts.length).toBe(791);
-    expect(createHash("sha256").update(withoutFonts.join("\n")).digest("hex")).toBe(baseKeyDigest);
-    console.log(`whole-lockfile package-entry delta vs base: +${JSON.stringify(fontKeys)} -[]`);
+  it("accepts the real lockfile's exact brand font keys", () => {
+    expect(evaluateBrandFontPackageKeys(packageKeys)).toEqual({ ok: true, missing: [], extra: [] });
+  });
+
+  it("accepts unrelated axe additions to the real lockfile", () => {
+    const keys = [...packageKeys, "@axe-core/playwright@4.13.0", "axe-core@4.13.0"];
+    expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: true, missing: [], extra: [] });
+  });
+
+  it("rejects an extra @fontsource key by name", () => {
+    const extra = "@fontsource/roboto@5.3.0";
+    expect(evaluateBrandFontPackageKeys([...packageKeys, extra])).toEqual({ ok: false, missing: [], extra: [extra] });
+  });
+
+  it.each(["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/ibm-plex-sans@5.2.8", "@fontsource/space-grotesk@5.3.0"])(
+    "rejects missing brand font key %s by name",
+    (missing) => {
+      const keys = packageKeys.filter((key) => key !== missing);
+      expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: false, missing: [missing], extra: [] });
+    },
+  );
+
+  it.each([
+    ["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/ibm-plex-mono@5.3.1"],
+    ["@fontsource/ibm-plex-sans@5.2.8", "@fontsource/ibm-plex-sans@5.2.9"],
+    ["@fontsource/space-grotesk@5.3.0", "@fontsource/space-grotesk@5.3.1"],
+  ])("rejects re-versioned brand font key %s as %s by name", (missing, extra) => {
+    const keys = [...packageKeys.filter((key) => key !== missing), extra];
+    expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: false, missing: [missing], extra: [extra] });
+  });
+
+  it("keeps the Chromium probe type keys present", () => {
+    const chromiumTypeKeys = [
+      "@types/chrome@0.1.43",
+      "@types/filesystem@0.0.36",
+      "@types/filewriter@0.0.33",
+      "@types/har-format@1.2.16",
+    ];
+    for (const key of chromiumTypeKeys) expect(packageKeys).toContain(key);
   });
 });

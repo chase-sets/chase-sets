@@ -1,7 +1,21 @@
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
+import { createCheckoutCartRuntime, type CheckoutCartServices } from "../features/cart/api/runtime";
+import type { CheckoutCartLineRow } from "../features/cart/read-model/queries";
+import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../features/cart/domain/domain";
+import { createCartReadinessSnapshot } from "../features/cart/domain/readiness";
+import {
+  evolveCheckoutSession,
+  initialCheckoutSessionState,
+  type CheckoutSessionEvent,
+} from "../features/sessions/domain/domain";
+import { createCheckoutSessionRuntime } from "../features/sessions/api/runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import { createUcpEnvelope, type UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import { createPaymentsUcpHandoff } from "@chase-sets/payments/server";
 import { createCheckoutUcpHandlers } from "../support/ucp-support/checkout";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
@@ -90,7 +104,16 @@ function createSessions(overrides: Partial<CheckoutSessionServices> = {}): Check
     selectAuthenticityCheckOptIn: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     assertReadyForOrderCreation: vi.fn(async ({ sessionId }) => session({ session_id: sessionId })),
     recordCheckoutReservations: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
-    recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordOrdersCreated: vi.fn<CheckoutSessionServices["recordOrdersCreated"]>(async ({ sessionId, orderIds }) => ({
+      sessionId,
+      session: session({ session_id: sessionId, order_ids: [...orderIds] }),
+    })),
+    resumeOrderCartCleanup: vi.fn<CheckoutSessionServices["resumeOrderCartCleanup"]>(
+      async ({ sessionId, accountId }) => ({
+        sessionId,
+        session: (await (overrides.getSession ?? (async () => session()))(sessionId, accountId)) ?? session(),
+      }),
+    ),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     cancelSession: vi.fn(async ({ sessionId }) => ({
@@ -130,6 +153,47 @@ function input(
 }
 
 describe("checkout UCP handlers", () => {
+  it("checkout-closed-agent-rails: refuses both transport mutation handlers before sessions or payment handoff", async () => {
+    const sessions = createSessions();
+    const evaluateCompleteRequest = vi.fn(() => null);
+    const handlers = createCheckoutUcpHandlers(
+      { sessions },
+      { checkoutClosed: true, paymentHandoff: { payment: {}, evaluateCompleteRequest } },
+    );
+    for (const transport of [handlers.restHandlers, handlers.mcpToolHandlers]) {
+      for (const operation of ["create_checkout", "update_checkout", "complete_checkout"]) {
+        const response = await transport[operation](
+          input(
+            {
+              id: "chk_1",
+              source: {
+                type: "buy-now",
+                listing_id: "lst_1",
+                catalog_item_id: "cat_1",
+                product_id: "cat_1::form:raw",
+                title: "Charizard",
+                quantity: 1,
+              },
+            },
+            { id: "chk_1" },
+          ),
+        );
+        expect(response).toMatchObject({
+          ucp: { status: "error" },
+          messages: [{ severity: "error", code: "checkout_closed" }],
+        });
+      }
+    }
+    expect(sessions.getSession).not.toHaveBeenCalled();
+    expect(sessions.createBuyNow).not.toHaveBeenCalled();
+    expect(sessions.createFromCart).not.toHaveBeenCalled();
+    expect(sessions.setShippingAddress).not.toHaveBeenCalled();
+    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(evaluateCompleteRequest).not.toHaveBeenCalled();
+    expect((await handlers.restHandlers.get_checkout(input({}, { id: "chk_1" }))).ucp.status).toBe("ok");
+    expect((await handlers.mcpToolHandlers.cancel_checkout(input({ id: "chk_1" }))).ucp.status).toBe("ok");
+    expect(sessions.cancelSession).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockResolvedValue({
@@ -239,6 +303,43 @@ describe("checkout UCP handlers", () => {
     );
   });
 
+  it("keeps UCP cart checkout Account-only when anonymous-looking input and headers are presented", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+    const operation = input({
+      source: {
+        type: "cart",
+        readiness: { snapshot_id: "cr_ready", source_revision: "cr_source" },
+        anonymous_cart_id: "anon_raw_marker",
+      },
+      presented_anonymous_cart_id: "anon_raw_marker",
+    });
+
+    const response = await handlers.restHandlers.create_checkout({
+      ...operation,
+      request: new Request(operation.request, {
+        headers: {
+          ...Object.fromEntries(operation.request.headers.entries()),
+          "x-checkout-anonymous-cart-id": "anon_raw_marker",
+        },
+      }),
+    });
+
+    expect(response.ucp.status).toBe("ok");
+    expect(sessions.createFromCart).toHaveBeenCalledWith(
+      {
+        accountId: "acc_buyer",
+        shippingOption: undefined,
+        optimizationGoal: undefined,
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: undefined,
+      },
+      context,
+    );
+    expect(JSON.stringify(vi.mocked(sessions.createFromCart).mock.calls)).not.toContain("anon_raw_marker");
+  });
+
   it("updates shipping details on an existing checkout session", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });
@@ -288,32 +389,48 @@ describe("checkout UCP handlers", () => {
     expect(response.messages).toEqual([expect.objectContaining({ code: "trusted_ui_required" })]);
   });
 
-  it("adds a resumable checkout URL to a mandate rejection without money-moving effects", async () => {
+  it("answers an agent-provided payment instrument with the resumable trusted handoff and no money-moving effects", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers(
       { sessions },
       {
-        paymentHandoff: {
-          payment: {},
-          evaluateCompleteRequest: () => ({
-            kind: "respond",
-            response: createUcpEnvelope("requires_action", { action: { type: "trusted_checkout_handoff" } }, [
-              { severity: "error", code: "mandate_expired", message: "Mandate expired." },
-            ]),
-          }),
-        },
+        paymentHandoff: createPaymentsUcpHandoff({
+          processorName: "stripe",
+          publishableKey: "pk_test_123",
+          confirmationExperience: "processor-managed-form",
+          dynamicPaymentMethods: true,
+          sensitivePaymentDetailsHandledByProcessor: true,
+          agenticPaymentHandlers: [
+            {
+              id: "stripe-shared-payment-token",
+              provider: "stripe",
+              type: "shared_payment_token",
+              confirmationExperience: "server-confirmed-payment-intent",
+            },
+          ],
+        }),
       },
     );
 
-    const response = await handlers.restHandlers.complete_checkout(input({}, { id: "chk_1" }));
+    const response = await handlers.restHandlers.complete_checkout(
+      input(
+        {
+          marketplace_checkout_fee_quote_fingerprint: "quote_1",
+          payment_data: { provider: "stripe", token: "spt_123" },
+        },
+        { id: "chk_1" },
+      ),
+    );
 
     expect(response).toMatchObject({
       ucp: { status: "requires_action" },
       action: { type: "trusted_checkout_handoff", url: "/checkout/buy/session/chk_1" },
-      messages: [{ severity: "error", code: "mandate_expired" }],
+      messages: [{ severity: "warning", code: "trusted_ui_required" }],
     });
+    expect(sessions.assertReadyForOrderCreation).not.toHaveBeenCalled();
     expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
     expect(checkoutConfirmationMocks.createCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
   });
 
@@ -352,10 +469,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -400,10 +515,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -459,10 +572,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -498,9 +609,9 @@ describe("checkout UCP handlers", () => {
         accountId: "acc_buyer",
         operation: "complete_checkout",
         amountCents: 2_605,
-        rail: "ap2",
-        humanPresent: true,
-        humanNotPresentAuthorized: false,
+        rail: "stored-pm",
+        humanPresent: false,
+        humanNotPresentAuthorized: true,
       }),
     );
     expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
@@ -556,10 +667,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -746,5 +855,392 @@ describe("checkout UCP handlers", () => {
 
     expect(response.ucp.status).toBe("error");
     expect(response.messages).toEqual([expect.objectContaining({ code: "authentication_required" })]);
+  });
+});
+
+const productMeasureSnapshot = {
+  catalogItemId: "cat_1",
+  productId: "cat_1::",
+  selectedOptions: [],
+  measureVersion: "pm_test_raw_v1",
+  unitLengthInches: 3.5,
+  unitWidthInches: 2.5,
+  unitHeightInches: 0.02,
+  unitWeightOunces: 0.08,
+  physicalFlags: ["raw-card"],
+  stackBehavior: "stackable-thickness",
+  source: "profile",
+  confidence: "measured",
+};
+
+function createCheckpointStore(): ProjectionCheckpointStore {
+  const checkpoints = new Map<string, GlobalPosition>();
+
+  return {
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    saveCheckpoint: async (projectorName, checkpoint) => {
+      checkpoints.set(projectorName, checkpoint);
+    },
+  };
+}
+
+const readyCartLine: CheckoutCartLineRow = {
+  buyer_account_id: "acc_buyer",
+  line_id: "cli_1",
+  catalog_catalog_item_id: "cat_1",
+  product_id: "cat_1::",
+  item_language_code: "en",
+  item_title: "Charizard",
+  item_subtitle: null,
+  item_image_url: null,
+  item_image_srcset: null,
+  item_image_loading_url: null,
+  item_image_loading_alt: null,
+  item_image_loading_srcset: null,
+  selected_options: [],
+  product_summary: null,
+  quantity: 1,
+  fulfillment_mode: "locked-listing",
+  locked_listing_id: "lst_1",
+  selected_listing_id: null,
+  selected_listing_seller_account_id: null,
+  selected_listing_seller_display_name: null,
+  selected_listing_seller_slug: null,
+  selected_listing_price_amount: null,
+  selected_listing_snapshot_source: null,
+  selected_listing_snapshot_captured_at: null,
+  seller_preference_id: null,
+  availability_state: "available",
+  seller_options: [
+    {
+      listing_id: "lst_1",
+      seller_account_id: "acc_seller",
+      seller_slug: "seller",
+      seller_display_name: "Card Vault",
+      seller_average_rating: null,
+      seller_review_count: 0,
+      price_amount: "25.00",
+      price_currency_code: "USD",
+      listing_stream_version: 7,
+      available_quantity: 1,
+      product_summary: null,
+      product_measure_snapshot: productMeasureSnapshot,
+    },
+  ],
+  created_at: "2026-06-09T00:00:00.000Z",
+  updated_at: "2026-06-09T00:00:00.000Z",
+};
+
+async function unionCleanupHarness() {
+  const { eventStore } = createInMemoryEventStore();
+  let projected: CheckoutSessionRow | null = null;
+  const db = {
+    query: vi.fn(async (sql: string) => ({
+      rows: sql.includes("checkout_catalog_items")
+        ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null, language_code: "en" }]
+        : sql.includes("checkout_session_pages") && projected
+          ? [projected]
+          : [],
+    })),
+  };
+  const checkpointStore = createCheckpointStore();
+  const anonymous = "anon_raw_cleanup_marker";
+  const buyer = context.audit.forAccountId;
+  const events = (streamId: string) => eventStore.readStream({ streamId });
+  const cartState = async (owner: string) =>
+    (await events(`checkout.cart-${owner}`)).reduce(
+      (state, event) => evolveCheckoutCart(state, { type: event.eventType, data: event.payload } as CheckoutCartEvent),
+      initialCheckoutCartState,
+    );
+  const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
+  let listingSequence = 0;
+  const add = async (owner: string) =>
+    cart.addLine(
+      {
+        accountId: owner as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: `lst_${++listingSequence}`,
+      },
+      context,
+    );
+  const first = await add(anonymous);
+  const second = await add(anonymous);
+  const copy = async (lineId: string, owner = String(buyer), quantity = 1) => {
+    const line = (await cartState(anonymous)).lines.find((entry) => entry.lineId === lineId)!;
+    await cart.commandHandler({
+      streamId: `checkout.cart-${owner}`,
+      context,
+      command: { ...line, type: "AddCartLine", buyerAccountId: owner as never, quantity },
+    });
+  };
+  const listCartLines: CheckoutCartServices["listCartLines"] = async (accountId, presented) => {
+    const lines = [...(await cartState(accountId)).lines, ...(presented ? (await cartState(presented)).lines : [])];
+    return [
+      ...new Map(
+        lines.reverse().map((line) => [
+          line.lineId,
+          {
+            ...readyCartLine,
+            buyer_account_id: String(accountId),
+            line_id: line.lineId,
+            quantity: line.quantity,
+            locked_listing_id: line.lockedListingId,
+            seller_options: [
+              { ...readyCartLine.seller_options[0]!, listing_id: line.lockedListingId!, available_quantity: 20 },
+            ],
+          },
+        ]),
+      ).values(),
+    ];
+  };
+  // Checkout Session start and every active-session revalidation resolve lines
+  // through `listAuthorizedCartLines`. Overriding only `listCartLines` would stop
+  // intercepting the moment the runtime moved members, so the harness would run
+  // the real member against the stub `db` above and silently resolve nothing.
+  // The double substitutes line resolution only; source authority still comes
+  // from the real Cart aggregate through the production guards.
+  const listAuthorizedCartLines: CheckoutCartServices["listAuthorizedCartLines"] = async (params) =>
+    listCartLines(params.accountId, params.presentedAnonymousCartId);
+  const realCart = { ...cart, listCartLines, listAuthorizedCartLines };
+  const runtime = () => createCheckoutSessionRuntime({ eventStore, checkpointStore, db, cart: realCart });
+  const sessions = runtime();
+  const readiness = createCartReadinessSnapshot(await listCartLines(buyer, anonymous), undefined, {
+    accountId: buyer,
+    presentedAnonymousCartId: anonymous,
+  });
+  const created = await sessions.createFromCart(
+    {
+      accountId: buyer,
+      presentedAnonymousCartId: anonymous,
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+    },
+    context,
+  );
+  const params = { sessionId: created.sessionId, accountId: buyer };
+  await sessions.commandHandler({
+    streamId: `checkout.session-${params.sessionId}`,
+    context,
+    command: {
+      type: "SetShippingAddress",
+      shippingAddress: {
+        name: "Buyer",
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      selectedAt: new Date().toISOString(),
+    },
+  });
+  const sessionEvents = () => events(`checkout.session-${params.sessionId}`);
+  const state = async () =>
+    (await sessionEvents()).reduce(
+      (current, event) =>
+        evolveCheckoutSession(current, { type: event.eventType, data: event.payload } as CheckoutSessionEvent),
+      initialCheckoutSessionState,
+    );
+  return {
+    eventStore,
+    cart,
+    realCart,
+    runtime,
+    params,
+    setProjected: (row: CheckoutSessionRow | null) => {
+      projected = row;
+    },
+    anonymous,
+    buyer,
+    add,
+    copy,
+    cartState,
+    sessionEvents,
+    state,
+    ids: [first.lineId, second.lineId],
+    record: {
+      ...params,
+      orderIds: ["ord_union"],
+      orderWriteCommitPositions: [
+        { sourceContextName: "ordering", maxGlobalPosition: "800", eventIds: ["evt_ordering"] },
+      ],
+    },
+  };
+}
+
+describe("UCP union cleanup caller closure", () => {
+  const body = {
+    shipping_address: {
+      name: "Buyer",
+      line1: "100 Market Street",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+    },
+    marketplace_checkout_fee_quote_fingerprint: "quote_1",
+    accountId: "acc_foreign",
+    presentedAnonymousCartId: "anon_foreign",
+  };
+  const handlersFor = (sessions: CheckoutSessionServices) =>
+    createCheckoutUcpHandlers(
+      { sessions },
+      {
+        paymentHandoff: {
+          payment: { provider: "test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "instrument_test",
+          }),
+        },
+      },
+    );
+  beforeEach(() => {
+    checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockReset();
+    checkoutConfirmationMocks.createCheckoutPaymentThroughPayments
+      .mockReset()
+      .mockResolvedValue({ payment_id: "pay_union" });
+  });
+
+  it("union cleanup caller closure stored zero/partial-copy and identical shipping retry", async () => {
+    for (const copies of [0, 1]) {
+      const h = await unionCleanupHarness();
+      if (copies) await h.copy(h.ids[0]!);
+      checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockClear().mockResolvedValue({
+        orderIds: h.record.orderIds,
+        readyLineKeys: h.ids,
+        writeResult: { commitPositions: h.record.orderWriteCommitPositions },
+      });
+      const result = await handlersFor(h.runtime()).restHandlers.complete_checkout!(
+        input(body, { id: h.params.sessionId }),
+      );
+      expect(result.ucp.status).toBe("ok");
+      expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+      expect((await h.cartState(h.buyer)).lines).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain(h.anonymous);
+      const before = await h.sessionEvents();
+      await handlersFor(h.runtime()).restHandlers.complete_checkout!(input(body, { id: h.params.sessionId }));
+      expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+      expect(await h.sessionEvents()).toEqual(before);
+    }
+  });
+
+  it("union cleanup crash resume stored both projection variants at each commit", async () => {
+    for (const projection of ["absent", "stale", "orders"])
+      for (const boundary of ["orders", "remove-1", "remove-2", "remove-3", "complete", "complete-ack"]) {
+        const h = await unionCleanupHarness();
+        await h.copy(h.ids[0]!);
+        const initialPage = await h.runtime().getSession(h.params.sessionId, h.buyer);
+        checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockClear().mockResolvedValue({
+          orderIds: h.record.orderIds,
+          readyLineKeys: h.ids,
+          writeResult: { commitPositions: h.record.orderWriteCommitPositions },
+        });
+        const original = h.eventStore.appendToStream.bind(h.eventStore);
+        let removals = 0;
+        const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+          const type = input.events[0]?.eventType;
+          const at =
+            type === "checkout.session.orders-created"
+              ? "orders"
+              : type === "checkout.cart.line-removed"
+                ? `remove-${++removals}`
+                : type === "checkout.session.cart-cleanup-completed"
+                  ? "complete"
+                  : "other";
+          if (at === boundary || (boundary === "complete-ack" && at === "complete")) {
+            if (boundary !== "complete") await original(input);
+            throw new Error(`store ${h.anonymous}`);
+          }
+          return original(input);
+        });
+        const result = await handlersFor(h.runtime()).restHandlers.complete_checkout!(
+          input(body, { id: h.params.sessionId }),
+        );
+        expect(result.ucp.status, `${projection} ${boundary}`).toBe("error");
+        expect(result.messages?.[0]?.message).toBe("Cart cleanup could not finish. Retry checkout.");
+        expect(JSON.stringify(result)).not.toContain(h.anonymous);
+        expect(result.commit_positions).toContainEqual(h.record.orderWriteCommitPositions[0]);
+        fault.mockRestore();
+        h.setProjected(
+          projection === "absent"
+            ? null
+            : projection === "stale"
+              ? initialPage
+              : await h.runtime().getSession(h.params.sessionId, h.buyer),
+        );
+        const retry = await handlersFor(h.runtime()).mcpToolHandlers.complete_checkout!(
+          input(body, { id: h.params.sessionId }),
+        );
+        expect(retry.ucp.status, `${projection} ${boundary}`).toBe("ok");
+        expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+        expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+        expect((await h.cartState(h.buyer)).lines).toEqual([]);
+        expect(
+          (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.orders-created"),
+        ).toHaveLength(1);
+        expect(
+          (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.cart-cleanup-completed"),
+        ).toHaveLength(1);
+      }
+  });
+
+  it("union cleanup authority and redaction precedes guarded and terminal returns", async () => {
+    for (const mode of ["guarded", "terminal", "default"]) {
+      const terminal = mode === "terminal";
+      const h = await unionCleanupHarness();
+      await h.runtime().commandHandler({
+        streamId: `checkout.session-${h.params.sessionId}`,
+        context,
+        command: {
+          type: "RecordOrdersCreated",
+          orderIds: ["ord_union" as never],
+          orderWriteCommitPositions: h.record.orderWriteCommitPositions,
+          recordedAt: "2026-09-01T00:00:00Z",
+        },
+      });
+      if (terminal) await h.runtime().recordPaymentStarted({ ...h.params, paymentId: "pay_union" }, context);
+      const guarded = () =>
+        createCheckoutUcpHandlers(
+          { sessions: h.runtime() },
+          mode === "guarded"
+            ? {
+                paymentHandoff: {
+                  payment: {},
+                  evaluateCompleteRequest: () => null,
+                },
+              }
+            : {},
+        );
+      const fault = vi
+        .spyOn(h.realCart, "removeLine")
+        .mockRejectedValue(new CheckoutDomainError(`cart ${h.anonymous}`));
+      const wrong = await guarded().restHandlers.complete_checkout!(
+        input(body, { id: h.params.sessionId }, { ...actor, accountId: "acc_foreign" }),
+      );
+      expect(wrong.ucp.status).toBe("error");
+      const missing = await guarded().restHandlers.complete_checkout!(input(body, { id: h.params.sessionId }, null));
+      expect(missing.ucp.status).toBe("error");
+      expect(fault).not.toHaveBeenCalled();
+      const result = await guarded().restHandlers.complete_checkout!(input(body, { id: h.params.sessionId }));
+      expect(result.ucp.status).toBe("error");
+      expect(JSON.stringify(result)).not.toContain(h.anonymous);
+      expect((await h.state()).orderCartCleanup?.status).toBe("pending");
+      fault.mockRestore();
+      const resumed = await guarded().restHandlers.complete_checkout!(input(body, { id: h.params.sessionId }));
+      expect(resumed.ucp.status).toBe(terminal ? "ok" : "requires_action");
+      expect(resumed.commit_positions).toContainEqual(h.record.orderWriteCommitPositions[0]);
+      expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+    }
   });
 });

@@ -1,1 +1,1 @@
-export { NotificationCenterShell } from "./support/shell-support";
+export { resolveLegacyNotificationCenterHref } from "./support/shell-support";

@@ -66,20 +66,20 @@ Rules: no "half of what major platforms take", no "$25 cap", no named-competitor
 
 Rules: no "list your graded cards" self-serve call-to-action, and nothing about per-grade pricing or "PSA 10 market data" (neither exists).
 
-### Launch countdown
+### Access order
 
-> Chase Sets opens to everyone September 1, 2026. Beta invite waves start late July.
+> Join the waitlist first. Numbered beta invite waves come next, followed by open signup for everyone.
 >
 > Get in line (and move up by referring): https://chasesets.com
 
-Rules: September 1, 2026 is the only hard public date; never promise a specific wave date.
+Rules: keep launch copy undated. State the order: waitlist, numbered beta invite waves, then open signup. Never promise a launch date or a specific wave date.
 
 ## Operator follow-ups (creative production outside the repo)
 
 These #4086 deliverables need design tooling or media production and are intentionally not code:
 
 1. **X/Discord profile assets** — avatar (400x400) and banner (1500x500 X / 960x540 Discord) from the design-system brand mark and dark palette. The OG generator script is the palette/layout reference.
-2. **Short-clip end-cards** — a 1-2s outro slate for video clips: brand mark, `chasesets.com`, launch date. Same layout language as the OG cards.
+2. **Short-clip end-cards** — a 1-2s outro slate for video clips: brand mark, `chasesets.com`, undated access order. Same layout language as the OG cards.
 3. **Product screenshots** — a small set of current-UI screenshots for the press kit, refreshed when the UI changes; host them where outreach can link them (not in this repo).
 4. **Named founder bio + headshot** — the fact sheet ships with the (already-public) anonymous founder story; add a named bio and photo only as a deliberate publication decision.
 5. **OG render spot-check** — after deploy, paste `/`, `/?game=pokemon`, `/founders`, and `/press` into X's card validator and a Discord channel to confirm the large-image previews render (the #4086 acceptance check).

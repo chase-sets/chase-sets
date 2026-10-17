@@ -2,7 +2,11 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogItemRoutes } from "../features/catalog-items/api/route";
-import type { BulkEditCatalogItemPreview, CatalogItemServices } from "../features/catalog-items/api/runtime";
+import type {
+  BulkEditCatalogItemPreview,
+  CatalogItemDetailWithPublicationReadiness,
+  CatalogItemServices,
+} from "../features/catalog-items/api/runtime";
 import type { CatalogItemState } from "../features/catalog-items/domain/domain";
 import type { CatalogItemDetailRow } from "../features/catalog-items/read-model/queries";
 import type { CatalogAuthoringEnv } from "../support/authoring-support/api";
@@ -204,7 +208,17 @@ function staleCatalogItemDetailRow(): CatalogItemDetailRow {
 
 describe("catalog item mutation consistency", () => {
   it("returns committed Catalog Item command snapshots without reading stale detail projections", async () => {
-    const getCatalogItemDetail = vi.fn(async (): Promise<CatalogItemDetailRow> => staleCatalogItemDetailRow());
+    const getCatalogItemDetail = vi.fn(
+      async (): Promise<CatalogItemDetailWithPublicationReadiness> => ({
+        ...staleCatalogItemDetailRow(),
+        display_identity_publication: {
+          status: "outdated",
+          reason_code: "display-identity-outdated",
+          missing_tokens: [],
+          retryable: true,
+        },
+      }),
+    );
     const commandSnapshot = {
       id: "cat_furret",
       languageCode: "en",

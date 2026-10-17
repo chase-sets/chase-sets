@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogItemRoutes } from "./route";
-import type { CatalogItemServices } from "./runtime";
+import { CatalogItemPublicationError, type CatalogItemServices } from "./runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 
@@ -268,6 +268,37 @@ describe("catalog item routes", () => {
       itemIds: ["cat_1", "cat_2"],
       context,
     });
+  });
+
+  it("returns a bounded typed publication readiness error and preserves expectedVersion", async () => {
+    const commandHandler = vi.fn(async () => {
+      throw new CatalogItemPublicationError("outdated");
+    });
+    const app = buildApp(createServices({ commandHandler }));
+
+    const response = await app.fetch(
+      new Request("http://catalog.test/items/cat_1/publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ blueprintIsActive: true, requiredFieldIds: [], expectedVersion: 7 }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "display-identity-outdated",
+        message: "Display identity is outdated. Recheck and retry publication.",
+        readiness: "outdated",
+        missingTokens: [],
+      },
+    });
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedVersion: 7,
+        command: expect.not.objectContaining({ displayIdentity: expect.anything() }),
+      }),
+    );
   });
 
   it("previews lifecycle actions against the filtered item scope", async () => {

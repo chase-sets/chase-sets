@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
@@ -49,15 +50,22 @@ export function isLowestPriceListing(
   listing: DiscoveryMarketListing,
   listings: readonly DiscoveryMarketListing[],
 ): boolean {
+  if (!listing.price_currency_code) return false;
   const listingPrice = toPriceNumber(listing.price_amount);
-  const lowestPrice = toPriceNumber(getLowestPrice(listings) ?? "");
+  const lowestPrice = toPriceNumber(
+    getLowestPrice(listings.filter((candidate) => candidate.price_currency_code === listing.price_currency_code)) ?? "",
+  );
 
   return listingPrice !== null && lowestPrice !== null && listingPrice === lowestPrice;
 }
 
 export function isBestOffer(offer: DiscoveryOffer, offers: readonly DiscoveryOffer[]): boolean {
+  if (!offer.price_currency_code) return false;
   const offerPrice = toPriceNumber(offer.price_amount);
-  const highestPrice = toPriceNumber(getHighestOfferPrice(offers) ?? "");
+  const highestPrice = toPriceNumber(
+    getHighestOfferPrice(offers.filter((candidate) => candidate.price_currency_code === offer.price_currency_code)) ??
+      "",
+  );
 
   return offerPrice !== null && highestPrice !== null && offerPrice === highestPrice;
 }
@@ -144,29 +152,53 @@ export function getInitialSelections(
 }
 
 export function getLowestPrice(listings: readonly DiscoveryMarketListing[]): string | null {
+  if (!getCommonPriceCurrencyCode(listings)) {
+    return null;
+  }
   return listings.reduce<string | null>((lowest, listing) => {
+    const price = toPriceNumber(listing.price_amount);
+    if (price === null) {
+      return lowest;
+    }
     if (lowest === null) {
       return listing.price_amount;
     }
 
-    return Number.parseFloat(listing.price_amount) < Number.parseFloat(lowest) ? listing.price_amount : lowest;
+    return comparePriceValues(listing.price_amount, lowest, "asc") < 0 ? listing.price_amount : lowest;
   }, null);
 }
 
 export function getHighestOfferPrice(offers: readonly DiscoveryOffer[]): string | null {
+  if (!getCommonPriceCurrencyCode(offers)) {
+    return null;
+  }
   return offers.reduce<string | null>((highest, offer) => {
+    const price = toPriceNumber(offer.price_amount);
+    if (price === null) {
+      return highest;
+    }
     if (highest === null) {
       return offer.price_amount;
     }
 
-    return Number.parseFloat(offer.price_amount) > Number.parseFloat(highest) ? offer.price_amount : highest;
+    return comparePriceValues(offer.price_amount, highest, "desc") < 0 ? offer.price_amount : highest;
   }, null);
 }
 
-function toPriceNumber(value: string): number | null {
-  const parsed = Number.parseFloat(value);
+export function getCommonPriceCurrencyCode(entries: readonly { price_currency_code: string | null }[]): string | null {
+  if (
+    entries.length === 0 ||
+    entries.some((entry) => !entry.price_currency_code) ||
+    new Set(entries.map((entry) => entry.price_currency_code)).size !== 1
+  ) {
+    return null;
+  }
 
-  return Number.isFinite(parsed) ? parsed : null;
+  return entries[0]?.price_currency_code ?? null;
+}
+
+function toPriceNumber(value: string): bigint | null {
+  return tryMoneyToCents(value);
 }
 
 function comparePriceValues(left: string, right: string, direction: "asc" | "desc"): number {
@@ -185,11 +217,16 @@ function comparePriceValues(left: string, right: string, direction: "asc" | "des
     return -1;
   }
 
-  return direction === "asc" ? leftPrice - rightPrice : rightPrice - leftPrice;
+  const comparison = leftPrice < rightPrice ? -1 : leftPrice > rightPrice ? 1 : 0;
+  return direction === "asc" ? comparison : -comparison;
 }
 
 export function sortListingsByBuyerPrice(listings: readonly DiscoveryMarketListing[]): DiscoveryMarketListing[] {
   return [...listings].sort((left, right) => {
+    const currencyDelta = (left.price_currency_code ?? "").localeCompare(right.price_currency_code ?? "");
+    if (currencyDelta !== 0) {
+      return currencyDelta;
+    }
     const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "asc");
     if (priceDelta !== 0) {
       return priceDelta;
@@ -204,6 +241,10 @@ export function sortListingsByBuyerPrice(listings: readonly DiscoveryMarketListi
 
 export function sortOffersBySellerPrice(offers: readonly DiscoveryOffer[]): DiscoveryOffer[] {
   return [...offers].sort((left, right) => {
+    const currencyDelta = (left.price_currency_code ?? "").localeCompare(right.price_currency_code ?? "");
+    if (currencyDelta !== 0) {
+      return currencyDelta;
+    }
     const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "desc");
     if (priceDelta !== 0) {
       return priceDelta;
@@ -243,7 +284,12 @@ export function sortAccountOfferMatchesForReview(
       return fulfillableDelta;
     }
 
-    const priceDelta = Number.parseFloat(right.price_amount) - Number.parseFloat(left.price_amount);
+    const currencyDelta = left.price_currency_code.localeCompare(right.price_currency_code);
+    if (currencyDelta !== 0) {
+      return currencyDelta;
+    }
+
+    const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "desc");
     if (priceDelta !== 0) {
       return priceDelta;
     }
@@ -304,6 +350,7 @@ export function buildProductOptionSummaries({
                         getHighestOfferPrice(
                           matchingOption.filter((entry): entry is DiscoveryOffer => "quantity_requested" in entry),
                         ),
+                        getCommonPriceCurrencyCode(matchingOption),
                       ),
                     })
                   : t("discovery.features.itemDetail.ui.itemDetailPage.option.summary", {
@@ -312,6 +359,7 @@ export function buildProductOptionSummaries({
                         getLowestPrice(
                           matchingOption.filter((entry): entry is DiscoveryMarketListing => "listing_id" in entry),
                         ),
+                        getCommonPriceCurrencyCode(matchingOption),
                       ),
                     })
                 : t("discovery.features.itemDetail.ui.itemDetailPage.none"),

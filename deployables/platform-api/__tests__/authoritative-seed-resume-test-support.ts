@@ -27,6 +27,7 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 // same way this file already inlines `requiredDraftListingId`. Each inlined id
 // is guarded by an assertion that fails loudly if the seed renames it.
 import { identitySeedIds } from "@chase-sets/identity/server";
+import { createSupportEvidenceSeedContext } from "@chase-sets/platform-operations/server";
 import { expect } from "vitest";
 import { createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
@@ -122,6 +123,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
       "auth",
       "authenticity",
       "catalog",
+      "channels",
       "checkout",
       "collections",
       "commercial-terms",
@@ -147,6 +149,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
       "auth",
       "authenticity",
       "catalog",
+      "channels",
       "checkout",
       "collections",
       "commercial-terms",
@@ -172,6 +175,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
       "auth",
       "authenticity",
       "catalog",
+      "channels",
       "checkout",
       "collections",
       "commercial-terms",
@@ -197,6 +201,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
     sourceOnly: ["commercial-terms", "fulfillment", "marketplace", "ordering", "settlement"],
     omitted: [
       "authenticity",
+      "channels",
       "checkout",
       "collections",
       "customer-feedback",
@@ -216,6 +221,7 @@ export const frozenProfileDiagnostics: Readonly<Record<string, ProfileUniverse>>
 export const frozenEligibleScenarioSeedContexts = [
   "auth",
   "catalog",
+  "channels",
   "checkout",
   "commercial-terms",
   "fulfillment",
@@ -234,6 +240,7 @@ export const frozenEligibleScenarioSeedContexts = [
 export const frozenInspectingSeedContexts = [
   "auth",
   "catalog",
+  "channels",
   "checkout",
   "fulfillment",
   "identity",
@@ -261,6 +268,7 @@ export const frozenNonInspectingSeedContexts = ["commercial-terms", "pricing", "
 export const seedInspectorDerivationSources: Readonly<Record<string, string>> = {
   auth: "bounded-contexts/auth/support/runtime-support/seed.ts inspectAuthSeedState",
   catalog: "bounded-contexts/catalog/support/seed-support/catalog-integration-state.ts inspectCatalogSeedState",
+  channels: "bounded-contexts/channels/features/manual-sync/api/seed.ts inspectManualSyncSeedState",
   checkout: "bounded-contexts/checkout/support/runtime-support/seed.ts inspectCheckoutSeedState",
   fulfillment: "bounded-contexts/fulfillment/support/runtime-support/seed.ts inspectFulfillmentSeedState",
   identity: "bounded-contexts/identity/support/runtime-support/seed.ts inspectIdentitySeedState",
@@ -416,6 +424,8 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "catalog|Reference Type|rft_seed_product_line|product-line",
   "catalog|Reference Type|rft_seed_series|series",
   "catalog|Reference Type|rft_seed_set|set",
+  "channels|Channel Connection|connection-seed-tcgplayer-manual|tcgplayer-manual-recovery",
+  "channels|Channel Sync Run|run-seed-tcgplayer-manual-recovery|manual-recovery",
   "checkout|Cart Line|cli_seed_demo_charizard_base_set_near_mint|lst_seed_charizard_base_set_nm",
   "checkout|Cart Line|cli_seed_demo_pikachu_jungle_excellent|lst_seed_pikachu_jungle_lp",
   "checkout|Checkout Session|chk_seed_started_cart|started-cart",
@@ -436,12 +446,6 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "identity|Account|acc_seed_support_account|Support Ops",
   "identity|Account|acc_seed_suspended_account|Dormant Account",
   "identity|Account|acc_seed_value_trader_account|Value Trader",
-  "identity|Consent|cns_seed_card_vault_terms|terms-of-service usr_seed_card_vault_user",
-  "identity|Consent|cns_seed_collector_terms|terms-of-service usr_seed_collector_user",
-  "identity|Consent|cns_seed_demo_terms|terms-of-service usr_seed_demo_user",
-  "identity|Consent|cns_seed_high_roller_trader_terms|terms-of-service usr_seed_high_roller_trader_user",
-  "identity|Consent|cns_seed_sealed_stockroom_terms|terms-of-service usr_seed_sealed_stockroom_user",
-  "identity|Consent|cns_seed_value_trader_terms|terms-of-service usr_seed_value_trader_user",
   "identity|Invitation|ivt_seed_cancelled|cancelled@chasesets.test",
   "identity|Invitation|ivt_seed_declined|declined@chasesets.test",
   "identity|Invitation|ivt_seed_expired|expired@chasesets.test",
@@ -563,11 +567,19 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "platform-operations|Support Request|sup_seed_self_service_product_damaged|self-service-product-damaged",
   "settlement|Payout|pyo_seed_completed|bank_seed_completed",
   "settlement|Payout|pyo_seed_failed|bank_seed_failed",
+  "settlement|Payout|pyo_seed_synthetic_fee_completed|bank_seed_synthetic_fee_completed",
+  "settlement|Payout|pyo_seed_synthetic_fee_failed|bank_seed_synthetic_fee_failed",
   "settlement|Wallet Ledger Entry|led_seed_available_adjustment_credit|available-adjustment-credit",
   "settlement|Wallet Ledger Entry|led_seed_payout_debit_completed|payout-debit-completed",
   "settlement|Wallet Ledger Entry|led_seed_payout_debit_failed|payout-debit-failed",
   "settlement|Wallet Ledger Entry|led_seed_payout_reversal_failed|payout-reversal-failed",
   "settlement|Wallet Ledger Entry|led_seed_pending_sale_credit|pending-sale-credit",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_debit_completed|synthetic-fee-payout-debit-completed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_debit_failed|synthetic-fee-payout-debit-failed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_fee_debit_completed|synthetic-fee-payout-fee-debit-completed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_fee_debit_failed|synthetic-fee-payout-fee-debit-failed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_fee_reversal_failed|synthetic-fee-payout-fee-reversal-failed",
+  "settlement|Wallet Ledger Entry|led_seed_synthetic_fee_payout_reversal_failed|synthetic-fee-payout-reversal-failed",
 ];
 
 export type CollectedSeedReport = Readonly<{
@@ -1232,8 +1244,15 @@ export const settlementPayoutCheckpointKey = createCheckpointKey({
  */
 export const settlementSeedCompletedPayoutId = "pyo_seed_completed";
 export const settlementSeedFailedPayoutId = "pyo_seed_failed";
+export const settlementSeedSyntheticFeeCompletedPayoutId = "pyo_seed_synthetic_fee_completed";
+export const settlementSeedSyntheticFeeFailedPayoutId = "pyo_seed_synthetic_fee_failed";
 export const settlementSeedPendingSaleCreditId = "led_seed_pending_sale_credit";
-export const seededPayoutIds = [settlementSeedCompletedPayoutId, settlementSeedFailedPayoutId] as const;
+export const seededPayoutIds = [
+  settlementSeedCompletedPayoutId,
+  settlementSeedFailedPayoutId,
+  settlementSeedSyntheticFeeCompletedPayoutId,
+  settlementSeedSyntheticFeeFailedPayoutId,
+] as const;
 export const settlementSeedPrerequisitePaymentId = "pay_seed_offer_captured";
 export const settlementSeedSellerAccountId = identitySeedIds.demo.accountId;
 
@@ -1424,7 +1443,7 @@ export function assignAuthoritativeSeedResumeState(state: PlatformApiBootstrapTe
  * asserts this, which is what proves the opt-in handoff did not leak.
  */
 export async function expectZeroRelationCaseEntry(caseLabel: string): Promise<void> {
-  expect(platformApiContextNames).toHaveLength(19);
+  expect(platformApiContextNames).toHaveLength(20);
   const relations = await activeContextRelationCounts();
   expect(relations, `case entry for '${caseLabel}': ${JSON.stringify(relations)}`).toEqual(
     Object.fromEntries(platformApiContextNames.map((contextName) => [contextName, 0])),
@@ -1466,6 +1485,7 @@ export function createHost(runtimeProfile: PlatformApiRuntimeProfile = "public")
     runtimeProfile,
     pools,
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       listingPhotoStorage,
     },
@@ -1644,7 +1664,7 @@ export async function replaceResolvedSeedRequestWithCancelled(
       submittedAt: "2026-03-25T10:04:00.000Z",
       attachments: ["seed://support/damaged-card-corner"],
     },
-    context: seedActorContext,
+    context: createSupportEvidenceSeedContext(seedActorContext),
   });
   await supportRequests.commandHandler({
     streamId,

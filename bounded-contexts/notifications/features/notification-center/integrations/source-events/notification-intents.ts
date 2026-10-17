@@ -1,6 +1,15 @@
 import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { t } from "@chase-sets/localization";
+import { links as fulfillmentLinks } from "@chase-sets/fulfillment/integration/link-intents";
+import { links as inventoryLinks } from "@chase-sets/inventory/integration/link-intents";
+import { links as marketplaceLinks } from "@chase-sets/marketplace/integration/link-intents";
+import { links as orderingLinks } from "@chase-sets/ordering/integration/link-intents";
+import { links as settlementLinks } from "@chase-sets/settlement/integration/link-intents";
+import type {
+  FulfillmentShipmentDispatchedPayload,
+  OrderingOrderCancelledPayload,
+} from "@chase-sets/event-core/public-event-payloads";
 import type {
   EmailNotificationChannel,
   NotificationMessage,
@@ -31,6 +40,113 @@ export type ShipmentDeliveredNotificationInput = Readonly<{
   trackingNumber: string;
   correlationId: string;
 }>;
+
+/**
+ * The enriched arm of the shipped public dispatch union. Binding the classifier and
+ * mapper to it keeps a producer contract change a typecheck error here rather than a
+ * silently divergent local copy of the payload shape.
+ */
+type EnrichedShipmentDispatchedPayload = Extract<FulfillmentShipmentDispatchedPayload, { orderId: OrderId }>;
+
+export type ShipmentDispatchedClassification =
+  | Readonly<{ kind: "historical" }>
+  | Readonly<{ kind: "rejected" }>
+  | (Readonly<{ kind: "enriched" }> &
+      Pick<EnrichedShipmentDispatchedPayload, "orderId" | "buyerAccountId" | "sellerAccountId" | "trackingIdentifier">);
+
+const SHIPMENT_DISPATCHED_ROUTING_KEYS = [
+  "orderId",
+  "buyerAccountId",
+  "sellerAccountId",
+  "trackingIdentifier",
+] as const;
+
+/**
+ * Routing was added to the durable dispatch fact atomically, so the four keys are all
+ * absent (historical, nothing to notify) or all present. Any other combination, and any
+ * present-but-invalid value, is transport data this consumer refuses to route on. A
+ * public type assertion is not runtime validation, so presence is checked independently
+ * of value validity before anything is enqueued.
+ */
+export function classifyShipmentDispatchedPayload(data: unknown): ShipmentDispatchedClassification {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { kind: "rejected" };
+  }
+
+  const payload = data as Readonly<Record<string, unknown>>;
+  const presence = SHIPMENT_DISPATCHED_ROUTING_KEYS.map((key) => Object.hasOwn(payload, key));
+  if (presence.every((isPresent) => !isPresent)) {
+    return { kind: "historical" };
+  }
+  if (!presence.every(Boolean)) {
+    return { kind: "rejected" };
+  }
+
+  if (
+    !isRoutingId(payload.orderId) ||
+    !isRoutingId(payload.buyerAccountId) ||
+    !isRoutingId(payload.sellerAccountId) ||
+    (typeof payload.trackingIdentifier !== "string" && payload.trackingIdentifier !== null)
+  ) {
+    return { kind: "rejected" };
+  }
+
+  return {
+    kind: "enriched",
+    orderId: payload.orderId as OrderId,
+    buyerAccountId: payload.buyerAccountId as AccountId,
+    sellerAccountId: payload.sellerAccountId as AccountId,
+    trackingIdentifier: payload.trackingIdentifier,
+  };
+}
+
+function isRoutingId(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export type ShipmentDispatchedNotificationInput = Pick<
+  EnrichedShipmentDispatchedPayload,
+  "shipmentId" | "orderId" | "buyerAccountId" | "trackingIdentifier"
+> &
+  Readonly<{
+    eventId: string;
+    correlationId: string;
+  }>;
+
+export function mapShipmentDispatchedToNotification(input: ShipmentDispatchedNotificationInput): NotificationMessage {
+  const trackingIdentifier = input.trackingIdentifier?.trim() || null;
+  const shipmentHref = fulfillmentLinks("account-shipment", { path: { shipmentId: input.shipmentId } }).href;
+  const webChannel: WebNotificationChannel = {
+    channel: "web",
+    recipient: { accountId: input.buyerAccountId },
+    actionHref: shipmentHref,
+  };
+
+  return {
+    messageType: "fulfillment.shipment.dispatched",
+    criticality: "commerce",
+    category: "order-critical",
+    recipientAccountId: input.buyerAccountId,
+    title: t("notifications.intents.shipmentDispatched.title"),
+    body: trackingIdentifier
+      ? t("notifications.intents.shipmentDispatched.body.tracked", { trackingIdentifier })
+      : t("notifications.intents.shipmentDispatched.body.trackingless"),
+    actionHref: shipmentHref,
+    templateId: "shipment_dispatched",
+    templateVersion: 1,
+    locale: "en",
+    templateData: {
+      shipmentId: input.shipmentId,
+      orderId: input.orderId,
+      trackingIdentifier,
+      shipmentHref,
+    },
+    channels: [webChannel],
+    idempotencyKey: `notifications:fulfillment:shipment_dispatched:${input.eventId}`,
+    correlationId: input.correlationId,
+    actor: { userId: null, accountId: input.buyerAccountId },
+  };
+}
 
 export type SellerStockNotificationInput = Readonly<{
   sellerAccountId: AccountId;
@@ -69,7 +185,7 @@ export type SellerAvailabilityRestoredNotificationInput = Readonly<{
 export function mapSellerAvailabilityRestoredToNotification(
   input: SellerAvailabilityRestoredNotificationInput,
 ): NotificationMessage {
-  const actionHref = "/account/selling/listings";
+  const actionHref = marketplaceLinks("account-listings", { path: {} }).href;
   return sellerWebNotification({
     sellerAccountId: input.sellerAccountId,
     messageType: "marketplace.seller-listing-availability.enabled",
@@ -96,7 +212,7 @@ export type PayoutReadinessRegressionNotificationInput = Readonly<{
 export function mapPayoutReadinessRegressionToNotification(
   input: PayoutReadinessRegressionNotificationInput,
 ): NotificationMessage {
-  const actionHref = "/account/payouts/setup";
+  const actionHref = settlementLinks("account-payout-setup", { path: {} }).href;
   const title = t("notifications.intents.payoutReadinessRegression.title");
   const body = t("notifications.intents.payoutReadinessRegression.body", {
     reason: input.reason,
@@ -149,7 +265,7 @@ export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInp
   const orderReference = orderReferenceOrRaw(input.orderId);
   const title = `Order ${orderReference} confirmed`;
   const body = `Your order total is ${input.orderTotal}.`;
-  const actionHref = `/account/purchases/${input.orderId}`;
+  const actionHref = orderingLinks("account-purchase", { path: { purchaseId: input.orderId } }).href;
   const webChannel: WebNotificationChannel = {
     channel: "web",
     recipient: { accountId: input.buyerAccountId },
@@ -181,6 +297,54 @@ export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInp
     idempotencyKey: `notifications:ordering:order_created:${input.orderId}`,
     correlationId: input.correlationId,
     actor: { userId: null, accountId: input.buyerAccountId },
+  };
+}
+
+export function mapOrderCancelledToNotification(
+  input: OrderingOrderCancelledPayload,
+  correlationId: string,
+): NotificationMessage | null {
+  if (typeof input.buyerAccountId !== "string" || input.buyerAccountId.trim().length === 0) return null;
+  if (typeof input.statusBeforeCancellation !== "string") return null;
+
+  const buyerAccountId = input.buyerAccountId as AccountId;
+  const orderReference = orderReferenceOrRaw(input.orderId);
+  const headline = t("notifications.intents.orderCancelled.title", { orderReference });
+  const status = input.statusBeforeCancellation;
+  const moneyLine =
+    status === "pending-reservation"
+      ? t("notifications.intents.orderCancelled.body.pendingReservation")
+      : status === "pending-payment" || status === "ready-for-fulfillment"
+        ? t("notifications.intents.orderCancelled.body.paymentDetails")
+        : t("notifications.intents.orderCancelled.body.unknown");
+  const purchaseHref = orderingLinks("account-purchase", { path: { purchaseId: input.orderId } }).href;
+  const buyerEmail = typeof input.buyerEmail === "string" ? input.buyerEmail.trim() : "";
+  const webChannel: WebNotificationChannel = {
+    channel: "web",
+    recipient: { accountId: buyerAccountId },
+    actionHref: purchaseHref,
+  };
+  const channels: NotificationMessage["channels"] =
+    input.reason !== "buyer-cancelled" && buyerEmail
+      ? [webChannel, { channel: "email", to: [{ email: buyerEmail }] }]
+      : [webChannel];
+
+  return {
+    messageType: "ordering.order.cancelled",
+    criticality: "commerce",
+    category: "order-critical",
+    recipientAccountId: buyerAccountId,
+    title: headline,
+    body: moneyLine,
+    actionHref: purchaseHref,
+    templateId: "order_cancelled",
+    templateVersion: 1,
+    locale: "en",
+    templateData: { orderReference, headline, moneyLine, purchaseHref },
+    channels,
+    idempotencyKey: `notifications:ordering:order_cancelled:${input.orderId}`,
+    correlationId,
+    actor: { userId: null, accountId: buyerAccountId },
   };
 }
 
@@ -306,7 +470,7 @@ export function mapShipmentDeliveredToNotification(input: ShipmentDeliveredNotif
   const shipmentReference = shipmentReferenceOrRaw(input.shipmentId);
   const title = `Shipment ${shipmentReference} delivered for order ${orderReference}`;
   const body = `Tracking ${input.trackingNumber} is marked delivered.`;
-  const actionHref = `/account/shipments/${input.shipmentId}`;
+  const actionHref = fulfillmentLinks("account-shipment", { path: { shipmentId: input.shipmentId } }).href;
   const webChannel: WebNotificationChannel = {
     channel: "web",
     recipient: { accountId: input.buyerAccountId },
@@ -385,9 +549,9 @@ function sellerWebNotification(
 }
 
 function sellerOrderHref(orderId: string) {
-  return `/account/sales/${orderId}`;
+  return orderingLinks("account-sale", { path: { orderId } }).href;
 }
 
-function itemLedgerHrefFor(itemId: string, ledgerKind: string) {
-  return `/account/inventory/items/${itemId}?ledgerKind=${ledgerKind}`;
+function itemLedgerHrefFor(itemId: string, ledgerKind: "hold-placed" | "hold-released" | "hold-consumed") {
+  return inventoryLinks("account-inventory-item", { path: { itemId }, query: { ledgerKind } }).href;
 }

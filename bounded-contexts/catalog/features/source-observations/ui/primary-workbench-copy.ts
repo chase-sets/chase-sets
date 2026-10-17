@@ -189,6 +189,9 @@ const catalogPrimaryWorkbenchCopyLabels = {
   stalePromotionPreview: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.stale.promotion.preview",
   ),
+  displayIdentityUnresolvable: t(
+    "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.display.identity.unresolvable",
+  ),
   staleReplayCheckpoint: t(
     "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.stale.replay.checkpoint",
   ),
@@ -649,6 +652,13 @@ export const catalogPrimaryWorkbenchBlockerCopy = {
     label: catalogPrimaryWorkbenchCopyLabels.stalePromotionPreview,
     reason: "The saved preview no longer matches observations, profile, rollout, permissions, or inputs.",
     nextStep: "Queue a fresh promotion preview from the current context.",
+    supportTarget: "import-to-promotion",
+    group: "promotion",
+  }),
+  "display-identity-unresolvable": copy({
+    label: catalogPrimaryWorkbenchCopyLabels.displayIdentityUnresolvable,
+    reason: "A previewed observation would write a Catalog Item whose display identity cannot resolve.",
+    nextStep: "Repair the referenced field or mapping data and re-plan, or explicitly promote as draft.",
     supportTarget: "import-to-promotion",
     group: "promotion",
   }),

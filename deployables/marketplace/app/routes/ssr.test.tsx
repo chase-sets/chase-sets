@@ -499,6 +499,8 @@ describe("marketplace SSR routes", () => {
 
     expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
     await expect(manifest.json()).resolves.toMatchObject({
+      theme_color: "#4845c6",
+      background_color: "#f7f5f1",
       name: "Chase Sets",
       short_name: "Chase Sets",
       start_url: "/",

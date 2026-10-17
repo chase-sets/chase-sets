@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import { captureResponsiveEvidence, responsiveEvidenceArtifactPaths } from "@chase-sets/playwright-evidence";
 
+const POPULATION_CONTROL_ROW_COUNT = 2_049;
+const POPULATION_CONTROL_LATE_INDEX = 2_048;
+
 test.describe("responsive evidence fail-closed contract", () => {
   test("fails before capture when the exact accordion target is hidden @marketplace-browse", async ({
     page,
@@ -173,6 +176,85 @@ test.describe("responsive evidence fail-closed contract", () => {
     expectResponsiveEvidenceArtifactsAbsent(testInfo, "horizontal-overflow-clipped-label");
   });
 
+  test("records every row in a high-cardinality population @marketplace-browse", async ({ page }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/population-bulk-positive",
+      populationFixture({ targetIdentity: "population-bulk-positive" }),
+    );
+
+    await captureResponsiveEvidence({ page, testInfo, claimId: "population-bulk-positive" });
+
+    const entry = await readResponsiveEvidenceManifest(testInfo, "population-bulk-positive");
+    expect(entry).toMatchObject({
+      claimId: "population-bulk-positive",
+      route: {
+        name: "high-cardinality populated target fixture",
+        observed: "/responsive-evidence/population-bulk-positive",
+      },
+      fixture: { identity: "responsive-evidence:population-bulk-positive:v1" },
+      viewport: { width: 820, height: 900 },
+      target: { identity: "population-bulk-positive" },
+      assertions: expect.arrayContaining([
+        expect.objectContaining({ identity: "population-bulk-positive-width", actual: 820 }),
+      ]),
+      artifacts: {
+        screenshot: expect.objectContaining({ path: expect.stringMatching(/\.png$/), sha256: expect.any(String) }),
+        sourceClaimSha256: expect.any(String),
+        playwrightConfig: expect.objectContaining({ path: "playwright.config.ts", sha256: expect.any(String) }),
+      },
+    });
+  });
+
+  test("fails before capture when a late population row is hidden @marketplace-browse", async ({ page }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/population-bulk-hidden-late",
+      populationFixture({
+        targetIdentity: "population-bulk-hidden-late",
+        hiddenIndex: POPULATION_CONTROL_LATE_INDEX,
+      }),
+    );
+
+    await expect(captureResponsiveEvidence({ page, testInfo, claimId: "population-bulk-hidden-late" })).rejects.toThrow(
+      new RegExp(`reason=target-population-hidden\\(index=${POPULATION_CONTROL_LATE_INDEX}\\)`),
+    );
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "population-bulk-hidden-late");
+  });
+
+  test("fails before capture when a late population row has zero layout @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/population-bulk-zero-layout-late",
+      populationFixture({
+        targetIdentity: "population-bulk-zero-layout-late",
+        zeroLayoutIndex: POPULATION_CONTROL_LATE_INDEX,
+      }),
+    );
+
+    await expect(
+      captureResponsiveEvidence({ page, testInfo, claimId: "population-bulk-zero-layout-late" }),
+    ).rejects.toThrow(new RegExp(`reason=target-population-hidden\\(index=${POPULATION_CONTROL_LATE_INDEX}\\)`));
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "population-bulk-zero-layout-late");
+  });
+
+  test("fails before capture when a high-cardinality fixture has no matching population @marketplace-browse", async ({
+    page,
+  }, testInfo) => {
+    await serveFixture(
+      page,
+      "/responsive-evidence/population-bulk-absent",
+      populationFixture({ targetIdentity: "population-bulk-absent", matchRows: false }),
+    );
+
+    await expect(captureResponsiveEvidence({ page, testInfo, claimId: "population-bulk-absent" })).rejects.toThrow(
+      /reason=target-population-empty/,
+    );
+    expectResponsiveEvidenceArtifactsAbsent(testInfo, "population-bulk-absent");
+  });
+
   test("records exact mobile card evidence at 390px @marketplace-browse", async ({ page }, testInfo) => {
     await serveFixture(page, "/responsive-evidence/scope-transition", responsiveTransitionFixture());
 
@@ -236,6 +318,38 @@ async function serveFixture(page: Page, routePath: string, body: string) {
 
 function fixtureDocument(body: string) {
   return `<!doctype html><html><head><style>html,body{margin:0;padding:0}</style></head><body>${body}</body></html>`;
+}
+
+function populationFixture(input: {
+  targetIdentity: string;
+  hiddenIndex?: number;
+  zeroLayoutIndex?: number;
+  matchRows?: boolean;
+}) {
+  const rowAttribute = input.matchRows === false ? "data-evidence-nonmatching-row" : "data-evidence-row";
+  const rows = Array.from({ length: POPULATION_CONTROL_ROW_COUNT }, (_, index) => {
+    const style =
+      index === input.hiddenIndex
+        ? ' style="visibility:hidden"'
+        : index === input.zeroLayoutIndex
+          ? ' style="width:0;height:0"'
+          : "";
+    return `<article ${rowAttribute}${style}>Synthetic population row ${index}</article>`;
+  }).join("");
+  return fixtureDocument(`
+    <style>
+      [data-evidence-target] { position: relative; width: 100%; height: 100px; }
+      [data-evidence-row], [data-evidence-nonmatching-row] {
+        position: absolute;
+        inset: 0 auto auto 0;
+        box-sizing: border-box;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+    </style>
+    <main data-evidence-target="${input.targetIdentity}">${rows}</main>
+  `);
 }
 
 function responsiveTransitionFixture() {

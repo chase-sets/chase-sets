@@ -12,6 +12,8 @@
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@chase-sets/evidence-window-provider-write": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/payment-processing": "workspace:*",
     "@chase-sets/primitives": "workspace:*",

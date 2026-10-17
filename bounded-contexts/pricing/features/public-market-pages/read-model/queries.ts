@@ -81,7 +81,8 @@ export async function getPrimaryTradedProductId(db: PgQueryable, catalogItemId: 
     `SELECT product_id
      FROM pricing_product_market_aggregates
      WHERE catalog_catalog_item_id = $1
-     ORDER BY (trade_count_30d + trade_count_90d) DESC, product_id ASC
+     GROUP BY product_id
+     ORDER BY SUM(trade_count_30d + trade_count_90d) DESC, product_id ASC
      LIMIT 1`,
     [catalogItemId],
   );
@@ -109,9 +110,56 @@ export type PublicMarketPageData = Readonly<{
   slug: string;
   productId: string | null;
   series: readonly ProductRollupSeriesPoint[];
-  aggregate: ProductMarketAggregate | null;
+  aggregates: readonly ProductMarketAggregate[];
   marketState: MarketStateSnapshotPoint | null;
+  /** Buyable means positive projected, capped, unheld supply, not checkout or seller availability. */
+  liveAsks: readonly Readonly<{ currencyCode: string; minAskAmount: string; buyableListingCount: number }>[];
+  unpricedBuyableListingCount: number;
 }>;
+
+async function getLiveAsks(
+  db: PgQueryable,
+  catalogItemId: string,
+  productId: string,
+): Promise<Pick<PublicMarketPageData, "liveAsks" | "unpricedBuyableListingCount">> {
+  const result = await db.query<{
+    currency_code: string | null;
+    min_ask_amount: string;
+    buyable_listing_count: number;
+  }>(
+    `SELECT listing.price_currency_code AS currency_code,
+            MIN(listing.price_amount)::text AS min_ask_amount,
+            COUNT(*)::integer AS buyable_listing_count
+     FROM pricing_market_listing_inputs AS listing
+     INNER JOIN pricing_inventory_item_inputs AS inventory ON inventory.item_id = listing.inventory_item_id
+     LEFT JOIN LATERAL (
+       SELECT SUM(hold.quantity) AS quantity
+       FROM pricing_inventory_hold_inputs AS hold
+       WHERE hold.item_id = inventory.item_id AND hold.status = 'active'
+     ) AS held ON TRUE
+     WHERE listing.catalog_catalog_item_id = $1 AND listing.product_id = $2
+       AND listing.status = 'active' AND listing.last_stream_version > 0
+       AND LEAST(listing.quantity_cap, GREATEST(inventory.total_quantity - COALESCE(held.quantity, 0), 0)) > 0
+     GROUP BY listing.price_currency_code
+     ORDER BY listing.price_currency_code`,
+    [catalogItemId, productId],
+  );
+
+  return {
+    liveAsks: result.rows.flatMap((row) =>
+      row.currency_code === null
+        ? []
+        : [
+            {
+              currencyCode: row.currency_code,
+              minAskAmount: row.min_ask_amount,
+              buyableListingCount: row.buyable_listing_count,
+            },
+          ],
+    ),
+    unpricedBuyableListingCount: result.rows.find((row) => row.currency_code === null)?.buyable_listing_count ?? 0,
+  };
+}
 
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -145,7 +193,15 @@ export async function getPublicMarketPageData(
 
   const productId = await getPrimaryTradedProductId(db, catalogItem.catalogItemId);
   if (!productId) {
-    return { ...catalogItem, productId: null, series: [], aggregate: null, marketState: null };
+    return {
+      ...catalogItem,
+      productId: null,
+      series: [],
+      aggregates: [],
+      marketState: null,
+      liveAsks: [],
+      unpricedBuyableListingCount: 0,
+    };
   }
 
   const now = options.now ?? new Date();
@@ -155,17 +211,27 @@ export async function getPublicMarketPageData(
   const to = isoDate(now);
   const from = isoDate(new Date(now.getTime() - historyWindowDays * 24 * 60 * 60 * 1000));
 
-  const [series, stats] = await Promise.all([
-    getProductRollupSeries(db, { catalogItemId: catalogItem.catalogItemId, productId, from, to }, minimumTradeSample),
-    getProductMarketStatsSnapshot(db, { catalogItemId: catalogItem.catalogItemId, productId }),
-  ]);
+  const stats = await getProductMarketStatsSnapshot(db, { catalogItemId: catalogItem.catalogItemId, productId });
+  const liveAsks = await getLiveAsks(db, catalogItem.catalogItemId, productId);
+  const series = (
+    await Promise.all(
+      stats.aggregates.map((aggregate) =>
+        getProductRollupSeries(
+          db,
+          { catalogItemId: catalogItem.catalogItemId, productId, currencyCode: aggregate.currencyCode, from, to },
+          minimumTradeSample,
+        ),
+      ),
+    )
+  ).flat();
 
   return {
     ...catalogItem,
     productId,
     series,
-    aggregate: stats.aggregate,
+    aggregates: stats.aggregates,
     marketState: stats.marketState,
+    ...liveAsks,
   };
 }
 

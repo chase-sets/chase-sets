@@ -194,10 +194,16 @@ describe("exact-target provenance assertions execute from the real workflow bloc
   it.each([
     ["missing target_sha", { target: "" }, "target_sha is required and cannot be empty."],
     ["malformed target_sha", { target: "A".repeat(40) }, "target_sha must be a lowercase 40-character"],
+    ["multiline target_sha", { target: `${"a".repeat(40)}\n-e` }, "target_sha must be a lowercase 40-character"],
     ["missing expected_base_sha", { base: "" }, "expected_base_sha is required and cannot be empty."],
     [
       "malformed expected_base_sha",
       { base: "not-an-immutable-commit" },
+      "expected_base_sha must be a lowercase 40-character",
+    ],
+    [
+      "multiline expected_base_sha",
+      { base: `${"b".repeat(40)}\n--help` },
       "expected_base_sha must be a lowercase 40-character",
     ],
     ["nonexistent target_sha object", { target: "e".repeat(40) }, "target_sha object does not exist in the repository"],
@@ -269,6 +275,9 @@ describe("exact-target extraction and trigger/caller structure", () => {
     const provenance = findStepByShape(
       (step) =>
         step.env?.TARGET_SHA === "${{ inputs.target_sha }}" &&
+        step.env?.EXPECTED_BASE_SHA === "${{ inputs.expected_base_sha }}" &&
+        step.run?.includes('[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || {') &&
+        step.run?.includes('[[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {') &&
         step.run?.includes('git cat-file -e "${TARGET_SHA}^{commit}"') &&
         step.run?.includes('git cat-file -e "${EXPECTED_BASE_SHA}^{commit}"') &&
         step.run?.includes('git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$TARGET_SHA"'),
@@ -278,6 +287,9 @@ describe("exact-target extraction and trigger/caller structure", () => {
     );
 
     expect(checkouts).toHaveLength(1);
+    for (const name of ["TARGET_SHA", "EXPECTED_BASE_SHA"]) {
+      expect(provenance.run.indexOf(`[[ "$${name}" =~`)).toBeLessThan(provenance.run.indexOf("git init --quiet"));
+    }
     expect(receiverSteps.indexOf(provenance)).toBeLessThan(receiverSteps.indexOf(checkouts[0]));
     expect(checkouts[0].with).toEqual({
       ref: "${{ inputs.target_sha }}",
@@ -296,8 +308,10 @@ describe("exact-target extraction and trigger/caller structure", () => {
     expect(Object.hasOwn(workflow.on, "merge_group")).toBe(true);
     expect(jobId).toBe("compose-preview-smoke");
     expect(job.if).toBe(
-      "always() && github.event_name == 'pull_request' && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.compose_smoke == 'true' && !contains(github.event.pull_request.labels.*.name, 'preview') && (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') && needs.typecheck.result == 'success' && (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success')\n",
+      "always() && needs['change-scope'].result == 'success' && needs['change-scope'].outputs.compose_preview_smoke_required == 'true' && (needs['change-scope'].outputs.static_required != 'true' || needs.static.result == 'success') && (needs['change-scope'].outputs.typecheck_required != 'true' || needs.typecheck.result == 'success') && (needs['change-scope'].outputs.unit_tests_required != 'true' || needs['unit-tests'].result == 'success')\n",
     );
+    expect(job.if).not.toContain("outputs.compose_smoke");
+    expect(job.if).not.toContain("!contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(job.needs).toEqual(["change-scope", "static", "typecheck", "unit-tests"]);
     expect(job.with).toEqual({
       target_sha: "${{ github.sha }}",
@@ -428,8 +442,11 @@ describe("exact-target terminal behavior and isolation", () => {
     expect(toleratedSteps).toHaveLength(1);
     expect(toleratedSteps[0].id).toBe("buildx");
     expect(rollup.needs).toContain("compose-preview-smoke");
-    expect(rollupScript).toContain(`compose_result="\${{ needs['compose-preview-smoke'].result }}"`);
-    expect(rollupScript).toContain(`if [ "$compose_required" = "true" ] && [ "$compose_result" != "success" ]; then`);
+    expect(rollupScript).toContain(
+      `require_job "Compose Boot Smoke" "\${{ needs['compose-preview-smoke'].result }}" "\${{ needs['change-scope'].outputs.compose_preview_smoke_required }}"`,
+    );
+    expect(rollupScript).not.toContain("compose_result=");
+    expect(rollupScript).not.toContain("compose_required");
   });
 
   it("is credential-free and has no environment, provider, cluster, or inherited-secret surface", () => {

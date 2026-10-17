@@ -1,3 +1,4 @@
+import { retainProviderSendJobBinding, runProviderSendJob } from "./providers/provider-send-runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { type DurableJobWorkUnitRecord } from "@chase-sets/platform-runtime/durable-job-work-units";
@@ -10,7 +11,10 @@ import {
   listSourceObservationIdsForPromotion,
   type SourceObservationFilterScope,
 } from "../read-model/queries";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   BulkSourceObservationProgress,
@@ -64,6 +68,17 @@ import {
 } from "./source-observation-promotion-execution";
 import type { SourceObservationPromotionReapplyRuntime } from "./source-observation-promotion-reapply-runtime";
 
+const sourceObservationBulkJobKinds: readonly SourceObservationBulkJobAction[] = [
+  "promote",
+  "reject",
+  "defer",
+  "reapply",
+];
+
+function isSourceObservationBulkJobKind(jobKind: string): boolean {
+  return (sourceObservationBulkJobKinds as readonly string[]).includes(jobKind);
+}
+
 export type SourceObservationBulkReviewJobRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
   profileVersions: CatalogProviderIntegrationProfileVersionReader;
@@ -74,6 +89,8 @@ export type SourceObservationBulkReviewJobRuntimeDeps = Readonly<{
     SourceObservationPromotionReapplyRuntime,
     "promoteObservationIds" | "reapplyObservationIds" | "rejectObservationIds" | "deferObservationIds"
   >;
+  /** Additive Catalog Merge Candidate scope jobs, claimed when no observation unit is claimable. */
+  processNextMergeCandidateBulkJob?: BulkReviewJobServices["processNextBulkReviewJob"];
 }>;
 
 /**
@@ -88,6 +105,7 @@ export function createSourceObservationBulkReviewJobRuntime({
   bulkReviewJobStore,
   bulkReviewWorkUnitStore,
   promotionReapply,
+  processNextMergeCandidateBulkJob,
 }: SourceObservationBulkReviewJobRuntimeDeps) {
   const { promoteObservationIds, reapplyObservationIds, rejectObservationIds, deferObservationIds } = promotionReapply;
 
@@ -97,6 +115,7 @@ export function createSourceObservationBulkReviewJobRuntime({
     scope?: SourceObservationFilterScope;
     reason?: string | null;
     reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
+    promoteAsDraft?: boolean;
     context: EventStoreContext;
   }): Promise<SourceObservationBulkJob> {
     if (input.action === "promote") {
@@ -119,15 +138,25 @@ export function createSourceObservationBulkReviewJobRuntime({
       input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "ids"
         ? await snapshotSelectedReapplyProfiles(unitObservationIds)
         : new Map<string, SourceObservationIntegrationProfileSnapshot | null>();
+    // Id selections may span units, so each work unit enforces its own resolved
+    // profile unit at execution; a filter reapply applies one active profile.
+    const filterReapplyProfileVersion =
+      input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "filter"
+        ? await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider, null)
+        : null;
+    if (filterReapplyProfileVersion) {
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", filterReapplyProfileVersion);
+    }
     const profileSnapshot =
       input.action === "reapply" && reapplyProfileMode === "current-active-profile"
-        ? selectionMode === "ids"
-          ? commonProfileSnapshot([...unitProfileSnapshots.values()])
-          : snapshotCatalogReapplyProfileVersion(
-              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider, null),
-            )
+        ? filterReapplyProfileVersion
+          ? snapshotCatalogReapplyProfileVersion(filterReapplyProfileVersion)
+          : commonProfileSnapshot([...unitProfileSnapshots.values()])
         : null;
+    // The explicit draft choice binds only to promote jobs; it is never inferred.
+    const promoteAsDraft = input.action === "promote" && input.promoteAsDraft === true;
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
+    await retainProviderSendJobBinding(deps, jobId);
     const job = await bulkReviewJobStore.enqueue({
       jobId,
       jobKind: input.action,
@@ -139,6 +168,7 @@ export function createSourceObservationBulkReviewJobRuntime({
         reason: input.reason?.trim() || null,
         profileSnapshot,
         reapplyProfileMode,
+        promoteAsDraft,
       },
       progress,
       eventContext: input.context,
@@ -152,6 +182,7 @@ export function createSourceObservationBulkReviewJobRuntime({
           observationId,
           profileSnapshot: unitProfileSnapshots.get(observationId) ?? profileSnapshot,
           reapplyProfileMode,
+          promoteAsDraft,
         },
       })),
     });
@@ -205,10 +236,14 @@ export function createSourceObservationBulkReviewJobRuntime({
       claimTtlMs: input.claimTtlMs,
       workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
       jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
-      jobKinds: ["promote", "reject", "defer", "reapply"],
+      jobKinds: sourceObservationBulkJobKinds,
       laneName: input.laneName ?? null,
     });
     if (!claimResult.claim) {
+      const mergeCandidateProcessed = (await processNextMergeCandidateBulkJob?.(input)) ?? 0;
+      if (mergeCandidateProcessed > 0) {
+        return mergeCandidateProcessed;
+      }
       const reconciled = await reconcileTerminalBulkReviewJobs();
       return reconciled > 0 ? reconciled : 0;
     }
@@ -225,7 +260,7 @@ export function createSourceObservationBulkReviewJobRuntime({
       const context = claimed.eventContext;
 
       const observationId = claim.unit.payload.observationId;
-      const itemResult =
+      const itemResult = await runProviderSendJob(deps, claimed.jobId, async () =>
         claimed.action === "reapply"
           ? await reapplyObservationIds({
               observationIds: [observationId],
@@ -242,6 +277,7 @@ export function createSourceObservationBulkReviewJobRuntime({
                 observationIds: [observationId],
                 context,
                 runPromoteObservation: runBulkReviewSideEffect,
+                promoteAsDraft: (claim.unit.payload.promoteAsDraft ?? claimed.promoteAsDraft) === true,
               })
             : claimed.action === "defer"
               ? await deferObservationIds({
@@ -255,7 +291,8 @@ export function createSourceObservationBulkReviewJobRuntime({
                   reason: claimed.reason ?? "Rejected during review.",
                   context,
                   runRejectObservation: runBulkReviewSideEffect,
-                });
+                }),
+      );
       const outcome = itemResult.outcomes[0] ?? failedBulkWorkUnitOutcome(claimed.action, observationId, "No outcome.");
       const terminalState = workUnitTerminalState(outcome);
       throwIfJobRunCancelled(input);
@@ -319,7 +356,7 @@ export function createSourceObservationBulkReviewJobRuntime({
   }
 
   async function reconcileTerminalBulkReviewJobs(): Promise<number> {
-    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] });
+    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: sourceObservationBulkJobKinds });
     let reconciled = 0;
     for (const rawJob of activeJobs) {
       const summary = await bulkReviewWorkUnitStore.summarize({ jobId: rawJob.jobId });
@@ -459,7 +496,9 @@ export function createSourceObservationBulkReviewJobRuntime({
     enqueueBulkReviewJob,
     getBulkReviewJob: async (jobId, context) => {
       const job = await bulkReviewJobStore.get(jobId);
-      if (job && context && !jobMatchesContext(job, context)) {
+      // The tables also hold Catalog Merge Candidate scope jobs, whose payload is
+      // not an observation job; those read through their own service.
+      if (job && (!isSourceObservationBulkJobKind(job.jobKind) || (context && !jobMatchesContext(job, context)))) {
         return null;
       }
       return job ? toSourceObservationBulkJob(job) : null;
@@ -473,7 +512,7 @@ export function createSourceObservationBulkReviewJobRuntime({
       ),
     waitForBulkReviewJobEvents: (jobId, signal) => bulkReviewJobStore.waitForEvents({ jobId, signal }),
     listActiveBulkReviewJobs: async ({ context }) =>
-      (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] }))
+      (await bulkReviewJobStore.listActive({ jobKinds: sourceObservationBulkJobKinds }))
         .filter((job) => jobMatchesContext(job, context))
         .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,

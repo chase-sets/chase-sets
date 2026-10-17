@@ -49,7 +49,13 @@ const projects = [
 
 export default defineConfig({
   testDir: ".",
-  grepInvert: skipWebServer ? /@browser-e2e-seed/ : undefined,
+  metadata: {
+    platformApiUrl: sandbox.urls.platformApi,
+    catalogDatabaseUrl: sandbox.contextDatabaseUrls.catalog,
+    identityDatabaseUrl: sandbox.contextDatabaseUrls.identity,
+    channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels,
+  },
+  grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined,
   outputDir: "artifacts/playwright/test-results",
   fullyParallel: true,
   forbidOnly: isCi,

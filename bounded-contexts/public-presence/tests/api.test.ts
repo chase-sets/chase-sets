@@ -641,6 +641,37 @@ describe("public presence API", () => {
     );
   });
 
+  it("records only bounded disclosure labels and variant", async () => {
+    const { app, record } = publicAnalyticsAppFor();
+    for (const [section, target] of [
+      ["fee_calculator", "fee_calculator_source_note"],
+      ["fee_comparison", "fee_comparison_source_note"],
+      ["product_preview", "product_preview_trust"],
+      ["launch_timeline", "launch_timeline_wave_qualification"],
+    ]) {
+      const response = await app.request("/analytics/waitlist", {
+        method: "POST",
+        body: JSON.stringify({ event: "disclosure_opened", section, target, variant: "seller_first_v2" }),
+      });
+      expect(response.status).toBe(204);
+      expect(record).toHaveBeenLastCalledWith(
+        expect.objectContaining({ event: "disclosure_opened", section, target, variant: "seller_first_v2" }),
+      );
+    }
+    for (const bad of [
+      { section: "seller@example.com", target: "product_preview_trust" },
+      { section: "product_preview", target: "free text" },
+      { section: "product_preview", target: "https://example.test" },
+    ]) {
+      const response = await app.request("/analytics/waitlist", {
+        method: "POST",
+        body: JSON.stringify({ event: "disclosure_opened", ...bad }),
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(record).toHaveBeenCalledTimes(4);
+  });
+
   it("rejects unsupported waitlist analytics events and non-POST methods", async () => {
     const { app, record } = publicAnalyticsAppFor();
     const invalid = await app.request("/analytics/waitlist", {

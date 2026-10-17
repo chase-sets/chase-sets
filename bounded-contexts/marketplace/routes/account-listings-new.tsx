@@ -1,4 +1,7 @@
 import { t } from "@chase-sets/localization";
+import { InventoryMutationProvider, InventoryMutationForm } from "@chase-sets/inventory/web";
+import { MutationFormProvider } from "../support/ui-support/mutation-form";
+import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -42,7 +45,12 @@ function currentAccountPath(request: Request) {
 }
 
 function marketplaceApiErrorCode(error: unknown) {
-  if (!(error instanceof MarketplaceApiError) || typeof error.body !== "object" || error.body === null) {
+  if (
+    !(error instanceof MarketplaceApiError) ||
+    listingActionFeedback(error) === null ||
+    typeof error.body !== "object" ||
+    error.body === null
+  ) {
     return null;
   }
 
@@ -126,6 +134,7 @@ function createFormFromClaimedDraft(draft: MarketplaceAnonymousListingDraftInten
     catalogItemId: draft.catalog_item_id,
     selectedOptions: draft.selected_options,
     priceAmount: draft.price_amount,
+    priceCurrencyCode: draft.price_currency_code ?? "",
     quantityCap: String(draft.quantity_cap),
     maxUnitsPerOrder: draft.max_units_per_order ? String(draft.max_units_per_order) : "",
     maxUnitsPerDay: draft.max_units_per_day ? String(draft.max_units_per_day) : "",
@@ -196,6 +205,7 @@ async function createListingFromMarketplaceSupplySnapshot(
   createForm: Readonly<{
     inventoryItemId: string;
     priceAmount: string;
+    priceCurrencyCode: string;
     quantityCap: string;
   }>,
   purchaseLimits: Readonly<{
@@ -208,12 +218,13 @@ async function createListingFromMarketplaceSupplySnapshot(
   const quantityCap = Number(createForm.quantityCap ?? 0);
   const inventoryItem = await loadSelectedMarketplaceSupplyItem(api, createForm.inventoryItemId);
   if (!inventoryItem) {
-    throw new Error(t("marketplace.routes.accountListingsNew.inventory.item.preparing"));
+    return null;
   }
 
   const listingBody = {
     inventoryItemId: createForm.inventoryItemId,
     priceAmount: createForm.priceAmount,
+    priceCurrencyCode: createForm.priceCurrencyCode,
     quantityCap,
     purchaseLimits,
     inventorySnapshot: inventorySnapshotFromMarketplaceSupplyItem(inventoryItem),
@@ -337,6 +348,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
           catalogItemId: selectedInventoryItem.catalog_catalog_item_id,
           selectedOptions: selectedInventoryItem.selected_options,
           priceAmount: recommendedPrice,
+          priceCurrencyCode: "",
           quantityCap: "1",
           maxUnitsPerOrder: "",
           maxUnitsPerDay: "",
@@ -348,6 +360,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
             catalogItemId: selectedCatalogItemId,
             selectedOptions,
             priceAmount: recommendedPrice,
+            priceCurrencyCode: "",
             quantityCap: "1",
             maxUnitsPerOrder: "",
             maxUnitsPerDay: "",
@@ -365,6 +378,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     accountAccessRequired: null,
+    recoveryAuthority: { accountId: actorResult.actor.accountId, actorUserId: actorResult.actor.userId },
     inventoryItems,
     hasListingStockLocation,
     claimError: claimError ?? inventoryHandoffError,
@@ -380,6 +394,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
     catalogItemId: String(formData.get("catalogItemId") ?? ""),
     selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
     priceAmount: String(formData.get("priceAmount") ?? ""),
+    priceCurrencyCode: String(formData.get("priceCurrencyCode") ?? ""),
     quantityCap: String(formData.get("quantityCap") ?? ""),
     maxUnitsPerOrder: String(formData.get("maxUnitsPerOrder") ?? ""),
     maxUnitsPerDay: String(formData.get("maxUnitsPerDay") ?? ""),
@@ -414,16 +429,20 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
         ? {
             inventoryItemId: createForm.inventoryItemId,
             priceAmount: createForm.priceAmount,
+            priceCurrencyCode: createForm.priceCurrencyCode,
             quantityCap,
             purchaseLimits,
           }
         : {
             inventoryItemId: "",
             priceAmount: createForm.priceAmount,
+            priceCurrencyCode: createForm.priceCurrencyCode,
             quantityCap,
             purchaseLimits,
             inventorySnapshot: (
-              await createInventoryRequestApiClient(request).ensureListingStock({
+              await createInventoryRequestApiClient(request, {
+                mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+              }).ensureListingStock({
                 catalogItemId: createForm.catalogItemId,
                 selectedOptions: createForm.selectedOptions,
                 quantity: quantityCap,
@@ -443,16 +462,21 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           throw error;
         }
 
-        result = await createListingFromMarketplaceSupplySnapshot(
+        const recovered = await createListingFromMarketplaceSupplySnapshot(
           api,
           {
             inventoryItemId: createForm.inventoryItemId,
             priceAmount: createForm.priceAmount,
+            priceCurrencyCode: createForm.priceCurrencyCode,
             quantityCap: createForm.quantityCap,
           },
           purchaseLimits,
           listingPhotoFiles,
         );
+        if (recovered === null) {
+          return { createForm, error: t("marketplace.routes.accountListingsNew.inventory.item.preparing") };
+        }
+        result = recovered;
       }
 
       const redirectReceipts: unknown[] = [result];
@@ -492,14 +516,15 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
     return redirect("/account/listings/new");
   } catch (error) {
-    if (error instanceof MarketplaceApiError || error instanceof Error) {
+    const feedback = listingActionFeedback(error);
+    if (feedback !== null) {
       return {
         createForm,
-        error: error.message,
+        error: feedback,
       };
     }
 
-    throw error;
+    throwListingActionFailure(error);
   }
 }
 
@@ -534,14 +559,21 @@ export default function MarketplaceAccountListingsNewRoute() {
   }
 
   return (
-    <MarketplaceListingCreatePage
-      inventoryItems={data.inventoryItems}
-      hasListingStockLocation={data.hasListingStockLocation}
-      createForm={actionData?.createForm ?? data.createForm ?? undefined}
-      createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
-      errorMessage={actionData?.error ?? data.claimError ?? null}
-      evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
-    />
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority!}
+      key={`${data.recoveryAuthority!.accountId}/${data.recoveryAuthority!.actorUserId}`}
+    >
+      <MutationFormProvider value={InventoryMutationForm}>
+        <MarketplaceListingCreatePage
+          inventoryItems={data.inventoryItems}
+          hasListingStockLocation={data.hasListingStockLocation}
+          createForm={actionData?.createForm ?? data.createForm ?? undefined}
+          createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
+          errorMessage={actionData?.error ?? data.claimError ?? null}
+          evidenceReadiness={actionData?.evidenceReadiness ?? data.evidenceReadiness}
+        />
+      </MutationFormProvider>
+    </InventoryMutationProvider>
   );
 }
 

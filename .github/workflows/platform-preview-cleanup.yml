@@ -1028,3 +1028,33 @@ jobs:
           if [ "${REFUSED:-0}" != "0" ]; then
             echo "Refused gate-named namespaces detected; inspect the merge-gate-stale-sweep artifact — a foreign chase-sets-gate-* namespace should not exist." >&2
           fi
+
+  reporter:
+    name: Report Preview Cleanup Failure
+    needs:
+      - discover-preview-cleanup
+      - discover-stale-verification
+      - destroy-preview
+      - destroy-stale-verification
+      - discover-stale-verification-webhooks
+      - delete-stale-verification-webhooks
+      - discover-stale-gate
+      - destroy-stale-gate
+      - report-stale-gate-sweep
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Report workflow failure
+        if: ${{ contains(needs.*.result, 'failure') }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Preview Cleanup
+          alert-status: failure
+          alert-summary: Preview cleanup failed. See this run's jobs and cleanup summaries.

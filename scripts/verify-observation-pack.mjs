@@ -6,7 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-register("./typescript-extension-loader.mjs", import.meta.url);
+register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
 
 const [
   { createFilesystemObjectStorage, createS3ObjectStorage },

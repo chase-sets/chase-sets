@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createPublicMarketPageRoutes } from "./route";
 import type { PublicMarketPagesServices } from "./runtime";
+import type { PublicMarketPageData } from "../read-model/queries";
 
 function servicesStub(overrides: Partial<PublicMarketPagesServices> = {}): PublicMarketPagesServices {
   return {
@@ -31,9 +32,14 @@ describe("public market page routes", () => {
       slug: "charizard-base-set-cat-1-abc123",
       productId: "cat_1::condition:near-mint",
       series: [],
-      aggregate: null,
+      aggregates: [],
       marketState: null,
-    };
+      liveAsks: [
+        { currencyCode: "EUR", minAskAmount: "5.00", buyableListingCount: 2 },
+        { currencyCode: "USD", minAskAmount: "4.00", buyableListingCount: 3 },
+      ],
+      unpricedBuyableListingCount: 1,
+    } satisfies PublicMarketPageData;
     const services = servicesStub({ getPublicMarketPage: vi.fn().mockResolvedValue(page) });
     const app = mountApp(services);
 
@@ -52,9 +58,11 @@ describe("public market page routes", () => {
       slug: "charizard-base-set-cat-1-abc123",
       productId: null,
       series: [],
-      aggregate: null,
+      aggregates: [],
       marketState: null,
-    };
+      liveAsks: [],
+      unpricedBuyableListingCount: 0,
+    } satisfies PublicMarketPageData;
     const services = servicesStub({
       getPublicMarketPage: vi.fn().mockResolvedValue(page),
       resolveDisplayPolicy: vi.fn().mockResolvedValue({
@@ -84,6 +92,45 @@ describe("public market page routes", () => {
     expect(body.error.code).toBe("not_found");
   });
 
+  it.each([0, 2])(
+    "preserves a successful empty ask read with unpriced count %i",
+    async (unpricedBuyableListingCount) => {
+      const page = {
+        catalogItemId: "cat_1",
+        title: "Charizard",
+        subtitle: null,
+        slug: "charizard",
+        productId: "product_1",
+        series: [],
+        aggregates: [],
+        marketState: null,
+        liveAsks: [],
+        unpricedBuyableListingCount,
+      } satisfies PublicMarketPageData;
+      const response = await mountApp(servicesStub({ getPublicMarketPage: vi.fn().mockResolvedValue(page) })).request(
+        "/public/market-pages/charizard",
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(page);
+    },
+  );
+
+  it("keeps a rejected read on the error path rather than returning successful empty asks", async () => {
+    const failure = new Error("projected supply read failed");
+    const app = mountApp(servicesStub({ getPublicMarketPage: vi.fn().mockRejectedValue(failure) }));
+    // Observe the existing Hono error boundary without changing its production response.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await app.request("/public/market-pages/charizard");
+      expect(response.status).toBe(500);
+      expect(response.headers.get("Cache-Control")).toBeNull();
+      expect(await response.text()).not.toContain("liveAsks");
+      expect(errors).toHaveBeenCalledWith(failure);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   it("lists sitemap-feeding slugs with an optional limit", async () => {
     const entries = [{ slug: "charizard-base-set-cat-1-abc123", updatedAt: "2026-07-01T00:00:00.000Z" }];
     const services = servicesStub({ listPublicMarketPageSlugs: vi.fn().mockResolvedValue(entries) });
@@ -105,6 +152,7 @@ describe("public market page routes", () => {
       productId: "cat_1::condition:near-mint",
       series: [
         {
+          currencyCode: "USD",
           day: "2026-07-01",
           firstPriceAmount: "18.00",
           lastPriceAmount: "20.00",
@@ -116,17 +164,20 @@ describe("public market page routes", () => {
           verifiedTradeCount: 3,
         },
       ],
-      aggregate: {
-        lastSoldAt: "2026-07-01T10:00:00.000Z",
-        lastSoldPriceAmount: "20.00",
-        medianPrice30d: "19.50",
-        volume30d: 8,
-        tradeCount30d: 8,
-        medianPrice90d: "18.75",
-        volume90d: 20,
-        tradeCount90d: 20,
-        sellThroughRate: "0.7500",
-      },
+      aggregates: [
+        {
+          currencyCode: "USD",
+          lastSoldAt: "2026-07-01T10:00:00.000Z",
+          lastSoldPriceAmount: "20.00",
+          medianPrice30d: "19.50",
+          volume30d: 8,
+          tradeCount30d: 8,
+          medianPrice90d: "18.75",
+          volume90d: 20,
+          tradeCount90d: 20,
+          sellThroughRate: "0.7500",
+        },
+      ],
       marketState: {
         day: "2026-07-01",
         activeListingCount: 5,
@@ -135,13 +186,15 @@ describe("public market page routes", () => {
         maxBidAmount: "17.00",
         spreadAmount: "4.00",
       },
-    };
+      liveAsks: [{ currencyCode: "USD", minAskAmount: "6.00", buyableListingCount: 1 }],
+      unpricedBuyableListingCount: 2,
+    } satisfies PublicMarketPageData;
     const app = mountApp(servicesStub({ getPublicMarketPage: vi.fn().mockResolvedValue(page) }));
 
     const response = await app.request("/public/market-pages/charizard-base-set-cat-1-abc123");
     const bodyText = await response.text();
 
-    const forbiddenSubstrings = ["accountId", "account_id", "buyer", "seller", "sellerAccountId", "buyerAccountId"];
+    const forbiddenSubstrings = ["accountId", "account_id", "buyer", "seller", "inventory", "holdId", "hold_id"];
     for (const forbidden of forbiddenSubstrings) {
       expect(bodyText.toLowerCase()).not.toContain(forbidden.toLowerCase());
     }

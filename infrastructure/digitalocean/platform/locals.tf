@@ -26,6 +26,9 @@ locals {
   marketplace_public_enabled = (
     local.is_non_production || local.runtime_profile == "public"
   )
+  marketplace_served = (
+    local.is_non_production || local.marketplace_public_enabled || (local.runtime_profile == "proof" && var.production_marketplace_served)
+  )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
   live_dns_zone       = local.is_production ? var.root_domain : local.environment_zone
@@ -39,7 +42,7 @@ locals {
     local.is_staging ? "www.${var.environment}.${var.root_domain}" : "${local.environment_slug}.preview.${var.root_domain}",
   ]
 
-  marketplace_domains = local.marketplace_public_enabled ? [
+  marketplace_domains = local.marketplace_served ? [
     local.is_production ? "marketplace.${var.root_domain}" : local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 
@@ -194,6 +197,7 @@ locals {
     "auth",
     "authenticity",
     "catalog",
+    "channels",
     "checkout",
     "collections",
     "commercial-terms",
@@ -396,6 +400,6 @@ locals {
     "www",
     ]) : local.is_production ? toset(concat(
     ["admin", "www"],
-    local.marketplace_public_enabled ? ["marketplace"] : [],
+    local.marketplace_served ? ["marketplace"] : [],
   )) : toset([])
 }

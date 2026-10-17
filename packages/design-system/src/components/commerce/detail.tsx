@@ -22,7 +22,7 @@ export function MessageThreadPreview({
   action,
 }: MessageThreadPreviewProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Header>
         <Card.Title>
           <span className="flex items-center gap-2">
@@ -112,7 +112,7 @@ export interface DetailConfidenceModuleProps {
 
 export function DetailConfidenceModule({ title, description, items }: DetailConfidenceModuleProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Header>
         <Card.Title>{title}</Card.Title>
         {description ? <Card.Description>{description}</Card.Description> : null}
@@ -143,7 +143,7 @@ export interface SpecificationListProps {
 
 export function SpecificationList({ title, specs }: SpecificationListProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       {title ? (
         <Card.Header>
           <Card.Title>{title}</Card.Title>
@@ -176,7 +176,7 @@ export interface ComparisonModuleProps {
 
 export function ComparisonModule({ title, description, signalLabel, columns, rows }: ComparisonModuleProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       {title || description ? (
         <Card.Header>
           {title ? <Card.Title>{title}</Card.Title> : null}

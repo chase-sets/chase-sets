@@ -1,11 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
-import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
-import {
-  DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY,
-  parseMoneyCents,
-  type MarketplaceOfferAbusePolicy,
-} from "./offer-abuse-policy";
+import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { normalizeOfferPriceCurrencyCode } from "./domain";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -26,10 +22,6 @@ function normalizeMoneyAmount(value: string): string {
   return centsToMoneyAmount(cents);
 }
 
-function cooldownUntil(declinedAt: string, policy: MarketplaceOfferAbusePolicy) {
-  return new Date(new Date(declinedAt).getTime() + policy.lowballCooldownWindowMs).toISOString();
-}
-
 export type MarketplaceOfferSellerControlState = Readonly<{
   sellerAccountId: AccountId | null;
   buyerAccountId: AccountId | null;
@@ -40,6 +32,7 @@ export type MarketplaceOfferSellerControlState = Readonly<{
   declinedOfferCount: number;
   lowballDeclineCount: number;
   lastLowballDeclinedAmount: string | null;
+  lastLowballDeclinedCurrencyCode: string | null;
   lowballCooldownUntil: string | null;
 }>;
 
@@ -53,6 +46,7 @@ export const initialMarketplaceOfferSellerControlState: MarketplaceOfferSellerCo
   declinedOfferCount: 0,
   lowballDeclineCount: 0,
   lastLowballDeclinedAmount: null,
+  lastLowballDeclinedCurrencyCode: null,
   lowballCooldownUntil: null,
 };
 
@@ -64,34 +58,13 @@ export type DeclineOfferMatchCommand = Readonly<{
   productId: string;
   offerId: OfferId;
   offerPriceAmount: string;
+  offerPriceCurrencyCode: string;
   listingPriceAmount: string;
+  listingPriceCurrencyCode: string;
   declinedAt: string;
-  policy?: MarketplaceOfferAbusePolicy;
 }>;
 
-export type MuteBuyerOffersCommand = Readonly<{
-  type: "MuteBuyerOffers";
-  sellerAccountId: AccountId;
-  buyerAccountId: AccountId;
-  listingId: string;
-  productId: string;
-  offerId?: OfferId | null;
-  mutedAt: string;
-}>;
-
-export type UnmuteBuyerOffersCommand = Readonly<{
-  type: "UnmuteBuyerOffers";
-  sellerAccountId: AccountId;
-  buyerAccountId: AccountId;
-  listingId: string;
-  productId: string;
-  unmutedAt: string;
-}>;
-
-export type MarketplaceOfferSellerControlCommand =
-  | DeclineOfferMatchCommand
-  | MuteBuyerOffersCommand
-  | UnmuteBuyerOffersCommand;
+export type MarketplaceOfferSellerControlCommand = DeclineOfferMatchCommand;
 
 export type OfferMatchDeclinedEvent = DomainEvent<
   "marketplace.offer.match-declined",
@@ -102,7 +75,9 @@ export type OfferMatchDeclinedEvent = DomainEvent<
     productId: string;
     offerId: OfferId;
     offerPriceAmount: string;
+    offerPriceCurrencyCode: string;
     listingPriceAmount: string;
+    listingPriceCurrencyCode: string;
     declinedAt: string;
     lowballDeclineCount: number;
     lowballCooldownUntil: string | null;
@@ -145,10 +120,15 @@ export const decideMarketplaceOfferSellerControl: AggregateDecider<
   switch (command.type) {
     case "DeclineOfferMatch": {
       assert(!state.declinedOfferIds.includes(command.offerId), "Offer match has already been declined.");
-      const policy = command.policy ?? DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY;
       const offerPriceAmount = normalizeMoneyAmount(command.offerPriceAmount);
       const listingPriceAmount = normalizeMoneyAmount(command.listingPriceAmount);
-      const isLowball = parseMoneyCents(offerPriceAmount) < parseMoneyCents(listingPriceAmount);
+      const offerPriceCurrencyCode = normalizeOfferPriceCurrencyCode(command.offerPriceCurrencyCode);
+      const listingPriceCurrencyCode = normalizeOfferPriceCurrencyCode(command.listingPriceCurrencyCode);
+      assert(
+        offerPriceCurrencyCode === listingPriceCurrencyCode,
+        "Offer and Listing prices must use the same currency before an Offer Match is declined.",
+      );
+      const isLowball = moneyToCents(offerPriceAmount) < moneyToCents(listingPriceAmount);
       const nextLowballDeclineCount = isLowball ? state.lowballDeclineCount + 1 : state.lowballDeclineCount;
       return [
         {
@@ -160,44 +140,16 @@ export const decideMarketplaceOfferSellerControl: AggregateDecider<
             productId: normalizeRequiredText(command.productId, "Offer decline must reference a product."),
             offerId: command.offerId,
             offerPriceAmount,
+            offerPriceCurrencyCode,
             listingPriceAmount,
+            listingPriceCurrencyCode,
             declinedAt: normalizeRequiredText(command.declinedAt, "Offer decline must record a timestamp."),
             lowballDeclineCount: nextLowballDeclineCount,
-            lowballCooldownUntil:
-              isLowball && nextLowballDeclineCount >= policy.lowballDeclineCountForCooldown
-                ? cooldownUntil(command.declinedAt, policy)
-                : null,
+            lowballCooldownUntil: null,
           },
         },
       ];
     }
-    case "MuteBuyerOffers":
-      return [
-        {
-          type: "marketplace.offer.buyer-muted",
-          data: {
-            sellerAccountId: command.sellerAccountId,
-            buyerAccountId: command.buyerAccountId,
-            listingId: normalizeRequiredText(command.listingId, "Offer mute must reference a listing."),
-            productId: normalizeRequiredText(command.productId, "Offer mute must reference a product."),
-            offerId: command.offerId ?? null,
-            mutedAt: normalizeRequiredText(command.mutedAt, "Offer mute must record a timestamp."),
-          },
-        },
-      ];
-    case "UnmuteBuyerOffers":
-      return [
-        {
-          type: "marketplace.offer.buyer-unmuted",
-          data: {
-            sellerAccountId: command.sellerAccountId,
-            buyerAccountId: command.buyerAccountId,
-            listingId: normalizeRequiredText(command.listingId, "Offer unmute must reference a listing."),
-            productId: normalizeRequiredText(command.productId, "Offer unmute must reference a product."),
-            unmutedAt: normalizeRequiredText(command.unmutedAt, "Offer unmute must record a timestamp."),
-          },
-        },
-      ];
     default:
       throw new Error(`Unhandled marketplace offer seller control command: ${JSON.stringify(command)}`);
   }
@@ -220,6 +172,9 @@ export const evolveMarketplaceOfferSellerControl: AggregateEvolver<
       lastLowballDeclinedAmount: event.data.lowballCooldownUntil
         ? event.data.offerPriceAmount
         : state.lastLowballDeclinedAmount,
+      lastLowballDeclinedCurrencyCode: event.data.lowballCooldownUntil
+        ? event.data.offerPriceCurrencyCode
+        : state.lastLowballDeclinedCurrencyCode,
       lowballCooldownUntil: event.data.lowballCooldownUntil ?? state.lowballCooldownUntil,
     };
   }

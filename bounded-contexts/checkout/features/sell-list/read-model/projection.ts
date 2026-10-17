@@ -10,6 +10,23 @@ function resolveSellListSellerAccountId(event: { streamId: string }, data: { sel
   return event.streamId.startsWith(streamPrefix) ? event.streamId.slice(streamPrefix.length) : null;
 }
 
+async function projectSellOfferStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  const data = event.data as { offerId: string };
+  await db.query(
+    `UPDATE checkout_sell_offer_pages
+     SET status = $2,
+         last_stream_version = $3,
+         updated_at = $4
+     WHERE offer_id = $1
+       AND last_stream_version < $3`,
+    [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+  );
+}
+
 export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "checkout.sell-list.line-added": async (event) => {
@@ -22,6 +39,11 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         buyerAccountId: string | null;
         buyerDisplayName: string | null;
         offerPriceAmount: string | null;
+        offerPriceCurrencyCode: string | null;
+        offerStreamVersion: number | null;
+        listingPriceAmount: string | null;
+        listingPriceCurrencyCode: string | null;
+        listingStreamVersion: number | null;
         catalogItemId: string;
         productId: string;
         itemTitle: string;
@@ -42,6 +64,11 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         data.buyerAccountId,
         data.buyerDisplayName,
         data.offerPriceAmount,
+        data.offerPriceCurrencyCode,
+        data.offerStreamVersion,
+        data.listingPriceAmount,
+        data.listingPriceCurrencyCode,
+        data.listingStreamVersion,
         data.catalogItemId,
         data.productId,
         data.itemTitle,
@@ -77,6 +104,11 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            buyer_account_id,
            buyer_display_name,
            offer_price_amount,
+           offer_price_currency_code,
+           offer_stream_version,
+           listing_price_amount,
+           listing_price_currency_code,
+           listing_stream_version,
            catalog_catalog_item_id,
            product_id,
            item_title,
@@ -88,7 +120,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            minimum_listing_price_amount,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $23)
          ON CONFLICT ${conflictTarget} DO UPDATE
          SET line_id = EXCLUDED.line_id,
              line_type = EXCLUDED.line_type,
@@ -97,6 +129,11 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
              buyer_account_id = EXCLUDED.buyer_account_id,
              buyer_display_name = EXCLUDED.buyer_display_name,
              offer_price_amount = EXCLUDED.offer_price_amount,
+             offer_price_currency_code = EXCLUDED.offer_price_currency_code,
+             offer_stream_version = EXCLUDED.offer_stream_version,
+             listing_price_amount = EXCLUDED.listing_price_amount,
+             listing_price_currency_code = EXCLUDED.listing_price_currency_code,
+             listing_stream_version = EXCLUDED.listing_stream_version,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              item_title = EXCLUDED.item_title,
@@ -225,12 +262,14 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         selectedOptions?: unknown;
         productSummary?: string | null;
         priceAmount?: string;
+        priceCurrencyCode?: string | null;
         quantityRequested?: number;
         acceptedAt?: string;
       };
 
+      let projected: { rows: readonly { offer_id: string }[] };
       if (data.buyerAccountId && data.catalogItemId && data.productId && data.itemTitle && data.priceAmount) {
-        await db.query(
+        projected = await db.query<{ offer_id: string }>(
           `INSERT INTO checkout_sell_offer_pages (
              offer_id,
              buyer_account_id,
@@ -241,6 +280,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
              selected_options,
              product_summary,
              price_amount,
+             price_currency_code,
              quantity_requested,
              status,
              accepted_seller_account_id,
@@ -248,7 +288,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
              created_at,
              updated_at,
              last_stream_version
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'accepted', $11, $12, $13, $13, $14)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'accepted', $12, $13, $14, $14, $15)
            ON CONFLICT (offer_id) DO UPDATE SET
              buyer_account_id = EXCLUDED.buyer_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
@@ -258,13 +298,15 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
              selected_options = EXCLUDED.selected_options,
              product_summary = EXCLUDED.product_summary,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_requested = EXCLUDED.quantity_requested,
              status = EXCLUDED.status,
              accepted_seller_account_id = EXCLUDED.accepted_seller_account_id,
              accepted_at = EXCLUDED.accepted_at,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
-           WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version`,
+           WHERE checkout_sell_offer_pages.last_stream_version < EXCLUDED.last_stream_version
+           RETURNING offer_id`,
           [
             data.offerId,
             data.buyerAccountId,
@@ -275,6 +317,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
             JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
             data.productSummary ?? null,
             data.priceAmount,
+            data.priceCurrencyCode ?? null,
             data.quantityRequested ?? 1,
             data.sellerAccountId,
             data.acceptedAt ?? event.timing.recordedAt,
@@ -283,7 +326,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
           ],
         );
       } else {
-        await db.query(
+        projected = await db.query<{ offer_id: string }>(
           `UPDATE checkout_sell_offer_pages
            SET status = 'accepted',
                accepted_seller_account_id = $2,
@@ -291,10 +334,13 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
                updated_at = $3,
                last_stream_version = $4
            WHERE offer_id = $1
-             AND last_stream_version < $4`,
+             AND last_stream_version < $4
+           RETURNING offer_id`,
           [data.offerId, data.sellerAccountId, data.acceptedAt ?? event.timing.recordedAt, event.streamVersion],
         );
       }
+
+      if (projected.rows.length === 0) return;
 
       await db.query(
         `DELETE FROM checkout_sell_list_line_pages
@@ -315,6 +361,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
         selectedOptions?: unknown;
         productSummary?: string | null;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityRequested: number;
       };
 
@@ -329,6 +376,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            selected_options,
            product_summary,
            price_amount,
+           price_currency_code,
            quantity_requested,
            status,
            accepted_seller_account_id,
@@ -336,7 +384,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            created_at,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'submitted', NULL, NULL, $11, $11, $12)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'submitted', NULL, NULL, $12, $12, $13)
          ON CONFLICT (offer_id) DO UPDATE SET
            buyer_account_id = EXCLUDED.buyer_account_id,
            catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
@@ -346,6 +394,7 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
            selected_options = EXCLUDED.selected_options,
            product_summary = EXCLUDED.product_summary,
            price_amount = EXCLUDED.price_amount,
+           price_currency_code = EXCLUDED.price_currency_code,
            quantity_requested = EXCLUDED.quantity_requested,
            status = EXCLUDED.status,
            accepted_seller_account_id = NULL,
@@ -363,10 +412,27 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
           JSON.stringify(Array.isArray(data.selectedOptions) ? data.selectedOptions : []),
           data.productSummary ?? null,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityRequested,
           event.timing.recordedAt,
           event.streamVersion,
         ],
+      );
+    },
+    "marketplace.offer.paused": (event) => projectSellOfferStatus(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectSellOfferStatus(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectSellOfferStatus(db, event, "withdrawn"),
+    "marketplace.offer.price-updated": async (event) => {
+      const data = event.data as { offerId: string; priceAmount: string; priceCurrencyCode: string };
+      await db.query(
+        `UPDATE checkout_sell_offer_pages
+         SET price_amount = $2,
+             price_currency_code = $3,
+             updated_at = $4,
+             last_stream_version = $5
+         WHERE offer_id = $1
+           AND last_stream_version < $5`,
+        [data.offerId, data.priceAmount, data.priceCurrencyCode, event.timing.recordedAt, event.streamVersion],
       );
     },
     "settlement.payout-readiness.recorded": async (event) => {

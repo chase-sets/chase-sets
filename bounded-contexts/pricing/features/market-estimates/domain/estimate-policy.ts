@@ -90,7 +90,8 @@ const MAX_MINIMUM_EFFECTIVE_SAMPLE_SIZE = 50;
 const MIN_OUTLIER_PRICE_RATIO = 2;
 const MAX_OUTLIER_PRICE_RATIO = 1000;
 const MIN_FRESH_FOR_HOURS = 1;
-const MAX_FRESH_FOR_HOURS = 24 * 14;
+export const MAX_MARKET_ESTIMATE_FRESH_HOURS = 24 * 14;
+const MAX_FRESH_FOR_HOURS = MAX_MARKET_ESTIMATE_FRESH_HOURS;
 
 export function decodeMarketEstimatePolicyValue(raw: JsonValue): MarketEstimatePolicyValue {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {

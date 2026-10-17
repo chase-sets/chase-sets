@@ -92,6 +92,11 @@ describe("Catalog authoring API", () => {
 
 function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}): CatalogServices {
   return {
+    operatorSession: {
+      execute: async () => {
+        throw new Error("operatorSession not expected");
+      },
+    },
     dimensions: {} as never,
     displayTemplates: {} as never,
     fields: {} as never,
@@ -108,6 +113,7 @@ function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}
     providerIntegrationProfiles: {} as never,
     sourceObservations: {} as never,
     scopeSyncBatches: {} as never,
+    countCapture: null,
     catalogAliases: {} as never,
     attentionQueue: {} as never,
     authoringBulkJobs: createBulkJobServices(overrides),

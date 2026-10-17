@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId, ReferenceRecordId } from "../../../../ids";
 import type { CatalogServices } from "../../../../support/authoring-support/services";
-import { sendSeedCommand } from "../../../../support/seed-support/context";
+import { seedContext, sendSeedCommand } from "../../../../support/seed-support/context";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -12,7 +14,7 @@ import {
   type SourceObservationEvent,
   type SourceObservationState,
 } from "../../domain/domain";
-import tcgdexBase260ScenarioFixture from "../__fixtures__/tcgdex/base2-60-scenario.json";
+import tcgdexBase260ScenarioFixture from "../__fixtures__/tcgdex/base2-60-scenario.json" with { type: "json" };
 import { tcgdexPokemonTcgProviderProfile } from "../provider-integration-profiles";
 import {
   planCatalogProviderPromotionCommands,
@@ -34,10 +36,20 @@ const sourceObservationStreamId =
   `catalog.source-observation-${catalogBrowserE2ePromotedObservation.observationId}` as const;
 const promotedAt = "2026-06-03T00:01:00.000Z";
 const observedAt = "2026-06-03T00:00:00.000Z";
+const promotedSeedLifecycle = ["catalog.source-observation.recorded", "catalog.source-observation.promoted"] as const;
+// One refresh is the seed's only reconciliation append, so a reconciled stream keeps a fixed shape.
+const reconciledPromotedSeedLifecycle = [...promotedSeedLifecycle, "catalog.source-observation.refreshed"] as const;
+const migratedPromotedSeedLifecycle = [
+  ...promotedSeedLifecycle,
+  "catalog.source-observation.promotion-plan-recorded",
+] as const;
+const historicalPlanFingerprint = "f0d75b34e937923016ba19fad5b9b611e101d8e31b8cbe2176e26aadaf4de599";
+const migratedPlanFingerprint = "9ec3a12b68c7f1945da0089934ddc97ccc956d5a799c98d2cb8d9c61614ad90c";
 
 type StoredSourceObservationEvent = Readonly<{
   event_type: string;
   payload: JsonValue;
+  stream_version: number;
 }>;
 
 export type CatalogBrowserE2ePromotedObservationSeedEvidence = Readonly<{
@@ -52,9 +64,9 @@ export type CatalogBrowserE2ePromotedObservationSeedEvidence = Readonly<{
  */
 export async function seedPromotedSourceObservationScenario(services: CatalogServices): Promise<void> {
   await requireExactPromotionTarget(services);
-  const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence();
+  const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(services.db);
   const existing = await services.db.query<StoredSourceObservationEvent>(
-    `SELECT event_type, payload
+    `SELECT event_type, payload, stream_version::integer AS stream_version
        FROM event_store_events
        WHERE stream_id = $1
        ORDER BY stream_version ASC`,
@@ -89,8 +101,22 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
     return;
   }
 
-  if (isExactLifecycle(eventTypes, ["catalog.source-observation.recorded", "catalog.source-observation.promoted"])) {
-    requireSeedState("promoted", state, expectedPromotedState);
+  if (isExactLifecycle(eventTypes, promotedSeedLifecycle)) {
+    if (state.promotionPlanFingerprint === historicalPlanFingerprint) {
+      await migrateHistoricalSeedPlan(services, evidence, existing.rows, state, expectedPromotedState);
+      return;
+    }
+    await reconcileOrRefusePromotedSeedHistory(services, evidence.recordCommand, state, expectedPromotedState);
+    return;
+  }
+
+  if (isExactLifecycle(eventTypes, migratedPromotedSeedLifecycle)) {
+    await migrateHistoricalSeedPlan(services, evidence, existing.rows, state, expectedPromotedState);
+    return;
+  }
+
+  if (isExactLifecycle(eventTypes, reconciledPromotedSeedLifecycle)) {
+    requireSeedState("reconciled promoted", state, expectedPromotedState);
     return;
   }
 
@@ -99,7 +125,14 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
   );
 }
 
-export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(): Promise<CatalogBrowserE2ePromotedObservationSeedEvidence> {
+/**
+ * The promotion plan is validated against `db`: the seed passes the scenario
+ * database so the refresh plan resolves the exact Pikachu Jungle target's
+ * display identity; database-free tests pass a clearly synthetic queryable.
+ */
+export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(
+  db: PgQueryable,
+): Promise<CatalogBrowserE2ePromotedObservationSeedEvidence> {
   const payloads = await fetchTcgdexSetObservationPayloads({
     profile: tcgdexPokemonTcgProviderProfile,
     languageCode: "en",
@@ -119,7 +152,8 @@ export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(): P
     payload: payload.payload,
     observedAt: payload.observedAt,
   });
-  const promotionPlanResult = planCatalogProviderPromotionCommands({
+  const promotionPlanResult = await planCatalogProviderPromotionCommands({
+    db,
     profile: tcgdexPokemonTcgProviderProfile,
     profileKey: tcgdexPokemonCardSourceObservationMappingContract.profileKey,
     profileVersion: tcgdexPokemonCardSourceObservationMappingContract.profileVersion,
@@ -154,6 +188,99 @@ export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(): P
     },
     promotionPlan: promotionPlanResult.plan,
   };
+}
+
+/** One append-only migration of the scenario's historical seven-input plan contract, not reconciliation. */
+async function migrateHistoricalSeedPlan(
+  services: CatalogServices,
+  evidence: CatalogBrowserE2ePromotedObservationSeedEvidence,
+  rows: readonly StoredSourceObservationEvent[],
+  actual: SourceObservationState,
+  expected: SourceObservationState,
+): Promise<void> {
+  const plan = evidence.promotionPlan;
+  // Recompute the seven original inputs from the freshly validated plan. The
+  // successor adds only the validated display identity and explicit draft choice.
+  const historicalInputs = {
+    providerKey: plan.providerKey,
+    profileKey: plan.profileKey,
+    profileVersion: plan.profileVersion,
+    mappingKind: plan.mappingKind,
+    mode: plan.mode,
+    commands: plan.commands,
+    productContents: plan.productContents ?? null,
+  };
+  const recomputedHistorical = createHash("sha256").update(historicalPlanJson(historicalInputs)).digest("hex");
+  if (recomputedHistorical !== historicalPlanFingerprint || plan.planFingerprint !== migratedPlanFingerprint) {
+    throw new Error(
+      "Catalog browser Source Observation seed plan is outside the allowlisted historical contract migration.",
+    );
+  }
+
+  const recorded = expectedStateAfter(evidence.recordCommand, initialSourceObservationState);
+  const historicalPromotion = { ...evidence.promotionCommand, promotionPlanFingerprint: historicalPlanFingerprint };
+  const predecessor = expectedStateAfter(historicalPromotion, recorded);
+  const predecessorEvents = [
+    decideSourceObservation(initialSourceObservationState, evidence.recordCommand)[0],
+    decideSourceObservation(recorded, historicalPromotion)[0],
+  ];
+  requireSeedState("migration predecessor", rehydrateSeedHistory(rows.slice(0, 2)), predecessor);
+  for (const [index, event] of predecessorEvents.entries()) {
+    requireMigrationEvent(rows[index], event, index + 1);
+  }
+
+  const command: Extract<SourceObservationCommand, { type: "RecordSourceObservationPromotionPlan" }> = {
+    type: "RecordSourceObservationPromotionPlan",
+    catalogItemId: evidence.promotionCommand.catalogItemId,
+    promotionProfileKey: evidence.promotionCommand.promotionProfileKey,
+    promotionProfileVersion: evidence.promotionCommand.promotionProfileVersion,
+    promotionPlanFingerprint: plan.planFingerprint,
+  };
+  const migrated = expectedStateAfter(command, predecessor);
+  requireSeedState("migration result", migrated, expected);
+
+  if (rows.length === 3) {
+    requireMigrationEvent(rows[2], decideSourceObservation(predecessor, command)[0], 3);
+    requireSeedState("migrated promoted", actual, expected);
+    return;
+  }
+
+  requireSeedState("migration predecessor", actual, predecessor);
+  await services.sourceObservations.commandHandler({
+    streamId: sourceObservationStreamId,
+    command,
+    context: seedContext,
+    expectedVersion: 2,
+  });
+}
+
+function requireMigrationEvent(
+  actual: StoredSourceObservationEvent | undefined,
+  expected: SourceObservationEvent,
+  version: number,
+): void {
+  if (
+    actual?.stream_version !== version ||
+    actual.event_type !== expected.type ||
+    !isDeepStrictEqual(actual.payload, expected.data)
+  ) {
+    throw new Error(
+      `Catalog browser Source Observation seed migration requires the exact event at version ${version}.`,
+    );
+  }
+}
+
+// Exact historical stable JSON encoding (the planner's stableStringify before displayIdentity and promoteAsDraft joined the fingerprint), local to this bounded contract migration.
+function historicalPlanJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(historicalPlanJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Readonly<Record<string, unknown>>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${historicalPlanJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function requireExactPromotionTarget(services: CatalogServices): Promise<void> {
@@ -229,12 +356,121 @@ function expectedStateAfter(command: SourceObservationCommand, state: SourceObse
   return evolveSourceObservation(state, events[0]);
 }
 
-function requireSeedState(label: string, actual: SourceObservationState, expected: SourceObservationState): void {
-  if (!isDeepStrictEqual(actual, expected)) {
-    throw new Error(
-      `Catalog browser Source Observation seed found ${label} history with mismatched identity, facts, target, profile, terminal state, or fingerprint.`,
-    );
+/**
+ * A long-lived environment holds a promoted stream written by an older fixture revision.
+ * The seed reconciles that drift only when replaying the fixture's record command against the
+ * stored stream provably lands on the expected state through a single refresh — the one event
+ * that carries the existing promotion forward instead of promoting again. Every other shape of
+ * drift is refused with the field path that diverged, so drift is never repaired silently.
+ */
+async function reconcileOrRefusePromotedSeedHistory(
+  services: CatalogServices,
+  recordCommand: Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>,
+  actual: SourceObservationState,
+  expected: SourceObservationState,
+): Promise<void> {
+  const divergentFieldPath = diagnoseSeedStateDivergence(actual, expected);
+  if (divergentFieldPath === null) {
+    return;
   }
+
+  const refreshed = refreshedSeedState(recordCommand, actual);
+  if (refreshed === null || diagnoseSeedStateDivergence(refreshed, expected) !== null) {
+    throw seedStateMismatch("promoted", divergentFieldPath, actual, expected);
+  }
+
+  await sendSeedCommand(services.sourceObservations.commandHandler, sourceObservationStreamId, recordCommand);
+}
+
+function refreshedSeedState(
+  recordCommand: Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>,
+  state: SourceObservationState,
+): SourceObservationState | null {
+  let events: readonly SourceObservationEvent[];
+  try {
+    events = decideSourceObservation(state, recordCommand);
+  } catch {
+    return null;
+  }
+
+  const [event] = events;
+  if (events.length !== 1 || event?.type !== "catalog.source-observation.refreshed") {
+    return null;
+  }
+  return evolveSourceObservation(state, event);
+}
+
+function requireSeedState(label: string, actual: SourceObservationState, expected: SourceObservationState): void {
+  const divergentFieldPath = diagnoseSeedStateDivergence(actual, expected);
+  if (divergentFieldPath !== null) {
+    throw seedStateMismatch(label, divergentFieldPath, actual, expected);
+  }
+}
+
+function seedStateMismatch(label: string, divergentFieldPath: string, actual: unknown, expected: unknown): Error {
+  const divergence = seedStateDivergence(actual, expected);
+  const scalarValues =
+    divergence && isSeedScalar(divergence.actual) && isSeedScalar(divergence.expected)
+      ? ` (expected ${boundedSeedScalar(divergence.expected)}, actual ${boundedSeedScalar(divergence.actual)})`
+      : "";
+  return new Error(
+    `Catalog browser Source Observation seed found ${label} history with mismatched identity, facts, target, profile, terminal state, or fingerprint at field path '${divergentFieldPath}'${scalarValues}.`,
+  );
+}
+
+function isSeedScalar(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function boundedSeedScalar(value: string | number | boolean | null): string {
+  if (typeof value !== "string") return String(value);
+  const limit = 96;
+  return `${JSON.stringify(value.slice(0, limit))}${value.length > limit ? "[truncated]" : ""}`;
+}
+
+/**
+ * Names the first field path where a rehydrated history diverges from the fixture's expected
+ * state, or null when the two match. The accept/reject decision stays the strict whole-value
+ * `isDeepStrictEqual`; the walk below only runs once that comparison has already rejected.
+ */
+export function diagnoseSeedStateDivergence(actual: unknown, expected: unknown, path = ""): string | null {
+  return seedStateDivergence(actual, expected, path)?.path ?? null;
+}
+
+function seedStateDivergence(
+  actual: unknown,
+  expected: unknown,
+  path = "",
+): Readonly<{ path: string; actual: unknown; expected: unknown }> | null {
+  if (isDeepStrictEqual(actual, expected)) {
+    return null;
+  }
+
+  if (Array.isArray(actual) && Array.isArray(expected)) {
+    for (let index = 0; index < Math.max(actual.length, expected.length); index += 1) {
+      const nested = seedStateDivergence(actual[index], expected[index], `${path}[${index}]`);
+      if (nested !== null) {
+        return nested;
+      }
+    }
+    return { path: path || "<root>", actual, expected };
+  }
+
+  if (isFieldRecord(actual) && isFieldRecord(expected)) {
+    for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+      const nested = seedStateDivergence(actual[key], expected[key], path ? `${path}.${key}` : key);
+      if (nested !== null) {
+        return nested;
+      }
+    }
+    return { path: path || "<root>", actual, expected };
+  }
+
+  return { path: path || "<root>", actual, expected };
+}
+
+function isFieldRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isExactLifecycle(actual: readonly string[], expected: readonly string[]): boolean {

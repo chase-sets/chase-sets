@@ -12,8 +12,10 @@ Qualified counsel must review the actual launch jurisdictions and wallet purchas
 
 ## Publication procedure
 
+Use the shared [Legal Corpus Publication runbook](../../../docs/runbooks/legal-corpus-publication.md) for the document revision, authenticated activation, readback and rollback path. Saving a policy document is not activation. These mechanics do not supply counsel approval or an authenticated display-and-affirmation journey.
+
 1. Replace each subject placeholder with the counsel-approved wording without changing Settlement product truth silently.
-2. Record `counsel-approved` on every required subject and add the external approval reference.
+2. Record `counsel-approved` on every rendered operative section, including additional sections, and add the external approval reference.
 3. Record the reviewed rollout jurisdictions or product limits and an ISO effective timestamp.
 4. Change the artifact publication status to `published`, regenerate the `@chase-sets/public-docs` metadata contract with the corpus compile script, and activate the same version through Identity's `identity.terms-of-service-active-version` policy.
 5. Run the Public Presence and Identity suites, the public-copy launch audit in launch mode, script tests, and static checks before production promotion.

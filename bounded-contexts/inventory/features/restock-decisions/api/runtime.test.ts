@@ -31,11 +31,34 @@ describe("restock decision runtime", () => {
       {
         eventStore,
         checkpointStore: checkpointStore(),
-        db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+        mutationChild: async (_name, _family, _target, _params, childContext, work) => work(childContext),
+        db: {
+          query: vi.fn(async (sql: string, values: readonly unknown[]) => ({
+            rows: sql.includes("SELECT event_id FROM event_store_events")
+              ? [{ event_id: "synthetic-owner" }]
+              : sql.includes("event_store_streams")
+                ? [
+                    {
+                      current_version: String(streams.get(String(values[0]))?.length ?? 0),
+                      total: String(streams.get(String(values[0]))?.length ?? 0),
+                    },
+                  ]
+                : [],
+          })),
+        } as never,
       },
-      { adjustItem } as unknown as InventoryItemServices,
-      { projectors: [] } as never,
+      { adjustItem },
     );
+    for (const itemId of ["inv_restocked", "inv_written_off"]) {
+      await eventStore.appendToStream({
+        streamId: `inventory.item-${itemId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          { eventType: "inventory.item.created", payload: { itemId, accountId: "acc_seller", totalQuantity: 1 } },
+        ],
+      });
+    }
     const restocked = await services.markPending(
       {
         accountId: "acc_seller",
@@ -62,11 +85,21 @@ describe("restock decision runtime", () => {
     );
 
     await services.recordDecision(
-      { accountId: "acc_seller", decisionId: restocked.decisionId, outcome: "restocked" },
+      {
+        accountId: "acc_seller",
+        decisionId: restocked.decisionId,
+        expectedVersion: restocked.version,
+        outcome: "restocked",
+      },
       context,
     );
     await services.recordDecision(
-      { accountId: "acc_seller", decisionId: writtenOff.decisionId, outcome: "written-off" },
+      {
+        accountId: "acc_seller",
+        decisionId: writtenOff.decisionId,
+        expectedVersion: writtenOff.version,
+        outcome: "written-off",
+      },
       context,
     );
 
@@ -77,6 +110,7 @@ describe("restock decision runtime", () => {
         quantityDelta: 2,
         reason: "return-restocked",
         reasonCode: "return-restocked",
+        acquisitionOccurrence: { kind: "unknown" },
       }),
       context,
     );

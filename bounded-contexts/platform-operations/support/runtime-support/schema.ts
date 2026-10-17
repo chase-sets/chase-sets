@@ -7,8 +7,10 @@ import { commercialTermsEffectiveDateAttentionSchemaSql } from "../../features/c
 import { platformOperationsOpsDashboardSchemaSql } from "../../features/insights-dashboards/read-model/ops-schema";
 import { reportedContentSchemaSql } from "../../features/reported-content/read-model/schema";
 import { riskAlertsSchemaSql } from "../../features/risk-alerts/read-model/schema";
+import { sellerComplianceSalesSchemaSql } from "../../features/seller-compliance-sales/read-model/schema";
 import { supportSourceProjectionSchemaSql } from "../../features/support-requests/integrations/source/source-schema";
 import { supportRequestSchemaSql } from "../../features/support-requests/read-model/schema";
+import { supportEvidenceCleanupLocatorSchemaSql } from "../../features/support-requests/read-model/cleanup-locator-schema";
 
 export const platformOperationsSchemaSql = [
   eventCorePostgresSchemaSql,
@@ -19,8 +21,10 @@ export const platformOperationsSchemaSql = [
   platformOperationsOpsDashboardSchemaSql,
   reportedContentSchemaSql,
   riskAlertsSchemaSql,
+  sellerComplianceSalesSchemaSql,
   supportSourceProjectionSchemaSql,
   supportRequestSchemaSql,
+  supportEvidenceCleanupLocatorSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the platform-wide rate-limit policy (../../features/rate-limit-policy/domain/rate-limit-policy.ts)
   // and the support-flow deadline policy (../../features/support-requests/domain/support-deadline-policy.ts).

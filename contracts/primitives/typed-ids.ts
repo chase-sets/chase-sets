@@ -93,7 +93,13 @@ export type OfferId = TypedUlid<"off">;
 
 export type OrderId = TypedUlid<"ord">;
 
+/** Ordering-owned linkage of exactly an anchor Order and one follow-on Order (ADR 0032). */
+export type OrderGroupId = TypedUlid<"ogr">;
+
 export type ShipmentId = TypedUlid<"shp">;
+
+/** Fulfillment-owned physical execution identity for an exact-two Order Group (ADR 0032). */
+export type ShipmentGroupId = TypedUlid<"shg">;
 
 /** Fulfillment-owned handle for one buyer-to-platform reverse shipment linked to its authorizing support context. */
 export type ReturnShipmentId = TypedUlid<"rsh">;
@@ -107,6 +113,12 @@ export type SupportRequestId = TypedUlid<"sup">;
 
 /** Identity-owned immutable account enforcement action identity. */
 export type EnforcementActionId = TypedUlid<"enf">;
+
+/** Marketplace-owned immutable listing removal identity; distinct from Identity's `enf_` account actions. */
+export type ListingEnforcementActionId = TypedUlid<"lea">;
+
+/** Platform-Operations-minted identity of one operator moderation action on reported content. */
+export type ReportedContentActionId = TypedUlid<"rca">;
 
 /** Support-owned handle for a single authorized remedy on a support request (ADR 0022). */
 export type RemedyId = TypedUlid<"rmd">;

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import { buildMergeQueuePosture, fetchRuleset, readMergeQueueReleasePolicy } from "./release-health-queue-posture.mjs";
 
@@ -7,6 +8,26 @@ const CHECKED_AT = "2026-07-12T12:00:00.000Z";
 
 async function readFixture(name) {
   return JSON.parse(await readFile(new URL(name, FIXTURE_ROOT), "utf8"));
+}
+
+function expectReadOnlyPosture(workflow) {
+  const reporter = "./.github/actions/report-scheduled-workflow-alert";
+  const { posture, ...observers } = workflow.jobs;
+
+  expect(workflow.permissions).toEqual({});
+  expect(posture.permissions).toEqual({ contents: "read" });
+  expect(posture.steps.some((step) => step.run?.includes("release-health:queue-posture"))).toBe(true);
+  expect(posture.steps.some((step) => step.uses === reporter)).toBe(false);
+  expect(Object.keys(observers).length).toBeGreaterThan(0);
+  for (const observer of Object.values(observers)) {
+    expect([observer.needs].flat()).toContain("posture");
+    expect(observer.permissions).toEqual({ contents: "read", issues: "write" });
+    expect(observer.steps.every((step) => !Object.hasOwn(step, "run"))).toBe(true);
+    expect(observer.steps.map((step) => step.uses)).toEqual([
+      expect.stringMatching(/^actions\/checkout@[a-fA-F0-9]{40}$/),
+      reporter,
+    ]);
+  }
 }
 
 describe("merge queue posture", () => {
@@ -115,15 +136,37 @@ describe("merge queue posture", () => {
   });
 
   it("keeps the scheduled posture surface read-only against GitHub", async () => {
-    const workflow = await readFile(
-      new URL("../.github/workflows/platform-merge-queue-posture.yml", import.meta.url),
-      "utf8",
+    const workflow = parse(
+      await readFile(new URL("../.github/workflows/platform-merge-queue-posture.yml", import.meta.url), "utf8"),
     );
 
-    expect(workflow).toContain("contents: read");
-    expect(workflow).toContain("release-health:queue-posture");
-    expect(workflow).not.toContain("issues: write");
-    expect(workflow).not.toContain("report-scheduled-workflow-alert");
+    const mutations = [
+      ["workflow permission", (copy) => (copy.permissions.contents = "read")],
+      ["posture issue permission", (copy) => (copy.jobs.posture.permissions.issues = "write")],
+      ["posture extra read permission", (copy) => (copy.jobs.posture.permissions.actions = "read")],
+      [
+        "posture reporter",
+        (copy) => copy.jobs.posture.steps.push({ uses: "./.github/actions/report-scheduled-workflow-alert" }),
+      ],
+    ];
+    for (const name of Object.keys(workflow.jobs).filter((name) => name !== "posture")) {
+      mutations.push(
+        [`${name} run step`, (copy) => copy.jobs[name].steps.push({ run: "echo forbidden" })],
+        [`${name} contents write permission`, (copy) => (copy.jobs[name].permissions.contents = "write")],
+        [`${name} administration permission`, (copy) => (copy.jobs[name].permissions.administration = "write")],
+        [`${name} extra read permission`, (copy) => (copy.jobs[name].permissions.actions = "read")],
+        [`${name} missing dependency`, (copy) => (copy.jobs[name].needs = [])],
+        [`${name} unpinned checkout`, (copy) => (copy.jobs[name].steps[0].uses = "actions/checkout@main")],
+        [`${name} other action`, (copy) => copy.jobs[name].steps.push({ uses: "./.github/actions/other" })],
+      );
+    }
+    for (const [label, mutate] of mutations) {
+      const copy = structuredClone(workflow);
+      mutate(copy);
+      expect(() => expectReadOnlyPosture(copy), label).toThrow();
+    }
+
+    expectReadOnlyPosture(workflow);
   });
 
   it("documents the scheduled guard and its checked-in policy as the canonical posture path", async () => {

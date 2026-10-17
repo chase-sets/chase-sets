@@ -1,5 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
+import { CheckoutDomainError, type VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 
 export const CART_SELLER_OPTIONS_PER_LINE_LIMIT = 25;
 
@@ -26,6 +26,8 @@ export type CheckoutCartLineRow = Readonly<{
   selected_listing_seller_display_name: string | null;
   selected_listing_seller_slug: string | null;
   selected_listing_price_amount: string | null;
+  selected_listing_price_currency_code?: string | null;
+  selected_listing_stream_version?: number | null;
   selected_listing_snapshot_source: string | null;
   selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
@@ -43,9 +45,16 @@ export type CheckoutCartSellerOptionRow = Readonly<{
   seller_average_rating: string | null;
   seller_review_count: number;
   price_amount: string;
+  price_currency_code?: string | null;
+  listing_stream_version?: number | null;
   available_quantity: number;
   product_summary: string | null;
   product_measure_snapshot: Readonly<Record<string, unknown>> | null;
+}>;
+
+export type CheckoutCartClaimRow = Readonly<{
+  source_owner_key: string;
+  account_id: string;
 }>;
 
 type CartLinePageRow = Readonly<{
@@ -71,6 +80,8 @@ type CartLinePageRow = Readonly<{
   selected_listing_seller_display_name: string | null;
   selected_listing_seller_slug: string | null;
   selected_listing_price_amount: string | null;
+  selected_listing_price_currency_code: string | null;
+  selected_listing_stream_version: number | null;
   selected_listing_snapshot_source: string | null;
   selected_listing_snapshot_captured_at: string | null;
   seller_preference_id: string | null;
@@ -88,9 +99,21 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
   const source = value as Record<string, unknown>;
   const listingId = String(source.listing_id ?? "").trim();
   const priceAmount = String(source.price_amount ?? "").trim();
+  const priceCurrencyCode = String(source.price_currency_code ?? "")
+    .trim()
+    .toUpperCase();
+  const listingStreamVersion = Number(source.listing_stream_version ?? 0);
   const availableQuantity = Number(source.available_quantity ?? 0);
 
-  if (!listingId || !priceAmount || !Number.isFinite(availableQuantity) || availableQuantity <= 0) {
+  if (
+    !listingId ||
+    !priceAmount ||
+    !/^[A-Z]{3}$/.test(priceCurrencyCode) ||
+    !Number.isInteger(listingStreamVersion) ||
+    listingStreamVersion <= 0 ||
+    !Number.isFinite(availableQuantity) ||
+    availableQuantity <= 0
+  ) {
     return null;
   }
 
@@ -114,6 +137,8 @@ function mapSellerOption(value: unknown): CheckoutCartSellerOptionRow | null {
         : String(source.seller_average_rating).trim() || null,
     seller_review_count: Number.isFinite(Number(source.seller_review_count)) ? Number(source.seller_review_count) : 0,
     price_amount: priceAmount,
+    price_currency_code: priceCurrencyCode,
+    listing_stream_version: listingStreamVersion,
     available_quantity: availableQuantity,
     product_summary:
       source.product_summary === null || source.product_summary === undefined
@@ -145,6 +170,8 @@ function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
     selected_listing_seller_display_name: mapNullableText(row.selected_listing_seller_display_name),
     selected_listing_seller_slug: mapNullableText(row.selected_listing_seller_slug),
     selected_listing_price_amount: mapNullableText(row.selected_listing_price_amount),
+    selected_listing_price_currency_code: mapNullableText(row.selected_listing_price_currency_code),
+    selected_listing_stream_version: row.selected_listing_stream_version,
     selected_listing_snapshot_source: mapNullableText(row.selected_listing_snapshot_source),
     selected_listing_snapshot_captured_at: mapNullableText(row.selected_listing_snapshot_captured_at),
     selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
@@ -156,9 +183,157 @@ function mapCartLineRow(row: CartLinePageRow): CheckoutCartLineRow {
   };
 }
 
-export async function listCartLines(db: PgQueryable, buyerAccountId: string): Promise<CheckoutCartLineRow[]> {
+export type CheckoutCartClaimPair = Readonly<{
+  sourceOwnerKey: string;
+  accountId: string;
+}>;
+
+/**
+ * Writes the operational Cart Claim alias and verifies what is actually stored.
+ *
+ * The insert is immutable -- conflicts do nothing -- so this never transfers
+ * ownership, and the read-back is what makes the call honest: a row naming a
+ * different Account is a conflict that must surface, not be overwritten and not
+ * be reported as a successful claim. Because the insert is idempotent, both the
+ * first claim and a later repair of a committed-event/missing-alias state run
+ * exactly the same statement pair.
+ *
+ * The caller supplies the database handle, so a projector passes its own
+ * transaction and this helper never opens or commits one of its own.
+ */
+export async function reconcileCheckoutCartClaim(db: PgQueryable, claim: CheckoutCartClaimPair): Promise<void> {
+  await db.query(
+    `INSERT INTO checkout_cart_claims (source_owner_key, account_id)
+     VALUES ($1, $2)
+     ON CONFLICT (source_owner_key) DO NOTHING`,
+    [claim.sourceOwnerKey, claim.accountId],
+  );
+
+  const stored = await db.query<CheckoutCartClaimRow>(
+    `SELECT claim.source_owner_key, claim.account_id
+     FROM checkout_cart_claims AS claim
+     WHERE claim.source_owner_key = $1`,
+    [claim.sourceOwnerKey],
+  );
+  const storedClaim = stored.rows[0];
+
+  if (!storedClaim) {
+    throw new CheckoutDomainError("Cart claim alias was not stored.", "cart_claim_not_reconciled");
+  }
+
+  if (storedClaim.account_id !== claim.accountId) {
+    throw new CheckoutDomainError("Cart claim alias is held by a different account.", "cart_claim_conflict");
+  }
+}
+
+/**
+ * Whether an owner key can resolve across more than its own stream.
+ *
+ * Only an Account can claim, which is the predicate the claim lookup below
+ * applies. An anonymous key therefore always resolves to exactly itself, and
+ * callers can skip work that could only ever confirm that. Keeping the rule
+ * here keeps it next to the lookup it guards.
+ */
+export function ownerKeyCanHoldClaims(ownerKey: string): boolean {
+  return ownerKey.startsWith("acc_");
+}
+
+/**
+ * Lists the anonymous source keys an Account has claimed, smallest first under
+ * the deterministic `C` collation.
+ *
+ * This is routing breadth, never authorization: it answers "which streams may
+ * hold a line this Account owns", and each resulting write is still authorized
+ * by the claimed stream's own evolved state. A lagging or hand-deleted alias can
+ * therefore only narrow a sweep -- which a retry finishes -- and can never widen
+ * one into a stream the Account does not own, because that stream refuses.
+ *
+ * Only an Account can hold claims, so a non-Account key is answered without a
+ * round trip, keeping the anonymous request path free of a query that can only
+ * ever return no rows.
+ */
+export async function listClaimedCartOwnerKeys(db: PgQueryable, accountId: string): Promise<string[]> {
+  if (!ownerKeyCanHoldClaims(accountId)) {
+    return [];
+  }
+
+  const result = await db.query<Pick<CheckoutCartClaimRow, "source_owner_key">>(
+    `SELECT claim.source_owner_key
+     FROM checkout_cart_claims AS claim
+     WHERE claim.account_id = $1
+     ORDER BY claim.source_owner_key COLLATE "C" ASC`,
+    [accountId],
+  );
+
+  return result.rows.map((row) => row.source_owner_key);
+}
+
+/**
+ * Resolves the cart lines a requested owner may read, in one statement.
+ *
+ * Requested owners are the primary owner key, the claimed source keys the
+ * caller supplies, and an optional presented anonymous key. They are
+ * deduplicated before ranking so a key that is both claimed and presented
+ * contributes one requested owner rather than multiplying rows.
+ *
+ * The claimed keys arrive as an allowlist the caller has already decided. This
+ * statement never reads `checkout_cart_claims`, which turns the settled
+ * decide-from-the-aggregate rule into a structural property rather than a
+ * discipline: no missing, stale, partial, or foreign alias row can widen a read
+ * set, because the read set is not derived from that table at all. Deciding
+ * those keys is the Cart aggregate's job, and a read model may not do it.
+ *
+ * A `line_id` held by more than one requested owner resolves to exactly one
+ * whole row: the Account's own row wins, then the newest claimed row, then the
+ * lexicographically smallest source owner under the deterministic `C` collation,
+ * and a presented-only source last. Output puts the logical Account union
+ * (own plus claimed) first and the presented-only rows after it, each ordered
+ * `updated_at DESC, line_id ASC` -- which is exactly the shipped two-group order
+ * when the owner has no claims.
+ */
+async function resolveCartLines(
+  db: PgQueryable,
+  ownerKey: string,
+  presentedAnonymousCartId: string | null,
+  authorizedClaimedOwnerKeys: readonly string[],
+): Promise<CheckoutCartLineRow[]> {
   const result = await db.query<CartLinePageRow>(
-    `SELECT
+    `WITH requested_owners AS (
+       SELECT candidate_owner.owner_id, MIN(candidate_owner.owner_precedence) AS owner_precedence
+       FROM (
+         SELECT $1::text AS owner_id, 0::integer AS owner_precedence
+         UNION ALL
+         SELECT authorized_claimed_owner.owner_id, 1::integer AS owner_precedence
+         FROM unnest($4::text[]) AS authorized_claimed_owner(owner_id)
+         UNION ALL
+         SELECT $2::text AS owner_id, 2::integer AS owner_precedence
+         WHERE $2::text IS NOT NULL
+       ) AS candidate_owner
+       GROUP BY candidate_owner.owner_id
+     ),
+     ranked_lines AS (
+       SELECT
+         cart_line.*,
+         requested_owner.owner_precedence,
+         ROW_NUMBER() OVER (
+           PARTITION BY cart_line.line_id
+           ORDER BY
+             requested_owner.owner_precedence ASC,
+             cart_line.updated_at DESC,
+             requested_owner.owner_id COLLATE "C" ASC
+         ) AS owner_line_rank
+       FROM requested_owners AS requested_owner
+       INNER JOIN checkout_cart_line_pages AS cart_line
+         ON cart_line.buyer_account_id = requested_owner.owner_id
+     ),
+     winning_lines AS (
+       SELECT
+         ranked_line.*,
+         CASE WHEN ranked_line.owner_precedence <= 1 THEN 0 ELSE 1 END AS owner_output_group
+       FROM ranked_lines AS ranked_line
+       WHERE ranked_line.owner_line_rank = 1
+     )
+     SELECT
        line.buyer_account_id,
        line.line_id,
        line.catalog_catalog_item_id,
@@ -181,6 +356,8 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
        line.selected_listing_seller_display_name,
        line.selected_listing_seller_slug,
        line.selected_listing_price_amount::text AS selected_listing_price_amount,
+       line.selected_listing_price_currency_code,
+       line.selected_listing_stream_version,
        line.selected_listing_snapshot_source,
        line.selected_listing_snapshot_captured_at::text AS selected_listing_snapshot_captured_at,
        line.seller_preference_id,
@@ -188,7 +365,7 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
        opt.seller_options,
        line.created_at,
        line.updated_at
-     FROM checkout_cart_line_pages line
+     FROM winning_lines AS line
      LEFT JOIN LATERAL (
        SELECT COALESCE(
          json_agg(
@@ -200,6 +377,8 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
              'seller_average_rating', COALESCE(seller.average_rating, o.seller_average_rating)::text,
              'seller_review_count', COALESCE(seller.rating_count, o.seller_review_count, 0),
              'price_amount', o.price_amount::text,
+             'price_currency_code', o.price_currency_code,
+             'listing_stream_version', o.listing_stream_version,
              'available_quantity', LEAST(
                o.listing_quantity_cap,
                GREATEST(
@@ -223,6 +402,8 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
            option.seller_average_rating,
            option.seller_review_count,
            option.price_amount,
+           option.price_currency_code,
+           option.listing_stream_version,
            option.listing_quantity_cap,
            option.supply_total_quantity,
            option.active_held_quantity,
@@ -231,6 +412,8 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
          FROM checkout_marketplace_seller_options option
          WHERE option.product_id = line.product_id
            AND option.status = 'active'
+           AND option.price_currency_code IS NOT NULL
+           AND option.listing_stream_version > 0
            -- At-capacity sellers (m127 #4883) drop out of both the
            -- alternative-listing candidates and, for a locked line, the
            -- readiness re-check (selectedCartReadinessListing looks the
@@ -245,15 +428,73 @@ export async function listCartLines(db: PgQueryable, buyerAccountId: string): Pr
              )
            ) > 0
          ORDER BY option.price_amount ASC, option.listing_id ASC
-         LIMIT $2
+         LIMIT $3
        ) o
        LEFT JOIN checkout_seller_accounts seller
          ON seller.account_id = o.seller_account_id
      ) opt ON true
-     WHERE line.buyer_account_id = $1
-     ORDER BY line.updated_at DESC, line.line_id ASC`,
-    [buyerAccountId, CART_SELLER_OPTIONS_PER_LINE_LIMIT],
+     ORDER BY line.owner_output_group ASC, line.updated_at DESC, line.line_id ASC`,
+    [ownerKey, presentedAnonymousCartId, CART_SELLER_OPTIONS_PER_LINE_LIMIT, [...authorizedClaimedOwnerKeys]],
   );
 
   return result.rows.map(mapCartLineRow);
+}
+
+/**
+ * The raw routing read: the owner's own lines plus every stream the claim alias
+ * says the owner may hold a line on, plus an optional presented key.
+ *
+ * This is routing breadth, never authorization -- the same rule
+ * `listClaimedCartOwnerKeys` states, which is now the only place the alias table
+ * is read. Claimed-stream write routing and the internal merge service need that
+ * breadth to find which stream actually holds a line, and each resulting write
+ * is still authorized by the target stream's own evolved state. A reader that must not
+ * see a stream it has lost authority over asks for `listAuthorizedOwnerCartLines`
+ * instead, with an allowlist the Cart aggregate decided.
+ */
+export async function listCartLines(
+  db: PgQueryable,
+  buyerAccountId: string,
+  presentedAnonymousCartId?: string | null,
+): Promise<CheckoutCartLineRow[]> {
+  return resolveCartLines(
+    db,
+    buyerAccountId,
+    presentedAnonymousCartId ?? null,
+    await listClaimedCartOwnerKeys(db, buyerAccountId),
+  );
+}
+
+/**
+ * The same union, restricted to claimed sources an aggregate has already
+ * accepted for this reader.
+ *
+ * The allowlist is an input rather than something this function discovers,
+ * because discovering it here would mean reading the alias table again and
+ * re-opening exactly the bypass this shape exists to close. The caller resolves
+ * each candidate against its own Cart aggregate and passes only the accepted
+ * ones; refused and indeterminate candidates never reach the statement, so they
+ * cannot win a duplicate `line_id` and hide an authorized row the way
+ * post-filtering a resolved union would.
+ */
+export async function listAuthorizedOwnerCartLines(
+  db: PgQueryable,
+  ownerKey: string,
+  authorizedClaimedOwnerKeys: readonly string[],
+  presentedAnonymousCartId?: string | null,
+): Promise<CheckoutCartLineRow[]> {
+  return resolveCartLines(db, ownerKey, presentedAnonymousCartId ?? null, authorizedClaimedOwnerKeys);
+}
+
+/**
+ * Resolves only the lines the supplied owner key holds itself -- no claimed keys
+ * and no presented key -- through the same SQL and seller-option enrichment.
+ *
+ * A caller that must address one aggregate needs this instead of filtering a
+ * resolved union afterwards: matching a line that lives on a claimed source
+ * stream and then commanding the Account stream targets an aggregate where that
+ * line does not exist.
+ */
+export async function listOwnCartLines(db: PgQueryable, ownerKey: string): Promise<CheckoutCartLineRow[]> {
+  return resolveCartLines(db, ownerKey, null, []);
 }

@@ -12,6 +12,7 @@ function input(overrides = {}) {
     labels: FULL_LABELS,
     issueTypeName: "Slice",
     milestoneTitle: EXECUTABLE_MILESTONE,
+    milestoneDescription: '<!-- outcome: {"version":1,"track":"wave","order":1,"status":"committed"} -->',
     blockedByCount: 0,
     hasParent: false,
     ...overrides,
@@ -58,6 +59,25 @@ describe("validated backlog classification contract", () => {
 });
 
 describe("classification behavior", () => {
+  it.each(["Wave 9", "Mobile 4"])("does not classify an untagged %s", (milestoneTitle) => {
+    expect(classified(input({ milestoneTitle, milestoneDescription: null }))).toBe(false);
+  });
+  it("uses the description authority to exclude candidates and admit renamed committed outcomes", () => {
+    const metadata = (status) => `<!-- outcome: {"version":1,"track":"commerce","order":10,"status":"${status}"} -->`;
+    const candidate = input({
+      milestoneNumber: 200,
+      milestoneTitle: "Seller pilot",
+      milestoneDescription: metadata("candidate"),
+    });
+    expect(classified(candidate)).toBe(false);
+    expect(classified({ ...candidate, milestoneDescription: metadata("committed") })).toBe(true);
+    expect(classified({ ...candidate, milestoneDescription: metadata("committed"), milestoneState: "closed" })).toBe(
+      false,
+    );
+    expect(() => classified({ ...candidate, milestoneDescription: "<!-- outcome: broken -->" })).toThrow(
+      "OUTCOME_METADATA_MALFORMED",
+    );
+  });
   it("defines refined as exactly classified", () => {
     for (const candidate of [
       input(),

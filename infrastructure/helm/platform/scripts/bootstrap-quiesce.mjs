@@ -19,6 +19,7 @@ export function parseQuiesceOptions(argv, env = process.env) {
     commandTimeoutMs: Number(env.CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS ?? "780") * 1000,
     pollIntervalMs: Number(env.CHASE_SETS_QUIESCE_POLL_INTERVAL_MS ?? "2000"),
     restoreOnFailure: env.CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE !== "false",
+    restoreOnSuccess: env.CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS === "true",
     ignoreMissingDeployments: env.CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS !== "false",
   };
 }
@@ -42,6 +43,18 @@ export async function runQuiescedBootstrap(options) {
       await options.log(`Resuming KEDA autoscaling for ${deployment}.`);
       await options.kubernetes.resumeScaledObject(deployment);
       pausedScaledObjects.delete(deployment);
+    }
+  }
+
+  async function restoreDirectlyManagedDeployments() {
+    for (const [deployment, replicas] of originals) {
+      if (kedaManagedDeployments.has(deployment)) continue;
+      await options.log(`Restoring ${deployment} to ${replicas} replicas after bootstrap.`);
+      await options.kubernetes.scaleDeployment(deployment, replicas);
+      await options.kubernetes.waitForReplicas(deployment, replicas, {
+        timeoutMs: options.timeoutMs,
+        pollIntervalMs: options.pollIntervalMs,
+      });
     }
   }
 
@@ -70,6 +83,7 @@ export async function runQuiescedBootstrap(options) {
       await options.kubernetes.scaleDeployment(deployment, 0);
     }
 
+    const drainDeadline = Date.now() + options.timeoutMs;
     for (const deployment of originals.keys()) {
       await options.kubernetes.waitForReplicas(deployment, 0, {
         timeoutMs: options.timeoutMs,
@@ -77,11 +91,40 @@ export async function runQuiescedBootstrap(options) {
       });
     }
 
+    // The bootstrap records a worker quiesce only for a target with no pod left, terminating pods
+    // included, within the same drain budget; a missing deployment has none. A pod still exiting, or
+    // a pod list that cannot be read, does not fail the bootstrap; it only withholds that record.
+    const quiescedDeployments = [];
+    for (const deployment of options.deployments) {
+      let gone = !originals.has(deployment);
+      if (!gone) {
+        try {
+          gone = await options.kubernetes.waitForNoPods(deployment, {
+            timeoutMs: Math.max(0, drainDeadline - Date.now()),
+            pollIntervalMs: options.pollIntervalMs,
+          });
+        } catch (error) {
+          await options.log(`Could not list pods of ${deployment}: ${error.message}`);
+        }
+      }
+      if (gone) {
+        quiescedDeployments.push(deployment);
+      } else {
+        await options.log(
+          `Pods of ${deployment} may still be running; the bootstrap will not record a worker quiesce.`,
+        );
+      }
+    }
+
     const exitCode = await options.spawnCommand(options.command, {
       timeoutMs: options.commandTimeoutMs,
       log: options.log,
+      env: { CHASE_SETS_QUIESCED_DEPLOYMENTS: quiescedDeployments.join(",") },
     });
     if (exitCode === 0) {
+      if (options.restoreOnSuccess) {
+        await restoreDirectlyManagedDeployments();
+      }
       await options.log("Bootstrap completed; Helm may continue the rollout.");
       return 0;
     }
@@ -123,7 +166,9 @@ export function createKubernetesClient(options = {}) {
     throw new Error("KUBERNETES_SERVICE_HOST is required for bootstrap quiesce.");
   }
 
-  async function request(method, pathname, body) {
+  const request = options.request ?? httpsRequest;
+
+  async function httpsRequest(method, pathname, body) {
     const payload = body == null ? null : JSON.stringify(body);
     const response = await new Promise((resolve, reject) => {
       const req = https.request(
@@ -172,6 +217,23 @@ export function createKubernetesClient(options = {}) {
 
   function deploymentPath(name) {
     return `/apis/apps/v1/namespaces/${encodeURIComponent(namespace)}/deployments/${encodeURIComponent(name)}`;
+  }
+
+  async function countPods(name, matchLabels) {
+    const labelSelector = Object.entries(matchLabels ?? {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join(",");
+    if (!labelSelector) {
+      throw new Error(`Deployment ${name} has no selector labels, so its pods cannot be confirmed terminated.`);
+    }
+    const response = await request(
+      "GET",
+      `/api/v1/namespaces/${encodeURIComponent(namespace)}/pods?labelSelector=${encodeURIComponent(labelSelector)}`,
+    );
+    if (!Array.isArray(response.items)) {
+      throw new Error(`Kubernetes pod list for ${name} did not return items.`);
+    }
+    return response.items.length;
   }
 
   function scalePath(name) {
@@ -232,12 +294,30 @@ export function createKubernetesClient(options = {}) {
       }
       throw new Error(`Timed out waiting for ${name} to reach ${replicas} replicas.`);
     },
+    // A Deployment's status stops counting a pod once it is terminating, so only an empty pod list
+    // proves that every process of the deployment has exited.
+    async waitForNoPods(name, waitOptions) {
+      const deadline = Date.now() + waitOptions.timeoutMs;
+      const deployment = await request("GET", deploymentPath(name));
+      for (;;) {
+        if ((await countPods(name, deployment.spec?.selector?.matchLabels)) === 0) {
+          return true;
+        }
+        if (Date.now() >= deadline) {
+          return false;
+        }
+        await sleep(waitOptions.pollIntervalMs);
+      }
+    },
   };
 }
 
 export function spawnShellCommand(command, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("sh", ["-lc", command.join(" ")], { stdio: "inherit" });
+    const child = spawn("sh", ["-lc", command.join(" ")], {
+      stdio: "inherit",
+      env: { ...process.env, ...options.env },
+    });
     let timedOut = false;
     let forceKillTimeout = null;
     const commandTimeout =

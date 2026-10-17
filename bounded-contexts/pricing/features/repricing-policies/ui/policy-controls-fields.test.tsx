@@ -1,0 +1,97 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { t } from "@chase-sets/localization";
+import type { RepricingRuleCondition } from "../domain/domain";
+import { dryRunBody } from "../../repricing-engine/tests/dry-run-fixture";
+import { policyControls } from "./policy-controls";
+import {
+  anchorControlItems,
+  newPolicyCondition,
+  PolicyConditionFields,
+  PolicyDirectiveFields,
+} from "./policy-controls-fields";
+
+describe("policy union control rendering", () => {
+  it("renders goal name, version and all parameters read-only without offering a goal picker", () => {
+    const html = renderToStaticMarkup(
+      <PolicyDirectiveFields
+        advanced
+        value={{
+          ...dryRunBody.rules[0]!.directive,
+          anchorChain: [
+            { source: "curve-objective", goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 65 } },
+          ],
+        }}
+        onChange={() => {
+          throw new Error("Read-only summary must not change the goal");
+        }}
+      />,
+    );
+    for (const text of [
+      "Pricing goal",
+      "Price at the 65th market percentile",
+      "fixed-percentile",
+      "v1",
+      "percentile: 65",
+    ])
+      expect(html).toContain(text);
+    const anchorRow = html.slice(html.indexOf("<fieldset"), html.indexOf("</fieldset>") + "</fieldset>".length);
+    expect(anchorRow).not.toMatch(/<input|role="combobox"/);
+  });
+  it("offers only non-goal anchors in the Select items for an ordinary anchor", () => {
+    expect(dryRunBody.rules[0]!.directive.anchorChain[0]!.source).toBe("market-estimate");
+    expect(anchorControlItems().map(({ value }) => value)).toEqual([
+      "market-estimate",
+      "lowest-competing-ask",
+      "comp-percentile",
+      "last-sold",
+    ]);
+  });
+  it.each(Object.keys(policyControls.condition) as RepricingRuleCondition["type"][])(
+    "renders the %s condition's actual control and copy",
+    (type) => {
+      const value = newPolicyCondition(type);
+      const html = renderToStaticMarkup(
+        <PolicyConditionFields
+          value={value}
+          categories={[{ id: "cat_a", name: "Trading cards" }]}
+          onChange={() => undefined}
+        />,
+      );
+      expect(html).toContain(t(policyControls.condition[type].copyKey));
+      if (type === "schedule-window")
+        for (const text of ["Sunday", "Saturday", "Start time (UTC)", "End time (UTC)"]) expect(html).toContain(text);
+      if (type === "item-grading") expect(html).toContain('role="radiogroup"');
+      if (type.endsWith("at-least")) expect(html).toContain('type="number"');
+    },
+  );
+  it("renders the optional amount, reason, increment, percentile, margin and fallback inputs", () => {
+    const html = renderToStaticMarkup(
+      <PolicyDirectiveFields
+        advanced
+        value={{
+          ...dryRunBody.rules[0]!.directive,
+          anchorChain: [{ source: "comp-percentile", percentile: 75 }],
+          offset: { mode: "absolute", amount: "-1" },
+          floor: { mode: "cost-basis-plus-margin", marginPercent: 10, absoluteFallbackAmount: "4" },
+          ceiling: { mode: "absolute", amount: "99" },
+          tolerance: { mode: "absolute", amount: "1" },
+          rounding: { mode: "increment", incrementAmount: "0.05" },
+          terminal: { kind: "pause", reason: "No usable anchor" },
+        }}
+        onChange={() => undefined}
+      />,
+    );
+    for (const label of [
+      "Percentile (1-99)",
+      "Adjustment amount",
+      "Margin above cost (%)",
+      "Minimum price when cost is unavailable",
+      "Maximum price",
+      "Tolerance amount",
+      "Rounding increment",
+      "Pause reason",
+    ])
+      expect(html).toContain(label);
+  });
+});

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   loader as tcgplayerLoader,
@@ -180,6 +181,65 @@ describe("comparison SEO routes (#4087)", () => {
   it("keeps every FAQ answer free of unresolved interpolation tokens", () => {
     for (const jsonLd of [compareTcgplayerJsonLd(), compareEbayJsonLd()]) {
       expect(JSON.stringify(jsonLd)).not.toMatch(/\{[A-Za-z0-9_.-]+\}/);
+      expect(JSON.stringify(jsonLd)).not.toContain("September 1, 2026");
+      expect(JSON.stringify(jsonLd)).not.toContain("late July 2026");
+      expect(JSON.stringify(jsonLd)).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
     }
+  });
+});
+
+// #7178 AC3: independent base-oracle FAQPage JSON-LD parity. These literals were
+// captured by executing compareTcgplayerJsonLd()/compareEbayJsonLd() against the
+// exact implementation base d195db159569313ae9570a981f2464f9dbc88930 (the compare
+// routes and buildCompareStructuredData/buildCompareFaqEntries are untouched by
+// that issue) before the FAQ disclosure-collapse change landed. Keep these base
+// strings intact; the undated-copy change explicitly replaces only the launch answer.
+const baseTcgplayerFaqJsonLd =
+  '{"@context":"https://schema.org","@graph":[{"@type":"WebPage","@id":"https://chasesets.com/compare/tcgplayer#webpage","name":"TCGplayer Seller Fees vs Chase Sets | 2026 Comparison","description":"Compare TCGplayer marketplace commission, payment processing, protection, payouts, and game coverage with Chase Sets — with a live fee calculator and dated, sourced numbers.","url":"https://chasesets.com/compare/tcgplayer","isPartOf":{"@type":"WebSite","@id":"https://chasesets.com/#website","name":"Chase Sets","url":"https://chasesets.com/"}},{"@type":"BreadcrumbList","@id":"https://chasesets.com/compare/tcgplayer#breadcrumbs","itemListElement":[{"@type":"ListItem","position":1,"name":"Chase Sets","item":"https://chasesets.com/"},{"@type":"ListItem","position":2,"name":"Chase Sets vs TCGplayer for selling trading cards","item":"https://chasesets.com/compare/tcgplayer"}]},{"@type":"FAQPage","@id":"https://chasesets.com/compare/tcgplayer#faq","mainEntity":[{"@type":"Question","name":"How much does TCGplayer charge to sell trading cards?","acceptedAnswer":{"@type":"Answer","text":"As of July 12, 2026, TCGplayer\'s published fees for standard marketplace sellers are a 10.75% marketplace commission, capped at $75.00 per item, plus 2.5% + $0.30 payment processing per order. Shipping, tax, store subscriptions, and promotions can add to what a seller pays."}},{"@type":"Question","name":"What does Chase Sets charge sellers?","acceptedAnswer":{"@type":"Answer","text":"Chase Sets publishes one standard seller fee schedule: a percentage of the item price with a per-item cap, and no separate seller payment-processing fee. Every listing locks its fee the moment it is created. The calculator on this page loads the current numbers live from the published schedule."}},{"@type":"Question","name":"Will I keep more of the sale on Chase Sets than on TCGplayer?","acceptedAnswer":{"@type":"Answer","text":"It depends on the sale price and order size, so run your own numbers. The calculator on this page applies each marketplace\'s published schedule to the same order, rounding competitor fees down in the competitor\'s favor. Listings created during a founder\'s 60-day window lock 0% seller fees until they sell."}},{"@type":"Question","name":"Is Chase Sets live yet?","acceptedAnswer":{"@type":"Answer","text":"Not yet. Chase Sets opens to everyone on September 1, 2026, and beta invite waves begin late July 2026. Join the waitlist for an invite before launch and founders offer eligibility."}}]}]}';
+const baseTcgplayerFaqJsonLdBytes = 2503;
+const baseTcgplayerFaqJsonLdSha256 = "7c97384a433a829f9f34725db8c7a144007ca35f4fce6f2c84ae257f87b67be2";
+
+const baseEbayFaqJsonLd =
+  '{"@context":"https://schema.org","@graph":[{"@type":"WebPage","@id":"https://chasesets.com/compare/ebay#webpage","name":"eBay Trading Card Seller Fees vs Chase Sets | 2026 Comparison","description":"Compare eBay trading-card final value fees, per-order fees, protection, payouts, and coverage with Chase Sets — with a live fee calculator and dated, sourced numbers.","url":"https://chasesets.com/compare/ebay","isPartOf":{"@type":"WebSite","@id":"https://chasesets.com/#website","name":"Chase Sets","url":"https://chasesets.com/"}},{"@type":"BreadcrumbList","@id":"https://chasesets.com/compare/ebay#breadcrumbs","itemListElement":[{"@type":"ListItem","position":1,"name":"Chase Sets","item":"https://chasesets.com/"},{"@type":"ListItem","position":2,"name":"Chase Sets vs eBay for selling trading cards","item":"https://chasesets.com/compare/ebay"}]},{"@type":"FAQPage","@id":"https://chasesets.com/compare/ebay#faq","mainEntity":[{"@type":"Question","name":"How much does eBay charge to sell trading cards?","acceptedAnswer":{"@type":"Answer","text":"As of July 12, 2026, eBay\'s published trading-cards fees for sellers without a store are a 13.25% final value fee on the portion of a sale up to $7,500.00, plus 2.35% above it. Payment processing is included. There\'s also a $0.30 per-order fee ($0.40 on orders over $10.00). Store subscriptions, optional listing upgrades, and promoted listings can change what a seller pays."}},{"@type":"Question","name":"What does Chase Sets charge sellers?","acceptedAnswer":{"@type":"Answer","text":"Chase Sets publishes one standard seller fee schedule: a percentage of the item price with a per-item cap, and no separate seller payment-processing fee. Every listing locks its fee the moment it is created. The calculator on this page loads the current numbers live from the published schedule."}},{"@type":"Question","name":"Will I keep more of the sale on Chase Sets than on eBay?","acceptedAnswer":{"@type":"Answer","text":"It depends on the sale price and order size, so run your own numbers. The calculator on this page applies each marketplace\'s published schedule to the same order, rounding competitor fees down in the competitor\'s favor. Listings created during a founder\'s 60-day window lock 0% seller fees until they sell."}},{"@type":"Question","name":"Is Chase Sets live yet?","acceptedAnswer":{"@type":"Answer","text":"Not yet. Chase Sets opens to everyone on September 1, 2026, and beta invite waves begin late July 2026. Join the waitlist for an invite before launch and founders offer eligibility."}}]}]}';
+const baseEbayFaqJsonLdBytes = 2565;
+const baseEbayFaqJsonLdSha256 = "2eb7bd427f0d13be8bd0d6a08a278e3e1e08d8ce92490082cde9685d240e45e5";
+
+function sha256Hex(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function byteLength(value: string) {
+  return new TextEncoder().encode(value).length;
+}
+
+function withUndatedLaunchAnswer(baseJsonLd: string) {
+  const expected = JSON.parse(baseJsonLd) as {
+    "@graph": { "@type": string; mainEntity?: { name: string; acceptedAnswer: { text: string } }[] }[];
+  };
+  const launchAnswer = expected["@graph"]
+    .find((node) => node["@type"] === "FAQPage")
+    ?.mainEntity?.find((entry) => entry.name === "Is Chase Sets live yet?")?.acceptedAnswer;
+  if (!launchAnswer) throw new Error("Expected the base FAQ launch answer.");
+  expect(launchAnswer.text).toBe(
+    "Not yet. Chase Sets opens to everyone on September 1, 2026, and beta invite waves begin late July 2026. Join the waitlist for an invite before launch and founders offer eligibility.",
+  );
+  launchAnswer.text =
+    "Not yet. Join the waitlist first. Numbered beta invite waves come next, followed by open signup for everyone. Joining the waitlist gives you a chance at an invite before launch and founders offer eligibility. No launch or wave dates are promised.";
+  return JSON.stringify(expected);
+}
+
+describe("compare-page FAQ JSON-LD preserves the base oracle except for undated launch copy", () => {
+  it("changes only the TCGplayer launch answer from the exact-base oracle", () => {
+    const headJsonLd = JSON.stringify(compareTcgplayerJsonLd());
+    expect(headJsonLd).toBe(withUndatedLaunchAnswer(baseTcgplayerFaqJsonLd));
+    expect(byteLength(baseTcgplayerFaqJsonLd)).toBe(baseTcgplayerFaqJsonLdBytes);
+    expect(sha256Hex(baseTcgplayerFaqJsonLd)).toBe(baseTcgplayerFaqJsonLdSha256);
+  });
+
+  it("changes only the eBay launch answer from the exact-base oracle", () => {
+    const headJsonLd = JSON.stringify(compareEbayJsonLd());
+    expect(headJsonLd).toBe(withUndatedLaunchAnswer(baseEbayFaqJsonLd));
+    expect(byteLength(baseEbayFaqJsonLd)).toBe(baseEbayFaqJsonLdBytes);
+    expect(sha256Hex(baseEbayFaqJsonLd)).toBe(baseEbayFaqJsonLdSha256);
   });
 });

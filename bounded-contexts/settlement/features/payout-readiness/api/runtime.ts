@@ -1,4 +1,5 @@
 import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
+import { links } from "../../../support/runtime-support/link-intents";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -45,6 +46,7 @@ import { buildPayoutSetupProgress, type PayoutSetupProgress } from "../domain/se
 import type { PayoutDestinationFrictionPolicy } from "../../payouts/api/runtime";
 
 type PayoutReadinessRuntimeDeps = Readonly<{
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
@@ -53,6 +55,11 @@ type PayoutReadinessRuntimeDeps = Readonly<{
   notificationOutbox?: NotificationOutbox;
   payoutDestinationFrictionPolicy?: Partial<PayoutDestinationFrictionPolicy>;
 }>;
+
+async function governedSessionSlot<T extends 1 | 2 | 3>(deps: PayoutReadinessRuntimeDeps, slot: T) {
+  const window = await deps.evidenceWindowCorrelation?.currentOpenWindow();
+  return window ? { evidenceWindow: window, evidenceWindowSlot: slot } : {};
+}
 
 /**
  * The machine-coded refusals `createPayoutAccountManagementSession` can return
@@ -417,7 +424,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         recipient: { accountId: params.accountId },
         title,
         body,
-        actionHref: "/account/desk/settings",
+        actionHref: links("account-desk-settings", { path: {} }).href,
       },
     ];
     const [firstChannel, ...otherChannels] = channels;
@@ -430,7 +437,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         criticality: "security",
         title,
         body,
-        actionHref: "/account/desk/settings",
+        actionHref: links("account-desk-settings", { path: {} }).href,
         templateId: "settlement_payout_destination_changed",
         templateVersion: 1,
         locale: "en",
@@ -565,6 +572,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         );
 
         const session = await deps.moneyMovementGateway.createPayoutSetupSession({
+          ...(await governedSessionSlot(deps, 1)),
           accountId: params.accountId,
           providerReference: ensured.providerReference,
           contactEmail: params.contactEmail,
@@ -770,6 +778,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         }
 
         const session = await deps.moneyMovementGateway.createPayoutAccountManagementSession({
+          ...(await governedSessionSlot(deps, 2)),
           accountId: params.accountId,
           providerReference: existing.provider_reference,
           idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-manage:${createId("manage")}`,
@@ -807,6 +816,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       }
 
       const session = await deps.moneyMovementGateway.createPayoutNotificationBannerSession({
+        ...(await governedSessionSlot(deps, 3)),
         accountId: params.accountId,
         providerReference: existing.provider_reference,
         idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-notification-banner:${createId("banner")}`,

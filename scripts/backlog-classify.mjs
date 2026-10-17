@@ -1,5 +1,7 @@
 const EPIC_LABEL = "kind:epic";
 const TRACKING_ONLY_LABEL = "status:tracking-only";
+import { isExecutableOutcome } from "./milestone-policy.mjs";
+
 const NON_EXECUTABLE_MILESTONES = new Set(["Deferred / Incubation", "Operations"]);
 const KNOWN_ISSUE_TYPES = new Set(["Epic", "Slice", "Bug", "Decision", "Probe"]);
 
@@ -47,6 +49,13 @@ function validate(input) {
   if (milestoneTitle !== null && typeof milestoneTitle !== "string") {
     throw new BacklogClassificationInputError("milestoneTitle", "expected a string or null");
   }
+  if (
+    Object.hasOwn(input, "milestoneDescription") &&
+    input.milestoneDescription !== null &&
+    typeof input.milestoneDescription !== "string"
+  ) {
+    throw new BacklogClassificationInputError("milestoneDescription", "expected a string or null");
+  }
 
   const blockedByCount = requireField(input, "blockedByCount");
   if (typeof blockedByCount !== "number" || !Number.isInteger(blockedByCount) || blockedByCount < 0) {
@@ -80,6 +89,20 @@ export function classified(input) {
     value.milestoneTitle === null ||
     value.milestoneTitle.length === 0 ||
     NON_EXECUTABLE_MILESTONES.has(value.milestoneTitle)
+  ) {
+    return false;
+  }
+
+  // New collectors carry the description authority. Older callers retain the
+  // pre-migration predicate until they provide the complete milestone fact.
+  if (
+    Object.hasOwn(value, "milestoneDescription") &&
+    !isExecutableOutcome({
+      number: value.milestoneNumber,
+      title: value.milestoneTitle,
+      description: value.milestoneDescription,
+      state: value.milestoneState ?? "open",
+    })
   ) {
     return false;
   }

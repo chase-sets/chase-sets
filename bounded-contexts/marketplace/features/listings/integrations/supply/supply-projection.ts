@@ -1,3 +1,7 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -11,6 +15,16 @@ import type {
 } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildCatalogMirrorProjectionHandlers } from "@chase-sets/event-core-postgres/catalog-mirror";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" &&
+      subscription.projectionName === "marketplace-catalog-item-projection",
+  )!,
+);
+
+export const CATALOG_ITEM_STREAM_PREFIX = "catalog.item-";
 
 // Splits reputation into as-seller (reviews authored by buyers) and as-buyer
 // (reviews authored by sellers) dimensions (m108): a review's `author_role`
@@ -427,13 +441,14 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
       itemStatusTransitions: { retired: "retired" },
       optionalHandlers: { displayIdentityResolved: true },
     }),
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE marketplace_catalog_items
          SET product_measure_snapshots = $2,
              updated_at = $3
@@ -444,9 +459,9 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
           event.timing.recordedAt,
         ],
       );
-    },
+    }),
     "catalog.catalog-item.category-assigned": async (event) => {
-      const itemId = event.streamId.slice("catalog.catalog-item-".length);
+      const itemId = extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
       await db.query(
         `UPDATE marketplace_catalog_items
@@ -463,7 +478,7 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
       );
     },
     "catalog.catalog-item.category-removed": async (event) => {
-      const itemId = event.streamId.slice("catalog.catalog-item-".length);
+      const itemId = extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
       await db.query(
         `UPDATE marketplace_catalog_items

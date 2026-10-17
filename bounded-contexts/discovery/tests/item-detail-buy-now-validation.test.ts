@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendFreshWriteToken,
-  appendPostWriteHandoffFromSources,
+  appendPostWriteHandoff,
   decodeFreshWriteReceipt,
   readCompactPostWriteToken,
   readFreshWriteToken,
@@ -208,22 +208,55 @@ const selectedSellerListingHandoff = {
 } as const;
 
 function appendSelectedSellerListingFreshWrite(path: string, listingId = "lst_item_detail") {
-  return appendPostWriteHandoffFromSources(
-    path,
-    [commandResult({ id: listingId }, "marketplace")],
-    selectedSellerListingHandoff,
-  );
+  return appendPostWriteHandoff(path, commandResult({ id: listingId }, "marketplace"), selectedSellerListingHandoff);
 }
 
 function appendSelectedSellerListingFreshWriteWithHandoff(
   path: string,
-  handoff: Parameters<typeof appendPostWriteHandoffFromSources>[2],
+  handoff: Parameters<typeof appendPostWriteHandoff>[2],
   listingId = "lst_item_detail",
 ) {
-  return appendPostWriteHandoffFromSources(path, [commandResult({ id: listingId }, "marketplace")], handoff);
+  return appendPostWriteHandoff(path, commandResult({ id: listingId }, "marketplace"), handoff);
 }
 
 describe("item detail buy now validation and watch intents", () => {
+  it("checkout-closed-discovery-action: presents owning copy for a refused buy-now start", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: null,
+        market_listings: [{ listing_id: "lst_charizard", status: "active", quantity_cap: 1, visible_quantity: 1 }],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutSession.mockRejectedValue(
+      Object.assign(new Error("Checkout closed"), { status: 503, body: { error: { code: "checkout_closed" } } }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ createCheckoutSession: mockCreateCheckoutSession });
+    const result = await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        body: new URLSearchParams({
+          intent: "buy-this-listing",
+          productId: "cat_charizard::form:raw",
+          selectedOptions: "[]",
+          quantity: "1",
+          lockedListingId: "lst_charizard",
+        }),
+      }),
+      params: { id: "cat_charizard" },
+      context: {},
+      url: new URL("http://localhost/items/cat_charizard"),
+      pattern: "/items/:id",
+    });
+    expect(result).toEqual({
+      intent: "buy-this-listing",
+      error: "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
+    });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -672,6 +705,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
     form.set("thresholdAmount", "20");
+    form.set("thresholdCurrencyCode", "EUR");
 
     const result = (await action({
       request: new Request("http://localhost/items/cat_charizard?market=watch", {
@@ -698,6 +732,7 @@ describe("item detail buy now validation and watch intents", () => {
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       thresholdAmount: "20.00",
+      thresholdCurrencyCode: "EUR",
     });
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
     expect(mockCreateProductAlert).not.toHaveBeenCalled();
@@ -1908,6 +1943,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
     form.set("priceAmount", "350.00");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = (await action({
@@ -1932,6 +1968,7 @@ describe("item detail buy now validation and watch intents", () => {
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       priceAmount: "350.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
     });
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
@@ -2012,6 +2049,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
     form.set("productSummary", "Form: Raw");
     form.set("priceAmount", "24.35");
+    form.set("priceCurrencyCode", "USD");
     form.set("quantityCap", "1");
 
     const result = (await action({
@@ -2055,6 +2093,7 @@ describe("item detail buy now validation and watch intents", () => {
     expect(createListing).toHaveBeenCalledWith({
       inventoryItemId: "",
       priceAmount: "24.35",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
       inventorySnapshot: expect.anything(),
     });
@@ -2110,6 +2149,7 @@ describe("item detail buy now validation and watch intents", () => {
     form.set("intent", "list-at-price");
     form.set("listingId", "lst_item_detail");
     form.set("priceAmount", "26.75");
+    form.set("priceCurrencyCode", "EUR");
     form.set("quantityCap", "2");
 
     const result = (await action({
@@ -2148,6 +2188,7 @@ describe("item detail buy now validation and watch intents", () => {
     expect(previewListingTerms).toHaveBeenCalledWith({ priceAmount: "26.75" });
     expect(updateListingPrice).toHaveBeenCalledWith("lst_item_detail", {
       priceAmount: "26.75",
+      priceCurrencyCode: "EUR",
       feeQuoteFingerprint: "quote_2",
     });
     expect(updateListingQuantityCap).toHaveBeenCalledWith("lst_item_detail", {

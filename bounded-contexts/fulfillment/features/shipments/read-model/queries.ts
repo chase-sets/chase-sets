@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PostageOperationSubjectKind } from "@chase-sets/postage-labels";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { PackagePlan } from "@chase-sets/product-measures";
 
@@ -64,7 +65,8 @@ export type FulfillmentPostageLabelOperationDiagnosticRow = Readonly<{
 export type FulfillmentPostageLabelOperationRecord = Readonly<{
   operation_key: string;
   operation_kind: "purchase-usps-label" | "void-label";
-  shipment_id: string;
+  subject_kind: PostageOperationSubjectKind;
+  subject_id: string;
   provider_name: string;
   provider_mode: string;
   idempotency_key: string;
@@ -96,6 +98,15 @@ export type FulfillmentPostageProviderEventDiagnosticRow = Readonly<{
   processing_result: string | null;
   occurred_at: string;
   received_at: string;
+}>;
+
+export type FulfillmentShipmentConflictRow = Readonly<{
+  order_id: string;
+  conflict_kind: "cancellation" | "destination-correction";
+  origin: string;
+  reason: string | null;
+  shipment_status: string;
+  detected_at: string;
 }>;
 
 export type FulfillmentShipmentListRow = Readonly<{
@@ -146,6 +157,7 @@ export type FulfillmentShipmentListRow = Readonly<{
   exception_raised_at: string | null;
   line_count: number;
   total_quantity: number;
+  conflicts: readonly FulfillmentShipmentConflictRow[];
 }>;
 
 export type FulfillmentShipmentDetailRow = FulfillmentShipmentListRow &
@@ -162,7 +174,8 @@ export async function recordFulfillmentPostageLabelOperationPending(
   operation: Readonly<{
     operationKey: string;
     operationKind: "purchase-usps-label" | "void-label";
-    shipmentId: string;
+    subjectKind: PostageOperationSubjectKind;
+    subjectId: string;
     providerName: string;
     providerMode: string;
     idempotencyKey: string;
@@ -176,7 +189,8 @@ export async function recordFulfillmentPostageLabelOperationPending(
        INSERT INTO fulfillment_postage_label_operations (
          operation_key,
          operation_kind,
-         shipment_id,
+         subject_kind,
+         subject_id,
          provider_name,
          provider_mode,
          idempotency_key,
@@ -184,7 +198,7 @@ export async function recordFulfillmentPostageLabelOperationPending(
          status,
          created_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', $8, $8)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'pending', $9, $9)
        ON CONFLICT (operation_key) DO UPDATE
        SET provider_name = EXCLUDED.provider_name,
            provider_mode = EXCLUDED.provider_mode,
@@ -201,7 +215,8 @@ export async function recordFulfillmentPostageLabelOperationPending(
        RETURNING
          operation_key,
          operation_kind,
-         shipment_id,
+         subject_kind,
+         subject_id,
          provider_name,
          provider_mode,
          idempotency_key,
@@ -221,7 +236,8 @@ export async function recordFulfillmentPostageLabelOperationPending(
      SELECT
        existing.operation_key,
        existing.operation_kind,
-       existing.shipment_id,
+       existing.subject_kind,
+       existing.subject_id,
        existing.provider_name,
        existing.provider_mode,
        existing.idempotency_key,
@@ -241,7 +257,8 @@ export async function recordFulfillmentPostageLabelOperationPending(
     [
       operation.operationKey,
       operation.operationKind,
-      operation.shipmentId,
+      operation.subjectKind,
+      operation.subjectId,
       operation.providerName,
       operation.providerMode,
       operation.idempotencyKey,
@@ -254,7 +271,8 @@ export async function recordFulfillmentPostageLabelOperationPending(
     return {
       operation_key: operation.operationKey,
       operation_kind: operation.operationKind,
-      shipment_id: operation.shipmentId,
+      subject_kind: operation.subjectKind,
+      subject_id: operation.subjectId,
       provider_name: operation.providerName,
       provider_mode: operation.providerMode,
       idempotency_key: operation.idempotencyKey,
@@ -366,7 +384,8 @@ export async function listStaleFulfillmentPostageLabelOperations(
     `SELECT
        operation_key,
        operation_kind,
-       shipment_id,
+       subject_kind,
+       subject_id,
        provider_name,
        provider_mode,
        idempotency_key,
@@ -381,6 +400,7 @@ export async function listStaleFulfillmentPostageLabelOperations(
        completed_at
      FROM fulfillment_postage_label_operations
      WHERE operation_kind = 'purchase-usps-label'
+       AND subject_kind = 'shipment'
        AND status IN ('pending', 'provider-succeeded')
        AND updated_at <= $1
      ORDER BY updated_at ASC, operation_key ASC
@@ -399,7 +419,8 @@ export async function listStaleFulfillmentPostageLabelVoidOperations(
     `SELECT
        operation_key,
        operation_kind,
-       shipment_id,
+       subject_kind,
+       subject_id,
        provider_name,
        provider_mode,
        idempotency_key,
@@ -414,6 +435,7 @@ export async function listStaleFulfillmentPostageLabelVoidOperations(
        completed_at
      FROM fulfillment_postage_label_operations
      WHERE operation_kind = 'void-label'
+       AND subject_kind = 'shipment'
        AND status IN ('pending', 'provider-succeeded')
        AND updated_at <= $1
      ORDER BY updated_at ASC, operation_key ASC
@@ -473,7 +495,8 @@ const baseShipmentSelect = `
     page.returned_at,
     page.exception_raised_at,
     COALESCE(line_stats.line_count, 0) AS line_count,
-    COALESCE(line_stats.total_quantity, 0) AS total_quantity
+    COALESCE(line_stats.total_quantity, 0) AS total_quantity,
+    COALESCE(conflict_stats.conflicts, '[]'::jsonb) AS conflicts
   FROM fulfillment_shipment_pages AS page
   LEFT JOIN fulfillment_account_pages AS buyer
     ON buyer.account_id = page.buyer_account_id
@@ -488,6 +511,23 @@ const baseShipmentSelect = `
     GROUP BY shipment_id
   ) AS line_stats
     ON line_stats.shipment_id = page.shipment_id
+  LEFT JOIN (
+    SELECT
+      conflict.shipment_id,
+      jsonb_agg(
+        jsonb_build_object(
+          'order_id', conflict.order_id,
+          'conflict_kind', conflict.conflict_kind,
+          'origin', conflict.origin,
+          'reason', conflict.reason,
+          'shipment_status', conflict.shipment_status,
+          'detected_at', conflict.detected_at
+        ) ORDER BY conflict.conflict_kind, conflict.origin
+      ) AS conflicts
+    FROM fulfillment_shipment_conflict_pages AS conflict
+    GROUP BY conflict.shipment_id
+  ) AS conflict_stats
+    ON conflict_stats.shipment_id = page.shipment_id
 `;
 
 export async function listBuyerShipments(
@@ -517,6 +557,7 @@ export async function listBuyerShipments(
     items: itemsResult.rows.map((row) => ({
       ...row,
       shipping_origin_snapshot: null,
+      conflicts: [],
     })),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
@@ -601,7 +642,8 @@ async function loadShipmentDetailCollections(db: PgQueryable, shipmentId: string
          updated_at,
          completed_at
        FROM fulfillment_postage_label_operations
-       WHERE shipment_id = $1
+       WHERE subject_kind = 'shipment'
+         AND subject_id = $1
        ORDER BY created_at DESC, operation_key DESC
        LIMIT 25`,
       [shipmentId],
@@ -620,7 +662,8 @@ async function loadShipmentDetailCollections(db: PgQueryable, shipmentId: string
          occurred_at,
          received_at
        FROM fulfillment_postage_provider_events
-       WHERE shipment_id = $1
+       WHERE subject_kind = 'shipment'
+         AND subject_id = $1
        ORDER BY occurred_at DESC, provider_event_id DESC
        LIMIT 25`,
       [shipmentId],
@@ -657,6 +700,7 @@ export async function getBuyerShipment(
   return {
     ...row,
     shipping_origin_snapshot: null,
+    conflicts: [],
     ...detailCollections,
   };
 }

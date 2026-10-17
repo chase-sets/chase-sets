@@ -20,7 +20,7 @@ If an item uses a `condition` dimension, that condition is represented inside th
 - Buyer and seller pairing per order
 - Pending-payment and cancelled order status
 - Pre-shipment cancellation rules
-- Buyer self-service purchase cancellation while Fulfillment has not started packing
+- Buyer self-service purchase cancellation and seller self-service sale cancellation while Fulfillment has not started packing
 - Provider-agnostic tax quote contracts and local deterministic tax quote behavior (`features/tax-quotes`)
 - State-by-state tax nexus threshold tracking and collection-provider dependency posture (`features/tax-nexus`)
 - Tax readiness language for production marketplace promotion
@@ -41,7 +41,7 @@ If an item uses a `condition` dimension, that condition is represented inside th
 Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 Postage policy evaluation and package-plan snapshots are documented in [Postage Policy](./docs/postage-policy.md).
 Order Protection allocation and the ratified worked examples are documented in [Order Protection Economics](./docs/order-protection-economics.md).
-Buyer self-service purchase cancellation is documented in [Self-Service Purchase Cancellation](./docs/self-service-purchase-cancellation.md).
+Buyer and seller self-service cancellation are documented in [Self-Service Purchase Cancellation](./docs/self-service-purchase-cancellation.md).
 
 ## Core Aggregates and Process Managers
 
@@ -71,7 +71,7 @@ Buyer self-service purchase cancellation is documented in [Self-Service Purchase
 3. Checkout lines express buyer intent for a product; concrete listing and inventory matching happen when Ordering creates orders.
 4. A checkout session may produce one or more orders grouped by seller account.
 5. Inventory holds are placed only when an order is committed and released if the order is cancelled while pending.
-6. Buyer self-service cancellation after payment is available only before Fulfillment records packing start.
+6. Buyer self-service purchase cancellation and seller self-service sale cancellation after payment are available only before Fulfillment records packing start.
 7. Buyers correct purchase mistakes by cancelling and rebuying, not by editing committed order terms.
 8. Tax quotes stay provider-agnostic behind resolver interfaces; orders store immutable tax snapshots after quote resolution.
 9. Production marketplace launch may use zero-tax snapshots only while tax readiness evidence confirms no tracked jurisdiction requires collection; provider-backed quotes become required before collecting sales tax in any registered or collecting jurisdiction.

@@ -68,7 +68,7 @@ describe("Catalog integration operator acceptance journeys", () => {
     expect(doc).toContain("primary-workbench-source-observation-review.test.ts");
     expect(doc).toContain("primary-workbench-page.test.tsx");
     expect(doc).toContain("catalog-integration-provider-transport-budgets.test.ts");
-    expect(doc).toContain("catalog-integration-security-privacy-launch-gate.test.ts");
+    expect(doc).toContain("scripts/check-structure/catalog-integration-security-privacy-launch-gate.test.mjs");
     expect(doc).toContain("route.test.ts");
     expect(doc).toContain("runtime.test.ts");
     expect(doc).not.toContain(["integration", "management", "page.test.tsx"].join("-"));

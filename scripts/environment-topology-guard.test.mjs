@@ -169,6 +169,26 @@ describe("environment topology authority derivation", () => {
     }
   });
 
+  it("fails closed when the marketplace serving local is renamed without updating the authority regex", () => {
+    const root = makeAuthorityFixture();
+    replaceInFile(
+      root,
+      "infrastructure/digitalocean/platform/locals.tf",
+      'local.marketplace_served ? ["marketplace"] : []',
+      'local.marketplace_routed ? ["marketplace"] : []',
+    );
+
+    expect(deriveEnvironmentHosts(root).violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          anchorId: "A2",
+          code: "topology-authority-diverged",
+          path: "infrastructure/digitalocean/platform/locals.tf",
+        }),
+      ]),
+    );
+  });
+
   it.each(authorityAnchors.flatMap((anchor) => ["unreadable", "diverged"].map((mode) => [anchor.id, mode, anchor])))(
     "%s fails closed when %s",
     (_anchorId, mode, anchor) => {

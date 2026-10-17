@@ -228,6 +228,12 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.api.runtime.reconciliation.failed": "Reconciliation failed.",
   "settlement.features.payouts.api.runtime.wallet.credited": "Wallet credited",
   "settlement.features.payouts.api.runtime.wallet.debited": "Wallet debited",
+  "settlement.features.payouts.ui.netPayout": "Net payout",
+  "settlement.features.payouts.ui.payoutFeeTerms": "Payout fee terms",
+  "settlement.features.payouts.ui.sellerFeesAndDeductions": "Seller fees and deductions",
+  "settlement.features.payouts.ui.netPayoutAmount": "Net payout: {amount}",
+  "settlement.features.payouts.ui.payoutFee": "Payout fee",
+  "settlement.features.payouts.ui.requestedAmount": "Requested amount",
   "settlement.features.payouts.readModel.queries.and.provider.payout.reference.is.null":
     "AND provider_payout_reference IS NULL",
   "settlement.features.payouts.readModel.queries.and.status.failed": "AND status = 'failed'",
@@ -516,6 +522,8 @@ export const settlementEnglishTranslations = {
   "settlement.features.wallets.api.wallet-adjustment-route.authentication.required": "Authentication required.",
   "settlement.features.wallets.api.wallet-adjustment-route.command.failed": "Wallet adjustment command failed.",
   "settlement.features.wallets.api.wallet-adjustment-route.forbidden": "Forbidden.",
+  "settlement.features.wallets.api.staging-proof-credit.refused":
+    "Staging proof credit refused. Inspect the policy and proof receipt before retrying.",
   "settlement.features.wallets.api.wallet-adjustment-route.step.up.required":
     "Confirm it is you before posting, approving, or reversing this Wallet Adjustment.",
   "settlement.features.wallets.integrations.paymentSource.paymentSourceSchema.create.table.if.not.exists.settlement":
@@ -1007,4 +1015,5 @@ export const settlementEnglishTranslations = {
   "settlement.features.moneyDashboard.ui.walletAdjustmentSafeTitle": "About this adjustment",
   "settlement.features.moneyDashboard.ui.walletAdjustmentTitle": "Wallet adjustment {reference}",
   "settlement.features.moneyDashboard.ui.walletBalance": "Available wallet balance",
+  "settlement.shell.money.label": "Seller money",
 } as const;

@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { act, useState } from "react";
+import { act, createRef, useState, type ReactNode } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import tailwindConfig from "../../../../tailwind.config";
 import {
   Button,
@@ -22,7 +22,19 @@ import {
   ToolbarSeparator,
   TopNav,
 } from "../components/actions";
-import { Card, DataTable, ImageGallery } from "../components/data-display";
+import {
+  AddressBlock,
+  Card,
+  ChecklistCard,
+  DataTable,
+  ImageGallery,
+  OperationalLockBanner,
+  OperationalStatusBanner,
+  TaskSummary,
+  WorkflowModule,
+  WorkflowReadinessChecklist,
+} from "../components/data-display";
+import { CheckoutConfirmationPanel, CheckoutStateNotice, CheckoutSummaryPanel } from "../components/checkout";
 import {
   Accordion,
   AccordionOptionTrigger,
@@ -44,6 +56,7 @@ import {
 import { Icon, type IconName } from "../icons";
 import {
   Checkbox,
+  CurrencyInput,
   Combobox,
   Autocomplete,
   NativeSelect,
@@ -66,7 +79,6 @@ import {
   MarketStatusBadge,
   MarketplaceFacetRail,
   MarketplaceFacetStrip,
-  MarketplaceLandingHero,
   MarketplaceMarketSummary,
   MarketplaceProductCard,
   MarketplaceShell,
@@ -78,13 +90,429 @@ import {
   Wizard,
 } from "../patterns/app-shells";
 import { AutoGrid, Box, Container, FlexItem, SkipLink, Stack, Surface } from "../primitives/layout";
-import { LinkText, Text } from "../primitives/typography";
+import { LinkText, Text, Thumbnail } from "../primitives/typography";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { ThemePreferenceControl, ThemeToggle } from "../theme/theme-toggle";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
 import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
 
+interface MotionDivRender {
+  initial: unknown;
+  animate: unknown;
+  variants: unknown;
+  transition: unknown;
+}
+
+const motionDivRenders = vi.hoisted(() => [] as MotionDivRender[]);
+
+// Transparent passthrough: the real Motion runtime still renders (server styles,
+// hydration, animations), while every `motion.div` render records the motion
+// props the Stagger tests compare against the base fixture.
+// `ref` reaches the real div only because React 19 passes refs as plain props.
+vi.mock("motion/react", async (importOriginal) => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  const actual = await importOriginal<typeof import("motion/react")>();
+  const ActualMotionDiv = actual.motion.div;
+
+  function RecordingMotionDiv(props: Record<string, unknown>) {
+    motionDivRenders.push({
+      initial: props.initial,
+      animate: props.animate,
+      variants: props.variants,
+      transition: props.transition,
+    });
+
+    return React.createElement(ActualMotionDiv, props as never);
+  }
+
+  return {
+    ...actual,
+    motion: new Proxy(actual.motion, {
+      get(target, key) {
+        return key === "div" ? RecordingMotionDiv : Reflect.get(target, key);
+      },
+    }),
+  };
+});
+
+beforeEach(() => {
+  motionDivRenders.length = 0;
+});
+
 const expectedSpacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] satisfies SpaceToken[];
+
+describe("6110 accessible compositions", () => {
+  it("6110 numeric label ownership preserves client form, refs, conversion and state", async () => {
+    const quantity = createRef<HTMLInputElement>();
+    const amount = createRef<HTMLInputElement>();
+    const onQuantity = vi.fn();
+    const onAmount = vi.fn();
+    const fixture = (disabled: boolean, readOnly: boolean) => (
+      <ChaseRoot>
+        <form id="6110-order" />
+        <NumberField
+          ref={quantity}
+          label="Quantity to buy"
+          name="quantity"
+          form="6110-order"
+          value={2}
+          onValueChange={onQuantity}
+          disabled={disabled}
+          readOnly={readOnly}
+          required
+        />
+        <CurrencyInput
+          ref={amount}
+          label="Unit price"
+          aria-label="Price in US dollars"
+          currencyCode="USD"
+          name="price"
+          form="6110-order"
+          value="2.50"
+          onValueChange={onAmount}
+          disabled={disabled}
+          readOnly={readOnly}
+          required
+        />
+      </ChaseRoot>
+    );
+    const view = render(fixture(false, false));
+    expect(quantity.current).toBe(screen.getByRole("spinbutton", { name: "Quantity to buy" }));
+    expect(amount.current).toBe(screen.getByRole("spinbutton", { name: "Unit price" }));
+    expect(amount.current!.getAttribute("aria-label")).toBe("Price in US dollars");
+    expect(new FormData(document.getElementById("6110-order") as HTMLFormElement).get("quantity")).toBe("2");
+    expect(new FormData(document.getElementById("6110-order") as HTMLFormElement).get("price")).toBe("2.5");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Increase value" }));
+    await user.click(screen.getByRole("button", { name: "Increase amount" }));
+    expect(onQuantity).toHaveBeenLastCalledWith(3);
+    expect(onAmount).toHaveBeenLastCalledWith("2.51");
+    for (const [disabled, readOnly] of [
+      [true, false],
+      [false, true],
+    ]) {
+      view.rerender(fixture(disabled!, readOnly!));
+      for (const input of [quantity.current!, amount.current!]) {
+        expect(input.disabled).toBe(disabled);
+        expect(input.readOnly).toBe(readOnly);
+        expect(input.required).toBe(true);
+      }
+      expectReferences(view.container);
+    }
+  });
+
+  function expectReferences(container: HTMLElement) {
+    const owners = Array.from(container.querySelectorAll("[id]"));
+    expect(new Set(owners.map((owner) => owner.id)).size).toBe(owners.length);
+    for (const element of container.querySelectorAll("*")) {
+      for (const attribute of [
+        "for",
+        "form",
+        "list",
+        "headers",
+        "itemref",
+        "popovertarget",
+        "commandfor",
+        "aria-labelledby",
+        "aria-describedby",
+        "aria-controls",
+        "aria-owns",
+        "aria-activedescendant",
+        "aria-details",
+        "aria-errormessage",
+        "aria-flowto",
+      ]) {
+        for (const id of element.getAttribute(attribute)?.trim().split(/\s+/).filter(Boolean) ?? []) {
+          expect(
+            owners.filter((owner) => owner.id === id),
+            `${element.tagName}[${attribute}=${id}]`,
+          ).toHaveLength(1);
+        }
+      }
+    }
+  }
+
+  function renderPhase(ui: ReactNode, phase: "SSR" | "client") {
+    const container = document.createElement("div");
+    document.body.append(container);
+    if (phase === "SSR") {
+      container.innerHTML = renderToString(<ChaseRoot>{ui}</ChaseRoot>);
+      return { container, dispose: () => container.remove() };
+    }
+    const view = render(<ChaseRoot>{ui}</ChaseRoot>, { container });
+    return {
+      container,
+      dispose: () => {
+        view.unmount();
+        container.remove();
+      },
+    };
+  }
+
+  for (const phase of ["SSR", "client"] as const) {
+    it(`6110 disclosure heading level: default h3 and contextual h2 ${phase}`, () => {
+      const view = renderPhase(
+        <>
+          <ProgressiveDisclosure title="Shipping defaults" defaultOpen>
+            Default content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure title="Choose packaging" headingLevel={2} defaultOpen>
+            Packaging content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosureGroup
+            defaultValue={["delivery"]}
+            items={[{ value: "delivery", title: "Delivery preferences", content: "Delivery content" }]}
+          />
+        </>,
+        phase,
+      );
+      try {
+        const { container } = view;
+        for (const [name, level] of [
+          ["Shipping defaults", 3],
+          ["Choose packaging", 2],
+          ["Delivery preferences", 3],
+        ] as const) {
+          const heading = within(container).getByRole("heading", { level, name });
+          const trigger = within(heading).getByRole("button", { name });
+          expect(trigger.parentElement).toBe(heading);
+          expect(heading.tagName).toBe(`H${level}`);
+          expect(heading.hasAttribute("aria-level")).toBe(false);
+          const panel = within(container).getByRole("region", { name });
+          expect(panel.getAttribute("aria-labelledby")).toBe(trigger.id);
+        }
+        expect(container.querySelectorAll("h2")).toHaveLength(1);
+        expect(container.querySelectorAll("h3")).toHaveLength(2);
+        expect(container.querySelectorAll("[headinglevel]")).toHaveLength(0);
+        expectReferences(container);
+      } finally {
+        view.dispose();
+      }
+    });
+
+    for (const idKind of ["generated", "explicit"] as const) {
+      for (const control of ["NumberField", "CurrencyInput"] as const) {
+        it(`6110 numeric label ownership: ${control} ${idKind} ${phase}`, () => {
+          const props = {
+            id: idKind === "explicit" ? "6110-quantity" : undefined,
+            label: "Available quantity",
+            description: "Enter the available amount",
+            error: "Review this amount",
+            status: "Not yet saved",
+            counter: "One amount",
+            required: true,
+            name: "amount",
+            form: "6110-form",
+          };
+          const view = renderPhase(
+            <>
+              <form id="6110-form" />
+              {control === "NumberField" ? (
+                <NumberField {...props} defaultValue={2} />
+              ) : (
+                <CurrencyInput
+                  {...props}
+                  currencyCode="USD"
+                  defaultValue="2.00"
+                  currencyAccessibleDescription="US dollars"
+                />
+              )}
+            </>,
+            phase,
+          );
+          try {
+            const { container } = view;
+            const labels = container.querySelectorAll<HTMLLabelElement>("label[for]");
+            expect(labels).toHaveLength(1);
+            const owners = Array.from(container.querySelectorAll("[id]")).filter(
+              (element) => element.id === labels[0]!.htmlFor,
+            );
+            const input = within(container).getByRole("spinbutton") as HTMLInputElement;
+            const steppers = within(container).getAllByRole("button");
+            expect(
+              {
+                labelOwners: owners.map((owner) => owner === input),
+                stepperOwners: steppers.map((stepper) =>
+                  Array.from(container.querySelectorAll("[id]"))
+                    .filter((owner) => owner.id === stepper.getAttribute("aria-controls"))
+                    .map((owner) => owner === input),
+                ),
+              },
+              "label and both steppers must resolve to the same unique input",
+            ).toEqual({
+              labelOwners: [true],
+              stepperOwners: [[true], [true]],
+            });
+            expect(within(container).getByRole("spinbutton", { name: "Available quantity" })).toBe(input);
+            expect(owners[0]).toBe(input);
+            expect(input.tagName).toBe("INPUT");
+            expect(input.type).not.toBe("hidden");
+            expect(input.required).toBe(true);
+            expect(input.getAttribute("aria-invalid")).toBe("true");
+            const descriptions = input
+              .getAttribute("aria-describedby")!
+              .split(/\s+/)
+              .map((id) => Array.from(container.querySelectorAll("[id]")).find((owner) => owner.id === id)?.textContent)
+              .join(" ");
+            for (const text of [props.description, props.error, props.status, props.counter])
+              expect(descriptions).toContain(text);
+            if (control === "CurrencyInput") expect(descriptions).toContain("US dollars");
+            expect(steppers).toHaveLength(2);
+            for (const stepper of steppers) expect(stepper.getAttribute("aria-controls")).toBe(input.id);
+            expectReferences(container);
+          } finally {
+            view.dispose();
+          }
+        });
+      }
+    }
+
+    it(`6110 panel names: sibling, grouped and mixed compositions ${phase}`, () => {
+      const onAccordionChange = vi.fn();
+      const onDisclosureChange = vi.fn();
+      const items = ["Shipping choices", "Payment preferences"].map((title, index) => ({
+        value: `section-${index}`,
+        title,
+        trigger: title,
+        content: <p>{title} content</p>,
+        triggerProps: { id: `6110-explicit-trigger-${index}` },
+      }));
+      const view = renderPhase(
+        <>
+          <Accordion
+            data-testid="6110-accordion"
+            id="6110-accordion"
+            type="multiple"
+            defaultValue={items.map((item) => item.value)}
+            items={items}
+          />
+          <Accordion
+            data-testid="6110-sibling"
+            value={[]}
+            onValueChange={onAccordionChange}
+            items={[{ value: "sibling", trigger: "Collection notes", content: "Notes" }]}
+          />
+          <ProgressiveDisclosure data-testid="6110-disclosure" title="Delivery instructions" defaultOpen>
+            Delivery content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure
+            data-testid="6110-disclosure-sibling"
+            title="Packing instructions"
+            open={false}
+            onOpenChange={onDisclosureChange}
+          >
+            Packing content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosureGroup
+            data-testid="6110-group"
+            defaultValue={["returns", "stock"]}
+            items={[
+              { value: "returns", title: "Return preferences", content: "Returns" },
+              { value: "stock", title: "Stock preferences", content: "Stock" },
+            ]}
+          />
+        </>,
+        phase,
+      );
+      try {
+        const { container } = view;
+        for (const id of ["6110-accordion", "6110-sibling", "6110-disclosure", "6110-disclosure-sibling"]) {
+          expect(within(container).getByTestId(id).getAttribute("role"), `${id} is not a landmark`).toBe("group");
+        }
+        expect(within(within(container).getByTestId("6110-group")).getAllByRole("group")).toHaveLength(1);
+        const regions = Array.from(container.querySelectorAll('[role="region"]'));
+        expect(regions).toHaveLength(7);
+        const names = [];
+        for (const panel of regions) {
+          const trigger = Array.from(container.querySelectorAll("button")).find(
+            (element) => element.id === panel.getAttribute("aria-labelledby"),
+          );
+          expect(trigger, "each panel is named by its own trigger").toBeTruthy();
+          expect(trigger!.parentElement?.parentElement?.contains(panel)).toBe(true);
+          names.push(trigger!.textContent);
+          if (trigger!.getAttribute("aria-expanded") === "true")
+            expect(trigger!.getAttribute("aria-controls")).toBe(panel.id);
+        }
+        expect(new Set(names).size).toBe(names.length);
+        expectReferences(container);
+        if (phase === "client") {
+          for (const item of items)
+            expect(within(container).getByRole("button", { name: item.title }).id).toBe(item.triggerProps.id);
+          for (const [id, name] of [
+            ["6110-sibling", "Collection notes"],
+            ["6110-disclosure-sibling", "Packing instructions"],
+          ]) {
+            const controlled = within(within(container).getByTestId(id!)).getByRole("button", { name: name! });
+            fireEvent.click(controlled);
+            expect(controlled.getAttribute("aria-expanded")).toBe("false");
+          }
+          expect(onAccordionChange).toHaveBeenCalledWith("sibling");
+          expect(onDisclosureChange).toHaveBeenCalledWith(true);
+          const disclosure = within(container).getByTestId("6110-disclosure");
+          const trigger = within(disclosure).getByRole("button", { name: "Delivery instructions" });
+          fireEvent.click(trigger);
+          expect(trigger.getAttribute("aria-expanded")).toBe("false");
+          fireEvent.click(trigger);
+          expect(trigger.getAttribute("aria-expanded")).toBe("true");
+          expectReferences(container);
+        }
+      } finally {
+        view.dispose();
+      }
+    });
+  }
+});
+
+describe("composed Surface treatments", () => {
+  it.each([
+    { name: "Banner", ui: <Banner title="Notice" />, fill: "bg-info-soft" },
+    { name: "CheckoutStateNotice", ui: <CheckoutStateNotice title="Notice" />, fill: "bg-info-soft" },
+    { name: "CheckoutConfirmationPanel", ui: <CheckoutConfirmationPanel title="Confirmed" />, fill: "bg-success-soft" },
+    {
+      name: "CheckoutSummaryPanel",
+      ui: <CheckoutSummaryPanel title="Summary" totals={[]} totalLabel="Total" total="$10" />,
+      fill: "bg-surface-2",
+    },
+    { name: "AddressBlock", ui: <AddressBlock title="Address" lines={["Main Street"]} />, fill: "bg-surface-2" },
+    { name: "ChecklistCard", ui: <ChecklistCard title="Tasks">Items</ChecklistCard>, fill: "bg-surface-2" },
+    { name: "OperationalLockBanner", ui: <OperationalLockBanner title="Locked" />, fill: "bg-warning-soft" },
+    { name: "OperationalStatusBanner", ui: <OperationalStatusBanner title="Status" />, fill: "bg-info-soft" },
+    { name: "TaskSummary", ui: <TaskSummary title="Summary" items={[]} />, fill: "bg-surface-2" },
+  ])("renders $name as tinted furniture", ({ ui, fill }) => {
+    const { container } = render(ui);
+    const classes = container.firstElementChild?.className.split(" ");
+    expect(classes).toContain(fill);
+    expect(classes).not.toContain("surface-border");
+    expect(classes?.some((value) => /^(border|shadow|ds-glass)/.test(value))).toBe(false);
+  });
+
+  it("renders WorkflowModule as flush furniture", () => {
+    const { container } = render(<WorkflowModule title="Step">Content</WorkflowModule>);
+    expect(container.firstElementChild?.className).toBe("min-w-0 max-w-full rounded-tokenLg p-4 gap-3");
+  });
+
+  it.each([
+    { status: "passed", fill: "bg-success-soft" },
+    { status: "blocked", fill: "bg-danger-soft" },
+    { status: "warning", fill: "bg-warning-soft" },
+    { status: "pending", fill: "bg-surface-2" },
+  ] as const)("renders $status readiness furniture with a tint but no raised chrome", ({ status, fill }) => {
+    const { container } = render(
+      <WorkflowReadinessChecklist items={[{ key: status, label: "Check", status, statusLabel: status }]} />,
+    );
+    const classes = container.querySelector("li > div")?.className.split(" ");
+    expect(classes).toContain(fill);
+    expect(classes).not.toContain("surface-border");
+    expect(classes?.some((value) => /^(border|shadow|ds-glass)/.test(value))).toBe(false);
+  });
+
+  it.each([undefined, "/card.png"])("keeps Thumbnail elevated with image source %s", (src) => {
+    const { container } = render(<Thumbnail src={src} alt="Card" />);
+    expect(container.firstElementChild?.className).toBe(
+      "surface-border min-w-0 max-w-full rounded-tokenLg ds-glass bg-elevated p-0 shadow-tokenLg",
+    );
+  });
+});
 
 function ControlledToastHarness() {
   const [open, setOpen] = useState(true);
@@ -544,6 +972,31 @@ describe("design system components", () => {
     expect(onValueChange).toHaveBeenCalledWith("nm");
   });
 
+  it("names the combobox trigger and rejects unnamed controls in its field", () => {
+    const labeled = render(
+      <ChaseRoot>
+        <Combobox
+          label="Condition"
+          placeholder="Filter print condition"
+          items={[{ value: "nm", label: "Near Mint" }]}
+        />
+      </ChaseRoot>,
+    );
+    const labeledField = within(labeled.container);
+
+    expect(labeledField.getByRole("button", { name: "Condition" })).toBeTruthy();
+    expect(labeledField.queryByRole("button", { name: "" })).toBeNull();
+    expect(labeledField.queryByRole("combobox", { name: "" })).toBeNull();
+
+    const unlabeled = render(
+      <ChaseRoot>
+        <Combobox placeholder="Filter card condition" items={[{ value: "lp", label: "Lightly Played" }]} />
+      </ChaseRoot>,
+    );
+
+    expect(within(unlabeled.container).getByRole("button", { name: "" })).toBeTruthy();
+  });
+
   it("renders secondary descriptions in combobox options", async () => {
     const user = userEvent.setup();
 
@@ -873,6 +1326,31 @@ describe("design system components", () => {
     expect(onValueChange).toHaveBeenCalledWith("Pikachu");
   });
 
+  it("names the autocomplete trigger and rejects unnamed controls in its field", () => {
+    const labeled = render(
+      <ChaseRoot>
+        <Autocomplete
+          label="Character"
+          placeholder="Find a character"
+          items={[{ value: "charizard", label: "Charizard" }]}
+        />
+      </ChaseRoot>,
+    );
+    const labeledField = within(labeled.container);
+
+    expect(labeledField.getByRole("button", { name: "Character" })).toBeTruthy();
+    expect(labeledField.queryByRole("button", { name: "" })).toBeNull();
+    expect(labeledField.queryByRole("combobox", { name: "" })).toBeNull();
+
+    const unlabeled = render(
+      <ChaseRoot>
+        <Autocomplete placeholder="Find a trainer" items={[{ value: "misty", label: "Misty" }]} />
+      </ChaseRoot>,
+    );
+
+    expect(within(unlabeled.container).getByRole("button", { name: "" })).toBeTruthy();
+  });
+
   it("increments number fields through Base UI controls", async () => {
     const user = userEvent.setup();
     const onValueChange = vi.fn();
@@ -1094,11 +1572,11 @@ describe("design system components", () => {
     const badgeMarkup = renderToString(<SellerBadge name="Chase Sets" verified />);
 
     expect(chaseSetsLogoSvg).toContain("logoGradient");
-    expect(chaseSetsLogoSvg).toContain("#c9a44e");
+    expect(chaseSetsLogoSvg).toContain("#a38132");
     expect(chaseSetsLogoSvg).toContain("prefers-color-scheme: dark");
     expect(logoMarkup).toContain('role="img"');
     expect(logoMarkup).toContain("Chase Sets logo");
-    expect(logoMarkup).toContain("var(--chase-logo-mid, #c9a44e)");
+    expect(logoMarkup).toContain("var(--chase-logo-mid, #a38132)");
     expect(badgeMarkup).toContain("Chase Sets");
     expect(badgeMarkup).toContain("Verified");
     expect(badgeMarkup).toContain("<svg");
@@ -1519,6 +1997,27 @@ describe("design system components", () => {
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
   });
 
+  it("keeps Accordion content visible when reduced motion changes after initial render", async () => {
+    const items = [{ value: "language", trigger: "Language", content: <button>English</button> }];
+    const view = render(
+      <ChaseRoot reducedMotion="never">
+        <Accordion id="motion-state" type="multiple" items={items} />
+      </ChaseRoot>,
+    );
+    const panel = document.getElementById("motion-state-panel-language")!;
+    expect(panel.style.height).toBe("0px");
+    view.rerender(
+      <ChaseRoot reducedMotion="always">
+        <Accordion id="motion-state" type="multiple" items={items} />
+      </ChaseRoot>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    await waitFor(() => expect(panel.style.height).toBe("auto"));
+    expect(panel.style.opacity).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    await waitFor(() => expect(panel.style.height).toBe("0px"));
+  });
+
   it("renders panel section accordions with an edge-aligned rail", () => {
     const { container } = render(
       <ChaseRoot>
@@ -1549,6 +2048,87 @@ describe("design system components", () => {
     expect(activeTrigger.className).toContain("px-5");
     expect(activePanel?.className).toContain("pl-12");
     expect(container.querySelector('[class*="before:w-1"]')).toBeTruthy();
+  });
+
+  it.each(["compact", "panel"] as const)(
+    "separates %s horizontal bleed from vertical edges and keeps insets symbolic",
+    (edge) => {
+      render(
+        <ChaseRoot>
+          <PanelSectionAccordion
+            data-testid="horizontal"
+            edge={edge}
+            bleed="horizontal"
+            type="multiple"
+            anchorActiveItemToScrollEnd={false}
+            items={[
+              { value: "a", trigger: "A", content: "First" },
+              { value: "b", trigger: "B", content: "Second" },
+              { value: "c", trigger: "C", content: "Third" },
+            ]}
+          />
+        </ChaseRoot>,
+      );
+      const root = screen.getByTestId("horizontal");
+      const variable = edge === "compact" ? "--sidebar-content-inset,0.75rem" : "--panel-content-inset,1.25rem";
+      expect(root.className).toContain(`mx-[calc(-1*var(${variable}))]`);
+      expect(root.className).toContain(`w-[calc(100%+2*var(${variable}))]`);
+      expect(root.className).not.toMatch(/-m[tyb]-/);
+      expect(root.className).toContain("first:rounded-t-");
+      expect(root.className).toContain("last:rounded-b-");
+      expect(root.className).toContain("[overflow-anchor:none]");
+      const items = root.querySelectorAll<HTMLElement>("[data-accordion-item-value]");
+      expect(items).toHaveLength(3);
+      expect(items[0]!.className).toContain("border-b");
+      expect(items[1]!.className).toContain("border-b");
+      expect(items[2]!.className).not.toContain("border-b");
+      expect(root.querySelectorAll('[class*="overflow-y"]')).toHaveLength(0);
+    },
+  );
+
+  it("explicitly disabling panel anchoring keeps both scroll owners unchanged on toggle", () => {
+    render(
+      <ChaseRoot>
+        {["desktop", "mobile"].map((id) => (
+          <div key={id} data-testid={`${id}-scroll`} style={{ overflowY: "auto", height: 100 }}>
+            <PanelSectionAccordion
+              id={id}
+              type="multiple"
+              edge="panel"
+              anchorActiveItemToScrollEnd={false}
+              items={[{ value: "a", trigger: `${id} section`, content: "Options" }]}
+            />
+          </div>
+        ))}
+      </ChaseRoot>,
+    );
+    const owners = [screen.getByTestId("desktop-scroll"), screen.getByTestId("mobile-scroll")];
+    owners.forEach((owner, index) => {
+      owner.scrollTop = 30 + index;
+    });
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return {
+        top: 0,
+        bottom: owners.includes(this) ? 100 : 500,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: 500,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      };
+    });
+    try {
+      for (const id of ["desktop", "mobile"]) {
+        fireEvent.click(screen.getByRole("button", { name: `${id} section` }));
+        expect(owners.map((owner) => owner.scrollTop)).toEqual([30, 31]);
+      }
+    } finally {
+      rect.mockRestore();
+    }
   });
 
   it("aligns section-list option icons with the trigger title", () => {
@@ -1705,6 +2285,84 @@ describe("design system components", () => {
     );
 
     expect(screen.getByText("Copy ID")).toBeTruthy();
+  });
+
+  describe("CopyButton reset timer", () => {
+    beforeEach(() => {
+      userEvent.setup();
+      vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      cleanup();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it("clears the pending reset on unmount without later errors", async () => {
+      const consoleError = vi.spyOn(console, "error");
+      const windowError = vi.fn();
+      window.addEventListener("error", windowError);
+      try {
+        const { unmount } = render(
+          <ChaseRoot reducedMotion="always">
+            <CopyButton value="test-value" label="Copy ID" />
+          </ChaseRoot>,
+        );
+        act(() => vi.runOnlyPendingTimers());
+        expect(vi.getTimerCount()).toBe(0);
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+        });
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith("test-value");
+        expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+        expect(vi.getTimerCount()).toBe(1);
+
+        unmount();
+        expect(vi.getTimerCount()).toBe(0);
+        act(() => vi.advanceTimersByTime(2001));
+        expect(vi.getTimerCount()).toBe(0);
+        expect(consoleError).not.toHaveBeenCalled();
+        expect(windowError).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener("error", windowError);
+      }
+    });
+
+    it("reverts after 2000 ms while mounted and restarts on another copy", async () => {
+      render(
+        <ChaseRoot reducedMotion="always">
+          <CopyButton value="test-value" label="Copy ID" />
+        </ChaseRoot>,
+      );
+      act(() => vi.runOnlyPendingTimers());
+      expect(vi.getTimerCount()).toBe(0);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+      });
+      act(() => vi.advanceTimersByTime(1999));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+      });
+      act(() => vi.advanceTimersByTime(1000));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copied" }));
+      });
+      expect(vi.getTimerCount()).toBe(1);
+      act(() => vi.advanceTimersByTime(1999));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
+      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(3);
+    });
   });
 
   it("renders TagInput with tag values", () => {
@@ -1865,7 +2523,7 @@ describe("design system components", () => {
     expect(markup).toContain("Pokemon TCG");
   });
 
-  it("renders marketplace facet rails and landing heroes from design-system patterns", () => {
+  it("renders marketplace facet rails from design-system patterns", () => {
     const facetMarkup = renderToString(
       <MarketplaceFacetRail
         items={[
@@ -1891,30 +2549,18 @@ describe("design system components", () => {
         onSelect={() => {}}
       />,
     );
-    const heroMarkup = renderToString(
-      <MarketplaceLandingHero
-        badges={[{ label: "Verified supply", tone: "success" }]}
-        title="Find collectibles worth chasing."
-        description="Search live supply and compare active markets."
-        search={<SearchInput hideLabel label="Search" />}
-        filters={[{ id: "", label: "All", selected: true, onSelect: () => {} }]}
-        metrics={[{ label: "Available Now", value: 3, detail: "With active listings" }]}
-      />,
-    );
     const statusMarkup = renderToString(<MarketStatusBadge status="marketOnly" />);
 
-    expect(facetMarkup).toContain("Browse Categories");
+    expect(facetMarkup).not.toContain("Browse Categories");
     expect(facetMarkup).toContain("Pokemon TCG (7)");
     expect(facetMarkup).toContain("Show more");
-    expect(facetMarkup).toContain("<section");
+    expect(facetMarkup).not.toContain("<section");
     expect(facetMarkup).not.toContain(
       "ds-glass overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2",
     );
     expect(facetMarkup).not.toContain("overflow-y-auto");
     expect(facetStripMarkup).toContain("Condition");
     expect(facetStripMarkup).toContain("Near Mint (3)");
-    expect(heroMarkup).toContain("Find collectibles worth chasing.");
-    expect(heroMarkup).toContain("Available Now");
     expect(statusMarkup).toContain("Market only");
   });
 
@@ -2304,5 +2950,599 @@ describe("design system components", () => {
     expect(plain).toContain("<svg");
     // Different lucide glyphs produce different path geometry.
     expect(keyhole).not.toBe(plain);
+  });
+
+  it("renders mail as an accessible envelope distinct from the message glyph", () => {
+    const mail = renderToString(<Icon name="mail" label="Email sign-in link" />);
+    const message = renderToString(<Icon name="message" label="Phone code" />);
+
+    expect(mail).toContain('aria-label="Email sign-in link"');
+    expect(mail).toContain('aria-hidden="false"');
+    expect(mail).toContain("lucide-mail");
+    expect(message).toContain("lucide-message-square");
+    const paths = (markup: string) => [...markup.matchAll(/<path d="([^"]+)"/g)].map((match) => match[1]);
+    expect(paths(mail)).not.toHaveLength(0);
+    expect(paths(mail)).not.toEqual(paths(message));
+  });
+});
+
+// Immutable oracle for the default/mount Stagger output, captured from base
+// 92df7170e0dfa7b1fde72324b428f3022d4ea1ce (scratch capture over `git show
+// <base>:packages/design-system/src/motion/primitives.tsx`), never from the
+// changed implementation. Markup covers the Stagger subtree only; motion props
+// are the group's `initial`/`animate`/`variants` and each child's `variants`.
+const baseStaggerEase = [0.16, 1, 0.3, 1];
+const baseStaggerFixture = {
+  default: {
+    markup:
+      '<div><div style="opacity:0;transform:translateY(14px) scale(0.985)"><div>First</div></div><div style="opacity:0;transform:translateY(14px) scale(0.985)"><div>Second</div></div><div style="opacity:0;transform:translateY(14px) scale(0.985)"><div>Third</div></div></div>',
+    group: {
+      initial: "hidden",
+      animate: "visible",
+      variants: { hidden: {}, visible: { transition: { staggerChildren: 0.07, delayChildren: 0 } } },
+    },
+    children: Array.from({ length: 3 }, () => ({
+      variants: {
+        hidden: { opacity: 0, y: 14, scale: 0.985 },
+        visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.15, ease: baseStaggerEase } },
+      },
+    })),
+  },
+  configured: {
+    markup:
+      '<div><div style="opacity:0;transform:translateY(22px)"><div>First</div></div><div style="opacity:0;transform:translateY(22px)"><div>Second</div></div><div style="opacity:0;transform:translateY(22px)"><div>Third</div></div></div>',
+    group: {
+      initial: "hidden",
+      animate: "visible",
+      variants: { hidden: {}, visible: { transition: { staggerChildren: 0.12, delayChildren: 0 } } },
+    },
+    children: Array.from({ length: 3 }, () => ({
+      variants: {
+        hidden: { opacity: 0, y: 22 },
+        visible: { opacity: 1, y: 0, transition: { duration: 0.15, ease: baseStaggerEase } },
+      },
+    })),
+  },
+};
+
+const staggerChildLabels = ["First", "Second", "Third"] as const;
+
+function staggerChildren() {
+  return staggerChildLabels.map((label) => <div key={label}>{label}</div>);
+}
+
+// The latest Stagger render: the group followed by its three child wrappers.
+function recordedStaggerRenders() {
+  const [group, ...children] = motionDivRenders.slice(-(staggerChildLabels.length + 1));
+
+  return {
+    group: { initial: group.initial, animate: group.animate, variants: group.variants, transition: group.transition },
+    children: children.map((child) => ({
+      initial: child.initial,
+      animate: child.animate,
+      variants: child.variants,
+      transition: child.transition,
+    })),
+  };
+}
+
+function inlineStyles(markup: string) {
+  return [...markup.matchAll(/style="([^"]*)"/g)].map((match) => match[1]);
+}
+
+interface IntersectionObserverMockInstance {
+  callback: IntersectionObserverCallback;
+  options: IntersectionObserverInit | undefined;
+  observe: ReturnType<typeof vi.fn>;
+  unobserve: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+}
+
+function installIntersectionObserverMock() {
+  const instances: IntersectionObserverMockInstance[] = [];
+
+  class IntersectionObserverMock implements IntersectionObserverMockInstance {
+    readonly root = null;
+    readonly rootMargin = "0px";
+    readonly thresholds: number[];
+    readonly options: IntersectionObserverInit | undefined;
+    readonly observe = vi.fn();
+    readonly unobserve = vi.fn();
+    readonly disconnect = vi.fn();
+    readonly takeRecords = vi.fn(() => []);
+
+    constructor(
+      readonly callback: IntersectionObserverCallback,
+      options?: IntersectionObserverInit,
+    ) {
+      this.options = options;
+      this.thresholds = Array.isArray(options?.threshold) ? options.threshold : [options?.threshold ?? 0];
+      instances.push(this);
+    }
+  }
+
+  vi.stubGlobal("IntersectionObserver", IntersectionObserverMock);
+
+  return {
+    instances,
+    async deliver(instance: IntersectionObserverMockInstance, target: Element, ratios: number[]) {
+      const entries = ratios.map(
+        (ratio) =>
+          ({
+            target,
+            intersectionRatio: ratio,
+            isIntersecting: ratio > 0,
+            time: 0,
+            rootBounds: null,
+            boundingClientRect: target.getBoundingClientRect(),
+            intersectionRect: target.getBoundingClientRect(),
+          }) as IntersectionObserverEntry,
+      );
+
+      await act(async () => {
+        instance.callback(entries, instance as unknown as IntersectionObserver);
+      });
+    },
+    restore() {
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
+async function settleFrames() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+}
+
+function hydratedStaggerHarness() {
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  const container = document.createElement("div");
+  let root: Root | undefined;
+
+  document.body.appendChild(container);
+
+  return {
+    container,
+    consoleError,
+    async hydrate(ui: ReactNode) {
+      const markup = renderToString(ui);
+      container.innerHTML = markup;
+
+      await act(async () => {
+        root = hydrateRoot(container, ui);
+      });
+
+      return markup;
+    },
+    async rerender(ui: ReactNode) {
+      await act(async () => {
+        root?.render(ui);
+      });
+    },
+    childWrappers() {
+      return staggerChildLabels.map((label) => within(container).getByText(label).parentElement as HTMLElement);
+    },
+    group() {
+      return this.childWrappers()[0].parentElement as HTMLElement;
+    },
+    hydrationErrors() {
+      return consoleError.mock.calls.filter((call) =>
+        call.some((entry) => /hydrat|did not match|server rendered/i.test(String(entry))),
+      );
+    },
+    async cleanup() {
+      await act(async () => {
+        root?.unmount();
+      });
+      container.remove();
+      consoleError.mockRestore();
+    },
+  };
+}
+
+function expectVisibleWrapper(wrapper: HTMLElement) {
+  expect(wrapper.style.opacity).not.toBe("0");
+  expect(["", "none"]).toContain(wrapper.style.transform);
+}
+
+function expectHiddenWrapper(wrapper: HTMLElement) {
+  expect(wrapper.style.opacity).toBe("0");
+}
+
+async function waitForOrderedReveal(wrappers: HTMLElement[]) {
+  const revealOrder: number[] = [];
+
+  await waitFor(
+    () => {
+      wrappers.forEach((wrapper, index) => {
+        if (wrapper.style.opacity === "1" && !revealOrder.includes(index)) {
+          revealOrder.push(index);
+        }
+      });
+
+      // A later child may never be fully revealed before an earlier one; a
+      // stalled frame can only make reveals look simultaneous, never inverted.
+      expect(revealOrder).toEqual(revealOrder.map((_, index) => index));
+      expect(revealOrder).toHaveLength(wrappers.length);
+    },
+    { timeout: 4000, interval: 10 },
+  );
+}
+
+describe("Stagger in-view trigger", () => {
+  it("preserves base Stagger markup and child motion props for default and mount triggers", () => {
+    const cases = [
+      { name: "default", props: {} },
+      { name: "configured", props: { preset: "slideUp", staggerMs: 120 } },
+    ] as const;
+
+    for (const { name, props } of cases) {
+      for (const trigger of [undefined, "mount"] as const) {
+        motionDivRenders.length = 0;
+        const markup = renderToString(
+          <Stagger {...props} {...(trigger ? { trigger } : {})}>
+            {staggerChildren()}
+          </Stagger>,
+        );
+        const expected = baseStaggerFixture[name];
+
+        expect(markup).toBe(expected.markup);
+        expect(recordedStaggerRenders()).toEqual({ group: expected.group, children: expected.children });
+      }
+    }
+  });
+
+  it("renders all in-view Stagger children visibly on the server and hydrates without warnings", async () => {
+    const harness = hydratedStaggerHarness();
+
+    try {
+      const markup = await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const styles = inlineStyles(markup);
+
+      for (const label of staggerChildLabels) {
+        expect(markup).toContain(label);
+      }
+      expect(styles.length).toBeGreaterThanOrEqual(staggerChildLabels.length);
+      for (const style of styles) {
+        expect(style).not.toContain("opacity:0");
+        for (const transform of style.matchAll(/transform:([^;]*)/g)) {
+          expect(transform[1]).toBe("none");
+        }
+      }
+
+      expect(harness.hydrationErrors()).toEqual([]);
+      await settleFrames();
+      harness.childWrappers().forEach(expectVisibleWrapper);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("keeps in-view Stagger visible when IntersectionObserver is unavailable", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const harness = hydratedStaggerHarness();
+
+    try {
+      expect(typeof IntersectionObserver).toBe("undefined");
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      await settleFrames();
+
+      expect(harness.consoleError.mock.calls).toEqual([]);
+      harness.childWrappers().forEach(expectVisibleWrapper);
+    } finally {
+      await harness.cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("arms off-screen Stagger and plays ordered children only at ratio 0.4", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view" staggerMs={200}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+
+      expect(observers.instances).toHaveLength(1);
+      const [observer] = observers.instances;
+      expect(observer.observe).toHaveBeenCalledWith(group);
+      expect(observer.options?.threshold).toEqual([0, 0.4]);
+      wrappers.forEach(expectVisibleWrapper);
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+      expect(wrappers[0].style.transform).not.toBe("none");
+      expect(observer.disconnect).not.toHaveBeenCalled();
+
+      await observers.deliver(observer, group, [0.3]);
+      await settleFrames();
+      wrappers.forEach(expectHiddenWrapper);
+      expect(observer.disconnect).not.toHaveBeenCalled();
+
+      motionDivRenders.length = 0;
+      await observers.deliver(observer, group, [0.4]);
+      await waitForOrderedReveal(wrappers);
+      wrappers.forEach(expectVisibleWrapper);
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      const playing = recordedStaggerRenders();
+      expect(playing.group).toMatchObject({
+        animate: "visible",
+        variants: { visible: { transition: { staggerChildren: 0.2, delayChildren: 0 } } },
+      });
+      expect(playing.children.map((child) => child.variants)).toEqual(
+        staggerChildLabels.map(() => ({
+          hidden: { opacity: 0, y: 14, scale: 0.985, transition: { duration: 0 } },
+          visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.15, ease: [0.16, 1, 0.3, 1] } },
+        })),
+      );
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("never hides Stagger initially intersecting at ratio 0.3", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0.3]);
+      await settleFrames();
+      wrappers.forEach(expectVisibleWrapper);
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      await observers.deliver(observer, group, [0]);
+      await observers.deliver(observer, group, [0.4]);
+      await settleFrames();
+      wrappers.forEach(expectVisibleWrapper);
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("never re-hides or replays completed in-view Stagger", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+    const tree = (
+      <ChaseRoot reducedMotion="never">
+        <Stagger trigger="in-view" staggerMs={10}>
+          {staggerChildren()}
+        </Stagger>
+      </ChaseRoot>
+    );
+
+    try {
+      await harness.hydrate(tree);
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+      await observers.deliver(observer, group, [0.4]);
+      await waitFor(() => {
+        wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+      });
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      motionDivRenders.length = 0;
+      await observers.deliver(observer, group, [0]);
+      await settleFrames();
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+
+      await observers.deliver(observer, group, [0.4]);
+      await settleFrames();
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never" density="compact">
+          <Stagger trigger="in-view" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      await observers.deliver(observer, group, [0, 0.4]);
+      await settleFrames();
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+      expect(observers.instances).toHaveLength(1);
+      expect(observer.observe).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("keeps in-view Stagger visible without transform or delay under always reduced motion", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="always">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+
+      for (const observer of observers.instances) {
+        await observers.deliver(observer, group, [0]);
+      }
+      await settleFrames();
+
+      wrappers.forEach(expectVisibleWrapper);
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+
+      const rendered = recordedStaggerRenders();
+      expect(rendered.group).toMatchObject({
+        initial: "visible",
+        animate: "visible",
+        variants: { visible: { transition: { staggerChildren: 0, delayChildren: 0 } } },
+      });
+      expect(rendered.children.map((child) => child.variants)).toEqual(
+        staggerChildLabels.map(() => ({
+          hidden: { opacity: 0, transition: { duration: 0 } },
+          visible: { opacity: 1, transition: { duration: 0.01, ease: "linear" } },
+        })),
+      );
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("immediately shows armed Stagger when reduced motion resolves after mount", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+
+      await harness.rerender(
+        <ChaseRoot reducedMotion="always">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      await waitFor(() => {
+        wrappers.forEach((wrapper) => {
+          expect(wrapper.style.opacity).toBe("1");
+          expect(["", "none"]).toContain(wrapper.style.transform);
+        });
+      });
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      await observers.deliver(observer, group, [0]);
+      await settleFrames();
+      wrappers.forEach(expectVisibleWrapper);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("ignores a mount to in-view trigger change after the group has played", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="mount">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+
+      await waitForOrderedReveal(wrappers);
+      expect(observers.instances).toHaveLength(0);
+
+      motionDivRenders.length = 0;
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      for (const observer of observers.instances) {
+        await observers.deliver(observer, group, [0]);
+      }
+      await settleFrames();
+
+      expect(observers.instances).toHaveLength(0);
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("ignores an in-view to mount trigger change while the group is armed", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="mount" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      await settleFrames();
+
+      wrappers.forEach(expectHiddenWrapper);
+      expect(observer.disconnect).not.toHaveBeenCalled();
+      expect(observers.instances).toHaveLength(1);
+
+      await observers.deliver(observer, group, [0.4]);
+      await waitForOrderedReveal(wrappers);
+      wrappers.forEach(expectVisibleWrapper);
+      expect(observer.disconnect).toHaveBeenCalled();
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
   });
 });

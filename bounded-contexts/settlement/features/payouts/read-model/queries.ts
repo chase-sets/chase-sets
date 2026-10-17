@@ -1,9 +1,14 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { payoutUtcMonthWindow } from "../domain/domain";
 
 export type SettlementPayoutRow = Readonly<{
   payout_id: string;
   account_id: string;
+  /** Historical storage alias for requested_amount. */
   amount: string;
+  requested_amount: string;
+  fee_amount: string;
+  net_amount: string;
   currency_code: string;
   destination_reference: string | null;
   note: string | null;
@@ -79,6 +84,9 @@ const payoutSelect = `
     payout_id,
     account_id,
     amount::text AS amount,
+    requested_amount::text AS requested_amount,
+    fee_amount::text AS fee_amount,
+    net_amount::text AS net_amount,
     currency_code,
     destination_reference,
     note,
@@ -332,6 +340,31 @@ export async function getAccountPayoutRiskSummary(
   };
 }
 
+export async function listActivePayoutIdsInUtcMonth(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; at: string }>,
+): Promise<readonly string[]> {
+  const month = payoutUtcMonthWindow(params.at);
+  const result = await db.query<{ payout_id: string }>(
+    `SELECT requested.payload ->> 'payoutId' AS payout_id
+     FROM event_store_events requested
+     WHERE requested.event_type = 'settlement.payout.requested'
+       AND requested.payload ->> 'accountId' = $1
+       AND (requested.payload ->> 'requestedAt')::timestamptz >= $2::timestamptz
+       AND (requested.payload ->> 'requestedAt')::timestamptz < $3::timestamptz
+       AND requested.payload ->> 'payoutId' IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1
+         FROM event_store_events failed
+         WHERE failed.stream_id = requested.stream_id
+           AND failed.event_type = 'settlement.payout.failed'
+       )
+     ORDER BY payout_id ASC`,
+    [params.accountId, month.startsAt, month.endsAt],
+  );
+  return result.rows.map((row) => row.payout_id);
+}
+
 export async function recordSettlementProviderIdempotencyKey(
   db: PgQueryable,
   entry: Readonly<{
@@ -402,7 +435,9 @@ export async function findPayoutRequestIdempotency(
  * winning reservation: `reserved` is true when this call inserted the row, false
  * when a concurrent request already owned the key (in which case the returned
  * payout_id is the winner's, and this caller must replay it rather than proceed).
- * A single statement so the decision is atomic under concurrency.
+ * The no-op conflict update leaves the winning values intact while making the
+ * committed winner returnable after PostgreSQL waits for its transaction.
+ * `xmax` distinguishes the inserted tuple from the conflict-update tuple.
  */
 export async function reservePayoutRequestIdempotency(
   db: PgQueryable,
@@ -416,20 +451,15 @@ export async function reservePayoutRequestIdempotency(
   }>,
 ): Promise<PayoutRequestIdempotencyRecord & Readonly<{ reserved: boolean }>> {
   const result = await db.query<PayoutRequestIdempotencyRecord & { reserved: boolean }>(
-    `WITH ins AS (
-       INSERT INTO settlement_payout_request_idempotency (
-         account_id, idempotency_key, payout_id, requested_amount, currency_code, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (account_id, idempotency_key) DO NOTHING
-       RETURNING payout_id, requested_amount, currency_code
-     )
-     SELECT payout_id, requested_amount::text AS requested_amount, currency_code, true AS reserved
-     FROM ins
-     UNION ALL
-     SELECT payout_id, requested_amount::text AS requested_amount, currency_code, false AS reserved
-     FROM settlement_payout_request_idempotency
-     WHERE account_id = $1 AND idempotency_key = $2 AND NOT EXISTS (SELECT 1 FROM ins)
-     LIMIT 1`,
+    `INSERT INTO settlement_payout_request_idempotency AS reservation (
+       account_id, idempotency_key, payout_id, requested_amount, currency_code, created_at
+     ) VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (account_id, idempotency_key) DO UPDATE
+       SET idempotency_key = reservation.idempotency_key
+     RETURNING payout_id,
+               requested_amount::text AS requested_amount,
+               currency_code,
+               (xmax = 0) AS reserved`,
     [entry.accountId, entry.idempotencyKey, entry.payoutId, entry.requestedAmount, entry.currencyCode, entry.createdAt],
   );
   const row = result.rows[0];
@@ -437,6 +467,30 @@ export async function reservePayoutRequestIdempotency(
     throw new Error("Payout request idempotency reservation returned no row.");
   }
   return row;
+}
+
+/**
+ * Release only the reservation this request inserted, and only while its payout
+ * stream is provably absent. Post-append ambiguity therefore keeps the key.
+ */
+export async function releaseUncommittedPayoutRequestIdempotency(
+  db: PgQueryable,
+  entry: Readonly<{ accountId: string; idempotencyKey: string; payoutId: string }>,
+): Promise<boolean> {
+  const result = await db.query<{ payout_id: string }>(
+    `DELETE FROM settlement_payout_request_idempotency reservation
+     WHERE reservation.account_id = $1
+       AND reservation.idempotency_key = $2
+       AND reservation.payout_id = $3
+       AND NOT EXISTS (
+         SELECT 1
+         FROM event_store_events appended
+         WHERE appended.stream_id = $4
+       )
+     RETURNING reservation.payout_id`,
+    [entry.accountId, entry.idempotencyKey, entry.payoutId, `settlement.payout-${entry.payoutId}`],
+  );
+  return result.rows[0]?.payout_id === entry.payoutId;
 }
 
 export async function recordSettlementProviderOperationPending(

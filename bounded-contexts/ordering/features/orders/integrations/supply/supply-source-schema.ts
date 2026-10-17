@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS ordering_market_listing_inputs (
   ship_from_code text NULL,
   ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
+  listing_stream_version integer NOT NULL DEFAULT 0,
   marketplace_sales_fee_unit_amount numeric(12, 2) NOT NULL,
   seller_net_unit_amount numeric(12, 2) NOT NULL,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
@@ -86,6 +88,8 @@ CREATE TABLE IF NOT EXISTS ordering_offer_acceptance_inputs (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
+  offer_stream_version integer NOT NULL DEFAULT 0,
   marketplace_sales_fee_percentage_bps integer NOT NULL DEFAULT 0,
   marketplace_sales_fee_fixed_amount numeric(12, 2) NOT NULL DEFAULT 0,
   marketplace_sales_fee_cap_amount numeric(12, 2) NULL,
@@ -177,6 +181,18 @@ CREATE TABLE IF NOT EXISTS ordering_payment_deadline_inputs (
 `;
 
 export const orderingSupplySourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_ordering_marketplace_price_currency",
+    description: "Carry versioned Marketplace Listing and accepted Offer price pairs into Ordering.",
+    statements: [
+      `ALTER TABLE ordering_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS listing_stream_version integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE ordering_offer_acceptance_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS offer_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
   {
     migrationId: "20260707_ordering_payment_deadline_input_indexes",
     description: "Build payment-deadline input lookup indexes outside boot-time schema SQL.",

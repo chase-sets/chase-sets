@@ -1,3 +1,6 @@
+import { MarketplaceListingDomainError } from "../domain/listing-error";
+import { createHash } from "node:crypto";
+import sharp from "sharp";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
@@ -9,7 +12,15 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext, GlobalPosition } from "@chase-sets/event-core/storage";
 import { createPostgresAggregateSnapshotStore } from "@chase-sets/event-core-postgres";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
-import { createId, type AccountId, type ListingId, type TenantId, type UserId } from "@chase-sets/primitives/typed-ids";
+import {
+  createId,
+  type AccountId,
+  type ListingId,
+  type ListingEnforcementActionId,
+  type ReportedContentActionId,
+  type TenantId,
+  type UserId,
+} from "@chase-sets/primitives/typed-ids";
 import type { CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
@@ -42,6 +53,7 @@ import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
+  normalizeListingPriceCurrencyCode,
   type MarketplaceListingPhoto,
   type MarketplaceListingPurchaseLimits,
   type MarketplaceListingCommand,
@@ -50,7 +62,10 @@ import {
 } from "../domain/domain";
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
 import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
-import { assertEvidenceCountAndBytesWithinBudget } from "../domain/evidence-governance";
+import {
+  assertEvidenceCountAndBytesWithinBudget,
+  DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS,
+} from "../domain/evidence-governance";
 import { buildMarketplaceListingEvidenceReadiness } from "./evidence-readiness";
 import { buildListingEvidenceSnapshot, type ListingEvidenceSnapshot } from "../domain/evidence-snapshot";
 import {
@@ -116,13 +131,17 @@ import {
 const MARKETPLACE_SYSTEM_TENANT_ID = "tnt_marketplace_system" as TenantId;
 const MARKETPLACE_SYSTEM_USER_ID = "usr_marketplace_system" as UserId;
 const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const LISTING_PHOTO_JPEG_BACKGROUND = { r: 255, g: 255, b: 255 };
+const LISTING_PHOTO_JPEG_QUALITY = 90;
+const LISTING_PHOTO_JPEG_MAX_BYTES = 15_000_000;
+
 /**
  * Bump whenever `evolveMarketplaceListing`'s fold shape changes in a way
  * that would make an old snapshot's stored state incompatible. A stored
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 5;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 7;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -165,6 +184,22 @@ export class MarketplaceListingEvidenceIncompleteError extends Error {
 export type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
 
 export type MarketplaceListingServices = Readonly<{
+  operatorUnlistListing: (
+    params: Readonly<{
+      listingId: ListingId;
+      sourceActionId: ReportedContentActionId;
+      listingEnforcementActionId: ListingEnforcementActionId;
+      recordedAt: string;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ listingId: ListingId; version: number }>;
+  getListingPhotoJpeg: (
+    params: Readonly<{
+      accountId: string;
+      listingId: string;
+      photoId: string;
+    }>,
+  ) => Promise<Readonly<{ body: Uint8Array; etag: string }> | null>;
   commandHandler: CommandHandler<MarketplaceListingCommand, MarketplaceListingState, MarketplaceListingEvent>;
   sellerAvailabilityCommandHandler: CommandHandler<
     SellerListingAvailabilityCommand,
@@ -181,6 +216,7 @@ export type MarketplaceListingServices = Readonly<{
       accountId: AccountId;
       inventoryItemId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -207,6 +243,7 @@ export type MarketplaceListingServices = Readonly<{
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -229,6 +266,7 @@ export type MarketplaceListingServices = Readonly<{
       availableQuantity?: number;
       acquisitionCostAmount: string | null;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -317,6 +355,7 @@ export type MarketplaceListingServices = Readonly<{
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary?: string | null;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
     }>,
@@ -339,6 +378,7 @@ export type MarketplaceListingServices = Readonly<{
       accountId: string;
       listingId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       feeQuoteFingerprint?: string | null;
     }>,
     context: EventStoreContext,
@@ -572,6 +612,7 @@ type AnonymousListingDraftIntentRow = Readonly<{
   selected_options: unknown;
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -591,6 +632,7 @@ function normalizeAnonymousListingDraftRow(
     ...row,
     selected_options: normalizeSelectedOptions(row.selected_options),
     price_amount: String(row.price_amount),
+    price_currency_code: row.price_currency_code,
   };
 }
 
@@ -794,7 +836,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const listing = await repository.load(listingStreamId);
-      assert(listing.state.listingId !== null && listing.state.accountId === accountId, "Listing not found.");
+      if (listing.state.listingId === null || listing.state.accountId !== accountId) {
+        throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+      }
       assert(listing.state.inventoryItemId, "Listing inventory item is missing.");
       const inventoryItemId = listing.state.inventoryItemId;
       const capacityStreamId = inventoryListingCapacityStreamId(inventoryItemId);
@@ -815,7 +859,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           .map((registeredListingId) => repository.load(`marketplace.listing-${registeredListingId}`)),
       );
       const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
-      assert(supply, "Inventory item not found.");
+      if (!supply) {
+        throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+      }
       assertActiveListingCapacity(
         [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
           status: state.status,
@@ -900,7 +946,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const aggregate = await repository.load(`marketplace.listing-${listingId}`);
     const listing = aggregate.state;
 
-    assert(listing.listingId !== null && listing.accountId === accountId, "Listing not found.");
+    if (listing.listingId === null || listing.accountId !== accountId) {
+      throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+    }
 
     return listing;
   }
@@ -1012,6 +1060,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const sourcePath = params.sourcePath.trim();
     const selectedOptions = normalizeSelectedOptions(params.selectedOptions);
     const priceAmount = normalizePriceAmount(params.priceAmount);
+    const priceCurrencyCode = normalizeListingPriceCurrencyCode(params.priceCurrencyCode);
     const quantityCap = normalizePositiveInteger(params.quantityCap, "Listing quantity must be greater than zero.");
     const purchaseLimits = {
       maxUnitsPerOrder: normalizeOptionalPositiveInteger(
@@ -1046,10 +1095,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          AND product_id = $3
          AND selected_options = $4::jsonb
          AND price_amount = $5::numeric
-         AND quantity_cap = $6
-         AND max_units_per_order IS NOT DISTINCT FROM $7
-         AND max_units_per_day IS NOT DISTINCT FROM $8
-         AND max_units_per_customer_account IS NOT DISTINCT FROM $9
+         AND price_currency_code = $6
+         AND quantity_cap = $7
+         AND max_units_per_order IS NOT DISTINCT FROM $8
+         AND max_units_per_day IS NOT DISTINCT FROM $9
+         AND max_units_per_customer_account IS NOT DISTINCT FROM $10
        ORDER BY updated_at DESC
        LIMIT 1`,
       [
@@ -1058,6 +1108,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         productId,
         JSON.stringify(selectedOptions),
         priceAmount,
+        priceCurrencyCode,
         quantityCap,
         purchaseLimits.maxUnitsPerOrder,
         purchaseLimits.maxUnitsPerDay,
@@ -1106,12 +1157,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
          selected_options,
          product_summary,
          price_amount,
+         price_currency_code,
          quantity_cap,
          max_units_per_order,
          max_units_per_day,
          max_units_per_customer_account,
          expires_at
-       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::numeric, $9, $10, $11, $12, $13)
+       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::numeric, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         createId("ldi"),
@@ -1122,6 +1174,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         JSON.stringify(selectedOptions),
         params.productSummary ?? null,
         priceAmount,
+        priceCurrencyCode,
         quantityCap,
         purchaseLimits.maxUnitsPerOrder,
         purchaseLimits.maxUnitsPerDay,
@@ -1349,6 +1402,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       event_type: event.eventType,
       stream_version: event.streamVersion,
       price_amount: stringField(data, "priceAmount"),
+      price_currency_code: stringField(data, "priceCurrencyCode"),
       quantity_cap: numberField(data, "quantityCap"),
       marketplace_sales_fee_unit_amount: stringField(data, "marketplaceSalesFeeUnitAmount"),
       seller_net_unit_amount: stringField(data, "sellerNetUnitAmount"),
@@ -1367,6 +1421,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       accountId: AccountId;
       inventoryItemId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       listingPhotoUploads?: readonly MarketplaceListingPhotoUpload[] | null;
@@ -1378,7 +1433,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const streamId = `marketplace.listing-${listingId}`;
     const existing = await repository.load(streamId);
     if (existing.state.listingId !== null) {
-      assert(existing.state.accountId === params.accountId, "Listing not found.");
+      if (existing.state.accountId !== params.accountId) {
+        throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+      }
       const feeQuoteFingerprint = existing.state.feeQuoteFingerprint;
       assert(feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
       if (params.listingPhotoUploads?.length) {
@@ -1403,7 +1460,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       };
     }
     const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
-    assert(supply, "Inventory item not found.");
+    if (!supply) {
+      throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+    }
     const quote = await quoteListingTerms(params.accountId, params.priceAmount);
     const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
@@ -1447,6 +1506,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         shipFromCode: supply.ship_from_code,
         shipFromAddress: supply.ship_from_address,
         priceAmount: params.priceAmount,
+        priceCurrencyCode: params.priceCurrencyCode,
         feeLock: feeLockFromMarketplaceTermsQuote(params.quantityCap, quote),
         quantityCap: params.quantityCap,
         purchaseLimits: params.purchaseLimits,
@@ -1503,6 +1563,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           accountId: params.accountId as AccountId,
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
@@ -1522,6 +1583,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           accountId: params.accountId as AccountId,
           inventoryItemId: params.inventoryItemId,
           priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
           quantityCap: params.quantityCap,
           purchaseLimits: params.purchaseLimits,
           listingIdOverride: params.listingIdOverride,
@@ -1531,6 +1593,26 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       );
     },
     addListingPhotos,
+    getListingPhotoJpeg: async (params) => {
+      let listing: MarketplaceListingState;
+      try {
+        listing = await loadOwnedListingState(params.listingId, params.accountId);
+      } catch (error) {
+        if (error instanceof MarketplaceListingDomainError && error.code === "listing-not-found") return null;
+        throw error;
+      }
+      const photo = listing.evidence.find((entry) => entry.photoId === params.photoId && entry.status === "active");
+      if (!photo) return null;
+      assert(deps.listingPhotoStorage, "Listing photo storage is not configured.");
+      const source = await deps.listingPhotoStorage.getObject(photo.assetSet.source.storageKey);
+      if (!source) return null;
+      const body = await sharp(source.body, { limitInputPixels: DEFAULT_LISTING_EVIDENCE_MAX_SOURCE_PIXELS })
+        .flatten({ background: LISTING_PHOTO_JPEG_BACKGROUND })
+        .jpeg({ quality: LISTING_PHOTO_JPEG_QUALITY })
+        .toBuffer();
+      assert(body.byteLength <= LISTING_PHOTO_JPEG_MAX_BYTES, "Listing photo JPEG exceeds the byte budget.");
+      return { body, etag: `"${createHash("sha256").update(body).digest("hex")}"` };
+    },
     classifyListingPhoto: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
       const result = await commandHandler({
@@ -1633,7 +1715,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     previewListingEvidenceReadiness: async (params) => {
       const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
-      assert(supply, "Inventory item not found.");
+      if (!supply) {
+        throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+      }
       const evaluatedAt = params.now ?? new Date().toISOString();
       const snapshot = await resolveListingEvidenceRequirements(deps, {
         accountId: params.accountId,
@@ -1752,6 +1836,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         command: {
           type: "UpdateListingPrice",
           priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
           feeLocks,
         },
         context,
@@ -1803,6 +1888,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
               command: {
                 type: "UpdateListingPrice",
                 priceAmount: update.priceAmount,
+                priceCurrencyCode: update.priceCurrencyCode,
                 feeLocks,
                 minimumChange: update.minimumChange,
                 changeSource: update.idempotencyKey?.startsWith("repricing:") ? "repricing-engine" : undefined,
@@ -1955,6 +2041,19 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         context,
       });
 
+      return { listingId: params.listingId, version: result.version };
+    },
+    operatorUnlistListing: async (params, context) => {
+      const result = await commandHandler({
+        streamId: `marketplace.listing-${params.listingId}`,
+        command: {
+          type: "OperatorUnlistListing",
+          reportedContentActionId: params.sourceActionId,
+          listingEnforcementActionId: params.listingEnforcementActionId,
+          recordedAt: params.recordedAt,
+        },
+        context,
+      });
       return { listingId: params.listingId, version: result.version };
     },
     withdrawListing: async (params, context) => {

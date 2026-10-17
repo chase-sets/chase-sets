@@ -1,0 +1,181 @@
+{
+  "status": "app-recorded-synthetic-not-live",
+  "sourceCommit": "bdeffa0190be035084abccb464716aaaa2541a59",
+  "asOf": "2026-09-01T15:00:00.000Z",
+  "modelVersion": "pooled-supply-v1",
+  "targetCondition": "Near Mint",
+  "ladderMethod": "time-controlled-zipf",
+  "points": [
+    {
+      "percentile": 5,
+      "price": 5.397107950855939,
+      "buyerIntervalDays": 1.0142319444444445,
+      "sellers": 0,
+      "medianSellDays": 0.7030120127254977,
+      "hopeless": false,
+      "qualifyingSaleCount": 78
+    },
+    {
+      "percentile": 10,
+      "price": 5.500001294938553,
+      "buyerIntervalDays": 1.1054247453703703,
+      "sellers": 1,
+      "medianSellDays": 1.532444091149335,
+      "hopeless": false,
+      "qualifyingSaleCount": 76
+    },
+    {
+      "percentile": 15,
+      "price": 5.511593665698487,
+      "buyerIntervalDays": 1.1054247453703703,
+      "sellers": 1,
+      "medianSellDays": 1.532444091149335,
+      "hopeless": false,
+      "qualifyingSaleCount": 76
+    },
+    {
+      "percentile": 20,
+      "price": 5.7835798916373085,
+      "buyerIntervalDays": 1.2335265162037037,
+      "sellers": 1,
+      "medianSellDays": 1.7100308537050577,
+      "hopeless": false,
+      "qualifyingSaleCount": 71
+    },
+    {
+      "percentile": 25,
+      "price": 6,
+      "buyerIntervalDays": 1.257775150462963,
+      "sellers": 1,
+      "medianSellDays": 1.7436465986435277,
+      "hopeless": false,
+      "qualifyingSaleCount": 68
+    },
+    {
+      "percentile": 30,
+      "price": 6,
+      "buyerIntervalDays": 1.257775150462963,
+      "sellers": 1,
+      "medianSellDays": 1.7436465986435277,
+      "hopeless": false,
+      "qualifyingSaleCount": 68
+    },
+    {
+      "percentile": 35,
+      "price": 6.046469886711732,
+      "buyerIntervalDays": 1.441502025462963,
+      "sellers": 1,
+      "medianSellDays": 1.9983461294422065,
+      "hopeless": false,
+      "qualifyingSaleCount": 66
+    },
+    {
+      "percentile": 40,
+      "price": 6.25,
+      "buyerIntervalDays": 1.6560559027777777,
+      "sellers": 1,
+      "medianSellDays": 2.295780959720143,
+      "hopeless": false,
+      "qualifyingSaleCount": 62
+    },
+    {
+      "percentile": 45,
+      "price": 6.5,
+      "buyerIntervalDays": 1.724748425925926,
+      "sellers": 2,
+      "medianSellDays": 3.586513525817278,
+      "hopeless": false,
+      "qualifyingSaleCount": 57
+    },
+    {
+      "percentile": 50,
+      "price": 6.5,
+      "buyerIntervalDays": 1.724748425925926,
+      "sellers": 2,
+      "medianSellDays": 3.586513525817278,
+      "hopeless": false,
+      "qualifyingSaleCount": 57
+    },
+    {
+      "percentile": 55,
+      "price": 6.572249876860578,
+      "buyerIntervalDays": 2.1948598032407407,
+      "sellers": 2,
+      "medianSellDays": 4.5640826530220275,
+      "hopeless": false,
+      "qualifyingSaleCount": 53
+    },
+    {
+      "percentile": 60,
+      "price": 6.572249876860578,
+      "buyerIntervalDays": 2.1948598032407407,
+      "sellers": 2,
+      "medianSellDays": 4.5640826530220275,
+      "hopeless": false,
+      "qualifyingSaleCount": 53
+    },
+    {
+      "percentile": 65,
+      "price": 7.098029867009425,
+      "buyerIntervalDays": 2.642912210648148,
+      "sellers": 2,
+      "medianSellDays": 5.495781441834649,
+      "hopeless": false,
+      "qualifyingSaleCount": 43
+    },
+    {
+      "percentile": 70,
+      "price": 7.283444286443602,
+      "buyerIntervalDays": 3.129492650462963,
+      "sellers": 2,
+      "medianSellDays": 6.507597021754419,
+      "hopeless": false,
+      "qualifyingSaleCount": 39
+    },
+    {
+      "percentile": 75,
+      "price": 7.5,
+      "buyerIntervalDays": 3.7583579513888887,
+      "sellers": 2,
+      "medianSellDays": 7.81528565262078,
+      "hopeless": false,
+      "qualifyingSaleCount": 36
+    },
+    {
+      "percentile": 80,
+      "price": 7.585823463030409,
+      "buyerIntervalDays": 4.363281030092592,
+      "sellers": 2,
+      "medianSellDays": 9.073187831998123,
+      "hopeless": false,
+      "qualifyingSaleCount": 33
+    },
+    {
+      "percentile": 85,
+      "price": 8.149589847307118,
+      "buyerIntervalDays": 5.9409601504629626,
+      "sellers": 2,
+      "medianSellDays": 12.353879334337172,
+      "hopeless": false,
+      "qualifyingSaleCount": 24
+    },
+    {
+      "percentile": 90,
+      "price": 8.5,
+      "buyerIntervalDays": 8.587528564814814,
+      "sellers": 2,
+      "medianSellDays": 17.857263638038148,
+      "hopeless": false,
+      "qualifyingSaleCount": 15
+    },
+    {
+      "percentile": 95,
+      "price": 9,
+      "buyerIntervalDays": 17.160901608796298,
+      "sellers": 2,
+      "medianSellDays": 35.68509169801135,
+      "hopeless": false,
+      "qualifyingSaleCount": 6
+    }
+  ]
+}

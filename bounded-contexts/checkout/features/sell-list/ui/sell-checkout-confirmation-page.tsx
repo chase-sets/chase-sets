@@ -123,12 +123,12 @@ export function SellCheckoutConfirmationPage({
             title: outcome.itemTitle,
             subtitle: outcome.detail,
             quantity: outcome.quantity,
-            price: lineStatusLabel(outcome.status),
             facts: [
               lineOutcomeLabel(outcome),
-              outcome.remainingQuantity > 0
-                ? t("checkout.features.sellList.ui.sellListPage.latest.confirmation.remaining")
-                : t("checkout.features.sellList.ui.sellListPage.latest.confirmation.status.completed"),
+              lineStatusLabel(outcome.status),
+              ...(outcome.remainingQuantity > 0
+                ? [t("checkout.features.sellList.ui.sellListPage.latest.confirmation.remaining")]
+                : []),
             ],
           }))}
           totals={[

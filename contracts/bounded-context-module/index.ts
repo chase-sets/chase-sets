@@ -6,6 +6,8 @@ import type {
   ProjectorHandlerContext,
   ProjectorHandlerMap,
 } from "@chase-sets/event-core/projector";
+import type { LinkParameterSchema } from "./link-intents";
+export type * from "./link-intents";
 import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 
 /**
@@ -58,8 +60,144 @@ export type BcRouteModule = Readonly<{
   readonly fileExport: string;
   readonly routeType: BcRouteType;
   readonly sourceContext: string;
+  readonly linkParameters?: LinkParameterSchema;
   readonly placement?: BcRoutePlacement;
   readonly section?: string;
+}>;
+
+export type RouteDelivery = "portable" | "web-resource-only" | "server-only";
+
+export type RouteAuthorization = Readonly<
+  | {
+      readonly kind: "public";
+    }
+  | {
+      readonly kind: "authenticated";
+      readonly requiredPermissions: readonly string[];
+    }
+>;
+
+export type RouteCanonicalLinkIntent = Readonly<
+  | {
+      readonly kind: "route-derived";
+    }
+  | {
+      readonly kind: "not-applicable";
+      readonly reason: string;
+    }
+>;
+
+export type RouteAvailability = Readonly<{
+  readonly web: true;
+  readonly mobile: boolean;
+}>;
+
+export type PortableDataOperations = Readonly<{
+  readonly load: true;
+  readonly mutation: boolean;
+}>;
+
+export type UnsupportedMobileRoute = Readonly<{
+  readonly owner: string;
+  readonly followUp: string;
+  readonly reason: string;
+}>;
+
+export type BcPortableRouteModule = BcRouteModule &
+  Readonly<{
+    readonly delivery: "portable";
+    readonly authorization: RouteAuthorization;
+    readonly canonicalLink: RouteCanonicalLinkIntent;
+    readonly availability: Readonly<{ web: true; mobile: true }>;
+    readonly pageComponentExport: string;
+    readonly portableDataOperations: PortableDataOperations;
+    readonly unsupportedMobile?: never;
+  }>;
+
+export type BcServerOnlyRouteModule = BcRouteModule &
+  Readonly<{
+    readonly delivery: "server-only";
+    readonly authorization: RouteAuthorization;
+    readonly canonicalLink: RouteCanonicalLinkIntent;
+    readonly availability: Readonly<{ web: true; mobile: false }>;
+    readonly pageComponentExport: string;
+    readonly portableDataOperations?: never;
+    readonly unsupportedMobile: UnsupportedMobileRoute;
+  }>;
+
+export type BcWebResourceOnlyRouteModule = BcRouteModule &
+  Readonly<{
+    readonly delivery: "web-resource-only";
+    readonly authorization: RouteAuthorization;
+    readonly canonicalLink: RouteCanonicalLinkIntent;
+    readonly availability: Readonly<{ web: true; mobile: false }>;
+    readonly pageComponentExport?: never;
+    readonly portableDataOperations?: never;
+    readonly unsupportedMobile: UnsupportedMobileRoute;
+  }>;
+
+export type BcUnsupportedRouteModule = Readonly<BcServerOnlyRouteModule | BcWebResourceOnlyRouteModule>;
+
+export type BcMarketplaceRouteModule = Readonly<BcPortableRouteModule | BcUnsupportedRouteModule>;
+
+export type PortableRouteInput = Readonly<{
+  readonly url: URL;
+  readonly params: Readonly<Record<string, string | undefined>>;
+}>;
+
+export type PortableRouteMutationInput = PortableRouteInput &
+  Readonly<{
+    readonly formData: FormData;
+  }>;
+
+export type PortableRouteOutcome<TData = unknown, TValidationError = unknown> = Readonly<
+  | { kind: "data"; data: TData }
+  | { kind: "validation-error"; error: TValidationError }
+  | { kind: "navigate"; to: string; replace?: boolean }
+  | { kind: "unauthorized" }
+  | { kind: "forbidden"; requiredPermissions: readonly string[] }
+  | { kind: "not-found" }
+  | { kind: "transient-error"; retryAfterMs?: number }
+  | { kind: "client-upgrade-required"; minimumContractVersion: number; destination: string }
+>;
+
+export type PortableRouteOperationContext<TFetch> = Readonly<{
+  readonly apiOrigin: string;
+  readonly fetch: TFetch;
+}>;
+
+export type PortableRouteLoadOperation<TFetch, TData = unknown> = (
+  input: PortableRouteInput,
+  context: PortableRouteOperationContext<TFetch>,
+) => Promise<PortableRouteOutcome<TData>>;
+
+export type PortableRouteMutationOperation<TFetch, TData = unknown, TValidationError = unknown> = (
+  input: PortableRouteMutationInput,
+  context: PortableRouteOperationContext<TFetch>,
+) => Promise<PortableRouteOutcome<TData, TValidationError>>;
+
+export type PortableRouteModule<
+  TFetch,
+  TPageComponent = unknown,
+  TData = unknown,
+  TMutationData = unknown,
+  TValidationError = unknown,
+> = Readonly<{
+  readonly routeId: string;
+  readonly pageComponent: TPageComponent;
+  readonly load: PortableRouteLoadOperation<TFetch, TData>;
+  readonly mutate?: PortableRouteMutationOperation<TFetch, TMutationData, TValidationError>;
+}>;
+
+export type PortableContextRegistryEntry<
+  TFetch,
+  TPortableRoutes extends readonly PortableRouteModule<TFetch>[] = readonly PortableRouteModule<TFetch>[],
+> = Readonly<{
+  readonly contextName: string;
+  readonly manifest: Readonly<{
+    readonly deployableContributions?: readonly BcDeployableContribution[];
+  }>;
+  readonly portableRoutes: TPortableRoutes;
 }>;
 
 export type BcDeployableContribution = Readonly<{
@@ -67,7 +205,7 @@ export type BcDeployableContribution = Readonly<{
   readonly routes: readonly BcRouteModule[];
 }>;
 
-export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav";
+export type BcShellContributionSlot = "primary-nav" | "top-nav" | "bottom-nav" | "account-menu";
 export type BcShellContributionVisibility = "always" | "signed-in" | "signed-out";
 
 export type BcShellContributionItemBase = Readonly<{
@@ -78,15 +216,42 @@ export type BcShellContributionItemBase = Readonly<{
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;
   readonly requiredPermissions: readonly string[];
+  /** Defaults to all; an empty permission list passes in either mode. */
+  readonly requiredPermissionsMatch?: "all" | "any";
+  readonly parentKey?: string;
+  readonly placement?: "primary" | "utility";
+  readonly packingPriority?: number;
+  readonly excludedRoleKeys?: readonly string[];
+  readonly badge?: Readonly<{
+    valueKey: string;
+    max: number;
+    hideWhenEmptyForSignedOut: boolean;
+  }>;
 }>;
 
 export type BcShellContributionItem = BcShellContributionItemBase &
   Readonly<
     | {
+        readonly activation: "action";
+        readonly href?: never;
+        readonly children?: never;
+        readonly activePathPatterns?: never;
+      }
+    | {
+        readonly activation: "route";
+        readonly href: string;
+        readonly children?: never;
+        readonly activePathPatterns?: readonly string[];
+      }
+    | {
+        readonly activation?: undefined;
+        readonly activePathPatterns?: readonly string[];
         readonly href: string;
         readonly children?: readonly BcShellContributionItem[];
       }
     | {
+        readonly activation?: undefined;
+        readonly activePathPatterns?: readonly string[];
         readonly href?: string;
         readonly children: readonly BcShellContributionItem[];
       }
@@ -147,10 +312,58 @@ export type BcMcpCapabilities = Readonly<{
   readonly resources?: readonly BcMcpResourceDeclaration[];
 }>;
 
+export type BcAgentCoverageExemptionCode =
+  | "sign-in-flow"
+  | "navigation-only"
+  | "human-presence-required"
+  | "file-upload";
+
+/**
+ * How operators reach one admin-web route through MCP: the tools that cover
+ * it (at least one), a closed exemption code with its note, or the `#N` issue
+ * that owns the gap. The admin-web Agent Coverage guard enforces the shape.
+ */
+export type BcAgentCoverageDeclaration = Readonly<
+  | { readonly tools: readonly string[] }
+  | { readonly exempt: BcAgentCoverageExemptionCode; readonly note: string; readonly tools: readonly string[] }
+  | { readonly pending: string }
+>;
+
+/** Keyed by the `routeId` of each admin-web route this context contributes. */
+export type BcAgentCoverage = Readonly<Record<string, BcAgentCoverageDeclaration>>;
+
 export type BcMcpHandlers<TToolHandler = unknown, TResourceHandler = unknown> = Readonly<{
   readonly toolHandlers?: Readonly<Record<string, TToolHandler>>;
   readonly resourceHandlers?: Readonly<Record<string, TResourceHandler>>;
 }>;
+
+type BcAccountCapabilityDeclarationBase = Readonly<{
+  readonly key: string;
+  readonly description: string;
+}>;
+
+export type BcBooleanAccountCapabilityDeclaration = BcAccountCapabilityDeclarationBase &
+  Readonly<{
+    readonly kind: "boolean";
+    readonly defaultValue: boolean;
+  }>;
+
+export type BcLimitAccountCapabilityDeclaration = BcAccountCapabilityDeclarationBase &
+  Readonly<{
+    readonly kind: "limit";
+    readonly defaultValue: number;
+  }>;
+
+export type BcTierAccountCapabilityDeclaration = BcAccountCapabilityDeclarationBase &
+  Readonly<{
+    readonly kind: "tier";
+    readonly allowedValues: readonly string[];
+    readonly defaultValue: string;
+  }>;
+
+export type BcAccountCapabilityDeclaration = Readonly<
+  BcBooleanAccountCapabilityDeclaration | BcLimitAccountCapabilityDeclaration | BcTierAccountCapabilityDeclaration
+>;
 
 export type BcAnonymousRoute = Readonly<{
   readonly routePath: string;
@@ -290,6 +503,8 @@ export type BcContextManifest = Readonly<{
   readonly apiMounts?: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly mcpCapabilities?: BcMcpCapabilities;
+  readonly agentCoverage?: BcAgentCoverage;
+  readonly accountCapabilities?: readonly BcAccountCapabilityDeclaration[];
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
@@ -301,6 +516,7 @@ export type BcContextManifestInput = Omit<
   BcContextManifest,
   | "apiMounts"
   | "anonymousRoutes"
+  | "accountCapabilities"
   | "eventSubscriptions"
   | "eventReactions"
   | "projectionGroups"
@@ -310,6 +526,7 @@ export type BcContextManifestInput = Omit<
   Readonly<{
     readonly apiMounts?: readonly unknown[];
     readonly anonymousRoutes?: readonly unknown[];
+    readonly accountCapabilities?: readonly unknown[];
     readonly eventSubscriptions?: readonly BcEventSubscriptionManifestDeclaration[];
     readonly eventReactions?: readonly BcEventReactionManifestDeclaration[];
     readonly projectionGroups?: readonly BcProjectionGroupManifestDeclaration[];
@@ -586,6 +803,7 @@ export interface BcApiModule<
   readonly apiMounts: readonly BcApiMount[];
   readonly anonymousRoutes?: readonly BcAnonymousRoute[];
   readonly mcpCapabilities?: BcMcpCapabilities;
+  readonly accountCapabilities?: readonly BcAccountCapabilityDeclaration[];
   readonly eventSubscriptions?: readonly BcEventSubscriptionDeclaration[];
   readonly eventReactions?: readonly BcEventReactionDeclaration[];
   readonly projectionGroups?: readonly BcProjectionGroupDeclaration[];
@@ -682,6 +900,7 @@ export function defineBoundedContextModule<
     apiMounts: manifest.apiMounts ?? [],
     anonymousRoutes: manifest.anonymousRoutes ?? [],
     ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),
+    ...(manifest.accountCapabilities ? { accountCapabilities: manifest.accountCapabilities } : {}),
     ...(manifest.eventSubscriptions ? { eventSubscriptions: manifest.eventSubscriptions } : {}),
     ...(manifest.eventReactions ? { eventReactions: manifest.eventReactions } : {}),
     ...(manifest.projectionGroups ? { projectionGroups: manifest.projectionGroups } : {}),
@@ -698,7 +917,7 @@ export function defineBoundedContextModule<
   };
 }
 
-function normalizeContextManifest(manifest: BcContextManifestInput): BcContextManifest {
+export function normalizeContextManifest(manifest: BcContextManifestInput): BcContextManifest {
   return {
     contextName: manifest.contextName,
     apiBasePath: manifest.apiBasePath,
@@ -706,6 +925,15 @@ function normalizeContextManifest(manifest: BcContextManifestInput): BcContextMa
     ...(manifest.apiMounts ? { apiMounts: manifest.apiMounts as readonly BcApiMount[] } : {}),
     ...(manifest.anonymousRoutes ? { anonymousRoutes: manifest.anonymousRoutes as readonly BcAnonymousRoute[] } : {}),
     ...(manifest.mcpCapabilities ? { mcpCapabilities: manifest.mcpCapabilities } : {}),
+    ...(manifest.agentCoverage ? { agentCoverage: manifest.agentCoverage } : {}),
+    ...(manifest.accountCapabilities
+      ? {
+          accountCapabilities: normalizeAccountCapabilityDeclarations(
+            manifest.contextName,
+            manifest.accountCapabilities,
+          ),
+        }
+      : {}),
     ...(manifest.eventSubscriptions
       ? {
           eventSubscriptions: manifest.eventSubscriptions.map((declaration) =>
@@ -746,6 +974,104 @@ function normalizeContextManifest(manifest: BcContextManifestInput): BcContextMa
         }
       : {}),
   };
+}
+
+export function normalizeAccountCapabilityDeclaration(
+  owningContext: string,
+  declaration: unknown,
+): BcAccountCapabilityDeclaration {
+  assertAccountCapabilityDeclaration(owningContext, declaration);
+  return declaration;
+}
+
+function normalizeAccountCapabilityDeclarations(
+  owningContext: string,
+  declarations: readonly unknown[],
+): readonly BcAccountCapabilityDeclaration[] {
+  if (!Array.isArray(declarations)) {
+    throw new Error(`Context '${owningContext}' accountCapabilities must be an array.`);
+  }
+
+  return declarations.map((declaration) => normalizeAccountCapabilityDeclaration(owningContext, declaration));
+}
+
+function assertAccountCapabilityDeclaration(
+  owningContext: string,
+  declaration: unknown,
+): asserts declaration is BcAccountCapabilityDeclaration {
+  if (!isUnknownRecord(declaration)) {
+    throw new Error(`Context '${owningContext}' account capability declaration must be an object.`);
+  }
+
+  const key = typeof declaration.key === "string" ? declaration.key : "<unknown>";
+  const subject = `Context '${owningContext}' account capability '${key}'`;
+
+  if (typeof declaration.key !== "string" || !ACCOUNT_CAPABILITY_KEY_PATTERN.test(declaration.key)) {
+    throw new Error(
+      `${subject} has an invalid key. Expected lower-case dot-separated segments with optional internal hyphens.`,
+    );
+  }
+  if (typeof declaration.description !== "string" || declaration.description.trim().length === 0) {
+    throw new Error(`${subject} must declare a non-empty description.`);
+  }
+
+  switch (declaration.kind) {
+    case "boolean":
+      assertOnlyAccountCapabilityFields(subject, declaration, BOOLEAN_ACCOUNT_CAPABILITY_FIELDS);
+      if (typeof declaration.defaultValue !== "boolean") {
+        throw new Error(`${subject} of kind 'boolean' must declare a boolean defaultValue.`);
+      }
+      return;
+    case "limit":
+      assertOnlyAccountCapabilityFields(subject, declaration, LIMIT_ACCOUNT_CAPABILITY_FIELDS);
+      if (
+        typeof declaration.defaultValue !== "number" ||
+        !Number.isFinite(declaration.defaultValue) ||
+        declaration.defaultValue < 0
+      ) {
+        throw new Error(`${subject} of kind 'limit' must declare a finite non-negative defaultValue.`);
+      }
+      return;
+    case "tier": {
+      assertOnlyAccountCapabilityFields(subject, declaration, TIER_ACCOUNT_CAPABILITY_FIELDS);
+      if (!Array.isArray(declaration.allowedValues) || declaration.allowedValues.length === 0) {
+        throw new Error(`${subject} of kind 'tier' must declare a non-empty allowedValues array.`);
+      }
+      const allowedValues = declaration.allowedValues;
+      if (!allowedValues.every((value): value is string => typeof value === "string" && value.trim().length > 0)) {
+        throw new Error(`${subject} of kind 'tier' must contain only non-empty allowedValues.`);
+      }
+      if (new Set(allowedValues).size !== allowedValues.length) {
+        throw new Error(`${subject} of kind 'tier' must not declare duplicate allowedValues.`);
+      }
+      if (typeof declaration.defaultValue !== "string" || !allowedValues.includes(declaration.defaultValue)) {
+        throw new Error(`${subject} of kind 'tier' must declare a defaultValue included in allowedValues.`);
+      }
+      return;
+    }
+    default:
+      throw new Error(`${subject} declares unsupported kind '${String(declaration.kind)}'.`);
+  }
+}
+
+const ACCOUNT_CAPABILITY_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$/;
+const BOOLEAN_ACCOUNT_CAPABILITY_FIELDS = new Set(["key", "description", "kind", "defaultValue"]);
+const LIMIT_ACCOUNT_CAPABILITY_FIELDS = BOOLEAN_ACCOUNT_CAPABILITY_FIELDS;
+const TIER_ACCOUNT_CAPABILITY_FIELDS = new Set(["key", "description", "kind", "allowedValues", "defaultValue"]);
+
+function assertOnlyAccountCapabilityFields(
+  subject: string,
+  declaration: Readonly<Record<string, unknown>>,
+  allowedFields: ReadonlySet<string>,
+): void {
+  const unknownFields = Object.keys(declaration).filter((field) => !allowedFields.has(field));
+  if (unknownFields.length > 0) {
+    throw new Error(`${subject} declares unsupported field(s): ${unknownFields.join(", ")}.`);
+  }
+}
+
+function isUnknownRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeEventSubscriptionDeclaration(

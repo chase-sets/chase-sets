@@ -36,6 +36,9 @@ function payoutRow(overrides: Record<string, unknown> = {}) {
     payout_id: "pyo_1",
     account_id: "acc_1",
     amount: "25.00",
+    requested_amount: "25.00",
+    fee_amount: "0.32",
+    net_amount: "24.68",
     currency_code: "usd",
     destination_reference: null,
     note: "Requested by agent",
@@ -85,7 +88,10 @@ describe("settlement payout MCP handlers", () => {
     );
 
     expect(list).toMatchObject({ accountId: "acc_1", total: 1, count: 1 });
-    expect(get).toMatchObject({ accountId: "acc_1", payout: { payout_id: "pyo_1" } });
+    expect(get).toMatchObject({
+      accountId: "acc_1",
+      payout: { payout_id: "pyo_1", requested_amount: "25.00", fee_amount: "0.32", net_amount: "24.68" },
+    });
     expect(fakeServices.listPayouts).toHaveBeenCalledWith({ accountId: "acc_1", limit: 10, offset: 5 });
     expect(fakeServices.getPayout).toHaveBeenCalledWith("pyo_1", "acc_1");
   });
@@ -110,6 +116,7 @@ describe("settlement payout MCP handlers", () => {
       version: 3,
       status: "in-transit",
       resourceUri: "chase-sets://settlement/acc_1/payouts/pyo_1",
+      payout: { requested_amount: "25.00", fee_amount: "0.32", net_amount: "24.68" },
     });
     expect(fakeServices.requestPayout).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -150,6 +157,12 @@ describe("settlement payout MCP handlers", () => {
       protocol,
     });
 
-    expect(result).toMatchObject({ payout_id: "pyo_1", account_id: "acc_1" });
+    expect(result).toMatchObject({
+      payout_id: "pyo_1",
+      account_id: "acc_1",
+      requested_amount: "25.00",
+      fee_amount: "0.32",
+      net_amount: "24.68",
+    });
   });
 });

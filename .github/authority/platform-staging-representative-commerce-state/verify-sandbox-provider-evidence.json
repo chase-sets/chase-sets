@@ -1,0 +1,60 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_CONNECT_WEBHOOK_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_PUBLISHABLE_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_WEBHOOK_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "verify-sandbox-provider-evidence",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_WEBHOOK_SECRET",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

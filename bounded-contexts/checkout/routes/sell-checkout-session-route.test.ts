@@ -17,7 +17,6 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSellListReadiness,
-  mockCreateSettlementRequestApiClient,
   mockGetGuestSellList,
   mockGetPayoutReadiness,
   mockGetSellListConfirmation,
@@ -27,6 +26,7 @@ import {
   mockPublishListing,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockRemoveGuestSellListLine,
   readySellListReadinessResponse,
 } from "../tests/support/checkout-route-test-harness";
 
@@ -85,10 +85,6 @@ vi.mock("@chase-sets/payments/server", async () => {
 vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
   MarketplaceApiError: MockMarketplaceApiError,
-}));
-
-vi.mock("@chase-sets/settlement/server", () => ({
-  createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
 }));
 
 import { action as sellCheckoutSessionAction, loader as sellCheckoutSessionLoader } from "./sell-checkout-session";
@@ -339,6 +335,8 @@ describe("checkout web routes: sell checkout session", () => {
     return form;
   }
 
+  const mockRemoveSellListLine = vi.fn();
+
   function mockSignedInSellCheckoutState() {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -346,6 +344,7 @@ describe("checkout web routes: sell checkout session", () => {
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
+      removeSellListLine: mockRemoveSellListLine,
       getSellListPayoutReadiness: mockGetPayoutReadiness,
       listSellListShipFromAddresses: mockListSellListShipFromAddresses,
     });
@@ -602,6 +601,94 @@ describe("checkout web routes: sell checkout session", () => {
     );
   });
 
+  it.each(["managed_offer_held", "managed_offer_refresh_required", "managed_offer_conflict"])(
+    "requires fresh seller review for %s without retrying a stale confirmation",
+    async (code) => {
+      mockSignedInSellCheckoutState();
+      mockAcceptOfferMatch.mockRejectedValueOnce(new MockMarketplaceApiError(409, { error: { code } }));
+      const result = await sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: signedInSellCheckoutForm().toString(),
+        }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+      expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
+      const detail =
+        "Acerola's Mischief: this Offer needs current pricing terms. Refresh the Match and review price, fees and evidence. Your Sell List selection was kept.";
+      expect(result).toMatchObject({ fieldErrors: { form: detail }, recovery: { detail } });
+      expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+      expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+      expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+      expect(mockRemoveSellListLine).not.toHaveBeenCalled();
+      expect(mockRemoveGuestSellListLine).not.toHaveBeenCalled();
+      for (const key of [
+        "buyerOfferPolicyId",
+        "buyer_offer_policy_id",
+        "authority",
+        "preview",
+        "maximumUnitItemAmount",
+        "adjustmentBps",
+        "itemCommitmentAllowance",
+        "consumedItemAmount",
+        "remainingItemAllowance",
+      ])
+        expect(JSON.stringify(result)).not.toContain(`"${key}"`);
+    },
+  );
+
+  it("turns offer_not_open from a paused or withdrawn Offer into Sell List re-review", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockRejectedValueOnce(
+      new MockMarketplaceApiError(409, { error: { code: "offer_not_open", details: { status: "paused" } } }),
+    );
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    const detail = "Acerola's Mischief: offer terms need refresh.";
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { form: detail },
+      recovery: { kind: "readiness-stale", detail },
+    });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRemoveSellListLine).not.toHaveBeenCalled();
+  });
+
+  it("keeps the generic refresh message for fee_quote_stale", async () => {
+    mockSignedInSellCheckoutState();
+    mockAcceptOfferMatch.mockRejectedValueOnce(
+      new MockMarketplaceApiError(409, { error: { code: "fee_quote_stale" } }),
+    );
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    const detail = "Acerola's Mischief: offer terms need refresh.";
+    expect(result).toMatchObject({
+      status: "error",
+      fieldErrors: { form: detail },
+      recovery: { kind: "readiness-stale", detail },
+    });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+    expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    expect(mockRemoveSellListLine).not.toHaveBeenCalled();
+  });
+
   it("surfaces a re-review recovery when Marketplace reports incomplete Listing Evidence at acceptance", async () => {
     mockSignedInSellCheckoutState();
     mockAcceptOfferMatch.mockRejectedValueOnce(
@@ -762,7 +849,12 @@ describe("checkout web routes: sell checkout session", () => {
             quantity: 1,
             selectedOffer: { offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "quote_1" },
             productOfferTargets: [],
-            fallbackListing: { inventoryItemId: "inv_extra", priceAmount: "40.00", quantityCap: 1 },
+            fallbackListing: {
+              inventoryItemId: "inv_extra",
+              priceAmount: "40.00",
+              priceCurrencyCode: "USD",
+              quantityCap: 1,
+            },
             skippedReasons: [],
           },
         ],
@@ -844,7 +936,12 @@ describe("checkout web routes: sell checkout session", () => {
                 quantity: 1,
                 selectedOffer: null,
                 productOfferTargets: [],
-                fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+                fallbackListing: {
+                  inventoryItemId: "inv_1",
+                  priceAmount: "12.00",
+                  priceCurrencyCode: "USD",
+                  quantityCap: 1,
+                },
                 skippedReasons: [],
               },
             ],
@@ -860,6 +957,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
     });
@@ -1050,7 +1148,12 @@ describe("checkout web routes: sell checkout session", () => {
                 quantity: 1,
               },
             ],
-            fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+            fallbackListing: {
+              inventoryItemId: "inv_1",
+              priceAmount: "12.00",
+              priceCurrencyCode: "USD",
+              quantityCap: 1,
+            },
             skippedReasons: [],
           },
         ],
@@ -1078,6 +1181,7 @@ describe("checkout web routes: sell checkout session", () => {
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
       priceAmount: "12.00",
+      priceCurrencyCode: "USD",
       quantityCap: 1,
       listingIdOverride: "lst_slc_chk_sell_1_sll_product",
     });

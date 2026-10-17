@@ -1,0 +1,18 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "stranded-fixture-drill",
+      "stepAnchor": "name:Configure fixture Kubernetes context#3",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "stranded-fixture-drill",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}

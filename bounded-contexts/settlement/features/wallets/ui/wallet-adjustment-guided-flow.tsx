@@ -10,6 +10,7 @@ import {
   CurrencyInput,
   HiddenInput,
   KeyValueList,
+  NumericValue,
   PageStepper,
   SegmentedControl,
   Select,
@@ -230,11 +231,15 @@ export function WalletAdjustmentGuidedFlowForm({
                 },
                 {
                   key: t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.available.balance.before"),
-                  value: formatMoney(preview.available_balance_before, preview.currency_code),
+                  value: (
+                    <NumericValue>{formatMoney(preview.available_balance_before, preview.currency_code)}</NumericValue>
+                  ),
                 },
                 {
                   key: t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.available.balance.after"),
-                  value: formatMoney(preview.available_balance_after, preview.currency_code),
+                  value: (
+                    <NumericValue>{formatMoney(preview.available_balance_after, preview.currency_code)}</NumericValue>
+                  ),
                 },
                 {
                   key: t("settlement.features.wallets.ui.walletAdjustmentGuidedFlow.spendable"),

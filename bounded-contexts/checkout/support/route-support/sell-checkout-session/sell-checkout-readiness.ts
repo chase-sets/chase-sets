@@ -99,10 +99,12 @@ export function parseSellListReviewPlan(value: string): SellListReviewPlan | nul
           fallbackSource &&
           stringValue(fallbackSource.inventoryItemId) &&
           stringValue(fallbackSource.priceAmount) &&
+          stringValue(fallbackSource.priceCurrencyCode) &&
           positiveIntegerValue(fallbackSource.quantityCap) > 0
             ? {
                 inventoryItemId: stringValue(fallbackSource.inventoryItemId),
                 priceAmount: stringValue(fallbackSource.priceAmount),
+                priceCurrencyCode: stringValue(fallbackSource.priceCurrencyCode),
                 quantityCap: positiveIntegerValue(fallbackSource.quantityCap),
               }
             : null;

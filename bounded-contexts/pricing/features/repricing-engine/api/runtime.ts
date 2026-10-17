@@ -5,16 +5,31 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobStore, type DurableJobRecord } from "@chase-sets/platform-runtime/durable-job-store";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
+import { moneyToCents } from "@chase-sets/primitives/money";
+import type { EconomicsServices } from "../../economics/api/services";
 import {
-  evaluateRepricingListing,
-  type RepricingListingEvaluation,
-  type RepricingMarketInputSnapshot,
-} from "../domain/evaluate";
+  forecastKindDefinitions,
+  withForecasts,
+  type EvaluatedPrice,
+  type ForecastCurve,
+} from "../../forecast-ledger/domain/forecast-kinds";
+import { loadConditionSales } from "../../forecast-ledger/read-model/queries";
+import {
+  activeProductFreeze,
+  readProductRoundState,
+  recordProductRoundDirection,
+  reserveProductRoundCooldown,
+} from "../read-model/product-round-state";
+import type { RepricingListingEvaluation } from "../domain/evaluate";
+import { planRepricingRound, planRepricingShadows, readsDemandCurve, traceFromEvaluation } from "../domain/round";
+import { createRepricingDryRunServices } from "./dry-run";
 import {
   repricingPolicyEvaluatedEventType,
   type RepricingEvaluationSkipReason,
+  type RepricingGoalInputs,
   type RepricingPolicyEvaluatedEvent,
   type RepricingPolicyListingTrace,
+  type RepricingRoundDirection,
 } from "../domain/fact";
 import { buildRepricingEvaluationProjectionHandlers } from "../read-model/projection";
 import { repricingEnginePolicy, type RepricingEnginePolicyValue } from "../domain/policy";
@@ -24,6 +39,8 @@ import {
   isRepricingPolicyRevisionActive,
   listAssignedRepricingProducts,
   loadRepricingRoundInputs,
+  type RepricingCandidate,
+  type RepricingRoundInputs,
   type RepricingRoundListing,
 } from "../read-model/queries";
 
@@ -64,6 +81,16 @@ type RepricingEvaluationJobResult = Readonly<{
   policiesEvaluated: number;
   listingsEvaluated: number;
   listingsChanged: number;
+  spiralBreakerTrips: readonly RepricingSpiralBreakerTrip[];
+}>;
+
+export type RepricingSpiralBreakerTrip = Readonly<{
+  catalogItemId: string;
+  productId: string;
+  direction: RepricingRoundDirection;
+  roundCount: number;
+  affectedSellerCount: number;
+  frozenUntil: string;
 }>;
 
 export type RepricingMarketplaceGateway = Readonly<{
@@ -71,6 +98,7 @@ export type RepricingMarketplaceGateway = Readonly<{
     updates: readonly Readonly<{
       listingId: string;
       priceAmount: string;
+      priceCurrencyCode: string;
       expectedVersion: number;
       minimumChange: RepricingListingEvaluation["tolerance"];
       idempotencyKey: string;
@@ -92,45 +120,50 @@ export type RepricingMarketplaceGateway = Readonly<{
 type RepricingEngineRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgTransactionalPool;
+  economics: Pick<EconomicsServices, "resolve">;
 }>;
 
-export type RepricingEngineServices = Readonly<{
-  enqueueMarketPriceSignal: (
-    input: Readonly<{
-      catalogItemId: string;
-      productId: string;
-      amount: string;
-      previousAmount: string | null;
-      trigger: RepricingEvaluationTrigger;
-      context: EventStoreContext;
-    }>,
-  ) => Promise<boolean>;
-  enqueueCompetingAskSignal: (
-    input: Readonly<{
-      listingId: string;
-      trigger: RepricingEvaluationTrigger;
-      context: EventStoreContext;
-    }>,
-  ) => Promise<boolean>;
-  enqueueDailyDriftSweep: (input?: Readonly<{ now?: string; limit?: number }>) => Promise<number>;
-  previewProductRound: (
-    input: Readonly<{
-      catalogItemId: string;
-      productId: string;
-      now?: string;
-    }>,
-  ) => Promise<readonly RepricingListingEvaluation[]>;
-  processNextEvaluationJob: (
-    input: Readonly<{
-      claimOwnerId: string;
-      claimTtlMs: number;
-      marketplaceGatewayForAccount: (accountId: string) => RepricingMarketplaceGateway;
-      signal?: AbortSignal;
-      throwIfLeaseLost?: () => void;
-    }>,
-  ) => Promise<number>;
-  projectors: readonly ProjectionHandlerSet[];
-}>;
+export type RepricingEngineServices = ReturnType<typeof createRepricingDryRunServices> &
+  Readonly<{
+    enqueueMarketPriceSignal: (
+      input: Readonly<{
+        catalogItemId: string;
+        productId: string;
+        amount: string;
+        previousAmount: string | null;
+        trigger: RepricingEvaluationTrigger;
+        context: EventStoreContext;
+      }>,
+    ) => Promise<boolean>;
+    enqueueCompetingAskSignal: (
+      input: Readonly<{
+        listingId: string;
+        trigger: RepricingEvaluationTrigger;
+        context: EventStoreContext;
+      }>,
+    ) => Promise<boolean>;
+    enqueueDailyDriftSweep: (input?: Readonly<{ now?: string; limit?: number }>) => Promise<number>;
+    previewProductRound: (
+      input: Readonly<{
+        catalogItemId: string;
+        productId: string;
+        now?: string;
+        candidate?: RepricingCandidate;
+      }>,
+    ) => Promise<readonly RepricingListingEvaluation[]>;
+    processNextEvaluationJob: (
+      input: Readonly<{
+        claimOwnerId: string;
+        claimTtlMs: number;
+        marketplaceGatewayForAccount: (accountId: string) => RepricingMarketplaceGateway;
+        signal?: AbortSignal;
+        throwIfLeaseLost?: () => void;
+        afterRoundPlanned?: () => Promise<void>;
+        onSpiralBreakerTrip?: (trip: RepricingSpiralBreakerTrip) => void;
+      }>,
+    ) => Promise<number>;
+    projectors: readonly ProjectionHandlerSet[];
+  }>;
 
 export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): RepricingEngineServices {
   const jobStore = createPostgresDurableJobStore<
@@ -171,6 +204,9 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
     if (input.previousAmount === input.amount) {
       return false;
     }
+    if (activeProductFreeze(await readProductRoundState(deps.db, input), new Date().toISOString())) {
+      return false;
+    }
     return enqueue(
       { catalogItemId: input.catalogItemId, productId: input.productId, trigger: input.trigger },
       input.context,
@@ -183,11 +219,15 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
       return false;
     }
     const policy = await resolvePolicy();
-    const reserved = await reserveProductRoundCooldown(deps.db, {
-      ...product,
-      triggerEventId: input.trigger.eventId,
-      cooldownMinutes: policy.productRoundCooldownMinutes,
-    });
+    const reserved = await reserveProductRoundCooldown(
+      deps.db,
+      {
+        ...product,
+        triggerEventId: input.trigger.eventId,
+        cooldownMinutes: policy.productRoundCooldownMinutes,
+      },
+      new Date().toISOString(),
+    );
     if (!reserved) {
       return false;
     }
@@ -224,6 +264,10 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
     while (true) {
       const products = await listAssignedRepricingProducts(deps.db, { after: pageAfter, limit });
       for (const product of products) {
+        const state = await readProductRoundState(deps.db, product);
+        if (activeProductFreeze(state, nowIso) || (state && Date.parse(state.next_eligible_at) > now.getTime())) {
+          continue;
+        }
         const eventId = `daily-drift-sweep:${day}:${product.catalogItemId}:${product.productId}`;
         if (
           await enqueue(
@@ -272,8 +316,16 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
   };
 
   const previewProductRound: RepricingEngineServices["previewProductRound"] = async (input) => {
-    const round = await loadRepricingRoundInputs(deps.db, input);
-    return evaluateRound(round, input.now ?? new Date().toISOString(), await resolvePolicy());
+    const capturedAt = input.now ?? new Date().toISOString();
+    const policy = await resolvePolicy();
+    const round = await loadRepricingRoundInputs(deps.db, {
+      product: { catalogItemId: input.catalogItemId, productId: input.productId },
+      candidate: input.candidate,
+      capturedAt,
+      policy,
+      economics: deps.economics,
+    });
+    return planRepricingRound(round, capturedAt, policy);
   };
 
   const processNextEvaluationJob: RepricingEngineServices["processNextEvaluationJob"] = async (input) => {
@@ -291,37 +343,75 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
       listingsEvaluated: 0,
       listingsChanged: 0,
     };
+    const requireClaim = (owned: boolean) => {
+      if (!owned) {
+        const error = new Error(`Repricing evaluation job claim lost: ${claimed.jobId}`);
+        error.name = "RepricingEvaluationClaimLostError";
+        throw error;
+      }
+    };
     try {
       input.throwIfLeaseLost?.();
       if (input.signal?.aborted) {
         throw new Error("Repricing evaluation job was cancelled.");
       }
-      await jobStore.updateProgress({
-        jobId: claimed.jobId,
-        claimOwnerId: input.claimOwnerId,
-        claimTtlMs: input.claimTtlMs,
-        progress,
-      });
-      const result = await executeProductRound(deps, factCodec, claimed, input, await resolvePolicy());
-      await jobStore.complete({
-        jobId: claimed.jobId,
-        claimOwnerId: input.claimOwnerId,
-        progress: { phase: "completed", ...result },
-        result,
-      });
+      requireClaim(
+        await jobStore.updateProgress({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          progress,
+        }),
+      );
+      const result = await executeProductRound(
+        async () => {
+          if (input.signal?.aborted) {
+            throw new Error("Repricing evaluation job was cancelled.");
+          }
+          input.throwIfLeaseLost?.();
+          requireClaim(
+            await jobStore.renewClaim({
+              jobId: claimed.jobId,
+              claimOwnerId: input.claimOwnerId,
+              claimTtlMs: input.claimTtlMs,
+            }),
+          );
+        },
+        deps,
+        factCodec,
+        claimed,
+        input,
+        await resolvePolicy(),
+      );
+      requireClaim(
+        await jobStore.complete({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: { phase: "completed", ...result },
+          result,
+        }),
+      );
+      result.spiralBreakerTrips.forEach((trip) => input.onSpiralBreakerTrip?.(trip));
       return 1;
     } catch (error) {
-      await jobStore.fail({
-        jobId: claimed.jobId,
-        claimOwnerId: input.claimOwnerId,
-        progress: { ...progress, phase: "failed" },
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
+      try {
+        requireClaim(
+          await jobStore.fail({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: { ...progress, phase: "failed" },
+            errorMessage: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      } catch {
+        // Claim loss or failure persistence must not replace the operation error.
+      }
       throw error;
     }
   };
 
   return {
+    ...createRepricingDryRunServices(deps.db, resolvePolicy, deps.economics),
     enqueueMarketPriceSignal,
     enqueueCompetingAskSignal,
     enqueueDailyDriftSweep,
@@ -337,18 +427,71 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
 }
 
 async function executeProductRound(
+  afterAdmission: () => Promise<void>,
+  ...args: Parameters<typeof executeAdmittedProductRound>
+): Promise<RepricingEvaluationJobResult> {
+  const [deps, , job] = args;
+  const lockKey = JSON.stringify(["pricing:product-round", job.payload.catalogItemId, job.payload.productId]);
+  const lockClient = await deps.db.connect();
+  let lockHeld = false;
+  let failed = false;
+  let releaseError: unknown;
+  try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
+    lockHeld = true;
+    await afterAdmission();
+    // Admission precedes input/freeze reads and lasts through commands, state and facts.
+    return await executeAdmittedProductRound(...args);
+  } catch (error) {
+    failed = true;
+    releaseError = error;
+    throw error;
+  } finally {
+    try {
+      if (lockHeld) {
+        await lockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+      }
+    } catch (error) {
+      releaseError = error;
+      if (!failed) throw error;
+    } finally {
+      // An uncertain lock session must be discarded, never returned to the pool.
+      lockClient.release(releaseError);
+    }
+  }
+}
+
+async function executeAdmittedProductRound(
   deps: RepricingEngineRuntimeDeps,
   factCodec: ReturnType<typeof createPassthroughDomainEventCodec<RepricingPolicyEvaluatedEvent>>,
   job: DurableJobRecord<RepricingEvaluationJobPayload, RepricingEvaluationJobProgress, RepricingEvaluationJobResult>,
   input: Readonly<{
     marketplaceGatewayForAccount: (accountId: string) => RepricingMarketplaceGateway;
     throwIfLeaseLost?: () => void;
+    afterRoundPlanned?: () => Promise<void>;
   }>,
   policy: RepricingEnginePolicyValue,
 ): Promise<RepricingEvaluationJobResult> {
   const nowIso = new Date().toISOString();
-  const round = await loadRepricingRoundInputs(deps.db, job.payload);
-  const evaluations = evaluateRound(round, nowIso, policy);
+  const round = await loadRepricingRoundInputs(deps.db, {
+    product: { catalogItemId: job.payload.catalogItemId, productId: job.payload.productId },
+    capturedAt: nowIso,
+    policy,
+    economics: deps.economics,
+  });
+  // Forecasts are fixed from the curve and the provider weeks as read now; a week's count changes later.
+  const forecastCurve: ForecastCurve | null = round.demandCurve && {
+    modelVersion: round.demandCurve.modelVersion,
+    points: round.demandCurve.points,
+    conditionSales: await loadConditionSales(deps.db, {
+      catalogItemId: job.payload.catalogItemId,
+      productId: job.payload.productId,
+      asOf: nowIso,
+    }),
+  };
+  const evaluations = planRepricingRound(round, nowIso, policy);
+  const shadows = planRepricingShadows(round, nowIso, policy);
+  await input.afterRoundPlanned?.();
   const byPolicy = new Map<string, Array<{ listing: RepricingRoundListing; evaluation: RepricingListingEvaluation }>>();
   round.listings.forEach((listing, index) => {
     const entries = byPolicy.get(listing.policyId) ?? [];
@@ -410,6 +553,7 @@ async function executeProductRound(
       Readonly<{
         listingId: string;
         priceAmount: string;
+        priceCurrencyCode: string;
         expectedVersion: number;
         minimumChange: RepricingListingEvaluation["tolerance"];
         idempotencyKey: string;
@@ -420,7 +564,12 @@ async function executeProductRound(
   const resumeEligibleListingIds = new Set<string>();
   const resumeWaitingListingIds = new Set<string>();
   const repauseCooldownListingIds = new Set<string>();
+  const productState = await readProductRoundState(deps.db, job.payload);
+  const frozenUntil = activeProductFreeze(productState, new Date().toISOString());
   for (const plan of plans) {
+    if (frozenUntil) {
+      continue;
+    }
     if (
       !(await isRepricingPolicyRevisionActive(deps.db, {
         policyId: plan.policyId,
@@ -460,12 +609,21 @@ async function executeProductRound(
       }
     }
     const accountCommands = commandsByAccount.get(plan.first.listing.sellerAccountId) ?? [];
+    for (const entry of plan.commandEntries.filter((candidate) => !candidate.listing.priceCurrencyCode)) {
+      outcomesByListingId.set(entry.listing.listingId, {
+        listingId: entry.listing.listingId,
+        outcome: "error",
+        message: "Listing price is incomplete. A seller-authored currency is required.",
+      });
+    }
     accountCommands.push(
       ...plan.commandEntries
         .filter((entry) => !resumeWaitingListingIds.has(entry.listing.listingId))
+        .filter((entry) => entry.listing.priceCurrencyCode !== null)
         .map((entry) => ({
           listingId: entry.listing.listingId,
           priceAmount: entry.evaluation.targetPriceAmount!,
+          priceCurrencyCode: entry.listing.priceCurrencyCode!,
           expectedVersion: entry.listing.listingVersion,
           minimumChange: entry.evaluation.tolerance,
           idempotencyKey: buildMarketplaceMutationIdempotencyKey(
@@ -516,6 +674,7 @@ async function executeProductRound(
   let policiesEvaluated = 0;
   let listingsEvaluated = 0;
   let listingsChanged = 0;
+  const facts: Array<{ streamId: string; fact: RepricingPolicyEvaluatedEvent }> = [];
   for (const plan of plans) {
     input.throwIfLeaseLost?.();
     const changed = plan.commandEntries.filter(
@@ -531,6 +690,9 @@ async function executeProductRound(
     }
 
     const traces = plan.entries.map(({ listing, evaluation }): RepricingPolicyListingTrace => {
+      if (frozenUntil) {
+        return { ...traceFromEvaluation(evaluation, "skipped", "spiral-breaker-frozen"), frozenUntil };
+      }
       if (evaluation.action === "pause") {
         if (repauseCooldownListingIds.has(listing.listingId)) {
           return traceFromEvaluation(evaluation, "skipped", "repause-cooldown");
@@ -570,6 +732,8 @@ async function executeProductRound(
       }
     });
     const evaluatedAt = new Date().toISOString();
+    const forecastsAt = <Price extends EvaluatedPrice>(price: Price) =>
+      withForecasts(forecastKindDefinitions(), price, { pricedAt: evaluatedAt, curve: forecastCurve });
     const fact: RepricingPolicyEvaluatedEvent = {
       type: repricingPolicyEvaluatedEventType,
       data: {
@@ -584,7 +748,16 @@ async function executeProductRound(
         listingsEvaluated: traces.length,
         listingsChanged: traces.filter((trace) => trace.outcome === "changed").length,
         listingsSkipped: traces.filter((trace) => trace.outcome !== "changed").length,
-        listings: traces,
+        listings: traces.map((trace, index) => {
+          const shadow = shadows.get(trace.listingId)?.map(forecastsAt);
+          const traced = {
+            ...(trace.anchor?.goal ? forecastsAt(trace) : trace),
+            quantity: plan.entries[index]!.listing.quantityCap,
+          };
+          return shadow ? { ...traced, shadow } : traced;
+        }),
+        ...goalInputsFor(plan.entries, round),
+        ...(frozenUntil ? { spiralBreaker: { tripped: false, frozenUntil } } : {}),
         signalToEvaluationLatencyMs: Math.min(
           MAX_POSTGRES_INTEGER,
           Math.max(0, Date.parse(evaluatedAt) - Date.parse(job.payload.trigger.occurredAt)),
@@ -592,11 +765,46 @@ async function executeProductRound(
         evaluatedAt,
       },
     };
+    facts.push({ streamId: plan.streamId, fact });
+    policiesEvaluated += 1;
+    listingsEvaluated += traces.length;
+    listingsChanged += changed;
+  }
+
+  const netChange = facts
+    .flatMap(({ fact }) => fact.data.listings)
+    .reduce(
+      (sum, trace) =>
+        trace.outcome === "changed"
+          ? sum + moneyToCents(trace.targetPriceAmount!) - moneyToCents(trace.currentPriceAmount)
+          : sum,
+      0n,
+    );
+  const direction = netChange > 0n ? "up" : netChange < 0n ? "down" : null;
+  const trip =
+    !frozenUntil && (facts.length > 0 || (round.listings.length === 0 && productState !== null))
+      ? await recordProductRoundDirection(deps.db, job.payload, direction, policy, new Date().toISOString())
+      : null;
+  for (const { streamId, fact } of facts) {
+    const retainedFact: RepricingPolicyEvaluatedEvent = trip
+      ? {
+          ...fact,
+          data: {
+            ...fact.data,
+            spiralBreaker: { tripped: true, frozenUntil: trip.frozenUntil },
+            listings: fact.data.listings.map((trace) => ({
+              ...trace,
+              flags: [...trace.flags, "spiral-breaker"],
+              frozenUntil: trip.frozenUntil,
+            })),
+          },
+        }
+      : fact;
     try {
       await deps.eventStore.appendToStream({
-        streamId: plan.streamId,
+        streamId,
         expectedVersion: "no_stream",
-        events: [factCodec.encode(fact)],
+        events: [factCodec.encode(retainedFact)],
         context: REPRICING_SYSTEM_CONTEXT,
       });
     } catch (error) {
@@ -604,69 +812,22 @@ async function executeProductRound(
         throw error;
       }
     }
-    policiesEvaluated += 1;
-    listingsEvaluated += traces.length;
-    listingsChanged += changed;
   }
 
-  return { policiesEvaluated, listingsEvaluated, listingsChanged };
-}
-
-function evaluateRound(
-  round: Awaited<ReturnType<typeof loadRepricingRoundInputs>>,
-  capturedAt: string,
-  policy: RepricingEnginePolicyValue,
-): readonly RepricingListingEvaluation[] {
-  return round.listings.map((listing) => {
-    const snapshot: RepricingMarketInputSnapshot = {
-      catalogItemId: listing.catalogItemId,
-      productId: listing.productId,
-      capturedAt,
-      hardAskOutlierPriceRatio: policy.hardAskOutlierPriceRatio,
-      marketEstimate: round.marketEstimate,
-      lastSold: round.lastSold
-        ? {
-            amount: round.lastSold.amount,
-            freshUntil: new Date(
-              Date.parse(round.lastSold.soldAt) + policy.lastSoldFreshForDays * 24 * 60 * 60 * 1_000,
-            ).toISOString(),
-          }
-        : null,
-      competingAsks: round.competingAsks,
-    };
-    return evaluateRepricingListing(
-      {
-        listingId: listing.listingId,
-        sellerAccountId: listing.sellerAccountId,
-        currentPriceAmount: listing.priceAmount,
-        quantityCap: listing.quantityCap,
-        categoryIds: listing.categoryIds,
-        grading: listing.grading,
-        createdAt: listing.createdAt,
-        costBasisAmount: listing.costBasisAmount,
-        rules: listing.rules,
-      },
-      snapshot,
-    );
-  });
-}
-
-function traceFromEvaluation(
-  evaluation: RepricingListingEvaluation,
-  outcome: RepricingPolicyListingTrace["outcome"],
-  skipReason: RepricingEvaluationSkipReason | null,
-): RepricingPolicyListingTrace {
   return {
-    listingId: evaluation.listingId,
-    currentPriceAmount: evaluation.currentPriceAmount,
-    targetPriceAmount: evaluation.targetPriceAmount,
-    ruleIndex: evaluation.ruleIndex,
-    anchor: evaluation.anchor,
-    exhaustedAnchors: evaluation.exhaustedAnchors,
-    clamps: evaluation.clamps,
-    flags: evaluation.flags,
-    outcome,
-    skipReason,
+    policiesEvaluated,
+    listingsEvaluated,
+    listingsChanged,
+    spiralBreakerTrips: trip
+      ? [
+          {
+            ...trip,
+            catalogItemId: job.payload.catalogItemId,
+            productId: job.payload.productId,
+            affectedSellerCount: new Set(facts.map(({ fact }) => fact.data.sellerAccountId)).size,
+          },
+        ]
+      : [],
   };
 }
 
@@ -728,6 +889,21 @@ function evaluationJobId(eventId: string): string {
   return `repricing-evaluation:${eventId}`;
 }
 
+/** Only a policy whose rules read the Demand Curve records goal inputs, counting its own listings' Economics. */
+function goalInputsFor(
+  entries: readonly Readonly<{ listing: RepricingRoundListing }>[],
+  round: RepricingRoundInputs,
+): Readonly<{ goalInputs?: RepricingGoalInputs }> {
+  if (!entries.some(({ listing }) => readsDemandCurve(listing.rules))) return {};
+  return {
+    goalInputs: {
+      curveVersion: round.demandCurve?.version ?? null,
+      economicsResolved: entries.filter(({ listing }) => listing.economics?.availability === "resolved").length,
+      economicsUnavailable: entries.filter(({ listing }) => listing.economics?.availability === "unavailable").length,
+    },
+  };
+}
+
 function buildEvaluationId(eventId: string, policyId: string, policyRevision: string): string {
   return `${encodeURIComponent(eventId)}:${encodeURIComponent(policyId)}:${Date.parse(policyRevision)}`;
 }
@@ -745,32 +921,6 @@ function buildMarketplaceMutationIdempotencyKey(
   return `repricing:${encodeURIComponent(triggerEventId)}:${encodeURIComponent(productId)}:${encodeURIComponent(
     listingId,
   )}:${action}`;
-}
-
-async function reserveProductRoundCooldown(
-  db: PgTransactionalPool,
-  input: Readonly<{
-    catalogItemId: string;
-    productId: string;
-    triggerEventId: string;
-    cooldownMinutes: number;
-  }>,
-): Promise<boolean> {
-  return withPgTransaction(db, async (client) => {
-    const result = await client.query<{ reserved: boolean }>(
-      `INSERT INTO pricing_repricing_product_round_cooldowns (
-         catalog_catalog_item_id, product_id, next_eligible_at, last_trigger_event_id, updated_at
-       ) VALUES ($1, $2, now() + ($4 * interval '1 minute'), $3, now())
-       ON CONFLICT (catalog_catalog_item_id, product_id) DO UPDATE
-       SET next_eligible_at = EXCLUDED.next_eligible_at,
-           last_trigger_event_id = EXCLUDED.last_trigger_event_id,
-           updated_at = EXCLUDED.updated_at
-       WHERE pricing_repricing_product_round_cooldowns.next_eligible_at <= now()
-       RETURNING true AS reserved`,
-      [input.catalogItemId, input.productId, input.triggerEventId, input.cooldownMinutes],
-    );
-    return result.rows[0]?.reserved ?? false;
-  });
 }
 
 async function recordPolicyListingPaused(

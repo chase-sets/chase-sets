@@ -63,7 +63,12 @@ export type SellListReviewPlanLine = Readonly<{
     feeQuoteFingerprint: string;
     quantity: number;
   }>[];
-  fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
+  fallbackListing: Readonly<{
+    inventoryItemId: string;
+    priceAmount: string;
+    priceCurrencyCode: string;
+    quantityCap: number;
+  }> | null;
   skippedReasons: readonly string[];
 }>;
 
@@ -99,5 +104,11 @@ export class SellListReviewPlanStaleError extends Error {
 export function staleReviewPlanError(itemTitle: string) {
   return new SellListReviewPlanStaleError(
     t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle }),
+  );
+}
+
+export function staleManagedOfferReviewError(itemTitle: string) {
+  return new SellListReviewPlanStaleError(
+    t("checkout.routes.accountSellList.managed.offer.refresh.detail", { itemTitle }),
   );
 }

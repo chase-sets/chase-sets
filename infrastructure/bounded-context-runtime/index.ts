@@ -1,6 +1,6 @@
 export * from "./api-mounts";
 export * from "./inline-apply";
-export { createProjectionAwarePool } from "./projection-transactions";
+export { createProjectionAwarePool, runInProjectionDbContext } from "./projection-transactions";
 export {
   bootstrapContextDatabase,
   composeModuleSchemaSql,
@@ -76,14 +76,20 @@ export { createCheckpointKey, loadSubscriptionCheckpoint } from "./subscription-
 export type {
   ContextProjectionGroup,
   ContextProjectionGroupStatus,
+  ProjectionGroupGeneration,
+  ProjectionGroupGenerationState,
+  ProjectionGroupRevisionSyncToken,
+  ProjectionGroupStatusRefreshOptions,
   ProjectionReplayContextSummary,
   ProjectionReplaySummary,
+  RefreshedContextProjectionGroupStatus,
 } from "./projection-groups";
 export {
   cleanupRuntimeProjectionGenerations,
   getProjectionGroup,
   getProjectionReplaySummary,
   listProjectionGroupStatuses,
+  loadProjectionGroupGeneration,
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
   rebuildProjectionGroup,
@@ -93,6 +99,7 @@ export {
   resolveModuleProjectionGroups,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
+  syncLocalProjectionGroups,
   syncProjectionGroup,
 } from "./projection-groups";
 

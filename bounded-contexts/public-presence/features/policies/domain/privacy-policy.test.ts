@@ -131,6 +131,26 @@ describe("Privacy Policy candidate", () => {
     expect(evaluateCanonicalClaimConsistency(registry, repoRoot)).toEqual([]);
   });
 
+  it("separates payment requests and capture evidence from platform-held strategy and payout onboarding", () => {
+    const section = privacyPolicyArtifact.sections.find(({ id }) => id === "stripe-managed-processing")!;
+    expect(section.draftText).toContain("requests payment through Stripe");
+    expect(section.draftText).toContain("authorization is distinct from capture");
+    expect(section.draftText).toContain("webhook or reconciliation");
+    expect(section.draftText).not.toMatch(
+      /charges your selected payment method as part of completing|immediately confirm|statement will carry/i,
+    );
+    const [capture, strategy, onboarding] = section.reviewManifest.assumptions;
+    expect(capture.assertion).toContain("records capture");
+    expect(capture.evidenceRef).toContain("runtime.ts:2627-2668");
+    expect(capture.evidenceRef).toContain("domain.ts:968-1005");
+    expect(capture.evidenceRef).not.toMatch(/1485-1515|0006-stripe-connect/);
+    expect(strategy.evidenceRef).toBe("docs/adr/0006-stripe-connect-custom-account-experience.md:15");
+    expect(onboarding.assertion).toContain("seller onboarding uses Stripe embedded components");
+    expect(onboarding.evidenceRef).not.toContain("stripe-payments");
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/network.*control/i);
+    expect(section.reviewStatus).toBe("counsel-required");
+  });
+
   it("carries one classification binding per derived fact, with closed families and boundaries", () => {
     expect(evaluate()).toEqual([]);
     expect(privacyProductTruthBindings).toHaveLength(inventory.facts.length);
@@ -217,6 +237,16 @@ describe("Privacy Policy candidate", () => {
 describe(
   "Privacy Policy one-variable controls",
   () => {
+    it("removing the revocation attempt key reds only its Web Storage disclosure", () => {
+      const mutant = withSection("cookies-and-analytics", (text) =>
+        text.replace("agent-grant-revocation:", "connected-agent attempt"),
+      );
+      expectSoleViolation(
+        evaluate(mutant),
+        /does not disclose 'agent-grant-revocation:' required by binding 'web-storage-agent-grant-revocation'\./,
+      );
+    });
+
     it("control 1: removing exactly chase_sets_anonymous_cart reds only that cookie binding", () => {
       const mutant = withSection("cookies-and-analytics", (text) =>
         text.replace("a signed-out cart (chase_sets_anonymous_cart), ", "a signed-out cart, "),

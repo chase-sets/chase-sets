@@ -41,6 +41,7 @@ export interface ListingCardProps {
   imageFallbackMode?: "permanent" | "loading-only";
   showMediaPlaceholder?: boolean;
   price?: ReactNode;
+  pricePresentation?: Readonly<{ state: "exact" } | { state: "indicative"; prefix: ReactNode }>;
   priceDetail?: ReactNode;
   priceExplanation?: ReactNode;
   rating?: number;
@@ -101,6 +102,7 @@ export function ListingCard({
   imageFallbackMode = "permanent",
   showMediaPlaceholder = true,
   price,
+  pricePresentation,
   priceDetail,
   priceExplanation,
   rating,
@@ -241,6 +243,12 @@ export function ListingCard({
       )}
       data-card-layout={cardLayout}
     >
+      {href ? (
+        <>
+          <a href={href} aria-label={detailLinkLabel} onClick={onDetailClick} className="peer absolute inset-0 z-10" />
+          <span aria-hidden="true" className="focus-ring pointer-events-none absolute inset-1.5 z-40 rounded-tokenSm" />
+        </>
+      ) : null}
       {hasMediaFrame ? (
         <div
           className={cx(
@@ -309,25 +317,15 @@ export function ListingCard({
             </Inline>
           ) : null}
           {isSearchResultLayout && badges ? <Box>{badges}</Box> : null}
-          <div className="relative">
-            <h3
-              className={cx(
-                "m-0 line-clamp-2 font-semibold text-foreground",
-                isLinked && "transition-colors hover:text-accent",
-                isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
-              )}
-            >
-              {title}
-            </h3>
-            {href ? (
-              <a
-                href={href}
-                aria-label={detailLinkLabel}
-                onClick={onDetailClick}
-                className="focus-ring pointer-events-auto absolute inset-0 z-30 rounded-tokenSm"
-              />
-            ) : null}
-          </div>
+          <h3
+            className={cx(
+              "m-0 line-clamp-2 font-semibold text-foreground",
+              isLinked && "transition-colors hover:text-accent",
+              isSearchResultLayout ? "text-sm leading-5 md:text-base md:leading-6" : "text-base leading-6",
+            )}
+          >
+            {title}
+          </h3>
           {subtitle ? <p className="m-0 text-sm font-medium leading-5 text-foreground">{subtitle}</p> : null}
           {valueCue ? (
             <p className={cx("m-0 text-sm leading-5 text-secondary", truncateValueCue && "line-clamp-2")}>{valueCue}</p>
@@ -340,11 +338,18 @@ export function ListingCard({
               {hasPrice ? (
                 <div
                   className={cx(
-                    "font-bold tabular-nums text-foreground",
+                    "font-bold text-foreground",
                     isSearchResultLayout ? "text-lg leading-6" : "text-xl leading-7",
                   )}
                 >
-                  {price}
+                  {pricePresentation?.state === "indicative" ? (
+                    <>
+                      <span data-listing-card-price-prefix="">{pricePresentation.prefix}</span>{" "}
+                    </>
+                  ) : null}
+                  <span data-listing-card-price-value="" className="font-mono tabular-nums">
+                    {price}
+                  </span>
                 </div>
               ) : null}
               {priceDetail ? <div className="text-xs leading-4 text-tertiary">{priceDetail}</div> : null}

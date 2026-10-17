@@ -3,7 +3,7 @@ import {
   countEventsWithPrefix,
   createProjectionAwarePool,
   drainContextRuntime,
-  drainLocalProjectionHandlerSets,
+  syncLocalProjectionGroups,
   resolveModuleApiMounts,
   resolveModuleProjectionGroups,
   resolveModuleSubscriptions,
@@ -23,10 +23,17 @@ import type {
   EnvironmentDataProfile,
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { buildAccountCapabilityRegistry, type AccountCapabilityRegistry } from "./account-capability-registry";
 import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
 import { attachRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 
 export type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
+export {
+  buildAccountCapabilityRegistry,
+  type AccountCapabilityModuleRegistration,
+  type AccountCapabilityRegistry,
+  type AccountCapabilityRegistryEntry,
+} from "./account-capability-registry";
 
 export type ApiHostName = "platform-api";
 export type ApiHostRuntimeProfile = "landing" | "proof" | "public";
@@ -76,6 +83,7 @@ export type ApiHostContextName<TRegistry extends ApiContextRegistry = ApiContext
   TRegistry[number]["contextName"];
 
 export type ApiHostRuntime = Readonly<{
+  accountCapabilityRegistry: AccountCapabilityRegistry;
   mountedContexts: readonly MountedContextRuntimeEntry[];
   mountedModules: readonly Readonly<{
     module: BcApiModule;
@@ -116,7 +124,11 @@ export function getApiHostContextNames<TRegistry extends ApiContextRegistry>(
   );
 }
 
-function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonly<Record<string, unknown>>) {
+function getHostPortsForContext(
+  manifest: ApiContextManifest,
+  hostPorts: Readonly<Record<string, unknown>>,
+  accountCapabilityRegistry: AccountCapabilityRegistry,
+) {
   const entries = manifest.hostPorts ?? [];
   if (entries.length === 0) {
     return undefined;
@@ -126,6 +138,8 @@ function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonl
   for (const hostPort of entries) {
     resolvedPorts[hostPort.portName] = hostPorts[hostPort.portName];
   }
+  if (entries.some((port) => port.portName === "capabilityAdministrationAuthority"))
+    resolvedPorts.accountCapabilityRegistry = accountCapabilityRegistry;
 
   return resolvedPorts;
 }
@@ -166,6 +180,7 @@ export function createApiHost(
     runtimeLifecycle?: RuntimeLifecycleRegistry;
   }>,
 ): ApiHostRuntime {
+  const accountCapabilityRegistry = buildAccountCapabilityRegistry(registry);
   const entries = getApiHostEntries(registry, hostName, options.runtimeProfile);
   const services = Object.fromEntries(
     entries.map((entry) => {
@@ -181,7 +196,11 @@ export function createApiHost(
         entry.contextName,
         entry.module.createServices(
           servicePool,
-          getHostPortsForContext(entry.manifest as ApiContextManifest, options.hostPorts ?? {}) as never,
+          getHostPortsForContext(
+            entry.manifest as ApiContextManifest,
+            options.hostPorts ?? {},
+            accountCapabilityRegistry,
+          ) as never,
           { notificationWaiterPool: serviceNotificationWaiterPool },
         ),
       ];
@@ -217,6 +236,7 @@ export function createApiHost(
   const projectionGroups = resolveModuleProjectionGroups(mountedContexts, subscriptionRunners);
 
   return {
+    accountCapabilityRegistry,
     mountedContexts,
     mountedModules,
     services,
@@ -307,8 +327,12 @@ export function getApiHostSeedOrder(
   return orderedNames;
 }
 
-function shouldRunFullBootstrapDrain(options: BcSeedOptions & Readonly<{ fullBootstrapDrain?: boolean }>): boolean {
-  return options.fullBootstrapDrain === true || options.enabledDataProfiles.includes("scenario-seed");
+function shouldRunBootstrapDrain(options: ApiHostSeedOptions): boolean {
+  return (
+    options.fullBootstrapDrain === true ||
+    options.seedContextDrain === true ||
+    options.enabledDataProfiles.includes("scenario-seed")
+  );
 }
 
 function shouldRunContextSeed(context: Pick<MountedContextRuntimeEntry, "module">, options: BcSeedOptions): boolean {
@@ -319,6 +343,8 @@ export type ApiHostSeedOptions = BcSeedOptions &
   Readonly<{
     runtimeProfile?: ApiHostRuntimeProfile;
     schemaBootstrap?: SchemaBootstrapOptions;
+    /** Seed commands hold this direct connection separately from the capped context query pool. */
+    schemaBootstrapLockPool?: PgTransactionalPool;
     /**
      * Upper bound for any single seed substep (schema bootstrap or module seed for one
      * context). When a substep exceeds it, seeding fails with a descriptive error instead of
@@ -332,6 +358,8 @@ export type ApiHostSeedOptions = BcSeedOptions &
      * repeat run's seed reconciliation guards observe what earlier runs created.
      */
     fullBootstrapDrain?: boolean;
+    /** Converge seed owners before/after reconciliation; the caller owns the remaining runtime drain. */
+    seedContextDrain?: boolean;
   }>;
 
 async function runSeedSubstep<T>(label: string, timeoutMs: number | undefined, action: () => Promise<T>): Promise<T> {
@@ -402,8 +430,10 @@ export async function seedApiHostIfEmpty(
     return;
   }
 
-  await withSchemaBootstrapLock(bootstrapLockContext.pool, options.schemaBootstrap, (lockAcquisition) =>
-    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
+  await withSchemaBootstrapLock(
+    options.schemaBootstrapLockPool ?? bootstrapLockContext.pool,
+    options.schemaBootstrap,
+    (lockAcquisition) => seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
   );
 }
 
@@ -415,7 +445,8 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
   lockAcquisition: SchemaBootstrapLockAcquisition,
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
-  const runFullDrain = shouldRunFullBootstrapDrain(options);
+  const runBootstrapDrain = shouldRunBootstrapDrain(options);
+  const seedContextDrain = options.seedContextDrain === true;
   const substepTimeoutMs = options.substepTimeoutMs;
   const schemaBootstrap: SchemaBootstrapOptions = {
     ...options.schemaBootstrap,
@@ -447,36 +478,38 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
         seedApiModuleForHostBootstrap(context, options, lockAcquisition),
       );
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
-        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await syncLocalProjectionGroups(context);
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
-        await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+        await syncLocalProjectionGroups(context);
       });
       continue;
     }
 
-    if (runFullDrain) {
+    if (runBootstrapDrain) {
       await runSeedSubstep(`projection-sync:${contextName}`, substepTimeoutMs, () =>
         syncContextProjectionGroups(runtime, contextName, {
-          requiredOnly: true,
+          requiredOnly: !seedContextDrain,
         }),
       );
     }
     await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
       seedApiModuleForHostBootstrap(context, options, lockAcquisition),
     );
-    if (runFullDrain) {
+    if (runBootstrapDrain) {
       await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
         await syncContextProjectionGroups(runtime, contextName);
-        await drainContextRuntime(runtime);
+        if (!seedContextDrain) await drainContextRuntime(runtime);
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
-        await drainContextRuntime(runtime);
+        if (!seedContextDrain) await drainContextRuntime(runtime);
       });
     }
   }
 
-  if (runFullDrain) {
-    await runSeedSubstep("projection-drain:all", substepTimeoutMs, () => drainContextRuntime(runtime));
+  if (runBootstrapDrain) {
+    if (!seedContextDrain) {
+      await runSeedSubstep("projection-drain:all", substepTimeoutMs, () => drainContextRuntime(runtime));
+    }
 
     // A final reconciliation pass lets seeds that depend on downstream facts
     // (for example marketplace review seeds that need delivered fulfillment
@@ -489,7 +522,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
       await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async () => {
         await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
         await syncContextProjectionGroups(runtime, contextName);
-        await drainContextRuntime(runtime);
+        if (!seedContextDrain) await drainContextRuntime(runtime);
       });
     }
 
@@ -498,9 +531,11 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     // otherwise leave cross-context projections that subscribe to a subset of a
     // source's event types reporting a false tail lag whenever the source seeds
     // trailing non-subscribed events.
-    await runSeedSubstep("projection-settle:all", substepTimeoutMs, () =>
-      drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
-    );
+    if (!seedContextDrain) {
+      await runSeedSubstep("projection-settle:all", substepTimeoutMs, () =>
+        drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
+      );
+    }
   }
 }
 
@@ -528,7 +563,7 @@ async function seedApiModuleForHostBootstrap(
     console.log(
       `${context.contextName} events already exist after queued bootstrap. Draining existing events without general seed re-entry.`,
     );
-    await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+    await syncLocalProjectionGroups(context);
     return;
   }
 
@@ -537,7 +572,7 @@ async function seedApiModuleForHostBootstrap(
     context.mountRole === "active" &&
     shouldRunContextSeed(context, options) &&
     context.module.reconcileBootstrapState &&
-    !shouldRunFullBootstrapDrain(options)
+    !shouldRunBootstrapDrain(options)
   ) {
     console.log(`${context.contextName} seed completed. Reconciling required state before readiness.`);
     await reconcileRequiredBootstrapState(context, options);
@@ -550,7 +585,7 @@ async function reconcileRequiredBootstrapState(context: MountedContextRuntimeEnt
     return;
   }
 
-  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await syncLocalProjectionGroups(context);
   await reconcile(context.pool, context.services, options);
-  await drainLocalProjectionHandlerSets(context.contextName, context.pool, context.projectionHandlerSets);
+  await syncLocalProjectionGroups(context);
 }

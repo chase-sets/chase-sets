@@ -1,5 +1,7 @@
 import type { NotificationMessage, WebNotificationChannel } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { formatMoney } from "@chase-sets/localization";
+import { links } from "../../../../support/runtime-support/link-intents";
 
 export type ProductAlertNotificationInput = Readonly<{
   accountId: string;
@@ -10,20 +12,22 @@ export type ProductAlertNotificationInput = Readonly<{
   itemTitle: string | null;
   productSummary: string | null;
   priceAmount: string;
+  priceCurrencyCode: string;
   correlationId: string;
 }>;
 
 export function mapProductAlertMatchToNotification(input: ProductAlertNotificationInput): NotificationMessage {
   const itemTitle = input.itemTitle?.trim() || "A watched product";
-  const actionHref =
-    input.marketSide === "offer"
-      ? `/items/${encodeURIComponent(input.catalogItemId)}?market=sell`
-      : `/items/${encodeURIComponent(input.catalogItemId)}`;
+  const actionHref = links("item-detail", {
+    path: { id: input.catalogItemId },
+    ...(input.marketSide === "offer" ? { query: { market: "sell" as const } } : {}),
+  }).href;
   const title = input.marketSide === "offer" ? `Product Alert: demand for ${itemTitle}` : `Product Alert: ${itemTitle}`;
+  const price = formatMoney(input.priceAmount, input.priceCurrencyCode);
   const body =
     input.marketSide === "offer"
-      ? `${input.productSummary ?? "The selected product"} has matching demand at $${input.priceAmount}.`
-      : `${input.productSummary ?? "The selected product"} is available at $${input.priceAmount}.`;
+      ? `${input.productSummary ?? "The selected product"} has matching demand at ${price}.`
+      : `${input.productSummary ?? "The selected product"} is available at ${price}.`;
   const webChannel: WebNotificationChannel = {
     channel: "web",
     recipient: { accountId: input.accountId as AccountId },
@@ -49,6 +53,7 @@ export function mapProductAlertMatchToNotification(input: ProductAlertNotificati
       itemTitle,
       productSummary: input.productSummary,
       priceAmount: input.priceAmount,
+      priceCurrencyCode: input.priceCurrencyCode,
     },
     channels: [webChannel],
     idempotencyKey: `discovery:product-alert:${input.alertId}:${input.activityId}`,

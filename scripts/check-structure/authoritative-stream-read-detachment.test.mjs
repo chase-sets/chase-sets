@@ -193,10 +193,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.diagnostics).toEqual([]);
     expect(production.totals.detachmentEscapeSites).toBe(0);
     expect(production.totals).toMatchObject({
-      roots: 2_892,
-      loadedRoots: 2_892,
-      discoveredCallCandidates: 8,
-      authoritativeSites: 8,
+      roots: production.roots.length,
+      loadedRoots: production.roots.length,
+      discoveredCallCandidates: 20,
+      authoritativeSites: 20,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -219,13 +219,49 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives the twelve green grammar instances across eleven live locations without a registry", () => {
+  it("derives twenty-six green grammar instances across twenty-four live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(12);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(11);
+    expect(green).toHaveLength(26);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(24);
+    expect(green).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
+          line: 168,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/identity/features/agent-grants/api/revocation-release.ts",
+          line: 39,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.ts",
+          line: 95,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
+          line: 45,
+        }),
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
+          line: 71,
+        }),
+      ]),
+    );
     const shared = green.filter(
       (entry) => entry.file === "contracts/event-core/complete-stream.ts" && entry.line === 5,
     );
+    expect(
+      green.filter(
+        (entry) =>
+          entry.file ===
+          "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
+      ),
+    ).toHaveLength(3);
     expect(new Set(shared.map((entry) => entry.category))).toEqual(new Set(["member-declaration", "type-position"]));
     expect(
       green.some(

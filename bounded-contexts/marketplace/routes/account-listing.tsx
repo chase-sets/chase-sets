@@ -166,6 +166,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   const api = createMarketplaceRequestApiClient(request);
   const priceDraftAmount = String(formData.get("priceAmount") ?? "");
+  const priceDraftCurrencyCode = String(formData.get("priceCurrencyCode") ?? "");
 
   try {
     const pathname = new URL(request.url).pathname;
@@ -173,6 +174,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
       case "preview-price":
         return {
           priceDraftAmount,
+          priceDraftCurrencyCode,
           pricePreview: await api.previewListingTerms({
             priceAmount: priceDraftAmount,
           }),
@@ -182,7 +184,11 @@ async function handleAction(intent: string, { request, params, formData }: FormA
           await navigateToAccountListingAfterWrite(
             await api.updateListingPrice(params.listingId!, {
               priceAmount: priceDraftAmount,
-              feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+              priceCurrencyCode: priceDraftCurrencyCode,
+              feeQuoteFingerprint:
+                typeof formData.get("feeQuoteFingerprint") === "string"
+                  ? String(formData.get("feeQuoteFingerprint"))
+                  : null,
             }),
             pathname,
           ),
@@ -285,6 +291,7 @@ async function handleAction(intent: string, { request, params, formData }: FormA
       const currentEvidenceReadiness = evidenceReadinessFromError(error);
       return {
         priceDraftAmount,
+        priceDraftCurrencyCode,
         pricePreview: currentQuote,
         evidenceReadiness: currentEvidenceReadiness,
         evidenceAnalyticsEvent:
@@ -371,6 +378,7 @@ export default function MarketplaceAccountListingRoute() {
       listing={currentListing as MarketplaceListingDetail}
       feeHistory={data.feeHistory.items as MarketplaceListingFeeHistoryEntry[]}
       priceDraftAmount={actionData?.priceDraftAmount ?? null}
+      priceDraftCurrencyCode={actionData?.priceDraftCurrencyCode ?? null}
       pricePreview={actionData?.pricePreview as MarketplaceListingTermsPreview | null | undefined}
       errorMessage={actionData?.error ?? null}
     />

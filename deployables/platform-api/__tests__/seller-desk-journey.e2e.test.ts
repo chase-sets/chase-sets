@@ -116,6 +116,7 @@ const SELLER_JOURNEY_PERMISSIONS = [
   "fulfillment.view",
   "fulfillment.manage",
   "payouts.view",
+  "channels.view",
   "payouts.request",
 ] as const;
 
@@ -222,6 +223,7 @@ function emptyBySource() {
     "settlement-blocked-payout": 0,
     "dispute-response": 0,
     "inventory-resolution": 0,
+    "channel-action": 0,
     "offer-response": 0,
     "listing-action": 0,
   };
@@ -240,9 +242,11 @@ function queueWith(items: readonly QueueItem[]) {
     sources: [
       { id: "fulfillment-ship-by", status: "available", itemCount: bySource["fulfillment-ship-by"] },
       { id: "settlement-blocked-payout", status: "available", itemCount: bySource["settlement-blocked-payout"] },
-      { id: "inventory-resolution", status: "available", itemCount: 0 },
+      { id: "dispute-response", status: "available", itemCount: bySource["dispute-response"] },
+      { id: "inventory-resolution", status: "available", itemCount: bySource["inventory-resolution"] },
+      { id: "channel-action", status: "available", itemCount: bySource["channel-action"] },
       { id: "offer-response", status: "available", itemCount: bySource["offer-response"] },
-      { id: "listing-action", status: "available", itemCount: 0 },
+      { id: "listing-action", status: "available", itemCount: bySource["listing-action"] },
     ],
     degraded: false,
   };
@@ -462,7 +466,7 @@ describe("Seller Desk full-journey acceptance gate @seller-desk-journey", () => 
               accountId: "acc_seller",
               shipmentId: "shp_1",
               reason: "Ship-by deadline reached in the Seller Desk attention queue.",
-              idempotencyKey: "seller-desk-buy-label-1",
+              idempotencyKey: "018f47d2-9d2a-4d68-8f33-6fb718c3f101",
               confirmationText: "Purchase Label.",
             },
             confirmation: { confirmed: true, text: "Purchase Label." },
@@ -478,7 +482,7 @@ describe("Seller Desk full-journey acceptance gate @seller-desk-journey", () => 
               accountId: "acc_seller",
               shipmentId: "shp_1",
               reason: "Handed to USPS after buying the label.",
-              idempotencyKey: "seller-desk-dispatch-1",
+              idempotencyKey: "018f47d2-9d2a-4d68-8f33-6fb718c3f102",
               confirmationText: "Dispatch Shipment.",
             },
             confirmation: { confirmed: true, text: "Dispatch Shipment." },

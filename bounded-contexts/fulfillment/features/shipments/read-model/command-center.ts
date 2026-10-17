@@ -53,6 +53,14 @@ export type FulfillmentCommandCenterShipmentInput = Readonly<{
   total_quantity: number;
   created_at: string;
   updated_at: string;
+  conflicts: readonly Readonly<{
+    order_id: string;
+    conflict_kind: "cancellation" | "destination-correction";
+    origin: string;
+    reason: string | null;
+    shipment_status: string;
+    detected_at: string;
+  }>[];
 }>;
 
 export type FulfillmentCommandCenterItem = Readonly<{
@@ -71,6 +79,7 @@ export type FulfillmentCommandCenterItem = Readonly<{
   bucket: FulfillmentCommandCenterBucketId;
   severity: SellerAttentionSeverity;
   observedAt: string;
+  conflicts: FulfillmentCommandCenterShipmentInput["conflicts"];
   // The context-aware action plan (primary next action + disclosed actions).
   plan: ShipmentActionPlan;
   // The shared Seller Desk attention item this shipment contributes to the queue,
@@ -94,7 +103,13 @@ export type FulfillmentCommandCenter = Readonly<{
   totalNeedingAttention: number;
 }>;
 
-function bucketForStatus(status: ShipmentStatus): FulfillmentCommandCenterBucketId | null {
+function bucketForStatus(status: ShipmentStatus, hasConflict: boolean): FulfillmentCommandCenterBucketId | null {
+  if (status === "cancelled") {
+    return null;
+  }
+  if (hasConflict) {
+    return "exceptions";
+  }
   switch (status) {
     case "awaiting-package":
     case "packing":
@@ -115,16 +130,39 @@ function severityForBucket(bucket: FulfillmentCommandCenterBucketId): SellerAtte
   return bucket === "exceptions" ? "critical" : "warning";
 }
 
+const DESIGNED_CANCELLATION_REASONS = new Set(["support-cancel-order", "seller-cannot-fulfill"]);
+
+function severityForConflicts(
+  conflicts: FulfillmentCommandCenterShipmentInput["conflicts"],
+): SellerAttentionSeverity | null {
+  if (conflicts.length === 0) {
+    return null;
+  }
+  return conflicts.every(
+    (conflict) =>
+      conflict.conflict_kind === "cancellation" &&
+      conflict.origin === "order-cancelled" &&
+      conflict.reason !== null &&
+      DESIGNED_CANCELLATION_REASONS.has(conflict.reason),
+  )
+    ? "warning"
+    : "critical";
+}
+
 function toCommandCenterItem(shipment: FulfillmentCommandCenterShipmentInput): FulfillmentCommandCenterItem | null {
   const status = shipment.status as ShipmentStatus;
-  const bucket = bucketForStatus(status);
+  const conflicts = [...shipment.conflicts].sort(
+    (left, right) =>
+      left.conflict_kind.localeCompare(right.conflict_kind, "en") || left.origin.localeCompare(right.origin, "en"),
+  );
+  const bucket = bucketForStatus(status, conflicts.length > 0);
   if (!bucket) {
     return null;
   }
   const labelStatus = shipment.label_status as PostageLabelStatus;
-  const severity = severityForBucket(bucket);
+  const severity = severityForConflicts(conflicts) ?? severityForBucket(bucket);
   const observedAt = shipment.created_at;
-  const plan = resolveShipmentActionPlan({ status, labelStatus });
+  const plan = resolveShipmentActionPlan({ status, labelStatus, conflicts });
 
   return {
     shipmentId: shipment.shipment_id,
@@ -142,6 +180,7 @@ function toCommandCenterItem(shipment: FulfillmentCommandCenterShipmentInput): F
     bucket,
     severity,
     observedAt,
+    conflicts,
     plan,
     attention: buildSellerAttentionItem({
       source: FULFILLMENT_ATTENTION_SOURCE,

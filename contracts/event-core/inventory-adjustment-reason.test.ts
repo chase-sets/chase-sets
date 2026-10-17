@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  inventoryCallerSelectableAdjustmentReasons,
   inventoryAdjustmentReasons,
+  isInventoryCallerSelectableAdjustmentReason,
   isInventoryAdjustmentReason,
   type InventoryAdjustmentReason,
 } from "@chase-sets/event-core/public-event-payloads";
 
 const producerByReason = {
   "sold-offline": "honor-offline reduction",
+  "sold-external-channel": "external channel sale command",
   damaged: "operator adjustment",
   lost: "operator adjustment",
   found: "operator adjustment",
@@ -16,9 +19,10 @@ const producerByReason = {
 } as const satisfies Record<InventoryAdjustmentReason, string>;
 
 describe("inventory adjustment reason contract", () => {
-  it("publishes exactly the seven producer-backed adjustment reasons", () => {
+  it("publishes exactly the eight producer-backed adjustment reasons", () => {
     expect(inventoryAdjustmentReasons).toEqual([
       "sold-offline",
+      "sold-external-channel",
       "damaged",
       "lost",
       "found",
@@ -27,6 +31,19 @@ describe("inventory adjustment reason contract", () => {
       "return-restocked",
     ]);
     expect(Object.keys(producerByReason)).toEqual(inventoryAdjustmentReasons);
+  });
+
+  it("keeps producer-only reasons out of caller-selectable adjustment surfaces", () => {
+    expect(inventoryCallerSelectableAdjustmentReasons).toEqual([
+      "sold-offline",
+      "damaged",
+      "lost",
+      "found",
+      "correction",
+      "intake",
+      "return-restocked",
+    ]);
+    expect(isInventoryCallerSelectableAdjustmentReason("sold-external-channel")).toBe(false);
   });
 
   it.each(["written-off", "sale-consumed", "unknown"])("rejects non-adjustment reason %s", (value) => {

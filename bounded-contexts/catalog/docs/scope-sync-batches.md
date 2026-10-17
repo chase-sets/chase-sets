@@ -2,6 +2,18 @@
 
 A Scope Sync Batch lets a Catalog operator preview and execute Scope Sync across explicit Catalog Scope Record ids or a server-resolved matching scope. The browser submits selection intent; Catalog resolves the complete eligible set without paging through the admin list.
 
+## Held-set entry
+
+The admin Scope Sync Batches page accepts a TCGplayer Live Held-Set Export of at most 16 MiB and 100,000 logical rows. Catalog reads only the exact `Product Line` and `Set Name` columns, collapses case-insensitive whitespace-normalized pairs, and returns resolved and unresolved tables without retaining or logging the upload. Resolved Scope Record ids enter the unchanged explicit-id preview and confirmation flow. Unresolved pairs link to the unmapped-scope inbox for the resolved product domain; Catalog never auto-proposes a mapping from the upload.
+
+Resolution is closed to five unresolved reasons:
+
+- `product-line-unresolved`: the product-line label names zero or multiple configured TCGplayer single-card units.
+- `set-unresolved`: the unit's discovery observations contain no exact normalized set or expansion label.
+- `set-ambiguous`: several observations in that unit have the exact normalized label.
+- `mapping-missing`: the unique observation external id has no Provider Scope Mapping.
+- `mapping-not-accepted`: the observation does not resolve to exactly one accepted or auto-accepted mapping and Catalog Scope Record.
+
 ## Preview and confirmation
 
 Matching-scope preview includes active Catalog Scope Records; an explicitly selected inactive record remains visible as a blocker. Only accepted or auto-accepted Provider Scope Mappings participate. Each record is passed through the same provider participation planner used by individual Scope Sync. The resulting evidence includes Scope Record and mapping versions, active profile/unit versions, rollout and credential readiness, provider transport blockers, provider-unit totals, and request or credit estimates.

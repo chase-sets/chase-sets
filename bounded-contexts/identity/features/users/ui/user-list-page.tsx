@@ -15,6 +15,7 @@ import { useAdminResourceListPageChange } from "@chase-sets/design-system/react-
 import type { ListResponse } from "@chase-sets/http/responses";
 import { IDENTITY_USER_STATUSES, type IdentityListFilters } from "../../../support/route-support/list-filters";
 import type { User } from "./contracts";
+import { identityAuthenticationMethodLabel, userStatusLabel } from "../../../support/ui-support/value-labels";
 
 type PaginatedListResponse<T> = ListResponse<T> & Readonly<{ limit: number; offset: number }>;
 
@@ -32,20 +33,19 @@ const columns: DataColumn<User>[] = [
   {
     key: "auth_methods",
     header: t("identity.features.users.ui.userListPage.auth.methods"),
-    cell: (row) => row.auth_methods.join(", ") || t("identity.features.users.ui.userListPage.none"),
+    cell: (row) =>
+      row.auth_methods.map((method) => identityAuthenticationMethodLabel(method)).join(", ") ||
+      t("identity.features.users.ui.userListPage.none"),
   },
-  { key: "status", header: t("identity.features.users.ui.userListPage.status"), cell: (row) => row.status },
+  {
+    key: "status",
+    header: t("identity.features.users.ui.userListPage.status"),
+    cell: (row) => userStatusLabel(row.status),
+  },
 ];
 
 function userStatusFilterLabel(status: string) {
-  switch (status) {
-    case "active":
-      return t("identity.features.users.ui.userListPage.status.filter.active");
-    case "suspended":
-      return t("identity.features.users.ui.userListPage.status.filter.suspended");
-    default:
-      return t("identity.features.users.ui.userListPage.status.filter.all");
-  }
+  return status === "all" ? t("identity.features.users.ui.userListPage.status.filter.all") : userStatusLabel(status);
 }
 
 function userStatusFilterItems() {

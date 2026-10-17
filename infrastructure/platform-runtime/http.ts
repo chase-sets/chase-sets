@@ -8,7 +8,6 @@ import {
   loadAfterWrite as loadAfterWriteWithContract,
   materializePostWriteTokenPayload,
   navigateAfterWrite as navigateAfterWriteWithContract,
-  navigateAfterWriteFromSources as navigateAfterWriteFromSourcesWithContract,
   readCompactPostWriteToken,
   readFreshWriteToken,
   redirectAfterWriteFromSources as redirectAfterWriteFromSourcesWithContract,
@@ -379,20 +378,6 @@ export function navigateAfterWrite(
   return destination;
 }
 
-export function navigateAfterWriteFromSources(
-  commandResults: readonly unknown[],
-  destinationRoute: string,
-  options: PlatformNavigateAfterWriteOptions = {},
-): string {
-  const destination = navigateAfterWriteFromSourcesWithContract(commandResults, destinationRoute, options);
-  recordPostWriteTelemetry(
-    options.telemetry,
-    readFreshWriteToken(destination, options.nowMs) ? "navigation_encoded" : "navigation_missing_receipt",
-    options.handoff ? { correctionSource: `semantic-handoff:${options.handoff.kind}` } : {},
-  );
-  return destination;
-}
-
 export async function navigateAfterWriteWithCompactToken(
   commandResult: unknown,
   destinationRoute: string,
@@ -558,17 +543,9 @@ export function formActionRedirect(
   destination: string,
   options?: PlatformRedirectAfterWriteOptions,
 ): FormActionRedirect {
-  return formActionRedirectFromSources([commandResult], destination, options);
-}
-
-export function formActionRedirectFromSources(
-  commandResults: readonly unknown[],
-  destination: string,
-  options?: PlatformRedirectAfterWriteOptions,
-): FormActionRedirect {
   return {
     kind: "form-action-redirect",
-    commandResults,
+    commandResults: [commandResult],
     destination,
     ...(options ? { options } : {}),
   };

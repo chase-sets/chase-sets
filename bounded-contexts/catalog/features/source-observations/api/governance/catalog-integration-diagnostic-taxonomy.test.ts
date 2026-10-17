@@ -114,6 +114,7 @@ describe("Catalog Integration diagnostic taxonomy", () => {
       "ambiguous-duplicate-candidates",
       "missing-catalog-item-target",
       "runtime-preflight-failed",
+      "display-identity-unresolvable",
       "external-key-change",
       "source-hash-change",
       "selected-option-change",
@@ -230,9 +231,22 @@ describe("Catalog Integration diagnostic taxonomy", () => {
       "ambiguous-duplicate-candidates",
       "missing-catalog-item-target",
       "runtime-preflight-failed",
+      "display-identity-unresolvable",
     ] as const) {
       expect(getCatalogIntegrationDiagnosticDefinition(code).blockingBehavior).toBe("promotion-blocking");
     }
+
+    expect(getCatalogIntegrationDiagnosticDefinition("display-identity-unresolvable")).toEqual({
+      code: "display-identity-unresolvable",
+      source: "engine",
+      severity: "blocked",
+      blockingBehavior: "promotion-blocking",
+      operatorVisibility: "detail",
+      metricKey: "catalog.integration.diagnostic.display_identity_unresolvable",
+      remediation: "Repair the referenced field or mapping data and re-plan, or explicitly promote as draft.",
+      evidencePolicy: "safe-catalog-evidence",
+      groupingKeys: ["providerKey", "profileVersion", "unitKey", "path"],
+    });
 
     expect(getCatalogIntegrationDiagnosticDefinition("retirement-active-profile")).toMatchObject({
       blockingBehavior: "retirement-blocking",

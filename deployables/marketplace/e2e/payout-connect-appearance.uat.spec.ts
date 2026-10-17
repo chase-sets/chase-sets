@@ -13,6 +13,10 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import { signInWithPassword } from "./support/auth";
+import {
+  consumedEmbeddedThemeCssInputs,
+  embeddedAppearanceSourceDigests,
+} from "./support/stripe-appearance-evidence-source";
 
 // Manual staging UAT for issue #6699. Phase A lands this harness but mints no
 // session artifact. Discovery and acceptance become truthful only after the
@@ -42,20 +46,11 @@ const qualifyingHost = "https://marketplace.staging.chasesets.com";
 const payoutSetupPath = "/account/desk/settings?mode=manage";
 const governedEvidenceRoot = "artifacts/stripe-appearance-evidence/test-results";
 const candidateFixtureRelativePath = "packages/design-system/src/theme/__fixtures__/ink-foil-candidate-tokens.json";
-const appearanceFactoryRelativePath = "packages/design-system/src/theme/stripe-appearance.ts";
 const probeSpecRelativePath = "deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts";
 const evidenceConfigRelativePath = "playwright.stripe-appearance-evidence.config.ts";
-const discoverySchemaRelativePath =
-  "packages/design-system/src/theme/__fixtures__/stripe-connect-discovery.schema.json";
-const discoveryArtifactRelativePath = "packages/design-system/src/theme/__fixtures__/stripe-connect-discovery.json";
-const acceptanceReceiptRelativePath =
-  "packages/design-system/src/theme/__fixtures__/stripe-connect-acceptance-receipt.json";
-const receiptSourceDigestPaths = [
-  appearanceFactoryRelativePath,
-  candidateFixtureRelativePath,
-  probeSpecRelativePath,
-  evidenceConfigRelativePath,
-] as const;
+const discoverySchemaRelativePath = "infrastructure/stripe-appearance/stripe-connect-discovery.schema.json";
+const discoveryArtifactRelativePath = "infrastructure/stripe-appearance/stripe-connect-discovery.json";
+const acceptanceReceiptRelativePath = "infrastructure/stripe-appearance/stripe-connect-acceptance-receipt.json";
 
 function repositoryRoot() {
   let candidate = process.cwd();
@@ -74,21 +69,11 @@ const candidateFixture = JSON.parse(candidateFixtureBytes.toString("utf8")) as R
   Record<string, { candidate: string; shipped: string }>
 >;
 const candidateFixtureSha256 = createHash("sha256").update(candidateFixtureBytes).digest("hex");
-const appearanceFactorySource = readFileSync(join(root, appearanceFactoryRelativePath), "utf8");
 const discoverySchema = JSON.parse(readFileSync(join(root, discoverySchemaRelativePath), "utf8"));
 const discoveryArtifactPath = join(root, discoveryArtifactRelativePath);
 const acceptanceReceiptPath = join(root, acceptanceReceiptRelativePath);
 
-const consumedTokenNames = (() => {
-  const names = new Set<string>();
-  for (const match of appearanceFactorySource.matchAll(/(?:pxToken|token)\(\s*"(--[\w-]+)"/g)) {
-    names.add(match[1]!);
-  }
-  const snapshot = appearanceFactorySource.match(/const appearanceSnapshotTokens = \[([\s\S]*?)\] as const;/);
-  if (!snapshot) throw new Error("appearanceSnapshotTokens array not found -- the derivation seam moved");
-  for (const match of snapshot[1]!.matchAll(/"(--[\w-]+)"/g)) names.add(match[1]!);
-  return [...names].sort();
-})();
+const consumedTokenNames = consumedEmbeddedThemeCssInputs(root);
 
 const connectSourcePropertyGroups = [
   {
@@ -330,14 +315,7 @@ function resolvedHost(testInfo: TestInfo) {
 }
 
 function receiptSourceDigests() {
-  return Object.fromEntries(
-    receiptSourceDigestPaths.map((relativePath) => [
-      relativePath,
-      createHash("sha256")
-        .update(readFileSync(join(root, relativePath)))
-        .digest("hex"),
-    ]),
-  );
+  return embeddedAppearanceSourceDigests(root, probeSpecRelativePath);
 }
 
 function implementationHead() {

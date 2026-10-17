@@ -2,10 +2,23 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { describe, expect, it } from "vitest";
 import {
   mapFoundersWindowOpenedToAdmissionEmail,
+  mapWaitlistNurtureEmail,
   mapWaitlistSignupRecordedToNurtureEmails,
 } from "./transactional-email-intents";
 
 describe("waitlist nurture email intents", () => {
+  it.each(["welcome", "wave-approaching"] as const)("keeps the %s email free of launch dates", (step) => {
+    const message = mapWaitlistNurtureEmail(step, {
+      email: "collector@example.com",
+      signupId: "wls_collector",
+      correlationId: "req_123",
+    });
+    const copy = JSON.stringify(message);
+    expect(copy).not.toContain("September 1, 2026");
+    expect(copy).not.toContain("late July 2026");
+    expect(copy).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
+  });
+
   it("schedules the four signup-age touches from the recorded fact", () => {
     const deliveries = mapWaitlistSignupRecordedToNurtureEmails({
       email: "collector@example.com",

@@ -11,6 +11,7 @@ import {
   Surface,
   Text,
 } from "@chase-sets/design-system";
+import type { ReactNode } from "react";
 import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
 import {
   evaluatePublicPolicyPublicationReadiness,
@@ -22,6 +23,24 @@ import { PublicPresencePageShell } from "../../waitlist/ui/public-pages";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
 
 export type PolicyArtifactPageCopyProfile = "corpus" | "terms-of-service";
+
+function linkPolicyReferences(text: string): ReactNode[] {
+  const references =
+    /(?<![\w./@-])chasesets\.com\/(seller-agreement|payments-terms|agent-terms|authenticity-terms|privacy|founders)(?![\w/-]|\.\w)/g;
+  const parts: ReactNode[] = [];
+  let offset = 0;
+  for (const match of text.matchAll(references)) {
+    parts.push(text.slice(offset, match.index));
+    parts.push(
+      <LinkText key={match.index} href={`/${match[1]}`}>
+        {match[0]}
+      </LinkText>,
+    );
+    offset = match.index + match[0].length;
+  }
+  parts.push(text.slice(offset));
+  return parts;
+}
 
 type PolicyArtifactPageCopy = Readonly<{
   eyebrow: string;
@@ -156,7 +175,7 @@ export function PolicyArtifactPage({
           <Banner tone="warning" title={copy.counselPendingTitle} description={copy.counselPendingDescription} />
         ) : null}
 
-        <Surface element="section" tone="subtle" aria-label={copy.metadataLabel}>
+        <Surface element="section" tone="subtle" elevation="tinted" aria-label={copy.metadataLabel}>
           <Stack gap={2}>
             <Heading level={2} visualSize={4}>
               {copy.metadataTitle}
@@ -171,7 +190,7 @@ export function PolicyArtifactPage({
           </Stack>
         </Surface>
 
-        <Surface element="nav" tone="subtle" aria-label={copy.tocLabel}>
+        <Surface element="nav" tone="subtle" elevation="tinted" aria-label={copy.tocLabel}>
           <Stack gap={3}>
             <Heading level={2} visualSize={4}>
               {copy.tocTitle}
@@ -188,7 +207,7 @@ export function PolicyArtifactPage({
 
         <Stack element="article" gap={5}>
           {artifact.sections.map((section) => (
-            <Surface key={section.id} element="section" elevated aria-labelledby={section.id}>
+            <Surface key={section.id} element="section" elevation="flush" aria-labelledby={section.id}>
               <Stack gap={3}>
                 <Heading id={section.id} level={2}>
                   {section.title}
@@ -196,7 +215,7 @@ export function PolicyArtifactPage({
                 {section.reviewStatus === "counsel-required" ? (
                   <Badge tone="warning">{copy.counselRequiredBadge}</Badge>
                 ) : null}
-                {section.draftText.trim().length > 0 ? <Text>{section.draftText}</Text> : null}
+                {section.draftText.trim().length > 0 ? <Text>{linkPolicyReferences(section.draftText)}</Text> : null}
                 {(section.claimDisclosures ?? []).map((disclosure) => (
                   <Text key={disclosure.claimId}>{resolveUnresolvedPublicDisclosureText(disclosure.claimId)}</Text>
                 ))}

@@ -1,4 +1,5 @@
 import { formatMoney, t } from "@chase-sets/localization";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { useState, type FormEvent, type ReactNode } from "react";
 import {
   ProductOptions,
@@ -123,15 +124,14 @@ export function canUseAccountCheckoutCart(actor: Awaited<ReturnType<typeof resol
 }
 
 export function parseMoneyAmount(value: string | null | undefined): number | null {
-  const amount = Number.parseFloat(String(value ?? ""));
-
-  return Number.isFinite(amount) ? amount : null;
+  const cents = tryMoneyToCents((value ?? "").trim());
+  return cents === null ? null : Number(cents) / 100;
 }
 
-export function formatMoneyAmount(value: string | number | null | undefined) {
+export function formatMoneyAmount(value: string | number | null | undefined, currencyCode = "USD") {
   const amount = typeof value === "number" ? value : parseMoneyAmount(value);
 
-  return amount === null ? t("discovery.routes.itemDetail.unavailable") : formatMoney(amount.toFixed(2), "USD");
+  return amount === null ? t("discovery.routes.itemDetail.unavailable") : formatMoney(amount.toFixed(2), currencyCode);
 }
 
 export function multiplyMoneyAmount(value: string, quantity: number) {

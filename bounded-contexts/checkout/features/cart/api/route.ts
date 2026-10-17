@@ -10,10 +10,14 @@ import {
   createGuestCheckoutContext,
 } from "../../../support/request-support/checkout-route-guard";
 import type { CartLineId } from "../../../support/runtime-support/common";
-import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
+import {
+  recordCheckoutObservabilityTelemetry,
+  type CheckoutObservabilityTelemetry,
+} from "../../sessions/api/checkout-observability-telemetry";
 import { recordCartReadinessObservability } from "./cart-readiness-observability";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
+import { normalizePresentedAnonymousCartId, toPublicCheckoutCartLines } from "./contracts";
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 const MAX_ANONYMOUS_CART_LINES = 50;
@@ -84,6 +88,11 @@ function parseSelectedListingSnapshot(value: unknown) {
     sellerDisplayName: optionalBodyString(source.sellerDisplayName),
     sellerSlug: optionalBodyString(source.sellerSlug),
     priceAmount: optionalBodyString(source.priceAmount),
+    priceCurrencyCode: optionalBodyString(source.priceCurrencyCode),
+    listingStreamVersion:
+      source.listingStreamVersion === null || source.listingStreamVersion === undefined
+        ? null
+        : Number(source.listingStreamVersion),
     source: optionalBodyString(source.source),
   };
 }
@@ -184,9 +193,9 @@ export function createAccountCartRoutes(
       return access.response;
     }
 
-    const items = await services.listCartLines(access.actor.accountId);
+    const items = await services.listAuthorizedCartLines({ accountId: access.actor.accountId });
     return c.json({
-      items,
+      items: toPublicCheckoutCartLines(items),
       count: countCartItems(items),
     });
   });
@@ -197,9 +206,24 @@ export function createAccountCartRoutes(
       return access.response;
     }
 
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
     const body = await c.req.json().catch(() => ({}));
+    const presentedAnonymousCartId = normalizePresentedAnonymousCartId(c.req.header("x-checkout-anonymous-cart-id"));
     const snapshot = await services.createReadinessSnapshot({
       accountId: access.actor.accountId,
+      ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
       decisions: parseCartReadinessDecisionInput(body),
     });
     recordCartReadinessObservability(checkoutObservabilityTelemetry, snapshot, {
@@ -434,8 +458,11 @@ export function createGuestCartRoutes(
       return c.json({ items: [], count: 0 });
     }
 
-    const items = await services.listCartLines(ownerId);
-    return c.json({ items, count: countCartItems(items) });
+    // A claimed key resolves to zero readable lines, so a refusal returns the
+    // byte-identical empty payload a request with no key already returns.
+    // Nothing in the response distinguishes claimed, foreign, or absent.
+    const items = await services.listAuthorizedCartLines({ accountId: ownerId });
+    return c.json({ items: toPublicCheckoutCartLines(items), count: countCartItems(items) });
   });
 
   app.post("/cart/readiness", async (c) => {
@@ -699,13 +726,39 @@ export function createGuestCartRoutes(
       );
     }
 
-    const result = await services.mergeCartIntoAccount(
-      {
-        sourceOwnerId: ownerId,
-        targetAccountId: access.actor.accountId as AccountId,
-      },
-      context,
-    );
+    let result: Awaited<ReturnType<CheckoutCartServices["mergeCartIntoAccount"]>>;
+    try {
+      result = await services.mergeCartIntoAccount(
+        {
+          sourceOwnerId: ownerId,
+          targetAccountId: access.actor.accountId as AccountId,
+        },
+        context,
+      );
+    } catch (error) {
+      try {
+        recordCheckoutObservabilityTelemetry(checkoutObservabilityTelemetry, {
+          state: "cart-merge-best-effort-failed",
+          entrySource: "cart",
+          actorMode: access.actor.roleKey === "guest-buyer" ? "guest" : "signed-in",
+          scenarioState: "reconciliation",
+          visibleState: "entry-continues",
+          sideEffectStatus: "merge-failed",
+        });
+      } catch {
+        // Telemetry must never replace the merge response consumed by the
+        // best-effort entry caller.
+      }
+      return c.json(
+        {
+          error: {
+            code: "cart_merge_failed",
+            message: t("checkout.features.cart.api.route.request.failed"),
+          },
+        },
+        500,
+      );
+    }
 
     return c.json(result);
   });

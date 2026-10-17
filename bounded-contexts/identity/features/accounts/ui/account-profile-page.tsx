@@ -1,9 +1,9 @@
 import { formatDate, t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   ActorIdentityCue,
   Button,
+  Banner,
   InlineTextGroup,
   LinkButton,
   MarketplaceDashboardPanel,
@@ -19,13 +19,13 @@ import {
 import type { Account } from "./contracts";
 import type { CurrentActorDisplay } from "../../../support/shell-support/current-actor-display";
 import { AccountBadgeList } from "./account-badges";
-
-function formatAccountValue(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .replaceAll("-", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
+import {
+  accountStatusLabel,
+  accountTypeLabel,
+  identityDateUnavailable,
+  membershipRoleLabel,
+} from "../../../support/ui-support/value-labels";
 
 function displayActorAccountName(display: CurrentActorDisplay) {
   return display.account.display_name ?? display.account.name ?? display.account.account_id;
@@ -55,12 +55,14 @@ function AccountNameWithBadges({
 export function AccountProfilePage({
   account,
   actorDisplay,
+  errorMessage,
 }: {
   account: Account;
   actorDisplay?: CurrentActorDisplay | null;
+  errorMessage?: string;
 }) {
   const updatedAt = account.updated_at
-    ? formatDate(account.updated_at)
+    ? formatDate(account.updated_at, { fallback: identityDateUnavailable() })
     : t("identity.features.accounts.ui.accountProfilePage.not.available");
 
   return (
@@ -109,6 +111,7 @@ export function AccountProfilePage({
           </Stack>
         }
       />
+      {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
       {actorDisplay ? (
         <ActorIdentityCue
           variant="panel"
@@ -129,7 +132,7 @@ export function AccountProfilePage({
             actorDisplay.user.primary_email ?? t("identity.features.accounts.ui.currentActorDisplayCue.current.user")
           }
           membershipLabel={t("identity.features.accounts.ui.currentActorDisplayCue.membership")}
-          membershipName={formatAccountValue(actorDisplay.membership.role_key)}
+          membershipName={membershipRoleLabel(actorDisplay.membership.role_key)}
           membershipDetail={t("identity.features.accounts.ui.currentActorDisplayCue.active.membership")}
         />
       ) : null}
@@ -139,12 +142,12 @@ export function AccountProfilePage({
         metrics={[
           {
             label: t("identity.features.accounts.ui.accountProfilePage.account.type"),
-            value: formatAccountValue(account.account_type),
+            value: accountTypeLabel(account.account_type),
             detail: t("identity.features.accounts.ui.accountProfilePage.commercial.identity"),
           },
           {
             label: t("identity.features.accounts.ui.accountProfilePage.status"),
-            value: formatAccountValue(account.status),
+            value: accountStatusLabel(account.status),
             detail: t("identity.features.accounts.ui.accountProfilePage.active.accounts.can.buy.sell.and.receive"),
           },
           {
@@ -171,7 +174,7 @@ export function AccountProfilePage({
               },
               {
                 label: t("identity.features.accounts.ui.accountProfilePage.status"),
-                value: formatAccountValue(account.status),
+                value: accountStatusLabel(account.status),
               },
             ]}
           />

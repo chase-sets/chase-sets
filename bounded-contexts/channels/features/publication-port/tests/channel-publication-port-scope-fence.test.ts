@@ -1,0 +1,152 @@
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import manifest from "../../../context.json" with { type: "json" };
+import packageJson from "../../../package.json" with { type: "json" };
+import { collectPublicationCallerEvidence, listTrackedProductionSources, repoRoot } from "./source-evidence";
+
+describe("channel-publication-port-scope-fence", () => {
+  it("keeps the publication slice finite while admitting the separate connector-client surface", () => {
+    const sliceRoot = path.resolve(import.meta.dirname, "..");
+    const relativeFiles = listFiles(sliceRoot);
+    expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
+    expect(manifest.slices).toEqual([
+      "ebay-account-deletion",
+      "connector-feed",
+      "connections",
+      "credentials",
+      "connector-client",
+      "publication-port",
+      "listing-composition",
+      "tcgplayer-csv",
+      "tcgplayer-orders",
+      "live-export-snapshot",
+      "order-fulfillment-observations",
+      "outbound-sync",
+      "connection-health",
+      "connection-attention",
+      "manual-sync",
+      "reconciliation",
+    ]);
+    expect(manifest.hostPorts).toEqual([
+      {
+        portName: "ebayAccountDeletionConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET.",
+      },
+      {
+        portName: "webhookTelemetry",
+        providedBy: "platform-api",
+        purpose: "Record bounded provider webhook outcomes without request or configuration values.",
+      },
+      {
+        portName: "storageLocationAuthority",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume.",
+      },
+      {
+        portName: "connectorOAuth",
+        providedBy: "platform-api",
+        purpose: "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority.",
+      },
+      {
+        portName: "marketplaceChannelInboundClamp",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark.",
+      },
+      {
+        portName: "channelSaleRecorder",
+        providedBy: "inventory",
+        purpose:
+          "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
+      },
+      {
+        portName: "channelCredentialKeyring",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable.",
+      },
+    ]);
+    expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support", "seed-support"]);
+    expect(manifest.publicExports).toEqual([
+      ".",
+      "./client",
+      "./context",
+      "./server",
+      "./test-support",
+      "./routes/*",
+      "./seed-support/*",
+    ]);
+    expect(packageJson.exports).toEqual({
+      ".": "./index.ts",
+      "./client": "./client.ts",
+      "./context": "./context.json",
+      "./server": "./server.ts",
+      "./test-support": "./features/connector-feed/tests/settlement-test-support.ts",
+      "./seed-support/*": "./support/seed-support/*.ts",
+      "./routes/*": "./routes/*.tsx",
+    });
+
+    const contracts = readFileSync(path.join(sliceRoot, "domain/contracts.ts"), "utf8");
+    const registry = readFileSync(path.join(sliceRoot, "api/registry.ts"), "utf8");
+    expect(contracts).not.toMatch(/\b(?:register|add|set|remove|clear)\s*\(/);
+    expect(registry).toContain(
+      "const productionChannelProviderDescriptors: readonly ChannelProviderDescriptor[] = Object.freeze([",
+    );
+    expect(registry).toContain("...tcgplayerProviderDescriptors");
+    expect(registry).not.toMatch(/export\s+(?:const|\{[^}]*\})\s*productionChannelProviderDescriptors/);
+    expect(registry).not.toMatch(/\bebay\b/i);
+    expect(relativeFiles.some((file) => /(?:ui|integrations|read-model|runtime-support)\//.test(file))).toBe(false);
+  });
+
+  it("finds exactly one production construction call and one exported singleton while allowing test fixtures", () => {
+    const files = listTrackedProductionSources();
+    const productionSource = [...files.values()].join("\n");
+    expect(countConstructionCalls(productionSource)).toBe(1);
+    expect([...productionSource.matchAll(/export const channelProviderRegistry\b/g)]).toHaveLength(1);
+    expect([...productionSource.matchAll(/const productionChannelProviderDescriptors\b/g)]).toHaveLength(1);
+    expect(collectPublicationCallerEvidence(files).violations).toEqual([]);
+
+    const secondInstanceMutant = `${productionSource}\nconst secondRegistry = createChannelProviderRegistry([]);\n`;
+    expect(countConstructionCalls(secondInstanceMutant)).toBe(2);
+  });
+
+  it("keeps forbidden claimed-lifecycle and provider-specific surfaces absent", () => {
+    const productionFiles = listTrackedProductionSources();
+    const sliceProduction = [...productionFiles]
+      .filter(([relativePath]) => relativePath.startsWith("bounded-contexts/channels/features/publication-port/"))
+      .map(([, source]) => source)
+      .join("\n");
+    for (const forbidden of [
+      "claimedOperation",
+      "resultReport",
+      "claimGeneration",
+      "leaseId",
+      "retryPolicy",
+      "healthCheck",
+      "providerMessage",
+      "registerProvider",
+    ]) {
+      expect(sliceProduction, forbidden).not.toContain(forbidden);
+    }
+    expect(sliceProduction).not.toMatch(/\b(?:fetch|playwright|webdriver|oauth|credentialReference)\s*\(/i);
+    expect(readFileSync(path.join(repoRoot, "bounded-contexts/channels/index.ts"), "utf8")).toContain(
+      "ports?.setupResolver ?? channelProviderRegistry.setupResolver",
+    );
+  });
+});
+
+function countConstructionCalls(source: string): number {
+  const withoutDeclaration = source.replaceAll(/export function createChannelProviderRegistry\s*\(/g, "declaration(");
+  return [...withoutDeclaration.matchAll(/\bcreateChannelProviderRegistry\s*\(/g)].length;
+}
+
+function listFiles(root: string, directory = root): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolute = path.join(directory, entry.name);
+    return entry.isDirectory() ? listFiles(root, absolute) : [path.relative(root, absolute).replaceAll("\\", "/")];
+  });
+}

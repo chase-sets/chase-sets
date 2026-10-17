@@ -1,0 +1,25 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-postgres-slow-query-digest.yml",
+      "jobId": "slow-query-digest",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-postgres-slow-query-digest.yml",
+      "jobId": "slow-query-digest",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/platform-postgres-slow-query-digest.yml",
+      "jobId": "slow-query-digest",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    }
+  ]
+}

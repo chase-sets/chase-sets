@@ -6,7 +6,7 @@ afterEach(() => {
 });
 
 // The loader always reads live policy values through loadLandingFeePresentation
-// (checkout-fee preview + fee-calculator schedule). Every test that calls the
+// (the checkout-fee preview). Every test that calls the
 // loader must stub `fetch` so that read stays in-process: an unstubbed call
 // escapes to a real `chasesets.test` DNS lookup and is a test-hermeticity bug,
 // not a passing test (see the public-presence CI flake this guards against).
@@ -349,34 +349,7 @@ describe("public presence home route", () => {
     }
   });
 
-  // The two fee-schedule loader tests are order-sensitive on purpose: the
-  // loader memoizes a SUCCESSFUL policy read for five minutes, so the
-  // failure case must run before the first stubbed success in this file.
-  it("hides the fee calculator (null schedule) when the public policy read fails", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("policy source unavailable", { status: 503 })),
-    );
-
-    try {
-      const data = await loader({
-        request: new Request("https://chasesets.test/"),
-        params: {},
-        context: undefined,
-      } as never);
-
-      expect(data.feeSchedule).toBeNull();
-      expect(error).toHaveBeenCalledWith(
-        expect.stringContaining("Fee-calculator policy read failed"),
-        expect.anything(),
-      );
-    } finally {
-      error.mockRestore();
-    }
-  });
-
-  it("loads the live standard fee schedule for the calculator through the whitelisted public policy read", async () => {
+  it("publishes no fee schedule: the landing calculator moved to the compare pages (#8503)", async () => {
     const fetch = vi.fn(
       async () =>
         new Response(
@@ -420,11 +393,91 @@ describe("public presence home route", () => {
       expect.stringContaining("/api/public-presence/policy-values"),
       expect.anything(),
     );
-    expect(data.feeSchedule).toEqual({
-      percentageBps: 500,
-      fixedAmount: "0.00",
-      capAmount: "25.00",
-      effectiveFrom: "2026-07-03T00:00:00.000Z",
-    });
+    expect(Object.keys(data).sort()).toEqual(
+      ["checkoutFeePreview", "discordInviteUrl", "publicOrigin", "selectedGame", "source"].sort(),
+    );
+  });
+
+  // #8503 AC6: links the landing calculator generated before it moved carry
+  // `price` plus this exact UTM triple; they redirect to the TCGplayer compare
+  // page with the query untouched and the calculator anchor. The loader throws
+  // the redirect Response (React Router prior art), so a test catches it.
+  const legacyShareQuery = "?price=12.00&cards=2&utm_source=fee-calculator&utm_medium=share&utm_campaign=what-you-keep";
+
+  async function loaderOutcome(
+    path: string,
+  ): Promise<{ response: Response } | { data: Awaited<ReturnType<typeof loader>> }> {
+    try {
+      return {
+        data: await loader({
+          request: new Request(`https://chasesets.test${path}`),
+          params: {},
+          context: undefined,
+        } as never),
+      };
+    } catch (thrown) {
+      if (thrown instanceof Response) return { response: thrown };
+      throw thrown;
+    }
+  }
+
+  it("redirects a legacy fee-calculator share link on / to /compare/tcgplayer with the unchanged query (AC6)", async () => {
+    const fetch = vi.fn(async () => new Response("policy source unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+
+    const outcome = await loaderOutcome(`/${legacyShareQuery}`);
+
+    if (!("response" in outcome)) throw new Error("Expected the loader to redirect a legacy share link.");
+    expect(outcome.response.status).toBe(302);
+    expect(outcome.response.headers.get("Location")).toBe(`/compare/tcgplayer${legacyShareQuery}#fee-calculator`);
+    // The redirect is decided before any policy read.
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["price without the share UTM triple", "/?price=12.00&cards=2"],
+    ["the share UTM triple without a price", "/?utm_source=fee-calculator&utm_medium=share&utm_campaign=what-you-keep"],
+    ["a different utm_campaign", "/?price=12.00&utm_source=fee-calculator&utm_medium=share&utm_campaign=other"],
+    ["a different utm_source", "/?price=12.00&utm_source=newsletter&utm_medium=share&utm_campaign=what-you-keep"],
+    ["an ordinary campaign visit", "/?utm_source=deck&game=pokemon"],
+    ["the bare landing page", "/"],
+  ])("does not redirect %s (AC6 nonmatching)", async (_label, path) => {
+    stubPolicyReadUnavailable();
+
+    const outcome = await loaderOutcome(path);
+
+    if (!("data" in outcome)) throw new Error(`Expected the loader to render ${path}, not redirect.`);
+    expect(outcome.data.source.pagePath).toBe(path);
+  });
+
+  it("leaves the signup action untouched by the legacy share-link query (AC6)", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "wls_share_test", version: 1, status: "joined" }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await action({
+      request: new Request(`https://chasesets.test/${legacyShareQuery}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          email: "seller@example.com",
+          role: "sell",
+          interests: "low-sales-fees",
+          pagePath: `/${legacyShareQuery}`,
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toMatch(/^\/welcome\?signup=wls_share_test&/);
   });
 });

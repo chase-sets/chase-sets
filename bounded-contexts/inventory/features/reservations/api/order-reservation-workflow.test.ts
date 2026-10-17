@@ -98,6 +98,7 @@ function createServices(
     expireDueCheckoutHolds: vi.fn(),
     extendCheckoutHold: vi.fn(),
     getHold: vi.fn(),
+    getCheckoutHold: vi.fn(),
     projectors: [],
   } satisfies InventoryHoldServices;
   const reservations = {

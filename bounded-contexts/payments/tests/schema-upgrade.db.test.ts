@@ -9,6 +9,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as paymentsModule } from "../index";
+import { paymentsCardDeclineSchemaMigrations } from "../features/payments/api/card-decline-schema";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -45,6 +46,51 @@ describeDb("payments schema upgrades", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("converges fresh and migration-only decline stores and preserves windows on repeated startup", async () => {
+    await bootstrapContextDatabase(paymentsModule, pools.payments);
+    const tables = ["payments_card_decline_counters", "payments_card_decline_events"];
+    const fresh = await Promise.all(tables.map((table) => readColumnNames(pools.payments, table)));
+    await pools.payments.query("DROP TABLE payments_card_decline_counters, payments_card_decline_events");
+    await pools.payments.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20261004_payments_card_decline_velocity'",
+    );
+    for (const migration of paymentsCardDeclineSchemaMigrations) {
+      for (const statement of migration.statements) await pools.payments.query(statement);
+    }
+    expect(await Promise.all(tables.map((table) => readColumnNames(pools.payments, table)))).toEqual(fresh);
+    await pools.payments.query(
+      `INSERT INTO payments_card_decline_counters VALUES ('synthetic_digest', 5, '2026-10-04T01:00:00Z')`,
+    );
+    await pools.payments.query(
+      `INSERT INTO payments_card_decline_events VALUES ('stripe', 'evt_restart', 'synthetic_facts_digest')`,
+    );
+    await bootstrapContextDatabase(paymentsModule, pools.payments);
+    await bootstrapContextDatabase(paymentsModule, pools.payments);
+    expect((await pools.payments.query("SELECT decline_count FROM payments_card_decline_counters")).rows).toEqual([
+      { decline_count: 5 },
+    ]);
+    expect((await pools.payments.query("SELECT event_id FROM payments_card_decline_events")).rows).toEqual([
+      { event_id: "evt_restart" },
+    ]);
+    expect(
+      (
+        await pools.payments.query(
+          "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20261004_payments_card_decline_velocity'",
+        )
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (await pools.payments.query("SELECT relpersistence FROM pg_class WHERE relname = ANY($1)", [tables])).rows,
+    ).toEqual([{ relpersistence: "p" }, { relpersistence: "p" }]);
+    expect(
+      (
+        await pools.payments.query(
+          "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'payments_card_decline_counters_expiry_idx'",
+        )
+      ).rows,
+    ).toHaveLength(1);
   });
 
   it("converges the deployed pre-authenticity order-input table to the complete fresh schema", async () => {

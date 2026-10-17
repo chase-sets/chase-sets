@@ -7,6 +7,7 @@ import {
   buildPlatformHelmValues,
   buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
+  componentUsesDatabaseSecret,
   chartValuesRelativePath,
   doksStagingApiOverrides,
   doksStagingWorkerAutoscaling,
@@ -33,20 +34,298 @@ function readChartFiles(relativePaths) {
   );
 }
 
+function millicores(cpu) {
+  return cpu.endsWith("m") ? Number(cpu.slice(0, -1)) : Number(cpu) * 1000;
+}
+
+function mebibytes(memory) {
+  return memory.endsWith("Gi") ? Number(memory.slice(0, -2)) * 1024 : Number(memory.slice(0, -2));
+}
+
+const catalogRuntimeConsumers = ["platform-api", "platform-worker", "platform-bootstrap"];
+const catalogSignoffReferenceNames = [
+  "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+  "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+];
+
+// The production Lorcana unit stops are derived from the active provider profile registry, never typed by hand.
+async function registryLorcanaUnitKeys() {
+  const registry =
+    await import("../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts");
+  return [
+    ...new Set(
+      registry.catalogProviderIntegrationProfileVersions
+        .filter((version) => registry.catalogProviderProfileVersionProductDomain(version) === "lorcana")
+        .map(registry.catalogProviderProfileVersionIngestionUnitKey),
+    ),
+  ].sort();
+}
+
 describe("render platform Helm values", () => {
+  it("declares the non-secret default-off Catalog send-window key once on both consumers only", () => {
+    const key = "CATALOG_PROVIDER_SEND_WINDOW_ENABLED";
+    const baseline = buildPlatformHelmValues({ repoRoot });
+    for (const [name, component] of Object.entries(baseline.components)) {
+      expect(component.env.filter((entry) => entry.name === key)).toEqual(
+        ["platform-api", "platform-worker"].includes(name) ? [{ name: key, value: "false" }] : [],
+      );
+    }
+    for (const values of [
+      baseline,
+      buildPlatformHelmStagingValues({ repoRoot }),
+      buildPlatformHelmProductionValues({ repoRoot }),
+    ]) {
+      expect(values.global?.envOverrides?.[key]).toBeUndefined();
+      for (const component of Object.values(values.components)) expect(component.envOverrides?.[key]).toBeUndefined();
+    }
+    const [helper] = readChartFiles(["templates/_helpers.tpl"]);
+    expect(helper).toContain("range .component.env");
+    expect(helper.indexOf("hasKey $componentEnvOverrides .name")).toBeLessThan(
+      helper.indexOf("hasKey $envOverrides .name"),
+    );
+    expect(helper.indexOf("hasKey $envOverrides .name")).toBeLessThan(
+      helper.indexOf('value: {{ default "" .value | quote }}'),
+    );
+  });
+
+  // Offline Helm v4.2.3 captures for #8477, projected from the actual Pod
+  // templates; not a JS imitation of Helm. Full YAML and exact command argv:
+  // .orchestrator/logs/8477-g1-render-{case}.yaml and
+  // .orchestrator/logs/8477-g1-render-commands.json (container root).
+  // Reproduce: helm template chase-sets-platform infrastructure/helm/platform
+  //   -f infrastructure/helm/platform/values.yaml --set doksIngress.enabled=true
+  // staging adds --values infrastructure/helm/platform/values.staging.yaml
+  //   --set-string global.envOverrides.DEPLOYMENT_ENVIRONMENT=staging
+  // on/off adds --set-string global.envOverrides.CATALOG_PROVIDER_SEND_WINDOW_ENABLED=true/false
+  // production substitutes values.production.yaml and environment=production.
+  // API-only/worker-only append -f JSON replacing the other component's env
+  // array with its real declared entries minus this key. test:scripts has no
+  // Helm binary, following the platform-helm-local-boot pinned-render convention.
+  it.each([
+    ["baseline", "Deployment/platform-api", "false", "false"],
+    ["staging-omitted", "Rollout/platform-api", "false", "false"],
+    ["staging-on", "Rollout/platform-api", "true", "true"],
+    ["staging-off", "Rollout/platform-api", "false", "false"],
+    ["production", "Deployment/platform-api", "false", "false"],
+    ["api-only", "Rollout/platform-api", "true", null],
+    ["worker-only", "Rollout/platform-api", null, "true"],
+  ])("pins the actual %s Helm Pod env capture", (name, apiKind, apiFlag, workerFlag) => {
+    const captures = {
+      baseline: {
+        "Deployment/admin-web": [],
+        "Deployment/marketplace": [],
+        "Deployment/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "staging-omitted": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "staging-on": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "staging-off": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      production: {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/marketplace": [],
+        "Deployment/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/public-web": [],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Job/platform-bootstrap": [],
+      },
+      "api-only": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "worker-only": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+    };
+    const capture = captures[name];
+    expect(capture[apiKind]).toEqual(
+      apiFlag === null ? [] : [{ name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED", value: apiFlag }],
+    );
+    expect(capture["Deployment/platform-worker"]).toEqual(
+      workerFlag === null ? [] : [{ name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED", value: workerFlag }],
+    );
+    for (const [workload, entries] of Object.entries(capture)) {
+      if (![apiKind, "Deployment/platform-worker"].includes(workload)) expect(entries).toEqual([]);
+    }
+  });
+
+  it("renders both keyrings only as shared API/worker Secret references", () => {
+    const base = buildPlatformHelmValues({ repoRoot });
+    for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
+      const values = build({ repoRoot });
+      for (const host of ["platform-api", "platform-worker"]) {
+        const effective = values.components[host].env ?? base.components[host].env;
+        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+          expect(effective.find((entry) => entry.name === name)).toEqual({ name, secret: true, secretKey: name });
+      }
+      for (const [name, component] of Object.entries(values.components)) {
+        if (!["platform-api", "platform-worker"].includes(name))
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+            expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
+              secretName,
+            );
+      }
+    }
+  });
+  it("closes only production checkout and removes the reader-less Shopify switch", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const staging = buildPlatformHelmStagingValues({ repoRoot });
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    expect(componentEnvValue(values.components["platform-api"], "DEPLOYMENT_ENVIRONMENT")).toBe("preview");
+    expect(componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED")).toBe("false");
+    expect(componentEnvKeys(values.components.marketplace)).not.toContain("CHASE_SETS_CHECKOUT_CLOSED");
+    expect(values.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBeUndefined();
+    expect(
+      staging.components["platform-api"].envOverrides?.CHASE_SETS_CHECKOUT_CLOSED ??
+        staging.global?.envOverrides?.CHASE_SETS_CHECKOUT_CLOSED ??
+        componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED"),
+    ).toBe("false");
+    expect(production.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBe("true");
+    // Offer lifecycle producers stay closed until a reviewed change opens them after the worker rollout.
+    expect(componentEnvValue(values.components["platform-api"], "CHASE_SETS_OFFER_LIFECYCLE_OPEN")).toBe("false");
+    expect(
+      staging.components["platform-api"].envOverrides?.CHASE_SETS_OFFER_LIFECYCLE_OPEN ??
+        staging.global?.envOverrides?.CHASE_SETS_OFFER_LIFECYCLE_OPEN,
+    ).toBeUndefined();
+    for (const filename of [
+      "infrastructure/helm/platform/values.yaml",
+      "infrastructure/helm/platform/runtime-values.json",
+      "scripts/render-platform-helm-values.mjs",
+    ]) {
+      expect(readFileSync(path.join(repoRoot, filename), "utf8")).not.toContain(
+        "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE",
+      );
+    }
+  });
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
 
-  it("derives the production cutover posture from the authoritative Terraform parity map", () => {
+  it("derives the production cutover posture from the authoritative Terraform parity map", async () => {
     const production = buildPlatformHelmProductionValues({ repoRoot });
+    const lorcanaUnitKeys = (await registryLorcanaUnitKeys()).join(",");
 
     expect(production.global.envOverrides).toEqual({
-      CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only",
-      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only",
-      CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer",
-      CATALOG_INTEGRATION_PROMOTION_DISABLED: "mtgjson,scryfall,tcgplayer",
-      CATALOG_INTEGRATION_REAPPLY_DISABLED: "mtgjson,scryfall,tcgplayer",
+      CHASE_SETS_CHECKOUT_CLOSED: "true",
+      CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
+      CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
+      CATALOG_INTEGRATION_IMPORTS_DISABLED: "tcgdex,ygoprodeck,ygojson",
+      CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED: lorcanaUnitKeys,
+      CATALOG_INTEGRATION_PROMOTION_DISABLED: "tcgdex,ygoprodeck,ygojson",
+      CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED: lorcanaUnitKeys,
+      CATALOG_INTEGRATION_REAPPLY_DISABLED: "tcgdex,ygoprodeck,ygojson",
       CHASE_SETS_PUBLIC_INDEXING: "true",
       PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "true",
       PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "public-presence",
@@ -61,10 +340,47 @@ describe("render platform Helm values", () => {
     });
   });
 
+  it("delivers the production Catalog integration posture and signoff references to every Catalog runtime consumer", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const staging = buildPlatformHelmStagingValues({ repoRoot });
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    const catalogOverrides = Object.entries(production.global.envOverrides).filter(([name]) =>
+      name.startsWith("CATALOG_INTEGRATION_"),
+    );
+    const [productionValuesFile] = readChartFiles(["values.production.yaml"]);
+
+    // global.envOverrides and deploy --runtime-env values reach only names a component declares.
+    for (const consumer of catalogRuntimeConsumers) {
+      const env = new Map(values.components[consumer].env.map((entry) => [entry.name, entry]));
+      for (const [name] of catalogOverrides) {
+        expect(env.get(name), `${consumer} ${name}`).toMatchObject({ name, value: expect.any(String) });
+      }
+      // Empty base values keep preview and staging posture unchanged.
+      for (const name of [
+        "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+        "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
+        "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP",
+        ...catalogSignoffReferenceNames,
+      ]) {
+        expect(env.get(name), `${consumer} ${name}`).toEqual({ name, value: "" });
+      }
+    }
+    // Signoff references come only from production environment variables at deploy time, and the
+    // emergency stop stays empty until an operator sets it.
+    for (const name of [...catalogSignoffReferenceNames, "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"]) {
+      expect(production.global.envOverrides).not.toHaveProperty(name);
+    }
+    for (const [name, value] of catalogOverrides) {
+      expect(productionValuesFile).toContain(`    ${name}: "${value}"\n`);
+    }
+    expect(JSON.stringify(staging)).not.toContain("CATALOG_INTEGRATION_");
+  });
+
   it("keeps schema bootstrap on dedicated direct database secret keys", () => {
     const values = buildPlatformHelmValues({ repoRoot });
     const bootstrapEnv = new Map(values.components["platform-bootstrap"].env.map((entry) => [entry.name, entry]));
     const apiEnv = new Map(values.components["platform-api"].env.map((entry) => [entry.name, entry]));
+    const workerEnv = new Map(values.components["platform-worker"].env.map((entry) => [entry.name, entry]));
 
     expect(bootstrapEnv.get("PLATFORM_DATA_PROFILES")).toEqual({
       name: "PLATFORM_DATA_PROFILES",
@@ -76,6 +392,18 @@ describe("render platform Helm values", () => {
     );
     expect(apiEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("DATABASE_URL_CATALOG");
     expect(apiEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe("PLATFORM_CONTROL_DATABASE_URL");
+    expect(workerEnv.get("DATABASE_URL_SETTLEMENT")?.secretKey).toBe("DATABASE_URL_SETTLEMENT");
+    expect(workerEnv.get("BOOTSTRAP_DATABASE_URL_SETTLEMENT")).toEqual({
+      name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+      secret: true,
+      secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+    });
+    for (const entry of bootstrapEnv.values()) {
+      if (entry.secretKey?.startsWith("BOOTSTRAP_")) {
+        expect(apiEnv.get(entry.secretKey)).toMatchObject({ name: entry.secretKey, secret: true });
+        expect(apiEnv.get(entry.secretKey).secretKey ?? entry.secretKey).toBe(entry.secretKey);
+      }
+    }
   });
 
   it("scaffolds the six current DOKS runtime components", () => {
@@ -116,6 +444,30 @@ describe("render platform Helm values", () => {
     });
     expect(values.global.imagePullSecrets).toEqual([{ name: "chase-sets" }]);
     expect(values.global.envOverrides).toEqual({});
+    expect(
+      Object.entries(values.components)
+        .filter(([, component]) => component.managedPostgresCa)
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual(["marketplace", "platform-api", "platform-bootstrap", "platform-worker"]);
+  });
+
+  it("auto-enrolls database Secret consumers and rejects unknown composer shapes", () => {
+    expect(
+      componentUsesDatabaseSecret(
+        { kind: "service", env: [{ name: "DATABASE_URL_SYNTHETIC", secret: true }] },
+        "synthetic-api",
+      ),
+    ).toBe(true);
+    expect(
+      componentUsesDatabaseSecret(
+        { kind: "service", env: [{ name: "DATABASE_URL_SYNTHETIC", value: "not-a-secret" }] },
+        "synthetic-web",
+      ),
+    ).toBe(false);
+    expect(() => componentUsesDatabaseSecret({ kind: "cron", env: [] }, "unknown")).toThrow(
+      "unsupported Kubernetes composer shape",
+    );
   });
 
   it("pins commands, ports, and source count expressions in the DOKS runtime values", () => {
@@ -197,6 +549,7 @@ describe("render platform Helm values", () => {
     expect(totalRunnerConcurrency).toBeLessThanOrEqual(poolMax);
     expect(envValue("WORKER_WAKE_MAX_CONCURRENT_RUNNERS")).toBe("2");
     expect(envValue("WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT")).toBe("1");
+    expect(envValue("CHANNELS_OUTBOUND_OPERATION_LANE_COUNT")).toBe("1");
     // #4762 widens projection concurrency for the DOKS staging overlay only;
     // the base/preview worker keeps the conservative single projection slot.
     expect(envValue("WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS")).toBe("1");
@@ -548,12 +901,15 @@ describe("render platform Helm values", () => {
     expect(doksIngress.hosts.some((host) => host.host.startsWith("marketplace."))).toBe(false);
   });
 
-  it("adds production marketplace ingress only when the existing public-exposure gate is true", () => {
+  it.each([
+    ["served to invited accounts", { PRODUCTION_MARKETPLACE_SERVED: "true" }],
+    ["publicly launched", { PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true" }],
+  ])("adds production marketplace ingress when it is %s", (_posture, marketplaceEnv) => {
     const doksIngress = buildDoksIngressValues({
       environment: "production",
       env: {
         PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20",
-        PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "true",
+        ...marketplaceEnv,
       },
     });
 
@@ -563,6 +919,7 @@ describe("render platform Helm values", () => {
       "marketplace.chasesets.com",
       "admin.chasesets.com",
     ]);
+    expect(doksIngress.tls.certificate.dnsNames).toEqual(doksIngress.hosts.map((host) => host.host));
   });
 
   it("does not let production inherit the repo-level staging ingress target", () => {
@@ -757,10 +1114,10 @@ describe("render platform Helm values", () => {
       Object.fromEntries(Object.entries(values.components).map(([name, component]) => [name, component.env.length])),
     ).toEqual({
       "admin-web": 5,
-      marketplace: 13,
-      "platform-api": 99,
-      "platform-bootstrap": 56,
-      "platform-worker": 119,
+      marketplace: 12,
+      "platform-api": 135,
+      "platform-bootstrap": 64,
+      "platform-worker": 137,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
@@ -808,6 +1165,7 @@ describe("render platform Helm values", () => {
     expect(chartText).toContain("activeDeadlineSeconds");
     expect(chartText).toContain("bootstrap-quiesce.mjs");
     expect(chartText).toContain("deployments/scale");
+    expect(chartText).toContain('resources: ["pods"]');
     expect(chartText).toContain('apiGroups: ["keda.sh"]');
     expect(chartText).toContain('resources: ["scaledobjects"]');
     expect(chartText).toContain("global.imagePullSecrets");
@@ -908,5 +1266,142 @@ describe("render platform Helm values", () => {
         ignoreMissingDeployments: true,
       },
     });
+  });
+
+  it("production-app-components-carry-burstable-resources", () => {
+    // #8099, repairing #8097 and #8096: the production overlay used to set no
+    // resources at all, so every app pod landed BestEffort. The scheduler had
+    // nothing to balance and the 58056846 cutover stacked all five onto
+    // runtime-37p95u until public-web and platform-worker never reached Ready
+    // and the add-ons were restarted under the pressure.
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    const expectedRequests = {
+      "admin-web": { cpu: "100m", memory: "256Mi" },
+      marketplace: { cpu: "200m", memory: "256Mi" },
+      "platform-api": { cpu: "250m", memory: "512Mi" },
+      "platform-worker": { cpu: "200m", memory: "512Mi" },
+      "public-web": { cpu: "200m", memory: "256Mi" },
+    };
+
+    expect(production.components, "production overlay must carry per-component resources").toBeDefined();
+    // Exactly the five long-lived app components. platform-bootstrap is a
+    // short pre-rollout hook that finishes before the cutover it guards, so
+    // reserving a node share for it would only shrink what the app pods can
+    // land on.
+    expect(Object.keys(production.components).sort()).toEqual(Object.keys(expectedRequests).sort());
+
+    for (const [name, requests] of Object.entries(expectedRequests)) {
+      const { resources } = production.components[name];
+
+      expect(resources.requests, name).toEqual(requests);
+      // Burstable, not Guaranteed: the limit stays strictly above the request
+      // so a traffic burst can still take a whole vCPU instead of being capped
+      // at the reservation, and a single burst cannot OOM-kill a web pod that
+      // normally sits far below 1 GiB.
+      expect(resources.limits, name).toEqual({ cpu: "1", memory: "1Gi" });
+      expect(millicores(requests.cpu), name).toBeGreaterThanOrEqual(100);
+      expect(millicores(requests.cpu), name).toBeLessThanOrEqual(250);
+      expect(mebibytes(requests.memory), name).toBeGreaterThanOrEqual(256);
+      expect(mebibytes(requests.memory), name).toBeLessThanOrEqual(512);
+      expect(millicores(resources.limits.cpu), name).toBeLessThanOrEqual(1000);
+      expect(mebibytes(resources.limits.memory), name).toBeLessThanOrEqual(1024);
+      expect(millicores(requests.cpu), name).toBeLessThan(millicores(resources.limits.cpu));
+      expect(mebibytes(requests.memory), name).toBeLessThan(mebibytes(resources.limits.memory));
+    }
+
+    // A DOKS 2 vCPU / 4 GiB runtime node advertises 1900m CPU and 3074892Ki
+    // memory allocatable. Requests are the only number the scheduler reads, so
+    // they have to be large enough to spread the pods yet stay comfortably
+    // under one node's share: all five must still fit on a single node beside
+    // ingress-nginx, cert-manager and the observability collector when only
+    // one node is schedulable.
+    const totalMillicores = Object.values(expectedRequests).reduce(
+      (total, requests) => total + millicores(requests.cpu),
+      0,
+    );
+    const totalMemoryKi = Object.values(expectedRequests).reduce(
+      (total, requests) => total + mebibytes(requests.memory) * 1024,
+      0,
+    );
+
+    expect(totalMillicores).toBe(950);
+    expect(totalMemoryKi).toBe(1835008);
+    // Headroom left on that node for the add-ons: 950m CPU and 1239884Ki.
+    expect(1900 - totalMillicores).toBeGreaterThanOrEqual(900);
+    expect(3074892 - totalMemoryKi).toBeGreaterThanOrEqual(1024 * 1024);
+
+    // The deploy reads the generated overlay, not this builder.
+    const [generated] = readChartFiles(["values.production.yaml"]);
+    for (const [name, requests] of Object.entries(expectedRequests)) {
+      expect(generated).toContain(
+        [
+          `  ${name}:`,
+          "    resources:",
+          "      requests:",
+          `        cpu: "${requests.cpu}"`,
+          `        memory: "${requests.memory}"`,
+          "      limits:",
+          '        cpu: "1"',
+          '        memory: "1Gi"',
+          "",
+        ].join("\n"),
+      );
+    }
+    expect(generated).not.toContain("platform-bootstrap");
+  });
+
+  it("production-app-components-spread-by-hostname", () => {
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    const hostnameSpread = [{ maxSkew: 1, topologyKey: "kubernetes.io/hostname", whenUnsatisfiable: "ScheduleAnyway" }];
+
+    expect(production.components, "production overlay must carry per-component spread").toBeDefined();
+
+    for (const name of ["admin-web", "marketplace", "platform-api", "platform-worker", "public-web"]) {
+      // ScheduleAnyway, not DoNotSchedule: a rolling cutover with one
+      // schedulable node must still place the replacement pod rather than hang
+      // Pending. The exact-equality also pins the absence of `labelSelector` --
+      // the chart owns that key, never the values file.
+      expect(production.components[name].topologySpreadConstraints, name).toEqual(hostnameSpread);
+    }
+
+    // Documented empty default in the base chart, so staging, preview and
+    // local boot keep rendering exactly as they did before the seam existed.
+    const base = buildPlatformHelmValues({ repoRoot });
+    for (const [name, component] of Object.entries(base.components)) {
+      expect(component.topologySpreadConstraints, name).toEqual([]);
+    }
+    const [baseValues] = readChartFiles(["values.yaml"]);
+    expect(baseValues.split("\n").filter((line) => line.trim() === "topologySpreadConstraints: []")).toHaveLength(
+      Object.keys(base.components).length,
+    );
+    expect(baseValues).toContain(
+      "    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.\n    topologySpreadConstraints: []\n",
+    );
+
+    // The chart, not the values file, owns labelSelector: every constraint is
+    // matched against the component's own selectorLabels, so a spread can
+    // never count a sibling component's pods toward its own skew, and the
+    // `omit` drops any labelSelector a values file tried to supply.
+    const [helperTemplate] = readChartFiles(["templates/_helpers.tpl"]);
+    expect(helperTemplate).toContain('{{- define "chase-sets-platform.topologySpreadConstraints" -}}');
+    expect(helperTemplate).toContain('{{- include "chase-sets-platform.topologySpreadConstraints" . }}');
+    expect(helperTemplate).toContain("{{- if .component.topologySpreadConstraints }}");
+    expect(helperTemplate).toContain('{{ toYaml (omit . "labelSelector") | nindent 4 | trim }}');
+    expect(helperTemplate).toContain(
+      '{{- $selectorLabels := include "chase-sets-platform.selectorLabels" (dict "root" .root "name" .name) -}}',
+    );
+
+    const [generated] = readChartFiles(["values.production.yaml"]);
+    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(5);
+    expect(generated).toContain(
+      [
+        "    topologySpreadConstraints:",
+        "      - maxSkew: 1",
+        '        topologyKey: "kubernetes.io/hostname"',
+        '        whenUnsatisfiable: "ScheduleAnyway"',
+        "",
+      ].join("\n"),
+    );
+    expect(generated).not.toContain("labelSelector");
   });
 });

@@ -12,6 +12,8 @@ describe("admin PWA endpoints", () => {
 
     expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
     await expect(manifest.json()).resolves.toMatchObject({
+      theme_color: "#0f766e",
+      background_color: "#f7f5f1",
       name: "Chase Sets Admin",
       short_name: "CS Admin",
       start_url: "/",

@@ -1,4 +1,27 @@
 #!/usr/bin/env node
+// Marketplace public promotion evidence.
+//
+// v3 makes authority transport explicit. v1 let the operator review record
+// *assert* the Public Presence copy audit result as a handful of copied
+// booleans, so a green promotion record could exist without a green audit ever
+// having run. v3 requires the exact successful launch-mode
+// `marketplace-public-presence-copy-audit/v3` record as its own input and
+// DERIVES every legal-corpus and counsel-packet field from it. The review may
+// still carry `publicPresenceCopyAuditReference` as a human custody pointer,
+// but every `publicPresenceCopyAudit*` value, every `counselPacket*` value,
+// and the three legacy proof aliases are now unknown keys the recursively
+// closed normalizer rejects: a caller cannot graft an authority it does not
+// have.
+//
+// Predecessor records stay parseable only as rejected historical authority. A
+// v1 review, a v1 copy audit, a failing audit, or a non-launch audit produces
+// exactly one closed current-version record with `passesPromotionGate: false`
+// and bounded diagnostics — never a crash, and never an upgrade.
+//
+// v4 renames the agent-commerce claim restraint to `ucpAgentCommerceOwner`,
+// `ucpAgentCommerceClaimsReviewReference` and the `ucpAgentCommerceMarketing`
+// output. The closed key set rejects the retired names, and the launch
+// go/no-go gate reads a retained v3 record as pending until it is regenerated.
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -10,13 +33,21 @@ import {
 import {
   MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION,
   REQUIRED_PUBLIC_PRESENCE_PAGES,
+  projectPublicPresenceCopyAuditPageEvidence,
+  validatePublicPresenceCopyAuditRecord,
 } from "./marketplace-public-presence-copy-audit.mjs";
+import { COUNSEL_REVIEW_PACKET_VERSION } from "./legal-review-corpus.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 
-export const MARKETPLACE_PROMOTION_EVIDENCE_VERSION = "marketplace-promotion-evidence/v1";
+export const MARKETPLACE_PROMOTION_EVIDENCE_VERSION = "marketplace-promotion-evidence/v4";
 const MAX_PROMOTION_REVIEW_AGE_DAYS = 30;
 
+/**
+ * The operator-attested proofs only. Every Public Presence copy audit proof
+ * left this list in v2: those are derived from the audit record, so a review
+ * that asserts one is asserting an authority it does not own.
+ */
 export const REQUIRED_MARKETPLACE_PROMOTION_PROOFS = [
   "finalLaunchReviewApproved",
   "checkoutLaunchEvidenceApproved",
@@ -28,9 +59,6 @@ export const REQUIRED_MARKETPLACE_PROMOTION_PROOFS = [
   "checkoutLaunchFulfillmentAssignmentBeforeSessionReviewed",
   "checkoutLaunchFreshStateCleanupReviewed",
   "checkoutLaunchNoLegacyCompatibilityPaths",
-  "publicPresenceLaunchCopyReviewed",
-  "futureOnlyLaunchCopyRemoved",
-  "policyPagesReviewed",
   "rollbackOwnerAssigned",
 ];
 
@@ -42,9 +70,85 @@ const REQUIRED_MARKETPLACE_PROMOTION_REFERENCES = [
   "rollbackOwnerReference",
 ];
 
+const REQUIRED_MARKETPLACE_PROMOTION_STRINGS = [
+  "reviewReference",
+  "reviewCompletedAt",
+  "environment",
+  "releaseCommit",
+  "stagingWorkflowRunReference",
+  "productionWorkflowRunReference",
+  "checkoutLaunchEvidenceCompletedAt",
+  "ucpAgentCommerceClaimsReviewReference",
+];
+
+const REQUIRED_MARKETPLACE_PROMOTION_BOOLEANS = [
+  ...REQUIRED_MARKETPLACE_PROMOTION_PROOFS,
+  "publicLaunchClaimsEnabled",
+  "certificationApproved",
+  "uncertifiedClaimsAbsent",
+];
+
+/** The recursively closed review key set. Anything else is rejected. */
+const ALLOWED_PROMOTION_REVIEW_FIELDS = [
+  ...REQUIRED_MARKETPLACE_PROMOTION_STRINGS,
+  ...REQUIRED_MARKETPLACE_PROMOTION_REFERENCES,
+  ...REQUIRED_MARKETPLACE_PROMOTION_BOOLEANS,
+  "ucpAgentCommerceOwner",
+  "certificationReference",
+];
+
+/**
+ * The exact ordered legal-corpus projection promotion derives from the audit
+ * record. Named once so the emitted evidence, the launch go/no-go consumer,
+ * and the tests all agree on the field set without three hand-kept lists.
+ */
+export const PROMOTION_AUDIT_DERIVED_FIELDS = [
+  ["publicPresenceCopyAuditVersion", (audit) => audit.schemaVersion],
+  ["publicPresenceCopyAuditBaseUrl", (audit) => audit.baseUrl],
+  ["publicPresenceCopyAuditCompletedAt", (audit) => audit.checkedAt],
+  ["publicPresenceCopyAuditMode", (audit) => audit.mode],
+  ["publicPresenceCopyAuditRequiredPageCount", (audit) => audit.requiredPageCount],
+  ["publicPresenceCopyAuditRequiredPagePaths", (audit) => audit.requiredPagePaths],
+  ["publicPresenceCopyAuditLaunchRequiredPolicyCount", (audit) => audit.launchRequiredPolicyCount],
+  ["publicPresenceCopyAuditLaunchRequiredPolicyKeys", (audit) => audit.launchRequiredPolicyKeys],
+  ["publicPresenceCopyAuditComplianceArticleCount", (audit) => audit.complianceArticleCount],
+  ["publicPresenceCopyAuditComplianceArticleSlugs", (audit) => audit.complianceArticleSlugs],
+  ["publicPresenceCopyAuditUniqueFetchedPathCount", (audit) => audit.uniqueFetchedPathCount],
+  ["publicPresenceCopyAuditLegalCorpusDigest", (audit) => audit.legalCorpusDigest],
+  ["counselPacketSchemaVersion", (audit) => audit.counselPacket?.schemaVersion ?? null],
+  ["counselPacketSha256", (audit) => audit.counselPacket?.sha256 ?? null],
+  ["counselPacketUtf8Bytes", (audit) => audit.counselPacket?.utf8Bytes ?? null],
+  ["counselPacketCorpusSha256", (audit) => audit.counselPacket?.corpusSha256 ?? null],
+  ["counselPacketVerified", (audit) => audit.counselPacket?.verified ?? false],
+  ["publicPresenceCopyAuditPassed", (audit) => audit.passesPublicPresenceCopyAudit],
+  ["publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved", (audit) => audit.futureOnlyLaunchCopyRemoved],
+  ["publicPresenceCopyAuditPolicyPagesReviewed", (audit) => audit.policyPagesReviewed],
+  ["publicPresenceCopyAuditComplianceArticlesReviewed", (audit) => audit.complianceArticlesReviewed],
+  ["publicPresenceCopyAuditDmcaRegistrationMarkerAbsent", (audit) => audit.dmcaRegistrationMarkerAbsent],
+  ["publicPresenceCopyAuditUncertifiedClaimsAbsent", (audit) => audit.uncertifiedClaimsAbsent],
+  // The audited rows themselves, reduced to identities the terminal gate can
+  // revalidate against canonical membership. Without it the launch gate reads
+  // only flattened counts and booleans, and a projection asserting them cannot
+  // be told apart from one backed by 17 real fetches.
+  ["publicPresenceCopyAuditPageEvidence", (audit) => projectPublicPresenceCopyAuditPageEvidence(audit)],
+];
+
+/**
+ * The predecessor-compatible unprefixed proof properties. They stay in the
+ * emitted record so a v1 consumer keeps parsing, but they are derived from the
+ * audit and the review cannot supply them.
+ */
+export const PROMOTION_AUDIT_DERIVED_LEGACY_PROOFS = [
+  ["publicPresenceLaunchCopyReviewed", (audit) => audit.publicPresenceLaunchCopyReviewed],
+  ["futureOnlyLaunchCopyRemoved", (audit) => audit.futureOnlyLaunchCopyRemoved],
+  ["policyPagesReviewed", (audit) => audit.policyPagesReviewed],
+];
+
 export function parsePromotionEvidenceArgs(argv, env = process.env) {
   return {
     reviewPath: readOption(argv, "--review") ?? readEnv("MARKETPLACE_PROMOTION_REVIEW_RECORD", env),
+    copyAuditPath:
+      readOption(argv, "--public-presence-copy-audit") ?? readEnv("MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_RECORD", env),
     reference: readOption(argv, "--reference") ?? readEnv("PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE", env),
     owner: readOption(argv, "--owner") ?? readEnv("MARKETPLACE_PROMOTION_OWNER", env) ?? "Platform Operations",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
@@ -55,9 +159,22 @@ export async function readPromotionReview(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
-export function buildPromotionEvidence(input) {
-  const review = normalizePromotionReview(input.review);
-  const errors = [...validateRequiredInputs(input), ...validatePromotionReview(review, input.checkedAt)];
+export async function readPublicPresenceCopyAuditRecord(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+export function buildPromotionEvidence(input, dependencies = {}) {
+  const { review, errors: reviewErrors } = normalizePromotionReview(input.review);
+  const auditValidation = validatePublicPresenceCopyAuditRecord(input.audit, dependencies.auditAuthority);
+  const audit = auditValidation.ok ? auditValidation.record : null;
+
+  const errors = [
+    ...validateRequiredInputs(input),
+    ...reviewErrors,
+    ...auditValidation.errors.map((error) => `Marketplace promotion copy audit input: ${error}`),
+    ...validateAuditAuthority(audit),
+    ...validatePromotionReview(review, audit, input.checkedAt),
+  ];
   const passesPromotionGate = errors.length === 0;
 
   return {
@@ -65,9 +182,9 @@ export function buildPromotionEvidence(input) {
     passesPromotionGate,
     marketplacePromotion: {
       approved: passesPromotionGate,
-      reference: input.reference,
-      owner: input.owner,
-      checkedAt: input.checkedAt,
+      reference: input.reference ?? null,
+      owner: input.owner ?? null,
+      checkedAt: input.checkedAt ?? null,
       reviewReference: review.reviewReference,
       reviewCompletedAt: review.reviewCompletedAt,
       environment: review.environment,
@@ -76,35 +193,32 @@ export function buildPromotionEvidence(input) {
       productionWorkflowRunReference: review.productionWorkflowRunReference,
       ...Object.fromEntries(REQUIRED_MARKETPLACE_PROMOTION_REFERENCES.map((key) => [key, review[key]])),
       checkoutLaunchEvidenceCompletedAt: review.checkoutLaunchEvidenceCompletedAt,
-      publicPresenceCopyAuditVersion: review.publicPresenceCopyAuditVersion,
-      publicPresenceCopyAuditBaseUrl: review.publicPresenceCopyAuditBaseUrl,
-      publicPresenceCopyAuditCompletedAt: review.publicPresenceCopyAuditCompletedAt,
-      publicPresenceCopyAuditMode: review.publicPresenceCopyAuditMode,
-      publicPresenceCopyAuditRequiredPageCount: review.publicPresenceCopyAuditRequiredPageCount,
-      publicPresenceCopyAuditPassed: review.publicPresenceCopyAuditPassed,
-      publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved: review.publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved,
-      publicPresenceCopyAuditPolicyPagesReviewed: review.publicPresenceCopyAuditPolicyPagesReviewed,
-      publicPresenceCopyAuditUncertifiedClaimsAbsent: review.publicPresenceCopyAuditUncertifiedClaimsAbsent,
+      ...Object.fromEntries(PROMOTION_AUDIT_DERIVED_FIELDS.map(([key, derive]) => [key, derive1(audit, derive)])),
       ...Object.fromEntries(REQUIRED_MARKETPLACE_PROMOTION_PROOFS.map((key) => [key, review[key]])),
+      ...Object.fromEntries(
+        PROMOTION_AUDIT_DERIVED_LEGACY_PROOFS.map(([key, derive]) => [key, derive1(audit, derive)]),
+      ),
     },
-    ucpAp2Marketing: {
-      owner: review.ucpAp2Owner,
+    ucpAgentCommerceMarketing: {
+      owner: review.ucpAgentCommerceOwner,
       publicLaunchClaimsEnabled: review.publicLaunchClaimsEnabled,
       certificationApproved: review.certificationApproved,
       certificationReference: review.certificationReference,
-      claimsReviewReference: review.ucpAp2ClaimsReviewReference,
+      claimsReviewReference: review.ucpAgentCommerceClaimsReviewReference,
       uncertifiedClaimsAbsent: review.uncertifiedClaimsAbsent,
     },
     ...(errors.length > 0 ? { errors } : {}),
   };
 }
 
-export async function runPromotionEvidence(options) {
+function derive1(audit, derive) {
+  return audit === null ? null : (derive(audit) ?? null);
+}
+
+export async function runPromotionEvidence(options, dependencies = {}) {
   const review = await readPromotionReview(options.reviewPath);
-  return buildPromotionEvidence({
-    ...options,
-    review,
-  });
+  const audit = await readPublicPresenceCopyAuditRecord(options.copyAuditPath);
+  return buildPromotionEvidence({ ...options, review, audit }, dependencies);
 }
 
 async function main(argv, env = process.env) {
@@ -127,90 +241,63 @@ async function main(argv, env = process.env) {
   return 0;
 }
 
-function normalizePromotionReview(review) {
-  if (!isRecord(review)) {
-    throw new Error("Marketplace promotion review record must be a JSON object.");
+/**
+ * Recursively closed review normalization. Every unknown key — including every
+ * retired `publicPresenceCopyAudit*` value, every `counselPacket*` value, and
+ * the three legacy proof aliases a v1 review carried — is a rejection, and a
+ * missing or wrongly typed value is a diagnostic rather than a throw, so a
+ * predecessor record still parses as exactly one rejected current-version result.
+ */
+export function normalizePromotionReview(candidate) {
+  const errors = [];
+  const empty = Object.fromEntries(ALLOWED_PROMOTION_REVIEW_FIELDS.map((key) => [key, null]));
+
+  if (!isRecord(candidate)) {
+    return {
+      review: { ...empty, ucpAgentCommerceOwner: null, certificationReference: "" },
+      errors: ["Marketplace promotion review record must be a JSON object."],
+    };
   }
 
-  return {
-    reviewReference: requireString(review.reviewReference, "Marketplace promotion reviewReference"),
-    reviewCompletedAt: requireString(review.reviewCompletedAt, "Marketplace promotion reviewCompletedAt"),
-    environment: requireString(review.environment, "Marketplace promotion environment"),
-    releaseCommit: requireString(review.releaseCommit, "Marketplace promotion releaseCommit"),
-    stagingWorkflowRunReference: requireString(
-      review.stagingWorkflowRunReference,
-      "Marketplace promotion stagingWorkflowRunReference",
-    ),
-    productionWorkflowRunReference: requireString(
-      review.productionWorkflowRunReference,
-      "Marketplace promotion productionWorkflowRunReference",
-    ),
-    ...Object.fromEntries(
-      REQUIRED_MARKETPLACE_PROMOTION_REFERENCES.map((key) => [
-        key,
-        requireString(review[key], `Marketplace promotion ${key}`),
-      ]),
-    ),
-    checkoutLaunchEvidenceCompletedAt: requireString(
-      review.checkoutLaunchEvidenceCompletedAt,
-      "Marketplace promotion checkoutLaunchEvidenceCompletedAt",
-    ),
-    publicPresenceCopyAuditMode: requireString(
-      review.publicPresenceCopyAuditMode,
-      "Marketplace promotion publicPresenceCopyAuditMode",
-    ),
-    publicPresenceCopyAuditVersion: requireString(
-      review.publicPresenceCopyAuditVersion,
-      "Marketplace promotion publicPresenceCopyAuditVersion",
-    ),
-    publicPresenceCopyAuditBaseUrl: requireString(
-      review.publicPresenceCopyAuditBaseUrl,
-      "Marketplace promotion publicPresenceCopyAuditBaseUrl",
-    ),
-    publicPresenceCopyAuditCompletedAt: requireString(
-      review.publicPresenceCopyAuditCompletedAt,
-      "Marketplace promotion publicPresenceCopyAuditCompletedAt",
-    ),
-    publicPresenceCopyAuditRequiredPageCount: requireNumber(
-      review.publicPresenceCopyAuditRequiredPageCount,
-      "Marketplace promotion publicPresenceCopyAuditRequiredPageCount",
-    ),
-    publicPresenceCopyAuditPassed: requireBoolean(
-      review.publicPresenceCopyAuditPassed,
-      "Marketplace promotion publicPresenceCopyAuditPassed",
-    ),
-    publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved: requireBoolean(
-      review.publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved,
-      "Marketplace promotion publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved",
-    ),
-    publicPresenceCopyAuditPolicyPagesReviewed: requireBoolean(
-      review.publicPresenceCopyAuditPolicyPagesReviewed,
-      "Marketplace promotion publicPresenceCopyAuditPolicyPagesReviewed",
-    ),
-    publicPresenceCopyAuditUncertifiedClaimsAbsent: requireBoolean(
-      review.publicPresenceCopyAuditUncertifiedClaimsAbsent,
-      "Marketplace promotion publicPresenceCopyAuditUncertifiedClaimsAbsent",
-    ),
-    ...Object.fromEntries(
-      REQUIRED_MARKETPLACE_PROMOTION_PROOFS.map((key) => [
-        key,
-        requireBoolean(review[key], `Marketplace promotion ${key}`),
-      ]),
-    ),
-    ucpAp2Owner: requireString(review.ucpAp2Owner ?? "Checkout and Payments", "UCP/AP2 owner"),
-    publicLaunchClaimsEnabled: requireBoolean(review.publicLaunchClaimsEnabled, "UCP/AP2 publicLaunchClaimsEnabled"),
-    certificationApproved: requireBoolean(review.certificationApproved, "UCP/AP2 certificationApproved"),
-    certificationReference:
-      typeof review.certificationReference === "string" ? review.certificationReference.trim() : "",
-    ucpAp2ClaimsReviewReference: requireString(review.ucpAp2ClaimsReviewReference, "UCP/AP2 claimsReviewReference"),
-    uncertifiedClaimsAbsent: requireBoolean(review.uncertifiedClaimsAbsent, "UCP/AP2 uncertifiedClaimsAbsent"),
-  };
+  for (const key of Object.keys(candidate)) {
+    if (!ALLOWED_PROMOTION_REVIEW_FIELDS.includes(key)) {
+      errors.push(
+        `Marketplace promotion review has an unexpected field '${key}'; ${MARKETPLACE_PROMOTION_EVIDENCE_VERSION} derives every copy-audit and counsel-packet value from the audit record.`,
+      );
+    }
+  }
+
+  const review = { ...empty };
+  for (const key of [...REQUIRED_MARKETPLACE_PROMOTION_STRINGS, ...REQUIRED_MARKETPLACE_PROMOTION_REFERENCES]) {
+    if (!isNonEmptyString(candidate[key])) {
+      errors.push(`Marketplace promotion ${key} must be a non-empty string.`);
+      continue;
+    }
+    review[key] = candidate[key].trim();
+  }
+  for (const key of REQUIRED_MARKETPLACE_PROMOTION_BOOLEANS) {
+    if (typeof candidate[key] !== "boolean") {
+      errors.push(`Marketplace promotion ${key} must be a boolean.`);
+      continue;
+    }
+    review[key] = candidate[key];
+  }
+  review.ucpAgentCommerceOwner = isNonEmptyString(candidate.ucpAgentCommerceOwner)
+    ? candidate.ucpAgentCommerceOwner.trim()
+    : "Checkout and Payments";
+  review.certificationReference =
+    typeof candidate.certificationReference === "string" ? candidate.certificationReference.trim() : "";
+
+  return { review, errors };
 }
 
-function validatePromotionEvidenceOptions(options) {
+export function validatePromotionEvidenceOptions(options) {
   const errors = [];
   if (!options.reviewPath) {
     errors.push("MARKETPLACE_PROMOTION_REVIEW_RECORD or --review is required.");
+  }
+  if (!options.copyAuditPath) {
+    errors.push("MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_RECORD or --public-presence-copy-audit is required.");
   }
   return errors;
 }
@@ -231,14 +318,88 @@ function validateRequiredInputs(input) {
   return errors;
 }
 
-function validatePromotionReview(review, checkedAt) {
+/**
+ * The audit record must be an exact, closed, successful, launch-mode v3 audit
+ * with a verified counsel packet whose corpus digest equals the audit's own
+ * current corpus digest. Adding v3-looking fields or booleans to a predecessor
+ * record cannot reach this bar, because the record shape itself is closed.
+ */
+function validateAuditAuthority(audit) {
+  const errors = [];
+  if (audit === null) {
+    errors.push(
+      `Marketplace promotion evidence requires an exact successful launch-mode ${MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION} record.`,
+    );
+    return errors;
+  }
+  if (audit.mode !== "launch") {
+    errors.push("Marketplace promotion review must use a launch-mode Public Presence copy audit.");
+  }
+  if (audit.passesPublicPresenceCopyAudit !== true) {
+    errors.push("Marketplace promotion requires a passing Public Presence copy audit record.");
+  }
+  for (const [field, value] of [
+    ["publicPresenceLaunchCopyReviewed", audit.publicPresenceLaunchCopyReviewed],
+    ["futureOnlyLaunchCopyRemoved", audit.futureOnlyLaunchCopyRemoved],
+    ["policyPagesReviewed", audit.policyPagesReviewed],
+    ["complianceArticlesReviewed", audit.complianceArticlesReviewed],
+    ["dmcaRegistrationMarkerAbsent", audit.dmcaRegistrationMarkerAbsent],
+    ["uncertifiedClaimsAbsent", audit.uncertifiedClaimsAbsent],
+  ]) {
+    if (value !== true) {
+      errors.push(`Marketplace promotion requires the copy audit to prove ${field}=true.`);
+    }
+  }
+  if (audit.launchRequiredPolicyCount === null || audit.complianceArticleCount === null) {
+    errors.push("Marketplace promotion requires a copy audit with both membership authorities validated.");
+  }
+  if (audit.counselPacket?.verified !== true) {
+    errors.push("Marketplace promotion requires a copy audit that verified the retained counsel review packet bytes.");
+  }
+  if (audit.counselPacket?.schemaVersion !== COUNSEL_REVIEW_PACKET_VERSION) {
+    errors.push(`Marketplace promotion requires a retained ${COUNSEL_REVIEW_PACKET_VERSION} counsel review packet.`);
+  }
+  if (audit.legalCorpusDigest === null || audit.counselPacket?.corpusSha256 !== audit.legalCorpusDigest) {
+    errors.push(
+      "Marketplace promotion requires the retained counsel packet corpus digest to equal the audited current corpus digest.",
+    );
+  }
+  // Defense in depth against a future loosening of the record validator: the
+  // rows themselves must account for every unique fetched path, name every
+  // launch-required policy member, and each have answered on the audited
+  // origin and its exact canonical route.
+  const pageEvidence = audit.mode === "launch" ? projectPublicPresenceCopyAuditPageEvidence(audit) : null;
+  if (
+    audit.mode === "launch" &&
+    (pageEvidence === null ||
+      pageEvidence.fetchedPathCount !== audit.uniqueFetchedPathCount ||
+      pageEvidence.verifiedOnAuditedOriginCount !== audit.uniqueFetchedPathCount ||
+      pageEvidence.requiredPagePaths.length !== REQUIRED_PUBLIC_PRESENCE_PAGES.length ||
+      pageEvidence.launchPolicyPolicyKeys.length !== audit.launchRequiredPolicyCount ||
+      pageEvidence.launchPolicyPolicyKeys.some((key) => key === null) ||
+      pageEvidence.complianceArticleSlugs.length !== audit.complianceArticleCount)
+  ) {
+    errors.push(
+      "Marketplace promotion requires a copy audit whose rows name every planned route and answered on the audited origin.",
+    );
+  }
+  if (audit.requiredPageCount !== REQUIRED_PUBLIC_PRESENCE_PAGES.length) {
+    errors.push(
+      `Marketplace promotion requires publicPresenceCopyAuditRequiredPageCount=${REQUIRED_PUBLIC_PRESENCE_PAGES.length}.`,
+    );
+  }
+  validatePublicPresenceBaseUrl("Marketplace promotion publicPresenceCopyAuditBaseUrl", audit.baseUrl, errors);
+  return errors;
+}
+
+function validatePromotionReview(review, audit, checkedAt) {
   const errors = [];
   for (const key of REQUIRED_MARKETPLACE_PROMOTION_PROOFS) {
     if (review[key] !== true) {
       errors.push(`Marketplace promotion review must prove ${key}=true.`);
     }
   }
-  if (review.environment.toLowerCase() !== "production") {
+  if (typeof review.environment === "string" && review.environment.toLowerCase() !== "production") {
     errors.push("Marketplace promotion review must be production-scoped before marketplace launch.");
   }
   validateCompletedAt("Marketplace promotion reviewCompletedAt", review.reviewCompletedAt, checkedAt, errors);
@@ -248,12 +409,9 @@ function validatePromotionReview(review, checkedAt) {
     checkedAt,
     errors,
   );
-  validateCompletedAt(
-    "Marketplace promotion publicPresenceCopyAuditCompletedAt",
-    review.publicPresenceCopyAuditCompletedAt,
-    checkedAt,
-    errors,
-  );
+  if (audit !== null) {
+    validateCompletedAt("Marketplace promotion publicPresenceCopyAuditCompletedAt", audit.checkedAt, checkedAt, errors);
+  }
   validateReleaseCommit("Marketplace promotion", review.releaseCommit, errors);
   validateEvidenceReference("Marketplace promotion reviewReference", review.reviewReference, errors);
   validateEvidenceReference(
@@ -267,43 +425,19 @@ function validatePromotionReview(review, checkedAt) {
     errors,
   );
   validateEvidenceReferences("Marketplace promotion", review, REQUIRED_MARKETPLACE_PROMOTION_REFERENCES, errors);
-  validateEvidenceReference("UCP/AP2 claimsReviewReference", review.ucpAp2ClaimsReviewReference, errors);
-  if (review.publicPresenceCopyAuditMode !== "launch") {
-    errors.push("Marketplace promotion review must use a launch-mode Public Presence copy audit.");
-  }
-  if (review.publicPresenceCopyAuditVersion !== MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION) {
-    errors.push(`Marketplace promotion review must use ${MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION}.`);
-  }
-  validatePublicPresenceBaseUrl(
-    "Marketplace promotion publicPresenceCopyAuditBaseUrl",
-    review.publicPresenceCopyAuditBaseUrl,
+  validateEvidenceReference(
+    "UCP agent-commerce claimsReviewReference",
+    review.ucpAgentCommerceClaimsReviewReference,
     errors,
   );
-  if (review.publicPresenceCopyAuditRequiredPageCount !== REQUIRED_PUBLIC_PRESENCE_PAGES.length) {
-    errors.push(
-      `Marketplace promotion review must include publicPresenceCopyAuditRequiredPageCount=${REQUIRED_PUBLIC_PRESENCE_PAGES.length}.`,
-    );
-  }
-  if (review.publicPresenceCopyAuditPassed !== true) {
-    errors.push("Marketplace promotion review must prove publicPresenceCopyAuditPassed=true.");
-  }
-  if (review.publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved !== true) {
-    errors.push("Marketplace promotion review must prove publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved=true.");
-  }
-  if (review.publicPresenceCopyAuditPolicyPagesReviewed !== true) {
-    errors.push("Marketplace promotion review must prove publicPresenceCopyAuditPolicyPagesReviewed=true.");
-  }
-  if (review.publicPresenceCopyAuditUncertifiedClaimsAbsent !== true) {
-    errors.push("Marketplace promotion review must prove publicPresenceCopyAuditUncertifiedClaimsAbsent=true.");
-  }
   if (review.publicLaunchClaimsEnabled) {
     if (review.certificationApproved !== true) {
-      errors.push("UCP/AP2 public launch claims require certificationApproved=true.");
+      errors.push("UCP agent-commerce public launch claims require certificationApproved=true.");
     }
     if (!isNonEmptyString(review.certificationReference)) {
-      errors.push("UCP/AP2 public launch claims require a certificationReference.");
+      errors.push("UCP agent-commerce public launch claims require a certificationReference.");
     } else {
-      validateEvidenceReference("UCP/AP2 certificationReference", review.certificationReference, errors);
+      validateEvidenceReference("UCP agent-commerce certificationReference", review.certificationReference, errors);
     }
   }
   if (
@@ -311,20 +445,22 @@ function validatePromotionReview(review, checkedAt) {
     review.certificationApproved &&
     !isNonEmptyString(review.certificationReference)
   ) {
-    errors.push("UCP/AP2 certification approval requires a certificationReference.");
+    errors.push("UCP agent-commerce certification approval requires a certificationReference.");
   }
   if (
     !review.publicLaunchClaimsEnabled &&
     review.certificationApproved &&
     isNonEmptyString(review.certificationReference)
   ) {
-    validateEvidenceReference("UCP/AP2 certificationReference", review.certificationReference, errors);
+    validateEvidenceReference("UCP agent-commerce certificationReference", review.certificationReference, errors);
   }
   if (!review.certificationApproved && isNonEmptyString(review.certificationReference)) {
-    validateEvidenceReference("UCP/AP2 certificationReference", review.certificationReference, errors);
+    validateEvidenceReference("UCP agent-commerce certificationReference", review.certificationReference, errors);
   }
   if (review.publicLaunchClaimsEnabled === false && review.uncertifiedClaimsAbsent !== true) {
-    errors.push("UCP/AP2 launch restraint requires uncertifiedClaimsAbsent=true when public claims are disabled.");
+    errors.push(
+      "UCP agent-commerce launch restraint requires uncertifiedClaimsAbsent=true when public claims are disabled.",
+    );
   }
   return errors;
 }
@@ -351,27 +487,6 @@ function validateCompletedAt(label, value, checkedAt, errors) {
   if (ageDays > MAX_PROMOTION_REVIEW_AGE_DAYS) {
     errors.push(`${label} cannot be older than ${MAX_PROMOTION_REVIEW_AGE_DAYS} days.`);
   }
-}
-
-function requireString(value, label) {
-  if (!isNonEmptyString(value)) {
-    throw new Error(`${label} must be a non-empty string.`);
-  }
-  return value.trim();
-}
-
-function requireBoolean(value, label) {
-  if (typeof value !== "boolean") {
-    throw new Error(`${label} must be a boolean.`);
-  }
-  return value;
-}
-
-function requireNumber(value, label) {
-  if (!Number.isFinite(value)) {
-    throw new Error(`${label} must be a number.`);
-  }
-  return value;
 }
 
 function validatePublicPresenceBaseUrl(label, value, errors) {

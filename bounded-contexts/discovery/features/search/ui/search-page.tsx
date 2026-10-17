@@ -4,6 +4,7 @@ import {
   Text,
   Heading,
   AppliedFilterChips,
+  BrandFoilText,
   Button,
   CommerceSheet,
   Form,
@@ -26,10 +27,9 @@ import {
   PlatformCredibilityCue,
   PromoStrip,
   MarketplaceFacetChoiceGroup,
-  MarketplaceFacetGroup,
+  PanelSectionAccordion,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
-  MarketplaceLandingHero,
   MarketplaceMobileFilterBar,
   SavedSearchPrompt,
   SearchControlBar,
@@ -56,6 +56,9 @@ const FACET_OPTION_SEARCH_THRESHOLD = 8;
 const PRIORITY_SEARCH_RESULT_IMAGE_COUNT = 3;
 const SEARCH_CARD_IMAGE_WIDTH = 224;
 const SEARCH_CARD_IMAGE_HEIGHT = 314;
+// The one gold-foil word the no-query Home carries under the ratified foil law:
+// the unique brand-bearing literal in the unchanged headline.
+const HERO_FOIL_WORD = "chasing";
 
 type DynamicSearchFilterSelection = Readonly<{
   kind: "field" | "reference" | "dimension";
@@ -105,10 +108,30 @@ type PriceAndStockFiltersProps = Readonly<{
 
 function formatPrice(item: DiscoverySearchItem): string | undefined {
   const lowestPrice = item.market_summary?.lowest_price_amount;
+  const lowestPriceCurrencyCode = item.market_summary?.lowest_price_currency_code;
 
-  return lowestPrice
-    ? t("discovery.features.search.ui.searchPage.from.price", { price: formatMoney(lowestPrice) })
+  return lowestPrice !== null && lowestPrice !== undefined && lowestPriceCurrencyCode
+    ? formatMoney(lowestPrice, lowestPriceCurrencyCode)
     : undefined;
+}
+
+// Splits the shipped locale headline around its one treated word so the landed
+// BrandFoilText wraps only that word: punctuation stays outside and the
+// concatenated visible/accessible text stays byte-identical to the locale value.
+// Zero or multiple whole-word matches stay plain, never a guessed split.
+function heroHeadlineContent(headline: string, treatedWord: string) {
+  const matches = Array.from(headline.matchAll(new RegExp(`\\b${treatedWord}\\b`, "g")));
+  if (matches.length !== 1) {
+    return headline;
+  }
+  const index = matches[0]!.index;
+  return (
+    <>
+      {headline.slice(0, index)}
+      <BrandFoilText>{treatedWord}</BrandFoilText>
+      {headline.slice(index + treatedWord.length)}
+    </>
+  );
 }
 
 function formatSearchResultMetadata(item: DiscoverySearchItem): string | undefined {
@@ -241,26 +264,38 @@ function buildDynamicAppliedFilters(
   dynamicFilters: readonly DynamicSearchFilterSelection[],
   onDynamicFilterChange: (value: DynamicSearchFilterSelection) => void,
 ) {
-  return dynamicFilters.map((filter) => {
-    const facet = facets.find((entry) => entry.kind === filter.kind && entry.id === filter.id);
-    const value = facet?.values.find((entry) => entry.id === filter.value);
-    const label =
-      facet && value
-        ? t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
-            facet: facet.label,
-            value: value.label,
-          })
-        : t("discovery.features.search.ui.searchPage.dynamic.filter.label", {
-            facet: filter.id,
-            value: filter.value,
-          });
+  return dynamicFilters.map((filter) => ({
+    id: `${filter.kind}:${filter.id}:${filter.value}`,
+    label: dynamicFilterLabel(facets, filter),
+    onRemove: () => onDynamicFilterChange(filter),
+  }));
+}
 
-    return {
-      id: `${filter.kind}:${filter.id}:${filter.value}`,
-      label,
-      onRemove: () => onDynamicFilterChange(filter),
-    };
-  });
+function dynamicFilterLabel(facets: readonly DiscoveryFacetGroup[], filter: DynamicSearchFilterSelection): string {
+  const facet = facets.find((entry) => entry.kind === filter.kind && entry.id === filter.id);
+  const value = facet?.values.find((entry) => entry.id === filter.value);
+  return facet && value
+    ? t("discovery.features.search.ui.searchPage.dynamic.filter.label", { facet: facet.label, value: value.label })
+    : t("discovery.features.search.ui.searchPage.dynamic.filter.label", { facet: filter.id, value: filter.value });
+}
+
+/**
+ * Labels for the filters the URL marks as interpreted that are still applied: a removed chip
+ * leaves its marker key behind but drops out of the notice.
+ */
+function interpretedFilterLabels(
+  interpretedFilters: readonly string[],
+  facets: readonly DiscoveryFacetGroup[],
+  dynamicFilters: readonly DynamicSearchFilterSelection[],
+  languageLabel: string | null,
+): string[] {
+  const marked = new Set(interpretedFilters);
+  return [
+    ...dynamicFilters
+      .filter((filter) => marked.has(`${filter.kind}.${filter.id}`))
+      .map((filter) => dynamicFilterLabel(facets, filter)),
+    ...(languageLabel && marked.has("language") ? [languageLabel] : []),
+  ];
 }
 
 function buildItemDetailHref(slug: string, dynamicFilters: readonly DynamicSearchFilterSelection[]) {
@@ -298,6 +333,8 @@ export interface SearchPageProps {
   inStock: boolean;
   sort: string;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
+  /** Filter params the canonical URL marks as applied from the shopper's words. */
+  interpretedFilters?: readonly string[];
   data: DiscoverySearchResponse | null;
   resultSetKey?: string;
   categories: DiscoveryCategoryItem[];
@@ -374,6 +411,7 @@ export function SearchPage({
   inStock,
   sort,
   dynamicFilters,
+  interpretedFilters = [],
   data,
   resultSetKey,
   categories,
@@ -424,9 +462,10 @@ export function SearchPage({
   const categoryCounts = new Map(data?.category_counts?.map(({ slug, count }) => [slug, count]) ?? []);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false);
+  // Dismissal hides the notice only; the interpreted filters stay applied.
+  const [dismissedInterpretationNotice, setDismissedInterpretationNotice] = useState<string | null>(null);
   const exactTotal = data?.total ?? 0;
   const featuredCategories = categories.slice(0, 5);
-  const catalogDepth = categories.reduce((total, current) => total + current.item_count, 0);
   const activeCategoryLabel =
     categories.find((item) => item.slug === category)?.name ??
     t("discovery.features.search.ui.searchPage.all.categories");
@@ -438,6 +477,14 @@ export function SearchPage({
     : t("discovery.features.search.ui.searchPage.any.market.activity");
   const activeDynamicFilterCount = dynamicFilters.length;
   const dynamicFacets = data?.facets ?? [];
+  // The Result Set count only resolves from an actual payload: while data is
+  // unavailable every count surface is absent rather than a false resolved zero.
+  const resultSetCount = data
+    ? t("discovery.features.search.ui.searchPage.results.summary", {
+        count: exactTotal,
+        category: activeCategoryLabel,
+      })
+    : undefined;
   const resultsSummary =
     data && data.items.length !== exactTotal
       ? t("discovery.features.search.ui.searchPage.results.summary.showing", {
@@ -445,10 +492,7 @@ export function SearchPage({
           count: exactTotal,
           category: activeCategoryLabel,
         })
-      : t("discovery.features.search.ui.searchPage.results.summary", {
-          count: exactTotal,
-          category: activeCategoryLabel,
-        });
+      : resultSetCount;
   const focusedResultsHeading = committedSearch.trim()
     ? t("discovery.features.search.ui.searchPage.results.heading.search", { search: committedSearch.trim() })
     : category
@@ -483,6 +527,15 @@ export function SearchPage({
     (homeMerchandising.featuredCategories.length > 0 || homeMerchandising.newArrivals.length > 0);
   const canLoadMore = Boolean(data?.nextCursor && onLoadMore);
   const dynamicAppliedFilters = buildDynamicAppliedFilters(data?.facets ?? [], dynamicFilters, onDynamicFilterChange);
+  const interpretationLabels = interpretedFilterLabels(
+    interpretedFilters,
+    data?.facets ?? [],
+    dynamicFilters,
+    language ? activeLanguageLabel : null,
+  );
+  const interpretationNoticeKey = `${committedSearch}\n${interpretedFilters.join(",")}`;
+  const showInterpretationNotice =
+    interpretationLabels.length > 0 && dismissedInterpretationNotice !== interpretationNoticeKey;
   const progressiveFacetLabels = {
     showMoreLabel: t("discovery.features.search.ui.searchPage.facet.option.show.more"),
     showLessLabel: t("discovery.features.search.ui.searchPage.facet.option.show.less"),
@@ -666,63 +719,103 @@ export function SearchPage({
     })),
   ];
 
+  const facetValues = searchFacetConfigurations.map((facet) => facet.id);
+  if (new Set(facetValues).size !== facetValues.length) {
+    throw new Error("Duplicate Search facet section value");
+  }
+  const facetValuesKey = JSON.stringify(facetValues);
+  const [desktopFacetValues, setDesktopFacetValues] = useState<string[]>(["categories", "price-and-stock"]);
+  const [mobileFacetValues, setMobileFacetValues] = useState<string[]>(["categories", "price-and-stock"]);
+
+  useEffect(() => {
+    const available = new Set<string>(JSON.parse(facetValuesKey));
+    const prune = (values: string[]) => {
+      const retained = values.filter((value) => available.has(value));
+      return retained.length === values.length ? values : retained;
+    };
+    setDesktopFacetValues(prune);
+    setMobileFacetValues(prune);
+  }, [facetValuesKey]);
+
   function renderFacetConfigurations(presentation: "desktop" | "mobile") {
-    return searchFacetConfigurations.map((facet) => {
-      if (facet.kind === "price-and-stock") {
-        return (
-          <MarketplaceFacetGroup
-            key={facet.id}
-            id={`search-facet-${facet.id}`}
-            title={facet.title}
-            description={facet.description}
-            selectionSummary={facet.selectionSummary}
-            defaultExpanded={facet.defaultExpanded}
-          >
-            <PriceAndStockFilters
-              priceMin={priceMin}
-              priceMax={priceMax}
-              inStock={inStock}
-              onPriceMinChange={onPriceMinChange}
-              onPriceMaxChange={onPriceMaxChange}
-              onPriceMinStep={onPriceMinStep}
-              onPriceMaxStep={onPriceMaxStep}
-              onInStockChange={onInStockChange}
-            />
-          </MarketplaceFacetGroup>
-        );
-      }
-
-      const sharedProps = {
-        id: `search-facet-${facet.id}`,
-        headingLevel: 2 as const,
-        title: facet.title,
-        description: facet.description,
-        allLabel: facet.allLabel,
-        items: facet.items,
-        selectedId: facet.selectedId,
-        selectedIds: facet.selectedIds,
-        selectionMode: facet.selectionMode,
-        onSelect: facet.onSelect,
-        searchable: facet.searchable,
-        searchLabel: facet.searchLabel,
-        searchPlaceholder: facet.searchPlaceholder,
-        searchEmptyLabel: facet.searchEmptyLabel,
-        showLeadingIcons: false,
-        collapsible: true,
-        defaultExpanded: facet.defaultExpanded,
-        selectionSummary: facet.selectionSummary,
-        ...progressiveFacetLabels,
-      };
-
-      return presentation === "desktop" ? (
-        <MarketplaceFacetRail key={facet.id} {...sharedProps} />
-      ) : (
-        <MarketplaceFacetChoiceGroup key={facet.id} {...sharedProps} />
-      );
-    });
+    const values = presentation === "desktop" ? desktopFacetValues : mobileFacetValues;
+    const setValues = presentation === "desktop" ? setDesktopFacetValues : setMobileFacetValues;
+    return (
+      <PanelSectionAccordion
+        id={`search-facets-${presentation}`}
+        data-facet-list-presentation={presentation}
+        data-facet-expanded-values={JSON.stringify(values)}
+        type="multiple"
+        edge={presentation === "desktop" ? "compact" : "panel"}
+        bleed="horizontal"
+        anchorActiveItemToScrollEnd={false}
+        value={values}
+        onValueChange={(next) => setValues(Array.isArray(next) ? next : [next])}
+        items={searchFacetConfigurations.map((facet) => {
+          const sharedProps =
+            facet.kind === "choice"
+              ? {
+                  allLabel: facet.allLabel,
+                  items: facet.items,
+                  selectedId: facet.selectedId,
+                  selectedIds: facet.selectedIds,
+                  selectionMode: facet.selectionMode,
+                  onSelect: facet.onSelect,
+                  searchable: facet.searchable,
+                  searchLabel: facet.searchLabel,
+                  searchPlaceholder: facet.searchPlaceholder,
+                  searchEmptyLabel: facet.searchEmptyLabel,
+                  showLeadingIcons: false,
+                  ...progressiveFacetLabels,
+                }
+              : null;
+          return {
+            value: facet.id,
+            triggerProps: { "data-facet-item-value": facet.id },
+            trigger: (
+              <Stack element="span" gap={1}>
+                <Text element="span" size="sm" weight="semibold">
+                  {facet.title}
+                </Text>
+                {facet.selectionSummary ? (
+                  <Text element="span" size="xs" weight="regular" tone="secondary">
+                    {facet.selectionSummary}
+                  </Text>
+                ) : null}
+              </Stack>
+            ),
+            content: (
+              <Stack gap={3}>
+                <Text size="sm" tone="secondary">
+                  {facet.description}
+                </Text>
+                {sharedProps ? (
+                  presentation === "desktop" ? (
+                    <MarketplaceFacetRail {...sharedProps} />
+                  ) : (
+                    <MarketplaceFacetChoiceGroup {...sharedProps} />
+                  )
+                ) : (
+                  <PriceAndStockFilters
+                    priceMin={priceMin}
+                    priceMax={priceMax}
+                    inStock={inStock}
+                    onPriceMinChange={onPriceMinChange}
+                    onPriceMaxChange={onPriceMaxChange}
+                    onPriceMinStep={onPriceMinStep}
+                    onPriceMaxStep={onPriceMaxStep}
+                    onInStockChange={onInStockChange}
+                  />
+                )}
+              </Stack>
+            ),
+          };
+        })}
+      />
+    );
   }
 
-  const filterRail = <Stack gap={3}>{renderFacetConfigurations("desktop")}</Stack>;
+  const filterRail = renderFacetConfigurations("desktop");
   const bulkActionData = bulkAdd?.data;
   const bulkPreview = bulkActionData?.preview;
   const bulkBusy = bulkAdd?.status === "submitting";
@@ -779,51 +872,58 @@ export function SearchPage({
       summary={
         hasFocusedResults ? null : (
           <Stack gap={6}>
-            <MarketplaceLandingHero
-              badges={[
-                { label: t("discovery.features.search.ui.searchPage.marketplace"), tone: "accent" },
-                { label: t("discovery.features.search.ui.searchPage.verified.supply"), tone: "success" },
-              ]}
-              title={t("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and")}
-              description={t("discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets")}
-              search={
-                <Form role="search" spacing="none" onSubmit={handleSearchSubmit}>
-                  <SearchInput
-                    label={t("discovery.features.search.ui.searchPage.marketplace.search")}
-                    hideLabel
-                    placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
-                    value={search}
-                    onChange={(e) => onSearchChange(e.target.value)}
-                  />
-                </Form>
-              }
-              filters={[
-                {
-                  id: "",
-                  label: t("discovery.features.search.ui.searchPage.all"),
-                  selected: !category,
-                  onSelect: () => onCategoryChange(""),
-                },
-                ...featuredCategories.map((item) => ({
-                  id: item.slug,
-                  label: item.name,
-                  selected: category === item.slug,
-                  onSelect: () => onCategoryChange(item.slug),
-                })),
-              ]}
-              metrics={[
-                {
-                  label: t("discovery.features.search.ui.searchPage.results"),
-                  value: exactTotal,
-                  detail: activeCategoryLabel,
-                },
-                {
-                  label: t("discovery.features.search.ui.searchPage.catalog.depth"),
-                  value: catalogDepth,
-                  detail: t("discovery.features.search.ui.searchPage.tracked.items", { count: catalogDepth }),
-                },
-              ]}
-            />
+            <Stack gap={5} data-search-home-hero="">
+              <Stack gap={3}>
+                <Inline gap={2}>
+                  <Badge tone="accent">{t("discovery.features.search.ui.searchPage.marketplace")}</Badge>
+                  <Badge tone="success">{t("discovery.features.search.ui.searchPage.verified.supply")}</Badge>
+                </Inline>
+                <Heading level={1} balance>
+                  {heroHeadlineContent(
+                    t("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and"),
+                    HERO_FOIL_WORD,
+                  )}
+                </Heading>
+                <Text size={{ base: "md", md: "lg" }} tone="secondary">
+                  {t("discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets")}
+                </Text>
+              </Stack>
+              <Form role="search" spacing="none" onSubmit={handleSearchSubmit}>
+                <SearchInput
+                  label={t("discovery.features.search.ui.searchPage.marketplace.search")}
+                  hideLabel
+                  placeholder={t("discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage")}
+                  value={search}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                />
+              </Form>
+              <Inline gap={2}>
+                <Button
+                  tone={category ? "secondary" : "primary"}
+                  size="sm"
+                  onClick={() => onCategoryChange("")}
+                  leadingIcon="grid"
+                >
+                  {t("discovery.features.search.ui.searchPage.all")}
+                </Button>
+                {featuredCategories.map((item) => (
+                  <Button
+                    key={item.slug}
+                    tone={category === item.slug ? "primary" : "secondary"}
+                    size="sm"
+                    onClick={() => onCategoryChange(item.slug)}
+                    leadingIcon="tag"
+                  >
+                    {item.name}
+                  </Button>
+                ))}
+              </Inline>
+              {resultSetCount ? (
+                <Text size="sm" tone="secondary" data-search-result-set-count="">
+                  {resultSetCount}
+                </Text>
+              ) : null}
+            </Stack>
             <PromoStrip
               icon="shield"
               title={t("discovery.features.search.ui.searchPage.buyer.confidence.is.built.into.discovery")}
@@ -945,7 +1045,7 @@ export function SearchPage({
         {error ? (
           <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} />
         ) : null}
-        {bulkAdd?.error ? (
+        {bulkAdd?.error && !(bulkSheetOpen && bulkPreview) ? (
           <Banner
             tone="danger"
             title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
@@ -957,6 +1057,24 @@ export function SearchPage({
             tone="warning"
             title={t("collections.features.savedLists.ui.addToList.claim.error.title")}
             description={savedListClaim.error}
+          />
+        ) : null}
+        {showInterpretationNotice ? (
+          <Banner
+            tone="info"
+            title={t("discovery.features.search.ui.searchPage.interpretation.applied", {
+              filters: interpretationLabels.join(", "),
+            })}
+            actions={
+              <Button
+                type="button"
+                tone="secondary"
+                size="sm"
+                onClick={() => setDismissedInterpretationNotice(interpretationNoticeKey)}
+              >
+                {t("discovery.features.search.ui.searchPage.interpretation.dismiss")}
+              </Button>
+            }
           />
         ) : null}
 
@@ -1014,8 +1132,14 @@ export function SearchPage({
                 </LinkButton>
               }
             />
-          ) : data && data.items.length > 0 ? (
+          ) : data && data.items.length > 0 && !showHomeMerchandising ? (
             <>
+              {data.retrievalMode === "corrected" ? (
+                <Banner
+                  tone="info"
+                  title={t("discovery.features.search.ui.searchPage.close.spellings", { query: committedSearch })}
+                />
+              ) : null}
               {data.retrievalMode === "rescue" ? (
                 <Stack gap={1}>
                   <Heading level={2} visualSize={4}>
@@ -1029,7 +1153,11 @@ export function SearchPage({
                       : t("discovery.features.search.ui.searchPage.closest.matches.semantic.only")}
                   </Text>
                 </Stack>
-              ) : null}
+              ) : (
+                <Heading level={2} visualSize={4}>
+                  {t("discovery.features.search.ui.searchPage.results")}
+                </Heading>
+              )}
               <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
                 {data.items.map((item, index) => {
                   const listingCount = item.market_summary?.active_listing_count ?? 0;
@@ -1131,6 +1259,14 @@ export function SearchPage({
                       savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
                       watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
                       price={hasActiveListings ? formatPrice(item) : undefined}
+                      pricePresentation={
+                        hasActiveListings
+                          ? {
+                              state: "indicative",
+                              prefix: t("discovery.features.search.ui.searchPage.from"),
+                            }
+                          : undefined
+                      }
                       subtitle={formatSearchIdentityLine(item)}
                       badges={
                         displayBadges.length > 0 ? (
@@ -1259,6 +1395,13 @@ export function SearchPage({
           }
         >
           <Stack gap={4}>
+            {bulkAdd.error ? (
+              <Banner
+                tone="danger"
+                title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
+                description={bulkAdd.error}
+              />
+            ) : null}
             {bulkPreview.overLimit ? (
               <Banner
                 tone="warning"

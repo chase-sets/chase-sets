@@ -1,3 +1,5 @@
+import { sendCatalogProviderRequest, ProviderSendStoppedError } from "./provider-send-admission";
+
 export type BoundedHttpObjectErrorCode =
   | "not-found"
   | "response-invalid"
@@ -27,12 +29,18 @@ export async function readBoundedHttpObject(input: {
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const response = await raceWithAbort(
-      input.fetch(input.url, {
-        method: "GET",
-        redirect: "error",
-        signal: controller.signal,
-        headers: { Accept: input.accept },
-      }),
+      sendCatalogProviderRequest(
+        "catalog-mirror",
+        input.fetch,
+        input.url,
+        {
+          method: "GET",
+          redirect: "error",
+          signal: controller.signal,
+          headers: { Accept: input.accept },
+        },
+        "mirror",
+      ),
       controller.signal,
     );
     if (response.status === 404) {
@@ -82,7 +90,7 @@ export async function readBoundedHttpObject(input: {
       contentType: response.headers.get("content-type")?.split(";", 1)[0]?.trim() || "application/octet-stream",
     };
   } catch (error) {
-    if (error instanceof BoundedHttpObjectError) {
+    if (error instanceof ProviderSendStoppedError || error instanceof BoundedHttpObjectError) {
       throw error;
     }
     throw new BoundedHttpObjectError(controller.signal.aborted ? "deadline-exceeded" : "transport-failed");

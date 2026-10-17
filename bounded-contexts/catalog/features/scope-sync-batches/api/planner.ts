@@ -9,6 +9,7 @@ import {
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
 import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import { observeCountCapturePlan } from "./count-capture-context";
 import {
   buildScopeSyncBatchPreview,
   normalizeScopeSyncBatchSelection,
@@ -38,6 +39,7 @@ export function createScopeSyncBatchPlanner(deps: {
   }): Promise<{ preview: ScopeSyncBatchPreview; plans: readonly ScopeSyncBatchPlannedScope[] }> {
     const selection = normalizeScopeSyncBatchSelection(input.selection);
     const scopeRecords = await resolveScopeRecords(deps.db, selection);
+    if (scopeRecords.length > 5000) throw new Error("Scope Sync Batch selection exceeds 5000 scopes.");
     const mappings = await resolveAcceptedMappings(
       deps.db,
       scopeRecords.map((record) => record.scope_record_id),
@@ -47,7 +49,30 @@ export function createScopeSyncBatchPlanner(deps: {
 
     for (const record of scopeRecords) {
       const scopeMappings = mappingsByScope.get(record.scope_record_id) ?? [];
-      const scope = catalogSyncScopeFromRecord(record, scopeMappings, selection);
+      let scope = catalogSyncScopeFromRecord(record, scopeMappings, selection);
+      if (scopeMappings.length > 0) {
+        const { providerParticipation, ...requirementScope } = scope;
+        const requirements = await deps.previewCatalogSyncScope({
+          scope: requirementScope,
+          context: input.context,
+          includeOperationalGates: false,
+          acceptedScopeMappings: [],
+        });
+        scope = {
+          ...scope,
+          providerParticipation: {
+            selectedUnitKeys: [
+              ...new Set([
+                ...(providerParticipation?.selectedUnitKeys ?? []),
+                ...requirements.units
+                  .filter((unit) => unit.requirement === "required")
+                  .map((unit) => unit.unitKey)
+                  .sort(),
+              ]),
+            ],
+          },
+        };
+      }
       const participationPreview = await deps.previewCatalogSyncScope({
         scope,
         context: input.context,
@@ -97,7 +122,7 @@ export function createScopeSyncBatchPlanner(deps: {
       });
     }
 
-    return {
+    const result = {
       preview: buildScopeSyncBatchPreview({
         selection,
         budget: input.budget,
@@ -106,9 +131,27 @@ export function createScopeSyncBatchPlanner(deps: {
       }),
       plans,
     };
+    observeCountCapturePlan(result);
+    return result;
   }
 
   return { resolve };
+}
+
+export async function resolveScopeSyncCountMembership(db: PgQueryable, input: ScopeSyncBatchSelection) {
+  const selection = normalizeScopeSyncBatchSelection(input);
+  const records = await resolveScopeRecords(db, selection);
+  if (
+    records.length > 5000 ||
+    records.some((record) => record.lifecycle_status !== "active") ||
+    (selection.mode === "ids" && records.length !== selection.scopeRecordIds.length)
+  )
+    throw new Error("Count quote requires the complete active selection.");
+  const mappings = await resolveAcceptedMappings(
+    db,
+    records.map((record) => record.scope_record_id),
+  );
+  return { selection, records, mappings };
 }
 
 async function resolveScopeRecords(
@@ -122,7 +165,7 @@ async function resolveScopeRecords(
        FROM catalog_scope_records
        WHERE scope_record_id = ANY($1::text[])
        ORDER BY scope_record_id ASC
-       LIMIT 5000`,
+       LIMIT 5001`,
       [selection.scopeRecordIds],
     );
     return result.rows;
@@ -143,7 +186,7 @@ async function resolveScopeRecords(
      FROM catalog_scope_records
      WHERE ${conditions.join(" AND ")}
      ORDER BY scope_record_id ASC
-     LIMIT 5000`,
+     LIMIT 5001`,
     values,
   );
   return result.rows;

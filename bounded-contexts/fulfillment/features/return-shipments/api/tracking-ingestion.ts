@@ -1,4 +1,5 @@
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
+import { createHash, randomUUID } from "node:crypto";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PostageProviderWebhookEvent } from "@chase-sets/postage-labels";
@@ -159,7 +160,7 @@ export function buildReturnShipmentTrackingCommand(
 }
 
 export type ReturnShipmentTrackingIngestionResult = Readonly<{
-  status: "ignored" | "unmatched" | "duplicate" | "recorded";
+  status: "ignored" | "unmatched" | "duplicate" | "recorded" | "quarantined";
   providerEventId: string;
   returnShipmentId: string | null;
   processingResult: string;
@@ -171,16 +172,119 @@ export type ReturnShipmentTrackingIngestionDeps = Readonly<{
   streamIdFor: (returnShipmentId: string) => string;
 }>;
 
-async function hasProcessedReturnTrackingEvent(db: PgQueryable, providerEventId: string): Promise<boolean> {
-  const result = await db.query<{ provider_event_id: string }>(
-    `SELECT provider_event_id
+function compareCodePointStrings(left: string, right: string) {
+  const leftCodePoints = Array.from(left, (value) => value.codePointAt(0)!);
+  const rightCodePoints = Array.from(right, (value) => value.codePointAt(0)!);
+  for (let index = 0; index < Math.min(leftCodePoints.length, rightCodePoints.length); index += 1) {
+    const difference = leftCodePoints[index]! - rightCodePoints[index]!;
+    if (difference !== 0) return difference;
+  }
+  return leftCodePoints.length - rightCodePoints.length;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("Return tracking payload contains a non-finite number.");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => compareCodePointStrings(left, right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  throw new Error("Return tracking payload contains an unsupported value.");
+}
+
+function returnTrackingPayloadHash(event: PostageProviderWebhookEvent) {
+  const required = {
+    providerEventId: event.providerEventId,
+    providerName: event.providerName,
+    providerMode: event.providerMode,
+    eventKind: event.eventKind,
+    providerObjectReference: event.providerObjectReference,
+    occurredAt: event.occurredAt,
+  };
+  for (const [field, value] of Object.entries(required)) {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new Error(`Return tracking ${field} must be a non-empty normalized string.`);
+    }
+  }
+  if (Number.isNaN(new Date(event.occurredAt).getTime())) {
+    throw new Error("Return tracking occurredAt must be a normalized timestamp.");
+  }
+  const optional = {
+    providerShipmentId: event.providerShipmentId,
+    trackingIdentifier: event.trackingIdentifier,
+    status: event.status,
+    statusDetail: event.statusDetail,
+    message: event.message,
+  };
+  for (const [field, value] of Object.entries(optional)) {
+    if (value !== null && value !== undefined && typeof value !== "string") {
+      throw new Error(`Return tracking ${field} must be a normalized string or null.`);
+    }
+  }
+  return createHash("sha256")
+    .update(
+      `return-tracking-webhook/v1\n${canonicalJson({
+        providerName: event.providerName,
+        providerMode: event.providerMode,
+        eventKind: event.eventKind,
+        providerObjectReference: event.providerObjectReference,
+        providerShipmentId: event.providerShipmentId ?? null,
+        trackingIdentifier: event.trackingIdentifier ?? null,
+        status: event.status ?? null,
+        statusDetail: event.statusDetail ?? null,
+        message: event.message ?? null,
+        occurredAt: event.occurredAt,
+      })}`,
+    )
+    .digest("hex");
+}
+
+async function reserveReturnTrackingEvent(db: PgQueryable, event: PostageProviderWebhookEvent) {
+  const payloadHash = returnTrackingPayloadHash(event);
+  const result = await db.query<{
+    payload_hash: string | null;
+    handoff_state: string;
+    processing_result: string;
+    inserted: boolean;
+  }>(
+    `WITH inserted AS (
+       INSERT INTO fulfillment_return_shipment_provider_events (
+         provider_event_id, provider_name, provider_mode, event_kind, provider_object_reference,
+         return_shipment_id, tracking_identifier, status, status_detail, semantic_milestone,
+         occurred_at, received_at, processing_result, payload_json, payload_hash, handoff_state
+       ) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,NULL,$9,$10,'reserved',$11::jsonb,$12,'reserved')
+       ON CONFLICT (provider_event_id) DO NOTHING
+       RETURNING payload_hash, handoff_state, processing_result, true AS inserted
+     )
+     SELECT * FROM inserted
+     UNION ALL
+     SELECT payload_hash, handoff_state, processing_result, false AS inserted
      FROM fulfillment_return_shipment_provider_events
-     WHERE provider_event_id = $1
-       AND processing_result <> 'unmatched'
-     LIMIT 1`,
-    [providerEventId],
+     WHERE provider_event_id = $1 AND NOT EXISTS (SELECT 1 FROM inserted)`,
+    [
+      event.providerEventId,
+      event.providerName,
+      event.providerMode,
+      event.eventKind,
+      event.providerObjectReference,
+      event.trackingIdentifier ?? null,
+      event.status ?? null,
+      event.statusDetail ?? null,
+      event.occurredAt,
+      event.receivedAt ?? new Date().toISOString(),
+      JSON.stringify(event.payload ?? {}),
+      payloadHash,
+    ],
   );
-  return result.rows.length > 0;
+  const receipt = result.rows[0];
+  if (!receipt) throw new Error("Return tracking receipt reservation failed.");
+  return { ...receipt, payloadHash };
 }
 
 async function recordProcessedReturnTrackingEvent(
@@ -189,6 +293,8 @@ async function recordProcessedReturnTrackingEvent(
   match: ReturnShipmentTrackingMatch | null,
   semantic: ReturnShipmentTrackingSemantic,
   processingResult: string,
+  payloadHash: string,
+  claimToken: string,
 ): Promise<void> {
   await db.query(
     `INSERT INTO fulfillment_return_shipment_provider_events (
@@ -203,7 +309,12 @@ async function recordProcessedReturnTrackingEvent(
          status_detail = EXCLUDED.status_detail,
          semantic_milestone = EXCLUDED.semantic_milestone,
          processing_result = EXCLUDED.processing_result,
-         payload_json = EXCLUDED.payload_json`,
+         payload_json = EXCLUDED.payload_json,
+         handoff_state = CASE WHEN EXCLUDED.processing_result = 'unmatched' THEN 'unmatched' ELSE 'completed' END,
+         claim_token = NULL,
+         claim_expires_at = NULL
+     WHERE fulfillment_return_shipment_provider_events.payload_hash = $15
+       AND fulfillment_return_shipment_provider_events.claim_token = $16`,
     [
       event.providerEventId,
       event.providerName,
@@ -219,6 +330,8 @@ async function recordProcessedReturnTrackingEvent(
       event.receivedAt ?? new Date().toISOString(),
       processingResult,
       JSON.stringify(event.payload ?? {}),
+      payloadHash,
+      claimToken,
     ],
   );
 }
@@ -248,12 +361,48 @@ export async function processReturnShipmentTrackingEvent(
     };
   }
 
-  if (await hasProcessedReturnTrackingEvent(deps.db, event.providerEventId)) {
+  const reservation = await reserveReturnTrackingEvent(deps.db, event);
+  if (reservation.payload_hash !== reservation.payloadHash) {
+    return {
+      status: "quarantined",
+      providerEventId: event.providerEventId,
+      returnShipmentId: null,
+      processingResult: "payload-hash-mismatch",
+    };
+  }
+  if (!reservation.inserted && reservation.handoff_state === "completed") {
     return {
       status: "duplicate",
       providerEventId: event.providerEventId,
       returnShipmentId: null,
       processingResult: "duplicate",
+    };
+  }
+
+  const claimToken = randomUUID();
+  const now = new Date();
+  const claim = await deps.db.query<{ provider_event_id: string }>(
+    `UPDATE fulfillment_return_shipment_provider_events
+     SET claim_token = $3, claim_generation = claim_generation + 1,
+         claim_expires_at = $4, handoff_state = 'reserved'
+     WHERE provider_event_id = $1 AND payload_hash = $2
+       AND handoff_state IN ('reserved', 'unmatched')
+       AND (claim_token IS NULL OR claim_expires_at <= $5)
+     RETURNING provider_event_id`,
+    [
+      event.providerEventId,
+      reservation.payloadHash,
+      claimToken,
+      new Date(now.getTime() + 60_000).toISOString(),
+      now.toISOString(),
+    ],
+  );
+  if (!claim.rows[0]) {
+    return {
+      status: "duplicate",
+      providerEventId: event.providerEventId,
+      returnShipmentId: null,
+      processingResult: "pending",
     };
   }
 
@@ -264,7 +413,15 @@ export async function processReturnShipmentTrackingEvent(
   const semantic = classifyReturnShipmentTrackingStatus(event.status, event.statusDetail);
 
   if (!match) {
-    await recordProcessedReturnTrackingEvent(deps.db, event, null, semantic, "unmatched");
+    await recordProcessedReturnTrackingEvent(
+      deps.db,
+      event,
+      null,
+      semantic,
+      "unmatched",
+      reservation.payloadHash,
+      claimToken,
+    );
     return {
       status: "unmatched",
       providerEventId: event.providerEventId,
@@ -288,7 +445,15 @@ export async function processReturnShipmentTrackingEvent(
     processingResult = "ignored";
   }
 
-  await recordProcessedReturnTrackingEvent(deps.db, event, match, semantic, processingResult);
+  await recordProcessedReturnTrackingEvent(
+    deps.db,
+    event,
+    match,
+    semantic,
+    processingResult,
+    reservation.payloadHash,
+    claimToken,
+  );
   return {
     status: "recorded",
     providerEventId: event.providerEventId,

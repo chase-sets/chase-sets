@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
+import type { InventoryMutationReceipt } from "./support/runtime-support/mutation-attempt";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 import type { InventoryImportBatch, InventoryImportBatchDetail } from "./features/import-batches/read-model/queries";
 import type { ImportCsvRow } from "./features/import-batches/domain/csv";
@@ -20,24 +21,34 @@ export type { InventoryImportSourceProfile } from "./features/import-batches/dom
 export type { InventoryImportBatchJobStatus } from "./features/import-batches/api/runtime";
 export type { InventoryAccountSellerSkuItemResolution } from "./features/import-batches/read-model/account-sku-mappings";
 export type {
+  InventoryAdjustItemRequest,
+  InventoryCreateItemRequest,
   InventoryItemDetail,
   InventoryEnsuredListingStock,
   InventoryItemListItem,
   InventoryListingStockSnapshot,
   InventoryHold,
   InventoryItemLedgerEntry,
+  InventoryOfflineSaleRequest,
+  InventoryOfflineSaleResult,
 } from "./features/inventory-items/api/contracts";
+export { inventoryOfflineSaleChannels } from "@chase-sets/event-core/public-event-payloads";
+export type { InventoryOfflineSaleChannel } from "@chase-sets/event-core/public-event-payloads";
 export type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
 export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
 export type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
 
 import type {
+  InventoryAdjustItemRequest,
+  InventoryCreateItemRequest,
   InventoryEnsuredListingStock,
   InventoryItemDetail,
   InventoryItemListItem,
+  InventoryOfflineSaleRequest,
+  InventoryOfflineSaleResult,
 } from "./features/inventory-items/api/contracts";
 import type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
-import type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
+import type { InventoryRestockDecision, RecordRestockDecisionInput } from "./features/restock-decisions/api/contracts";
 import type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
@@ -54,6 +65,7 @@ export class InventoryApiError extends Error {
 }
 
 export interface InventoryApiClientOptions {
+  mutationAttemptId?: string;
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit | (() => HeadersInit);
@@ -116,6 +128,7 @@ function gatewayTimeoutResponse() {
 }
 
 export function createInventoryApiClient({
+  mutationAttemptId,
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
   headers: initialHeaders,
@@ -124,6 +137,10 @@ export function createInventoryApiClient({
   recoverTransportErrorsAsGatewayTimeout = false,
 }: InventoryApiClientOptions = {}) {
   const configuredFetch: typeof globalThis.fetch = async (input, init = {}) => {
+    const mutationHeaders = new Headers(init.headers);
+    if (["POST", "PATCH"].includes(init.method?.toUpperCase() ?? "")) {
+      mutationHeaders.set("Inventory-Mutation-Attempt", mutationAttemptId ?? globalThis.crypto.randomUUID());
+    }
     const timeout =
       typeof requestTimeoutMs === "number" && Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0
         ? timeoutFetchSignal(requestTimeoutMs, init.signal ?? undefined)
@@ -132,6 +149,7 @@ export function createInventoryApiClient({
     try {
       const request = fetch(input, {
         ...init,
+        headers: mutationHeaders,
         credentials: init.credentials ?? credentials,
         ...(timeout ? { signal: timeout.signal } : {}),
       });
@@ -154,6 +172,11 @@ export function createInventoryApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async getMutationAttempt(id: string): Promise<InventoryMutationReceipt | null> {
+      const response = await client["mutation-attempts"][":id"].$get({ param: { id }, header: headers });
+      if (response.status === 404) return null;
+      return parseJsonResponse<InventoryMutationReceipt>(response);
+    },
     async listImportSources(): Promise<ListResponse<InventoryImportSourceProfile>> {
       return parseJsonResponse(
         await client["import-batches"].sources.$get({
@@ -251,7 +274,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async createItem(body: Record<string, unknown>) {
+    async createItem(body: InventoryCreateItemRequest) {
       return parseJsonResponse(await client.items.$post({ json: body, header: headers }));
     },
     async ensureListingStock(body: Record<string, unknown>): Promise<InventoryEnsuredListingStock> {
@@ -262,9 +285,18 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async adjustItem(id: string, body: Record<string, unknown>) {
+    async adjustItem(id: string, body: InventoryAdjustItemRequest) {
       return parseJsonResponse(
         await client.items[":id"].adjustments.$post({
+          param: { id },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async recordOfflineSale(id: string, body: InventoryOfflineSaleRequest): Promise<InventoryOfflineSaleResult> {
+      return parseJsonResponse(
+        await client.items[":id"]["offline-sales"].$post({
           param: { id },
           json: body,
           header: headers,
@@ -326,7 +358,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async extendCheckoutReservation(id: string, body: Record<string, unknown>) {
+    async extendCheckoutReservation(id: string, body: Readonly<{ checkoutSessionId: string; lineKey?: string }>) {
       return parseJsonResponse(
         await client["checkout-reservations"][":id"].extend.$post({
           param: { id },
@@ -335,7 +367,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async releaseCheckoutReservation(id: string, body: Record<string, unknown>) {
+    async releaseCheckoutReservation(id: string, body: Readonly<{ checkoutSessionId: string; lineKey?: string }>) {
       return parseJsonResponse(
         await client["checkout-reservations"][":id"].release.$post({
           param: { id },
@@ -344,7 +376,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async recordRestockDecision(id: string, body: Record<string, unknown>) {
+    async recordRestockDecision(id: string, body: RecordRestockDecisionInput) {
       return parseJsonResponse(
         await client["restock-decisions"][":id"].decision.$post({
           param: { id },

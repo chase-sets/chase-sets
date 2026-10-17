@@ -1,7 +1,7 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -53,6 +53,7 @@ type ListingSeed = Readonly<{
   inventoryItemId: string;
   catalogItemId: string;
   priceAmount: string;
+  priceCurrencyCode: string;
   quantityCap: number;
   finalStatus: "draft" | "active" | "paused" | "withdrawn";
 }>;
@@ -100,6 +101,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.charizardBaseSetNearMint,
     catalogItemId: catalogScenarioItems.charizardBaseSet,
     priceAmount: "399.99",
+    priceCurrencyCode: "USD",
     quantityCap: 2,
     finalStatus: "active",
   },
@@ -108,6 +110,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.charizardBaseSetPsa8,
     catalogItemId: catalogScenarioItems.charizardBaseSet,
     priceAmount: "749.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -118,6 +121,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     catalogItemId: catalogScenarioItems.charizardBaseSet,
     priceAmount: "389.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -128,6 +132,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.cardVaultCharizardPsa8,
     catalogItemId: catalogScenarioItems.charizardBaseSet,
     priceAmount: "735.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -138,6 +143,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.cardVaultCharizardNearMint,
     catalogItemId: catalogScenarioItems.charizardBaseSet,
     priceAmount: "412.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -147,6 +153,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     catalogItemId: catalogScenarioItems.pikachuJungle,
     priceAmount: "21.50",
+    priceCurrencyCode: "USD",
     quantityCap: 3,
     finalStatus: "active",
   },
@@ -155,6 +162,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     catalogItemId: catalogScenarioItems.pikachuJungle,
     priceAmount: "19.99",
+    priceCurrencyCode: "USD",
     quantityCap: 2,
     finalStatus: "active",
   },
@@ -163,6 +171,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
     catalogItemId: catalogScenarioItems.pikachuJungle,
     priceAmount: "24.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -173,6 +182,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     catalogItemId: catalogScenarioItems.pikachuJungle,
     priceAmount: "18.75",
+    priceCurrencyCode: "USD",
     quantityCap: 6,
     finalStatus: "active",
   },
@@ -183,6 +193,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.cardVaultPikachuExcellent,
     catalogItemId: catalogScenarioItems.pikachuJungle,
     priceAmount: "17.95",
+    priceCurrencyCode: "USD",
     quantityCap: 4,
     finalStatus: "active",
   },
@@ -191,6 +202,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.lugiaNeoGenesisNearMint,
     catalogItemId: catalogScenarioItems.lugiaNeoGenesis,
     priceAmount: "229.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "draft",
   },
@@ -199,6 +211,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.lugiaNeoGenesisBgs95,
     catalogItemId: catalogScenarioItems.lugiaNeoGenesis,
     priceAmount: "620.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -208,6 +221,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
     catalogItemId: catalogScenarioItems.mewtwoBlackStarPromo,
     priceAmount: "48.00",
+    priceCurrencyCode: "USD",
     quantityCap: 2,
     finalStatus: "active",
   },
@@ -216,6 +230,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
     catalogItemId: catalogScenarioItems.mewtwoBlackStarPromo,
     priceAmount: "52.50",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -226,6 +241,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
     catalogItemId: catalogScenarioItems.mewtwoBlackStarPromo,
     priceAmount: "45.50",
+    priceCurrencyCode: "USD",
     quantityCap: 2,
     finalStatus: "active",
   },
@@ -234,6 +250,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
     catalogItemId: catalogScenarioItems.pikachuPrismaticEvolutions,
     priceAmount: "16.25",
+    priceCurrencyCode: "USD",
     quantityCap: 4,
     finalStatus: "paused",
   },
@@ -242,6 +259,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.pikachuPrismaticEvolutionsPsa10,
     catalogItemId: catalogScenarioItems.pikachuPrismaticEvolutions,
     priceAmount: "89.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "active",
   },
@@ -250,6 +268,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
     catalogItemId: catalogScenarioItems.surgingSparksBoosterBox,
     priceAmount: "132.00",
+    priceCurrencyCode: "USD",
     quantityCap: 1,
     finalStatus: "withdrawn",
   },
@@ -260,6 +279,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
     catalogItemId: catalogScenarioItems.surgingSparksBoosterBox,
     priceAmount: "126.00",
+    priceCurrencyCode: "USD",
     quantityCap: 4,
     finalStatus: "active",
   },
@@ -270,6 +290,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
     catalogItemId: catalogScenarioItems.surgingSparksBoosterBox,
     priceAmount: "131.50",
+    priceCurrencyCode: "USD",
     quantityCap: 2,
     finalStatus: "active",
   },
@@ -278,6 +299,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     priceAmount: "46.00",
+    priceCurrencyCode: "USD",
     quantityCap: 2,
     finalStatus: "active",
   },
@@ -288,6 +310,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     priceAmount: "44.75",
+    priceCurrencyCode: "USD",
     quantityCap: 2,
     finalStatus: "active",
   },
@@ -298,6 +321,7 @@ const listings: readonly ListingSeed[] = [
     inventoryItemId: inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
     catalogItemId: catalogScenarioItems.twilightMasqueradeEliteTrainerBox,
     priceAmount: "43.25",
+    priceCurrencyCode: "USD",
     quantityCap: 4,
     finalStatus: "active",
   },
@@ -878,6 +902,7 @@ export async function seedMarketplaceDatabase(
           accountId,
           inventoryItemId: supply.item_id,
           priceAmount: listing.priceAmount,
+          priceCurrencyCode: listing.priceCurrencyCode,
           quantityCap: listing.quantityCap,
           listingIdOverride: seededListingId,
           listingPhotoUploads: [],
@@ -963,6 +988,7 @@ export async function seedMarketplaceDatabase(
         productSummary: offer.productSummary,
         shippingDestinationSnapshot: offer.shippingDestinationSnapshot ?? defaultOfferDestination,
         priceAmount: offer.priceAmount,
+        priceCurrencyCode: "USD",
         quantityRequested: offer.quantityRequested,
       },
       context: createSeedContextFor(buyerAccountId, offer.buyerUserId ?? identitySeedIds.collector.userId),
@@ -1004,6 +1030,42 @@ export async function seedMarketplaceDatabase(
     acceptedSeedListing,
     context,
   );
+
+  await withdrawStrayRepresentativeListings(services, context);
+}
+
+// Pinned identity anchors the browser E2E seed contract depends on for an exact
+// deterministic listing shape (deployables/marketplace/e2e/support/seed-contract.ts):
+// a zero-listing item drives the "no product selected" dock, and a single raw
+// near-mint listing drives implicit price-based product resolution. The
+// out-of-band Representative Commerce State refresh
+// (.github/workflows/platform-staging-representative-commerce-state.yml) is not
+// scenario-seed aware and adds one low-priced "lst_repr_*" listing to every
+// active Catalog Item it walks, silently violating both invariants and
+// out-competing the real listings on price. Reconciling them away here, on
+// every scenario-seed run, makes the deterministic contract self-healing
+// regardless of what the representative refresh has already done.
+const identityAnchorCatalogItemIds = [
+  catalogScenarioItems.bulbasaurBaseSet,
+  catalogScenarioItems.charizardBaseSet,
+] as const;
+
+async function withdrawStrayRepresentativeListings(
+  services: MarketplaceServices,
+  context: EventStoreContext,
+): Promise<void> {
+  const result = await services.db.query<{ listing_id: string; account_id: string }>(
+    `SELECT listing_id, account_id
+     FROM marketplace_listing_pages
+     WHERE catalog_catalog_item_id = ANY($1::text[])
+       AND listing_id LIKE 'lst$_repr$_%' ESCAPE '$'
+       AND status <> 'withdrawn'`,
+    [identityAnchorCatalogItemIds],
+  );
+
+  for (const row of result.rows) {
+    await services.listings.withdrawListing({ accountId: row.account_id, listingId: row.listing_id }, context);
+  }
 }
 
 function createReputationSeedContext(accountId: string, userId: string): EventStoreContext {

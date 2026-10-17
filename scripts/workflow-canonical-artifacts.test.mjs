@@ -64,6 +64,45 @@ node ./producer.mjs --out=evidence/equals.json`),
     },
   );
 
+  it("guards the nongoverning browser-boundary diagnostic summary as one exact fail-closed payload (#9259)", () => {
+    const file = ".github/workflows/browser-boundary-diagnostics.yml";
+    const workflow = readFileSync(resolve(file), "utf8");
+    const outPath = "artifacts/browser-boundary-diagnostics/summary.json";
+
+    const result = checkWorkflowCanonicalArtifacts(workflow, { workflowFile: file });
+    expect(result.violations).toEqual([]);
+    expect(result.surfaces).toEqual([
+      expect.objectContaining({
+        outPath,
+        uploadPath: outPath,
+        missingFileBehavior: "error",
+        explicitlyValidated: true,
+      }),
+    ]);
+
+    // Missing or partial evidence cannot hide behind a directory or a lenient upload.
+    for (const [mutant, expected] of [
+      [workflow.replace("if-no-files-found: error", "if-no-files-found: warn"), ["if-no-files-found=warn"]],
+      [
+        workflow
+          .replace(`path: ${outPath}`, "path: artifacts/browser-boundary-diagnostics")
+          .replace(`test -s ${outPath}`, "true"),
+        ["can be nonempty while canonical payload"],
+      ],
+      [
+        workflow
+          .replace(`path: ${outPath}`, "path: artifacts/browser-boundary-diagnostics")
+          .replace(`test -s ${outPath}`, "true")
+          .replace("if-no-files-found: error", "if-no-files-found: ignore"),
+        ["if-no-files-found=ignore", "can be nonempty while canonical payload"],
+      ],
+    ]) {
+      const broken = checkWorkflowCanonicalArtifacts(mutant, { workflowFile: file });
+      expect(broken.passed).toBe(false);
+      expect(broken.violations).toEqual(expected.map((text) => expect.stringContaining(text)));
+    }
+  });
+
   it("arbitrary-path negative runs through real discovery and reports the scanned/total surface", () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-artifact-guard-"));
     try {
@@ -111,6 +150,36 @@ jobs:
   it("ratchets existing shape-discovered debt while rejecting regression, missing surfaces, and reduced coverage", () => {
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
+
+    expect(current.discovery).toMatchObject({ scannedFiles: 67, scannedSurfaces: 28, totalSurfaces: 28 });
+    expect(current.findings).toHaveLength(21);
+    expect(current.surfaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workflowFile: ".github/workflows/browser-boundary-diagnostics.yml",
+          outPath: "artifacts/browser-boundary-diagnostics/summary.json",
+          missingFileBehavior: "error",
+          explicitlyValidated: true,
+        }),
+        expect.objectContaining({
+          workflowFile: ".github/workflows/platform-production.yml",
+          outPath: "artifacts/release-health/production-kubernetes-deployment-transition.json",
+        }),
+        expect.objectContaining({
+          workflowFile: ".github/workflows/platform-production.yml",
+          outPath: "artifacts/release-health/agent-grant-revocation-activation.json",
+          uploadPath: "artifacts/release-health/agent-grant-revocation-activation.json",
+          missingFileBehavior: "error",
+        }),
+        expect.objectContaining({
+          workflowFile: ".github/workflows/backlog-roadmap-status.yml",
+          outPath: "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json",
+          uploadPath: "artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json",
+          missingFileBehavior: "error",
+          explicitlyValidated: true,
+        }),
+      ]),
+    );
 
     const unchanged = evaluateWorkflowCanonicalArtifactRatchet(current, baseline);
     expect(unchanged.passed).toBe(true);
@@ -185,6 +254,10 @@ jobs:
       expect(
         spawnSync("git", ["add", ".github/workflows/shape-only.yml"], { cwd: root, encoding: "utf8" }).status,
       ).toBe(0);
+      writeFileSync(
+        join(baselineDirectory, "baseline.json"),
+        `${JSON.stringify(createWorkflowCanonicalArtifactBaseline(scanWorkflowCanonicalArtifacts({ root })), null, 2)}\n`,
+      );
       const args = [
         "./scripts/workflow-canonical-artifacts.mjs",
         "--root",
@@ -205,6 +278,68 @@ jobs:
       expect(check.status).toBe(0);
       expect(check.stdout).toContain("existing baseline debt: 1");
       expect(check.stdout).toContain("new/regressed violations: 0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses predecessor-baseline missing, decoy-directory, and weakened-upload mutants byte-identically", () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-artifact-predecessor-"));
+    try {
+      const workflowDirectory = join(root, ".github", "workflows");
+      const scriptsDirectory = join(root, "scripts");
+      mkdirSync(workflowDirectory, { recursive: true });
+      mkdirSync(scriptsDirectory, { recursive: true });
+      const workflowPath = join(workflowDirectory, "structural-authority.yml");
+      const compliant = `jobs:
+  authority:
+    steps:
+      - name: Produce
+        run: node ./producer.mjs --out artifacts/authority/payload.json
+      - name: Validate
+        run: node ./validator.mjs --input artifacts/authority/payload.json
+      - name: Upload
+        uses: actions/upload-artifact@0000000000000000000000000000000000000000
+        with:
+          path: artifacts/authority/payload.json
+          if-no-files-found: error
+`;
+      writeFileSync(workflowPath, compliant);
+      expect(spawnSync("git", ["init", "--quiet"], { cwd: root, encoding: "utf8" }).status).toBe(0);
+      expect(
+        spawnSync("git", ["add", ".github/workflows/structural-authority.yml"], { cwd: root, encoding: "utf8" }).status,
+      ).toBe(0);
+      const baselinePath = join(scriptsDirectory, "baseline.json");
+      writeFileSync(
+        baselinePath,
+        `${JSON.stringify(createWorkflowCanonicalArtifactBaseline(scanWorkflowCanonicalArtifacts({ root })), null, 2)}\n`,
+      );
+      const predecessorBytes = readFileSync(baselinePath, "utf8");
+      const args = [
+        "./scripts/workflow-canonical-artifacts.mjs",
+        "--root",
+        root,
+        "--baseline",
+        "scripts/baseline.json",
+        "--write-baseline",
+      ];
+      const mutants = [
+        compliant.replace("path: artifacts/authority/payload.json", "path: artifacts/authority/missing.json"),
+        compliant
+          .replace("path: artifacts/authority/payload.json", "path: artifacts/authority")
+          .replace(
+            "node ./validator.mjs --input artifacts/authority/payload.json",
+            "node ./validator.mjs --input artifacts/authority/decoy.json",
+          ),
+        compliant.replace("if-no-files-found: error", "if-no-files-found: warn"),
+      ];
+      for (const mutant of mutants) {
+        writeFileSync(workflowPath, mutant);
+        const result = spawnSync(process.execPath, args, { cwd: process.cwd(), encoding: "utf8" });
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("refusing to replace a predecessor baseline that rejects the candidate");
+        expect(readFileSync(baselinePath, "utf8")).toBe(predecessorBytes);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

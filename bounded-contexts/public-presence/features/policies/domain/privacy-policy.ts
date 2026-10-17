@@ -183,7 +183,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         decisionRefs: [5679, 5685],
         productTruthRefs: [
           ...privacyProductTruthRefsForSection("recipients-and-disclosures"),
-          "infrastructure/stripe-payments/index.ts:1464-1494",
+          "infrastructure/stripe-payments/index.ts:1484-1514",
           "infrastructure/easypost-postage/index.ts:77-100",
           "infrastructure/ses-email/index.ts:1-7",
           "infrastructure/twilio-messaging/index.ts:1-20",
@@ -211,29 +211,40 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       id: "stripe-managed-processing",
       title: "Payments and payout onboarding handled by Stripe",
       draftText:
-        "Payments and payout accounts run on Stripe. When you pay, Stripe collects and processes your payment method details, and Stripe charges your selected payment method as part of completing the purchase; Chase Sets holds the purchase funds on its own platform account until seller payout. When you set up payouts as a seller, Stripe collects the onboarding and verification information it requires — identity details, verification documents, and your payout bank details — directly through Stripe-rendered components embedded in the Chase Sets account area, and Stripe presents its own terms as part of that onboarding. Chase Sets stores provider references, provider-neutral payout-readiness statuses, missing-requirement identifiers, timestamps, and user-safe failure reasons; Chase Sets does not store your bank account numbers, tax identity values, verification documents, or raw provider payloads.",
+        "Payments and payout accounts run on Stripe. When you pay an amount through Stripe on the Marketplace, Stripe collects and processes your payment method details, and Chase Sets requests payment through Stripe. A payment request does not itself establish capture; additional confirmation or authentication may be needed, and authorization is distinct from capture. Chase Sets records capture when a Stripe webhook or reconciliation result is mapped to a captured payment. Captured purchase funds are held on Chase Sets' platform account until seller payout. When you set up payouts as a seller, Stripe collects the onboarding and verification information it requires — identity details, verification documents, and your payout bank details — directly through Stripe-rendered components embedded in the Chase Sets account area, and Stripe presents its own terms as part of that onboarding. Chase Sets stores provider references, provider-neutral payout-readiness statuses, missing-requirement identifiers, timestamps, and user-safe failure reasons; Chase Sets does not store your bank account numbers, tax identity values, verification documents, or raw provider payloads.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe the Stripe-managed collection boundary factually: what Stripe collects directly, what Chase Sets stores, and the platform-held funds path, without characterizing the legal relationship or the Stripe agreement type.",
+          "Describe the Stripe-managed collection boundary factually: what Stripe collects directly, what Chase Sets stores, and ordinary nonzero Marketplace payment requests versus recorded capture. Keep capture evidence separate from the platform-held funds strategy and payout onboarding, without characterizing the legal relationship or the Stripe agreement type.",
         decisionRefs: [5685],
         productTruthRefs: [
+          ...paymentChargeTimingAndCaptureProductTruthRefs,
           "docs/adr/0006-stripe-connect-custom-account-experience.md:15",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:29",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:54",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:58-64",
-          "infrastructure/stripe-payments/index.ts:1464-1494",
         ],
         openQuestions: [
           "The recipient and contract characterization of Stripe, and any statement about which Stripe agreement type applies, are counsel-owned; per the #5685 finding, Chase Sets must not claim a Stripe agreement type or statutory conclusion the captured evidence does not establish.",
           "Whether this section must link Stripe's own privacy notice, and which one, is a counsel judgment.",
+          "Any statement about card-network processing, Chase Sets' control over it, or card or bank statement display requires counsel review and external evidence; payment request and outcome-mapping code establishes none of those guarantees.",
         ],
         assumptions: [
           {
             assertion:
-              "Buyer charges are captured to the Chase Sets platform account with a platform-held funds strategy; seller onboarding uses Stripe embedded components, and Stripe owns verification rules, sensitive requirement collection, and service-agreement presentation.",
+              "For ordinary nonzero Marketplace payments, Chase Sets requests payment and records capture from mapped webhook or reconciliation results, not from Order creation, a confirmation request, an unpaid session, or setup completion.",
+            evidenceRef: paymentChargeTimingAndCaptureProductTruthRefs.join("; "),
+          },
+          {
+            assertion:
+              "Chase Sets uses a platform-held funds strategy for captured purchase funds until seller payout.",
+            evidenceRef: "docs/adr/0006-stripe-connect-custom-account-experience.md:15",
+          },
+          {
+            assertion:
+              "For payout setup, seller onboarding uses Stripe embedded components, and Stripe owns verification rules, sensitive requirement collection, and service-agreement presentation.",
             evidenceRef:
-              "infrastructure/stripe-payments/index.ts:1464-1494; docs/adr/0006-stripe-connect-custom-account-experience.md:15; docs/adr/0006-stripe-connect-custom-account-experience.md:29; docs/adr/0006-stripe-connect-custom-account-experience.md:54",
+              "docs/adr/0006-stripe-connect-custom-account-experience.md:29; docs/adr/0006-stripe-connect-custom-account-experience.md:54",
           },
         ],
         canonicalClaims: [
@@ -248,8 +259,10 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       id: "cookies-and-analytics",
       title: "Cookies, browser storage, and analytics",
       draftText:
+        "Inventory change recovery uses the inventory-mutation/v1: session-storage key family. It holds only an opaque attempt identity, Account, acting User, operation family, target identity and creation time to check the original result after interruption; it does not store the change payload or result. " +
         "Chase Sets sets first-party cookies for sign-in sessions (chase_sets_session), selecting which Account to act as (chase_sets_account_selection), guest checkout (chase_sets_guest_checkout), a signed-out cart (chase_sets_anonymous_cart), a signed-out sell list (chase_sets_anonymous_sell_list), signed-out saved lists (chase_sets_anonymous_saved_lists), signed-out product alerts (chase_sets_anonymous_product_alerts), signed-out Listing drafts (chase_sets_anonymous_listing_drafts), signed-out Listing reports (chase_sets_anonymous_reports), and your colour-mode preference (chase_sets_color_mode). This section names the cookies the marketplace sets today rather than asserting a fixed total; it is re-derived from the shipped source whenever that set changes. The sign-in session, account-selection, and guest-checkout lifetimes are deployment settings rather than values an administrator can change from inside the app, and the signed-in session default is fourteen days. " +
-        "Your browser also stores information for the marketplace itself. In local storage, chase-sets:marketplace:recent-searches holds your recent search terms and chase-sets-theme holds your light, dark, or system theme preference. In session storage, keys in the chase-sets:review-draft: family hold an unfinished review's rating, feedback text, and problem categories for a specific order; discovery.search.restoration.v2 holds the identity of the search result set you last viewed — the search text, category, tag, language, market activity, price bounds, in-stock filter, sort, and dynamic filters — together with your scroll position and a bounded number of already-fetched result pages; and discovery.search.loader-cache.v1 holds a bounded, time-limited set of search responses keyed by the search URL that produced them. The search page is public, so this browser-side search state can exist before you sign in or create an Account. " +
+        "Your browser also stores information for the marketplace itself. In local storage, chase-sets:marketplace:recent-searches holds your recent search terms and chase-sets-theme holds your light, dark, or system theme preference. In session storage, keys in the chase-sets:review-draft: family hold an unfinished review's rating, feedback text, and problem categories for a specific order; discovery.search.restoration.v2 holds the identity of the search result set you last viewed — the search text, category, tag, language, market activity, price bounds, in-stock filter, sort, dynamic filters, and whether filters were applied from your search words — together with your scroll position and a bounded number of already-fetched result pages; and discovery.search.loader-cache.v1 holds a bounded, time-limited set of search responses keyed by the search URL that produced them. The search page is public, so this browser-side search state can exist before you sign in or create an Account. " +
+        "The connected-agent page uses session-storage keys in the agent-grant-revocation: family, scoped to the Account and Grant, to retain a revocation attempt identifier across reloads. The stored value contains only that identifier, not a revocation receipt or credentials. " +
         "Some pages load a payment provider's own browser script. Stripe.js loads on /checkout/buy/session/:sessionId, /account/payments/:paymentId, /checkout/payments/:paymentId, and /account/payment-methods; Stripe Connect.js loads on /account/desk/settings. Those scripts are controlled by Stripe and may use provider-controlled client-side storage in your browser. Chase Sets' own source establishes only that the scripts load on those pages; which storage each provider script uses, how long it lasts, and what it is for are described by that provider rather than by Chase Sets. " +
         "In production builds the marketplace also registers a service worker served from /service-worker.js. It keeps a browser cache named chase-sets-marketplace-pwa-v1 holding static assets and an offline page. That cache skips requests carrying credentials, and it excludes /guest-checkout/exit, /sign-in, /sign-out, and /register as well as anything under /api/, /account, /checkout, /payment, /payments, and /orders. " +
         "Chase Sets' landing-page and campaign analytics are first-party and provider-neutral: no third-party analytics SDK, vendor cookie, or third-party script is added to the page. Analytics events carry bounded properties such as the page path, section, and status, together with the campaign parameters utm_source, utm_medium, utm_campaign, utm_content, and utm_term, and the referrer of the page you arrived from, so Chase Sets can measure which campaigns and referring pages bring visitors to the marketplace. These events are kept free of email addresses, account identifiers, and raw URLs.",
@@ -390,7 +403,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
           "State the adult-marketplace facts (18+ contractual requirement, no age gate) and reserve children's-privacy conclusions and commitments for counsel.",
         decisionRefs: [5679],
         productTruthRefs: [
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370",
           "bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
         ],
         openQuestions: [
@@ -402,7 +415,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
             assertion:
               "The Terms of Service eligibility draft requires account holders to be at least 18; registration collects no age or date-of-birth field.",
             evidenceRef:
-              "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:345; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
+              "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:370; bounded-contexts/auth/features/registration/ui/register-page.tsx:60-66",
           },
         ],
       },

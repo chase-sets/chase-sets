@@ -6,6 +6,7 @@ import {
   postWriteRecoveryKindForFreshWriteReadError,
   postWriteRecoveryKindForHandoffState,
   readPostWriteHandoffState,
+  readFreshWriteTokenState,
   recoverFreshWriteReadError,
   type PostWriteRecoveryKind,
   type PostWriteHandoffState,
@@ -52,7 +53,10 @@ import {
   sellerCheckoutSignInHref,
 } from "../features/sell-list/ui/registration-return";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
-import { usePendingFreshWriteRevalidation } from "../support/route-support/pending-fresh-write-revalidation";
+import {
+  usePendingFreshWriteRevalidation,
+  type PendingFreshWriteTiming,
+} from "../support/route-support/pending-fresh-write-revalidation";
 
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
@@ -410,34 +414,9 @@ async function loadSellListWithPostWriteRecovery(
 
     return { sellList, freshnessError: null, sellListRecovery: null };
   } catch (error) {
-    const recovery = recoverFreshWriteReadError({
-      request,
-      error,
-      getStatus: checkoutApiErrorStatus,
-      getErrorCode: checkoutApiErrorCode,
-      getBody: checkoutApiErrorBody,
-      recoverTransient: (classification) => {
-        recordAccountSellListPostWriteConsistencyOutcome(
-          actorMode,
-          classification.kind === "transient-projection-timeout" ? "freshness_timeout" : "fallback_used",
-          freshWriteOutcomeForRequest(request),
-          "reload_prompt",
-          "fresh-read",
-        );
-        return {
-          sellList: { items: [], count: 0, latestConfirmation: null },
-          freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
-          sellListRecovery: pendingSellListRecovery(
-            actorMode,
-            readPostWriteHandoffState(request),
-            "fresh-read",
-            postWriteRecoveryKindForFreshWriteReadError(classification),
-          ),
-        };
-      },
-    });
+    const recovery = recoverSellListFreshWriteReadError(request, error, actorMode, "fresh-read");
     if (recovery) {
-      return recovery;
+      return { sellList: { items: [], count: 0, latestConfirmation: null }, ...recovery };
     }
 
     const handoffState = readPostWriteHandoffState(request);
@@ -458,6 +437,39 @@ async function loadSellListWithPostWriteRecovery(
 
     throw error;
   }
+}
+
+function recoverSellListFreshWriteReadError(
+  request: Request,
+  error: unknown,
+  actorMode: AccountSellListActorMode,
+  correctionSource: string,
+) {
+  return recoverFreshWriteReadError({
+    request,
+    error,
+    getStatus: checkoutApiErrorStatus,
+    getErrorCode: checkoutApiErrorCode,
+    getBody: checkoutApiErrorBody,
+    recoverTransient: (classification) => {
+      recordAccountSellListPostWriteConsistencyOutcome(
+        actorMode,
+        classification.kind === "transient-projection-timeout" ? "freshness_timeout" : "fallback_used",
+        freshWriteOutcomeForRequest(request),
+        "reload_prompt",
+        correctionSource,
+      );
+      return {
+        freshnessError: t("checkout.routes.accountSellList.sell.list.request.failed"),
+        sellListRecovery: pendingSellListRecovery(
+          actorMode,
+          readPostWriteHandoffState(request),
+          correctionSource,
+          postWriteRecoveryKindForFreshWriteReadError(classification),
+        ),
+      };
+    },
+  });
 }
 
 async function loadPayoutReadiness(
@@ -507,6 +519,13 @@ async function loadGuestSellListOfferReviewsFromCheckout(
   return (await client.getGuestSellListOfferReviews(anonymousSellListId)).offerReviews;
 }
 
+function pendingFreshWriteTimingForRequest(request: Request): PendingFreshWriteTiming | null {
+  const freshWriteState = readFreshWriteTokenState(request);
+  return freshWriteState.kind === "valid"
+    ? { observedAtMs: freshWriteState.receipt.observedAtMs, expiresAtMs: freshWriteState.expiresAtMs }
+    : null;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const browserRequestUrl = new URL(request.url);
   const resolvedRequest = await resolvePlatformPostWriteRequest(request);
@@ -534,6 +553,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
       freshnessError,
       sellListRecovery,
+      pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
       sellList,
       offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
     };
@@ -560,6 +580,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
           sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
           freshnessError: guestSource.freshnessError,
           sellListRecovery: guestSource.sellListRecovery,
+          pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(resolvedRequest),
           sellList: guestSource.sellList,
           offerReviews: await loadGuestSellListOfferReviewsFromCheckout(api, anonymousSellListId),
           productOfferReviews: [],
@@ -602,9 +623,22 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "sell-checkout-confirmation",
     );
   }
-  const sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
-    includeStandardComparison: registrationReturn === "seller-checkout",
-  });
+  let sellListCompositeReview: CheckoutSellListCompositeReview;
+  let compositeReviewRecovery: ReturnType<typeof recoverSellListFreshWriteReadError> = null;
+  try {
+    sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
+      includeStandardComparison: registrationReturn === "seller-checkout",
+    });
+  } catch (error) {
+    compositeReviewRecovery = recoverSellListFreshWriteReadError(
+      accountSellListRequest,
+      error,
+      "account",
+      "sell-list-composite-review",
+    );
+    if (!compositeReviewRecovery) throw error;
+    sellListCompositeReview = { offerReviews: [], productOfferReviews: [], inventoryItems: [] };
+  }
   return {
     isSignedIn: true,
     registrationReturn,
@@ -612,8 +646,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
     mergeError,
     sellerCheckoutRegisterHref: sellerCheckoutRegisterHref(sellerCheckoutReturnTo),
     sellerCheckoutSignInHref: sellerCheckoutSignInHref(sellerCheckoutReturnTo),
-    freshnessError,
-    sellListRecovery: effectiveSellListRecovery,
+    freshnessError: freshnessError ?? compositeReviewRecovery?.freshnessError ?? null,
+    sellListRecovery: effectiveSellListRecovery ?? compositeReviewRecovery?.sellListRecovery ?? null,
+    pendingFreshWriteTiming: pendingFreshWriteTimingForRequest(accountSellListRequest),
     sellList: accountSellList,
     offerReviews: sellListCompositeReview.offerReviews,
     productOfferReviews: sellListCompositeReview.productOfferReviews,
@@ -674,6 +709,11 @@ function selectedOfferLineFromOffer(offer: CheckoutSellOfferMatch): AddCheckoutS
     buyerAccountId: offer.buyer_account_id,
     buyerDisplayName: offer.buyer_display_name,
     offerPriceAmount: offer.price_amount,
+    offerPriceCurrencyCode: offer.price_currency_code,
+    offerStreamVersion: offer.offer_stream_version,
+    listingPriceAmount: offer.listing_price_amount,
+    listingPriceCurrencyCode: offer.listing_price_currency_code,
+    listingStreamVersion: offer.listing_stream_version,
     catalogItemId: offer.catalog_catalog_item_id,
     productId: offer.product_id,
     itemTitle: offer.item_title,
@@ -693,8 +733,28 @@ function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSel
   const productId = limitedFormValue(formData, "productId", 240);
   const itemTitle = limitedFormValue(formData, "itemTitle", 240);
   const offerPriceAmount = limitedFormValue(formData, "offerPriceAmount", 40);
+  const offerPriceCurrencyCode = limitedFormValue(formData, "offerPriceCurrencyCode", 3).toUpperCase();
+  const offerStreamVersion = Number(limitedFormValue(formData, "offerStreamVersion", 20));
+  const listingPriceAmount = limitedFormValue(formData, "listingPriceAmount", 40);
+  const listingPriceCurrencyCode = limitedFormValue(formData, "listingPriceCurrencyCode", 3).toUpperCase();
+  const listingStreamVersion = Number(limitedFormValue(formData, "listingStreamVersion", 20));
 
-  if (!offerId || !listingId || !catalogItemId || !productId || !itemTitle || !offerPriceAmount) {
+  if (
+    !offerId ||
+    !listingId ||
+    !catalogItemId ||
+    !productId ||
+    !itemTitle ||
+    !offerPriceAmount ||
+    !/^[A-Z]{3}$/.test(offerPriceCurrencyCode) ||
+    !Number.isInteger(offerStreamVersion) ||
+    offerStreamVersion <= 0 ||
+    !listingPriceAmount ||
+    !/^[A-Z]{3}$/.test(listingPriceCurrencyCode) ||
+    !Number.isInteger(listingStreamVersion) ||
+    listingStreamVersion <= 0 ||
+    offerPriceCurrencyCode !== listingPriceCurrencyCode
+  ) {
     throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
   }
 
@@ -705,6 +765,11 @@ function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSel
     buyerAccountId: null,
     buyerDisplayName: limitedFormValue(formData, "buyerDisplayName", 160) || null,
     offerPriceAmount,
+    offerPriceCurrencyCode,
+    offerStreamVersion,
+    listingPriceAmount,
+    listingPriceCurrencyCode,
+    listingStreamVersion,
     catalogItemId,
     productId,
     itemTitle,
@@ -735,7 +800,12 @@ type SellListReviewPlanLine = Readonly<{
     feeQuoteFingerprint: string;
     quantity: number;
   }>[];
-  fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
+  fallbackListing: Readonly<{
+    inventoryItemId: string;
+    priceAmount: string;
+    priceCurrencyCode: string;
+    quantityCap: number;
+  }> | null;
   skippedReasons: readonly string[];
 }>;
 
@@ -837,14 +907,15 @@ async function buildSellListReviewPlan(
     if (plannedRemainingQuantity > 0 && createFallbackListing) {
       const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
       const priceAmount = formValue(formData, `priceAmount:${line.line_id}`);
+      const priceCurrencyCode = formValue(formData, `priceCurrencyCode:${line.line_id}`);
       const requestedQuantityCap = Number(
         formValue(formData, `quantityCap:${line.line_id}`) || plannedRemainingQuantity,
       );
       const quantityCap = Math.min(plannedRemainingQuantity, requestedQuantityCap);
-      if (!inventoryItemId || !priceAmount || !Number.isFinite(quantityCap) || quantityCap < 1) {
-        skippedReasons.push(`${line.item_title}: listing needs inventory, price, and quantity.`);
+      if (!inventoryItemId || !priceAmount || !priceCurrencyCode || !Number.isFinite(quantityCap) || quantityCap < 1) {
+        skippedReasons.push(`${line.item_title}: listing needs inventory, price, currency, and quantity.`);
       } else {
-        fallbackListing = { inventoryItemId, priceAmount, quantityCap };
+        fallbackListing = { inventoryItemId, priceAmount, priceCurrencyCode, quantityCap };
       }
     } else if (plannedRemainingQuantity > 0 && !isBulkOfferReview) {
       skippedReasons.push(
@@ -1110,6 +1181,7 @@ export default function CheckoutAccountSellListRoute() {
   const sellListRecovery = "sellListRecovery" in data ? data.sellListRecovery : null;
   const { currentPath, isAutoRevalidating } = usePendingFreshWriteRevalidation(
     sellListRecovery?.kind === "pending-fresh-write",
+    { freshWrite: data.pendingFreshWriteTiming },
   );
 
   return (

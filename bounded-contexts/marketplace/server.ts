@@ -1,4 +1,17 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
+export type { MarketplaceListingServices } from "./features/listings/api/runtime";
+export {
+  MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS,
+  MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE,
+  MarketplaceChannelInboundClampError,
+  type MarketplaceChannelInboundClampCapability,
+  type MarketplaceChannelInboundClampInput,
+  type MarketplaceChannelInboundClampPort,
+  type MarketplaceChannelInboundClampRecoveryResult,
+  type MarketplaceChannelInboundClampResult,
+} from "./features/channel-inbound-clamp/domain/contracts";
+export type { MarketplaceServices } from "./support/runtime-support/services";
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,
@@ -9,7 +22,6 @@ export type {
   MarketplaceListingEvidenceCoverage,
   ReportReviewRequest,
   OfferMatchListItem,
-  OfferBuyerMute,
   PublicOfferDetail,
 } from "./support/request-support/api-client";
 export {
@@ -96,3 +108,9 @@ export type {
   MarketplaceLockedFeeListingCohortSummary,
   MarketplaceLockedFeeListingCohortWeeklyPoint,
 } from "./features/listings/read-model/queries";
+export type { ManagedOfferPricing } from "./features/offers/api/managed-authority";
+export {
+  MARKETPLACE_OFFER_LIFECYCLE_ANCHOR_EVENT_TYPE,
+  MARKETPLACE_OFFER_LIFECYCLE_EVENT_TYPES,
+  type MarketplaceOfferLifecycleAdmission,
+} from "./features/offers/api/lifecycle-admission";

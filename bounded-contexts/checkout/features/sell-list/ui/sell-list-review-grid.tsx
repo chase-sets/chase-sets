@@ -13,6 +13,7 @@ import {
   Stack,
   Surface,
   Text,
+  TextInput,
 } from "@chase-sets/design-system";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
 import { buyerLabel, formatMoney, moneyNumber } from "./sell-list-formatting";
@@ -328,6 +329,17 @@ export function SellListReviewGrid({
                   type="hidden"
                   name={`priceAmount:${line.line_id}`}
                   value={line.minimum_listing_price_amount ?? ""}
+                />,
+                <TextInput
+                  key={`price-currency:${line.line_id}`}
+                  form="sell-list-checkout-form"
+                  label={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code")}
+                  name={`priceCurrencyCode:${line.line_id}`}
+                  placeholder={t("checkout.features.sellList.ui.sellListPage.listing.price.currency.code.placeholder")}
+                  minLength={3}
+                  maxLength={3}
+                  autoCapitalize="characters"
+                  required={Boolean(defaultInventory)}
                 />,
                 <HiddenInput
                   key={`quantity:${line.line_id}`}

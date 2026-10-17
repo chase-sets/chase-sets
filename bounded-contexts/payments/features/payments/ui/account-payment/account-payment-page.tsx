@@ -65,20 +65,12 @@ export function AccountPaymentPage({
             value: formatMoney(payment.processor_amount, "USD"),
           },
           {
-            label: t("payments.routes.marketplace.accountPayment.marketplace.sales.fee"),
-            value: formatMoney(payment.marketplace_sales_fee_amount, "USD"),
-          },
-          {
             label: t("payments.routes.marketplace.accountPayment.marketplace.checkout.fee"),
             value: formatMoney(payment.marketplace_checkout_fee_amount, "USD"),
           },
           {
             label: t("payments.routes.marketplace.accountPayment.payment.method"),
             value: payment.payment_method_category ?? "card",
-          },
-          {
-            label: t("payments.routes.marketplace.accountPayment.seller.payout"),
-            value: formatMoney(payment.seller_payout_amount, "USD"),
           },
           {
             label: t("payments.routes.marketplace.accountPayment.processor"),
@@ -120,7 +112,7 @@ export function AccountPaymentPage({
       {payment.processor_client_secret && payment.processor_publishable_key ? (
         <StripeConfirmationCard payment={payment} defaultValues={paymentElementDefaultValues} />
       ) : payment.processor_redirect_url ? (
-        <Surface elevated glow>
+        <Surface elevation="elevated" glow>
           <Stack gap={3}>
             <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment.3")}</Badge>
             <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.continue.to.the")}</Text>
@@ -130,7 +122,7 @@ export function AccountPaymentPage({
           </Stack>
         </Surface>
       ) : (
-        <Surface tone="subtle" elevated>
+        <Surface tone="subtle" elevation="tinted">
           <Text>{t("payments.routes.marketplace.accountPayment.secure.payment.confirmation.is.not.configured")}</Text>
         </Surface>
       )}
@@ -188,7 +180,7 @@ export function AccountPaymentPage({
             ) : null}
 
             {payment.status === "failed" || payment.status === "cancelled" ? (
-              <Surface tone="subtle" elevated>
+              <Surface tone="subtle" elevation="tinted">
                 <Stack gap={2}>
                   {isGuestCheckoutPayment ? (
                     <Stack gap={2}>
@@ -230,7 +222,7 @@ export function AccountPaymentPage({
             {payment.status === "pending-confirmation" ? paymentEntry : null}
 
             <PageSection title={t("payments.routes.marketplace.accountPayment.payment.status")}>
-              <Surface elevated>
+              <Surface elevation="flush">
                 <Stack gap={2}>
                   <Badge tone={statusTone(payment.status)}>{statusCopy.label}</Badge>
                   <Text>{statusCopy.description}</Text>
@@ -241,7 +233,7 @@ export function AccountPaymentPage({
             {guestClaimSection}
 
             <PageSection title={t("payments.routes.marketplace.accountPayment.event.timeline")}>
-              <Surface elevated>
+              <Surface elevation="flush">
                 <Stack gap={2}>
                   <Stack gap={1}>
                     <Badge tone="success">{t("payments.routes.marketplace.accountPayment.payment.created")}</Badge>
@@ -294,7 +286,7 @@ export function AccountPaymentPage({
                   tone={payment.failure_code ? "warning" : "info"}
                   defaultOpen={Boolean(payment.failure_code)}
                 >
-                  <Surface elevated>
+                  <Surface elevation="flush">
                     <Stack gap={2}>
                       <Text size="sm" tone="secondary">
                         {t("payments.routes.marketplace.accountPayment.internal.payment")}
@@ -344,7 +336,7 @@ export function AccountPaymentPage({
 
             {payment.status !== "pending-confirmation" && payment.processor_amount === "0.00" ? (
               <PageSection title={t("payments.routes.marketplace.accountPayment.wallet.balance")}>
-                <Surface elevated glow>
+                <Surface elevation="elevated" glow>
                   <Stack gap={2}>
                     <Badge tone="success">{t("payments.routes.marketplace.accountPayment.paid.with.balance")}</Badge>
                     <Text>
@@ -358,9 +350,9 @@ export function AccountPaymentPage({
             <PageSection title={t("payments.routes.marketplace.accountPayment.purchases")}>
               <Stack gap={3}>
                 {orders.map((order: AccountPaymentOrderView) => (
-                  <Surface key={order.order_id} elevated>
+                  <Surface key={order.order_id} elevation="outlined">
                     <Stack gap={3}>
-                      <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                      <Grid columns={{ base: 1, md: 2 }} gap={3}>
                         <Stack gap={1}>
                           <Text weight="semibold">
                             {t("payments.routes.marketplace.accountPayment.purchase")}
@@ -373,12 +365,6 @@ export function AccountPaymentPage({
                             {t("payments.routes.marketplace.accountPayment.total")}
                           </Text>
                           <Text weight="semibold">{formatMoney(order.total_amount, "USD")}</Text>
-                        </Stack>
-                        <Stack gap={1}>
-                          <Text size="sm" tone="secondary">
-                            {t("payments.routes.marketplace.accountPayment.seller.payout")}
-                          </Text>
-                          <Text>{formatMoney(order.seller_payout_amount, "USD")}</Text>
                         </Stack>
                       </Grid>
                       <Divider />

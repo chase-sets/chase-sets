@@ -2,14 +2,9 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import {
-  createPostgresTcgplayerAutomationHttpConfigStore,
-  createTcgplayerAutomationCatalogClient,
-  createTcgplayerAutomationHttpClients,
-} from "@chase-sets/catalog/server";
+import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
-import { createRemoteUcpAp2MandateVerifier } from "@chase-sets/payments/server";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider, createEasyPostPostageWebhookGateway } from "@chase-sets/easypost-postage";
 import {
@@ -39,6 +34,7 @@ import {
 import {
   createPostgresUcpIdempotencyStore,
   createUcpProfileKeyResolver,
+  createUcpProfileResolver,
   type UcpRuntimeObserver,
 } from "@chase-sets/platform-runtime/ucp";
 import type { McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
@@ -51,6 +47,11 @@ import {
 } from "@chase-sets/platform-runtime/agent-guardrails";
 import {
   bootstrapPlatformControlPlane,
+  createEvidenceWindowCorrelation,
+  createNullEvidenceWindowCorrelation,
+  createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowById,
+  createPostgresEvidenceWindowProviderWrite,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
@@ -66,6 +67,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
+  recordDiscoveryQueryEmbeddingLoad,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
@@ -89,7 +91,12 @@ import {
   recordUcpSignedWriteRejected,
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "@chase-sets/auth/server";
-import { buildPlatformApiApp, createPlatformApiHost } from "./app";
+import { buildPlatformApiApp, createOfferLifecycleAdmission, createPlatformApiHost } from "./app";
+import {
+  DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+  type IdentityHostPorts,
+  type IdentityServices,
+} from "@chase-sets/identity/server";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
   loadConfig,
@@ -97,6 +104,7 @@ import {
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { createSupportEvidenceAttachmentStorage, openPlatformSupportEvidenceCanonicalizer } from "./bootstrap-storage";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 import {
   createFakeMoneyMovementGateway,
@@ -108,17 +116,27 @@ const observability = getObservabilityRuntime();
 const logger = observability.logger;
 registerPostWriteConsistencyRecorder(recordPostWriteConsistencyEvent);
 const config = loadConfig();
-const ucpAp2MandateVerifier = config.ucpAp2Verifier
-  ? createRemoteUcpAp2MandateVerifier(config.ucpAp2Verifier)
-  : undefined;
 const pools = createPlatformApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
+  ? createPostgresEvidenceWindowRegistration(pools.control)
+  : undefined;
+const evidenceWindowById = config.evidenceWindowAdmissionSecret
+  ? createPostgresEvidenceWindowById(pools.control)
+  : undefined;
+const evidenceWindowCorrelation =
+  evidenceWindowRegistration && config.stripeEffectiveMode === "test"
+    ? createEvidenceWindowCorrelation(evidenceWindowRegistration)
+    : createNullEvidenceWindowCorrelation();
 
+const evidenceWindowProviderWrite = createPostgresEvidenceWindowProviderWrite(pools.control);
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
     ? createStripePaymentProcessorGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.paymentProcessor.secretKey,
         publishableKey: config.paymentProcessor.publishableKey,
         webhookSecret: config.paymentProcessor.webhookSecret,
@@ -129,6 +147,8 @@ const paymentProcessorGateway =
 const moneyMovementGateway =
   config.moneyMovement.kind === "stripe"
     ? createStripeConnectMoneyMovementGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.moneyMovement.secretKey,
         webhookSecret: config.moneyMovement.webhookSecret,
         previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
@@ -214,13 +234,12 @@ const mobileMessageWebhookGateway =
     : undefined;
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
-  ? createTcgplayerAutomationCatalogClient(
-      createTcgplayerAutomationHttpClients(
-        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-      ),
-    )
-  : undefined;
+const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
+  pool: pools.catalog,
+  config: config.tcgplayerAutomation,
+  keyring: config.catalogOperatorSessionKeyring,
+});
+const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
 const waitlistAnalyticsRecorder = {
@@ -261,6 +280,9 @@ const waitlistAnalyticsRecorder = {
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const returnIntakeEvidenceStorage = createReturnIntakeEvidenceStorage(config.listingPhotoStorage);
 const supportEvidenceAttachmentStorage = createSupportEvidenceAttachmentStorage(config.listingPhotoStorage);
+const supportEvidenceCanonicalizer = await openPlatformSupportEvidenceCanonicalizer(
+  ["production", "staging", "preview"].includes(config.deploymentEnvironment ?? "dev"),
+);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
   Boolean(config.taxProviderBackedQuotesRequired),
@@ -291,20 +313,40 @@ logger.info("Stripe go-live checks resolved.", {
   ...config.stripeGoLive,
 });
 
+const capabilityAdministrationPorts: Pick<IdentityHostPorts, "capabilityAdministrationAuthority"> = {
+  capabilityAdministrationAuthority:
+    config.capabilityAdministrationAuthority ?? DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+};
+if (capabilityAdministrationPorts.capabilityAdministrationAuthority.kind === "deny-all") {
+  logger.info("Capability administration is disabled.", {
+    type: "identity.capability-administration-authority",
+    reason: capabilityAdministrationPorts.capabilityAdministrationAuthority.diagnostic,
+  });
+}
 const runtime = createPlatformApiHost({
   runtimeProfile: config.runtimeProfile,
   pools,
   runtimeLifecycle,
   hostPorts: {
+    ...capabilityAdministrationPorts,
+    deploymentEnvironment: config.deploymentEnvironment,
+    channelCredentialKeyring: config.channelCredentialKeyring,
+    ebayAccountDeletionConfiguration: config.ebayAccountDeletionConfiguration,
+    offerLifecycleAdmission: createOfferLifecycleAdmission({ open: config.offerLifecycleOpen, db: pools.control }),
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
     webhookTelemetry,
+    providerModeObservation: config.providerModeObservation,
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
     addressVerificationProvider: postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
+    catalogOperatorSessionConfiguration: {
+      config: config.tcgplayerAutomation,
+      keyring: config.catalogOperatorSessionKeyring,
+    },
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,
@@ -312,19 +354,29 @@ const runtime = createPlatformApiHost({
     listingPhotoStorage,
     returnIntakeEvidenceStorage,
     supportEvidenceAttachmentStorage,
+    supportEvidenceCanonicalizer,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
+    evidenceWindowCorrelation,
+    evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
       recordSearchQuery: recordDiscoverySearchQuerySignal,
+      recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
     },
     emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
 });
+// Refuse to serve routes until the process's authority receipt has settled.
+try {
+  await (runtime.services.identity as IdentityServices).accountCapabilities.initializeAdministrationAuthority();
+} catch {
+  throw new Error("Identity capability administration authority receipt refused boot.");
+}
 const realtimeStores = runtime.mountedContexts
   .filter(
     (entry) =>
@@ -459,6 +511,13 @@ if (realtimeWakeSignal?.stop) {
   });
 }
 const ucpObserver = {
+  negotiationRejected: (event) => {
+    recordUcpOperationCompleted({ transport: event.transport, operation: event.operation, status: "error" });
+    logger.warn("UCP profile negotiation rejected.", {
+      type: "ucp.negotiation.rejected",
+      ...event,
+    });
+  },
   signedWriteRejected: (event) => {
     recordUcpSignedWriteRejected(event);
     logger.warn("UCP signed write rejected.", {
@@ -572,11 +631,42 @@ const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
       }
     : {}),
 });
+const ucpProfileResolver = createUcpProfileResolver({
+  db: pools.control,
+  onFailure: ({ kind, host }) => logger.warn("UCP platform profile resolution failed.", { kind, host }),
+});
 const app = buildPlatformApiApp(runtime, {
   runtimeProfile: config.runtimeProfile,
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
+  checkoutClosed: config.checkoutClosed,
   controlPlane,
+  ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
+    ? {
+        evidenceWindowRegistration: {
+          admissionSecret: config.evidenceWindowAdmissionSecret,
+          authority: {
+            effectiveMode: config.stripeEffectiveMode,
+            gatewayKinds: {
+              paymentProcessor: config.paymentProcessor.kind,
+              moneyMovement: config.moneyMovement.kind,
+            },
+          },
+          registration: evidenceWindowRegistration,
+        },
+        evidenceWindowSourceRecovery: {
+          admissionSecret: config.evidenceWindowAdmissionSecret,
+          authority: {
+            effectiveMode: config.stripeEffectiveMode,
+            gatewayKinds: {
+              paymentProcessor: config.paymentProcessor.kind,
+              moneyMovement: config.moneyMovement.kind,
+            },
+          },
+          registrationById: evidenceWindowById,
+        },
+      }
+    : {}),
   workSignalStore,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,
@@ -622,19 +712,19 @@ const app = buildPlatformApiApp(runtime, {
       }
     : undefined,
   ucp: {
+    profileResolver: ucpProfileResolver,
     businessSigningKeys: config.ucpBusinessSigningKeys,
     idempotencyStore: createPostgresUcpIdempotencyStore(pools.control, {
       retentionMs: 7 * 24 * 60 * 60 * 1000,
     }),
     signatureVerification: {
-      keyResolver: createUcpProfileKeyResolver({ db: pools.control }),
+      keyResolver: createUcpProfileKeyResolver(ucpProfileResolver),
       createdFreshnessWindowMs: config.ucpSignatureCreatedFreshnessWindowMs,
     },
     observer: ucpObserver,
     mcpToolCallLimiter,
     agentGrantRateLimiter,
   },
-  ucpAp2MandateVerifier,
   agentGrantSpendPolicy,
   agentGrantConsent,
   agentGrantActivity: mcpAuditLog,
@@ -707,16 +797,6 @@ function createReturnIntakeEvidenceStorage(storageConfig: PlatformApiListingPhot
   return createFilesystemObjectStorage({
     rootDir: `${storageConfig.rootDir}/private-return-intake`,
     publicBaseUrl: "private://return-intake-evidence",
-  });
-}
-
-function createSupportEvidenceAttachmentStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {
-  if (storageConfig.kind === "s3") {
-    return createS3ObjectStorage({ ...storageConfig, publicBaseUrl: "private://support-evidence" });
-  }
-  return createFilesystemObjectStorage({
-    rootDir: `${storageConfig.rootDir}-private-support-evidence`,
-    publicBaseUrl: "private://support-evidence",
   });
 }
 

@@ -24,6 +24,7 @@ const canonicalKeys = new Set([
   "reviewLimit",
   "jobId",
   "promotionPreviewId",
+  "promoteAsDraft",
   "scopeRecordId",
   "returnPath",
 ]);
@@ -177,7 +178,9 @@ function routeContextFromLocation(
     providerKey,
     unitKey: nullableParam(searchParams, "unitKey") as CatalogIntegrationUnitKey | null,
     scope,
-    importScope: importScope ?? importScopeFromScopeContext(scope),
+    importScope: scope.productId
+      ? importScopeFromScopeContext(scope)
+      : (importScope ?? importScopeFromScopeContext(scope)),
     profileVersion: nullableParam(searchParams, "profileVersion"),
     sourceObservationFilters,
     selectedObservationIds: parseCsvParam(searchParams, "selectedObservationIds"),
@@ -185,6 +188,7 @@ function routeContextFromLocation(
     reviewLimit: positiveIntParam(searchParams, "reviewLimit"),
     jobId: nullableParam(searchParams, "jobId"),
     promotionPreviewId: nullableParam(searchParams, "promotionPreviewId"),
+    promoteAsDraft: searchParams.get("promoteAsDraft") === "true",
     scopeRecordId: nullableParam(searchParams, "scopeRecordId"),
     returnPath: includeReturnPath ? sanitizeReturnPath(nullableParam(searchParams, "returnPath")) : null,
   };
@@ -200,7 +204,14 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   }
   setNullable(searchParams, "providerKey", context.providerKey);
   setNullable(searchParams, "unitKey", context.unitKey);
-  setNullable(searchParams, "importScope", context.importScope ?? importScopeFromScopeContext(context.scope));
+  setNullable(
+    searchParams,
+    "importScope",
+    context.scope?.productId
+      ? importScopeFromScopeContext(context.scope)
+      : (context.importScope ?? importScopeFromScopeContext(context.scope)),
+  );
+  setNullable(searchParams, "productId", context.scope?.productId ?? null);
   setNullable(searchParams, "languageCode", context.scope?.languageCode ?? null);
   setNullable(searchParams, "productLineId", context.scope?.productLineId ?? null);
   setNullable(searchParams, "productLineName", context.scope?.productLineName ?? null);
@@ -230,6 +241,8 @@ export function serializeCatalogPrimaryWorkbenchRouteContext(
   }
   setNullable(searchParams, "jobId", context.jobId);
   setNullable(searchParams, "promotionPreviewId", context.promotionPreviewId);
+  // Only the explicit true choice is emitted; false is the default and never a parameter.
+  setNullable(searchParams, "promoteAsDraft", context.promoteAsDraft === true ? "true" : null);
   setNullable(searchParams, "scopeRecordId", context.scopeRecordId ?? null);
   setNullable(searchParams, "returnPath", sanitizeReturnPath(context.returnPath));
 

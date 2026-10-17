@@ -1,3 +1,4 @@
+import { retainProviderSendJobBinding, runProviderSendJob } from "./providers/provider-send-runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createDurableJobExecutionContext,
@@ -13,7 +14,10 @@ import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import {
   SourceObservationIntegrationJobLifecycleCommandError,
   OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE,
@@ -191,6 +195,7 @@ export function createSourceObservationIntegrationJobRuntime({
       scope.provider,
       profileSelectorFromScope(scope),
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
 
     const targets = await previewProviderAdapterIntegrationImportTargets(scope, providerProfileVersion);
@@ -225,20 +230,27 @@ export function createSourceObservationIntegrationJobRuntime({
       input.action === "reapply"
         ? (normalizeReapplyProfileMode(input.reapplyProfileMode) ?? "current-active-profile")
         : null;
-    const profileSnapshot =
-      importProfileVersion === null
-        ? reapplyProfileMode === null
-          ? null
-          : reapplyProfileMode === "current-active-profile"
-            ? snapshotCatalogReapplyProfileVersion(
-                await requireCatalogReapplyActiveProfileVersion(
-                  profileVersions,
-                  scope.provider,
-                  profileSelectorFromScope(scope),
-                ),
-              )
-            : null
-        : snapshotCatalogProfileVersion(importProfileVersion);
+    // Original-source-profile reapply has no job-wide profile; each work unit
+    // enforces its recorded profile's unit when it executes.
+    const reapplyActiveProfileVersion =
+      reapplyProfileMode === "current-active-profile"
+        ? await requireCatalogReapplyActiveProfileVersion(
+            profileVersions,
+            scope.provider,
+            profileSelectorFromScope(scope),
+          )
+        : null;
+    if (importProfileVersion) {
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", importProfileVersion);
+    }
+    if (reapplyActiveProfileVersion) {
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", reapplyActiveProfileVersion);
+    }
+    const profileSnapshot = importProfileVersion
+      ? snapshotCatalogProfileVersion(importProfileVersion)
+      : reapplyActiveProfileVersion
+        ? snapshotCatalogReapplyProfileVersion(reapplyActiveProfileVersion)
+        : null;
 
     const existingJob = (await integrationJobStore.listActive({ jobKinds: [input.action] }))
       .filter((job) => jobMatchesContext(job, input.context))
@@ -262,6 +274,7 @@ export function createSourceObservationIntegrationJobRuntime({
         : [];
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
 
+    await retainProviderSendJobBinding(deps, jobId);
     const job = await integrationJobStore.enqueue({
       jobId,
       jobKind: input.action,
@@ -491,18 +504,20 @@ export function createSourceObservationIntegrationJobRuntime({
 
     try {
       throwIfJobRunCancelled(input);
-      const turnResult =
+      const activeJob = claimed;
+      const turnResult = await runProviderSendJob(deps, claimed.jobId, async () =>
         claimed.action === "import"
           ? await processIntegrationImportJobTurn({
-              job: claimed,
+              job: activeJob,
               claimTtlMs: input.claimTtlMs,
               context: input,
             })
           : await processIntegrationReapplyJobTurn({
-              job: claimed,
+              job: activeJob,
               claimTtlMs: input.claimTtlMs,
               context: input,
-            });
+            }),
+      );
 
       throwIfJobRunCancelled(input);
       if (turnResult.complete) {
@@ -608,16 +623,18 @@ export function createSourceObservationIntegrationJobRuntime({
         throwIfLeaseLost: input.throwIfLeaseLost,
         claimTtlMs: input.claimTtlMs,
       });
-      const itemResult = await reapplyObservationIds({
-        observationIds: [claim.unit.payload.observationId],
-        context,
-        runReapplyObservation,
-        reapplyProfileMode: requireIntegrationJobReapplyProfileMode(
-          claim.unit.payload.reapplyProfileMode ?? job.reapplyProfileMode,
-          job.jobId,
-        ),
-        profileSnapshot: claim.unit.payload.profileSnapshot ?? job.profileSnapshot,
-      });
+      const itemResult = await runProviderSendJob(deps, job.jobId, () =>
+        reapplyObservationIds({
+          observationIds: [claim.unit.payload.observationId],
+          context,
+          runReapplyObservation,
+          reapplyProfileMode: requireIntegrationJobReapplyProfileMode(
+            claim.unit.payload.reapplyProfileMode ?? job.reapplyProfileMode,
+            job.jobId,
+          ),
+          profileSnapshot: claim.unit.payload.profileSnapshot ?? job.profileSnapshot,
+        }),
+      );
       const outcome = integrationReapplyOutcomeFromBulkOutcome(
         job,
         claim.unit.payload.observationId,
@@ -734,6 +751,7 @@ export function createSourceObservationIntegrationJobRuntime({
       input.job.profileSnapshot,
       profileSelectorFromScope(scope),
     );
+    assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
 
     return processProviderAdapterIntegrationImportJobTurn({

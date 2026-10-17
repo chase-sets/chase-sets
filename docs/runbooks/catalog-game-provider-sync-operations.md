@@ -1,6 +1,6 @@
 # Catalog Game Provider Sync Operations
 
-This runbook covers staging and production runtime posture for Catalog provider sync across every product domain that can participate in the complete production Catalog synchronization: Magic: The Gathering, Pokemon, Yu-Gi-Oh!, One Piece, and Disney Lorcana. The active provider profile/unit registry (`catalogProviderIntegrationProfileVersions` in `bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts`) and its accepted mappings are the executable source of truth for "all production providers"; treat this runbook and the [Catalog Integration Production Signoff](../../bounded-contexts/catalog/docs/catalog-integration-production-signoff.md) as the operating narrative bound to that state. The shared operating posture below applies to all product domains; the per-domain sections add only the provider, credit, validation, and signoff facts that differ. The `catalog-integration-production-signoff-coverage` guard fails if an active production-capable provider unit lacks a matching signoff/runbook section.
+This runbook covers staging and production runtime posture for Catalog provider sync across every product domain that can participate in the complete production Catalog synchronization: Magic: The Gathering, Pokemon, Yu-Gi-Oh!, One Piece, and Disney Lorcana. The active provider profile/unit registry (`catalogProviderIntegrationProfileVersions` in `bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts`) and its accepted mappings are the executable source of truth for "all production providers"; treat this runbook and the [Catalog Integration Production Signoff](../../bounded-contexts/catalog/docs/catalog-integration-production-signoff.md) as the operating narrative bound to that state. The shared operating posture below applies to all product domains; the per-domain sections add only the provider, credit, validation, and signoff facts that differ. `scripts/check-structure/catalog-integration-production-signoff-coverage.ts` fails if an active production-capable provider unit lacks a matching signoff/runbook section.
 
 ## Shared operating posture
 
@@ -8,12 +8,41 @@ Do not paste provider API keys, team identifiers, cookies, request headers, acco
 
 ### Runtime defaults and activation gates
 
-Staging can run the interface UAT after approved profile versions and provider credentials are present. Production remains safe until activation gates pass:
+Staging can run the interface UAT after approved profile versions and provider credentials are present. When the variables are unset, the code keeps production safe: `CATALOG_INTEGRATION_CONTROL_PLANE_MODE` defaults to `dry-run-only`, `CATALOG_INTEGRATION_ACTIVATION_MODE` defaults to `test-profiles-only`, and imports, promotion, and reapply default to disabled for `mtgjson,scryfall,tcgplayer`.
 
-- `CATALOG_INTEGRATION_CONTROL_PLANE_MODE` defaults to `dry-run-only` in production when unset.
-- `CATALOG_INTEGRATION_ACTIVATION_MODE` defaults to `test-profiles-only` in production when unset.
+Production ships an open control plane behind enforced game signoff gates. The posture lives in `productionEnvOverrides` in `infrastructure/helm/platform/runtime-values.json`, which `scripts/render-platform-helm-values.mjs` renders into `values.production.yaml`:
+
+- `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=open` and `CATALOG_INTEGRATION_ACTIVATION_MODE=open`.
+- `CATALOG_INTEGRATION_IMPORTS_DISABLED`, `CATALOG_INTEGRATION_PROMOTION_DISABLED`, and `CATALOG_INTEGRATION_REAPPLY_DISABLED` retain `tcgdex,ygoprodeck,ygojson`. The registry-derived Lorcana import and promotion unit stop lists also remain unchanged from #8072.
+- The Magic and One Piece gates remain unchanged. Magic's provider-wide gate also covers shared TCGplayer units; opening a game's own gate does not override it.
+- Pokemon, Yu-Gi-Oh!, and Lorcana each have two entries under their `<game>-production-signoff-required` id: registry-derived units and registry-derived exclusive providers. Every version of an exclusive provider must belong to that game. Shared TCGplayer/Scrydex providers remain unit-scoped; their unregistered identities retain base governance, not per-game signoff coverage.
+- Missing, blank, whitespace-only, or case-insensitive `open`, `false`, or `none` references block import, promotion, and reapply. A valid reference opens only its signoff gate, never another control or a retained stop. Empty game membership raises a named initialization error; an empty exclusive-provider set emits no provider entry, never a wildcard.
+- The activate route evaluates `activation` without a unit key. Only the exclusive-provider entry can match it; the unit entry cannot. Unsigned exclusive providers deny profile activation. The legacy write stops do not block profile activation, so signed Pokemon/Yu-Gi-Oh! profile activation remains admitted as before without authorizing provider writes.
+- `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP` stays empty during normal operation. It can be set to a provider key or `all`.
 - Provider-scoped disabled, imports-disabled, promotion-disabled, reapply-disabled, cache-only, and emergency-stop controls must remain available for every provider that backs the game.
-- `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP` stays empty during normal operation and can be set to a provider key or `all`.
+
+Magic and One Piece remain required production GitHub environment variables for the opened posture. The other three are optional at deploy time and open only their own signoff gate:
+
+- `CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE`
+- `CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE`
+- `CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE`
+- `CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE`
+- `CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE`
+
+The production deploy threads all five into the API, worker, and bootstrap runtime. All are code-enforced. Todd's recorded Pokemon/Yu-Gi-Oh! references approved the #8072 posture with stops retained (#4388 comment 6114046274; deployed #8072 comment 6115932162), not their removal. #8073's operator window is separate and unchanged. Checked-in stop removal belongs to a separately reviewed activation slice after per-game rehearsal/audit and authority approval, before #5204 freezes the post-change manifest. #5205 executes that manifest; neither this code deployment nor possession of a reference authorizes pulls or spend. Lorcana provider-use approval is recorded at #9229 comment 6089796167, but does not remove its stops or supply its runtime reference.
+
+The deploy step "Validate production configuration" checks the inputs whenever the shipped control plane admits writes. It fails with `Missing required production Catalog integration configuration: <names>` when any of these is missing:
+
+- `SCRYDEX_API_KEY`
+- `SCRYDEX_TEAM_ID`
+- `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE`
+- either required Magic or One Piece signoff reference
+
+Missing Pokemon, Yu-Gi-Oh!, or Lorcana references do not fail deployment: their signoff gate stays blocked at runtime. A configured blank, whitespace-only, `false`, `none`, or `open` optional reference fails preflight in open and closed modes with `Invalid production Catalog integration signoff reference: <names>`. Only three per-name presence booleans and targeted reference values reach validation, never the aggregate variable map. Messages print names only, never values.
+
+Post-deploy proof is operator/verifier-owned. Before the deploy request, paginate and reconcile production environment and repository variable names; read organization scope or mark it unknown, never absent. Bind the executed Deploy Production job URL, conclusion and times to the deployed commit/image digest, Helm revision and effective stops. Capture redacted `GET /api/catalog/source-observations/integration-control-plane/readiness` with `rolloutControls.generatedAt`, both entries per game id, capabilities and full provider/unit membership. Expected recorded posture: Pokemon/Yu-Gi-Oh! `open/info` while tcgdex/ygoprodeck/ygojson import/promotion/reapply remain denied by legacy stops; Lorcana `blocked/error`; Magic/One Piece admission unchanged. Reconcile drift without deleting variables. Omit reference-bearing `message` fields and credentials. This capture, not YAML or a trigger job, satisfies #9421 AC5; do not close #9226 on merge alone.
+
+Rollback is a normal-release revert of the new gates, Lorcana wiring, preflight and docs. The #8072 provider disables and Lorcana import/promotion stops remain in place throughout; no variable or data mutation is required. Capture the restored #8072 effective posture.
 
 A per-game production-signoff reference env var (named in each game section) must name the accepted provider-data approval and the game's UAT evidence before production-like writes are opened for that game.
 
@@ -21,7 +50,7 @@ A per-game production-signoff reference env var (named in each game section) mus
 
 - Public transports (MTGJSON, Scryfall, TCGdex, YGOPRODeck, YGOJSON, LorcanaJSON, Lorcast) do not require credentials.
 - Scrydex requires a shared runtime API key and team identifier in the API and worker environments that execute provider transport. Configure `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` once per environment for all Scrydex-backed product lines; do not create game-specific Scrydex secrets.
-- TCGplayer requires `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` in the executing API and worker environment before live option queries or imports can run, using the existing automation-provider credential posture documented in [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
+- TCGplayer uses stored operator session primary, env cookie fallback (`TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` only when custody is absent or cleared). API and worker requests resolve the newest custody revision per request; unreadable custody fails closed. Pairing, recovery, offboarding, and revision-bound verification are owned by [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
 
 ### Shared-transport handling (TCGplayer and Scrydex)
 
@@ -70,26 +99,36 @@ Before starting a Scrydex import from the shared Catalog importer, confirm:
 4. The import plan names the selected provider, unit, profile version, and source scope.
 5. The plan uses paginated bulk/list/search retrieval and minimal selected fields for the chosen import unit.
 
+Integration health shows the cached Scrydex usage snapshot: credits as remaining of total, budget readiness, usage freshness with the last observed-at, and provider usage lag. Health reads at most one `/account/v1/usage` request per 15-minute window; Scrydex itself refreshes usage every 20-30 minutes and reports no update time, so lag is always `documented-window`. Scrydex reports credits consumed, overage credits consumed, and credits remaining for the current billing period, but no allowance: the allowance shown is consumed plus remaining while no overage was consumed, and is not reported otherwise. A response whose billing period does not cover the read is treated as not reported. A fresh balance without a reported allowance is shown but leaves budget readiness unknown, and Integration health shows the usage diagnostic for every budget that is not fresh and ready. Credit counts are non-negative safe integers; any other count, including a derived allowance past that range, is not reported. A stale snapshot keeps its last observed values and marks budget readiness degraded; after an hour without a successful read the balance is withheld as not reported. Not reported never means zero credits. Import preflight reads usage live and shows the estimate count or `estimate-unavailable` with its reason, the usage-check state, and any degraded diagnostic.
+
+#### Scrydex usage launch gate
+
+The launch gate never authorizes a paid import. It refuses when the usage read is unchecked, older than 15 minutes, missing the remaining balance or the total allowance, or exhausted (a reported remaining balance of zero refuses whatever credit state accompanies it); otherwise it requires explicit operator confirmation. Launch evidence has two stages. Before merge, the committed fixture, derived unchanged through the production sanitizer from a real usage read, proves parser and gate behavior only. After staging deployment, the host dispatches an attributed verifier that binds the deployed Integration health `usageBudget` and a selected-scope Import preflight to a recorded no-launch decision; a standalone usage read or a replay is not a substitute. To derive the fixture:
+
+1. In a checkout of the reviewed branch with dependencies installed, supply staging credentials only through `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`, and leave `CATALOG_PROVIDER_SEND_WINDOW_ENABLED` unset.
+2. Run `node --import ./infrastructure/platform-runtime/typescript-resolver-register.mjs ./bounded-contexts/catalog/features/source-observations/api/providers/scrydex/usage-test-mode-probe.ts`. It sends one `/account/v1/usage` request (Scrydex tariffs it as one general credit; Scrydex documents no separate test-mode key) through the production adapter's redaction boundary and prints only the closed-schema fixture: observed-at, attempt state, lag category, credit counts and state, diagnostic code, `operatorConfirmation: "required"`, and `importAuthorization: "none"`.
+3. Commit the printed JSON unedited as `usage.test-mode.fixture.json` beside the probe and run `usage-test-mode-capture.test.ts`. When the read is instead taken in-cluster with the runtime's own credentials, keep only the HTTP status, observed-at, and response body outside the repository and derive the fixture with the same probe's `--replay <capture.json>`, which runs the production adapter at the captured instant without sending a request. Record the observed-at, lag category, and gate decision in the launch issue; never paste credentials, account identifiers, URLs, or raw provider responses.
+
 After a Scrydex import completes, record job id, provider key, unit key, profile version, source scope, actual request count, page count, cache hit/miss count, usage-check result, credit/rate/degraded diagnostics, bulk-first confirmation or documented per-record fallback reason, Source Observation counts, promotion preview counts, conflict counts, and duplicate-prevention outcomes.
 
 When Scrydex readiness is degraded, credits are low, usage checks fail, rate limits are active, cache state is unavailable, or preflight estimates look too large: stop the affected Scrydex unit with `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS=<unit key>` or keep selectors cache-only with `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY=<unit key>`; do not start or resume imports until the Admin preflight shows the provider, unit, source scope, estimated request count/credit impact or `estimate-unavailable`, usage-check state, and bulk-first plan; prefer a smaller bulk/list/search source scope over per-record fallback; after recovery run a dry-run or smallest approved import and record the actual usage diagnostics; and escalate to provider-account review only with redacted usage summaries and provider-safe diagnostic codes.
 
-### TCGplayer cookie rotation
+### TCGplayer session operations
 
-Rotate the TCGplayer automation cookie when the provider session expires, an operator leaves the provider account, a leak is suspected, or repeated authorization failures continue after cooldown.
+Use [TCGplayer Automation Operations](./tcgplayer-automation-operations.md#rate-limits-and-recovery)
+as the single session-rotation procedure, including its passive gate, extension
+pairing, custody recovery, and ordinary-capture verification. Do not replace the
+env cookie or redeploy/restart to adopt a stored session. Preserve shared rate
+state; a `429` is cooldown evidence, not expiry, and a lone `403` is ambiguous.
+The provider/unit emergency stops above remain available for unsafe traffic or
+suspected exposure. A session push does not clear a stop or approve another
+game's units; remove a stop only through the approved incident/rollout workflow.
 
-1. Set `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP=tcgplayer` (or the unit-scoped stop for the affected game unit).
-2. Replace `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` through the approved secret path for the target environment.
-3. Keep conservative runtime defaults unless an incident review approves a change: request delay `250ms`, cooldown `30000ms`, max concurrent requests `2`, max retries `3`.
-4. Redeploy or restart the API and worker components that execute Catalog provider transport.
-5. Run a small product-line option query and confirm readiness reports `configured` without exposing the cookie.
-6. Clear the emergency stop only after the small query succeeds.
-
-### Credential rotation (shared secrets)
+### Credential rotation (Scrydex shared secrets)
 
 Rotate provider credentials from the approved secret-management UI and release control workflow only. Never paste secret values, team ids, account ids, request headers, or provider screenshots into runbook notes, issue comments, PR bodies, fixtures, logs, or audit evidence.
 
-1. Activate a unit-scoped emergency stop for the affected Scrydex or TCGplayer game unit from the release/Ops controls.
+1. Activate a unit-scoped emergency stop for the affected Scrydex game unit from the release/Ops controls.
 2. Confirm Integration health shows the intended provider/unit blocked and that the other games' TCGplayer and Scrydex units remain independently governed.
 3. Replace the secret value in the secret-management UI, preserving the existing shared Scrydex secret names `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`.
 4. Redeploy or restart only the affected runtime/worker environment through the normal platform UI.
@@ -139,6 +178,22 @@ Record an interface-only packet that captures, per active provider/unit: provide
 
 When a game shares transports, UAT must include the cross-game regression scopes named in that game's section, exercised through the same Admin importer controls, proving the other games' units remain governed independently.
 
+### Whole-game rehearsal
+
+Rehearse whole-game seeding on staging through the host-dispatched `Catalog Staging Provider UAT` workflow (`.github/workflows/catalog-staging-provider-uat.yml`), never by hand. Whole-game dispatches admit only the exact `https://admin.staging.chasesets.com` target before the credential-bearing job; the browser rechecks its effective origin before credential entry and each submission, refusing redirects. Every mutation goes through the Scope Sync Batches page, the scope page's **Promote all ready** toolbar and the Catalog Items bulk publish dialog; the journeys read back progress through the same Admin read routes those pages load. The journeys live in `deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts` and their decisions in `deployables/admin-web/e2e/support/whole-game-rehearsal.ts`.
+
+**Count preparation precedes each pass's reservation and start.** Before #9224 establishes a pass's reservation R and before step 1 below, the host runs the separate `Catalog Staging Count Preparation` workflow (`.github/workflows/catalog-staging-count-preparation.yml`) with that pass's `pass`, `product_domain` and `language_code`, exactly as the start dispatch will use them. It admits the exact reviewed SHA and staging origin before the credential-bearing job, signs in without a browser and never receives provider credentials. `mode=quote` makes one zero-provider quote of the complete matching-scope selection (`set`, Pokemon `expansion`) and uploads one validated receipt, `artifacts/catalog-count-preparation/receipt.json`, showing the quote and membership fingerprints, expiry, roster and reuse, per-kind cost, P and cap, apart from R. P is at most one cards and one sealed credit per set (Lorcana cards only), so P <= 2N; fresh reused counts cost zero. The host then posts the pre-spend notice with fresh #8427 headroom and dispatches `mode=acquire` with its closed approval JSON: the quote id and fingerprints, pass, displayed P, per-kind cost, cap, expiry, and the authority fingerprint, headroom and observation time. Acquire first reads the quote's current net authority (retained usage less unreflected debits, batch reservations and quote allocations, never a usage refresh) and refuses without submitting unless the quote still matches the approval, is unexpired and untouched, its usage fingerprint is unchanged and current headroom covers all of P. It then submits whole-quote admission once: under the account headroom lock the server holds all of P as one quote allocation before any debit or send, or refuses the submission, so a race after the read costs one refused request and no spend. It reads the quote once more and records every debit the quote owns, whether complete, failed, uncertain or still acquiring, or marks the accounting unknown when it cannot be read; unknown is never zero spend. There is no retry, redirect, second page, usage refresh or rerun. A validated `not-required` quote (no Scrydex units, or every count fresh and reused, so nothing is acquired) or a validated `complete` acquisition lets the pass continue, but only to #9224's own independent reservation, preview and confirm checks; neither is batch-ready. A validated `quoted` receipt continues only to the host's notice, approval and acquire dispatch. `refused`, `admission-refused`, `partial`, `failed`, `uncertain` and `readback-failed` stop with every possible-send debit retained; a later run needs fresh host authority, reconciled uncertainty and net headroom, never a top-up. Link the receipt in the domain packet. Preparation grants no preview, confirm or reservation authority: #9224's R, C, G, D and I, the start refusals and every existing blocker are unchanged, and counts must still be 0-15 minutes old at preview and confirm, so a roster that expires stops rather than being split, trimmed or reacquired. While a quote allocation still holds unused credits, a new batch reservation on that account is refused until the allocation ends or expires. Pass 2 needs its own preparation authority.
+
+1. **Start.** Dispatch `journey_scope=full-game-start` with `product_domain`, an optional `language_code` (blank batches every language) and optional `budget` overrides (`scrydexRequestLimit=40,maxScopesPerTurn=2`). The journey previews the matching `set` scopes, records the plan fingerprint, scope count and per-provider units and planned requests, confirms, and records the `batch_id`. It refuses to confirm when Scrydex units participate and the Scrydex credit limit is 0, or when the preview is empty or not confirmable.
+2. **Settle.** Dispatch `journey_scope=full-game-settle` with that `batch_id`, repeatedly, until the receipt reports `settled`. Each dispatch acts on that batch only:
+   - `queued`, or `running` without an open provider circuit: records progress and exits `running`.
+   - `running` with an open circuit, `partial` or `failed`: with `retry_failed=true` retries each failed unit once and exits `running`; otherwise records the failures and continues to promotion.
+   - `cancelled`: resumes only with `resume_cancelled=true`, otherwise exits `cancelled`.
+   - `completed`, or continuing from the rows above: runs **Promote all ready** for each completed scope (adopting a promote job an earlier dispatch left running instead of duplicating active work), including approved-but-unapplied catch-up when no candidate is ready. A completed job with promotions is followed by another scope submission until a version-1 job reports zero promotions and no failures. Then it reads every completed promote job for those scopes, following the job list `cursor`, and reconciles application identities across retained and new history. Only completed `appliedCatalogItemId`/`appliedMode` facts supply blueprint filters; historical `catalogItemId` matches never do. The landed API exposes the absent stored legacy discriminator as `promotionApplicationVersion: null`; legacy approvals without a matching application remain unresolved. Malformed version-1 or conflicting facts refuse. Bulk publication filters drafts by blueprint, batch provider source and language. Before each confirm it reads the complete preview response and aborts if any item lacks that provider source or belongs to a blueprint outside the applied set.
+3. **Resume a killed dispatch.** Promotion and publication progress is server-side, so rerun `full-game-settle` with the same `batch_id`; a rerun after `settled` reports 0 promoted and 0 published. The operator owns how many retry and resume dispatches to spend; the journey never retries on its own.
+
+A run fails closed, with no receipt, when it refuses, aborts publication, or finds promoted outcomes it cannot map to a Catalog Item (`promoted-catalog-item-unresolved`). A successful dispatch uploads one schema-checked receipt, `artifacts/catalog-whole-game-rehearsal/receipt.json`, carrying only the batch id, states and counts — never titles, URLs, raw payloads or credentials. Each read checks the remaining dispatch deadline and has cancellation bounded to that budget. Incomplete history, item detail, recount or preview reads return `running`, never publish from incomplete evidence or claim `settled`; an initial interrupted batch read leaves `settle=null` rather than inventing batch facts. These limits stay inside the unchanged 60-minute workflow limit. Bounded `running` is not proof that repeated game-scale scans will converge; measure real staging read costs before proposing batching or persistent cursors.
+
 ## Magic
 
 Magic Catalog sync draws from MTGJSON, Scryfall, and TCGplayer. The three Magic provider keys are `mtgjson`, `scryfall`, and `tcgplayer`; the production default for `CATALOG_INTEGRATION_IMPORTS_DISABLED`, `CATALOG_INTEGRATION_PROMOTION_DISABLED`, and `CATALOG_INTEGRATION_REAPPLY_DISABLED` is `mtgjson,scryfall,tcgplayer` when unset.
@@ -147,12 +202,12 @@ Magic Catalog sync draws from MTGJSON, Scryfall, and TCGplayer. The three Magic 
 | --- | --- | --- |
 | MTGJSON | None (public) | Set-reference data promoted into Reference Records (never plans Catalog Item commands). |
 | Scryfall | None (public) | Card data. |
-| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
+| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
 
 Operator notes:
 
-- MTGJSON and Scryfall public transports do not require credentials; TCGplayer requires the automation cookie before live option queries or imports can run.
-- Staging UAT readiness check: MTGJSON and Scryfall are `not-required`; TCGplayer is `configured` with only a redacted runtime secret reference. Keep provider option queries open only for the selected Magic set scope.
+- MTGJSON and Scryfall public transports do not require credentials; TCGplayer uses stored operator session primary, env cookie fallback, under the shared credential posture above.
+- Staging UAT readiness check: MTGJSON and Scryfall are `not-required`; TCGplayer is `configured`. Inspect Operator session metadata for custody/grant state; the readiness badge is not source or provider-success proof. Keep provider option queries open only for the selected Magic set scope.
 - MTGJSON set-reference promotion/reapply must keep the same Reference Record identity and plan fingerprint across repeated reapply; TCGplayer sealed-product reapply/retry must keep the same Catalog Item identity, SKU selected options, and plan fingerprint without creating a replacement Catalog Item.
 - Post-UAT launch requires Magic production signoff evidence (provider policy approval, profile versions, dry-run/import/promotion outcomes, conflicts, duplicate-prevention blocks, emergency-stop proof, and redaction review) before production imports or promotions are enabled.
 
@@ -183,11 +238,11 @@ Pokemon Catalog sync draws from TCGdex and the existing Chase Sets TCGplayer pro
 | Provider | Credentials | Role |
 | --- | --- | --- |
 | TCGdex | None (public) | Card-print, series/expansion, language, and image-evidence data; bulk/list ingestion first. |
-| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
+| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
 
 Operator notes:
 
-- TCGdex public transport does not require credentials; TCGplayer requires the automation cookie before live option queries or imports can run.
+- TCGdex public transport does not require credentials; TCGplayer uses stored operator session primary, env cookie fallback, under the shared credential posture above.
 - Because TCGplayer is shared with Magic, Yu-Gi-Oh!, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Pokemon TCGplayer units are approved; production Pokemon enablement must name the Pokemon unit/profile evidence, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
 - Only TCGdex and TCGplayer Pokemon image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Pokemon (pokemon.com) images remain comparison-only.
 - Pokemon is the shared regression anchor: every other product domain's UAT must repeat UI-only smoke proof for one Pokemon set through the same shared importer controls.
@@ -207,12 +262,12 @@ Yu-Gi-Oh! Catalog sync draws from YGOPRODeck, YGOJSON, and the existing Chase Se
 | --- | --- | --- |
 | YGOPRODeck | None (public) | Card, printing, set, archetype, banlist/format, and image-evidence baseline; bulk/list ingestion first. |
 | YGOJSON | None (public) | Structured set/product, sealed-product, and pack-metadata reference and normalization cross-check; set-file/bulk ingestion first. |
-| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, group/set identity, SKU mapping, condition/language/printing/edition variants, and price-reference evidence; shared provider key. |
+| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, group/set identity, SKU mapping, condition/language/printing/edition variants, and price-reference evidence; shared provider key. |
 
 Operator notes:
 
 - YGOPRODeck and YGOJSON public transports do not require credentials; their normal path must be bulk/list/search or set-file first and must not make one provider call per card, printing, or sealed product.
-- TCGplayer requires the automation cookie before live option queries or imports can run; because it is shared with Magic, Pokemon, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Yu-Gi-Oh! TCGplayer units are approved, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
+- TCGplayer uses stored operator session primary, env cookie fallback; because it is shared with Magic, Pokemon, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Yu-Gi-Oh! TCGplayer units are approved, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
 - Only YGOPRODeck and TCGplayer Yu-Gi-Oh! image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Konami database images remain comparison-only.
 - Regression: repeat UI-only smoke proof for one Pokemon set, one MTG set, and one One Piece set through the same shared importer controls.
 

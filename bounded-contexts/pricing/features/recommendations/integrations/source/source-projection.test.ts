@@ -104,6 +104,7 @@ describe("pricing marketplace source projection", () => {
         catalogItemId: "cat_1",
         productId: "prod_1",
         priceAmount: "20.00",
+        priceCurrencyCode: "USD",
         quantityCap: 2,
       },
       timing: {
@@ -122,6 +123,7 @@ describe("pricing marketplace source projection", () => {
       "cat_1",
       "prod_1",
       "20.00",
+      "USD",
       2,
       "raw",
       "2026-05-09T00:00:00.000Z",
@@ -142,7 +144,7 @@ describe("pricing marketplace source projection", () => {
       type: "marketplace.listing.price-updated",
       streamId: "marketplace.listing-lst_1",
       streamVersion: 7,
-      data: { priceAmount: "18.00" },
+      data: { priceAmount: "18.00", priceCurrencyCode: "EUR" },
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
@@ -156,9 +158,9 @@ describe("pricing marketplace source projection", () => {
 
     // Every writing handler carries the event stream version and only advances
     // rows strictly behind it, so a redelivered older event is a no-op.
-    expect(calls[0]?.sql).toContain("last_stream_version = $4");
-    expect(calls[0]?.sql).toContain("AND last_stream_version < $4");
-    expect(calls[0]?.params).toEqual(["lst_1", "18.00", "2026-05-09T00:00:00.000Z", 7]);
+    expect(calls[0]?.sql).toContain("last_stream_version = $5");
+    expect(calls[0]?.sql).toContain("AND last_stream_version < $5");
+    expect(calls[0]?.params).toEqual(["lst_1", "18.00", "EUR", "2026-05-09T00:00:00.000Z", 7]);
     expect(calls[1]?.sql).toContain("last_stream_version = $3");
     expect(calls[1]?.sql).toContain("AND last_stream_version < $3");
     expect(calls[1]?.params).toEqual(["lst_1", "2026-05-09T00:00:00.000Z", 8]);
@@ -273,15 +275,26 @@ describe("pricing marketplace source projection", () => {
         productId: "prod_1",
         totalQuantity: 3,
         acquisitionCostAmount: "6.50",
+        acquisitionCostCurrencyCode: "USD",
       },
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
     expect(calls[0]?.sql).toContain("acquisition_cost_amount");
-    expect(calls[0]?.params).toEqual(["inv_1", "acc_1", "cat_1", "prod_1", 3, "6.50", "2026-05-09T00:00:00.000Z", 1]);
+    expect(calls[0]?.params).toEqual([
+      "inv_1",
+      "acc_1",
+      "cat_1",
+      "prod_1",
+      3,
+      "6.50",
+      "USD",
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
   });
 
-  it("stores a null acquisition cost basis when the inventory item omits it", async () => {
+  it("keeps retained amount-only inventory events without an invented denomination", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
     const handlers = buildPricingInventoryInputProjectionHandlers({
       query: async (sql: string, params?: readonly unknown[]) => {
@@ -300,10 +313,70 @@ describe("pricing marketplace source projection", () => {
         catalogItemId: "cat_1",
         productId: "prod_1",
         totalQuantity: 3,
+        acquisitionCostAmount: "6.50",
       },
       timing: { recordedAt: "2026-05-09T00:00:00.000Z" },
     } as never);
 
-    expect(calls[0]?.params).toEqual(["inv_2", "acc_1", "cat_1", "prod_1", 3, null, "2026-05-09T00:00:00.000Z", 1]);
+    expect(calls[0]?.params).toEqual([
+      "inv_2",
+      "acc_1",
+      "cat_1",
+      "prod_1",
+      3,
+      "6.50",
+      null,
+      "2026-05-09T00:00:00.000Z",
+      1,
+    ]);
+  });
+});
+
+describe("pricing open-Offer inputs across the buyer Offer lifecycle", () => {
+  it("drops paused and withdrawn Offers from submitted inputs, restores Resume, and ignores stale redelivery", async () => {
+    const offers = new Map<string, { status: string; version: number }>();
+    const handlers = buildPricingMarketplaceInputProjectionHandlers({
+      query: async (sql: string, params: readonly unknown[] = []) => {
+        if (sql.includes("INSERT INTO pricing_buyer_offer_inputs"))
+          offers.set(String(params[0]), { status: "submitted", version: Number(params[8]) });
+        else if (sql.includes("UPDATE pricing_buyer_offer_inputs") && sql.includes("SET status = $2")) {
+          const current = offers.get(String(params[0]));
+          if (current && current.version < Number(params[2]))
+            offers.set(String(params[0]), { status: String(params[1]), version: Number(params[2]) });
+        }
+        return { rows: [] };
+      },
+    });
+    const lifecycle = (type: string, streamVersion: number) =>
+      handlers[type]!({
+        type,
+        streamId: "marketplace.offer-off_1",
+        streamVersion,
+        data: { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-14T00:00:00.000Z" },
+        timing: { recordedAt: "2026-10-14T00:00:00.000Z" },
+      } as never);
+    await handlers["marketplace.offer.submitted"]!({
+      type: "marketplace.offer.submitted",
+      streamId: "marketplace.offer-off_1",
+      streamVersion: 1,
+      data: {
+        offerId: "off_1",
+        buyerAccountId: "acc_buyer",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityRequested: 1,
+      },
+      timing: { recordedAt: "2026-10-14T00:00:00.000Z" },
+    } as never);
+
+    await lifecycle("marketplace.offer.paused", 2);
+    expect(offers.get("off_1")).toEqual({ status: "paused", version: 2 });
+    await lifecycle("marketplace.offer.resumed", 3);
+    await lifecycle("marketplace.offer.paused", 2);
+    expect(offers.get("off_1")).toEqual({ status: "submitted", version: 3 });
+    await lifecycle("marketplace.offer.withdrawn", 4);
+    expect(offers.get("off_1")).toEqual({ status: "withdrawn", version: 4 });
   });
 });

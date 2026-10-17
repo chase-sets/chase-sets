@@ -1,12 +1,25 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { FulfillmentApiEnv } from "../../../api";
+import {
+  decideFulfillmentShipment,
+  evolveFulfillmentShipment,
+  initialFulfillmentShipmentState,
+} from "../domain/domain";
 import {
   createAccountShipmentRoutes,
   createAccountSaleShipmentRoutes,
   createPostageProviderWebhookRoutes,
 } from "./route";
-import type { FulfillmentShipmentServices } from "./runtime";
+import { createFulfillmentShipmentRuntime, type FulfillmentShipmentServices } from "./runtime";
+
+const MUTATION_HEADERS = {
+  "Content-Type": "application/json",
+  "Idempotency-Key": "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
+};
 
 function buildSellerApp(
   options: Readonly<{
@@ -62,11 +75,25 @@ function createServices(): FulfillmentShipmentServices {
     })),
     reconcileStalePostageLabelPurchases: vi.fn(async () => ({ checked: 0, attached: 0, voided: 0, failed: 0 })),
     reconcileStalePostageLabelVoids: vi.fn(async () => ({ checked: 0, failed: 0 })),
+    listStalePostageOperationLocators: vi.fn(async () => []),
+    reconcilePostageOperationLocator: vi.fn(async () => ({ outcome: "missing" as const })),
     voidLabel: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
+    cancelShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 5 })),
     dispatchShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
     deliverShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 5 })),
     returnShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 6 })),
     raiseShipmentException: vi.fn(async () => ({ shipmentId: "shp_1", version: 7 })),
+    recoverShipmentMutation: vi.fn(async () => ({
+      schemaVersion: 1 as const,
+      shipmentId: "shp_1",
+      shipmentVersion: 1,
+      shipmentStatus: "packing",
+      status: "confirming",
+      receiptKind: "absent" as const,
+      commandKind: null,
+      result: null,
+      actions: ["refresh-status"],
+    })),
     processPostageProviderWebhook: vi.fn(async () => ({
       status: "recorded" as const,
       providerEventId: "evt_1",
@@ -175,6 +202,38 @@ function createServices(): FulfillmentShipmentServices {
 }
 
 describe("fulfillment shipment routes", () => {
+  it("issue-7171-read-only-recovery-route performs one authorized GET and never reissues the mutation", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+    const response = await app.request("/account/sales/shipments/shp_1/mutation-recovery", {
+      method: "GET",
+      headers: { "Idempotency-Key": MUTATION_HEADERS["Idempotency-Key"] },
+    });
+
+    expect(response.status).toBe(200);
+    expect(services.recoverShipmentMutation).toHaveBeenCalledWith(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        mutationAttemptId: MUTATION_HEADERS["Idempotency-Key"],
+      },
+      expect.objectContaining({ tenantId: "tnt_identity" }),
+    );
+    for (const mutation of [services.startPackingShipment, services.packShipment, services.purchaseUspsLabel]) {
+      expect(mutation).not.toHaveBeenCalled();
+    }
+  });
   it("lists seller shipments for the current account", async () => {
     const services = createServices();
     const app = buildSellerApp({
@@ -222,7 +281,7 @@ describe("fulfillment shipment routes", () => {
     const response = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/pack", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({ packageCount: 1 }),
       }),
     );
@@ -377,28 +436,28 @@ describe("fulfillment shipment routes", () => {
     const startPackingResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/packing/start", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({}),
       }),
     );
     const packResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/packing/lines/spl_1", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({ confirmedQuantity: 1 }),
       }),
     );
     const completePackingResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/pack", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({ packageCount: 1 }),
       }),
     );
     const labelResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/label", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({
           shippingMethod: "standard",
           carrierName: "USPS",
@@ -410,11 +469,13 @@ describe("fulfillment shipment routes", () => {
     const dispatchResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/dispatch", {
         method: "POST",
+        headers: MUTATION_HEADERS,
       }),
     );
     const deliverResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/deliver", {
         method: "POST",
+        headers: MUTATION_HEADERS,
       }),
     );
 
@@ -460,6 +521,7 @@ describe("fulfillment shipment routes", () => {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
         packageCount: 1,
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -469,6 +531,7 @@ describe("fulfillment shipment routes", () => {
         sellerAccountId: "acc_seller",
         lineId: "spl_1",
         confirmedQuantity: 1,
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -476,6 +539,7 @@ describe("fulfillment shipment routes", () => {
       {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -487,6 +551,7 @@ describe("fulfillment shipment routes", () => {
         carrierName: "USPS",
         labelReference: "lbl_1",
         trackingIdentifier: "trk_1",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -494,6 +559,7 @@ describe("fulfillment shipment routes", () => {
       {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
@@ -501,9 +567,204 @@ describe("fulfillment shipment routes", () => {
       {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );
+  });
+
+  it("routes seller cancellation through the aggregate-authoritative service", async () => {
+    const services = createServices();
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/shp_1/cancel", {
+        method: "POST",
+        headers: MUTATION_HEADERS,
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ id: "shp_1", version: 5, status: "cancelled" });
+    expect(services.cancelShipment).toHaveBeenCalledWith(
+      expect.objectContaining({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }),
+      expect.objectContaining({ tenantId: "tnt_identity" }),
+    );
+  });
+
+  it("surfaces the aggregate refusal for a shipment without a matching order-cancelled conflict", async () => {
+    const services = createServices();
+    const fraudOnlyState = {
+      ...initialFulfillmentShipmentState,
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      status: "packing" as const,
+      packageStatus: "packing" as const,
+      conflicts: [
+        {
+          orderId: "ord_1" as never,
+          conflictKind: "cancellation" as const,
+          origin: "payment-fraud-warning" as const,
+          reason: null,
+          shipmentStatus: "packing" as const,
+        },
+      ],
+    };
+    vi.mocked(services.cancelShipment).mockImplementationOnce(async () => {
+      const events = decideFulfillmentShipment(fraudOnlyState, {
+        type: "CancelShipment",
+        cancelledAt: "2026-08-02T12:00:00.000Z",
+      });
+      return { shipmentId: "shp_1", version: events.length + 1 };
+    });
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/shp_1/cancel", {
+        method: "POST",
+        headers: MUTATION_HEADERS,
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Only shipments with an order cancellation conflict can be cancelled.",
+      },
+    });
+    expect(services.cancelShipment).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses the real seller cancel route for an awaiting-package shipment without a conflict", async () => {
+    const store = createInMemoryEventStore();
+    const checkpoints = new Map<string, GlobalPosition>();
+    const checkpointStore: ProjectionCheckpointStore = {
+      loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+      saveCheckpoint: async (projectorName, checkpoint) => {
+        checkpoints.set(projectorName, checkpoint);
+      },
+    };
+    const db = {
+      query: vi.fn(async (sql: string) =>
+        sql.includes("FROM fulfillment_shipment_pages")
+          ? {
+              rows: [
+                {
+                  shipment_id: "shp_real",
+                  seller_account_id: "acc_seller",
+                  status: "awaiting-package",
+                  package_status: "awaiting-package",
+                },
+              ],
+            }
+          : { rows: [] },
+      ),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore: store.eventStore,
+      checkpointStore,
+      db: db as never,
+    });
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    };
+    const addressSnapshot = {
+      name: "Buyer",
+      company: null,
+      line1: "2 Market St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+    } as const;
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_real",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_real" as never,
+        orderId: "ord_real" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot: addressSnapshot,
+        shippingOriginSnapshot: { ...addressSnapshot, name: "Seller" },
+        lines: [
+          {
+            lineId: "spl_real" as never,
+            orderLineId: "oli_real",
+            catalogItemId: "cat_real",
+            productId: "cat_real::",
+            itemTitle: "Route fixture",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-08-02T11:00:00.000Z",
+      },
+      context,
+    });
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view", "fulfillment.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/shp_real/cancel", {
+        method: "POST",
+        headers: MUTATION_HEADERS,
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Cannot cancel shipment a shipment that is awaiting-package.",
+      },
+    });
+    const events = store.readAllEvents();
+    expect(events.map((event) => event.eventType)).not.toContain("fulfillment.shipment.cancelled");
+    const state = events
+      .map((event) => ({ type: event.eventType, data: event.payload }) as never)
+      .reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    expect(state.status).toBe("awaiting-package");
   });
 
   it("purchases a USPS label through the configured postage provider path", async () => {
@@ -524,7 +785,7 @@ describe("fulfillment shipment routes", () => {
     const response = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/label/purchase", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: MUTATION_HEADERS,
         body: JSON.stringify({
           serviceLevel: "USPS_GROUND_ADVANTAGE",
           senderName: "Seller",
@@ -577,6 +838,7 @@ describe("fulfillment shipment routes", () => {
           heightInches: 1,
           weightOunces: 4,
         },
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
       expect.any(Object),
     );

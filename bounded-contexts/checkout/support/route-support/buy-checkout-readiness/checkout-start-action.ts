@@ -11,18 +11,13 @@ import {
   checkoutSessionPath,
   createGuestCheckoutStart,
   currentPathWithSearch,
-  guestCheckoutContactFromForm,
-  hasGuestCheckoutContact,
-  isAccountSignInRequiredError,
   isCheckoutAuthorizationError,
   recoverGuestCheckoutStartMismatch,
-  requestWithFreshWriteSource,
   signInPathForReturnTo,
   startGuestCheckoutSession,
-  waitForMergedCartProjection,
   type GuestCheckoutStart,
 } from "./checkout-start-guest";
-import { checkoutSessionRequestFromForm, ensureCartReadinessSnapshot } from "./checkout-start-source";
+import { checkoutSessionRequestFromForm, ensureCartReadinessSnapshot, sourceFromUrl } from "./checkout-start-source";
 
 function recoverCheckoutStartError(
   error: unknown,
@@ -39,27 +34,32 @@ function recoverCheckoutStartError(
 
 export async function action({ request }: ActionFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
-  const api = createCheckoutRequestApiClient(request);
   const formData = await request.formData();
   const anonymousCartId = readAnonymousCartId(request);
-  const sourceType = String(formData.get("source") ?? "cart");
+  const authoritativeSource = sourceFromUrl(new URL(request.url));
+  const sourceType = authoritativeSource?.type ?? String(formData.get("source") ?? "cart");
+  const anonymousCartHeaders = anonymousCartId ? { "x-checkout-anonymous-cart-id": anonymousCartId } : undefined;
+  const api = createCheckoutRequestApiClient(request, { headers: anonymousCartHeaders });
 
   if (actor) {
     try {
       const forceReadinessRefresh = sourceType === "cart";
-      let sessionApi = api;
       const writeSources: unknown[] = [];
       if (sourceType === "cart" && anonymousCartId) {
-        const mergeResult = await api.mergeGuestCartToAccount(anonymousCartId);
-        writeSources.push(mergeResult);
-        await waitForMergedCartProjection(api, mergeResult);
-        sessionApi = createCheckoutRequestApiClient(requestWithFreshWriteSource(request, mergeResult));
+        try {
+          writeSources.push(await api.mergeGuestCartToAccount(anonymousCartId));
+        } catch {
+          // The cart API owns the redacted failure signal. Entry continues from
+          // the Account-plus-presented-anonymous union in the original client.
+        }
       }
 
-      const sessionRequest = await ensureCartReadinessSnapshot(sessionApi, checkoutSessionRequestFromForm(formData), {
-        forceRefresh: forceReadinessRefresh,
-      });
-      const session = await sessionApi.createCheckoutSession(sessionRequest);
+      const sessionRequest = await ensureCartReadinessSnapshot(
+        api,
+        checkoutSessionRequestFromForm(formData, authoritativeSource),
+        { forceRefresh: forceReadinessRefresh },
+      );
+      const session = await api.createCheckoutSession(sessionRequest);
       const response = redirect(await checkoutSessionPath(session, writeSources));
       if (anonymousCartId) {
         appendClearedAnonymousCartCookie(response.headers, request);
@@ -70,6 +70,7 @@ export async function action({ request }: ActionFunctionArgs) {
       const recovered = await recoverGuestCheckoutStartMismatch(error, actor, request, formData, {
         anonymousCartId,
         sourceType,
+        source: authoritativeSource,
       });
       if (recovered) {
         return recovered;
@@ -97,33 +98,20 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  const contact = guestCheckoutContactFromForm(formData);
-  if (!hasGuestCheckoutContact(contact)) {
-    return null;
-  }
-
-  let guest: GuestCheckoutStart;
+  const guest = await createGuestCheckoutStart(request);
 
   try {
-    guest = await createGuestCheckoutStart(request, contact);
-  } catch (error) {
-    if (isAccountSignInRequiredError(error)) {
-      return {
-        emailExistsError: t("checkout.routes.checkoutStart.email.already.has.account"),
-        signInPath: signInPathForReturnTo(currentPathWithSearch(request)),
-      };
-    }
-
-    throw error;
-  }
-
-  try {
-    return await startGuestCheckoutSession(request, formData, { anonymousCartId, sourceType, guest });
+    return await startGuestCheckoutSession(request, formData, {
+      anonymousCartId,
+      sourceType,
+      source: authoritativeSource,
+      guest,
+    });
   } catch (error) {
     if (isCheckoutAuthorizationError(error) && canRecoverGuestCheckoutMismatch(sourceType, anonymousCartId)) {
       let retryGuest: GuestCheckoutStart;
       try {
-        retryGuest = await createGuestCheckoutStart(request, contact);
+        retryGuest = await createGuestCheckoutStart(request);
       } catch {
         return recoverCheckoutStartError(error, actor, request);
       }
@@ -132,6 +120,7 @@ export async function action({ request }: ActionFunctionArgs) {
         return await startGuestCheckoutSession(request, formData, {
           anonymousCartId,
           sourceType,
+          source: authoritativeSource,
           guest: retryGuest,
         });
       } catch (retryError) {

@@ -1,4 +1,7 @@
-import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, OrderId, PaymentId, TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { ProviderWriteWindow, ProviderCancelGovernance } from "@chase-sets/evidence-window-provider-write";
+
+export type ProcessorPaymentId = PaymentId | TypedUlid<"wfp">;
 
 export type PaymentCurrencyCode = "usd";
 export type PaymentProcessorName = "stripe";
@@ -33,7 +36,9 @@ export type PaymentProcessorPublicConfig = Readonly<{
 }>;
 
 export type CreateProcessorPaymentInput = Readonly<{
-  paymentId: PaymentId;
+  paymentId: ProcessorPaymentId;
+  purpose?: "wallet-funding";
+  evidenceWindow?: ProviderWriteWindow | null;
   buyerAccountId: AccountId;
   orderIds: readonly OrderId[];
   amount: string;
@@ -72,6 +77,7 @@ export type CreatedProcessorCustomer = Readonly<{
 }>;
 
 export type CreateProcessorCustomerInput = Readonly<{
+  evidenceWindow?: ProviderWriteWindow | null;
   accountId: AccountId;
   displayName?: string | null;
   email?: string | null;
@@ -88,6 +94,8 @@ export type CreatedProcessorSetupSession = Readonly<{
 }>;
 
 export type CreateProcessorSetupSessionInput = Readonly<{
+  evidenceWindow?: ProviderWriteWindow | null;
+  setupReferenceId?: string;
   accountId: AccountId;
   providerCustomerReference: string;
   currencyCode: PaymentCurrencyCode;
@@ -118,11 +126,76 @@ export type ProcessorSetupSessionResult = Readonly<{
   savedPaymentMethod: ProcessorSavedPaymentMethod | null;
 }>;
 
+export type ProcessorSetupSessionCancellationResult =
+  | Readonly<{ outcome: "cancelled"; processorStatus: "canceled" }>
+  | Readonly<{ outcome: "already-terminal"; processorStatus: "canceled" | "succeeded" }>
+  | Readonly<{ outcome: "not-found" }>
+  | Readonly<{ outcome: "refused"; reason: "invalid-reference"; httpStatus: null }>
+  | Readonly<{ outcome: "refused"; reason: "transport-failure"; httpStatus: null }>
+  | Readonly<{ outcome: "refused"; reason: "provider-rejected"; httpStatus: number }>
+  | Readonly<{ outcome: "refused"; reason: "unexpected-status"; httpStatus: 200 }>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, expectedKeys: readonly string[]) {
+  const actualKeys = Object.keys(value);
+  return actualKeys.length === expectedKeys.length && expectedKeys.every((key) => Object.hasOwn(value, key));
+}
+
+export function parseProcessorSetupSessionCancellationResult(
+  value: unknown,
+): ProcessorSetupSessionCancellationResult | null {
+  if (!isRecord(value) || typeof value.outcome !== "string") {
+    return null;
+  }
+
+  if (value.outcome === "cancelled") {
+    return hasExactKeys(value, ["outcome", "processorStatus"]) && value.processorStatus === "canceled"
+      ? { outcome: "cancelled", processorStatus: "canceled" }
+      : null;
+  }
+
+  if (value.outcome === "already-terminal") {
+    return hasExactKeys(value, ["outcome", "processorStatus"]) &&
+      (value.processorStatus === "canceled" || value.processorStatus === "succeeded")
+      ? { outcome: "already-terminal", processorStatus: value.processorStatus }
+      : null;
+  }
+
+  if (value.outcome === "not-found") {
+    return hasExactKeys(value, ["outcome"]) ? { outcome: "not-found" } : null;
+  }
+
+  if (value.outcome !== "refused" || !hasExactKeys(value, ["outcome", "reason", "httpStatus"])) {
+    return null;
+  }
+
+  if (value.reason === "invalid-reference" || value.reason === "transport-failure") {
+    return value.httpStatus === null ? { outcome: "refused", reason: value.reason, httpStatus: null } : null;
+  }
+
+  if (value.reason === "provider-rejected") {
+    return typeof value.httpStatus === "number" &&
+      Number.isInteger(value.httpStatus) &&
+      value.httpStatus >= 100 &&
+      value.httpStatus <= 599
+      ? { outcome: "refused", reason: "provider-rejected", httpStatus: value.httpStatus }
+      : null;
+  }
+
+  if (value.reason === "unexpected-status") {
+    return value.httpStatus === 200 ? { outcome: "refused", reason: "unexpected-status", httpStatus: 200 } : null;
+  }
+
+  return null;
+}
+
 export type AgenticPaymentHandlerDeclaration = Readonly<{
   id: "stripe-shared-payment-token";
   provider: "stripe";
   type: "shared_payment_token";
-  requiresAp2Mandate: true;
   confirmationExperience: "server-confirmed-payment-intent";
 }>;
 
@@ -131,8 +204,6 @@ export type AgenticProcessorPaymentInput = CreateProcessorPaymentInput &
     agenticPayment: Readonly<{
       kind: "stripe-shared-payment-token";
       sharedPaymentGrantedToken: string;
-      ap2CheckoutMandateId?: string | null;
-      ap2PaymentMandateId?: string | null;
     }>;
   }>;
 
@@ -160,7 +231,7 @@ export type ProcessorPaymentReconciliationResult = Readonly<{
   processorStatus: string;
   outcome: ProcessorPaymentReconciliationOutcome;
   occurredAt: string;
-  internalPaymentId?: PaymentId | null;
+  internalPaymentId?: ProcessorPaymentId | null;
   failureCode?: string | null;
   failureMessage?: string | null;
   liabilityShiftOutcome?: ProcessorLiabilityShiftOutcome | null;
@@ -171,7 +242,9 @@ export type ProcessorPaymentReconciliationResult = Readonly<{
 
 export type CreateProcessorRefundInput = Readonly<{
   refundId: string;
-  paymentId: PaymentId;
+  paymentId: ProcessorPaymentId;
+  purpose?: "wallet-funding";
+  idempotencyKey?: string;
   processorPaymentReference: string;
   orderIds: readonly OrderId[];
   amount: string;
@@ -183,6 +256,22 @@ export type CreatedProcessorRefund = Readonly<{
   processorName: PaymentProcessorName;
   processorRefundReference: string;
   processorStatus: string;
+}>;
+
+export type ProcessorRefundLookupInput = Readonly<{
+  fundingId: TypedUlid<"wfp">;
+  refundId: string;
+  processorPaymentReference: string;
+  processorRefundReference: string | null;
+}>;
+export type ProcessorRefundResult = Readonly<{
+  fundingId: TypedUlid<"wfp">;
+  refundId: string;
+  processorPaymentReference: string;
+  processorRefundReference: string;
+  amount: string;
+  currencyCode: PaymentCurrencyCode;
+  status: "succeeded" | "failed" | "cancelled" | "pending" | "unknown";
 }>;
 
 export type ProcessorDisputeEvidence = Readonly<{
@@ -241,7 +330,7 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   amount?: string | null;
   refundedAmount?: string | null;
   currencyCode?: PaymentCurrencyCode | null;
-  internalPaymentId?: PaymentId | null;
+  internalPaymentId?: ProcessorPaymentId | null;
   processorStatus: string;
   failureCode: string | null;
   failureMessage: string | null;
@@ -251,6 +340,7 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   disputeLifecycleState?: ProcessorPaymentDisputeLifecycleState | null;
   disputeStatus?: string | null;
   disputeReason?: string | null;
+  disputeFeeAmount?: string | null;
   disputeEvidenceDueAt?: string | null;
   fraudType?: string | null;
   fraudReviewReason?: string | null;
@@ -268,6 +358,10 @@ export interface PaymentProcessorGateway {
   createCustomer(input: CreateProcessorCustomerInput): Promise<CreatedProcessorCustomer>;
   createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession>;
   retrieveSetupSessionResult(processorSetupReference: string): Promise<ProcessorSetupSessionResult>;
+  cancelSetupSession(
+    processorSetupReference: string,
+    governance: ProviderCancelGovernance,
+  ): Promise<ProcessorSetupSessionCancellationResult>;
   retrieveSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   /**
@@ -278,11 +372,21 @@ export interface PaymentProcessorGateway {
    * processor and the returned reference is the stable webhook lookup key.
    */
   createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment>;
+  retrieveWalletFundingConfirmation?(
+    fundingId: TypedUlid<"wfp">,
+    processorPaymentReference: string,
+  ): Promise<CreatedProcessorPayment | null>;
   createAgenticPaymentSession?(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment>;
-  cancelPayment(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult>;
+  cancelPayment(
+    processorPaymentReference: string,
+    governance: ProviderCancelGovernance,
+  ): Promise<ProcessorPaymentReconciliationResult>;
   retrievePaymentResult(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult | null>;
-  retrievePaymentResultByPaymentId?(paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null>;
+  retrievePaymentResultByPaymentId?(
+    paymentId: ProcessorPaymentId,
+  ): Promise<ProcessorPaymentReconciliationResult | null>;
   createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund>;
+  retrieveWalletFundingRefund?(input: ProcessorRefundLookupInput): Promise<ProcessorRefundResult | null>;
   submitDisputeEvidence?(input: SubmitProcessorDisputeEvidenceInput): Promise<SubmittedProcessorDisputeEvidence>;
   parseWebhook(
     input: Readonly<{ rawBody: string; signatureHeader: string | null }>,

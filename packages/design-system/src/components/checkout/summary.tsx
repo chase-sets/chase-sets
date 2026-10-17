@@ -65,13 +65,13 @@ function CheckoutLinePrice({ item }: { item: CheckoutSummaryItem }) {
   }
 
   return (
-    <div className="text-right text-sm font-semibold tabular-nums text-foreground">
+    <div className="text-right text-sm font-semibold text-foreground">
       {state === "indicative" ? (
         <span className="mr-1 align-baseline text-xs font-medium text-secondary">
           {item.indicativePrefix ?? "from"}
         </span>
       ) : null}
-      {item.price}
+      <span className="font-mono tabular-nums">{item.price}</span>
     </div>
   );
 }
@@ -212,7 +212,7 @@ export function CheckoutSummaryPanel({
   ...rest
 }: CheckoutSummaryPanelProps) {
   return (
-    <Surface {...rest} element="section" tone="subtle">
+    <Surface {...rest} element="section" tone="subtle" elevation="tinted">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="m-0 text-base font-semibold text-foreground">{title}</h2>

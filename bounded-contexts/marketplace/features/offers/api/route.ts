@@ -3,18 +3,74 @@ import {
   publicClientRequestKey,
   rateLimitExceededJsonResponse,
 } from "@chase-sets/http/rate-limit";
-import { formatMoney, t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { t } from "@chase-sets/localization";
+import { Hono, type Context } from "hono";
 import { parseOptionalTypedIdBoundary, parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
+  MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT,
   MarketplaceOfferAbuseControlError,
   MarketplaceOfferAcceptanceReadinessError,
   MarketplaceOfferFeeQuoteStaleError,
+  MarketplaceOfferLifecycleError,
   type MarketplaceOfferServices,
 } from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./response-shape";
+import { ManagedOfferConflictError } from "./managed-authority";
+import { parseSubmittedOfferStatus } from "../read-model/queries";
+import type { OfferLifecycleAction } from "../domain/domain";
+import { MarketplaceOfferLifecycleClosedError } from "./lifecycle-admission";
+
+const offerLifecycleActions = ["pause", "resume", "withdraw"] as const satisfies readonly OfferLifecycleAction[];
+
+function lifecycleClosedResponse(c: { json: (body: unknown, status?: number) => Response }) {
+  return c.json(
+    {
+      error: {
+        code: "offer_lifecycle_closed",
+        message: t("marketplace.features.offers.api.route.offer.lifecycle.closed"),
+      },
+    },
+    503,
+  );
+}
+
+function lifecycleErrorResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
+  if (error instanceof MarketplaceOfferLifecycleClosedError) return lifecycleClosedResponse(c);
+  if (!(error instanceof MarketplaceOfferLifecycleError)) return validationError(c, error);
+  if (error.code === "not_found")
+    return c.json(
+      { error: { code: error.code, message: t("marketplace.features.offers.api.route.submitted.offer.not.found") } },
+      404,
+    );
+  return c.json(
+    {
+      error: {
+        code: error.code,
+        message:
+          error.code === "offer_conflict"
+            ? t("marketplace.features.offers.api.route.offer.conflict")
+            : t("marketplace.features.offers.api.route.offer.transition.rejected"),
+      },
+    },
+    409,
+  );
+}
+
+function parseBulkLifecycleRequest(body: unknown) {
+  const source = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const action = offerLifecycleActions.find((candidate) => candidate === source.action);
+  const offerIds = source.offerIds;
+  if (
+    !action ||
+    !Array.isArray(offerIds) ||
+    offerIds.length === 0 ||
+    offerIds.length > MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT
+  )
+    return null;
+  return { action, offerIds: offerIds.map((id, index) => parseTypedIdBoundary(id, "off", `offerIds[${index}]`)) };
+}
 
 function requireOfferAccess(
   c: {
@@ -92,6 +148,8 @@ function validationError(
   },
   error: unknown,
 ) {
+  if (error instanceof ManagedOfferConflictError)
+    return c.json({ error: { code: error.code, message: error.message } }, 409);
   if (error instanceof MarketplaceOfferFeeQuoteStaleError) {
     return c.json(
       {
@@ -140,18 +198,6 @@ function offerAbuseControlMessage(error: MarketplaceOfferAbuseControlError) {
       return t("marketplace.features.offers.api.route.offer.daily.submission.cap.reached", {
         limit: String(error.details.limit ?? ""),
       });
-    case "offer_listing_submission_cap_reached":
-      return t("marketplace.features.offers.api.route.offer.listing.submission.cap.reached", {
-        limit: String(error.details.limit ?? ""),
-      });
-    case "offer_price_floor_not_met":
-      return t("marketplace.features.offers.api.route.offer.price.floor.not.met", {
-        amount: formatMoney(String(error.details.minimumOfferAmount ?? "0.00"), "USD"),
-      });
-    case "offer_lowball_cooldown":
-      return t("marketplace.features.offers.api.route.offer.lowball.cooldown");
-    case "offer_muted_by_sellers":
-      return t("marketplace.features.offers.api.route.offer.muted.by.sellers");
     default:
       return error.message;
   }
@@ -244,6 +290,7 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
       buyerAccountId: access.actor.accountId,
       limit,
       offset,
+      status: parseSubmittedOfferStatus(c.req.query("status")),
     });
 
     const response = publicOfferListResponse(result);
@@ -251,8 +298,93 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
     return c.json({
       ...response,
       count: response.items.length,
+      statusCounts: result.statusCounts,
     });
   });
+
+  app.post("/offers/submitted/bulk", async (c) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.required"),
+          },
+        },
+        401,
+      );
+    }
+    let request: ReturnType<typeof parseBulkLifecycleRequest>;
+    try {
+      request = parseBulkLifecycleRequest(await c.req.json().catch(() => null));
+    } catch (error) {
+      return validationError(c, error);
+    }
+    if (!request) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("marketplace.features.offers.api.route.bulk.invalid", {
+              limit: String(MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT),
+            }),
+          },
+        },
+        400,
+      );
+    }
+    let items: Awaited<ReturnType<MarketplaceOfferServices["bulkChangeOfferLifecycle"]>>;
+    try {
+      items = await services.bulkChangeOfferLifecycle(
+        { buyerAccountId: access.actor.accountId as AccountId, action: request.action, offerIds: request.offerIds },
+        context,
+      );
+    } catch (error) {
+      if (error instanceof MarketplaceOfferLifecycleClosedError) return lifecycleClosedResponse(c);
+      throw error;
+    }
+    return c.json({ action: request.action, items, total: items.length, count: items.length });
+  });
+
+  const changeLifecycle = (action: OfferLifecycleAction) => async (c: Context<MarketplaceApiEnv>) => {
+    const access = requireOfferAccess(c, "offers.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.required"),
+          },
+        },
+        401,
+      );
+    }
+    try {
+      const result = await services.changeOfferLifecycle(
+        {
+          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
+          buyerAccountId: access.actor.accountId as AccountId,
+          action,
+        },
+        context,
+      );
+      return c.json({ id: result.offerId, version: result.version, status: result.status, outcome: result.outcome });
+    } catch (error) {
+      return lifecycleErrorResponse(c, error);
+    }
+  };
+  app.post("/offers/submitted/:id/pause", changeLifecycle("pause"));
+  app.post("/offers/submitted/:id/resume", changeLifecycle("resume"));
+  app.post("/offers/submitted/:id/withdraw", changeLifecycle("withdraw"));
 
   app.get("/offers/submitted/:id", async (c) => {
     const access = requireOfferAccess(c, "offers.view");
@@ -320,12 +452,47 @@ export function createAccountSubmittedOfferRoutes(services: MarketplaceOfferServ
             body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
           shippingDestinationSnapshot: parseShippingDestination(body.shippingDestinationSnapshot),
           priceAmount: String(body.priceAmount ?? ""),
+          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
           quantityRequested: Number(body.quantityRequested ?? 0),
         },
         context,
       );
 
       return c.json({ id: result.offerId, version: result.version, status: "submitted" }, 201);
+    } catch (error) {
+      return validationError(c, error);
+    }
+  });
+
+  app.patch("/offers/submitted/:id/price", async (c) => {
+    const access = requireSignedInAccount(c);
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("marketplace.features.offers.api.route.authentication.required"),
+          },
+        },
+        401,
+      );
+    }
+    const body = await c.req.json();
+    try {
+      const result = await services.updateOfferPrice(
+        {
+          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
+          buyerAccountId: access.actor.accountId as AccountId,
+          priceAmount: String(body.priceAmount ?? ""),
+          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
+        },
+        context,
+      );
+      return c.json({ id: result.offerId, version: result.version, status: result.status });
     } catch (error) {
       return validationError(c, error);
     }
@@ -381,27 +548,6 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
     return c.json({
       ...response,
       count: response.items.length,
-    });
-  });
-
-  app.get("/offers/mutes", async (c) => {
-    const access = requireOfferAccess(c, "offers.view");
-    if (access.response) {
-      return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
-    }
-
-    const result = await services.listOfferBuyerMutes(access.actor.accountId);
-
-    return c.json({
-      ...result,
-      count: result.items.length,
     });
   });
 
@@ -566,97 +712,6 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
       );
 
       return c.json({ id: result.offerId, version: result.version, status: "declined" }, 201);
-    } catch (error) {
-      return validationError(c, error);
-    }
-  });
-
-  app.post("/offers/matches/:id/mute-buyer", async (c) => {
-    const access = requireOfferAccess(c, "offers.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
-          },
-        },
-        401,
-      );
-    }
-
-    try {
-      const result = await services.muteBuyerOffers(
-        {
-          offerId: parseTypedIdBoundary(c.req.param("id"), "off", "offerId"),
-          sellerAccountId: access.actor.accountId as AccountId,
-        },
-        context,
-      );
-
-      return c.json({ id: result.offerId, version: result.version, status: "muted" }, 201);
-    } catch (error) {
-      return validationError(c, error);
-    }
-  });
-
-  app.post("/offers/mutes/:listingId/:buyerAccountId/unmute", async (c) => {
-    const access = requireOfferAccess(c, "offers.manage");
-    if (access.response) {
-      return access.response;
-    }
-
-    if (!access.actor.permissions.includes("listings.view")) {
-      return c.json(
-        { error: { code: "authorization_forbidden", message: t("marketplace.features.offers.api.route.forbidden.2") } },
-        403,
-      );
-    }
-
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("marketplace.features.offers.api.route.authentication.context.missing.2"),
-          },
-        },
-        401,
-      );
-    }
-
-    try {
-      const result = await services.unmuteBuyerOffers(
-        {
-          listingId: c.req.param("listingId"),
-          buyerAccountId: parseTypedIdBoundary(c.req.param("buyerAccountId"), "acc", "buyerAccountId"),
-          sellerAccountId: access.actor.accountId as AccountId,
-        },
-        context,
-      );
-
-      return c.json(
-        {
-          listingId: result.listingId,
-          buyerAccountId: result.buyerAccountId,
-          version: result.version,
-          status: "unmuted",
-        },
-        201,
-      );
     } catch (error) {
       return validationError(c, error);
     }

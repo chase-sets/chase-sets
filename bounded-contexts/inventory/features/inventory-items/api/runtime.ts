@@ -4,13 +4,13 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CatalogItemId, InventoryItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type {
+  AcquisitionOccurrence,
   InventoryAdjustmentReason,
   InventoryAdjustmentSourceRef,
 } from "@chase-sets/event-core/public-event-payloads";
@@ -24,12 +24,21 @@ import {
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
 import {
+  claimInventoryAdjustmentIdempotency,
+  completeInventoryAdjustmentIdempotency,
+  inventoryAdjustmentCommandFingerprint,
+  normalizeInventoryAdjustmentNote,
+  normalizeInventoryIdempotencyKey,
+  recoverInventoryAdjustmentIdempotency,
+  releaseInventoryAdjustmentIdempotency,
+} from "../../../support/runtime-support/inventory-adjustment-idempotency";
+import {
   loadAuthoritativeInventoryStockSnapshot,
-  loadInventoryStockSnapshot,
   type InventoryItemRepository,
 } from "../../../support/runtime-support/stock-snapshot";
 import { getStorageLocation } from "../../storage-locations/read-model/queries";
 import type { StorageLocationServices } from "../../storage-locations/api/runtime";
+import { withInventoryMutationChildAttempt } from "../../../support/runtime-support/mutation-attempt";
 import {
   decideInventoryItem,
   evolveInventoryItem,
@@ -74,6 +83,8 @@ export type InventoryItemServices = Readonly<{
       storageLocationId: string;
       totalQuantity: number;
       acquisitionCostAmount?: string | null;
+      acquisitionCostCurrencyCode?: string | null;
+      acquisitionOccurrence?: AcquisitionOccurrence;
       itemIdOverride?: InventoryItemId;
     }>,
     context: EventStoreContext,
@@ -88,6 +99,7 @@ export type InventoryItemServices = Readonly<{
       note?: string | null;
       idempotencyKey?: string | null;
       sourceRef?: InventoryAdjustmentSourceRef;
+      acquisitionOccurrence?: AcquisitionOccurrence;
     }>,
     context: EventStoreContext,
   ) => Promise<{ itemId: string; version: number }>;
@@ -113,6 +125,8 @@ export function createInventoryItemRuntime(
   catalogItems: InventoryCatalogItemServices,
   storageLocations: StorageLocationServices,
 ): InventoryItemServices {
+  const child: NonNullable<InventoryRuntimeDeps["mutationChild"]> =
+    deps.mutationChild ?? (async (_name, _family, _target, _params, context, work) => work(context));
   const codec = createPassthroughDomainEventCodec<InventoryItemEvent>();
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
@@ -172,6 +186,7 @@ export function createInventoryItemRuntime(
   return {
     commandHandler,
     createItem: async (params, context) => {
+      const commandOccurredAt = new Date().toISOString();
       const location = await getStorageLocation(deps.db, params.storageLocationId, params.accountId);
 
       if (!location) {
@@ -235,6 +250,9 @@ export function createInventoryItemRuntime(
           storageLocationId: params.storageLocationId,
           totalQuantity: params.totalQuantity,
           acquisitionCostAmount: params.acquisitionCostAmount ?? null,
+          acquisitionCostCurrencyCode: params.acquisitionCostCurrencyCode ?? null,
+          acquisitionOccurrence: params.acquisitionOccurrence ?? { kind: "unknown" },
+          commandOccurredAt,
         },
         context,
       });
@@ -245,8 +263,12 @@ export function createInventoryItemRuntime(
       };
     },
     adjustItem: async (params, context) => {
-      const idempotencyKey = normalizeIdempotencyKey(params.idempotencyKey);
-      const normalizedNote = params.note === undefined ? undefined : normalizeAdjustmentNote(params.note);
+      const commandOccurredAt = new Date().toISOString();
+      const acquisitionOccurrence =
+        params.quantityDelta > 0 ? (params.acquisitionOccurrence ?? { kind: "unknown" as const }) : undefined;
+      const idempotencyKey = normalizeInventoryIdempotencyKey(params.idempotencyKey);
+      const claimGeneration = createId("iaj");
+      const normalizedNote = params.note === undefined ? undefined : normalizeInventoryAdjustmentNote(params.note);
       const commandFingerprint = inventoryAdjustmentCommandFingerprint({
         accountId: params.accountId,
         itemId: params.itemId,
@@ -255,6 +277,7 @@ export function createInventoryItemRuntime(
         reasonCode: params.reasonCode,
         note: normalizedNote,
         sourceRef: params.sourceRef ?? null,
+        acquisitionOccurrence,
       });
       if (idempotencyKey) {
         const existing = await claimInventoryAdjustmentIdempotency(deps.db, {
@@ -262,6 +285,7 @@ export function createInventoryItemRuntime(
           accountId: params.accountId,
           itemId: params.itemId,
           commandFingerprint,
+          claimGeneration,
         });
         if (existing) {
           if (existing.command_fingerprint !== commandFingerprint) {
@@ -276,6 +300,7 @@ export function createInventoryItemRuntime(
           const recovered = await recoverInventoryAdjustmentIdempotency(deps, {
             existing,
             idempotencyKey,
+            commandFingerprint,
             accountId: params.accountId,
             itemId: params.itemId,
             quantityDelta: params.quantityDelta,
@@ -283,6 +308,7 @@ export function createInventoryItemRuntime(
             reasonCode: params.reasonCode,
             note: normalizedNote,
             sourceRef: params.sourceRef ?? null,
+            acquisitionOccurrence,
           });
           if (recovered) {
             return recovered;
@@ -308,8 +334,9 @@ export function createInventoryItemRuntime(
             csatOutcomeFact,
           });
         } else {
-          const stock = await loadInventoryStockSnapshot({
+          const stock = await loadAuthoritativeInventoryStockSnapshot({
             db: deps.db,
+            eventStore: deps.eventStore,
             itemRepository: repository,
             itemId: params.itemId,
             accountId: params.accountId as AccountId,
@@ -326,6 +353,7 @@ export function createInventoryItemRuntime(
               ...(params.reasonCode !== undefined ? { reasonCode: params.reasonCode } : {}),
               ...(normalizedNote !== undefined ? { note: normalizedNote } : {}),
               sourceRef: params.sourceRef ?? null,
+              ...(params.quantityDelta > 0 ? { acquisitionOccurrence, commandOccurredAt } : {}),
             },
             context,
           });
@@ -333,17 +361,27 @@ export function createInventoryItemRuntime(
         }
       } catch (error) {
         if (idempotencyKey) {
-          await releaseInventoryAdjustmentIdempotency(deps.db, idempotencyKey);
+          await releaseInventoryAdjustmentIdempotency(deps.db, {
+            idempotencyKey,
+            commandFingerprint,
+            claimGeneration,
+          });
         }
         throw error;
       }
 
       if (idempotencyKey) {
-        await completeInventoryAdjustmentIdempotency(deps.db, {
+        const completed = await completeInventoryAdjustmentIdempotency(deps.db, {
           idempotencyKey,
+          commandFingerprint,
+          claimGeneration,
           resultItemId: params.itemId,
           resultVersion,
+          resultCollision: null,
         });
+        if (!completed) {
+          throw new InventoryDomainError("Inventory adjustment idempotency claim was replaced before completion.");
+        }
       }
 
       return {
@@ -400,7 +438,7 @@ export function createInventoryItemRuntime(
             shipFromCode: params.shipFromCode?.trim() || "LISTING-STOCK",
             shipFromAddress: params.shipFromAddress,
           },
-          context,
+          deps.mutationChild ? withInventoryMutationChildAttempt(context, "listing-location") : context,
         );
         createdStorageLocation = true;
         await upsertStorageLocationReadModel({
@@ -438,6 +476,20 @@ export function createInventoryItemRuntime(
       let adjustedQuantityBy = 0;
       let totalQuantity = existingItem?.total_quantity ?? 0;
       let availableQuantity = existingItem?.available_quantity ?? 0;
+      const aggregate = existingItem ? await repository.load(`inventory.item-${existingItem.item_id}`) : null;
+      if (existingItem && aggregate) {
+        const stock = await loadAuthoritativeInventoryStockSnapshot({
+          db: deps.db,
+          eventStore: deps.eventStore,
+          itemRepository: repository,
+          itemId: existingItem.item_id,
+          accountId: params.accountId,
+          context,
+          itemAggregate: aggregate,
+        });
+        totalQuantity = stock.totalQuantity;
+        availableQuantity = stock.availableQuantity;
+      }
 
       if (!inventoryItemId) {
         const itemId = createListingStockInventoryItemId({
@@ -448,49 +500,91 @@ export function createInventoryItemRuntime(
           gradedCard,
           storageLocationId: location.storage_location_id,
         });
-        await commandHandler({
-          streamId: `inventory.item-${itemId}`,
-          command: {
-            type: "CreateInventoryItem",
-            itemId,
+        await child(
+          "listing-item",
+          "item-create",
+          itemId,
+          {
             accountId: params.accountId,
-            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-              accountId: params.accountId,
-              itemId,
-              idempotencyKey: `inventory:item.adjusted:${itemId}:listing-stock-created`,
-            }),
-            catalogItemId: params.catalogItemId as CatalogItemId,
-            productId: catalogVersion.productId,
+            itemIdOverride: itemId,
+            catalogItemId: params.catalogItemId,
             selectedOptions: catalogVersion.selection,
             gradedCard,
             storageLocationId: location.storage_location_id,
             totalQuantity: params.quantity,
-            acquisitionCostAmount: null,
           },
           context,
-        });
+          async (childContext) => {
+            const result = await commandHandler({
+              streamId: `inventory.item-${itemId}`,
+              command: {
+                type: "CreateInventoryItem",
+                itemId,
+                accountId: params.accountId,
+                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                  accountId: params.accountId,
+                  itemId,
+                  idempotencyKey: `inventory:item.adjusted:${itemId}:listing-stock-created`,
+                }),
+                catalogItemId: params.catalogItemId as CatalogItemId,
+                productId: catalogVersion.productId,
+                selectedOptions: catalogVersion.selection,
+                gradedCard,
+                storageLocationId: location.storage_location_id,
+                totalQuantity: params.quantity,
+                acquisitionCostAmount: null,
+                acquisitionCostCurrencyCode: null,
+                acquisitionOccurrence: { kind: "unknown" },
+                commandOccurredAt: new Date().toISOString(),
+              },
+              context: childContext,
+            });
+            return { itemId, version: result.version };
+          },
+        );
         inventoryItemId = itemId;
         createdInventoryItem = true;
         totalQuantity = params.quantity;
         availableQuantity = params.quantity;
-      } else if (availableQuantity < params.quantity) {
+      } else if (aggregate && availableQuantity < params.quantity) {
+        const adjustedItemId = inventoryItemId;
         adjustedQuantityBy = params.quantity - availableQuantity;
-        await commandHandler({
-          streamId: `inventory.item-${inventoryItemId}`,
-          command: {
-            type: "AdjustInventoryItemQuantity",
-            csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
-              accountId: params.accountId,
-              itemId: inventoryItemId,
-              idempotencyKey: `inventory:item.adjusted:${inventoryItemId}:listing-stock:${params.quantity}`,
-            }),
+        await child(
+          "listing-adjustment",
+          "item-adjust",
+          inventoryItemId,
+          {
+            accountId: params.accountId,
+            itemId: inventoryItemId,
             quantityDelta: adjustedQuantityBy,
-            heldQuantity: existingItem?.held_quantity ?? 0,
             reason: "Automatic listing stock",
             reasonCode: "intake",
+            acquisitionOccurrence: { kind: "unknown" },
           },
           context,
-        });
+          async (childContext) => {
+            const result = await commandHandler({
+              streamId: `inventory.item-${inventoryItemId}`,
+              expectedVersion: aggregate.version,
+              command: {
+                type: "AdjustInventoryItemQuantity",
+                csatOutcomeFact: createInventoryItemAdjustedCsatOutcomeFact({
+                  accountId: params.accountId,
+                  itemId: adjustedItemId,
+                  idempotencyKey: `inventory:item.adjusted:${inventoryItemId}:listing-stock:${params.quantity}`,
+                }),
+                quantityDelta: adjustedQuantityBy,
+                heldQuantity: totalQuantity - availableQuantity,
+                reason: "Automatic listing stock",
+                reasonCode: "intake",
+                acquisitionOccurrence: { kind: "unknown" },
+                commandOccurredAt: new Date().toISOString(),
+              },
+              context: childContext,
+            });
+            return { itemId: inventoryItemId, version: result.version };
+          },
+        );
         totalQuantity += adjustedQuantityBy;
         availableQuantity += adjustedQuantityBy;
       }
@@ -518,6 +612,7 @@ export function createInventoryItemRuntime(
           totalQuantity,
           availableQuantity,
           acquisitionCostAmount: null,
+          acquisitionCostCurrencyCode: null,
         },
       };
     },
@@ -556,6 +651,7 @@ async function appendAuthoritativeNegativeAdjustment(
     const aggregate = await input.repository.load(`inventory.item-${input.params.itemId}`);
     const stock = await loadAuthoritativeInventoryStockSnapshot({
       db: input.deps.db,
+      eventStore: input.deps.eventStore,
       itemRepository: input.repository,
       itemId: input.params.itemId,
       accountId: input.params.accountId as AccountId,
@@ -569,7 +665,7 @@ async function appendAuthoritativeNegativeAdjustment(
       heldQuantity: stock.heldQuantity,
       reason: input.params.reason,
       ...(input.params.reasonCode !== undefined ? { reasonCode: input.params.reasonCode } : {}),
-      ...(input.params.note !== undefined ? { note: normalizeAdjustmentNote(input.params.note) } : {}),
+      ...(input.params.note !== undefined ? { note: normalizeInventoryAdjustmentNote(input.params.note) } : {}),
       sourceRef: input.params.sourceRef ?? null,
     });
 
@@ -591,180 +687,6 @@ async function appendAuthoritativeNegativeAdjustment(
   }
 
   throw new InventoryDomainError("Inventory stock changed while applying the adjustment.");
-}
-
-type InventoryAdjustmentIdempotencyRow = Readonly<{
-  inserted: boolean;
-  command_fingerprint: string;
-  status: "in_progress" | "completed";
-  result_item_id: string | null;
-  result_version: string | number | null;
-  created_at: string | Date;
-}>;
-
-function normalizeIdempotencyKey(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? "";
-  return normalized.length > 0 ? normalized : null;
-}
-
-function normalizeAdjustmentNote(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? "";
-  return normalized.length > 0 ? normalized : null;
-}
-
-function inventoryAdjustmentCommandFingerprint(
-  input: Readonly<{
-    accountId: string;
-    itemId: string;
-    quantityDelta: number;
-    reason: string;
-    reasonCode?: InventoryAdjustmentReason;
-    note?: string | null;
-    sourceRef?: InventoryAdjustmentSourceRef;
-  }>,
-): string {
-  const extendedReason =
-    input.reasonCode !== undefined || input.note !== undefined
-      ? {
-          reasonCode: input.reasonCode ?? null,
-          note: input.note === undefined ? null : normalizeAdjustmentNote(input.note),
-        }
-      : {};
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        accountId: input.accountId,
-        itemId: input.itemId,
-        quantityDelta: input.quantityDelta,
-        reason: input.reason.trim(),
-        sourceRef: input.sourceRef ?? null,
-        ...extendedReason,
-      }),
-    )
-    .digest("hex");
-}
-
-async function claimInventoryAdjustmentIdempotency(
-  db: InventoryRuntimeDeps["db"],
-  input: Readonly<{
-    idempotencyKey: string;
-    accountId: string;
-    itemId: string;
-    commandFingerprint: string;
-  }>,
-): Promise<InventoryAdjustmentIdempotencyRow | null> {
-  const result = await db.query<InventoryAdjustmentIdempotencyRow>(
-    `WITH inserted AS (
-       INSERT INTO inventory_item_adjustment_idempotency (
-         idempotency_key,
-         account_id,
-         item_id,
-         command_fingerprint,
-         status,
-         created_at
-       ) VALUES ($1, $2, $3, $4, 'in_progress', now())
-       ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING true AS inserted, command_fingerprint, status, result_item_id, result_version, created_at
-     )
-     SELECT inserted, command_fingerprint, status, result_item_id, result_version, created_at
-     FROM inserted
-     UNION ALL
-     SELECT false AS inserted, command_fingerprint, status, result_item_id, result_version, created_at
-     FROM inventory_item_adjustment_idempotency
-     WHERE idempotency_key = $1
-       AND NOT EXISTS (SELECT 1 FROM inserted)
-     LIMIT 1`,
-    [input.idempotencyKey, input.accountId, input.itemId, input.commandFingerprint],
-  );
-  const row = result.rows[0] ?? null;
-  return row?.inserted ? null : row;
-}
-
-async function recoverInventoryAdjustmentIdempotency(
-  deps: InventoryRuntimeDeps,
-  input: Readonly<{
-    existing: InventoryAdjustmentIdempotencyRow;
-    idempotencyKey: string;
-    accountId: string;
-    itemId: string;
-    quantityDelta: number;
-    reason: string;
-    reasonCode?: InventoryAdjustmentReason;
-    note?: string | null;
-    sourceRef?: InventoryAdjustmentSourceRef;
-  }>,
-): Promise<{ itemId: string; version: number } | null> {
-  const createdAt = new Date(input.existing.created_at).getTime();
-  const normalizedReason = input.reason.trim();
-  const events = await readCompleteStream(deps.eventStore, { streamId: `inventory.item-${input.itemId}` });
-  const committed = [...events].reverse().find((event) => {
-    if (event.eventType !== "inventory.item.adjusted") {
-      return false;
-    }
-    if (Number.isFinite(createdAt) && new Date(event.recordedAt).getTime() < createdAt) {
-      return false;
-    }
-
-    const payload = event.payload as {
-      itemId?: unknown;
-      quantityDelta?: unknown;
-      reason?: unknown;
-      reasonCode?: unknown;
-      note?: unknown;
-      sourceRef?: unknown;
-    };
-    const extendedReasonMatches =
-      input.reasonCode === undefined && input.note === undefined
-        ? true
-        : (payload.reasonCode ?? null) === (input.reasonCode ?? null) &&
-          (payload.note ?? null) === (input.note === undefined ? null : normalizeAdjustmentNote(input.note));
-    return (
-      payload.itemId === input.itemId &&
-      payload.quantityDelta === input.quantityDelta &&
-      payload.reason === normalizedReason &&
-      extendedReasonMatches &&
-      JSON.stringify(payload.sourceRef ?? null) === JSON.stringify(input.sourceRef ?? null) &&
-      event.forAccountId === input.accountId
-    );
-  });
-  if (!committed) {
-    return null;
-  }
-
-  await completeInventoryAdjustmentIdempotency(deps.db, {
-    idempotencyKey: input.idempotencyKey,
-    resultItemId: input.itemId,
-    resultVersion: Number(committed.streamVersion),
-  });
-
-  return {
-    itemId: input.itemId,
-    version: Number(committed.streamVersion),
-  };
-}
-
-async function completeInventoryAdjustmentIdempotency(
-  db: InventoryRuntimeDeps["db"],
-  input: Readonly<{ idempotencyKey: string; resultItemId: string; resultVersion: number }>,
-) {
-  await db.query(
-    `UPDATE inventory_item_adjustment_idempotency
-     SET status = 'completed',
-         result_item_id = $2,
-         result_version = $3,
-         completed_at = now()
-     WHERE idempotency_key = $1`,
-    [input.idempotencyKey, input.resultItemId, input.resultVersion],
-  );
-}
-
-async function releaseInventoryAdjustmentIdempotency(db: InventoryRuntimeDeps["db"], idempotencyKey: string) {
-  await db.query(
-    `DELETE FROM inventory_item_adjustment_idempotency
-     WHERE idempotency_key = $1
-       AND status = 'in_progress'`,
-    [idempotencyKey],
-  );
 }
 
 function isConcurrencyConflict(error: unknown) {

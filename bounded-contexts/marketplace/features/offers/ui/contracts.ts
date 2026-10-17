@@ -8,6 +8,8 @@ export interface MarketplaceOffer {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  last_stream_version: number;
   quantity_requested: number;
   status: string;
   accepted_seller_account_id: string | null;
@@ -25,6 +27,8 @@ export interface PublicOfferDetail extends MarketplaceOffer {}
 export interface OfferMatchListItem extends MarketplaceOffer {
   listing_id: string;
   listing_price_amount: string;
+  listing_price_currency_code: string;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   listing_visible_quantity: number;
   offer_price_gap_amount: string;
@@ -35,16 +39,15 @@ export interface OfferMatchListItem extends MarketplaceOffer {
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable";
   can_fulfill: boolean;
+  managed_status?: "unavailable" | "held" | "refresh_required" | null;
 }
 
 export interface OfferMatchDetail extends OfferMatchListItem {}
 
-export interface OfferBuyerMute {
-  seller_account_id: string;
-  buyer_account_id: string;
-  buyer_display_name: string | null;
-  listing_id: string;
-  product_id: string;
-  muted_at: string;
-  updated_at: string;
-}
+export type SubmittedOfferStatus = "submitted" | "paused" | "withdrawn" | "accepted";
+export type SubmittedOfferStatusFilter = "all" | SubmittedOfferStatus;
+export type SubmittedOfferStatusCounts = Readonly<Record<SubmittedOfferStatus, number>>;
+export type SubmittedOfferLifecycleAction = "pause" | "resume" | "withdraw";
+export type SubmittedOfferLifecycleOutcome =
+  | Readonly<{ offerId: string; outcome: "changed" | "unchanged"; status: string; version: number }>
+  | Readonly<{ offerId: string; outcome: "rejected"; code: string }>;

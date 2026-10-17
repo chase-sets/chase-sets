@@ -61,8 +61,14 @@ const columns: DataColumn<UnmappedScopeInboxGroup>[] = [
   },
 ];
 
-export function UnmappedScopeInboxPage({ initialData }: { initialData?: UnmappedScopeInboxReadModel | null }) {
-  const { data, loading, error } = useUnmappedScopeInbox(initialData);
+export function UnmappedScopeInboxPage({
+  initialData,
+  productDomain,
+}: {
+  initialData?: UnmappedScopeInboxReadModel | null;
+  productDomain?: string | null;
+}) {
+  const { data, loading, error } = useUnmappedScopeInbox(initialData, productDomain);
 
   const columnsWithView = useMemo<DataColumn<UnmappedScopeInboxGroup>[]>(
     () => [

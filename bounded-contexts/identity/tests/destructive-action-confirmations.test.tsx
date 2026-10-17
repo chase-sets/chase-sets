@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { renderAccountManagementPage as render } from "../features/account-management/ui/test-support";
 import { afterEach, describe, expect, it } from "vitest";
 import { AccountDetailPage } from "../features/accounts/ui/account-detail-page";
 import { SecurityPage } from "../features/api-keys/ui/account-security-page";
@@ -81,9 +82,9 @@ describe("Identity destructive action confirmations", () => {
     },
     {
       action: "Withdraw consent",
-      dialogName: "Withdraw marketing-email consent?",
+      dialogName: "Withdraw Unrecognized consent policy: Marketing Email consent?",
       consequence:
-        "This ends your current agreement to marketing-email. The audit history will be retained, and you can agree again later.",
+        "This ends your current agreement to Unrecognized consent policy: Marketing Email. The audit history will be retained, and you can agree again later.",
       intent: "withdraw",
       confirm: "Confirm withdrawal",
       page: (

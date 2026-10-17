@@ -1,7 +1,70 @@
 import { describe, expect, it } from "vitest";
-import { resolveAndPersistCatalogItemDisplayIdentity, resolveCatalogItemDisplayIdentity } from "./display-identity";
+import {
+  resolveAndPersistCatalogItemDisplayIdentity,
+  resolveCatalogItemDisplayIdentity,
+  resolveCatalogItemDisplayIdentities,
+} from "./display-identity";
 
 describe("resolveCatalogItemDisplayIdentity", () => {
+  it("uses the same truthful Set identity before and after reference projection", async () => {
+    const data = {
+      fields: [{ field_id: "fld_set", key: "set" }],
+      references: [
+        {
+          reference_record_id: "ref_synthetic_new_set",
+          type_key: "set",
+          key: "1",
+          name: "Synthetic New Set",
+          attributes: {},
+          relationships: [],
+          status: "active",
+        },
+      ],
+      templates: [
+        {
+          key: "synthetic-set",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{item.title}",
+          subtitle_template: "{reference.set.name}",
+          required_field_keys: ["set"],
+        },
+      ],
+    };
+    const item = {
+      catalog_item_id: "cat_synthetic_new_set",
+      title: "Synthetic Card",
+      subtitle: null,
+      blueprint_id: null,
+      category_ids: [],
+      field_values: [{ fieldId: "fld_set", value: { referenceId: "ref_synthetic_new_set" } }],
+    };
+    const unprojected = await resolveCatalogItemDisplayIdentity(
+      displayIdentityDb(data, { projectReferences: false }),
+      item,
+    );
+    const projected = await resolveCatalogItemDisplayIdentity(displayIdentityDb(data), item);
+    expect(unprojected.subtitle).toBe("Synthetic New Set");
+    expect(unprojected).toEqual(projected);
+    const batch = await resolveCatalogItemDisplayIdentities(displayIdentityDb(data, { projectReferences: false }), [
+      item,
+    ]);
+    expect(batch.get(item.catalog_item_id)).toEqual(unprojected);
+    const changed = await resolveCatalogItemDisplayIdentity(
+      displayIdentityDb(
+        {
+          ...data,
+          references: data.references.map((reference) => ({ ...reference, name: "Revised Synthetic Set" })),
+        },
+        { projectReferences: false },
+      ),
+      item,
+    );
+    expect(changed.subtitle).toBe("Revised Synthetic Set");
+    expect(changed.hash).not.toBe(projected.hash);
+  });
+
   it("uses blueprint templates with field and reference attributes", async () => {
     const db = displayIdentityDb({
       fields: [
@@ -459,6 +522,48 @@ describe("resolveCatalogItemDisplayIdentity", () => {
     expect(second.hash).toBe(first.hash);
   });
 
+  it("changes the hash when raw identities change even if rendered text does not", async () => {
+    const db = displayIdentityDb({
+      fields: [
+        { field_id: "fld_a", key: "card-name" },
+        { field_id: "fld_b", key: "card-name" },
+      ],
+      references: [],
+      templates: [
+        {
+          key: "global-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{item.title}",
+          subtitle_template: null,
+          required_field_keys: [],
+        },
+      ],
+    });
+    const base = {
+      catalog_item_id: "cat_hash_identity",
+      language_code: "en",
+      title: "Same",
+      subtitle: null,
+      blueprint_id: "bpr_a",
+      category_ids: ["ctg_a"],
+      field_values: [{ fieldId: "fld_a", value: { referenceId: "ref_a", label: "Same" } }],
+    };
+    const variants = [
+      base,
+      { ...base, field_values: [{ fieldId: "fld_b", value: { referenceId: "ref_a", label: "Same" } }] },
+      { ...base, field_values: [{ fieldId: "fld_a", value: { referenceId: "ref_b", label: "Same" } }] },
+      { ...base, category_ids: ["ctg_b"] },
+      { ...base, blueprint_id: "bpr_b" },
+    ];
+    const hashes = await Promise.all(
+      variants.map(async (item) => (await resolveCatalogItemDisplayIdentity(db, item)).hash),
+    );
+
+    expect(new Set(hashes).size).toBe(hashes.length);
+  });
+
   it("persists resolved identity and reports whether the hash changed", async () => {
     const persistedWrites: unknown[][] = [];
     const db = displayIdentityDb(
@@ -511,6 +616,81 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       "resolved",
       "[]",
     ]);
+  });
+
+  it("uses the guarded update RETURNING rows rather than optional rowCount", async () => {
+    const data = {
+      fields: [] as Array<{ field_id: string; key: string }>,
+      references: [] as Array<never>,
+      templates: [
+        {
+          key: "global-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{item.title}",
+          subtitle_template: null,
+          required_field_keys: [],
+        },
+      ],
+    };
+    const base = displayIdentityDb(data);
+    const item = {
+      catalog_item_id: "cat_guarded",
+      language_code: "en",
+      title_i18n: { defaultLocale: "en", values: { en: "Guarded" } },
+      title: "Guarded",
+      projected_title: "Guarded",
+      subtitle_i18n: null,
+      subtitle: null,
+      projected_subtitle: null,
+      blueprint_id: "bpr_card",
+      category_ids: [],
+      field_values: [],
+    };
+    const observedFact = {
+      catalog_item_id: "cat_guarded",
+      language_code: "en",
+      title: "Old",
+      subtitle: null,
+      display_template_key: "global-card",
+      display_template_target_kind: "global",
+      display_template_target_id: null,
+      display_identity_hash: "old-hash",
+      resolver_version: 3,
+      resolved_at: "2026-09-05T00:00:00.000Z",
+      resolution_status: "resolved",
+      missing_tokens: [],
+    };
+    const statements: string[] = [];
+    const db = {
+      async query<T>(sql: string, params?: readonly unknown[]) {
+        statements.push(sql);
+        if (sql.includes("UPDATE catalog_item_display_identities AS identity")) {
+          return { rows: [{ catalog_item_id: "cat_guarded" }] as T[], rowCount: 0 };
+        }
+        return base.query<T>(sql, params);
+      },
+    };
+
+    const won = await resolveAndPersistCatalogItemDisplayIdentity(db, item, "2026-09-05T00:01:00.000Z", {
+      guardedBy: { item, fact: observedFact },
+    });
+    expect(won.persisted).toBe(true);
+    expect(statements.find((sql) => sql.includes("UPDATE catalog_item_display_identities"))).toContain("RETURNING");
+
+    const lostRaceDb = {
+      async query<T>(sql: string, params?: readonly unknown[]) {
+        if (sql.includes("UPDATE catalog_item_display_identities AS identity")) {
+          return { rows: [] as T[], rowCount: 1 };
+        }
+        return base.query<T>(sql, params);
+      },
+    };
+    const lost = await resolveAndPersistCatalogItemDisplayIdentity(lostRaceDb, item, "2026-09-05T00:02:00.000Z", {
+      guardedBy: { item, fact: observedFact },
+    });
+    expect(lost.persisted).toBe(false);
   });
 
   it("degrades to the bare native title with the no-template sentinel when nothing matches", async () => {
@@ -814,7 +994,7 @@ function displayIdentityDb(
     itemAliases?: AliasRow[];
     referenceAliasesById?: Record<string, AliasRow[]>;
   },
-  options: { existingHash?: string; persistedWrites?: unknown[][] } = {},
+  options: { existingHash?: string; persistedWrites?: unknown[][]; projectReferences?: boolean } = {},
 ) {
   return {
     async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> {
@@ -847,9 +1027,37 @@ function displayIdentityDb(
         return { rows: ((data.referenceAliasesById ?? {})[referenceRecordId] ?? []) as T[] };
       }
 
-      if (sql.includes("FROM catalog_reference_records")) {
+      if (sql.includes("FROM catalog_reference_records") || sql.includes("AS reference_event")) {
         const ids = Array.isArray(params?.[0]) ? params[0] : [];
-        return { rows: data.references.filter((reference) => ids.includes(reference.reference_record_id)) as T[] };
+        const references = data.references.filter((reference) => ids.includes(reference.reference_record_id));
+        const rows = sql.includes("AS reference_event")
+          ? references.flatMap((reference) => [
+              {
+                reference_record_id: reference.reference_record_id,
+                stream_version: 1,
+                reference_event: {
+                  type: "catalog.reference-record.created",
+                  data: {
+                    referenceRecordId: reference.reference_record_id,
+                    typeKey: reference.type_key,
+                    key: reference.key,
+                    name: { defaultLocale: "en", values: { en: reference.name } },
+                    description: { defaultLocale: "en", values: { en: "" } },
+                    attributes: reference.attributes,
+                    relationships: reference.relationships,
+                  },
+                },
+              },
+              {
+                reference_record_id: reference.reference_record_id,
+                stream_version: 2,
+                reference_event: { type: "catalog.reference-record.published", data: {} },
+              },
+            ])
+          : options.projectReferences === false
+            ? []
+            : references;
+        return { rows: rows as T[] };
       }
 
       return { rows: [] };

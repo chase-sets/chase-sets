@@ -154,7 +154,7 @@ export function ProductCard({
   }
 
   return (
-    <Card {...rest} variant="product" interactive>
+    <Card {...rest} variant="product" interactive elevation="elevated">
       {content}
     </Card>
   );
@@ -244,7 +244,7 @@ export function MarketplaceProductCard({
 
 export function CategoryTile({ icon, label, detail, ...rest }: CategoryTileProps) {
   return (
-    <Card {...rest} variant="feature" interactive>
+    <Card {...rest} variant="feature" interactive elevation="elevated">
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="rounded-tokenLg border border-accent-soft bg-accent-soft p-3 text-accent shadow-tokenSm">
           <Icon name={icon} size="lg" tone="accent" />
@@ -267,7 +267,7 @@ export interface FeatureCardProps extends Omit<HTMLAttributes<HTMLDivElement>, "
 
 export function FeatureCard({ icon, title, description, action, ...rest }: FeatureCardProps) {
   return (
-    <Card {...rest} variant="feature">
+    <Card {...rest} variant="feature" elevation="elevated">
       <div className="flex gap-4">
         <div className="shrink-0 text-accent">
           <Icon name={icon} size="lg" tone="accent" />

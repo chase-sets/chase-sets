@@ -15,7 +15,10 @@ export async function seedCatalogItems(
   fields: FieldIds,
   categories: CategoryIds,
   references: CatalogReferenceIds,
-  options: Readonly<{ catalogItemIds?: readonly CatalogItemId[] }> = {},
+  options: Readonly<{
+    catalogItemIds?: readonly CatalogItemId[];
+    beforePublication?: () => Promise<void>;
+  }> = {},
 ): Promise<void> {
   console.log("Seeding catalog items...");
 
@@ -443,7 +446,9 @@ export async function seedCatalogItems(
 
   const selectedCatalogItemIds = options.catalogItemIds ? new Set(options.catalogItemIds) : null;
 
-  for (const item of items.filter((candidate) => selectedCatalogItemIds?.has(candidate.itemId) ?? true)) {
+  const selectedItems = items.filter((candidate) => selectedCatalogItemIds?.has(candidate.itemId) ?? true);
+
+  for (const item of selectedItems) {
     const streamId = `catalog.item-${item.itemId}`;
 
     await sendSeedCommand(services.items.commandHandler, streamId, {
@@ -503,8 +508,12 @@ export async function seedCatalogItems(
         selectedOptions: reference.selectedOptions,
       });
     }
+  }
 
-    await sendSeedCommand(services.items.commandHandler, streamId, {
+  await options.beforePublication?.();
+
+  for (const item of selectedItems) {
+    await sendSeedCommand(services.items.commandHandler, `catalog.item-${item.itemId}`, {
       type: "PublishCatalogItem",
       blueprintIsActive: true,
       requiredFieldIds: requiredFieldIdsByBlueprint[item.blueprintKey],

@@ -18,6 +18,30 @@ const walletInterestClaimDisclosures = [
   { claimId: "wallet-no-interest" },
 ] as const;
 
+// The authorized-agent responsibility boundary reaches two Terms subjects at
+// once: the agent subject that describes the authorization, and the account
+// subject whose activity-responsibility clause composes with it. Both carry
+// the SAME canonical claim id, so the corpus states one status and one
+// provenance for the boundary rather than two sections drifting apart.
+const agentResponsibilityBoundaryClaimId = "authorized-agent-principal-responsibility-and-liability-boundary";
+const agentAccessAndAccountSanctionBoundaryClaimId = "agent-access-and-agent-caused-account-sanction-boundary";
+
+const agentBoundaryUnresolvedCanonicalClaims = [
+  { claimId: agentResponsibilityBoundaryClaimId, productTruthRefs: [] },
+  { claimId: agentAccessAndAccountSanctionBoundaryClaimId, productTruthRefs: [] },
+] as const;
+
+const agentBoundaryClaimDisclosures = [
+  { claimId: agentResponsibilityBoundaryClaimId },
+  { claimId: agentAccessAndAccountSanctionBoundaryClaimId },
+] as const;
+
+const accountActivityResponsibilityCanonicalClaims = [
+  { claimId: agentResponsibilityBoundaryClaimId, productTruthRefs: [] },
+] as const;
+
+const accountActivityResponsibilityClaimDisclosures = [{ claimId: agentResponsibilityBoundaryClaimId }] as const;
+
 export const requiredTermsOfServiceSubjectIds = [
   // Wallet and balance subjects (ADR 0020). Taxonomy and order preserved unchanged.
   "wallet-nature-custody-interest",
@@ -69,16 +93,16 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "wallet-nature-custody-interest",
       title: "Wallet nature, custody, and interest",
       draftText:
-        "The Chase Sets Wallet is a marketplace ledger account that Settlement maintains to record what Chase Sets owes to, or is owed by, your Account. It is not a bank account, and Chase Sets is not a bank. Chase Sets holds funds corresponding to Wallet balances as an operational matter of running the marketplace, not as a custodian acting on instructions outside the marketplace uses described in these Terms.",
+        "The Chase Sets Wallet is a marketplace ledger account that Settlement maintains to record what Chase Sets owes to, or is owed by, your Account. It is not a bank account, and Chase Sets is not a bank. Buyer payments are collected and held on Chase Sets' own platform account with Stripe. After a seller requests and qualifies for payout, Chase Sets transfers net proceeds from its platform balance to the seller's connected account and requests an on-demand payout through Stripe. This describes the technical fund flow, not its legal custody classification.",
       reviewStatus: "counsel-required",
       claimDisclosures: walletInterestClaimDisclosures,
       reviewManifest: {
-        scopeNote:
-          "State that the Wallet is a marketplace ledger rather than a bank deposit, and define the reviewed custody and interest posture.",
+        scopeNote: "Describe the Wallet and fund flow; reserve legal classification and ordinary interest for counsel.",
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/settlement/GLOSSARY.md:5-7",
-          "bounded-contexts/settlement/features/wallets/domain/domain.ts",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
         openQuestions: [
           "Regulatory classification (money transmission, stored value, prepaid access) requires qualified counsel review per #5004/#4995 before publication; ADR 0020 is ratified product truth, not a counsel opinion.",
@@ -98,18 +122,20 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "cash-equivalent-and-marketplace-credit",
       title: "Cash-equivalent balance and Marketplace Credit",
       draftText:
-        "Amounts credited to your Wallet as ordinary available balance are cash-equivalent: spendable toward marketplace purchases and eligible for payout under the same readiness and clearance rules that apply to any other available balance. Chase Sets does not currently offer Marketplace Credit, a separate, non-withdrawable, promotional or prepaid form of value. If Chase Sets introduces Marketplace Credit in the future, it will be governed by its own terms, will never be summed into your spendable, payoutable Wallet balance, and will be clearly labeled as distinct from cash-equivalent Wallet funds.",
+        "Amounts credited to your Wallet as ordinary available balance are cash-equivalent: spendable toward marketplace purchases and eligible for payout under the same readiness and clearance rules that apply to any other available balance. Prepaid Balance is value you add by card, governed separately by the Payments Terms, including its spending and refund-to-source rules; it is not Marketplace Credit. Chase Sets does not currently offer Marketplace Credit, a separate promotional, non-withdrawable form of value. If Chase Sets offers Marketplace Credit, it will be governed by its own terms, will never be summed into your spendable, payoutable Wallet balance, and will be clearly labeled as distinct from cash-equivalent Wallet funds and Prepaid Balance.",
       reviewStatus: "counsel-required",
       reviewManifest: {
-        scopeNote:
-          "Distinguish cash-equivalent Wallet funds, which are spendable and payoutable under normal readiness rules, from any future non-withdrawable Marketplace Credit.",
-        decisionRefs: [5004],
-        productTruthRefs: ["docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25,27-35"],
+        scopeNote: "Distinguish Wallet funds, Prepaid Balance and Marketplace Credit without asserting activation.",
+        decisionRefs: [5004, 7807],
+        productTruthRefs: [
+          "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25,27-35",
+          "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+        ],
         openQuestions: [],
         assumptions: [
           {
-            assertion: "Marketplace Credit is not yet built; only cash-equivalent Wallet balance exists today.",
-            evidenceRef: "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:29",
+            assertion: "#7807 distinguishes Prepaid Balance from promotional, non-withdrawable Marketplace Credit.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
           },
         ],
       },
@@ -277,7 +303,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:39-40",
         ],
         openQuestions: [],
         assumptions: [
@@ -314,17 +340,15 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "marketplace-role-and-limited-payments-agent",
       title: "Marketplace role and limited payments agent",
       draftText:
-        "Chase Sets operates an online marketplace that connects buyers and sellers of trading cards and related collectibles. When you sell through Chase Sets, you, not Chase Sets, are the seller of the item, responsible for its description, condition, and lawful sale; when you buy through Chase Sets, your contract for the item is with the seller, not with Chase Sets, apart from the marketplace, payment-collection, and platform services Chase Sets itself provides under these Terms. Chase Sets processes buyer payments through its payment processor and initially collects those funds on Chase Sets' own platform account. Chase Sets then remits the seller's net proceeds, after the fees described in the Marketplace Sales Fee Schedule and the Marketplace Checkout Fee, to the seller's connected payout account once the seller requests and qualifies for payout under Chase Sets' payout-readiness rules. In this capacity, Chase Sets acts as the seller's limited payments collection agent for the sole purpose of collecting and remitting sale proceeds, and Chase Sets' acceptance of a buyer's payment satisfies the buyer's payment obligation to the seller for that order.",
+        "Chase Sets operates an online marketplace that connects buyers and sellers of trading cards and related collectibles. When you sell through Chase Sets, you, not Chase Sets, are the seller of the item, responsible for its description, condition, and lawful sale; when you buy through Chase Sets, your contract for the item is with the seller, not with Chase Sets, apart from the marketplace, payment-collection, and platform services Chase Sets itself provides under these Terms. Chase Sets processes buyer payments through Stripe and collects and holds those funds on Chase Sets' own platform account. After the seller requests and qualifies for payout under Chase Sets' payout-readiness rules, Chase Sets transfers the seller's net proceeds, after the fees described in the Marketplace Sales Fee Schedule and the Marketplace Checkout Fee, from its platform balance to the seller's connected account and requests an on-demand payout through Stripe.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe Chase Sets' marketplace-operator role, that sellers and buyers contract with each other, and Chase Sets' limited-payments-agent function in collecting and remitting sale proceeds.",
+          "Describe Chase Sets' marketplace-operator role, that sellers and buyers contract with each other, and the platform-held fund flow; leave limited-payments-agent framing for counsel.",
         decisionRefs: [],
         productTruthRefs: [
-          "infrastructure/stripe-payments/index.ts:1464-1494",
-          "infrastructure/stripe-connect/index.ts:1039-1094",
-          "docs/adr/0006-stripe-connect-custom-account-experience.md:15,51-56",
-          "docs/adr/0014-stripe-connect-accounts-api-boundary.md:11",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
         ],
         openQuestions: [
           "Whether to formally describe Chase Sets as a 'limited payments collection agent' for state money-transmission-exemption purposes is a counsel question distinct from the technical fund-flow description above; confirm this framing during the #5679 counsel engagement, alongside #5688's processor terms and the #5906 Stripe agreement-type proof.",
@@ -332,9 +356,9 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         assumptions: [
           {
             assertion:
-              "Buyer charges are captured to the Chase Sets platform Stripe account (platform-held); seller proceeds move only later via a separate platform-to-connected-account transfer and on-demand payout, not a Stripe Connect destination charge.",
+              "Buyer payment requests use the Chase Sets platform Stripe account (platform-held); seller proceeds move only later via a separate platform-to-connected-account transfer and on-demand payout, not a Stripe Connect destination charge.",
             evidenceRef:
-              "infrastructure/stripe-payments/index.ts:1464-1494; infrastructure/stripe-connect/index.ts:1039-1094",
+              "infrastructure/stripe-payments/index.ts:1669-1693; infrastructure/stripe-connect/index.ts:1100-1160",
           },
         ],
       },
@@ -343,8 +367,9 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "eligibility-and-accounts",
       title: "Eligibility and accounts",
       draftText:
-        "You must be at least 18 years old and able to form a binding contract to create a Chase Sets Account. You are responsible for the accuracy of the information you provide when you register, for keeping your contact information current, and for safeguarding your credentials, including any password, passkey, or API key, and for all activity conducted through your Account. Chase Sets may screen registration and decline, delay, or condition an Account, including through an invitation or waitlist process. Notify Chase Sets promptly through a Support Request if you believe your Account or credentials have been compromised.",
+        "You must be at least 18 years old and able to form a binding contract to create a Chase Sets Account. You are responsible for the accuracy of the information you provide when you register, for keeping your contact information current, and for safeguarding your credentials, including any password, passkey, or API key. Chase Sets may screen registration and decline, delay, or condition an Account, including through an invitation or waitlist process. Notify Chase Sets promptly through a Support Request if you believe your Account or credentials have been compromised.",
       reviewStatus: "counsel-required",
+      claimDisclosures: accountActivityResponsibilityClaimDisclosures,
       reviewManifest: {
         scopeNote:
           "State the minimum-age and contracting-capacity requirement, and the account holder's registration-accuracy, contact-currency, and credential-security duties.",
@@ -356,6 +381,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         ],
         openQuestions: [
           "Chase Sets does not currently collect or verify a date of birth or other age attestation at registration; the eighteen-plus requirement is a contractual eligibility requirement Chase Sets relies on the user's representation to satisfy, not a system-enforced age gate. Flag for a product decision on whether an enforced age gate is needed before launch.",
+          "This subject states the account holder's registration-accuracy, contact-currency, and credential-safeguarding duties, which are owed on their own terms whether or not the holder authorizes a software agent. It deliberately does not state how far the holder's responsibility reaches for activity a software agent they authorized conducts through the Account; that extent is carried only by this section's canonical claim disclosure. Counsel question: what responsibility or liability, if any, should an account holder bear for an authorized software agent's activity on the Account — universally, bounded to named categories of agent act, or not at all — and where should that allocation be stated relative to the Agent Connector Terms?",
         ],
         assumptions: [
           {
@@ -368,6 +394,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
             evidenceRef: "bounded-contexts/auth/support/api-support/registration-gates.ts:21-25,58-84",
           },
         ],
+        canonicalClaims: accountActivityResponsibilityCanonicalClaims,
       },
     },
     {
@@ -415,7 +442,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "contracts/public-docs/generated/help-article-policy-citations.ts",
         ],
         openQuestions: [
-          "Chase Sets has not yet published a dedicated prohibited-items or community-guidelines policy document; until one exists, prohibited conduct is governed by this subject and the Seller Agreement together with the Marketplace Report reason codes, rather than a standalone incorporated policy.",
+          "#5693 shipped the prohibited-and-restricted-items and community-guidelines-and-enforcement Help Articles. Counsel must confirm whether and how to incorporate those compliance articles; their existence does not expand this subject's incorporation prose.",
           "#5695 adds the corpus test that checks this subject's slug/href enumeration against the registry; keep this list in sync with contracts/public-docs/policy-corpus.ts if either changes.",
         ],
         assumptions: [
@@ -443,8 +470,8 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
           "bounded-contexts/platform-operations/GLOSSARY.md:70-76",
         ],
         openQuestions: [
-          "No prior IP-license grant language exists anywhere in the repository; this is original drafting, not a transcription of an existing artifact.",
-          "A formally registered DMCA designated agent is a separate, not-yet-made decision noted under #5677's blast radius; confirm before publication whether a registered agent is required and, if so, record its contact separately from the general notice address.",
+          "#5693 shipped the intellectual-property-and-dmca Help Article. Counsel must reconcile this draft's content-license and complaint language with that article before publication.",
+          "The intellectual-property-and-dmca article retains registration-status-unverified for the DMCA designated agent. That marker is not proof of registration; counsel review and verified registration evidence remain required before claiming registration, separately from the general notice address.",
         ],
         assumptions: [
           {
@@ -463,19 +490,22 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "electronic-agents-and-automated-access",
       title: "Electronic agents and automated access",
       draftText:
-        "Chase Sets publishes a Model Context Protocol interface and a developer portal (chasesets.com/developers) that let you authorize a software agent to act on your Account within a bounded set of permissions you grant. Automated or agent access to Chase Sets is governed by the Agent Connector Terms (chasesets.com/agent-terms) in addition to these Terms; where the two conflict on automated-access-specific subjects, the Agent Connector Terms control. You remain responsible for actions your authorized agent takes on your Account, and Chase Sets may suspend an agent's access, or your Account, for activity that violates these Terms, the Agent Connector Terms, or an incorporated policy.",
+        "Chase Sets publishes a Model Context Protocol interface and a developer portal (chasesets.com/developers) that let you authorize a software agent to act on your Account within a bounded set of permissions you grant. Automated or agent access to Chase Sets is governed by the Agent Connector Terms (chasesets.com/agent-terms) in addition to these Terms; where the two conflict on automated-access-specific subjects, the Agent Connector Terms control.",
       reviewStatus: "counsel-required",
+      claimDisclosures: agentBoundaryClaimDisclosures,
       reviewManifest: {
         scopeNote:
-          "Cross-reference the Agent Connector Terms for automated and agent access, and state that the account holder remains responsible for authorized agent activity.",
+          "Cross-reference the Agent Connector Terms for automated and agent access, and describe the repo-provable surface: the Model Context Protocol interface, the developer portal, the bounded permission grant an account holder makes when authorizing a software agent, and which document controls on conflict.",
         decisionRefs: [],
         productTruthRefs: [
-          "bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:15,25-29",
+          "bounded-contexts/public-presence/features/developer-portal/domain/developer-manifest.ts:24,41-45",
           "bounded-contexts/public-presence/features/developer-portal/domain/articles/agent-authentication.en.md",
           "bounded-contexts/public-presence/features/policies/domain/agent-connector-terms.ts",
         ],
         openQuestions: [
           "The full Agent Connector Terms subject taxonomy and draft language are #5690's scope, not this issue's; this subject only cross-references it.",
+          "This subject describes the authorization surface and the conflict rule only. It deliberately states no allocation of responsibility or liability to the account holder for actions an authorized software agent takes on the Account; that extent is carried only by this section's canonical claim disclosure. Counsel question: what responsibility or liability, if any, should the account holder bear for an authorized software agent's actions, and should that allocation live in these Terms, in the Agent Connector Terms, or in both with one controlling?",
+          "This subject also states no grounds, process, or consequences for disabling, suspending, or revoking an authorized software agent's credentials or access, and none for sanctioning the underlying Account because of agent conduct; that boundary is carried only by this section's canonical claim disclosure. Counsel question: on what grounds and with what notice, process, and consequences may agent access be suspended or revoked, and may agent conduct alone support suspending, restricting, or closing the underlying Account?",
         ],
         assumptions: [
           {
@@ -485,6 +515,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
               "bounded-contexts/public-presence/features/developer-portal/domain/articles/agent-authentication.en.md",
           },
         ],
+        canonicalClaims: agentBoundaryUnresolvedCanonicalClaims,
       },
     },
     {
@@ -629,14 +660,14 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
           "bounded-contexts/identity/features/consents/api/terms-route.ts:31-90",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:53-55",
         ],
         openQuestions: [],
         assumptions: [
           {
             assertion:
               "The active-required-version policy and read model fail closed on missing or outdated acceptance, gating per-version re-acceptance.",
-            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
+            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:46-57",
           },
         ],
       },

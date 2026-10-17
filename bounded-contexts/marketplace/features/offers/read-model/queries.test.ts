@@ -1,8 +1,72 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
-import { getPublicOffer, listOfferMatches } from "./queries";
+import {
+  getPublicOffer,
+  getOfferMatch,
+  getOfferMatchForListing,
+  listOfferMatches,
+  listOfferMatchesForSellers,
+} from "./queries";
 
 describe("marketplace offer read-model queries", () => {
+  it("keeps seller-private Decline but removes controls from all four Match reads", async () => {
+    const statements: string[] = [];
+    const db: PgQueryable = {
+      async query<Row>(sql: string) {
+        statements.push(sql);
+        return { rows: (sql.includes("COUNT(*)") ? [{ count: "0" }] : []) as Row[] };
+      },
+    };
+    await listOfferMatches(db, { sellerAccountId: "acc_seller" });
+    await getOfferMatch(db, "off_one", "acc_seller");
+    await getOfferMatchForListing(db, "off_one", "acc_seller", "lst_one");
+    await listOfferMatchesForSellers(db, "off_one", ["acc_seller"]);
+    expect(statements).toHaveLength(5);
+    for (const sql of statements) {
+      expect(sql).not.toContain("marketplace_offer_seller_controls");
+      expect(sql).not.toContain("lowball_cooldown_until");
+      expect(sql).not.toContain("CEIL(");
+      expect(sql).toContain("seller_offer_decline.seller_account_id =");
+      expect(sql).toContain("seller_offer_decline.offer_id = offer.offer_id");
+      expect(sql).toContain("seller_offer_decline.offer_id IS NULL");
+      expect(sql).not.toContain("seller_offer_decline.listing_id =");
+      expect(sql).toContain("listing.price_currency_code = offer.price_currency_code");
+      expect(sql).toContain("policy.state->>'status' IS DISTINCT FROM 'active'");
+      expect(sql).toContain("marketplace_supply_items");
+    }
+  });
+  it.each([null, "unavailable", "held", "refresh_required"] as const)(
+    "maps the closed managed Match status %s into actionability",
+    async (managed_status) => {
+      const statements: string[] = [];
+      const db: PgQueryable = {
+        async query<Row>(sql: string) {
+          statements.push(sql);
+          return {
+            rows: [
+              {
+                offer_id: "off_one",
+                status: "submitted",
+                quantity_requested: 1,
+                seller_available_quantity: 2,
+                seller_listing_availability_status: "available",
+                managed_status,
+              },
+            ] as Row[],
+          };
+        },
+      };
+      expect(await getOfferMatch(db, "off_one", "acc_seller")).toMatchObject({
+        managed_status,
+        can_fulfill: managed_status === null,
+      });
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toContain("policy.state->>'status' IS DISTINCT FROM 'active'");
+      expect(statements[0]).toContain("policy.last_stream_version IS DISTINCT FROM policy_stream.current_version");
+      expect(statements[0]).toContain("'marketplace.offer.buyer-policy-bound'");
+      expect(statements[0]).toContain("consent_target.result->>'unitItemAmount' = offer.price_amount");
+    },
+  );
   it("resolves public offer facts by id without requiring seller supply", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
     const db: PgQueryable = {
@@ -86,6 +150,8 @@ describe("marketplace offer read-model queries", () => {
                 country: "US",
               },
               price_amount: "20.00",
+              price_currency_code: "USD",
+              last_stream_version: 2,
               quantity_requested: 1,
               status: "submitted",
               accepted_seller_account_id: null,
@@ -97,6 +163,8 @@ describe("marketplace offer read-model queries", () => {
               buyer_review_count: 0,
               listing_id: "lst_air_balloon",
               listing_price_amount: "21.50",
+              listing_price_currency_code: "USD",
+              listing_stream_version: 3,
               listing_quantity_cap: 1,
               listing_visible_quantity: 1,
               seller_available_quantity: 1,
@@ -130,6 +198,9 @@ describe("marketplace offer read-model queries", () => {
     expect(selectCall?.sql).toContain("listing.account_id = $1");
     expect(selectCall?.sql).toContain("listing.status = 'active'");
     expect(selectCall?.sql).toContain("listing.product_id = offer.product_id");
+    expect(selectCall?.sql).toContain("listing.listing_stream_version > 0");
+    expect(selectCall?.sql).toContain("listing.listing_stream_version,");
+    expect(selectCall?.sql).not.toContain("listing.last_stream_version");
     expect(selectCall?.sql).toContain("LEFT JOIN LATERAL");
     expect(selectCall?.sql).toContain("supply_hold.item_id = item.item_id");
     expect(selectCall?.sql).toContain("supply_hold.status = 'active'");

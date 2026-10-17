@@ -1,7 +1,7 @@
 export type PublicPolicyValueType = "bps" | "money" | "days" | "hours" | "minutes" | "number";
 export type PublicPolicyScalarContract =
   | Readonly<{ primitive: "integer"; minimum: number; maximum: number }>
-  | Readonly<{ primitive: "money"; minimumCents: number }>;
+  | Readonly<{ primitive: "money"; minimumCents: number; maximumCents?: number }>;
 export type PublicPolicyValueWhitelistEntry = Readonly<{
   key: string;
   policyKey: string;

@@ -16,7 +16,7 @@ import {
   type FulfillmentShipmentState,
 } from "../../features/shipments/domain/domain";
 import { fulfillmentReservedSeedIds } from "@chase-sets/fulfillment/seed-support/ids";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { createFulfillmentServices, type FulfillmentServices } from "./services";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";

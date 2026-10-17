@@ -1,5 +1,9 @@
 # Platform Operations Glossary
 
+## Provider Connection
+
+A **Provider Connection** is a read-only operator view of a Catalog integration provider or a Channels Channel Connection. Catalog retains Provider Integration Profile and credential readiness ownership; Channels retains connection and Channel Health ownership. Platform Operations composes their reported state without owning credentials or connection actions.
+
 ## Public Doc Article Review
 
 A **Public Doc Article Review** is the operator attention item opened when a revised policy is cited by a public Help Article. It remains visibly aged in Policy Console until an operator confirms that the surrounding prose still matches the revised policy or updates the article before confirmation.
@@ -11,6 +15,48 @@ A **Public Doc Article Review** is the operator attention item opened when a rev
 ## Support Request
 
 A **Support Request** is the Platform Operations-owned case through which an account and operators record evidence, responses, escalations, resolutions, returns, and closure for a marketplace support concern.
+
+## Legacy Referenced
+
+**Legacy Referenced** means a storage key occurs in a v1 evidence reference in a complete Support Request history at a recorded gap-safe global horizon, whether or not an Attachment Operation exists. `seed://support/` placeholders are not storage references.
+
+## Legacy Evidence Inventory
+
+A **Legacy Evidence Inventory** is a private, digest-bound, one-shot classification of the `support-evidence/` namespace against reconstructed history. Listing exhaustion is not snapshot authority. Missing history, listing, drained-deployment boundary or separate snapshot authority requires indefinite retention. Only the exact approved manifest may enter guarded deletion; legacy bytes are never moved or rewritten.
+
+## Support Request Participant Attempt
+
+A **Support Request Participant Attempt** is one account's intended mutation of one Support Request within its authenticated tenant. Its opaque attempt id locates a private receipt; action and canonical request hash are immutable comparisons, not identity partitions. An exact retry returns the first result without another command. Another authorized owner may independently use the same opaque id. Attachment Operations remain separate staging identities.
+
+## Any-case Evidence Access
+
+**Any-case Evidence Access** requires the current Identity `support.evidence.any-case` assignment on the Auth-resolved actor and the independent Support base permission. A role or capability declaration grants no access. Without that assignment, attachment access is limited to buyer or seller participation in the authoritative Support Request stream. Audit reads and operations submissions with attachments require the assignment; participant submissions with attachments remain participant-only.
+
+## Evidence Access Attempt
+
+An **Evidence Access Attempt** is one immutable authorization decision on `support.evidence-access-{supportRequestId}`, appended before attachment parsing or provider access and before returning a denial. An allowed read records authorization to attempt access, never byte delivery. A failed audit append releases no bytes. Records contain only bounded identity, assignment, action, decision, reason, participation, correlation and UTC instant fields. Audit reads append one attempt, without recursively auditing that append, and expose at most 50 records with an explicit continuation cursor. The cleanup runner's service attempt names only its Support Evidence Cleanup Binding id and revision, with no user, account or membership. Malformed case identifiers return the same non-disclosing 404 without an event.
+
+## Reference Claim
+
+A **Reference Claim** binds one Support Attachment Operation's complete ordered stored batch to evidence for its owning case and account. Claiming guards the complete case history; submission atomically guards the claimed operation version. Confirmation is separate and recoverable from committed case evidence. Release requires a complete case history proving no reference committed and an atomic guard on that history. Elapsed time never releases a claim, and no serial append substitutes for the atomic fence.
+
+## Support Attachment Operation
+
+A **Support Attachment Operation** identifies one photo batch with `sao_` plus a canonical ULID, created by the client before dispatch and retained through retries. Only an explicit new-photo-batch action replaces it. Ownership is tenant, initiating account and Support Request together; the id alone is never access authority. The required `x-support-attachment-operation-id` header names the operation.
+
+It durably stages one ordered canonical evidence manifest on `support.attachment-operation-{supportRequestId}-{operationId}` before any storage write. Its fingerprint binds the owner, client operation, canonical hashes, profile and encoder fingerprint. Each put has a version-guarded admission and is settled only by an actual provider response; ambiguous outcomes remain unresolved. Only independent byte verification records Stored. Exact retries match the manifest, resume unstored items and never re-put a stored item. Known failures record CleanupRequired at once, as do a support.manage any-case human request and 24 hours without activity; only a Cleanup Claim removes bytes.
+
+## Cleanup Claim
+
+A **Cleanup Claim** is the worker's fenced attempt to delete one CleanupRequired Support Attachment Operation's bytes. It is appended only after a complete case-history read shows no evidence referencing the batch, atomically guarding the operation version, that case history and the observed Support Evidence Cleanup Binding receipt, and only when every admitted put has settled. The last put plus its storage deadline plus five minutes is eligibility only; an unsettled put retains the bytes indefinitely. The claim records the binding id and revision and fences out further puts and reference claims. Deleted-unreferenced is recorded only when every key reports deleted or absent and a confirming read finds each absent; any other outcome records a cleanup failure and a later claim retries. Deleted-unreferenced is terminal, and referenced operations are never claimed.
+
+## Support Evidence Cleanup Binding
+
+A **Support Evidence Cleanup Binding** is the environment- and instance-scoped deployment declaration (`SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON`, scoped like the capability administration authority by `CHASE_SETS_DEPLOYMENT_INSTANCE`) that mounts the platform-worker's `support-evidence-operation-cleanup` runner. Absent, invalid or inactive bindings leave it not mounted with one bounded denial. A valid binding compare-and-records its receipt on `support.evidence-cleanup-binding`; a process whose receipt was superseded cannot claim. It grants deletion, absence verification and the runner's own operational audit read only, never upload, download, administration or human HTTP access. Revocation is a higher inactive revision deployed after old workers drain.
+
+## Support Evidence Attachment
+
+A **Support Evidence Attachment** is one private, canonical image referenced by `support-attachment:v1`. New attachment ids are `sea_` plus the complete 52-character lowercase, unpadded base32 SHA-256 of the versioned tenant/account/case/operation/index/canonical-hash tuple. Legacy ids, references, object keys and bytes remain unchanged and readable. A reference is returned only when the entire operation is verified Stored, never from put success, a provider key or ETag.
 
 ## Platform Remedy Policy
 
@@ -43,6 +89,7 @@ A **Remedy Approval** is an immutable human decision on a proposed remedy after 
 - Source Workflow: The user task that produced a platform-feedback prompt, such as checkout payment, listing publish, offer submit, offer accept, inventory create, or inventory adjust.
 - Prompt Dismissal: A record that a user chose not to leave platform feedback for a Source Workflow at that time.
 - Review Queue Status: The internal lifecycle state for Platform Feedback: new, reviewed, or archived.
+
 ## Ops Dashboard
 
 The **Ops Dashboard** is the platform-wide, operator-facing analytics surface showing Gross Merchandise Value, order/trade counts, active buyer/seller counts, and liquidity indicators over a selectable date range, with time-series charts and a top-catalog-items breakdown. It reads pricing's published Platform Daily Rollup and Trades Tape query API exclusively -- Platform Operations never computes a second Gross Merchandise Value figure of its own.
@@ -61,7 +108,7 @@ The **Locked-Fee Listing Cohort** is the set of Marketplace listings whose listi
 
 ## Foregone Fee Estimate
 
-The **Foregone Fee Estimate** is the offer-economics monitor's projection of what the Locked-Fee Listing Cohort's realized Gross Merchandise Value would have cost in marketplace sales fees under Commercial Terms' published standard schedule -- the standard schedule's percentage applied to the cohort's realized GMV, plus its fixed component applied once per locked trade. It is an estimate against the *current* published schedule, not a historical replay of whatever schedule was standard on each trade's date.
+The **Foregone Fee Estimate** is the offer-economics monitor's projection of what the Locked-Fee Listing Cohort's realized Gross Merchandise Value would have cost in marketplace sales fees under Commercial Terms' published standard schedule -- the standard schedule's percentage applied to the cohort's realized GMV, plus its fixed component applied once per locked trade. It is an estimate against the _current_ published schedule, not a historical replay of whatever schedule was standard on each trade's date.
 
 ## Locked-Cohort Sell-Through
 
@@ -70,6 +117,12 @@ The **Foregone Fee Estimate** is the offer-economics monitor's projection of wha
 ## Reported Content
 
 **Reported Content** is a target-level Trust & Safety queue item created from Marketplace Report facts.
+
+## Listing Removal Directive
+
+A **Listing Removal Directive** is the operator's intent to unlist one Listing, recorded atomically after its Reported Content action audit. Marketplace owns the removal decision and its durable enforcement identity; the directive is not removal authority. Only newly authored directives are delivered, never historical audit actions.
+
+Disabling delivery retains the Listing aggregate reader and all visibility consumers. Stored removals remain readable and hidden, and pending directives resume when delivery is enabled again. After the first operator removal event, roll forward rather than reverting the aggregate reader; never delete events or checkpoints.
 
 ## Moderation Queue
 
@@ -117,6 +170,14 @@ terminally failed, or waived. Financial truth cannot be created by a Support ove
 ## Support Evidence Basis
 
 A **Support Evidence Basis** is the structured indication of how Support established responsibility: `party-accepted-resolution`, `deterministic-policy`, `operator-finding`, `insufficient-evidence`, or `legacy`. It includes a stable reference to the accepted offer, policy rule, adjudication workflow, insufficiency finding, or compatibility rule without exposing private evidence contents or internal notes.
+
+## Support Evidence Raster Profile
+
+The **Support Evidence Raster Profile** (`support-evidence-raster/v1`) is Support's versioned raster canonicalization for evidence images. It accepts only JPEG, PNG, and WebP whose declared media type matches their signature, at most 10 MiB encoded and 24,000,000 pixels, with exactly one frame and no decoder warning. It applies orientation, strips all metadata, converts to sRGB, and re-encodes only the decoded pixels in the matching format: baseline 4:4:4 JPEG at quality 90 with alpha flattened onto white, non-paletted truecolor PNG at compression 9, or lossless WebP at effort 6, keeping PNG and WebP alpha. Canonical output above 10 MiB is rejected. It is raster canonicalization, not malware detection: no caller metadata, trailing data, or encoding choice survives, but it judges nothing about what an image depicts or whether the original file was malicious.
+
+## Encoder Fingerprint
+
+An **Encoder Fingerprint** identifies the encoder that produced canonical evidence bytes: the profile, resolved Sharp version, libvips version, platform, architecture, and libc family. One fingerprint yields one byte sequence for a given input. Golden canonical hashes are recorded per fingerprint; opened for a production-like host, the canonicalizer is certified only when that host's fingerprint has goldens its startup self-test reproduces exactly, and otherwise reports itself unavailable. Opened for development or test, it canonicalizes under its own uncertified fingerprint and never certifies goldens. Evidence upload intake does not use the canonicalizer yet; #9390 composes it.
 
 ## Responsibility Reason Code
 
@@ -185,3 +246,9 @@ A **Safety Hold** is the planned Platform Operations restriction that pauses a r
 ### Support Reference Lookup
 
 A **Support Reference Lookup** is the Platform Operations admin surface that resolves any support-safe reference (`ORD-`, `SHP-`, `PYO-`, `SUP-`, `CSG-`, `CS-SL-`) or raw order/shipment/payout/support-request id to the owning record, by routing to that record's owning bounded context.
+
+## Seller Compliance Sale
+
+A **Seller Compliance Sale** is one recorded, replayable fact about a platform-processed sale: the `(payment_id, order_id)` pair a Payments capture creates against an Ordering order, together with Ordering's authoritative seller, the capture occurrence instant, the gross money decomposition in cents when every source value is present and reconciles, the recorded per-line classification inputs, cancellation, and the cumulative refund total and cap when a refund has affected that order.
+
+It is an observation, not a verdict. It asserts no statutory applicability, evaluates no threshold, and classifies no seller; a later policy evaluator reads these facts. It is distinct from **Risk Alert**, which is an operator-facing Trust & Safety queue item raised by velocity thresholds, whereas a Seller Compliance Sale raises nothing and simply records what Ordering and Payments published.

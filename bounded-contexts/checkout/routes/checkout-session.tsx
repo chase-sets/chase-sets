@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { isCanonicalMoneyAmount } from "@chase-sets/primitives/money";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useEffect } from "react";
 import {
@@ -8,6 +9,7 @@ import {
   useLoaderData,
   useLocation,
   useNavigation,
+  useRevalidator,
   useRouteError,
 } from "react-router";
 import {
@@ -78,19 +80,42 @@ type GuestCheckoutContact = Readonly<{
   contactName: string | null;
 }>;
 
-async function loadWalletBalance(request: Request) {
-  const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
-    `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
-  );
+type WalletRead =
+  | Readonly<{ status: "available"; balance: { available_balance_amount: string; currency_code: string } }>
+  | Readonly<{ status: "unavailable" }>;
 
-  if (!response.ok) {
-    return null;
+async function loadWalletBalance(request: Request): Promise<WalletRead> {
+  try {
+    const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
+      `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
+      {
+        signal: AbortSignal.any([request.signal, AbortSignal.timeout(CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS)]),
+      },
+    );
+    if (!response.ok) {
+      return { status: "unavailable" };
+    }
+
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== "object") {
+      return { status: "unavailable" };
+    }
+    const { available_balance_amount: amount, currency_code: currency } = payload as Record<string, unknown>;
+    if (
+      typeof amount !== "string" ||
+      !isCanonicalMoneyAmount(amount) ||
+      typeof currency !== "string" ||
+      !/^[a-z]{3}$/i.test(currency.trim())
+    ) {
+      return { status: "unavailable" };
+    }
+    return {
+      status: "available",
+      balance: { available_balance_amount: amount, currency_code: currency.trim().toLowerCase() },
+    };
+  } catch {
+    return { status: "unavailable" };
   }
-
-  return response.json() as Promise<{
-    available_balance_amount: string;
-    currency_code: string;
-  }>;
 }
 
 function normalizeText(value: FormDataEntryValue | null) {
@@ -538,6 +563,7 @@ function requestWithoutReadAfterWrite(request: Request) {
   return new Request(url, {
     headers,
     method: request.method,
+    signal: request.signal,
   });
 }
 
@@ -641,7 +667,7 @@ async function loadSavedCheckoutInstruments(
 function loadPaymentPreview(
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   fulfillmentPreview: Awaited<ReturnType<typeof loadFulfillmentPreview>>["fulfillmentPreview"],
-  wallet: Awaited<ReturnType<typeof loadWalletBalance>>,
+  wallet: WalletRead | null,
   paymentMethodCategory: string,
   committedOrderIds: readonly string[],
 ): CheckoutPaymentPreviewStatus | null {
@@ -649,15 +675,15 @@ function loadPaymentPreview(
     return null;
   }
 
-  if (!fulfillmentPreview) {
+  if (!fulfillmentPreview || wallet?.status === "unavailable") {
     return null;
   }
 
   return buildCheckoutPaymentPreviewStatus({
     orderIds: committedOrderIds,
     amount: fulfillmentPreview.totals.totalAmount,
-    currencyCode: wallet?.currency_code ?? "usd",
-    requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
+    currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
+    requestedBalanceCreditAmount: wallet?.status === "available" ? wallet.balance.available_balance_amount : "0.00",
     paymentMethodCategory,
   });
 }
@@ -700,7 +726,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
-  const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(ancillaryRequest) : null;
+  const wallet =
+    actor &&
+    actor.roleKey !== "guest-buyer" &&
+    Array.isArray(actor.permissions) &&
+    actor.permissions.includes("payouts.view")
+      ? await loadWalletBalance(ancillaryRequest)
+      : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
   const guestCheckoutContact = await loadGuestCheckoutContact(ancillaryRequest, actor);
@@ -742,7 +774,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   return {
     session,
-    wallet,
+    wallet: wallet?.status === "available" ? wallet.balance : null,
+    walletUnavailable: wallet?.status === "unavailable",
     paymentPreview,
     selectedPaymentMethodCategory,
     savedShippingAddresses,
@@ -778,6 +811,10 @@ async function handleAction(intent: string, { request, params, formData }: FormA
   const actor = await resolveActorFromAuthApi({ request: resolvedRequest });
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
+  }
+  if (intent === "retry-wallet-balance") {
+    // A non-redirecting action revalidates the wallet loader without replacing unsaved form fields.
+    return null;
   }
 
   const internalApiRequest = requestWithoutReadAfterWrite(resolvedRequest);
@@ -987,6 +1024,7 @@ export const action = defineFormAction({
   prepare: async (args) => ({ ...args, request: await resolveCheckoutSessionPostWriteRequest(args.request) }),
   intents: {
     "confirm-checkout": (context) => handleAction("confirm-checkout", context),
+    "retry-wallet-balance": (context) => handleAction("retry-wallet-balance", context),
     "refresh-checkout-preview": (context) => handleAction("refresh-checkout-preview", context),
     "select-optimization-goal": (context) => handleAction("select-optimization-goal", context),
   },
@@ -1003,6 +1041,7 @@ export default function CheckoutSessionRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const realtimeTopics = checkoutPreviewRealtimeTopics(data.session.lines);
   const realtimeSubscriptionKey = realtimeTopics.join("\n");
   const actionEditSection = actionData && "editSection" in actionData ? actionData.editSection : null;
@@ -1021,6 +1060,8 @@ export default function CheckoutSessionRoute() {
     <CheckoutSessionPage
       session={data.session}
       wallet={data.wallet}
+      walletUnavailable={data.walletUnavailable}
+      onRetryWalletBalance={() => revalidator.revalidate()}
       paymentPreview={data.paymentPreview}
       selectedPaymentMethodCategory={data.selectedPaymentMethodCategory}
       fulfillmentPreview={data.fulfillmentPreview}

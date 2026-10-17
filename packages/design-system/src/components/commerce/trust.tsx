@@ -201,7 +201,7 @@ export function AccountTrustCard({
   const hasReputation = reputationRating !== null && hasReviewCount(reviewCount);
 
   return (
-    <Card>
+    <Card elevation="elevated">
       <Card.Header>
         <Stack direction="row" justify="between" align="start" gap={3}>
           <Stack gap={2} minWidth="0">
@@ -266,7 +266,7 @@ export interface RatingDistributionProps {
 
 export function RatingDistribution({ title, average, count, rows, starLabel }: RatingDistributionProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Header>
         {title ? <Card.Title>{title}</Card.Title> : null}
         <Card.Description>

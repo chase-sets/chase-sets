@@ -1,15 +1,21 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { appendFile, open, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { safeFailureFields } from "./lib/postgres-connection.mjs";
+import { applyManagedPostgresCaSecret } from "./platform-kubernetes-secret.mjs";
 
 const DIGITALOCEAN_API_BASE_URL = "https://api.digitalocean.com/v2";
+const DIGITALOCEAN_CA_RESPONSE_MAX_BYTES = 65_536;
 
 export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
+  const contextsOption = readOption(argv, "--contexts");
+  const connectionModeOption = readOption(argv, "--connection-mode");
   return {
+    mode: readOption(argv, "--mode") ?? "url-export",
     statePath: readOption(argv, "--state") ?? readEnv("TERRAFORM_STATE_PATH", env),
     githubEnvPath: readOption(argv, "--github-env") ?? readEnv("GITHUB_ENV", env),
     caPath:
@@ -20,10 +26,61 @@ export function parseTerraformStateDatabaseUrlArgs(argv, env = process.env) {
         : undefined),
     digitalOceanToken: readEnv("DIGITALOCEAN_ACCESS_TOKEN", env),
     environmentName: readOption(argv, "--environment") ?? readEnv("DEPLOYMENT_ENVIRONMENT", env) ?? "staging",
-    contexts: parseContexts(readOption(argv, "--contexts") ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONTEXTS", env)),
-    connectionMode:
-      readOption(argv, "--connection-mode") ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONNECTION_MODE", env) ?? "direct",
+    contexts: parseContexts(contextsOption ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONTEXTS", env)),
+    contextsSpecified: contextsOption != null || readEnv("TERRAFORM_STATE_DATABASE_URL_CONTEXTS", env) != null,
+    connectionMode: connectionModeOption ?? readEnv("TERRAFORM_STATE_DATABASE_URL_CONNECTION_MODE", env) ?? "direct",
+    connectionModeSpecified:
+      connectionModeOption != null || readEnv("TERRAFORM_STATE_DATABASE_URL_CONNECTION_MODE", env) != null,
+    namespace: readOption(argv, "--namespace") ?? readEnv("CHASE_SETS_KUBERNETES_NAMESPACE", env),
+    kubectlPath: readOption(argv, "--kubectl") ?? readEnv("KUBECTL_PATH", env) ?? "kubectl",
+    githubOutputPath: readOption(argv, "--github-output") ?? readEnv("GITHUB_OUTPUT", env),
   };
+}
+
+export async function reconcileManagedPostgresCaSecret(options, dependencies = {}) {
+  const read = dependencies.readFile ?? readFile;
+  const writeCa = dependencies.writeCa ?? writeManagedPostgresCa;
+  const remove = dependencies.rm ?? rm;
+  const append = dependencies.appendFile ?? appendFile;
+  const apply = dependencies.applyManagedPostgresCaSecret ?? applyManagedPostgresCaSecret;
+  const errors = validateTrustOnlyOptions(options);
+  if (errors.length > 0) {
+    throw trustError("managed-postgres-trust-only-input-invalid", errors.join("\n"));
+  }
+
+  let operationError;
+  try {
+    const state = parseTerraformState(await read(options.statePath, "utf8"));
+    const clusterId = managedPostgresClusterIdFromTerraformState(state, options.environmentName);
+    const certificate = await fetchDigitalOceanManagedPostgresCa(
+      { clusterId, digitalOceanToken: options.digitalOceanToken },
+      dependencies,
+    );
+    await writeCa(options.caPath, certificate);
+    const certificateBytes = await read(options.caPath);
+    const digest = createHash("sha256").update(certificateBytes).digest("hex");
+    await apply({
+      namespace: options.namespace,
+      certificate: certificateBytes,
+      kubectlPath: options.kubectlPath,
+      spawn: dependencies.spawn,
+    });
+    await append(options.githubOutputPath, `managed-postgres-ca-sha256=${digest}\n`);
+    return { digest };
+  } catch (error) {
+    operationError = error;
+    throw error;
+  } finally {
+    try {
+      await remove(options.caPath, { force: true });
+    } catch (cleanupError) {
+      if (!operationError) {
+        throw trustError("managed-postgres-ca-cleanup-failed", "Managed Postgres CA cleanup failed.", {
+          code: cleanupError?.code,
+        });
+      }
+    }
+  }
 }
 
 export async function exportTerraformStateDatabaseUrls(options, dependencies = {}) {
@@ -180,11 +237,36 @@ export async function fetchDigitalOceanManagedPostgresCa(options, dependencies =
       status: response.status,
     });
   }
+  const contentType = response.headers?.get?.("content-type") ?? "";
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    throw trustError(
+      "digitalocean-ca-response-invalid",
+      "DigitalOcean database CA response content type was invalid.",
+      {
+        status: response.status,
+      },
+    );
+  }
 
+  const contentLength = Number(response.headers?.get?.("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > DIGITALOCEAN_CA_RESPONSE_MAX_BYTES) {
+    throw trustError("digitalocean-ca-response-too-large", "DigitalOcean database CA response exceeded the limit.", {
+      status: response.status,
+    });
+  }
   let payload;
   try {
-    payload = await response.json();
-  } catch {
+    const responseBody = await response.text();
+    if (Buffer.byteLength(responseBody, "utf8") > DIGITALOCEAN_CA_RESPONSE_MAX_BYTES) {
+      throw trustError("digitalocean-ca-response-too-large", "DigitalOcean database CA response exceeded the limit.", {
+        status: response.status,
+      });
+    }
+    payload = JSON.parse(responseBody);
+  } catch (error) {
+    if (error?.classification) {
+      throw error;
+    }
     throw trustError("digitalocean-ca-response-invalid", "DigitalOcean database CA response was invalid.", {
       status: response.status,
     });
@@ -263,6 +345,26 @@ function validateExportOptions(options) {
   return errors;
 }
 
+function validateTrustOnlyOptions(options) {
+  const errors = [];
+  if (options.mode !== "trust-only-kubernetes-secret") {
+    errors.push("The managed Postgres trust-only mode is required.");
+  }
+  if (options.contextsSpecified || options.connectionModeSpecified) {
+    errors.push("Trust-only mode refuses URL-export contexts and connection-mode inputs.");
+  }
+  if (!options.statePath) errors.push("TERRAFORM_STATE_PATH or --state is required.");
+  if (!options.githubOutputPath) errors.push("GITHUB_OUTPUT or --github-output is required.");
+  if (!options.caPath) errors.push("RUNNER_TEMP, MANAGED_POSTGRES_CA_PATH, or --ca-path is required.");
+  if (!options.digitalOceanToken) errors.push("DIGITALOCEAN_ACCESS_TOKEN is required.");
+  if (!options.namespace) errors.push("CHASE_SETS_KUBERNETES_NAMESPACE or --namespace is required.");
+  if (!options.kubectlPath) errors.push("KUBECTL_PATH or --kubectl is required.");
+  if (!["staging", "production"].includes(options.environmentName)) {
+    errors.push("Trust-only mode supports only staging or production.");
+  }
+  return errors;
+}
+
 function parseContexts(value) {
   if (!value || value === "all") {
     return null;
@@ -283,7 +385,14 @@ function environmentLabel(environmentName) {
 
 async function main(argv, env = process.env) {
   try {
-    await exportTerraformStateDatabaseUrls(parseTerraformStateDatabaseUrlArgs(argv, env));
+    const options = parseTerraformStateDatabaseUrlArgs(argv, env);
+    if (options.mode === "trust-only-kubernetes-secret") {
+      await reconcileManagedPostgresCaSecret(options);
+    } else if (options.mode === "url-export") {
+      await exportTerraformStateDatabaseUrls(options);
+    } else {
+      throw trustError("managed-postgres-authority-mode-invalid", "Unsupported managed Postgres authority mode.");
+    }
     return 0;
   } catch (error) {
     console.error(

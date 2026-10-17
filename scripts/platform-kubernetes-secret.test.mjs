@@ -1,8 +1,12 @@
 import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
+import { readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
 import {
   applyPlatformSecretManifest,
+  applyManagedPostgresCaSecret,
+  buildManagedPostgresCaSecretManifest,
   buildManagedPostgresDatabaseEnv,
   buildNamespaceManifest,
   buildPlatformSecretBundle,
@@ -11,6 +15,7 @@ import {
   deriveOtlpWriteToken,
   summarizePlatformSecret,
 } from "./platform-kubernetes-secret.mjs";
+import { buildPlatformHelmValues, isDatabaseSecretKey } from "./render-platform-helm-values.mjs";
 
 const sampleValues = {
   global: {
@@ -33,8 +38,99 @@ const sampleValues = {
 };
 
 describe("platform Kubernetes secret", () => {
+  it("threads only the Secret-apply steps; chart identity does not gate keyring reconciliation", () => {
+    let sinks = 0;
+    for (const name of [
+      "platform-pr",
+      "platform-merge-gate-verification",
+      "platform-ephemeral-verification",
+      "platform-production",
+    ]) {
+      const workflow = parseYaml(readFileSync(`.github/workflows/${name}.yml`, "utf8"));
+      for (const job of Object.values(workflow.jobs))
+        for (const step of job.steps ?? []) {
+          if (!/^Apply .*Kubernetes runtime secrets$/.test(step.name ?? "")) continue;
+          sinks++;
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"]) {
+            expect(step.env[secretName]).toBe(`\${{ secrets.${secretName} || '' }}`);
+            expect(step.run).not.toContain(secretName);
+            expect(job.env ?? {}).not.toHaveProperty(secretName);
+          }
+          expect(step.if ?? "").not.toMatch(/chart|helm|changed|fingerprint/i);
+          expect(step.run).toMatch(/platform-kubernetes-secret/);
+        }
+    }
+    expect(sinks).toBe(5);
+    const reset = parseYaml(readFileSync(".github/workflows/platform-staging-reset.yml", "utf8"));
+    const runs = Object.values(reset.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .map((step) => step.run ?? "")
+      .join("\n");
+    expect(runs).toContain("gh workflow run platform-production.yml");
+    expect(runs).not.toContain("CHANNELS_CREDENTIAL_KEYRING_JSON");
+    expect(readFileSync(".github/workflows/platform-staging-reset.yml", "utf8")).not.toContain(
+      "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    );
+  });
+  it("reconciles a rotated keyring on the same values through stdin only", async () => {
+    const values = buildPlatformHelmValues();
+    const env = Object.fromEntries(collectPlatformSecretKeys(values).map((key) => [key, ""]));
+    const calls = [],
+      inputs = [];
+    const spawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdin = new Writable({
+        write(chunk, _encoding, callback) {
+          inputs.push(chunk.toString());
+          callback();
+        },
+      });
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    };
+    for (const marker of ["synthetic-old-keyring", "synthetic-new-keyring"]) {
+      await applyPlatformSecretManifest({
+        values,
+        env: { ...env, CHANNELS_CREDENTIAL_KEYRING_JSON: marker, CATALOG_OPERATOR_SESSION_KEYRING_JSON: marker },
+        spawn,
+        kubectlPath: "synthetic-kubectl",
+      });
+    }
+    expect(calls).toHaveLength(2);
+    for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+      expect(inputs.map((input) => Buffer.from(JSON.parse(input).data[secretName], "base64").toString())).toEqual([
+        "synthetic-old-keyring",
+        "synthetic-new-keyring",
+      ]);
+    expect(JSON.stringify(calls)).not.toMatch(/synthetic-(old|new)-keyring/);
+  });
+  it.each(["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])(
+    "includes optional %s without its value in a summary",
+    (secretName) => {
+      const values = buildPlatformHelmValues();
+      expect(collectPlatformSecretKeys(values)).toEqual(
+        expect.arrayContaining(["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"]),
+      );
+      const env = Object.fromEntries(collectPlatformSecretKeys(values).map((key) => [key, "synthetic-value"]));
+      env[secretName] = "synthetic-custody-marker";
+      const manifest = buildPlatformSecretManifest({ values, env, namespace: "synthetic" });
+      expect(Buffer.from(manifest.data[secretName], "base64").toString()).toBe("synthetic-custody-marker");
+      expect(JSON.stringify(summarizePlatformSecret({ values, namespace: "synthetic" }))).not.toContain(
+        "synthetic-custody-marker",
+      );
+      env[secretName] = "";
+      expect(buildPlatformSecretManifest({ values, env, namespace: "synthetic" }).data[secretName]).toBe("");
+    },
+  );
   it("collects unique secret keys from Helm values", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
+  });
+
+  it("preserves the canonical 54-key managed database URL inventory", () => {
+    const urlKeys = collectPlatformSecretKeys(buildPlatformHelmValues()).filter(isDatabaseSecretKey);
+    expect(urlKeys).toHaveLength(54);
+    expect(new Set(urlKeys).size).toBe(54);
   });
 
   it("derives the collector token without changing the application OTLP header contract", () => {
@@ -260,7 +356,18 @@ describe("platform Kubernetes secret", () => {
 
     expect(result).toEqual({ name: "chase-sets-platform-runtime", namespace: null, keyCount: 2 });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ command: "kubectl", args: ["apply", "-f", "-"] });
+    expect(calls[0]).toMatchObject({
+      command: "kubectl",
+      args: [
+        "apply",
+        "--server-side",
+        "--force-conflicts",
+        "--field-manager",
+        "chase-sets-platform-runtime",
+        "-f",
+        "-",
+      ],
+    });
     expect(calls[0].options.stdio).toEqual(["pipe", "inherit", "inherit"]);
     expect(writes.join("")).toContain('"kind":"Secret"');
   });
@@ -297,7 +404,7 @@ describe("platform Kubernetes secret", () => {
     expect(result).toEqual({ name: "chase-sets-platform-runtime", namespace: "production", keyCount: 2 });
     expect(calls.map((call) => call.args)).toEqual([
       ["apply", "-f", "-"],
-      ["apply", "-f", "-"],
+      ["apply", "--server-side", "--force-conflicts", "--field-manager", "chase-sets-platform-runtime", "-f", "-"],
     ]);
     expect(writes).toHaveLength(2);
     expect(writes[0]).toContain('"kind":"Namespace"');
@@ -314,6 +421,78 @@ describe("platform Kubernetes secret", () => {
       keyCount: 2,
       keys: ["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"],
     });
+  });
+
+  it("server-side applies only the managed Postgres CA key under its dedicated manager", async () => {
+    const calls = [];
+    const writes = [];
+    const spawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdin = new Writable({
+        write(chunk, _encoding, callback) {
+          writes.push(chunk.toString("utf8"));
+          callback();
+        },
+      });
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    };
+    const certificate = Buffer.from("synthetic-ca-bytes", "utf8");
+    await applyManagedPostgresCaSecret({
+      namespace: "chase-sets-platform",
+      certificate,
+      resourceVersion: "synthetic-123",
+      kubectlPath: "C:/synthetic/kubectl-double.exe",
+      spawn,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      command: "C:/synthetic/kubectl-double.exe",
+      args: ["apply", "--server-side", "--field-manager", "chase-sets-managed-postgres-ca", "-f", "-"],
+    });
+    const applied = JSON.parse(writes[0]);
+    expect(applied.metadata.name).toBe("chase-sets-platform-runtime");
+    expect(applied.metadata.namespace).toBe("chase-sets-platform");
+    expect(applied.metadata.resourceVersion).toBe("synthetic-123");
+    expect(applied.data["managed-postgres-ca.crt"]).toBe(certificate.toString("base64"));
+  });
+
+  it("reads only the existing Secret resourceVersion before the one-key server-side apply", async () => {
+    const calls = [];
+    const certificate = Buffer.from("synthetic-ca-bytes", "utf8");
+    const spawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stdin = new Writable({ write: (_chunk, _encoding, callback) => callback() });
+      queueMicrotask(() => {
+        if (args[0] === "get") child.stdout.emit("data", "synthetic-456");
+        child.emit("close", 0);
+      });
+      return child;
+    };
+
+    await applyManagedPostgresCaSecret({
+      namespace: "chase-sets-platform",
+      certificate,
+      kubectlPath: "C:/synthetic/kubectl-double.exe",
+      spawn,
+    });
+
+    expect(calls.map(({ args }) => args)).toEqual([
+      [
+        "get",
+        "secret",
+        "chase-sets-platform-runtime",
+        "--namespace",
+        "chase-sets-platform",
+        "--output",
+        "jsonpath={.metadata.resourceVersion}",
+      ],
+      ["apply", "--server-side", "--field-manager", "chase-sets-managed-postgres-ca", "-f", "-"],
+    ]);
   });
 });
 

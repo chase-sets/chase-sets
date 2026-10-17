@@ -1,10 +1,74 @@
 import { describe, expect, it } from "vitest";
 import { decideInventoryItem, evolveInventoryItem, initialInventoryItemState } from "./domain";
 
+const unknownAcquisition = {
+  acquisitionOccurrence: { kind: "unknown" as const },
+  commandOccurredAt: "2026-09-07T06:00:00Z",
+};
+
 describe("inventory item domain", () => {
+  it("requires a source-authored uppercase currency alongside every acquisition amount", () => {
+    const create = {
+      type: "CreateInventoryItem" as const,
+      ...unknownAcquisition,
+      itemId: "inv_cost" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1" as never,
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 1,
+    };
+
+    expect(() => decideInventoryItem(initialInventoryItemState, { ...create, acquisitionCostAmount: "4.25" })).toThrow(
+      /amount and currency/,
+    );
+    expect(() =>
+      decideInventoryItem(initialInventoryItemState, {
+        ...create,
+        acquisitionCostAmount: "4.25",
+        acquisitionCostCurrencyCode: "usd",
+      }),
+    ).toThrow(/uppercase three-letter/);
+    expect(() =>
+      decideInventoryItem(initialInventoryItemState, { ...create, acquisitionCostCurrencyCode: "USD" }),
+    ).toThrow(/amount and currency/);
+
+    const [created] = decideInventoryItem(initialInventoryItemState, {
+      ...create,
+      acquisitionCostAmount: "4.25",
+      acquisitionCostCurrencyCode: "CAD",
+    });
+    expect(created?.data).toMatchObject({
+      acquisitionCostAmount: "4.25",
+      acquisitionCostCurrencyCode: "CAD",
+    });
+  });
+
+  it("keeps retained amount-only events ineligible by evolving their currency as null", () => {
+    const retained = evolveInventoryItem(initialInventoryItemState, {
+      type: "inventory.item.created",
+      data: {
+        itemId: "inv_legacy" as never,
+        accountId: "acc_1" as never,
+        catalogItemId: "cat_1" as never,
+        productId: "cat_1::" as never,
+        selectedOptions: [],
+        gradedCard: null,
+        storageLocationId: "loc_1",
+        totalQuantity: 1,
+        acquisitionCostAmount: "4.25",
+      },
+    });
+
+    expect(retained.acquisitionCostAmount).toBe("4.25");
+    expect(retained.acquisitionCostCurrencyCode).toBeNull();
+  });
+
   it("creates and adjusts an inventory item", async () => {
     const created = await decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
+      ...unknownAcquisition,
       itemId: "inv_1" as never,
       accountId: "acc_1" as never,
       catalogItemId: "cat_1",
@@ -13,6 +77,7 @@ describe("inventory item domain", () => {
       storageLocationId: "loc_1",
       totalQuantity: 12,
       acquisitionCostAmount: "4.25",
+      acquisitionCostCurrencyCode: "USD",
     });
     const createdState = created.reduce(evolveInventoryItem, initialInventoryItemState);
     const adjusted = await decideInventoryItem(createdState, {
@@ -30,6 +95,7 @@ describe("inventory item domain", () => {
   it("emits the optional typed reason and normalizes a supplied blank note", async () => {
     const [created] = decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
+      ...unknownAcquisition,
       itemId: "inv_1" as never,
       accountId: "acc_1" as never,
       catalogItemId: "cat_1",
@@ -59,6 +125,7 @@ describe("inventory item domain", () => {
   it("leaves optional adjustment fields absent for legacy commands", () => {
     const [created] = decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
+      ...unknownAcquisition,
       itemId: "inv_1" as never,
       accountId: "acc_1" as never,
       catalogItemId: "cat_1",
@@ -71,6 +138,7 @@ describe("inventory item domain", () => {
 
     const [adjusted] = decideInventoryItem(createdState, {
       type: "AdjustInventoryItemQuantity",
+      ...unknownAcquisition,
       quantityDelta: 1,
       heldQuantity: 0,
       reason: "Legacy correction",
@@ -78,11 +146,108 @@ describe("inventory item domain", () => {
 
     expect(adjusted?.data).not.toHaveProperty("reasonCode");
     expect(adjusted?.data).not.toHaveProperty("note");
+    if (adjusted?.type !== "inventory.item.adjusted") throw new Error("Expected an Inventory adjustment event.");
+    expect(adjusted.data.acquisitionOccurrence).toEqual({ kind: "unknown" });
+  });
+
+  it("captures known acquisition occurrence on create and positive adjustment without using command time", () => {
+    const [created] = decideInventoryItem(initialInventoryItemState, {
+      type: "CreateInventoryItem",
+      itemId: "inv_1" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 1,
+      acquisitionOccurrence: {
+        kind: "occurred",
+        occurredAt: "2026-09-01T05:00:00-05:00",
+        source: "seller-supplied",
+      },
+      commandOccurredAt: "2026-09-07T06:00:00Z",
+    });
+    if (created?.type !== "inventory.item.created") throw new Error("Expected an Inventory created event.");
+    expect(created.data.acquisitionOccurrence).toEqual({
+      kind: "occurred",
+      occurredAt: "2026-09-01T05:00:00-05:00",
+      source: "seller-supplied",
+    });
+
+    const state = evolveInventoryItem(initialInventoryItemState, created!);
+    const [adjusted] = decideInventoryItem(state, {
+      type: "AdjustInventoryItemQuantity",
+      quantityDelta: 2,
+      heldQuantity: 0,
+      reason: "Import intake",
+      acquisitionOccurrence: {
+        kind: "occurred",
+        occurredAt: "2026-09-02T10:00:00Z",
+        source: "import-supplied",
+      },
+      commandOccurredAt: "2026-09-07T06:00:00Z",
+    });
+    if (adjusted?.type !== "inventory.item.adjusted") throw new Error("Expected an Inventory adjustment event.");
+    expect(adjusted.data.acquisitionOccurrence).toMatchObject({
+      occurredAt: "2026-09-02T10:00:00Z",
+      source: "import-supplied",
+    });
+  });
+
+  it("rejects missing, timezone-less, future, and reduction acquisition claims", () => {
+    const create = {
+      type: "CreateInventoryItem" as const,
+      itemId: "inv_1" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1" as never,
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 1,
+      commandOccurredAt: "2026-09-07T06:00:00Z",
+    };
+    expect(() => decideInventoryItem(initialInventoryItemState, create as never)).toThrow(/explicit acquisition/);
+    expect(() =>
+      decideInventoryItem(initialInventoryItemState, {
+        ...create,
+        acquisitionOccurrence: {
+          kind: "occurred",
+          occurredAt: "2026-09-01T05:00:00",
+          source: "seller-supplied",
+        },
+      }),
+    ).toThrow(/timezone-bearing/);
+    expect(() =>
+      decideInventoryItem(initialInventoryItemState, {
+        ...create,
+        acquisitionOccurrence: {
+          kind: "occurred",
+          occurredAt: "2026-09-08T05:00:00Z",
+          source: "seller-supplied",
+        },
+      }),
+    ).toThrow(/cannot be later/);
+
+    const [created] = decideInventoryItem(initialInventoryItemState, {
+      ...create,
+      acquisitionOccurrence: { kind: "unknown" },
+    });
+    const state = evolveInventoryItem(initialInventoryItemState, created!);
+    expect(() =>
+      decideInventoryItem(state, {
+        type: "AdjustInventoryItemQuantity",
+        quantityDelta: -1,
+        heldQuantity: 0,
+        reason: "Reduction",
+        acquisitionOccurrence: { kind: "unknown" },
+      }),
+    ).toThrow(/reductions cannot claim/);
   });
 
   it("rejects adjustments below committed held quantity", async () => {
     const created = await decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
+      ...unknownAcquisition,
       itemId: "inv_1" as never,
       accountId: "acc_1" as never,
       catalogItemId: "cat_1",
@@ -119,9 +284,132 @@ describe("inventory item domain", () => {
     ).toThrow("4 units are committed to open orders.");
   });
 
+  it("records one applied offline sale as an adjustment plus a per-unit sale fact", () => {
+    const [created] = decideInventoryItem(initialInventoryItemState, {
+      type: "CreateInventoryItem",
+      ...unknownAcquisition,
+      itemId: "inv_1" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 5,
+      acquisitionCostAmount: "75.00",
+      acquisitionCostCurrencyCode: "USD",
+    });
+    const createdState = evolveInventoryItem(initialInventoryItemState, created!);
+
+    const events = decideInventoryItem(createdState, {
+      type: "RecordOfflineSale",
+      quantity: 3,
+      heldQuantity: 0,
+      salePriceAmount: "125.00",
+      channel: "in-store",
+      note: " Counter sale ",
+      recordedAt: "2026-08-25T20:00:00.000Z",
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "inventory.item.adjusted",
+        data: expect.objectContaining({
+          itemId: "inv_1",
+          quantityDelta: -3,
+          reason: "Offline sale",
+          reasonCode: "sold-offline",
+          note: "Counter sale",
+        }),
+      }),
+      {
+        type: "inventory.item.offline-sale-recorded",
+        data: {
+          itemId: "inv_1",
+          quantity: 3,
+          salePriceAmount: "125.00",
+          channel: "in-store",
+          storageLocationId: "loc_1",
+          acquisitionCostAmount: "75.00",
+          recordedAt: "2026-08-25T20:00:00.000Z",
+        },
+      },
+    ]);
+    expect(events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ data: expect.objectContaining({ salePriceAmount: "375.00" }) }),
+      ]),
+    );
+  });
+
+  it("fences the external-channel reason behind its dedicated Inventory command", () => {
+    const state = {
+      ...initialInventoryItemState,
+      id: "inv_1" as never,
+      accountId: "acc_1" as never,
+      storageLocationId: "loc_1",
+      totalQuantity: 3,
+    };
+    expect(() =>
+      decideInventoryItem(state, {
+        type: "AdjustInventoryItemQuantity",
+        quantityDelta: -1,
+        heldQuantity: 0,
+        reason: "Forged channel sale",
+        reasonCode: "sold-external-channel",
+      }),
+    ).toThrow("require the Inventory-owned external sale command");
+    expect(
+      decideInventoryItem(state, {
+        type: "RecordExternalChannelSaleAdjustment",
+        quantity: 1,
+        heldQuantity: 0,
+      }),
+    ).toEqual([
+      {
+        type: "inventory.item.adjusted",
+        data: {
+          itemId: "inv_1",
+          quantityDelta: -1,
+          reason: "External channel sale",
+          reasonCode: "sold-external-channel",
+          sourceRef: null,
+        },
+      },
+    ]);
+  });
+
+  it("rejects invalid offline-sale quantity, price, channel, and held floors", () => {
+    const state = {
+      ...initialInventoryItemState,
+      id: "inv_1" as never,
+      accountId: "acc_1" as never,
+      storageLocationId: "loc_1",
+      totalQuantity: 3,
+    };
+    const valid = {
+      type: "RecordOfflineSale" as const,
+      quantity: 1,
+      heldQuantity: 0,
+      salePriceAmount: "1.00",
+      channel: "other" as const,
+      recordedAt: "2026-08-25T20:00:00.000Z",
+    };
+
+    expect(() => decideInventoryItem(state, { ...valid, quantity: 0 })).toThrow("positive whole-number");
+    expect(() => decideInventoryItem(state, { ...valid, quantity: 1.5 })).toThrow("positive whole-number");
+    expect(() => decideInventoryItem(state, { ...valid, salePriceAmount: "10000000000.00" })).toThrow();
+    expect(() => decideInventoryItem(state, { ...valid, channel: "other-marketplace" as never })).toThrow(
+      "supported channel",
+    );
+    expect(() => decideInventoryItem(state, { ...valid, quantity: 2, heldQuantity: 2 })).toThrow(
+      "2 units are committed",
+    );
+  });
+
   it("keeps graded card details on the inventory item", async () => {
     const created = await decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",
+      ...unknownAcquisition,
       itemId: "inv_graded" as never,
       accountId: "acc_1" as never,
       catalogItemId: "cat_1",
@@ -142,6 +430,7 @@ describe("inventory item domain", () => {
       storageLocationId: "loc_1",
       totalQuantity: 1,
       acquisitionCostAmount: "40.00",
+      acquisitionCostCurrencyCode: "USD",
     });
     const createdState = created.reduce(evolveInventoryItem, initialInventoryItemState);
 

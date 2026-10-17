@@ -8,9 +8,13 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 
 const expectedInventory = [
   ["bounded-contexts/settlement/features/payouts/api/runtime.ts", "getCommittedPayoutLedgerEntry"],
+  ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "cleanupCommitMetadata"],
   ["bounded-contexts/checkout/features/sessions/api/runtime.ts", "existingStartedSession"],
-  ["bounded-contexts/inventory/features/inventory-items/api/runtime.ts", "recoverInventoryAdjustmentIdempotency"],
-  ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", "resolveCatalogItemMeasures"],
+  [
+    "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
+    "recoverInventoryAdjustmentIdempotency",
+  ],
+  ["bounded-contexts/catalog/features/product-measures/api/publication.ts", "publishProductMeasures"],
   ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "replaceProductContents"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "findReplayedListingMutation"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "listSellerListingFeeHistory"],
@@ -99,7 +103,7 @@ function callsInside(node, targetName) {
 }
 
 describe("issue-6299-acceptance-control", () => {
-  it("derives the exact tracked nine-file, ten-symbol complete-reader inventory from syntax", () => {
+  it("derives the exact tracked nine-file, eleven-symbol complete-reader inventory from syntax", () => {
     const actual = [];
     for (const relativeFile of [...new Set(expectedInventory.map(([file]) => file))]) {
       for (const call of callsInFile(relativeFile, "readCompleteStream")) {
@@ -134,13 +138,13 @@ describe("issue-6299-acceptance-control", () => {
   });
 
   it("rejects count-derived expected-version and authority-boundary bypasses", () => {
-    for (const relativeFile of [
-      "bounded-contexts/catalog/features/product-measures/api/runtime.ts",
-      "bounded-contexts/catalog/features/product-contents/api/runtime.ts",
+    for (const [relativeFile, history] of [
+      ["bounded-contexts/catalog/features/product-measures/api/publication.ts", "history"],
+      ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "existingEvents"],
     ]) {
       const source = readFileSync(path.join(repoRoot, relativeFile), "utf8");
-      expect(source).toContain("existingEvents.at(-1)?.streamVersion ?? 0");
-      expect(source).not.toMatch(/currentVersion\s*=\s*existingEvents\.length/);
+      expect(source).toContain(`${history}.at(-1)?.streamVersion ?? 0`);
+      expect(source).not.toMatch(new RegExp(`(?:currentVersion\\s*=|expectedVersion\\s*:)\\s*${history}\\.length`));
     }
 
     const authoritySource = readFileSync(

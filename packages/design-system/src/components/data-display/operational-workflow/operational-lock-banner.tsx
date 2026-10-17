@@ -18,7 +18,7 @@ export interface OperationalLockBannerProps extends Omit<
  */
 export function OperationalLockBanner({ title, description, action, ...rest }: OperationalLockBannerProps) {
   return (
-    <Surface {...rest} tone="warning">
+    <Surface {...rest} tone="warning" elevation="tinted">
       <Stack
         direction={{ base: "column", sm: "row" }}
         align={{ base: "stretch", sm: "start" }}

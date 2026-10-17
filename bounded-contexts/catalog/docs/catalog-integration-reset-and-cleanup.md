@@ -3,11 +3,11 @@
 Catalog owns pre-launch reset, cleanup, backfill, and rollback for Catalog Integration Control Plane data, plus removal of compatibility paths. The executable policies live in:
 
 ```text
-bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts
-bounded-contexts/catalog/features/source-observations/api/catalog-integration-legacy-cleanup.ts
+bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-data-migration-reset.ts
+scripts/check-structure/catalog-integration-legacy-cleanup.ts
 ```
 
-Schema/wire compatibility and retention-by-surface rules are owned by [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, and diagnostic retention, redaction, and policy/legal approval are owned by [Catalog Integration Data Governance](./catalog-integration-data-governance.md). The meaning of "retire" is the canonical complete-deletion definition in [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md#retirement-meaning) and is not restated here.
+Schema/wire compatibility and retention-by-surface rules are owned by [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, and diagnostic retention, redaction, and policy/legal approval are owned by [Catalog Integration Data Governance](./catalog-integration-data-governance.md). The meaning of "retire" is the canonical complete-deletion definition in [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md#retirement-meaning), enforced by `scripts/check-structure/catalog-integration-security-privacy-launch-gate.ts`, and is not restated here.
 
 ## Release Posture
 

@@ -1,6 +1,9 @@
 import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { assert } from "../../../support/runtime-support/common";
+import { requireCheckoutCartClaimIdentity } from "../domain/domain";
+import { reconcileCheckoutCartClaim } from "./queries";
 
 function buyerAccountIdFromCartStream(streamId: string): string {
   return extractIdFromStreamId(streamId, "checkout.cart-");
@@ -35,6 +38,8 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
           sellerDisplayName: string | null;
           sellerSlug: string | null;
           priceAmount: string | null;
+          priceCurrencyCode: string | null;
+          listingStreamVersion: number | null;
           source: string;
         } | null;
         availabilityState?: string;
@@ -65,13 +70,15 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
            selected_listing_seller_display_name,
            selected_listing_seller_slug,
            selected_listing_price_amount,
+           selected_listing_price_currency_code,
+           selected_listing_stream_version,
            selected_listing_snapshot_source,
            selected_listing_snapshot_captured_at,
            seller_preference_id,
            availability_state,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $27)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $29)
          ON CONFLICT (buyer_account_id, line_id) DO UPDATE
          SET catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
@@ -93,6 +100,8 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
              selected_listing_seller_display_name = EXCLUDED.selected_listing_seller_display_name,
              selected_listing_seller_slug = EXCLUDED.selected_listing_seller_slug,
              selected_listing_price_amount = EXCLUDED.selected_listing_price_amount,
+             selected_listing_price_currency_code = EXCLUDED.selected_listing_price_currency_code,
+             selected_listing_stream_version = EXCLUDED.selected_listing_stream_version,
              selected_listing_snapshot_source = EXCLUDED.selected_listing_snapshot_source,
              selected_listing_snapshot_captured_at = EXCLUDED.selected_listing_snapshot_captured_at,
              seller_preference_id = EXCLUDED.seller_preference_id,
@@ -121,6 +130,8 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
           selectedListing?.sellerDisplayName ?? null,
           selectedListing?.sellerSlug ?? null,
           selectedListing?.priceAmount ?? null,
+          selectedListing?.priceCurrencyCode ?? null,
+          selectedListing?.listingStreamVersion ?? null,
           selectedListing?.source ?? null,
           selectedListing ? event.timing.recordedAt : null,
           data.sellerPreferenceId ?? null,
@@ -156,6 +167,8 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
           sellerDisplayName: string | null;
           sellerSlug: string | null;
           priceAmount: string | null;
+          priceCurrencyCode: string | null;
+          listingStreamVersion: number | null;
           source: string;
         } | null;
         availabilityState: string;
@@ -172,11 +185,13 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
              selected_listing_seller_display_name = $7,
              selected_listing_seller_slug = $8,
              selected_listing_price_amount = $9,
-             selected_listing_snapshot_source = $10,
-             selected_listing_snapshot_captured_at = $11,
-             seller_preference_id = $12,
-             availability_state = $13,
-             updated_at = $14
+             selected_listing_price_currency_code = $10,
+             selected_listing_stream_version = $11,
+             selected_listing_snapshot_source = $12,
+             selected_listing_snapshot_captured_at = $13,
+             seller_preference_id = $14,
+             availability_state = $15,
+             updated_at = $16
          WHERE buyer_account_id = $1
            AND line_id = $2`,
         [
@@ -189,6 +204,8 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
           selectedListing?.sellerDisplayName ?? null,
           selectedListing?.sellerSlug ?? null,
           selectedListing?.priceAmount ?? null,
+          selectedListing?.priceCurrencyCode ?? null,
+          selectedListing?.listingStreamVersion ?? null,
           selectedListing?.source ?? null,
           selectedListing ? event.timing.recordedAt : null,
           data.sellerPreferenceId,
@@ -218,6 +235,27 @@ export function buildCheckoutCartProjectionHandlers(db: PgQueryable): ProjectorH
          WHERE buyer_account_id = $1`,
         [data.buyerAccountId],
       );
+    },
+    // Replay rebuilds the same ownership alias the command path writes
+    // synchronously, so a claim whose event committed without its alias
+    // converges here as well as on a same-Account retry. The source is derived
+    // from the stream the event actually lives on and must equal the identity
+    // the event carries: a malformed or mismatched historical event fails the
+    // projection closed rather than inventing ownership.
+    "checkout.cart.claimed-by-account": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
+      const data = event.data as { sourceOwnerKey?: unknown; accountId?: unknown };
+      const claim = requireCheckoutCartClaimIdentity({
+        sourceOwnerKey: data.sourceOwnerKey,
+        accountId: data.accountId,
+      });
+
+      assert(
+        claim.sourceOwnerKey === buyerAccountIdFromCartStream(event.streamId),
+        "Cart claim event source does not match its stream.",
+      );
+
+      await reconcileCheckoutCartClaim(projectionDb, claim);
     },
   };
 }

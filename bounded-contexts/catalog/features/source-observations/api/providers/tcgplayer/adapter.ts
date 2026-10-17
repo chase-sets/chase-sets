@@ -1,4 +1,6 @@
+import { ProviderSendStoppedError } from "../provider-send-admission";
 import { t } from "@chase-sets/localization";
+import type { OperatorSessionCatalogClient } from "../../../../operator-session/api/runtime";
 import {
   runCatalogIntegrationDryRun,
   type CatalogIntegrationDryRunResult,
@@ -117,7 +119,8 @@ export type TcgplayerProviderPayload =
 
 export type TcgplayerProviderAdapterOptions = Readonly<{
   loadProfileVersions: () => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
-  client?: TcgplayerAutomationCatalogClient;
+  client?: TcgplayerAutomationCatalogClient &
+    Partial<Pick<OperatorSessionCatalogClient, "transportConfigured" | "resolveCredentialReadiness">>;
   now?: () => Date;
 }>;
 
@@ -276,7 +279,7 @@ export function createTcgplayerProviderAdapter(
           });
           yield detailEnvelope(plan, detail, fetchedAt);
         } catch (error) {
-          if (isCancellationLikeError(error)) {
+          if (error instanceof ProviderSendStoppedError || isCancellationLikeError(error)) {
             throw error;
           }
           await fetchOptions?.onProgress?.({
@@ -295,23 +298,11 @@ export function createTcgplayerProviderAdapter(
       const retryableCodes = TCGPLAYER_AUTOMATION_RETRYABLE_STATUS_CODES.join(", ");
       const domains = Object.values(TCGPLAYER_AUTOMATION_DOMAINS).join(", ");
 
-      if (!options.client) {
-        return profileUnits.flatMap((profileVersion) =>
-          tcgplayerTransportDiagnosticsForUnit({
-            profileVersion,
-            unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
-            clientConfigured: false,
-            domains,
-            retryableCodes,
-          }),
-        );
-      }
-
       return profileUnits.flatMap((profileVersion) =>
         tcgplayerTransportDiagnosticsForUnit({
           profileVersion,
           unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
-          clientConfigured: true,
+          clientConfigured: options.client?.transportConfigured ?? Boolean(options.client),
           domains,
           retryableCodes,
         }),
@@ -321,17 +312,21 @@ export function createTcgplayerProviderAdapter(
       const profileVersions = await loadTcgplayerImportProfileVersions(options);
       const profileUnits = profileVersions.length > 0 ? profileVersions : [null];
       const checkedAt = (options.now ?? (() => new Date()))().toISOString();
+      const credential = (await options.client?.resolveCredentialReadiness?.()) ?? {
+        sourceKind: "environment-secret" as const,
+        state: "missing" as const,
+        diagnosticCode: "credential-missing",
+      };
 
       return profileUnits.map((profileVersion) =>
         createCatalogProviderCredentialReadiness({
           providerKey: "tcgplayer",
           unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
           requirement: "required",
-          sourceKind: "environment-secret",
-          state: options.client ? "configured" : "missing",
-          message: options.client
-            ? t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured")
-            : t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing"),
+          sourceKind: credential.sourceKind,
+          state: credential.state,
+          diagnosticCode: credential.diagnosticCode,
+          message: tcgplayerCredentialMessage(credential.diagnosticCode),
           checkedAt,
           scope: {
             environmentKey: "runtime",
@@ -341,12 +336,31 @@ export function createTcgplayerProviderAdapter(
             connectorKind: profileVersion?.profile.connector.kind ?? "tcgplayer-automation-client",
             lifecycle: profileVersion?.lifecycle ?? "unregistered",
             credentialRequirement: "required",
-            credentialState: options.client ? "configured" : "missing",
+            credentialState: credential.state,
           },
         }),
       );
     },
   };
+}
+
+function tcgplayerCredentialMessage(code: string | null): string {
+  switch (code) {
+    case "operator-session-custody-unavailable":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.custodyUnavailable");
+    case "operator-session-expired":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.expired");
+    case "credential-refresh-needed":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.refreshNeeded");
+    case "rejected-after-refresh":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.rejectedAfterRefresh");
+    case "adapter-authentication-failed":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.authenticationFailed");
+    case "credential-missing":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing");
+    default:
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured");
+  }
 }
 
 async function listTcgplayerSetProducts(input: {
@@ -777,13 +791,68 @@ function unitKeyForTcgplayerProfileVersion(
     : assembleCatalogProviderIngestionUnitProfileSections(profileVersion).ingestionUnitIdentity.value.unitKey;
 }
 
-type TcgplayerUnitConstraints = Readonly<{
+export type TcgplayerUnitConstraints = Readonly<{
   unitKey: string;
   productLineNames: readonly string[];
   productLineUrlNames: readonly string[];
   defaultProductLineName: string;
   productForm: "single-card" | "sealed-product";
 }>;
+
+export type TcgplayerSingleCardUnitConstraints = TcgplayerUnitConstraints &
+  Readonly<{
+    productDomain: "pokemon" | "magic" | "yugioh" | "one-piece" | "lorcana";
+    discoveryLanguageCode: "en";
+    productForm: "single-card";
+  }>;
+
+export const tcgplayerSingleCardUnitConstraints: readonly TcgplayerSingleCardUnitConstraints[] = Object.freeze([
+  {
+    unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    productDomain: "magic",
+    discoveryLanguageCode: "en",
+    productLineNames: ["magic", "magic: the gathering", "magic the gathering", "mtg"],
+    productLineUrlNames: ["magic", "magic-the-gathering", "mtg"],
+    defaultProductLineName: "Magic",
+    productForm: "single-card",
+  },
+  {
+    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    productDomain: "pokemon",
+    discoveryLanguageCode: "en",
+    productLineNames: ["pokemon", "pokemon trading card game", "pokemon tcg"],
+    productLineUrlNames: ["pokemon", "pokemon-tcg"],
+    defaultProductLineName: "Pokemon",
+    productForm: "single-card",
+  },
+  {
+    unitKey: TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    productDomain: "yugioh",
+    discoveryLanguageCode: "en",
+    productLineNames: ["yu-gi-oh!", "yugioh", "yu-gi-oh", "yu gi oh"],
+    productLineUrlNames: ["yugioh", "yu-gi-oh"],
+    defaultProductLineName: "Yu-Gi-Oh!",
+    productForm: "single-card",
+  },
+  {
+    unitKey: TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    productDomain: "one-piece",
+    discoveryLanguageCode: "en",
+    productLineNames: ["one piece card game", "one piece", "onepiece", "opcg"],
+    productLineUrlNames: ["one-piece-card-game", "one-piece", "onepiece"],
+    defaultProductLineName: "One Piece Card Game",
+    productForm: "single-card",
+  },
+  {
+    unitKey: TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    productDomain: "lorcana",
+    discoveryLanguageCode: "en",
+    productLineNames: ["disney lorcana", "lorcana"],
+    productLineUrlNames: ["disney-lorcana", "lorcana"],
+    defaultProductLineName: "Disney Lorcana",
+    productForm: "single-card",
+  },
+]);
 
 const tcgplayerMtgSingleCardProofDetail: TcgplayerAutomationProductDetail = {
   productTypeName: "Cards",
@@ -972,34 +1041,9 @@ const tcgplayerPokemonSealedProductProofDetail: TcgplayerAutomationProductDetail
   skus: [{ sku: 15501001, condition: "Sealed", variant: "Sealed", language: "English" }],
 };
 
-function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
-  if (unitKey === TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-    return {
-      unitKey,
-      productLineNames: ["magic", "magic: the gathering", "magic the gathering", "mtg"],
-      productLineUrlNames: ["magic", "magic-the-gathering", "mtg"],
-      defaultProductLineName: "Magic",
-      productForm: "single-card",
-    };
-  }
-  if (unitKey === TCGPLAYER_YUGIOH_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-    return {
-      unitKey,
-      productLineNames: ["yu-gi-oh!", "yugioh", "yu-gi-oh", "yu gi oh"],
-      productLineUrlNames: ["yugioh", "yu-gi-oh"],
-      defaultProductLineName: "Yu-Gi-Oh!",
-      productForm: "single-card",
-    };
-  }
-  if (unitKey === TCGPLAYER_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-    return {
-      unitKey,
-      productLineNames: ["one piece card game", "one piece", "onepiece", "opcg"],
-      productLineUrlNames: ["one-piece-card-game", "one-piece", "onepiece"],
-      defaultProductLineName: "One Piece Card Game",
-      productForm: "single-card",
-    };
-  }
+export function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints {
+  const singleCard = tcgplayerSingleCardUnitConstraints.find((constraints) => constraints.unitKey === unitKey);
+  if (singleCard) return singleCard;
   if (unitKey === TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
     return {
       unitKey,
@@ -1007,15 +1051,6 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineUrlNames: ["one-piece-card-game", "one-piece", "onepiece"],
       defaultProductLineName: "One Piece Card Game",
       productForm: "sealed-product",
-    };
-  }
-  if (unitKey === TCGPLAYER_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-    return {
-      unitKey,
-      productLineNames: ["disney lorcana", "lorcana"],
-      productLineUrlNames: ["disney-lorcana", "lorcana"],
-      defaultProductLineName: "Disney Lorcana",
-      productForm: "single-card",
     };
   }
   if (unitKey === TCGPLAYER_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
@@ -1034,15 +1069,6 @@ function constraintsForTcgplayerUnit(unitKey: string): TcgplayerUnitConstraints 
       productLineUrlNames: ["magic", "magic-the-gathering", "mtg"],
       defaultProductLineName: "Magic",
       productForm: "sealed-product",
-    };
-  }
-  if (unitKey === TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {
-    return {
-      unitKey,
-      productLineNames: ["pokemon", "pokemon trading card game", "pokemon tcg"],
-      productLineUrlNames: ["pokemon", "pokemon-tcg"],
-      defaultProductLineName: "Pokemon",
-      productForm: "single-card",
     };
   }
   if (unitKey === TCGPLAYER_POKEMON_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY) {

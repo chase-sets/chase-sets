@@ -1,8 +1,93 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import sourceManifest from "./responsive-evidence-manifest.json" with { type: "json" };
+
+export async function captureAccessibilityEvidence(input: { page: Page; testInfo: TestInfo; surface: string }) {
+  await expect(input.page.getByRole("main")).toHaveCount(1);
+  await expect(input.page.getByRole("main")).toBeVisible();
+  const results = await new AxeBuilder({ page: input.page }).include("main").analyze();
+  await input.testInfo.attach(`accessibility:${input.surface}`, {
+    body: JSON.stringify({
+      surface: input.surface,
+      scope: "main",
+      url: input.page.url(),
+      violations: results.violations,
+      passes: results.passes,
+      incomplete: results.incomplete,
+    }),
+    contentType: "application/json",
+  });
+  expect(results.violations, `Accessibility violations on ${input.surface}`).toEqual([]);
+}
+
+export async function expectAccessibleMain(page: Page) {
+  const main = page.getByRole("main");
+  await expect(main).toHaveCount(1);
+  await expect(main).toBeVisible();
+  await expect(main.locator('[aria-busy="true"]')).toHaveCount(0);
+  await expect(main).not.toHaveAttribute("aria-busy", "true");
+  await expect
+    .poll(() =>
+      main.evaluate((root) => {
+        const attributes = [
+          "for",
+          "form",
+          "list",
+          "headers",
+          "itemref",
+          "popovertarget",
+          "commandfor",
+          "aria-labelledby",
+          "aria-describedby",
+          "aria-controls",
+          "aria-owns",
+          "aria-activedescendant",
+          "aria-details",
+          "aria-errormessage",
+          "aria-flowto",
+        ];
+        const elements = [root, ...root.querySelectorAll("*")];
+        const owners = Array.from(document.querySelectorAll("[id]"));
+        return elements.flatMap((element) =>
+          attributes.flatMap((attribute) =>
+            (element.getAttribute(attribute)?.trim().split(/\s+/).filter(Boolean) ?? []).flatMap((id) => {
+              const targets = owners.filter((owner) => owner.id === id);
+              return targets.length === 1 ? [] : [`${element.tagName}[${attribute}=${id}]: ${targets.length} owners`];
+            }),
+          ),
+        );
+      }),
+    )
+    .toEqual([]);
+}
+
+export async function expectAccessibleDisclosure(trigger: Locator) {
+  await expect(trigger).toHaveCount(1);
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() =>
+      trigger.evaluate((element) => {
+        const panel = document.getElementById(element.getAttribute("aria-controls") ?? "");
+        const bounds = panel?.getBoundingClientRect();
+        return Boolean(
+          element.id &&
+          panel &&
+          panel.getAttribute("aria-labelledby") === element.id &&
+          element.parentElement?.parentElement?.contains(panel) &&
+          panel.getAttribute("role") === "region" &&
+          panel.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }) &&
+          bounds &&
+          bounds.width > 0 &&
+          bounds.height > 0,
+        );
+      }),
+    )
+    .toBe(true);
+}
 
 type NumericAssertion = Readonly<{
   equals?: number;
@@ -228,12 +313,59 @@ async function requireExactVisibleTarget(target: Locator, claim: ResponsiveEvide
 
 async function requirePopulatedTarget(target: Locator, claim: ResponsiveEvidenceClaim) {
   const populated = target.locator(claim.target.populatedSelector);
-  const count = await populated.count();
-  if (count === 0) fail(claim, "target-population-empty");
-  for (let index = 0; index < count; index += 1) {
-    const item = populated.nth(index);
-    if (!(await item.isVisible())) fail(claim, `target-population-hidden(index=${index})`);
-    const box = await item.boundingBox();
+  const observation = await populated.evaluateAll((elements) => {
+    const isVisibleTextNode = (node: Text) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNode(node);
+      const rect = range.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const isVisible = (element: Element): boolean => {
+      const style = getComputedStyle(element);
+      if (style.display === "contents") {
+        for (const child of element.childNodes) {
+          if (child instanceof Element && isVisible(child)) return true;
+          if (child instanceof Text && isVisibleTextNode(child)) return true;
+        }
+        return false;
+      }
+      if (typeof element.checkVisibility === "function") {
+        if (!element.checkVisibility()) return false;
+      } else {
+        const detailsOrSummary = element.closest("details,summary");
+        if (
+          detailsOrSummary !== element &&
+          detailsOrSummary?.nodeName === "DETAILS" &&
+          !(detailsOrSummary as HTMLDetailsElement).open
+        ) {
+          return false;
+        }
+      }
+      if (style.visibility !== "visible") return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
+    const rows = elements.map((element) => {
+      const visible = isVisible(element);
+      const box = visible ? element.getBoundingClientRect() : null;
+      return {
+        visible,
+        layout: box ? { width: box.width, height: box.height } : null,
+      };
+    });
+    return { matchedCount: elements.length, rows };
+  });
+  if (observation.matchedCount === 0) fail(claim, "target-population-empty");
+  if (observation.rows.length !== observation.matchedCount) {
+    fail(
+      claim,
+      `target-population-observation-count-mismatch(expected=${observation.matchedCount}, actual=${observation.rows.length})`,
+    );
+  }
+  for (let index = 0; index < observation.rows.length; index += 1) {
+    const item = observation.rows[index]!;
+    if (!item.visible) fail(claim, `target-population-hidden(index=${index})`);
+    const box = item.layout;
     if (!box || box.width <= 0 || box.height <= 0) {
       fail(claim, `target-population-has-no-observable-layout(index=${index})`);
     }

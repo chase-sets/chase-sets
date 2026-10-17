@@ -1,14 +1,15 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AgentGrantRevocations } from "../../features/agent-grants/api/api";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { ResolvedActor } from "@chase-sets/auth-context";
+import { isSocialLoginProviderKey, type OperatorAuthority, type ResolvedActor } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "../auth-support/adapters";
 import {
   authSecurityLifetimesOf,
@@ -27,7 +28,9 @@ import {
   getAuthIdentityUserByPhone,
   getAuthIdentityUserBySocialLogin,
   getActiveAuthMembershipForUserAccount,
+  listActiveAuthAccountIds,
   listActiveAuthMembershipsForUser,
+  listGrantedAuthAccountCapabilities,
   normalizeAuthEmail,
 } from "../auth-support/identity-projection";
 import {
@@ -72,6 +75,17 @@ type AuthIdentityReadServices = Readonly<{
   ) => ReturnType<typeof getActiveAuthMembershipForUserAccount>;
   getInvitation: (invitationId: string) => ReturnType<typeof getAuthIdentityInvitation>;
   findPendingInvitationByEmail: (email: string) => ReturnType<typeof getPendingAuthIdentityInvitationByEmail>;
+  /**
+   * Current Capability Grants for one Account. Always populated by
+   * `createAuthServices`; optional on the type only so unit-test identity
+   * doubles keep typechecking. A missing reader projects no grant.
+   */
+  listGrantedAccountCapabilities?: (
+    tenantId: string,
+    accountId: string,
+  ) => ReturnType<typeof listGrantedAuthAccountCapabilities>;
+  /** Identity's aggregate-backed operator authority; absent means every operator check is denied. */
+  operatorAuthority?: OperatorAuthority;
 }>;
 
 export type RegistrationAdmissionHostConfig = RegistrationAdmissionConfig &
@@ -141,9 +155,11 @@ export type AuthHostPorts = Readonly<{
    * `bounded-contexts/auth/docs/security-lifetimes.md`.
    */
   securityLifetimes?: Partial<AuthSecurityLifetimesMs>;
+  operatorAuthority?: OperatorAuthority;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
+  withActiveGrants?: AgentGrantRevocations["withActiveGrants"];
   resolveOrderRecipient: (orderId: string) => Promise<string | null>;
   resolveShipmentOrderId: (shipmentId: string) => Promise<string | null>;
   resolveWebhookTargets: (accountId: string) => Promise<readonly AgentWebhookTarget[]>;
@@ -182,7 +198,10 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
-  const agentWebhookOutbox = createPostgresAgentWebhookOutbox({ db });
+  const agentWebhookOutbox = createPostgresAgentWebhookOutbox({
+    db,
+    withActiveGrants: ports.agentWebhookOrderResolvers?.withActiveGrants,
+  });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,
@@ -211,6 +230,9 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
         getActiveAuthMembershipForUserAccount(db, userId, accountId),
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
       findPendingInvitationByEmail: (email) => getPendingAuthIdentityInvitationByEmail(db, email),
+      listGrantedAccountCapabilities: (tenantId, accountId) =>
+        listGrantedAuthAccountCapabilities(db, tenantId, accountId),
+      operatorAuthority: ports.operatorAuthority,
     },
     awaitInvitationProjectionFreshness: createInvitationProjectionFreshnessWaiter({
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
@@ -229,7 +251,12 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
 
 export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];
 
-const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = new Set(["listings.manage", "offers.manage", "orders.manage"]);
+const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = new Set([
+  "listings.manage",
+  "offers.manage",
+  "orders.manage",
+  "pricing.manage",
+]);
 
 function hasVerifiedEmailForCommerce(
   user: Awaited<ReturnType<typeof getAuthIdentityUser>> | null,
@@ -329,7 +356,20 @@ function toSessionRowFromState(
   state: SessionState,
   timestamps: Readonly<{ startedAt: string | null; updatedAt: string }>,
 ): SessionRow | null {
-  if (!state.id || !state.userId || !state.accountId || !state.authenticationMethod || !state.expiresAt) {
+  if (
+    typeof state.id !== "string" ||
+    state.id.length === 0 ||
+    typeof state.userId !== "string" ||
+    state.userId.length === 0 ||
+    typeof state.accountId !== "string" ||
+    state.accountId.length === 0 ||
+    !Array.isArray(state.availableAccountIds) ||
+    !state.availableAccountIds.every((accountId) => typeof accountId === "string" && accountId.length > 0) ||
+    !state.availableAccountIds.includes(state.accountId) ||
+    !isAuthMethod(state.authenticationMethod) ||
+    typeof state.expiresAt !== "string" ||
+    state.expiresAt.length === 0
+  ) {
     return null;
   }
 
@@ -350,32 +390,62 @@ function toSessionRowFromState(
   };
 }
 
-async function getSessionForAuth(services: AuthServices, sessionId: string): Promise<SessionRow | null> {
-  const projectedSession = await services.sessions.getSession(sessionId);
-  if (projectedSession) {
-    return projectedSession;
-  }
+function isAuthMethod(value: unknown): value is AuthMethod {
+  return (
+    value === "password" ||
+    value === "magic-link" ||
+    value === "passkey" ||
+    value === "sms-code" ||
+    isSocialLoginProviderKey(value)
+  );
+}
 
-  // Projection miss. The aggregate is authoritative for session state, and
-  // Auth's own `readAuthenticatedSession` is authoritative for when the session
-  // was authenticated -- the exact `recordedAt` of its stored
-  // `auth.session.started` event, or `null` when that cannot be pinned. The
-  // projection's lag is never itself evidence that the session is new.
+async function getSessionForAuth(services: AuthServices, sessionId: string): Promise<SessionRow | null> {
+  // The Session stream is the lifecycle and account authority. Consult it
+  // before an active projection can grant an actor, and fail closed before
+  // identity resolution when the aggregate is absent, malformed, inactive,
+  // or elapsed.
   const authenticatedSession = await services.sessions.readAuthenticatedSession(sessionId);
-  if (!authenticatedSession) {
+  if (!authenticatedSession || authenticatedSession.state.status !== "active") {
     return null;
   }
 
-  return toSessionRowFromState(authenticatedSession.state, {
+  const authoritativeSession = toSessionRowFromState(authenticatedSession.state, {
     startedAt: authenticatedSession.authenticatedAt,
     updatedAt: new Date().toISOString(),
   });
+  if (!authoritativeSession || authoritativeSession.session_id !== sessionId) {
+    return null;
+  }
+
+  const parsedExpiry = new Date(authoritativeSession.expires_at).getTime();
+  const now = Date.now();
+  if (!Number.isFinite(parsedExpiry) || parsedExpiry <= now) {
+    return null;
+  }
+
+  // The projection is presentation-only on this path. It can enrich display
+  // fields after aggregate authority is established, but it cannot supply or
+  // override Session lifecycle, identity, account, method, or timestamps.
+  const projectedSession = await services.sessions.getSession(sessionId);
+  if (!projectedSession) {
+    return authoritativeSession;
+  }
+
+  return {
+    ...authoritativeSession,
+    user_display_name: projectedSession.user_display_name,
+    user_primary_email: projectedSession.user_primary_email,
+    account_display_name: projectedSession.account_display_name,
+    account_name: projectedSession.account_name,
+  };
 }
 
 async function startSessionForUser(
   services: AuthServices,
   params: Readonly<{
     userId: string;
+    sessionId?: string;
     accountId?: string;
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
@@ -383,8 +453,16 @@ async function startSessionForUser(
     publishAuthenticationOutcome?: boolean;
   }>,
 ): Promise<AuthSessionStartResult> {
-  const memberships =
-    params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
+  let memberships = params.membershipsOverride ?? (await services.identity.listActiveMembershipsForUser(params.userId));
+  if (params.membershipsOverride) {
+    const activeAccountIds = await listActiveAuthAccountIds(
+      services.db,
+      memberships.map((membership) => membership.accountId),
+    );
+    memberships = memberships.filter(
+      (membership) => membership.status === "active" && activeAccountIds.has(membership.accountId),
+    );
+  }
   if (memberships.length === 0) {
     throw new Error("User has no active memberships.");
   }
@@ -403,7 +481,7 @@ async function startSessionForUser(
     throw new Error("Selected account is not available for this user.");
   }
 
-  const sessionId = createId("ses");
+  const sessionId = (params.sessionId ?? createId("ses")) as SessionId;
   const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).sessionTtlMs);
 
   const result = await services.sessions.commandHandler({
@@ -484,6 +562,7 @@ export async function startInteractiveAuth(
   services: AuthServices,
   params: Readonly<{
     userId: string;
+    sessionId?: string;
     accountId?: string;
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
@@ -561,7 +640,7 @@ export async function resolveActorFromSessionId(
   sessionId: string,
 ): Promise<ResolvedActor | null> {
   const session = await getSessionForAuth(services, sessionId);
-  if (!session || session.status !== "active" || new Date(session.expires_at).getTime() <= Date.now()) {
+  if (!session) {
     return null;
   }
 
@@ -576,6 +655,10 @@ export async function resolveActorFromSessionId(
     user,
     session.authentication_method,
   );
+  // Grants never widen the unverified-email restriction: such an actor carries none.
+  const capabilityAssignments = hasVerifiedEmailForCommerce(user, session.authentication_method)
+    ? ((await services.identity.listGrantedAccountCapabilities?.(AUTH_BOOTSTRAP_TENANT_ID, session.account_id)) ?? [])
+    : [];
 
   return {
     sessionId: session.session_id,
@@ -586,5 +669,6 @@ export async function resolveActorFromSessionId(
     roleKey: membership.role_key,
     permissions,
     authenticatedAt: session.started_at ?? null,
+    ...(capabilityAssignments.length > 0 ? { capabilityAssignments } : {}),
   };
 }

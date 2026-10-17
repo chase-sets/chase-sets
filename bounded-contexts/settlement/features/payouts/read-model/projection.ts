@@ -10,6 +10,9 @@ export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandler
         payoutId: string;
         accountId: string;
         amount: string;
+        requestedAmount?: string;
+        feeAmount?: string;
+        netAmount?: string;
         currencyCode: string;
         destinationReference: string | null;
         note: string | null;
@@ -22,6 +25,9 @@ export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandler
              payout_id,
              account_id,
              amount,
+             requested_amount,
+             fee_amount,
+             net_amount,
              currency_code,
              destination_reference,
              note,
@@ -45,11 +51,14 @@ export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandler
              retry_reason,
              last_stream_version
            ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, 'requested', NULL, NULL, NULL, NULL, NULL, $8, $8, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, $9
+             $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, 'requested', NULL, NULL, NULL, NULL, NULL, $10, $10, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, $11
            )
            ON CONFLICT (payout_id) DO UPDATE
            SET account_id = EXCLUDED.account_id,
                amount = EXCLUDED.amount,
+               requested_amount = EXCLUDED.requested_amount,
+               fee_amount = EXCLUDED.fee_amount,
+               net_amount = EXCLUDED.net_amount,
                currency_code = EXCLUDED.currency_code,
                destination_reference = EXCLUDED.destination_reference,
                note = EXCLUDED.note,
@@ -62,7 +71,9 @@ export function buildPayoutProjectionHandlers(db: PgQueryable): ProjectorHandler
           [
             data.payoutId,
             data.accountId,
-            data.amount,
+            data.requestedAmount ?? data.amount,
+            data.feeAmount ?? "0.00",
+            data.netAmount ?? data.amount,
             data.currencyCode,
             data.destinationReference,
             data.note,

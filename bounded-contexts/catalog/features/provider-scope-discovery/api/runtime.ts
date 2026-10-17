@@ -34,7 +34,11 @@ import {
   type CanonicalScopeRecordProposalRecord,
   type CanonicalScopeRecordProposalReviewStatus,
 } from "./scope-record-proposal-store";
-import { matchScopeObservationsToScopeRecords } from "./scope-observation-matcher";
+import {
+  classifyProviderScopeDiscoveryTarget,
+  matchScopeObservationsToScopeRecords,
+  resolveProviderScopeDiscoveryCascadeParent,
+} from "./scope-observation-matcher";
 
 export type ProviderScopeRefreshProviderResult = Readonly<{
   providerKey: string;
@@ -149,20 +153,50 @@ export function createProviderScopeDiscoveryRuntime(
       let observationCount = 0;
       let newObservationCount = 0;
       let mappingsProposed = 0;
+      const currentScanObservations = new Map<string, ProviderScopeObservationRecord[]>();
+      const pendingTargets: Array<
+        Readonly<{
+          target: ProviderScopeDiscoveryTarget;
+          observations: readonly ProviderScopeObservationInput[];
+        }>
+      > = [];
+      const durableObservationIdentities = new Set<string>();
 
       for (const target of input.targets) {
-        const options = await collectTargetOptions(ports, target);
+        let parentValue: string | null = null;
+        if (target.parentRequired) {
+          const parentObservations = target.parentScope
+            ? (currentScanObservations.get(currentScanKey(target, target.parentScope)) ?? [])
+            : [];
+          const parent = await resolveProviderScopeDiscoveryCascadeParent(db, { target, parentObservations });
+          if (!parent) {
+            continue;
+          }
+          parentValue = parent.parentValue;
+        }
+
+        const options = await collectTargetOptions(ports, target, parentValue);
+        assertUniqueDurableObservationIdentities(options, durableObservationIdentities);
+        pendingTargets.push({ target, observations: options });
+        const scanKey = currentScanKey(target, target.providerScope);
+        currentScanObservations.set(scanKey, [
+          ...(currentScanObservations.get(scanKey) ?? []),
+          ...options.map((option) => stagedObservationRecord(option, input.scanId, input.now)),
+        ]);
+      }
+
+      for (const pending of pendingTargets) {
         const written = await upsertProviderScopeObservations(db, {
           scanId: input.scanId,
           scannedAt: input.now,
-          observations: options,
+          observations: pending.observations,
         });
         observationCount += written.length;
         newObservationCount += written.filter((record) => record.newlyObserved).length;
         mappingsProposed += await proposeMappingsForTarget({
           db,
           ports,
-          target,
+          target: pending.target,
           written,
           scanId: input.scanId,
           context: input.context,
@@ -301,7 +335,7 @@ function groupTargetsByProvider(
   profileVersions: readonly CatalogProviderIntegrationProfileVersionRecord[],
 ): ReadonlyMap<string, readonly ProviderScopeDiscoveryTarget[]> {
   const grouped = new Map<string, ProviderScopeDiscoveryTarget[]>();
-  for (const target of listProviderScopeDiscoveryTargets(profileVersions)) {
+  for (const target of listProviderScopeDiscoveryTargets(profileVersions, classifyProviderScopeDiscoveryTarget)) {
     const bucket = grouped.get(target.providerKey);
     if (bucket) {
       bucket.push(target);
@@ -315,6 +349,7 @@ function groupTargetsByProvider(
 async function collectTargetOptions(
   ports: ProviderScopeDiscoveryPorts,
   target: ProviderScopeDiscoveryTarget,
+  parentValue: string | null,
 ): Promise<readonly ProviderScopeObservationInput[]> {
   const observations: ProviderScopeObservationInput[] = [];
   let cursor: string | null = null;
@@ -326,11 +361,15 @@ async function collectTargetOptions(
       ingestionUnitKey: target.ingestionUnitKey,
       queryKind: target.queryKind,
       languageCode: target.languageCode,
+      parentValue,
       cursor,
       forceRefresh: pageIndex === 0,
     });
 
     for (const item of page.items) {
+      if (target.parentRequired && item.parentValue && item.parentValue !== parentValue) {
+        continue;
+      }
       observations.push({
         providerKey: target.providerKey,
         unitKey: target.ingestionUnitKey,
@@ -339,7 +378,7 @@ async function collectTargetOptions(
         languageCode: target.languageCode,
         externalId: item.value,
         label: item.label,
-        parents: item.parentValue ? [item.parentValue] : [],
+        parents: target.parentRequired && parentValue ? [parentValue] : item.parentValue ? [item.parentValue] : [],
         imageUrl: item.imageUrl,
         metadata: item.metadata,
       });
@@ -352,6 +391,65 @@ async function collectTargetOptions(
   }
 
   return observations;
+}
+
+function assertUniqueDurableObservationIdentities(
+  observations: readonly ProviderScopeObservationInput[],
+  seenIdentities: Set<string>,
+): void {
+  for (const observation of observations) {
+    const identity = durableObservationIdentity(observation);
+    if (seenIdentities.has(identity)) {
+      throw new Error(`Duplicate Provider Scope Observation identity '${identity}'.`);
+    }
+    seenIdentities.add(identity);
+  }
+}
+
+function durableObservationIdentity(observation: ProviderScopeObservationInput): string {
+  return JSON.stringify(normalizedDurableObservationIdentity(observation));
+}
+
+function normalizedDurableObservationIdentity(
+  observation: ProviderScopeObservationInput,
+): readonly [string, string, ProviderScopeObservationInput["scopeKind"], string, string] {
+  return [
+    observation.providerKey.trim().toLowerCase(),
+    observation.unitKey.trim().toLowerCase(),
+    observation.scopeKind,
+    observation.languageCode.trim().toLowerCase(),
+    observation.externalId.trim(),
+  ];
+}
+
+function stagedObservationRecord(
+  observation: ProviderScopeObservationInput,
+  scanId: string,
+  scannedAt: Date,
+): ProviderScopeObservationRecord {
+  const [providerKey, unitKey, scopeKind, languageCode, externalId] = normalizedDurableObservationIdentity(observation);
+  const timestamp = scannedAt.toISOString();
+  return {
+    ...observation,
+    providerKey,
+    unitKey,
+    scopeKind,
+    languageCode,
+    externalId,
+    scanId,
+    scannedAt: timestamp,
+    firstObservedAt: timestamp,
+    observationHash: "unpersisted-current-scan-observation",
+    newlyObserved: false,
+    changed: false,
+  };
+}
+
+function currentScanKey(
+  target: Pick<ProviderScopeDiscoveryTarget, "providerKey" | "ingestionUnitKey">,
+  providerScope: ProviderScopeDiscoveryTarget["providerScope"],
+): string {
+  return `${target.providerKey}:${target.ingestionUnitKey}:${providerScope}`;
 }
 
 async function proposeMappingsForTarget(input: {

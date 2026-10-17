@@ -3,7 +3,7 @@ import path from "node:path";
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 const guardedPredicate =
-  /\b(?:generation|revision|version|(?:last_)?global_position|updated_at|state|status|lease(?:_id|_until)?|expires_at|fresh_until|display_identity_hash)\b/i;
+  /\b(?:generation|revision|version|token_generation|envelope_revision|(?:last_)?global_position|updated_at|state|status|lease(?:_id|_until)?|expires_at|fresh_until|display_identity_hash)\b/i;
 
 export async function validateLostUpdateWriteGuard({
   repoRoot,
@@ -19,7 +19,22 @@ export async function validateLostUpdateWriteGuard({
     for (const statement of sqlWrites(source)) {
       const where = statement.sql.match(/\bWHERE\s+([\s\S]*?)(?:\bRETURNING\b|;|$)/i)?.[1] ?? "";
       const id = `${relativeFile}:${statement.line}:${statement.kind}:${statement.table}`;
-      const guarded = guardedPredicate.test(where);
+      const guarded =
+        statement.table === "channels_connection_credentials"
+          ? [
+              "row_id",
+              "token_generation",
+              "envelope_revision",
+              "version",
+              "kind",
+              "provider_key",
+              "environment",
+              "account_id",
+              "connection_id",
+              "payload_format",
+              "created_at",
+            ].every((column) => new RegExp(`\\b${column}\\s*=\\s*\\$\\d+\\b`, "i").test(where))
+          : guardedPredicate.test(where);
       const allowlisted = allowed.has(id);
       rows.push({
         id,
@@ -47,7 +62,11 @@ export async function validateLostUpdateWriteGuard({
 }
 
 function isReadModelOrProjectionFile(file) {
-  return /\/(?:read-model)\//.test(file) || /(?:projection|queue)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(file);
+  return (
+    /\/(?:read-model)\//.test(file) ||
+    /(?:projection|queue)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(file) ||
+    file === "bounded-contexts/channels/features/credentials/api/runtime.ts"
+  );
 }
 
 async function sourceFiles(directory) {

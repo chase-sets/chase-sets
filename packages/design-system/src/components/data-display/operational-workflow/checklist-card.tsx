@@ -16,7 +16,7 @@ export interface ChecklistCardProps extends Omit<HTMLAttributes<HTMLElement>, "c
  */
 export function ChecklistCard({ title, description, progress, children, ...rest }: ChecklistCardProps) {
   return (
-    <Surface {...rest} element="section" tone="subtle" gap={3}>
+    <Surface {...rest} element="section" tone="subtle" gap={3} elevation="tinted">
       <Stack
         direction={{ base: "column", md: "row" }}
         align={{ base: "stretch", md: "start" }}

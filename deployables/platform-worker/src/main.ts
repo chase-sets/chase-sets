@@ -6,25 +6,46 @@ import {
   type NotificationChannelAdapter,
   type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
+import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
+import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
-  createPostgresTcgplayerAutomationHttpConfigStore,
-  createTcgplayerAutomationCatalogClient,
-  createTcgplayerAutomationHttpClients,
-} from "@chase-sets/catalog/server";
+  createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  createBuyerOfferPricing,
+  type ChannelConnectionIdentityReader,
+  type PricingHostPorts,
+} from "@chase-sets/pricing/server";
 import { createSesEmailNotificationAdapter, createSesSendRequest } from "@chase-sets/ses-email";
 import { createLocalEmailCaptureNotificationAdapter } from "@chase-sets/local-email-capture";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { module as settlementModule } from "@chase-sets/settlement";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
-import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
+import type {
+  InventoryAccountSellerSkuItemResolution,
+  InventoryDraftListingCreator,
+  InventoryServices,
+} from "@chase-sets/inventory/server";
+import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
+import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import type {
+  BulkRepriceIngestionServices,
+  PricingRecommendationServices,
+  PricingServices,
+} from "@chase-sets/pricing/server";
 import { createIdentityTermsAcceptanceResolver } from "@chase-sets/identity/server";
-import { settlementOperationLogFields } from "@chase-sets/settlement/server";
+import {
+  activateMarketplaceLabelPostage,
+  settlementOperationLogFields,
+  type MarketplaceLabelPostageActivation,
+} from "@chase-sets/settlement/server";
 import {
   createCheckoutProcessingFeePolicyResolver,
   createCommercialTermsResolver,
   type CommercialTermsAccountSource,
+  type CommercialTermsResolver,
 } from "@chase-sets/commercial-terms/server";
 import {
   createSettlementBalanceCreditResolver,
@@ -37,10 +58,10 @@ import {
   createWorkerHost,
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
-  type WorkerRuntimeObserver,
   type WorkerRunner,
   type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
+import { createWorkerObserver } from "@chase-sets/platform-runtime/worker-observer";
 import {
   createProjectionWakeSchedulerRunners,
   startPostgresProjectionWakePushDispatcher,
@@ -60,8 +81,12 @@ import {
 import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/platform-runtime/projection-push-migration";
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
-import { collectRetentionSweepTargets } from "@chase-sets/platform-runtime/retention-sweep";
+import {
+  collectRetentionSweepTargets,
+  createRetentionSweepLogObserver,
+} from "@chase-sets/platform-runtime/retention-sweep";
 import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { closeContextPools } from "@chase-sets/platform-runtime/context-pools";
 import {
   assertRunnerCapacity,
   assertRunnerLaneIsolation,
@@ -74,9 +99,18 @@ import { createPostgresWebNotificationAdapter } from "@chase-sets/web-notificati
 import { createTwilioMessagingAdapter } from "@chase-sets/twilio-messaging";
 import {
   bootstrapPlatformControlPlane,
+  createEvidenceWindowCorrelation,
+  createNullEvidenceWindowCorrelation,
+  createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowProviderWrite,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
+import {
+  listConsumedEventTypes,
+  PLATFORM_WORKER_KIND,
+  WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY,
+} from "@chase-sets/platform-runtime/worker-event-capability";
 import {
   createRuntimeLifecycleRegistry,
   runWithRuntimeLifecycleTimeout,
@@ -86,7 +120,10 @@ import {
   recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
+  recordDiscoverySearchQuerySignal,
+  recordDiscoveryQueryEmbeddingLoad,
   recordProjectionInterestIndexLookup,
+  recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeRelayCatchUp,
@@ -100,13 +137,24 @@ import {
   type PlatformWorkerGoogleMerchantConfig,
 } from "./config";
 import { createAgentWebhookDispatchRunners, createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
-import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
+import { createChannelsOutboundRunners } from "./channels-outbound-runners";
+import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
+import {
+  createChannelsReconciliationRunners,
+  createPlatformChannelSaleRecorder,
+} from "./channels-reconciliation-runners";
+import { closePlatformWorkerPools, createPlatformWorkerPools, createSettlementBootstrapPool } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
-import { createRegisteredScheduledRunners } from "./scheduled-runners";
+import {
+  createInventoryProductResolutionMaintenanceRunners,
+  createRegisteredScheduledRunners,
+  createSupportEvidenceCleanupHostPort,
+} from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
+import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -116,7 +164,7 @@ import {
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
 const config = loadConfig();
-const workerKind = "platform-worker";
+const workerKind = PLATFORM_WORKER_KIND;
 const platformWorkerGroupsEnabled = config.runtimeProfile !== "landing";
 const pools = createPlatformWorkerPools(config);
 await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
@@ -124,6 +172,10 @@ await runWorkerStartupDatabaseStep("bootstrap platform control plane", () =>
 );
 const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
+const evidenceWindowCorrelation =
+  config.evidenceWindowAdmissionSecret && config.stripeEffectiveMode === "test"
+    ? createEvidenceWindowCorrelation(createPostgresEvidenceWindowRegistration(pools.control))
+    : createNullEvidenceWindowCorrelation();
 let projectionWakeRunnerLoop: WorkerRunnerLoop | null = null;
 const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   observer: {
@@ -144,9 +196,12 @@ const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   },
 });
 
+const evidenceWindowProviderWrite = createPostgresEvidenceWindowProviderWrite(pools.control);
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
     ? createStripePaymentProcessorGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.paymentProcessor.secretKey,
         publishableKey: config.paymentProcessor.publishableKey,
         webhookSecret: config.paymentProcessor.webhookSecret,
@@ -157,6 +212,8 @@ const paymentProcessorGateway =
 const moneyMovementGateway =
   config.moneyMovement.kind === "stripe"
     ? createStripeConnectMoneyMovementGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.moneyMovement.secretKey,
         webhookSecret: config.moneyMovement.webhookSecret,
         previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
@@ -188,15 +245,26 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
-  ? createTcgplayerAutomationCatalogClient(
-      createTcgplayerAutomationHttpClients(
-        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-      ),
-    )
-  : undefined;
+const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
+  pool: pools.catalog,
+  config: config.tcgplayerAutomation,
+  keyring: config.catalogOperatorSessionKeyring,
+});
+const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
+const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
+  {
+    pool: pools.catalog,
+    config: config.tcgplayerAutomation,
+    keyring: config.catalogOperatorSessionKeyring,
+  },
+  { ownership: "pricing-non-window" },
+)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
+const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
+  Boolean(pools.marketplace),
+  () => runtime?.services.marketplace as MarketplaceServices | undefined,
+);
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({
       db: pools["commercial-terms"],
@@ -204,6 +272,17 @@ const commercialTermsResolver = pools["commercial-terms"]
         () => runtime?.services.identity as WorkerIdentityServices | undefined,
       ),
     })
+  : undefined;
+const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
+  ? {
+      tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
+      tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
+      commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
+      channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
+        const services = runtime?.services.channels;
+        return isChannelsServices(services) ? services : undefined;
+      }),
+    }
   : undefined;
 const termsAcceptanceResolver = pools.identity ? createIdentityTermsAcceptanceResolver(pools.identity) : undefined;
 const balanceCreditResolver = pools.settlement
@@ -234,31 +313,84 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
   return createDraft(params, context);
 };
 
-runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
-  pools,
-  runtimeProfile: config.runtimeProfile,
-  runtimeLifecycle,
-  hostPorts: {
-    processorGateway: paymentProcessorGateway,
-    moneyMovementGateway,
-    operationsRecorder: settlementOperationsRecorder,
-    postageLabelProvider,
-    addressVerificationProvider: postageLabelProvider,
-    catalogAssetStorage,
-    ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
-    sourceObservationTelemetry,
-    ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
-    ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
-    ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
-    agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers({
-      ordering: pools.ordering,
-      linkedAuthorizations: pools.identity,
-      oauthClients: pools.auth,
-    }),
-    draftListingCreator,
-    searchEmbeddingConfig: config.discoverySearchEmbeddings,
-  },
-});
+const identityHostPorts = {
+  capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+} satisfies Pick<import("@chase-sets/identity/server").IdentityHostPorts, "capabilityAdministrationAuthority">;
+const supportEvidenceCleanupHostPort = createSupportEvidenceCleanupHostPort(config, logger);
+const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
+  createWorkerHost(workerContextRegistry, "platform-worker", {
+    pools,
+    runtimeProfile: config.runtimeProfile,
+    runtimeLifecycle,
+    hostPorts: {
+      ...identityHostPorts,
+      ...supportEvidenceCleanupHostPort,
+      ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
+      processorGateway: paymentProcessorGateway,
+      moneyMovementGateway,
+      operationsRecorder: settlementOperationsRecorder,
+      postageLabelProvider,
+      addressVerificationProvider: postageLabelProvider,
+      catalogAssetStorage,
+      ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
+      ...(pricingHostPorts ?? {}),
+      sourceObservationTelemetry,
+      evidenceWindowCorrelation,
+      evidenceWindowProviderWrite,
+      ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+      ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
+      agentWebhookOrderResolvers: createOrderingAgentWebhookOrderResolvers({
+        ordering: pools.ordering,
+        linkedAuthorizations: pools.identity,
+        oauthClients: pools.auth,
+      }),
+      draftListingCreator,
+      // Ordering's cleanup authority is an API-only read surface: the
+      // worker runs projectors, subscriptions, and scheduled runners and never
+      // serves N8. The variant is stated explicitly rather than omitted, so an
+      // unsupplied nonoptional port can never masquerade as "mounted".
+      inventoryCleanupAuthority: { kind: "not-mounted" },
+      marketplaceChannelInboundClamp,
+      channelCredentialKeyring: config.channelCredentialKeyring,
+      ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      storageLocationAuthority: {
+        resolve: pools.inventory
+          ? createStorageLocationAuthority(pools.inventory).resolveStorageLocationAuthority
+          : async () => null,
+      },
+      searchEmbeddingConfig: config.discoverySearchEmbeddings,
+      searchTelemetry: {
+        recordSearchQuery: recordDiscoverySearchQuerySignal,
+        recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+      },
+      ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
+    },
+  });
+
+if (config.runtimeProfile === "landing") {
+  runtime = constructWorkerRuntime();
+} else {
+  const settlementBootstrapPool = createSettlementBootstrapPool(config);
+  try {
+    await runWorkerStartupDatabaseStep("bootstrap Settlement database", () =>
+      bootstrapContextDatabase(settlementModule, settlementBootstrapPool),
+    );
+  } finally {
+    await closeContextPools({ settlementBootstrapPool });
+  }
+  const marketplaceLabelPostageActivation = await runWorkerStartupDatabaseStep(
+    "activate marketplace label postage",
+    () => activateMarketplaceLabelPostage(pools.settlement),
+  ).catch((error) => {
+    logger.error("Marketplace label postage runner activation refused.", {
+      type: "settlement.marketplace_label_postage.activation_refused",
+      error,
+    });
+    throw error;
+  });
+  runtime = constructWorkerRuntime(marketplaceLabelPostageActivation);
+}
 
 type WorkerIdentityServices = Readonly<{
   accounts?: Readonly<{
@@ -270,6 +402,30 @@ type WorkerIdentityServices = Readonly<{
     }> | null>;
   }>;
 }>;
+
+function createChannelConnectionIdentityReader(
+  getServices: () => ChannelsServices | undefined,
+): ChannelConnectionIdentityReader {
+  return {
+    resolve: async (input) => {
+      const connection = await getServices()?.connections.getConnection(input);
+      return connection
+        ? {
+            connectionId: connection.connectionId,
+            providerKey: connection.providerKey,
+            environment: connection.environment,
+          }
+        : null;
+    },
+  };
+}
+
+function requirePricingCommercialTermsResolver(resolver: CommercialTermsResolver | undefined): CommercialTermsResolver {
+  if (!resolver) {
+    throw new Error("Pricing cannot be mounted without the Commercial Terms resolver host port.");
+  }
+  return resolver;
+}
 
 function createIdentityCommercialTermsAccountSource(
   getIdentityServices: () => WorkerIdentityServices | undefined,
@@ -311,7 +467,7 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   retryBackoffMaxMs: config.projectionOperations.retryBackoffMaxMs,
   leaseAcquireTimeoutMs: config.projectionOperations.leaseAcquireTimeoutMs,
   workSignalStore,
-  observer: createWorkerObserver(workerKind),
+  observer: createWorkerObserver(logger, workerKind, undefined, recordProjectionStatus),
 });
 const inventoryImportJobRunners = platformWorkerGroupsEnabled
   ? createInventoryJobRunners(runtime.services, config)
@@ -324,6 +480,7 @@ const bulkJobRunners = [
         ...createPricingJobRunners(runtime.services, config),
         ...createBulkRepriceIngestionJobRunners(runtime.services, config),
         ...createSettlementJobRunners(runtime.services, config),
+        ...createChannelsOutboundRunners(runtime.services, config),
       ]
     : []),
 ];
@@ -347,26 +504,12 @@ const scheduledJobRunners = platformWorkerGroupsEnabled
         }),
         retentionSweep: () => ({
           targets: collectRetentionSweepTargets(runtime, pools.control),
-          observer: {
-            sweepCompleted: (event) => {
-              if (event.deleted > 0) {
-                logger.info("Retention sweep completed.", {
-                  type: "retention.sweep.completed",
-                  ...event,
-                });
-              }
-            },
-            sweepFailed: (event) =>
-              logger.error("Retention sweep failed; it will retry on its next interval.", {
-                type: "retention.sweep.failed",
-                contextName: event.contextName,
-                sweepName: event.sweepName,
-                tableName: event.tableName,
-                error: event.error instanceof Error ? event.error.message : String(event.error),
-              }),
-          },
+          observer: createRetentionSweepLogObserver(logger),
         }),
       }),
+      ...(isChannelsServices(runtime.services.channels)
+        ? createChannelsReconciliationRunners({ services: runtime.services.channels, controlPlane })
+        : []),
     ]
   : [];
 // Projection-group-level wake kill switch (WORKER_WAKE_DISABLED_PROJECTIONS):
@@ -447,7 +590,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
-    observer: createWorkerObserver(workerKind, group.name),
+    observer: createWorkerObserver(logger, workerKind, group.name, recordProjectionStatus),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
         type: "platform-worker.runner.failed",
@@ -611,6 +754,8 @@ void projectionWakeRelaySupervisor?.done.catch((error: unknown) => {
   });
 });
 const runnerCount = runnerGroups.reduce((total, group) => total + group.runners.length, 0);
+// Producers of event types newly added to existing subscriptions admit writes only once every live worker reads them.
+const consumedEventTypes = listConsumedEventTypes(runtime.subscriptionRunners);
 const runnerCapacity = summarizeRunnerCapacity(config.pool.max, runnerGroupCapacityInputs(runnerGroups));
 const getDatabasePoolPressure = () => summarizeDatabasePoolPressure(config.pool.max, pools);
 assertRunnerCapacity(runnerCapacity, {
@@ -626,6 +771,7 @@ await runWorkerStartupDatabaseStep("record initial worker heartbeat", () =>
     metadata: {
       runtimeProfile: config.runtimeProfile,
       runnerCount,
+      [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumedEventTypes,
       runnerGroups: runnerGroupMetadata(runnerGroups),
       runnerCapacity,
       databasePoolPressure: getDatabasePoolPressure(),
@@ -641,6 +787,7 @@ const heartbeatTimer = setInterval(
         metadata: {
           runtimeProfile: config.runtimeProfile,
           runnerCount,
+          [WORKER_CONSUMED_EVENT_TYPES_METADATA_KEY]: consumedEventTypes,
           runnerGroups: runnerGroupMetadata(runnerGroups),
           runnerCapacity,
           databasePoolPressure: getDatabasePoolPressure(),
@@ -1223,62 +1370,6 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
   };
 }
 
-function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
-  return {
-    leaseMissed: (event) =>
-      logger.debug("Worker runner lease missed.", {
-        type: "worker.runner.lease_missed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    leaseRenewFailed: (event) =>
-      logger.warn("Worker runner lease renewal failed.", {
-        type: "worker.runner.lease_renew_failed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    runnerCompleted: (event) => {
-      const log = event.processed > 0 || event.state === "degraded" ? logger.info : logger.debug;
-      log("Worker runner completed.", {
-        type: "worker.runner.completed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      });
-    },
-    runnerFailed: (event) =>
-      logger.error("Worker runner failed.", {
-        type: "worker.runner.failed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationStarted: (event) =>
-      logger.info("Projection operation started.", {
-        type: "projection.operation.started",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationCompleted: (event) =>
-      logger.info("Projection operation completed.", {
-        type: "projection.operation.completed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationFailed: (event) =>
-      logger.error("Projection operation failed.", {
-        type: "projection.operation.failed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-  };
-}
-
 function createCatalogBulkJobRunners(
   services: Readonly<Record<string, unknown>>,
   input: Pick<
@@ -1424,43 +1515,38 @@ function createInventoryJobRunners(
     | "inventoryImportBatchJobMaxActiveClaimsPerJob"
   >,
 ): readonly WorkerRunner[] {
-  const inventory = services.inventory as
-    | {
-        importBatches?: {
-          processNextImportBatchJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-      }
-    | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
   const processNextImportBatchJob = inventory?.importBatches?.processNextImportBatchJob;
+  const processNextProductResolutionMaintenanceJob =
+    inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
 
-  if (!processNextImportBatchJob) {
+  if (!processNextImportBatchJob && !processNextProductResolutionMaintenanceJob) {
     return [];
   }
 
-  return createDurableJobLaneRunners({
-    workflowName: "inventory.import-batch-jobs",
-    laneCount: input.inventoryImportBatchJobLaneCount,
-    runLane: async (lane) => ({
-      processed: await processNextImportBatchJob({
-        claimOwnerId: `${input.workerId}:${lane.laneName}`,
-        claimTtlMs: input.leaseTtlMs * 4,
-        workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
-        jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
-        laneName: lane.laneName,
-        signal: lane.runnerContext?.signal,
-        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+  const runners: WorkerRunner[] = [];
+  if (processNextImportBatchJob) {
+    runners.push(
+      ...createDurableJobLaneRunners({
+        workflowName: "inventory.import-batch-jobs",
+        laneCount: input.inventoryImportBatchJobLaneCount,
+        runLane: async (lane) => ({
+          processed: await processNextImportBatchJob({
+            claimOwnerId: `${input.workerId}:${lane.laneName}`,
+            claimTtlMs: input.leaseTtlMs * 4,
+            workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
+            jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
+            laneName: lane.laneName,
+            signal: lane.runnerContext?.signal,
+            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+          }),
+          lastGlobalPosition: "0" as never,
+        }),
       }),
-      lastGlobalPosition: "0" as never,
-    }),
-  });
+    );
+  }
+  runners.push(...createInventoryProductResolutionMaintenanceRunners(services, input));
+  return runners;
 }
 
 function createGoogleShoppingJobRunners(
@@ -1562,7 +1648,10 @@ function createGoogleShoppingJobRunners(
 }
 
 function createPricingJobRunners(
-  services: Readonly<Record<string, unknown>>,
+  services: Readonly<{
+    pricing?: Partial<Pick<PricingServices, "recommendations" | "repricingEngine">>;
+    marketplace?: Partial<Pick<MarketplaceServices, "listings">>;
+  }>,
   input: Pick<
     ReturnType<typeof loadConfig>,
     | "workerId"
@@ -1571,127 +1660,36 @@ function createPricingJobRunners(
     | "pricingRecommendationJobWorkflowMaxActiveClaims"
     | "pricingRecommendationJobMaxActiveClaimsPerJob"
     | "pricingRepricingEvaluationJobLaneCount"
+    | "pricingRepricingDryRunJobLaneCount"
   >,
 ): readonly WorkerRunner[] {
-  const pricing = services.pricing as
-    | {
-        recommendations?: {
-          processNextRecommendationJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            marketplaceListingGatewayForAccount: (accountId: string) => {
-              previewListingTerms: (body: { priceAmount: string }) => Promise<{ fee_quote_fingerprint: string }>;
-              updateListingPrice: (
-                listingId: string,
-                body: { priceAmount: string; feeQuoteFingerprint?: string | null },
-              ) => Promise<unknown>;
-              createListing: (body: {
-                inventoryItemId: string;
-                priceAmount: string;
-                quantityCap: number;
-                listingIdOverride?: string;
-              }) => Promise<{ id?: string; listing_id?: string }>;
-              staleFeeQuoteFingerprint?: (error: unknown) => string | null;
-            };
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-        repricingEngine?: {
-          processNextEvaluationJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            marketplaceGatewayForAccount: (accountId: string) => {
-              applyBulkListingPriceUpdates: (body: {
-                updates: readonly {
-                  listingId: string;
-                  priceAmount: string;
-                  expectedVersion: number;
-                  minimumChange: { mode: "absolute"; amount: string } | { mode: "percent"; percent: number };
-                  idempotencyKey: string;
-                }[];
-              }) => Promise<{
-                items: readonly {
-                  listingId: string;
-                  outcome: "applied" | "no_op" | "conflict" | "error";
-                  message?: string;
-                }[];
-              }>;
-              pauseListing: (
-                listingId: string,
-                body: { reason: "policy-input-missing"; idempotencyKey: string },
-              ) => Promise<unknown>;
-              publishListing: (listingId: string, body: { idempotencyKey: string }) => Promise<unknown>;
-            };
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-      }
-    | undefined;
-  const marketplace = services.marketplace as
-    | {
-        listings?: {
-          previewListingTerms?: (params: {
-            accountId: string;
-            priceAmount: string;
-          }) => Promise<{ fee_quote_fingerprint: string }>;
-          updateListingPrice?: (
-            params: { accountId: string; listingId: string; priceAmount: string; feeQuoteFingerprint?: string | null },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<unknown>;
-          createListing?: (
-            params: {
-              accountId: string;
-              inventoryItemId: string;
-              priceAmount: string;
-              quantityCap: number;
-              listingIdOverride?: string;
-            },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<{ listingId?: string; id?: string; listing_id?: string }>;
-          applyBulkListingPriceUpdates?: (
-            params: {
-              accountId: string;
-              updates: readonly {
-                listingId: string;
-                priceAmount: string;
-                expectedVersion?: number;
-                minimumChange?: { mode: "absolute"; amount: string } | { mode: "percent"; percent: number };
-                idempotencyKey?: string;
-              }[];
-            },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<
-            readonly {
-              listingId: string;
-              outcome: "applied" | "no_op" | "conflict" | "error";
-              message?: string;
-            }[]
-          >;
-          pauseListing?: (
-            params: { accountId: string; listingId: string; reason?: "seller" | "policy-input-missing" },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<unknown>;
-          publishListing?: (
-            params: { accountId: string; listingId: string; idempotencyKey?: string },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<unknown>;
-        };
-      }
-    | undefined;
+  const pricing = services.pricing;
+  const marketplace = services.marketplace;
   const processNextRecommendationJob = pricing?.recommendations?.processNextRecommendationJob;
   const processNextEvaluationJob = pricing?.repricingEngine?.processNextEvaluationJob;
+  const processNextDryRunJob = pricing?.repricingEngine?.processNextDryRunJob;
 
-  if ((!processNextRecommendationJob && !processNextEvaluationJob) || !marketplace?.listings) {
+  if (!processNextRecommendationJob && !processNextEvaluationJob && !processNextDryRunJob) {
     return [];
   }
 
   return [
-    ...(processNextRecommendationJob
+    ...(processNextDryRunJob
+      ? createDurableJobLaneRunners({
+          workflowName: "pricing.repricing-dry-run-jobs",
+          laneCount: input.pricingRepricingDryRunJobLaneCount,
+          runLane: async (lane) => ({
+            processed: await processNextDryRunJob({
+              claimOwnerId: `${input.workerId}:${lane.laneName}`,
+              claimTtlMs: input.leaseTtlMs * 4,
+              signal: lane.runnerContext?.signal,
+              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+            }),
+            lastGlobalPosition: "0" as never,
+          }),
+        })
+      : []),
+    ...(processNextRecommendationJob && marketplace?.listings
       ? createDurableJobLaneRunners({
           workflowName: "pricing.recommendation-jobs",
           laneCount: input.pricingRecommendationJobLaneCount,
@@ -1703,14 +1701,24 @@ function createPricingJobRunners(
               jobMaxActiveClaims: input.pricingRecommendationJobMaxActiveClaimsPerJob,
               laneName: lane.laneName,
               marketplaceListingGatewayForAccount: (accountId) => ({
-                previewListingTerms: (body) => marketplace.listings!.previewListingTerms!({ accountId, ...body }),
-                updateListingPrice: (listingId, body) =>
-                  marketplace.listings!.updateListingPrice!({ accountId, listingId, ...body }, SYSTEM_CONTEXT),
+                applyBulkListingPriceUpdates: async (body) => ({
+                  items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+                    { accountId: accountId as never, updates: body.updates },
+                    SYSTEM_CONTEXT,
+                  ),
+                }),
                 createListing: async (body) => {
-                  const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
+                  const result = await marketplace.listings!.createListing!(
+                    {
+                      accountId: accountId as never,
+                      ...body,
+                      listingIdOverride: body.listingIdOverride as never,
+                    },
+                    SYSTEM_CONTEXT,
+                  );
                   return {
-                    id: result.id ?? result.listingId,
-                    listing_id: result.listing_id ?? result.listingId,
+                    id: result.listingId,
+                    listing_id: result.listingId,
                   };
                 },
               }),
@@ -1721,35 +1729,36 @@ function createPricingJobRunners(
           }),
         })
       : []),
-    ...(processNextEvaluationJob &&
-    marketplace.listings.applyBulkListingPriceUpdates &&
-    marketplace.listings.pauseListing &&
-    marketplace.listings.publishListing
+    ...(processNextEvaluationJob && marketplace?.listings
       ? createDurableJobLaneRunners({
           workflowName: "pricing.repricing-evaluation-jobs",
           laneCount: input.pricingRepricingEvaluationJobLaneCount,
           runLane: async (lane) => ({
-            processed: await processNextEvaluationJob({
-              claimOwnerId: `${input.workerId}:${lane.laneName}`,
-              claimTtlMs: input.leaseTtlMs * 4,
-              marketplaceGatewayForAccount: (accountId) => ({
-                applyBulkListingPriceUpdates: async (body) => ({
-                  items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                    { accountId, updates: body.updates },
-                    SYSTEM_CONTEXT,
-                  ),
+            processed: await processRepricingEvaluationJob(
+              processNextEvaluationJob,
+              {
+                claimOwnerId: `${input.workerId}:${lane.laneName}`,
+                claimTtlMs: input.leaseTtlMs * 4,
+                marketplaceGatewayForAccount: (accountId) => ({
+                  applyBulkListingPriceUpdates: async (body) => ({
+                    items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+                      { accountId, updates: body.updates },
+                      SYSTEM_CONTEXT,
+                    ),
+                  }),
+                  pauseListing: (listingId, body) =>
+                    marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
+                  publishListing: (listingId, body) =>
+                    marketplace.listings!.publishListing!(
+                      { accountId, listingId, idempotencyKey: body.idempotencyKey },
+                      SYSTEM_CONTEXT,
+                    ),
                 }),
-                pauseListing: (listingId, body) =>
-                  marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
-                publishListing: (listingId, body) =>
-                  marketplace.listings!.publishListing!(
-                    { accountId, listingId, idempotencyKey: body.idempotencyKey },
-                    SYSTEM_CONTEXT,
-                  ),
-              }),
-              signal: lane.runnerContext?.signal,
-              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-            }),
+                signal: lane.runnerContext?.signal,
+                throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+              },
+              logger,
+            ),
             lastGlobalPosition: "0" as never,
           }),
         })
@@ -1769,44 +1778,11 @@ function createBulkRepriceIngestionJobRunners(
   >,
 ): readonly WorkerRunner[] {
   const pricing = services.pricing as
-    | {
-        bulkRepriceIngestion?: {
-          processNextBulkRepriceJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            marketplaceListingGatewayForAccount: (accountId: string) => {
-              applyBulkListingPriceUpdates: (body: {
-                updates: readonly { listingId: string; priceAmount: string }[];
-              }) => Promise<{ items: readonly { listingId: string; outcome: string; message?: string }[] }>;
-            };
-            inventorySkuGatewayForAccount: (accountId: string) => {
-              resolveSellerSkusToInventoryItems: (sellerSkus: readonly string[]) => Promise<
-                readonly Readonly<{
-                  sellerSku: string;
-                  status: "missing" | "ambiguous" | "unmapped-item" | "mapped";
-                  inventoryItemId?: string;
-                  productId?: string;
-                  catalogItemId?: string;
-                }>[]
-              >;
-            };
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
-      }
+    | { bulkRepriceIngestion?: Pick<BulkRepriceIngestionServices, "processNextBulkRepriceJob"> }
     | undefined;
   const marketplace = services.marketplace as
     | {
-        listings?: {
-          applyBulkListingPriceUpdates?: (
-            params: { accountId: string; updates: readonly { listingId: string; priceAmount: string }[] },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<readonly { listingId: string; outcome: string; version: number; message?: string }[]>;
-        };
+        listings?: Pick<MarketplaceListingServices, "applyBulkListingPriceUpdates">;
       }
     | undefined;
   const inventory = services.inventory as
@@ -1815,15 +1791,7 @@ function createBulkRepriceIngestionJobRunners(
           resolveAccountSkuMappingsToInventoryItems?: (params: {
             accountId: string;
             sellerSkus: readonly string[];
-          }) => Promise<
-            readonly Readonly<{
-              sellerSku: string;
-              status: "missing" | "ambiguous" | "unmapped-item" | "mapped";
-              inventoryItemId?: string;
-              productId?: string;
-              catalogItemId?: string;
-            }>[]
-          >;
+          }) => Promise<readonly InventoryAccountSellerSkuItemResolution[]>;
         };
       }
     | undefined;

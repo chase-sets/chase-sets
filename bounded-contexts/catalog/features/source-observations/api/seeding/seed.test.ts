@@ -12,10 +12,30 @@ import {
   catalogBrowserE2ePromotedObservation,
   seedPromotedSourceObservationScenario,
 } from "./seed";
+import {
+  createSyntheticDisplayIdentityQueryable,
+  syntheticCurrentCatalogItem,
+} from "./synthetic-display-identity-queryable";
+
+// Database-free evidence: a SYNTHETIC display identity fixture stands in for
+// the scenario read model so the validated planner still runs the real
+// resolver. It proves the seed derivation, never production identity validation.
+function syntheticSeedDisplayIdentityDb(fallback?: { query: (sql: string) => Promise<unknown> }) {
+  return createSyntheticDisplayIdentityQueryable({
+    currentItems: [
+      syntheticCurrentCatalogItem({
+        catalog_item_id: catalogSeedIds.items.pikachuJungle,
+        status: "active",
+        title: "Synthetic Pikachu",
+      }),
+    ],
+    ...(fallback ? { fallback: fallback as never } : {}),
+  });
+}
 
 describe("promoted Source Observation scenario seed", () => {
   it("derives the bounded TCGdex fixture through the executable mapper and promotion planner", async () => {
-    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence();
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(syntheticSeedDisplayIdentityDb());
 
     expect(evidence.recordCommand).toMatchObject({
       type: "RecordSourceObservation",
@@ -80,7 +100,7 @@ describe("promoted Source Observation scenario seed", () => {
   });
 
   it("does not append duplicate events after the exact promoted aggregate exists", async () => {
-    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence();
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(syntheticSeedDisplayIdentityDb());
     const { rows } = exactHistory(evidence.recordCommand, evidence.promotionCommand);
     const commands: Array<{ streamId: string; command: SourceObservationCommand }> = [];
 
@@ -90,7 +110,7 @@ describe("promoted Source Observation scenario seed", () => {
   });
 
   it("rejects a recorded aggregate whose mapped facts do not match the fixture", async () => {
-    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence();
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(syntheticSeedDisplayIdentityDb());
     const { rows } = exactHistory(evidence.recordCommand);
     rows[0] = {
       ...rows[0]!,
@@ -124,12 +144,12 @@ function fakeServices(
   commands: Array<{ streamId: string; command: SourceObservationCommand }>,
 ) {
   return {
-    db: {
+    db: syntheticSeedDisplayIdentityDb({
       query: async (sql: string) =>
         sql.includes("projection_active")
           ? { rows: [{ stream_created: true, stream_published: true, projection_active: true }] }
           : { rows },
-    },
+    }),
     sourceObservations: {
       commandHandler: async (input: { streamId: string; command: SourceObservationCommand }) => {
         commands.push({ streamId: input.streamId, command: input.command });

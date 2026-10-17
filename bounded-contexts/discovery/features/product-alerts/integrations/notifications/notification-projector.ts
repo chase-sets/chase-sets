@@ -2,6 +2,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import { mapProductAlertMatchToNotification } from "./notification-intents";
 
 export const DISCOVERY_PRODUCT_ALERT_NOTIFICATION_PROJECTION = "discovery-product-alert-notification-projection";
@@ -19,6 +20,8 @@ type MarketActivity = Readonly<{
   item_subtitle: string | null;
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  source_stream_version: number;
   quantity: number;
   status: string;
   seller_listing_availability_status?: "available" | "unavailable" | null;
@@ -33,6 +36,7 @@ type ProductAlertCandidate = Readonly<{
   catalog_catalog_item_id: string;
   product_id: string;
   threshold_amount: string | null;
+  threshold_currency_code: string | null;
 }>;
 
 function correlationIdFromEvent(event: TransportEvent) {
@@ -57,15 +61,21 @@ function isActiveForSide(
     : activity.status === "submitted" && activity.quantity > 0;
 }
 
-function thresholdMatches(alert: ProductAlertCandidate, activity: Pick<MarketActivity, "price_amount">) {
+function thresholdMatches(
+  alert: ProductAlertCandidate,
+  activity: Pick<MarketActivity, "price_amount" | "price_currency_code">,
+) {
   if (alert.threshold_amount === null) {
     return true;
   }
+  if (!alert.threshold_currency_code || alert.threshold_currency_code !== activity.price_currency_code) {
+    return false;
+  }
 
-  const threshold = Number.parseFloat(alert.threshold_amount);
-  const price = Number.parseFloat(activity.price_amount);
+  const threshold = tryMoneyToCents(alert.threshold_amount);
+  const price = tryMoneyToCents(activity.price_amount);
 
-  if (!Number.isFinite(threshold) || !Number.isFinite(price)) {
+  if (threshold === null || price === null) {
     return false;
   }
 
@@ -77,7 +87,12 @@ function shouldNotify(alert: ProductAlertCandidate, previous: MarketActivity | n
     return false;
   }
 
-  if (!isActiveForSide(next) || !thresholdMatches(alert, next)) {
+  if (
+    !next.price_currency_code ||
+    !/^[A-Z]{3}$/.test(next.price_currency_code) ||
+    !isActiveForSide(next) ||
+    !thresholdMatches(alert, next)
+  ) {
     return false;
   }
 
@@ -111,9 +126,10 @@ export async function projectMarketplaceEventToProductAlertNotifications(
   const candidates = await loadProductAlertCandidates(db, next);
 
   for (const alert of candidates) {
-    if (!shouldNotify(alert, previous.previous, next)) {
+    if (!next.price_currency_code || !shouldNotify(alert, previous.previous, next)) {
       continue;
     }
+    const priceCurrencyCode = next.price_currency_code;
 
     const inserted = await recordNotificationMatch(db, {
       alertId: alert.alert_id,
@@ -137,6 +153,7 @@ export async function projectMarketplaceEventToProductAlertNotifications(
         itemTitle: next.item_title,
         productSummary: next.product_summary,
         priceAmount: next.price_amount,
+        priceCurrencyCode,
         correlationId: correlationIdFromEvent(event),
       }),
       source: {
@@ -167,13 +184,40 @@ export function buildProductAlertNotificationProjectionHandlers(
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.listing.auto-unlisted": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
+    "marketplace.listing.operator-unlisted": (event) =>
+      projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.listing.withdrawn": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.offer.submitted": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
+    "marketplace.offer.price-updated": (event) =>
+      projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
     "marketplace.offer.accepted": (event) =>
       projectMarketplaceEventToProductAlertNotifications(db, outbox, event, projectionName),
+    "marketplace.offer.paused": (event) => projectOfferLifecycleActivity(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectOfferLifecycleActivity(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectOfferLifecycleActivity(db, event, "withdrawn"),
   };
+}
+
+/**
+ * Keeps Offer activity status current without entering the dispatch path, so
+ * Resume never reads as newly open demand and never sends a Product Alert.
+ */
+async function projectOfferLifecycleActivity(
+  db: PgQueryable,
+  event: TransportEvent,
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  await db.query(
+    `UPDATE discovery_product_alert_market_activity
+     SET status = $2,
+         source_stream_version = $3,
+         updated_at = $4
+     WHERE activity_id = $1
+       AND source_stream_version < $3`,
+    [String(event.data.offerId ?? ""), status, event.streamVersion, event.timing.recordedAt],
+  );
 }
 
 async function upsertMarketActivityFromEvent(
@@ -198,12 +242,14 @@ async function upsertMarketActivityFromEvent(
         item_subtitle,
         product_summary,
         price_amount,
+        price_currency_code,
+        source_stream_version,
         quantity,
         status,
         created_at,
         updated_at
       ) VALUES (
-        $1, 'listing', $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $11
+        $1, 'listing', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft', $13, $13
       )
       ON CONFLICT (activity_id) DO UPDATE SET
         owner_account_id = EXCLUDED.owner_account_id,
@@ -214,8 +260,11 @@ async function upsertMarketActivityFromEvent(
         item_subtitle = EXCLUDED.item_subtitle,
         product_summary = EXCLUDED.product_summary,
         price_amount = EXCLUDED.price_amount,
+        price_currency_code = EXCLUDED.price_currency_code,
+        source_stream_version = EXCLUDED.source_stream_version,
         quantity = EXCLUDED.quantity,
-        updated_at = EXCLUDED.updated_at`,
+        updated_at = EXCLUDED.updated_at
+      WHERE discovery_product_alert_market_activity.source_stream_version < EXCLUDED.source_stream_version`,
       [
         activityId,
         String(data.accountId ?? ""),
@@ -226,6 +275,8 @@ async function upsertMarketActivityFromEvent(
         data.itemSubtitle == null ? null : String(data.itemSubtitle),
         data.productSummary == null ? null : String(data.productSummary),
         String(data.priceAmount ?? "0"),
+        typeof data.priceCurrencyCode === "string" ? data.priceCurrencyCode : null,
+        event.streamVersion,
         Number(data.quantityCap ?? 0),
         event.timing.recordedAt,
       ],
@@ -245,9 +296,18 @@ async function upsertMarketActivityFromEvent(
       await db.query(
         `UPDATE discovery_product_alert_market_activity
          SET price_amount = $2,
-             updated_at = $3
-         WHERE activity_id = $1`,
-        [activityId, String(data.priceAmount ?? previous.price_amount), event.timing.recordedAt],
+             price_currency_code = $3,
+             source_stream_version = $4,
+             updated_at = $5
+         WHERE activity_id = $1
+           AND source_stream_version < $4`,
+        [
+          activityId,
+          String(data.priceAmount ?? previous.price_amount),
+          typeof data.priceCurrencyCode === "string" ? data.priceCurrencyCode : null,
+          event.streamVersion,
+          event.timing.recordedAt,
+        ],
       );
     } else if (event.type === "marketplace.listing.quantity-cap-updated") {
       await db.query(
@@ -265,7 +325,11 @@ async function upsertMarketActivityFromEvent(
          WHERE activity_id = $1`,
         [activityId, event.timing.recordedAt],
       );
-    } else if (event.type === "marketplace.listing.paused" || event.type === "marketplace.listing.auto-unlisted") {
+    } else if (
+      event.type === "marketplace.listing.paused" ||
+      event.type === "marketplace.listing.auto-unlisted" ||
+      event.type === "marketplace.listing.operator-unlisted"
+    ) {
       await db.query(
         `UPDATE discovery_product_alert_market_activity
          SET status = 'paused',
@@ -302,12 +366,14 @@ async function upsertMarketActivityFromEvent(
         item_subtitle,
         product_summary,
         price_amount,
+        price_currency_code,
+        source_stream_version,
         quantity,
         status,
         created_at,
         updated_at
       ) VALUES (
-        $1, 'offer', $2, $3, $4, $5, $6, $7, $8, $9, $10, 'submitted', $11, $11
+        $1, 'offer', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'submitted', $13, $13
       )
       ON CONFLICT (activity_id) DO UPDATE SET
         owner_account_id = EXCLUDED.owner_account_id,
@@ -318,9 +384,12 @@ async function upsertMarketActivityFromEvent(
         item_subtitle = EXCLUDED.item_subtitle,
         product_summary = EXCLUDED.product_summary,
         price_amount = EXCLUDED.price_amount,
+        price_currency_code = EXCLUDED.price_currency_code,
+        source_stream_version = EXCLUDED.source_stream_version,
         quantity = EXCLUDED.quantity,
         status = EXCLUDED.status,
-        updated_at = EXCLUDED.updated_at`,
+        updated_at = EXCLUDED.updated_at
+      WHERE discovery_product_alert_market_activity.source_stream_version < EXCLUDED.source_stream_version`,
       [
         activityId,
         String(data.buyerAccountId ?? ""),
@@ -331,11 +400,38 @@ async function upsertMarketActivityFromEvent(
         data.itemSubtitle == null ? null : String(data.itemSubtitle),
         data.productSummary == null ? null : String(data.productSummary),
         String(data.priceAmount ?? "0"),
+        typeof data.priceCurrencyCode === "string" ? data.priceCurrencyCode : null,
+        event.streamVersion,
         Number(data.quantityRequested ?? 0),
         event.timing.recordedAt,
       ],
     );
 
+    return { activity_id: activityId, previous };
+  }
+
+  if (event.type === "marketplace.offer.price-updated") {
+    const activityId = String(data.offerId ?? "");
+    const previous = await loadMarketActivity(db, activityId);
+    if (!previous) {
+      return undefined;
+    }
+    await db.query(
+      `UPDATE discovery_product_alert_market_activity
+       SET price_amount = $2,
+           price_currency_code = $3,
+           source_stream_version = $4,
+           updated_at = $5
+       WHERE activity_id = $1
+         AND source_stream_version < $4`,
+      [
+        activityId,
+        String(data.priceAmount ?? ""),
+        String(data.priceCurrencyCode ?? ""),
+        event.streamVersion,
+        event.timing.recordedAt,
+      ],
+    );
     return { activity_id: activityId, previous };
   }
 
@@ -373,6 +469,8 @@ async function loadMarketActivity(db: PgQueryable, activityId: string): Promise<
        activity.item_subtitle,
        activity.product_summary,
        activity.price_amount,
+       activity.price_currency_code,
+       activity.source_stream_version,
        activity.quantity,
        activity.status,
        COALESCE(account.seller_listing_availability_status, 'available') AS seller_listing_availability_status,
@@ -397,6 +495,7 @@ async function loadProductAlertCandidates(db: PgQueryable, activity: MarketActiv
        catalog_catalog_item_id,
        product_id,
        threshold_amount
+       , threshold_currency_code
      FROM discovery_product_alert_pages
      WHERE status = 'active'
        AND market_side = $1

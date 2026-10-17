@@ -56,8 +56,13 @@ function statusTone(status: string) {
   }
 }
 
-function money(amount: string | null) {
-  return amount ? formatMoneyDisplay(amount, "USD") : t("inventory.features.importBatches.ui.importBatchPage.not.set");
+function money(amount: string | null, currencyCode: string | null) {
+  if (amount && !currencyCode) {
+    return t("inventory.features.importBatches.ui.importBatchPage.listing.price.incomplete");
+  }
+  return amount && currencyCode
+    ? formatMoneyDisplay(amount, currencyCode)
+    : t("inventory.features.importBatches.ui.importBatchPage.not.set");
 }
 
 function catalogItemOptionLabel(item: InventoryCatalogItemSnapshot) {
@@ -650,7 +655,7 @@ export function InventoryImportBatchPage({
                   header: t("inventory.features.importBatches.ui.importBatchPage.listing.draft"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      <Text>{money(row.listing_price_amount)}</Text>
+                      <Text>{money(row.listing_price_amount, row.listing_price_currency_code)}</Text>
                       <Text size="sm" tone="secondary">
                         {row.listing_quantity_cap
                           ? t("inventory.features.importBatches.ui.importBatchPage.cap.quantity", {
@@ -797,7 +802,7 @@ function useInventoryImportBatchJob(jobId?: string | null) {
       onStatus: setJob,
       onTerminal: (nextJob) => {
         if (nextJob.status === "completed") {
-          const batchId = nextJob.result?.batch.batch_id;
+          const batchId = nextJob.result?.batch?.batch_id;
           const destination = batchId
             ? `/account/inventory/imports/${encodeURIComponent(batchId)}`
             : "/account/inventory/imports";

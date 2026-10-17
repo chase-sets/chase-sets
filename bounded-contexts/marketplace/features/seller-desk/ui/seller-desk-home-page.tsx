@@ -140,6 +140,9 @@ export function SellerDeskHomePage({ queue, kpis }: SellerDeskHomePageProps) {
           <LinkButton href="/account/offers/matches" tone="secondary">
             {t("marketplace.features.sellerDesk.surfaces.offers")}
           </LinkButton>
+          <LinkButton href="/account/sales" tone="secondary">
+            {t("marketplace.features.sellerDesk.surfaces.sales")}
+          </LinkButton>
           <LinkButton href="/account/sales/shipments" tone="secondary">
             {t("marketplace.features.sellerDesk.surfaces.shipments")}
           </LinkButton>
@@ -166,7 +169,7 @@ function SellerDeskQueueRow({ item }: { item: SellerAttentionItem }) {
           <Text weight="semibold">{resolveAttentionSummary(item)}</Text>
         </Stack>
         <LinkButton href={item.deepLink.href} tone="primary">
-          {attentionActionLabel(item.source)}
+          {attentionActionLabel(item)}
         </LinkButton>
       </Cluster>
     </Card>

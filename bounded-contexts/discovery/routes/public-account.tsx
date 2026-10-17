@@ -692,7 +692,11 @@ function PublicAccountRealtimeView({
                   saveLabel={t("localization.listingCard.save", { identity: displayIdentity })}
                   savedLabel={t("localization.listingCard.saved", { identity: displayIdentity })}
                   watchingLabel={t("localization.listingCard.watching", { identity: displayIdentity })}
-                  price={formatMoney(listing.price_amount)}
+                  price={
+                    listing.price_currency_code
+                      ? formatMoney(listing.price_amount, listing.price_currency_code)
+                      : t("discovery.features.itemDetail.ui.itemDetailPageView.market.price.unavailable")
+                  }
                   priceDetail={availabilityDetail}
                   sellerName={account.account_display_name ?? t("discovery.routes.publicAccount.account")}
                   sellerHref={`/accounts/${account.account_slug}#feedback`}

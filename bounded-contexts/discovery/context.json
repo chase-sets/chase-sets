@@ -27,7 +27,7 @@
     "ui-support",
     "ucp-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/checkout",
     "@chase-sets/collections",
@@ -241,7 +241,11 @@
       "subscriptionVersion": 2,
       "subscriptionName": "discovery.catalog-market-projection",
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 21,
       "projectionHandlerSetNames": ["discovery-market-projection"]
     },
@@ -284,7 +288,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-market-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "subscriptionName": "discovery.marketplace-market-projection",
       "filterToEventTypes": true,
       "eventTypes": [
@@ -295,10 +299,15 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
         "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted",
         "marketplace.review.submitted",
         "marketplace.review.updated",
@@ -330,7 +339,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "discovery-product-alert-notification-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "subscriptionName": "discovery.marketplace-product-alert-notifications",
       "eventTypes": [
         "marketplace.listing.created",
@@ -339,8 +348,13 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted"
       ],
       "order": 35,
@@ -369,7 +383,8 @@
         "discovery_search_catalog_categories",
         "discovery_search_catalog_reference_records",
         "discovery_search_product_contents",
-        "discovery_search_items"
+        "discovery_search_items",
+        "discovery_search_item_identity_terms"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "generation-cutover"
@@ -892,7 +907,10 @@
       "owner": "discovery",
       "risk": "important",
       "strategy": "snapshot-return",
-      "surfaces": ["route-action:bounded-contexts/discovery/routes/search.tsx"],
+      "surfaces": [
+        "route-action:bounded-contexts/discovery/routes/search.tsx",
+        "fetcher-submit:bounded-contexts/discovery/routes/search.tsx:H291fe7ad6435#1"
+      ],
       "visibleDestination": {
         "routeId": "search",
         "description": "Search bulk add and Add to List stay on the browse page and render command-owned Checkout or Collections snapshots. Client-side request keys suppress stale snapshots when the visible Result Set or Product changes before the POST resolves."
@@ -902,6 +920,7 @@
         "correction": "The Search route records active Result Set and Product keys with request ids, applies only the latest matching response, and ignores older snapshots after navigation, selection, or filter changes.",
         "tests": [
           "bounded-contexts/discovery/routes/search-route.test.tsx",
+          "bounded-contexts/discovery/routes/search-route.bulk-add.test.tsx",
           "bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.test.tsx",
           "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts"
         ]
@@ -915,18 +934,24 @@
       "surfaces": [
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:H7fc0fad212ad#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/buy-sections.tsx:H7fc0fad212ad#2",
-        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#1",
-        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#2",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H2e6216228277#1",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H829df595fb75#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#2",
         "route-action:bounded-contexts/discovery/support/route-support/item-detail/action.ts"
       ],
       "visibleDestination": {
-        "routeIds": ["item-detail", "buy-checkout-session", "account-sell-list", "account-sales"],
-        "description": "Item-detail writes that navigate to Checkout, Sell List, Sales, or back to Item Detail preserve the command owner's receipt in afterWrite when the destination is projection-backed. Add to List stays on item detail and renders the Collections command snapshot; guest checkout readiness and Saved List registration carry durable command or intent state instead of relying on a fresh Discovery projection."
+        "routeIds": [
+          "item-detail",
+          "buy-checkout-readiness",
+          "buy-checkout-session",
+          "account-sell-list",
+          "account-sales"
+        ],
+        "description": "Item-detail writes that navigate to Checkout, Sell List, Sales, or back to Item Detail preserve the command owner's receipt in afterWrite when the destination is projection-backed. Signed-in Buy Now creates the Checkout Session directly; signed-out Buy Now returns a method-preserving 307 that reposts the validated locked-listing snapshot to Checkout's POST action. Add to List stays on item detail and renders the Collections command snapshot; Saved List registration carries durable command or intent state instead of relying on a fresh Discovery projection."
       },
       "proof": {
-        "authoritativeResponse": "The Discovery action consumes Checkout, Marketplace, Inventory, Discovery, or Collections command snapshots in the same request. Add to List returns the Saved List aggregate snapshot in place; navigations carry their owner receipt and destination owners govern any actual fresh-read waits.",
+        "authoritativeResponse": "The Discovery action consumes Checkout, Marketplace, Inventory, Discovery, or Collections command snapshots in the same request. Signed-out Buy Now validates and snapshots the locked listing before a 307 POST handoff whose source URL is authoritative in Checkout; signed-in Buy Now remains direct. Add to List returns the Saved List aggregate snapshot in place; navigations carry their owner receipt and destination owners govern any actual fresh-read waits.",
         "tests": [
           "bounded-contexts/discovery/tests/item-detail-buy-now-checkout.test.ts",
           "bounded-contexts/discovery/tests/item-detail-buy-now-validation.test.ts",
@@ -966,12 +991,35 @@
       }
     },
     {
+      "id": "discovery.public-listing-buy-now-checkout-start",
+      "owner": "discovery",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": ["post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#1"],
+      "visibleDestination": {
+        "routeId": "buy-checkout-session",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The server-rendered Public Listing Buy form posts the complete validated listing source to Checkout's action. Checkout creates the guest or account session once and redirects with its commit receipt; the session loader owns bounded checkout_session_pages recovery."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/discovery/tests/public-listing-checkout-start.test.tsx",
+          "bounded-contexts/checkout/routes/checkout-start-route.test.ts"
+        ]
+      }
+    },
+    {
       "id": "discovery.public-listing-report-snapshot",
       "owner": "discovery",
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/discovery/routes/public-listing.tsx:H2df726441e2a#2",
         "route-action:bounded-contexts/discovery/routes/public-listing.tsx"
       ],
       "visibleDestination": {
@@ -999,6 +1047,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "google-shopping": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -1008,21 +1059,82 @@
           "routePath": "account/product-alerts",
           "fileExport": "./routes/account-product-alerts",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Authenticated account pages are not canonical public documents."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "category",
           "routePath": "categories/:categorySlug",
           "fileExport": "./routes/search",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "portable",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": true
+          },
+          "pageComponentExport": "SearchPage",
+          "portableDataOperations": {
+            "load": true,
+            "mutation": false
+          }
         },
         {
           "routeId": "item-detail",
           "routePath": "items/:id",
           "fileExport": "./routes/item-detail",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {
+              "market": {
+                "kind": "value",
+                "maxLength": 4,
+                "values": ["sell", "buy"]
+              }
+            }
+          }
         },
         {
           "routeId": "item-detail-market-history",
@@ -1030,35 +1142,119 @@
           "fileExport": "./routes/item-detail-market-history",
           "routeType": "route",
           "placement": "root",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "The nested market-history response is not a standalone canonical document."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "The route returns a web protocol resource rather than a portable page."
+          }
         },
         {
           "routeId": "public-listing",
           "routePath": "listings/:listingSlug",
           "fileExport": "./routes/public-listing",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "public-account",
           "routePath": "accounts/:accountSlug",
           "fileExport": "./routes/public-account",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "set",
           "routePath": "sets/:setSlug",
           "fileExport": "./routes/set",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "discovery",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "search",
           "routePath": "search",
           "fileExport": "./routes/search",
           "routeType": "route",
-          "sourceContext": "discovery"
+          "sourceContext": "discovery",
+          "delivery": "portable",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": true
+          },
+          "pageComponentExport": "SearchPage",
+          "portableDataOperations": {
+            "load": true,
+            "mutation": false
+          }
         }
       ]
     },
@@ -1099,7 +1295,8 @@
       "href": "/search",
       "order": 10,
       "visibility": "always",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "packingPriority": 700
     },
     {
       "deployable": "admin-web",

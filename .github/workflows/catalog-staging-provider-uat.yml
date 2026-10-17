@@ -3,6 +3,10 @@ name: Catalog Staging Provider UAT
 on:
   workflow_dispatch:
     inputs:
+      expected_sha:
+        description: Exact reviewed 40-character commit SHA for this run.
+        required: true
+        type: string
       confirm:
         description: Type "run catalog staging provider uat" to queue provider syncs from the staging UI.
         required: true
@@ -30,6 +34,39 @@ on:
           - lorcana-matrix
           - full-matrix-uat
           - m50-final-proof
+          - scope-sync-batch-preview-probe
+          - full-game-start
+          - full-game-settle
+      product_domain:
+        description: full-game-start only. Catalog Scope product domain to batch, e.g. one-piece.
+        required: false
+        default: ""
+        type: string
+      language_code:
+        description: full-game-start only. Optional language code; blank batches every language.
+        required: false
+        default: ""
+        type: string
+      budget:
+        description: full-game-start only. Comma-separated key=value overrides of maxScopesPerTurn, tcgdexRequestLimit, scrydexRateRequestLimit, scrydexRequestLimit, providerFailureThreshold.
+        required: false
+        default: ""
+        type: string
+      batch_id:
+        description: full-game-settle only. The Scope Sync Batch id the start journey returned.
+        required: false
+        default: ""
+        type: string
+      retry_failed:
+        description: full-game-settle only. Retry each failed unit once in this dispatch.
+        required: false
+        default: false
+        type: boolean
+      resume_cancelled:
+        description: full-game-settle only. Resume the batch when it is cancelled.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -39,6 +76,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  admit-reviewed-sha:
+    name: Admit Reviewed Immutable SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify confirmation and immutable SHA
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          RUN_SHA: ${{ github.sha }}
+          CONFIRMATION: ${{ inputs.confirm }}
+          JOURNEY_SCOPE: ${{ inputs.journey_scope }}
+          ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
+        with:
+          script: |
+            const expected = process.env.EXPECTED_SHA ?? '';
+            if (process.env.CONFIRMATION !== 'run catalog staging provider uat' ||
+                !/^[a-fA-F0-9]{40}$/.test(expected) ||
+                expected.toLowerCase() !== process.env.RUN_SHA) {
+              core.setFailed('Confirmation and exact immutable expected_sha are required.');
+            }
+            if (['full-game-start', 'full-game-settle'].includes(process.env.JOURNEY_SCOPE) &&
+                process.env.ADMIN_WEB_URL !== 'https://admin.staging.chasesets.com') {
+              core.setFailed('Whole-game journeys require the exact staging origin.');
+            }
+
   refuse-unconfirmed:
     name: Refuse Unconfirmed Provider UAT
     runs-on: ubuntu-latest
@@ -52,8 +114,8 @@ jobs:
   resolve-provider-uat-plan:
     name: Resolve Provider UAT Plan
     runs-on: ubuntu-latest
-    needs: refuse-unconfirmed
-    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    needs: admit-reviewed-sha
+    if: needs.admit-reviewed-sha.result == 'success'
     outputs:
       journey_matrix: ${{ steps.plan.outputs.journey_matrix }}
     steps:
@@ -68,7 +130,7 @@ jobs:
             full-matrix-uat)
               journey_matrix='{"include":[{"journey_scope":"pokemon-matrix"},{"journey_scope":"mtg-matrix"},{"journey_scope":"yugioh-matrix"},{"journey_scope":"one-piece-matrix"},{"journey_scope":"lorcana-matrix"}]}'
               ;;
-            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix)
+            one-piece-launch|lorcana-launch|tcgplayer-pokemon-targeted|all-provider-regression|staging-representative-catalog|pokemon-matrix|mtg-matrix|yugioh-matrix|one-piece-matrix|lorcana-matrix|full-game-start|full-game-settle|scope-sync-batch-preview-probe)
               journey_matrix='{"include":[{"journey_scope":"${{ inputs.journey_scope }}"}]}'
               ;;
             *)
@@ -80,11 +142,11 @@ jobs:
 
   staging-provider-uat:
     name: Staging Provider Sync UAT (${{ matrix.journey_scope }})
-    needs: resolve-provider-uat-plan
+    needs: [admit-reviewed-sha, resolve-provider-uat-plan]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
-    if: always() && needs.resolve-provider-uat-plan.result == 'success'
+    if: needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -98,6 +160,12 @@ jobs:
       ADMIN_WEB_URL: ${{ inputs.admin_web_url }}
       CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
       CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+      CATALOG_WHOLE_GAME_PRODUCT_DOMAIN: ${{ inputs.product_domain }}
+      CATALOG_WHOLE_GAME_LANGUAGE_CODE: ${{ inputs.language_code }}
+      CATALOG_WHOLE_GAME_BUDGET: ${{ inputs.budget }}
+      CATALOG_WHOLE_GAME_BATCH_ID: ${{ inputs.batch_id }}
+      CATALOG_WHOLE_GAME_RETRY_FAILED: ${{ inputs.retry_failed }}
+      CATALOG_WHOLE_GAME_RESUME_CANCELLED: ${{ inputs.resume_cancelled }}
     steps:
       - name: Confirm staging provider UAT
         run: |
@@ -125,7 +193,37 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run staging provider sync UAT
+        id: provider-uat
         timeout-minutes: 55
         env:
           PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright test deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts --project=admin-web-chromium
+
+      # Scope Sync Batch preview probe (#9244): publish only the exact receipt,
+      # and only after it validates against this admitted SHA/run/attempt and
+      # proves the admin credential values are absent. Raw Playwright output
+      # (traces, reports, screenshots) is never uploaded.
+      - name: Validate Scope Sync Batch preview receipt
+        id: preview-receipt
+        if: ${{ always() && matrix.journey_scope == 'scope-sync-batch-preview-probe' && steps.provider-uat.outcome != 'skipped' }}
+        run: pnpm exec tsx scripts/catalog-staging-preview-probe.mjs validate --file artifacts/catalog-scale-probe/preview.json
+
+      - name: Upload Scope Sync Batch preview receipt
+        if: ${{ always() && steps.preview-receipt.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-scale-probe-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-scale-probe/preview.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # Whole-game journeys write one schema-validated, support-safe receipt; it
+      # publishes only when the producing step succeeded and the exact file exists.
+      - name: Upload whole-game rehearsal receipt
+        if: steps.provider-uat.outcome == 'success' && startsWith(matrix.journey_scope, 'full-game-')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: catalog-whole-game-rehearsal-${{ matrix.journey_scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/catalog-whole-game-rehearsal/receipt.json
+          if-no-files-found: error
+          retention-days: 30

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { seedCatalogItems } from "./seed";
 
@@ -54,6 +54,10 @@ describe("catalog item seed", () => {
       catalogSeedIds.items.prismaticEvolutionsBoosterPack,
       catalogSeedIds.items.pikachuPrismaticEvolutions,
     ];
+    const beforePublication = vi.fn(async () => {
+      expect(commands.some((entry) => entry.command.type === "CreateCatalogItem")).toBe(true);
+      expect(commands.some((entry) => entry.command.type === "PublishCatalogItem")).toBe(false);
+    });
 
     await seedCatalogItems(
       services as never,
@@ -61,8 +65,10 @@ describe("catalog item seed", () => {
       keyBackedIds("fld") as never,
       keyBackedIds("ctg") as never,
       referenceIds() as never,
-      { catalogItemIds: representativeCatalogItemIds as never },
+      { catalogItemIds: representativeCatalogItemIds as never, beforePublication },
     );
+
+    expect(beforePublication).toHaveBeenCalledTimes(1);
 
     const createdCatalogItemIds = commands
       .filter((entry) => entry.command.type === "CreateCatalogItem")

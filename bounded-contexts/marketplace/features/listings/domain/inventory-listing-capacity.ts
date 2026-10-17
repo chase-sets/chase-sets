@@ -1,3 +1,4 @@
+import { MarketplaceListingDomainError } from "./listing-error";
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core/domain";
 
 export type InventoryListingCapacityState = Readonly<{
@@ -40,7 +41,7 @@ export type InventoryListingCapacityEvent = InventoryListingsRegisteredEvent | I
 function normalizeInventoryItemId(value: string): string {
   const normalized = value.trim();
   if (!normalized) {
-    throw new Error("Inventory item id is required for listing capacity.");
+    throw new MarketplaceListingDomainError("command-rejected", "Inventory item id is required for listing capacity.");
   }
   return normalized;
 }
@@ -51,7 +52,10 @@ function normalizeListingIds(values: readonly string[]): string[] {
 
 function assertInventoryItem(state: InventoryListingCapacityState, inventoryItemId: string): void {
   if (state.inventoryItemId !== null && state.inventoryItemId !== inventoryItemId) {
-    throw new Error("Inventory listing capacity cannot span inventory items.");
+    throw new MarketplaceListingDomainError(
+      "command-rejected",
+      "Inventory listing capacity cannot span inventory items.",
+    );
   }
 }
 
@@ -73,11 +77,14 @@ export const decideInventoryListingCapacity: AggregateDecider<
     }
     case "CommitInventoryListingCapacity": {
       if (!Number.isInteger(command.quantityCap) || command.quantityCap <= 0) {
-        throw new Error("Listing quantity cap must be a positive whole number.");
+        throw new MarketplaceListingDomainError(
+          "command-rejected",
+          "Listing quantity cap must be a positive whole number.",
+        );
       }
       const listingId = command.listingId.trim();
       if (!listingId) {
-        throw new Error("Listing id is required for inventory capacity.");
+        throw new MarketplaceListingDomainError("command-rejected", "Listing id is required for inventory capacity.");
       }
       return [
         {
@@ -115,6 +122,9 @@ export function assertActiveListingCapacity(
     0,
   );
   if (activeQuantityCap > sellableQuantity) {
-    throw new Error("Active listing quantity caps cannot exceed current sellable inventory.");
+    throw new MarketplaceListingDomainError(
+      "command-rejected",
+      "Active listing quantity caps cannot exceed current sellable inventory.",
+    );
   }
 }

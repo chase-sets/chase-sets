@@ -1,4 +1,18 @@
 export const authEnglishTranslations = {
+  "auth.invitationAttempt.invalid": "Invitation acceptance attempt is invalid.",
+  "auth.invitationAttempt.notActive": "Invitation acceptance attempts are not active.",
+  "auth.invitationAttempt.required": "Invitation acceptance attempt is required.",
+  "auth.invitationAttempt.submitting": "Submitting your invitation acceptance",
+  "auth.invitationAttempt.confirming": "Confirming invitation acceptance",
+  "auth.invitationAttempt.succeeded": "Invitation accepted",
+  "auth.invitationAttempt.accepted-reauth-required": "Invitation accepted. Sign in to continue.",
+  "auth.invitationAttempt.conflict": "This invitation acceptance does not match the original attempt.",
+  "auth.invitationAttempt.ambiguous": "Invitation acceptance could not be confirmed.",
+  "auth.invitationAttempt.route-denied": "This invitation is unavailable.",
+  "auth.invitationAttempt.failed-safe": "Review your input or check this attempt's status before continuing.",
+  "auth.invitationAttempt.safeRecovery": "Check the status or sign in. Do not submit another acceptance.",
+  "auth.invitationAttempt.signIn": "Sign in",
+  "auth.invitationAttempt.checkStatus": "Check status",
   "auth.features.accountSelection.readModel.role.member": "Member",
   "auth.features.accountSelection.readModel.role.platformAdministrator": "Platform administrator",
   "auth.features.accountSelection.ui.accountSelectionPage.choose.account": "Choose Account",
@@ -31,7 +45,7 @@ export const authEnglishTranslations = {
   "auth.features.invitationAcceptance.ui.invitationAcceptancePage.password": "Password",
   "auth.features.accountSelection.ui.accountSelectionPage.this.user.can.act.for.more":
     "This user can act for more than one account.",
-  "auth.features.registration.ui.registerPage.create.account": "Create an account with a passkey",
+  "auth.features.registration.ui.registerPage.create.account": "Create your account",
   "auth.features.registration.ui.registerPage.create.account.2": "Create Account",
   "auth.features.registration.ui.registerPage.create.account.with.password": "Create account with password",
   "auth.features.registration.ui.registerPage.create.with.passkey": "Create With Passkey",
@@ -46,7 +60,6 @@ export const authEnglishTranslations = {
   "auth.features.registration.ui.registerPage.email.me.magic.link": "Email me a magic link",
   "auth.features.registration.ui.registerPage.enter.phone.code.copy":
     "Enter the code sent to your phone to create your account.",
-  "auth.features.registration.ui.registerPage.fastest": "Fastest",
   "auth.features.registration.ui.registerPage.magic.link": "Magic Link",
   "auth.features.registration.ui.registerPage.magic.link.copy":
     "We will email a sign-in link and create your account when you continue.",
@@ -83,6 +96,19 @@ export const authEnglishTranslations = {
   "auth.routes.marketplace.accountGate.seller.checkout.title": "Use an account to continue seller checkout",
   "auth.routes.marketplace.invite.meta.title": "Accept invitation | Chase Sets",
   "auth.features.agentGrants.ui.agentGrantListPage.connected.agents": "Connected agents",
+  "auth.features.agentGrants.ui.agentConsentPage.title": "Connect an agent",
+  "auth.features.agentGrants.ui.agentConsentPage.client": "Agent name",
+  "auth.features.agentGrants.ui.agentConsentPage.untrusted.name":
+    "This name is provided by the client, not verified by Chase Sets.",
+  "auth.features.agentGrants.ui.agentConsentPage.redirect": "Redirect destination",
+  "auth.features.agentGrants.ui.agentConsentPage.account": "Active account",
+  "auth.features.agentGrants.ui.agentConsentPage.scopes": "Requested access",
+  "auth.features.agentGrants.ui.agentConsentPage.approve": "Approve",
+  "auth.features.agentGrants.ui.agentConsentPage.deny": "Deny",
+  "auth.features.agentGrants.ui.agentConsentPage.switch.account": "Use {account}",
+  "auth.features.agentGrants.ui.agentConsentPage.invalid.title": "Consent request unavailable",
+  "auth.features.agentGrants.ui.agentConsentPage.invalid.description":
+    "Restart the connection from your agent to request consent again.",
   "auth.features.agentGrants.ui.agentGrantListPage.agent": "Agent",
   "auth.features.agentGrants.ui.agentGrantListPage.scopes": "Scopes",
   "auth.features.agentGrants.ui.agentGrantListPage.scope.count": "{count} scopes",
@@ -120,7 +146,6 @@ export const authEnglishTranslations = {
   "auth.features.agentGrants.ui.agentGrantPresentation.daily.spend.summary": "{spent} / {cap} daily",
   "auth.features.agentGrants.ui.agentGrantPresentation.rail.handoff.only": "Trusted checkout handoff",
   "auth.features.agentGrants.ui.agentGrantPresentation.rail.stored.pm": "Saved payment method",
-  "auth.features.agentGrants.ui.agentGrantPresentation.rail.ap2": "AP2 mandate",
   "auth.features.agentGrants.ui.agentGrantDetailPage.agent": "Agent",
   "auth.features.agentGrants.ui.agentGrantDetailPage.connected.on": "Connected {date}",
   "auth.features.agentGrants.ui.agentGrantDetailPage.scopes": "Scopes",
@@ -159,6 +184,24 @@ export const authEnglishTranslations = {
   "auth.features.agentGrants.ui.agentGrantDetailPage.activity.outcome": "Outcome",
   "auth.features.agentGrants.ui.agentGrantDetailPage.activity.reason": "Reason",
   "auth.features.agentGrants.ui.agentGrantDetailPage.revoke": "Revoke access",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.editing":
+    "You can revoke access or confirm interrupted cleanup.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.loading": "Loading connected agent...",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.submitting": "Revoking access...",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.confirming": "Confirming cleanup...",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.succeeded": "Access revoked and cleanup complete.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.already.complete":
+    "Access was already revoked. Cleanup is complete.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.failed.safe":
+    "Cleanup could not be confirmed. Resume this attempt to finish safely.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.conflict":
+    "This attempt belongs to a different request. It has not been changed.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.ambiguous":
+    "The result is not confirmed. Resume the same attempt; do not start another.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.reauth":
+    "Sign in again before confirming this attempt.",
+  "auth.features.agentGrants.ui.agentGrantDetailPage.revocation.denied":
+    "This connected agent is not available in your current account.",
   "auth.features.agentGrants.ui.agentGrantDetailPage.revoke.confirm.title": "Revoke connected agent?",
   "auth.features.agentGrants.ui.agentGrantDetailPage.revoke.confirm.description":
     "{name} immediately loses access to your account. Any purchase it was mid-flow on will fail with an auth error. This cannot be undone.",
@@ -211,7 +254,8 @@ export const authEnglishTranslations = {
   "auth.features.signIn.ui.signInPage.email.2": "Email",
   "auth.features.signIn.ui.signInPage.email.3": "Email",
   "auth.features.signIn.ui.signInPage.email.or.phone": "Email or phone",
-  "auth.features.signIn.ui.signInPage.magic.link": "Magic Link",
+  "auth.features.signIn.ui.signInPage.magic.link": "Email me a sign-in link",
+  "auth.features.signIn.ui.signInPage.magic.link.description": "We'll email you a one-time link.",
   "auth.features.signIn.ui.signInPage.magic.link.ready.check.your.email":
     "Magic link ready. Check your email to continue.",
   "auth.features.signIn.ui.signInPage.magic.link.sent": "Magic link sent",
@@ -229,7 +273,7 @@ export const authEnglishTranslations = {
   "auth.features.signIn.ui.signInPage.phone.code.ready.check.your.phone":
     "Code ready. Check your phone, then continue here.",
   "auth.features.signIn.ui.signInPage.phone.code.sent": "Phone code sent",
-  "auth.features.signIn.ui.signInPage.send.magic.link": "Send Magic Link",
+  "auth.features.signIn.ui.signInPage.send.magic.link": "Email me a sign-in link",
   "auth.features.signIn.ui.signInPage.send.phone.code": "Send Phone Code",
   "auth.features.signIn.ui.signInPage.sign.in": "Sign In",
   "auth.features.signIn.ui.signInPage.sign.in.2": "Sign In",
@@ -240,6 +284,7 @@ export const authEnglishTranslations = {
     "Use phone, email, password, social login, or passkey to continue.",
   "auth.features.signIn.ui.signInPage.use.social.email.or.phone": "Continue with social login, email, or phone.",
   "auth.features.signIn.ui.signInPage.use.passkey": "Use Passkey",
+  "auth.features.signIn.ui.signInPage.you.can.sign.in.with": "You can sign in with",
   "auth.support.apiSupport.accountSelectionRoutes.account.selection.could.not.be.completed":
     "Account selection could not be completed.",
   "auth.support.apiSupport.accountSelectionRoutes.account.selection.is.invalid.or.has":
@@ -258,6 +303,8 @@ export const authEnglishTranslations = {
   "auth.support.apiSupport.registrationGates.registration.requires.an.invitation":
     "Registration requires an invitation.",
   "auth.support.routeSupport.authHost.magic.link.token.entry.is.not": "Magic link token entry is not available here.",
+  "auth.support.routeSupport.authHost.request.failed": "This request could not be completed. Try again.",
+  "auth.support.routeSupport.authHost.rate.limited": "Too many attempts. Try again later.",
   "auth.support.routeSupport.authHost.sign.in.temporarily.unavailable":
     "Sign-in is temporarily unavailable. Try again in a few seconds.",
   "auth.support.routeSupport.magicLinkLanding.magic.link.could.not.be.completed": "Magic link could not be completed",
@@ -324,4 +371,15 @@ export const authEnglishTranslations = {
     "Passkey challenge is invalid or expired.",
   "auth.support.apiSupport.guestCheckoutRoutes.sign.in.to.continue.checkout.with.this.email":
     "Sign in to continue checkout with this email.",
+  "auth.values.agentGrantOutcome.allowed": "Allowed",
+  "auth.values.agentGrantOutcome.denied": "Denied",
+  "auth.values.agentGrantOutcome.failed": "Failed",
+  "auth.values.agentGrantStatus.active": "Active",
+  "auth.values.agentGrantStatus.revoked": "Revoked",
+  "auth.values.date.unavailable": "Date unavailable",
+  "auth.values.family.agentGrantOutcome": "Agent Grant outcome",
+  "auth.values.family.agentGrantStatus": "Agent Grant status",
+  "auth.values.family.sessionStatus": "Session status",
+  "auth.values.unrecognized": "Unrecognized {family}",
+  "auth.values.unrecognized.withValue": "Unrecognized {family}: {value}",
 } as const;

@@ -7,7 +7,10 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 
-const recordEventStoreAppendAdvisoryLockHold = vi.hoisted(() => vi.fn());
+const recordEventStoreAppendAdvisoryLockHold = vi.hoisted(() => {
+  vi.resetModules();
+  return vi.fn();
+});
 
 vi.mock("@chase-sets/observability", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@chase-sets/observability")>()),

@@ -96,6 +96,8 @@ export type ProjectorHandlerContext = Readonly<{
     ) => Promise<Readonly<{ rows: readonly Row[]; rowCount?: number | null }>>;
   };
   throwIfLeaseLost?: () => void;
+  /** Complete public-fact prefix of this invocation's source stream, through its triggering event. */
+  readSourceStreamHistory?: () => Promise<readonly Readonly<TransportEvent>[]>;
 }>;
 
 export type EventPayloadMap = Readonly<Record<string, TransportEventPayload>>;

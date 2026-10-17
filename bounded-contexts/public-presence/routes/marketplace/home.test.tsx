@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import {
+  checkoutFeeTranslationValues,
+  fallbackCheckoutFeePreview,
+} from "../../features/waitlist/ui/checkout-fee-preview";
+import { landingFaqEntries } from "../../features/waitlist/ui/landing-faq";
+import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 import { buildHomeStructuredData, meta } from "./home";
 
 describe("public presence home route SEO", () => {
@@ -113,13 +119,41 @@ describe("public presence home route SEO", () => {
       }),
     );
 
-    // The launch answer carries the interpolated timeline (#3952): the hard
-    // September 1 date, with no leaked {token} placeholders. The FAQPage node
+    // The launch answer carries the undated access order. The FAQPage node
     // is the third graph entry by construction.
     const faqPage = schema["@graph"][2];
     const launchAnswer = faqPage.mainEntity.find((entry) => entry.name === "Is Chase Sets live yet?");
-    expect(launchAnswer?.acceptedAnswer.text).toContain("September 1, 2026");
-    expect(launchAnswer?.acceptedAnswer.text).toContain("late July 2026");
+    expect(launchAnswer?.acceptedAnswer.text).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
+    expect(JSON.stringify(schema)).not.toContain("September 1, 2026");
+    expect(JSON.stringify(schema)).not.toContain("late July 2026");
     expect(launchAnswer?.acceptedAnswer.text).not.toContain("{");
+  });
+
+  it("publishes the FAQPage node byte-identical to the pre-#8503 base from the shared landing FAQ list (AC2)", () => {
+    const faqAnswerValues = checkoutFeeTranslationValues(fallbackCheckoutFeePreview);
+    // The base node, spelled out: four questions in this exact order with
+    // these exact locale keys. The visible landing FAQ now renders from the
+    // same `landingFaqEntries`, so this pins both the JSON-LD and the list.
+    const baseFaqKeys = [
+      ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
+      ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
+      ["publicPresence.faq.shipping.question", "publicPresence.faq.shipping.answer"],
+      ["publicPresence.faq.safety.question", "publicPresence.faq.safety.answer"],
+    ] as const;
+    const baseFaqPage = {
+      "@type": "FAQPage",
+      "@id": "https://chasesets.com/#landing-faq",
+      mainEntity: baseFaqKeys.map(([question, answer]) => ({
+        "@type": "Question",
+        name: t(question),
+        acceptedAnswer: { "@type": "Answer", text: t(answer, faqAnswerValues) },
+      })),
+    };
+
+    expect(JSON.stringify(buildHomeStructuredData()["@graph"][2])).toBe(JSON.stringify(baseFaqPage));
+    expect(landingFaqEntries.map(({ question, answer }) => [question, answer])).toEqual(
+      baseFaqKeys.map((pair) => [...pair]),
+    );
+    expect(baseFaqPage.mainEntity[0]?.name).toBe("Is Chase Sets live yet?");
   });
 });

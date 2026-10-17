@@ -48,6 +48,9 @@ describe("policy console detail page", () => {
     render(<PolicyConsoleDetailPage overview={overview} history={history} canManage={false} />);
 
     expect(screen.getByText("settlement.clearance-window")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Publication and consent activation runbook" }).getAttribute("href")).toBe(
+      "https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/legal-corpus-publication.md",
+    );
     expect(screen.getByText(/scheduled for/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /save revision/i })).toBeNull();
     expect(screen.getAllByText("platform-policy.document.created").length).toBeGreaterThan(0);

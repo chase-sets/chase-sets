@@ -31,6 +31,7 @@ import {
   decideWallet,
   evolveWallet,
   initialWalletState,
+  type CreditSellerCaptureCommand,
   type WalletLedgerEntryPostedEvent,
   type WalletCommand,
   type WalletEvent,
@@ -90,7 +91,7 @@ export type PostedLedgerEntrySnapshot = Readonly<{
 }>;
 
 export type WalletServices = Readonly<{
-  commandHandler: CommandHandler<WalletCommand, WalletState, WalletEvent>;
+  commandHandler: CommandHandler<Exclude<WalletCommand, { type: "PostStagingProofCredit" }>, WalletState, WalletEvent>;
   /** Loads the wallet aggregate state from the event store, so callers can read the authoritative balance without waiting on the read model. */
   loadWalletState: (accountId: AccountId) => Promise<WalletState>;
   getWallet: (accountId: string) => Promise<SettlementWalletRow>;
@@ -112,6 +113,10 @@ export type WalletServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<void>;
+  creditSellerCapture: (
+    params: Omit<CreditSellerCaptureCommand, "type"> & Readonly<{ accountId: AccountId }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: AccountId; version: number }>;
   postEntry: (
     params: Readonly<{
       accountId: AccountId;
@@ -195,8 +200,8 @@ export type WalletServices = Readonly<{
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
-/** Bounded compare-and-set attempts for spend-hold commits (matches the commercial-terms policy-window commit). */
-const SPEND_HOLD_MAX_COMMIT_ATTEMPTS = 5;
+/** Bounded compare-and-set attempts for Wallet commits (matches the commercial-terms policy-window commit). */
+const WALLET_MAX_COMMIT_ATTEMPTS = 5;
 
 function isConcurrencyConflict(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict");
@@ -277,7 +282,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     const releasedAt = params.releasedAt ?? new Date().toISOString();
     const streamId = `settlement.wallet-${params.accountId}`;
 
-    for (let attempt = 0; attempt < SPEND_HOLD_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+    for (let attempt = 0; attempt < WALLET_MAX_COMMIT_ATTEMPTS; attempt += 1) {
       try {
         const result = await commandHandler({
           streamId,
@@ -292,7 +297,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
         const released = result.newEvents.some((event) => event.type === "settlement.wallet.spend-hold-released");
         return { accountId: params.accountId, holdId: params.holdId, released };
       } catch (error) {
-        if (!isConcurrencyConflict(error) || attempt === SPEND_HOLD_MAX_COMMIT_ATTEMPTS - 1) {
+        if (!isConcurrencyConflict(error) || attempt === WALLET_MAX_COMMIT_ATTEMPTS - 1) {
           throw error;
         }
       }
@@ -301,7 +306,12 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
   }
 
   return {
-    commandHandler,
+    async commandHandler(input) {
+      if ((input.command as WalletCommand).type === "PostStagingProofCredit") {
+        throw new SettlementDomainError("proof_credit_write_boundary_required");
+      }
+      return commandHandler(input);
+    },
     loadWalletState: async (accountId) => {
       const loaded = await repository.load(`settlement.wallet-${accountId}`);
       return loaded.state;
@@ -311,52 +321,80 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     getWalletAdjustmentForAccount: (params) => getWalletAdjustmentForAccount(deps.db, params),
     listNegativeBalanceAccounts: (params = {}) => listNegativeBalanceAccounts(deps.db, params),
     ensureWallet,
+    async creditSellerCapture(params, context) {
+      for (let attempt = 0; attempt < WALLET_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+        try {
+          await ensureWallet(
+            { accountId: params.accountId, currencyCode: params.currencyCode, openedAt: params.postedAt },
+            context,
+          );
+          const result = await commandHandler({
+            streamId: `settlement.wallet-${params.accountId}`,
+            command: { type: "CreditSellerCapture", ...params },
+            context,
+          });
+          return { accountId: params.accountId, version: result.version };
+        } catch (error) {
+          if (!isConcurrencyConflict(error) || attempt === WALLET_MAX_COMMIT_ATTEMPTS - 1) throw error;
+        }
+      }
+      throw new SettlementDomainError("Seller capture credit did not converge.");
+    },
     async postEntry(params, context) {
       const postedAt = params.postedAt ?? new Date().toISOString();
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
 
-      await ensureWallet(
-        {
-          accountId: params.accountId,
-          currencyCode,
-          openedAt: postedAt,
-        },
-        context,
-      );
+      for (let attempt = 0; attempt < WALLET_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+        try {
+          await ensureWallet(
+            {
+              accountId: params.accountId,
+              currencyCode,
+              openedAt: postedAt,
+            },
+            context,
+          );
 
-      const result = await commandHandler({
-        streamId: `settlement.wallet-${params.accountId}`,
-        command: {
-          type: "PostLedgerEntry",
-          ledgerEntryId: params.ledgerEntryId,
-          kind: normalizeLedgerEntryKind(params.kind),
-          direction: normalizeLedgerEntryDirection(params.direction),
-          amount: normalizeMoneyAmount(params.amount, {
-            fieldName: "Ledger entry amount",
-          }),
-          currencyCode,
-          fundsStatus: normalizeLedgerEntryFundsStatus(params.fundsStatus ?? "available"),
-          orderId: params.orderId ?? null,
-          paymentId: params.paymentId ?? null,
-          payoutId: params.payoutId ?? null,
-          description: params.description ?? null,
-          postedAt,
-          allowNegativeBalance: params.allowNegativeBalance,
-        },
-        context,
-      });
-      const entryEvent = result.newEvents.find(
-        (event): event is WalletLedgerEntryPostedEvent => event.type === "settlement.wallet.ledger-entry-posted",
-      );
-      if (!entryEvent) {
-        throw new SettlementDomainError("Wallet command did not produce a committed ledger entry snapshot.");
+          const result = await commandHandler({
+            streamId: `settlement.wallet-${params.accountId}`,
+            command: {
+              type: "PostLedgerEntry",
+              ledgerEntryId: params.ledgerEntryId,
+              kind: normalizeLedgerEntryKind(params.kind),
+              direction: normalizeLedgerEntryDirection(params.direction),
+              amount: normalizeMoneyAmount(params.amount, {
+                fieldName: "Ledger entry amount",
+              }),
+              currencyCode,
+              fundsStatus: normalizeLedgerEntryFundsStatus(params.fundsStatus ?? "available"),
+              orderId: params.orderId ?? null,
+              paymentId: params.paymentId ?? null,
+              payoutId: params.payoutId ?? null,
+              description: params.description ?? null,
+              postedAt,
+              allowNegativeBalance: params.allowNegativeBalance,
+            },
+            context,
+          });
+          const entryEvent = result.newEvents.find(
+            (event): event is WalletLedgerEntryPostedEvent => event.type === "settlement.wallet.ledger-entry-posted",
+          );
+          if (!entryEvent) {
+            throw new SettlementDomainError("Wallet command did not produce a committed ledger entry snapshot.");
+          }
+
+          return {
+            accountId: params.accountId,
+            version: result.version,
+            entry: postedEntrySnapshot(entryEvent),
+          };
+        } catch (error) {
+          if (!isConcurrencyConflict(error) || attempt === WALLET_MAX_COMMIT_ATTEMPTS - 1) {
+            throw error;
+          }
+        }
       }
-
-      return {
-        accountId: params.accountId,
-        version: result.version,
-        entry: postedEntrySnapshot(entryEvent),
-      };
+      throw new SettlementDomainError("Wallet ledger entry posting did not converge.");
     },
     async releasePendingEntry(params, context) {
       const result = await commandHandler({
@@ -387,7 +425,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
       // that committed first makes this append conflict; the retry then observes
       // that hold and the decider caps this reservation to the balance still
       // unheld. That is the exact mechanism that closes the double-spend race.
-      for (let attempt = 0; attempt < SPEND_HOLD_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+      for (let attempt = 0; attempt < WALLET_MAX_COMMIT_ATTEMPTS; attempt += 1) {
         try {
           const result = await commandHandler({
             streamId,
@@ -415,7 +453,7 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
           );
           return { accountId: params.accountId, holdId: params.holdId, heldAmount: existing?.amount ?? "0.00" };
         } catch (error) {
-          if (!isConcurrencyConflict(error) || attempt === SPEND_HOLD_MAX_COMMIT_ATTEMPTS - 1) {
+          if (!isConcurrencyConflict(error) || attempt === WALLET_MAX_COMMIT_ATTEMPTS - 1) {
             throw error;
           }
         }

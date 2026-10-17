@@ -114,8 +114,8 @@ function marketplaceUrl(request: Request, path: string) {
   return new URL(path, new URL(request.url).origin).toString();
 }
 
-function priceDisplay(amount: string | null | undefined) {
-  return amount ? formatMoney(amount, "USD") : "Not currently listed";
+function priceDisplay(amount: string | null | undefined, currencyCode: string | null | undefined) {
+  return amount && currencyCode ? formatMoney(amount, currencyCode) : "Not currently listed";
 }
 
 function productFeedItem(item: DiscoveryItemDetailRow, request: Request) {
@@ -132,9 +132,12 @@ function productFeedItem(item: DiscoveryItemDetailRow, request: Request) {
       quantity: item.market_summary?.total_visible_quantity ?? 0,
     },
     price: {
-      currency: "USD",
+      currency: item.market_summary?.lowest_price_currency_code ?? null,
       amount: item.market_summary?.lowest_price_amount ?? null,
-      display: priceDisplay(item.market_summary?.lowest_price_amount ?? null),
+      display: priceDisplay(
+        item.market_summary?.lowest_price_amount ?? null,
+        item.market_summary?.lowest_price_currency_code ?? null,
+      ),
     },
     variants: item.market_listings.map((listing) => ({
       id: listing.product_id,
@@ -142,9 +145,9 @@ function productFeedItem(item: DiscoveryItemDetailRow, request: Request) {
       title: listing.product_summary ?? item.title,
       url: marketplaceUrl(request, `/listings/${listing.listing_slug}`),
       price: {
-        currency: "USD",
+        currency: listing.price_currency_code,
         amount: listing.price_amount,
-        display: priceDisplay(listing.price_amount),
+        display: priceDisplay(listing.price_amount, listing.price_currency_code),
       },
       availability: {
         status: listing.visible_quantity > 0 ? "in_stock" : "out_of_stock",

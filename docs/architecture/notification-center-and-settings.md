@@ -8,7 +8,7 @@ This doc owns the Notification Center UI, notification feed composition, read/un
 
 Notifications should be a dedicated bounded context that owns the account notification center, notification settings, centralized feed read model, read/unread state, and delivery-policy decisions.
 
-The marketplace shell should expose Notifications as a bell-triggered side sheet on desktop and a bottom sheet on mobile, not as a primary full-page account destination. The sheet should support simple notification actions, mark-read behavior, and a settings view.
+The marketplace exposes Notifications as the Notifications-owned account route at `/account/notifications`, reached from the bell in the shell navigation. The route supports simple notification actions, mark-read behavior, and a settings view.
 
 Product Alerts should remain the canonical Discovery term for account-owned watches on resolved Catalog Products. They should move out of primary account navigation and appear as `Product alerts` inside notification settings.
 
@@ -45,7 +45,7 @@ Creating a Product Alert remains a Discovery item-detail workflow because Discov
 
 ## Routes And Shell
 
-The notification bell should open the notification side sheet or bottom sheet. Retired full-page routes should redirect to a normal marketplace route carrying sheet state in the URL rather than preserving separate full-page notification experiences.
+The notification bell links to the `/account/notifications` route. Retired notification-sheet links (`notifications=feed` or `notifications=settings` on any marketplace page) redirect to that route and its settings view instead of opening a sheet.
 
 Recommended compatibility behavior:
 
@@ -55,7 +55,7 @@ Recommended compatibility behavior:
 
 ## Design System
 
-The design system should provide the canonical notification-center side-sheet and bottom-sheet pattern. Application contexts should consume that pattern instead of inventing custom notification panels.
+The design system provides the canonical components the notification-center route composes: page layout, cards, badges, switches, banners, the empty state, and loading skeletons. Application contexts compose those components instead of inventing custom notification panels.
 
 The pattern should cover:
 

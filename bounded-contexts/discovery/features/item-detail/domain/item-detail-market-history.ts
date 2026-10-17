@@ -69,6 +69,7 @@ export function resolveMarketHistoryRangeWindow(
  * module is the single seam that seeds this shape from the pricing response.
  */
 export type MarketHistorySeriesPoint = Readonly<{
+  currencyCode: string;
   day: string;
   firstPriceAmount: string | null;
   lastPriceAmount: string | null;
@@ -81,6 +82,7 @@ export type MarketHistorySeriesPoint = Readonly<{
 }>;
 
 export type MarketHistoryAggregate = Readonly<{
+  currencyCode: string;
   lastSoldAt: string | null;
   lastSoldPriceAmount: string | null;
   medianPrice30d: string | null;
@@ -98,7 +100,7 @@ export type MarketHistoryMarketState = Readonly<{
 }>;
 
 export type MarketHistoryStats = Readonly<{
-  aggregate: MarketHistoryAggregate | null;
+  aggregates: readonly MarketHistoryAggregate[];
   marketState: MarketHistoryMarketState | null;
 }>;
 
@@ -113,6 +115,6 @@ export type MarketHistoryResponse = Readonly<{
   minimumSample: number;
   /** Pricing's market-analytics display policy toggle -- whether verified-sale chart markers should render. */
   showVerifiedMarkers: boolean;
-  series: readonly MarketHistorySeriesPoint[];
+  series: readonly Readonly<{ currencyCode: string; points: readonly MarketHistorySeriesPoint[] }>[];
   stats: MarketHistoryStats;
 }>;

@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads, PaymentRefundedPayload } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 type PaymentCreatedPayload = Readonly<{
@@ -47,8 +48,11 @@ async function updatePaymentStatus(
   );
 }
 
-async function updatePaymentRefundStatus(db: PgQueryable, event: Readonly<{ streamVersion: number; data: unknown }>) {
-  const data = event.data as PaymentStatusPayload;
+async function updatePaymentRefundStatus(
+  db: PgQueryable,
+  event: Readonly<{ streamVersion: number; data: PaymentRefundedPayload }>,
+) {
+  const { data } = event;
   const updatedAt = timestampForStatus(data);
   if (!updatedAt || !data.refundedAmount) {
     return;
@@ -109,7 +113,9 @@ export function buildCheckoutPaymentSummaryProjectionHandlers(db: PgQueryable): 
     "payments.payment-captured": (event) => updatePaymentStatus(db, event, "captured"),
     "payments.payment-failed": (event) => updatePaymentStatus(db, event, "failed"),
     "payments.payment-cancelled": (event) => updatePaymentStatus(db, event, "cancelled"),
-    "payments.payment-refunded": (event) => updatePaymentRefundStatus(db, event),
+    ...defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "payments.payment-refunded">>({
+      "payments.payment-refunded": (event) => updatePaymentRefundStatus(db, event),
+    }),
     "payments.payment-disputed": (event) => updatePaymentStatus(db, event, "disputed"),
   };
 }

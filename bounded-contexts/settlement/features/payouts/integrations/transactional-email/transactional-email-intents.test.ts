@@ -8,19 +8,29 @@ describe("settlement transactional email intents", () => {
     const message = mapPayoutCompletedToTransactionalEmail({
       sellerEmail: "seller@example.com",
       payoutId,
-      amount: "42.00",
+      requestedAmount: "42.00",
+      feeAmount: "0.36",
+      netAmount: "41.64",
       correlationId: "req_3",
     });
     expect(message.messageType).toBe("settlement.payout.completed");
     expect(message.title).toBe("Payout PYO-E6K7M8N9 completed");
-    expect(message.templateData).toMatchObject({ payoutReference: "PYO-E6K7M8N9", amount: "42.00" });
+    expect(message.templateData).toMatchObject({
+      payoutReference: "PYO-E6K7M8N9",
+      amount: "41.64",
+      requestedAmount: "42.00",
+      feeAmount: "0.36",
+      netAmount: "41.64",
+    });
   });
 
   it("falls back to the raw payout id for fixed, human-readable seed payout ids", () => {
     const message = mapPayoutCompletedToTransactionalEmail({
       sellerEmail: "seller@example.com",
       payoutId: "pyo_seed_completed",
-      amount: "42.00",
+      requestedAmount: "42.00",
+      feeAmount: "0.36",
+      netAmount: "41.64",
       correlationId: "req_3",
     });
     expect(message.title).toBe("Payout pyo_seed_completed completed");

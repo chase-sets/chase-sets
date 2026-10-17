@@ -1,3 +1,4 @@
+import { catalogFixtureTransports, catalogProductionTransport } from "../catalog-fixture-transports";
 import { t } from "@chase-sets/localization";
 import { runCatalogIntegrationDryRun } from "../../governance/catalog-integration-engine";
 import type { CatalogIntegrationDryRunResult } from "../../governance/catalog-integration-engine";
@@ -48,6 +49,10 @@ export type TcgdexProviderAdapterOptions = Readonly<{
 export function createTcgdexProviderAdapter(
   options: TcgdexProviderAdapterOptions,
 ): ProviderAdapter<TcgdexObservationPayload> {
+  return createTcgdexAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createTcgdexAdapter(options: TcgdexProviderAdapterOptions): ProviderAdapter<TcgdexObservationPayload> {
   return {
     providerKey: "tcgdex",
     capabilities: {
@@ -157,9 +162,9 @@ export function createTcgdexProviderAdapter(
 }
 
 export async function runTcgdexSourceObservationImportProofDryRun(
-  adapter: ProviderAdapter<TcgdexObservationPayload> = createTcgdexProviderAdapter({
+  adapter: ProviderAdapter<TcgdexObservationPayload> = createTcgdexAdapter({
     loadActiveProfileVersion: async () => requireActiveTcgdexProfileVersion(),
-    fetch: tcgdexProofFetch,
+    fetch: catalogFixtureTransports.tcgdex,
   }),
   profileVersion: string = requireActiveTcgdexProfileVersion().profileVersion,
 ): Promise<CatalogIntegrationDryRunResult> {
@@ -398,50 +403,3 @@ function stringFact(payload: unknown, path: string): string {
 
   return stringValue(value) ?? "";
 }
-
-function tcgdexProofFetch(input: RequestInfo | URL): Promise<Response> {
-  const url = String(input);
-  const response = tcgdexProofResponses[url];
-  if (!response) {
-    return Promise.resolve(new Response(null, { status: 404 }));
-  }
-
-  return Promise.resolve(
-    new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-const tcgdexProofResponses: Readonly<Record<string, unknown>> = {
-  "https://api.tcgdex.net/v2/en/sets/swsh3": {
-    id: "swsh3",
-    name: "Darkness Ablaze",
-    releaseDate: "2020-08-14",
-    serie: {
-      id: "swsh",
-      name: "Sword & Shield",
-    },
-    cardCount: {
-      total: 201,
-      official: 189,
-      reverse: 155,
-    },
-    cards: [{ id: "swsh3-136", localId: "136", name: "Furret" }],
-  },
-  "https://api.tcgdex.net/v2/en/cards/swsh3-136": {
-    id: "swsh3-136",
-    localId: "136",
-    name: "Furret",
-    category: "Pokemon",
-    illustrator: "tetsuya koizumi",
-    rarity: "Uncommon",
-    updated: "2026-05-15T00:00:00.000Z",
-    image: "https://assets.tcgdex.net/en/swsh/swsh3/136",
-    set: {
-      id: "swsh3",
-      name: "Darkness Ablaze",
-    },
-  },
-};

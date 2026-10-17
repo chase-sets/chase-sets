@@ -1,7 +1,15 @@
 {
   "version": 1,
-  "partitionDigest": "01942b15a1d51bf36de028a1731a20915f533a1695b089f844d27a73df24e328",
+  "partitionDigest": "4e0241c7442cfc1f4cc7a4b224cb252f9930ecbc096ddb233c6424bc517df96c",
   "sites": [
+    {
+      "file": "bounded-contexts/identity/features/account-management/api/owners.ts",
+      "owner": "planOwnerMutation",
+      "constructor": "authorizeConsentForActor",
+      "ordinal": 1,
+      "classification": "actor",
+      "reason": "Authorizes the authenticated actor before a keyed Consent withdrawal is planned."
+    },
     {
       "file": "bounded-contexts/identity/features/consents/api/terms-route.ts",
       "owner": "termsOfServiceConsentRoutes > POST /accept",
@@ -25,30 +33,6 @@
       "ordinal": 1,
       "classification": "self-registration",
       "reason": "Authorizes the registration plan to record the registering user's verified Consent bundle."
-    },
-    {
-      "file": "bounded-contexts/identity/support/runtime-support/seed.ts",
-      "owner": "buildScenarioIdentityReconcilers > consentReconciler",
-      "constructor": "authorizeConsentForProvisioning",
-      "ordinal": 1,
-      "classification": "provisioning",
-      "reason": "Permanent #6120 provisioning exemption for scenario Consent reconciliation."
-    },
-    {
-      "file": "bounded-contexts/identity/support/runtime-support/seed.ts",
-      "owner": "reconcileRepresentativeConsent",
-      "constructor": "authorizeConsentForProvisioning",
-      "ordinal": 1,
-      "classification": "provisioning",
-      "reason": "Permanent #6120 provisioning exemption for representative Consent reconciliation."
-    },
-    {
-      "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts",
-      "owner": "provisionAdminQaActorFixture",
-      "constructor": "authorizeConsentForProvisioning",
-      "ordinal": 1,
-      "classification": "provisioning",
-      "reason": "Permanent #6120 provisioning exemption for the admin QA actor fixture."
     }
   ]
 }

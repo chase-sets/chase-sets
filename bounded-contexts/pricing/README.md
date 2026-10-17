@@ -30,6 +30,7 @@ The Pricing-owned TCGplayer ingestion boundary is documented in [TCGplayer Price
 - Price Signal Set
 - Market Price Snapshot
 - Repricing Policy
+- Repricing Halt
 - Repricing evaluation engine
 - Price Recommendation
 
@@ -52,6 +53,165 @@ snapshot, then send only beyond-tolerance targets through Marketplace's existing
 path. The same evaluator powers dry-run preview; live execution adds daily-budget admission and publishes
 `RepricingPolicyEvaluated` facts.
 
+Candidate Repricing Dry Runs use the same `planRepricingRound` as preview and live execution.
+The page loader captures listings, competing asks, estimates, and last sold in four set-based queries,
+then plans in memory. Each nonempty page has at most 500 Product keys and seven statements: keyset,
+four inputs, one idempotent trace insert, and a cursor/claim-generation-fenced advance. Live admission,
+including budget, revision checks, pause recovery, cooldown and Spiral Breaker, is unchanged.
+
+Dry runs never request a Marketplace gateway or append domain events. Their outcomes are `changed`,
+`pause-requested`, `notify-only`, and `skipped`; skip reasons come only from evaluation, not live
+admission (`budget-exhausted`, `manual-edit-conflict`, `domain-no-op`, `policy-precondition-failed`,
+`resume-hysteresis`, `repause-cooldown`, `command-error`, or `spiral-breaker-frozen`).
+Completion aggregates every retained trace in SQL, including outcomes, reasons, flags, within-tolerance
+count and percent-delta buckets. Bucket keys 0 through 8 use edges -20, -10, -5, -1, +1, +5, +10, +20;
+each lower edge is inclusive and each upper edge exclusive.
+
+`/account/repricing-policies/dry-runs` supports creation (`pricing.manage`) and account-scoped status,
+list, trace and SSE reads (`pricing.view`). Lists and keyset-paged traces are bounded to 100 rows.
+Missing and foreign IDs both return `404 not_found`; SSE connections share the actor's account limit.
+The worker's `PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT` defaults to 1. Requests and traces are
+durable across worker lease expiry; a replacement claim resumes the persisted cursor. Hashing uses
+recursively sorted object keys, preserves array order, and includes only scope, exclusions, rules and
+maxChangesPerDay. First activation consumes one completed exact-body-hash run atomically with policy
+creation from its stored body. Validity is indefinite; revise, resume, pause and delete are ungated.
+UI, outcome projections and digest remain separate slices.
+
+`/account/repricing-policies` exposes account-scoped policy controls, scope preview, daily budget use,
+category names and a Repricing Halt (`pricing.view` reads, `pricing.manage` writes). ID-addressed foreign
+and missing objects return the same 404; self-scoped reads isolate account data without foreign IDs.
+Commands check ownership on the folded aggregate, not its lagging projection, and return folded state.
+Creation accepts `{ dryRunId, name }`; invalid, failed, cancelled, consumed or hash-mismatched runs
+return `409 dry_run_required`, while foreign or absent runs return 404.
+
+| Policy control | System behavior |
+| --- | --- |
+| Repricing Halt | One audited account aggregate, released (steady) to engaged and back. Repeats emit nothing. Engaged excludes assignments before selection and fails the post-plan policy precondition. Release re-includes the account on the next signal or daily drift sweep without resuming individually paused policies. |
+| Scope Preview | Uses the dry-run candidate assignment SQL to report matching and governed listings, plus counts shadowed by existing policies and taken from them. |
+| Categories | Catalog category events maintain names, status and account-scoped listing counts; subscription version 7 replays historical names and revisions. |
+
+The dry-run migration creates new, empty tables, so their initial indexes are built with those tables.
+The listing-inputs index also has a concurrent ledgered migration for an already-populated source table.
+Retry-exhaustion status comes from the durable-job ledger in account reads; operation failures update the
+request only while its captured state and claim generation still match.
+
+| Repricing term | System behavior |
+| --- | --- |
+| Repricing Listing Outcome | Current listing activity is derived from retained evaluation facts ordered by evaluation instant and ID, not delivery position. Floor-binding starts at the trailing uninterrupted binding run; freeze expiry comes from the current fact. Activity pages and filter counts share current-state predicates. |
+| Repricing Management Policy | `pricing.repricing-management` bounds `floorBindingAlertDays` to integer days 1-90, default 7. Account attention counts aged floor binding, active missing-input pauses, today's budget-exhausted outcomes, halt state and frozen listings. |
+| Any-Mode Anchor | Seller opt-in `lowest-competing-ask` with `strata: "any"` considers both ask modes; absent strata and `comp-percentile` stay hard-only. Traces expose `any-ask` and counts, not competitor identities or modes. |
+| Anchor Band | Required market-estimate ground and seller-chosen `minPercentOfGround` from 50 through 100; clamps the anchor upward, marking `band-binding` when lifted. Unavailable, stale, or currency-mismatched ground exhausts the anchor and continues the chain. Offsets and existing price clamps apply afterward. |
+| Spiral Breaker | Three consecutive same-direction product rounds freeze repricing across sellers for 120 minutes. Direction is the sign of the sum of applied target-minus-current changes; opposite direction starts at one, and an undirected round clears the count. The trip clears the count and retains the expiry in every policy fact and listing trace. |
+
+The platform `pricing.repricing-engine` policy bounds `spiralBreakerRounds` to integers 2-10 and
+`spiralBreakerFreezeMinutes` to 60-1440. Only these two keys default when absent from stored revisions.
+The existing product cooldown ledger owns both damping and the breaker, with generation-fenced writes.
+
+### Repricing Activity Digest
+
+The daily closer runs the digest after the drift sweep. First installation records one baseline without
+notifying sellers. Later passes capture settled, closed UTC days oldest first. Each capture's winning
+transaction alone writes its members and assigned floor. A conflict rereads the latest committed window
+before taking a fresh event-store fence, including across midnight during baseline activation.
+
+The actual evaluation subscription checkpoint is `pricing-repricing-evaluation-projection:pricing:v1`;
+projection revision 2 does not change that subscription identity. A window waits for its greatest member
+position and blocks later windows while held. After `digestLagWarnHours` it logs
+`pricing.repricing-digest.delayed` once per pass. `digestSettleMinutes` defaults to 10 (range 1-120);
+the warning threshold defaults to 6 hours (range 1-48).
+
+`pricing.repricing-activity.digest-requested` v1 contains `digestId`, `sellerAccountId`, `day`,
+`policiesEvaluated`, `listingsChanged`, `floorClamped`, `ceilingClamped`, `maxMoveClamped`,
+`budgetExhausted`, `pausedForMissingInput`, `withinTolerance`, and `spiralBreakerTrips`.
+Policies count distinct policies; listing outcomes count member traces, including repeated evaluations
+of the same listing. A Spiral Breaker trip is distinct by Product and freeze expiry, not duplicated
+across that seller's policy traces. Terminal missing-input pauses count `pause-requested` traces.
+Only sellers with member listing facts receive a digest. A deterministic seller/day stream with
+`expectedVersion: "no_stream"` makes crashes after append and repeated passes idempotent.
+
+Notifications maps the fact to one operational count-only message and `/account/desk/repricing`.
+The 90-day outcome compaction hand-off admits only baseline facts or facts whose own member window
+is at or below the consecutively emitted day. A low-position member held for the next day cannot be
+folded just because a higher-position fact was already digested.
+
+| Digest state | Next transition and routine behavior |
+| --- | --- |
+| First-install | One baseline is claimed; the next settled closed day enters Steady or Held. |
+| Steady | All captured windows emitted; repeated passes are inert. New days can enter Held or Catch-up. |
+| Held | The oldest pending window is below its checkpoint gate. Checkpoint recovery returns to Steady, or drains Catch-up in order. |
+| Catch-up | Multiple pending windows persist across downtime or lag. A recovered pass emits them in order and returns to Steady; later lag can enter Catch-up again. |
+
+| Product state | Admission and next transition |
+| --- | --- |
+| Open | No row, or both horizons have passed. Normal rounds retain their direction/count; opposite and undirected rounds reset it. Competing-ask admission starts Cooling. |
+| Cooling | Future `next_eligible_at` suppresses competing-ask admission and the daily drift sweep; moved estimates can still run. Reaching the direction threshold enters Frozen. |
+| Frozen | Future `frozen_until` rejects every signal and sweep. Previously claimed work records `spiral-breaker-frozen` without Marketplace commands. |
+| Open after expiry | Release is automatic at `frozen_until`, with a zero counter. The next normal round starts counting anew; no seller release control or cleanup job is required. |
+
+The worker logs one structured `pricing.repricing-spiral-breaker.tripped` record per tripped product round,
+including direction, round count, and affected seller count. It does not page or implement seller attention;
+downstream activity reads retained facts and trace expiry, never a live ledger lookup.
+
+Listing outcome facts are inserted idempotently and recomputed under listing row locks in the projection
+transaction. A late fact at or below the compaction boundary remains available to its digest window but
+does not change current state. `compactListingOutcomeFacts` accepts trusted per-fact `digestedSql` over
+alias `fact` and `retainFrom = now - 90 days`. It deletes only the consecutive eligible prefix strictly
+below the greatest fact, retaining the boundary and any open binding-run start without changing the
+visible outcome. A single greatest fact survives every pass until a newer fact arrives. No compaction
+caller, digest, notification or UI is wired by this slice.
+Compaction takes listing row locks first and recomputes in a second statement of the same caller transaction.
+
+`GET /account/repricing-policies/:policyId/activity` uses account-owned policy resolution, listing-ID
+keyset paging (at most 50 rows), and returns `rows`, `next` and `filterCounts`.
+`GET /account/repricing-policies/attention-summary` is self-scoped to the authenticated account.
+Foreign and absent activity policies return the same 404. Freeze counts never read the live breaker.
+
+The Seller Desk pages `/account/desk/repricing` and `/account/desk/repricing/:policyId` read these APIs.
+The list shows each policy's status, scope kind, cap and account-wide changes used today, the halt switch
+and recent dry runs. The detail page renders the folded policy and opens its editor in a SideSheet.
+Its activity filters show server `filterCounts` beside each label; the page computes
+no counts. Halt engage/release and delete confirm first; pause and resume are row transitions.
+The Repricing Attention Source (`pricing-repricing`) feeds the Seller Desk attention queue from
+`attention-summary`, except the halt item, which reads the Repricing Halt aggregate like the Desk halt switch.
+
+### Repricing Authoring
+
+The Desk editor compiles four Repricing Presets into the same policy body used by the structured
+single-rule and advanced ordered-rule editors. Opening a preset preserves every compiled field.
+First activation requires a completed preview of the current body; editing invalidates that preview.
+Revision can be saved directly. Both writes retain the Desk's command-receipt fresh-read behavior.
+
+`GET /account/repricing-policies/authoring-prerequisites` requires `pricing.view` and rejects query
+selectors. One set-based read returns sorted distinct non-null `listingCurrencyCodes` from all of the
+actor's listings, including withdrawn listings, and `hasCostBasis` from the exact account-qualified
+listed inventory item with a non-null acquisition cost. Zero cost counts as present. No identifiers
+or amounts leave this endpoint. Failed reads never become empty facts or invented currency defaults.
+
+Intentional domain assertion messages reach the editor through `validation_failed` error details.
+`details[].message` is untranslated server text; a future additional locale must account for this
+before translating domain rejection copy. Untagged exceptions and malformed input remain sanitized;
+older code-only responses render generic localized failure copy. The browser does not run a validator.
+The same response's `goalAdoption` lists each registered goal version that is not retired with its
+Adoption Gate result: `selectable`, `promotable`, and a refusal `reason`; the platform-wide grades it
+compared are not returned to a seller.
+
+### Forecast Ledger and Forecast Grades
+
+The repricing engine fixes every registered Forecast Kind's forecast at each goal-read incumbent price and
+each priced shadow trace from the Demand Curve and provider weeks the round read, and records them as the
+trace's `forecasts`. `pricing-forecast-ledger-projection` writes one Forecast Ledger entry per emitted or
+within-tolerance incumbent price a goal read back and per priced shadow trace of each
+`pricing.repricing-policy.evaluated` fact, with those recorded forecasts, so a late or replayed projection
+records the same ones; each entry is written once. Evaluations trace the listing's `quantity`; older
+evaluations without it, or without recorded forecasts, are not graded. The daily closer then grades each
+goal version and role over the cohorts closed at the start of the UTC day, reading realized sales only from
+the trades tape (excluded trades are not sales) and Own-Sale Observations through the listing's inventory
+item. A scope whose grading rules (grace, horizons and grading implementation) and inputs are unchanged
+keeps its cached grade; otherwise each grade is first appended as `pricing.forecast.graded` v1 and then
+cached. The `pricing.forecast-ledger` platform policy sets the horizons (14, 21 and 28 days), the two-day
+grace, and the Adoption Gate's Forecast Kind (`curve`) and horizon (21 days); the gate compares only grades
+taken under the rules in force. Grading never changes a Goal Lifecycle.
+
 ## Incoming Dependencies
 
 - Catalog for canonical item identity, product resolution, and selected-option facts
@@ -66,6 +226,7 @@ path. The same evaluator powers dry-run preview; live execution adds daily-budge
 - `LiquidityEstimated`
 - `PriceRecommendationPublished`
 - `RepricingPolicyEvaluated`
+- `ForecastGraded`
 
 ## Invariants
 
@@ -77,6 +238,8 @@ path. The same evaluator powers dry-run preview; live execution adds daily-budge
 ## Tests
 
 Run `pnpm --filter @chase-sets/pricing run test:watch` for the sub-second watch-mode inner loop. Run `pnpm --filter @chase-sets/pricing run test` before opening a PR.
+
+Every Pricing registry (goals, guardrail kinds, curve builders, Economics providers) runs through the Conformance Kit in `tests/conformance/`. To add a Pricing Goal, follow [Authoring a Pricing Goal](./docs/pricing-goal-authoring.md).
 
 ## Open Extraction Candidates
 

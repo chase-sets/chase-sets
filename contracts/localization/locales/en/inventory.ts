@@ -1,4 +1,16 @@
 export const inventoryEnglishTranslations = {
+  "inventory.recovery.editing": "Inventory changes are ready.",
+  "inventory.recovery.submitting": "Submitting Inventory change.",
+  "inventory.recovery.confirming": "Confirming the original Inventory result. No change will be resubmitted.",
+  "inventory.recovery.succeeded": "The original Inventory change is confirmed.",
+  "inventory.recovery.reauth": "Sign in with the original account to confirm this Inventory change.",
+  "inventory.recovery.failedSafe": "Inventory recovery storage is unavailable. No change was sent.",
+  "inventory.recovery.ambiguous":
+    "The Inventory result is uncertain. Check the original result or contact support before making another change.",
+  "inventory.recovery.check": "Check original result",
+  "inventory.recovery.discard": "Discard recovery metadata",
+  "inventory.recovery.discardConfirmation":
+    "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
   "inventory.features.inventoryItems.api.route.collision.mode.invalid":
     "Collision mode must protect orders or honor offline.",
   "inventory.features.inventoryItems.api.route.honor.offline.authority.required":
@@ -28,6 +40,8 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code": "Adjustment reason",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.placeholder": "Choose a reason",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.sold-offline": "Sold offline",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.sold-external-channel":
+    "Sold through an external channel",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.damaged": "Damaged",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.lost": "Lost",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.found": "Found",
@@ -35,6 +49,35 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.intake": "Intake",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.return-restocked": "Return restocked",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.note": "Note (optional)",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.affected.order": "View affected order {orderId}",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel": "Sale channel",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.card-show": "Card show",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.in-store": "In store",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.other": "Other",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.channel.placeholder": "Choose a sale channel",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.close": "Close record sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.completed":
+    "Completed: {count} units recorded as sold. Authoritative available quantity: {available}.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.honor.confirmation":
+    "I understand that affected orders will enter seller-cannot-fulfill support, buyers will be refunded, and account reputation may be affected.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.honor.offline": "Honor this offline sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.note": "Note (optional)",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.order.commitments": "Order commitments",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.result.pending":
+    "Verifying the recorded sale against current Inventory availability.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.partial":
+    "Recorded {applied} units. {refused} units were not recorded.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.price.per.item": "Sale price per item (optional)",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.protect.orders": "Protect existing orders",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.quantity": "Quantity sold",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.refused": "No units were recorded. {count} units were refused.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.result.unverified":
+    "The sale result could not be verified. Reload this item and try again.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.sheet.description":
+    "Record a sale for {item} without leaving Inventory.",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.submit": "Record sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.title": "Record offline sale",
+  "inventory.features.inventoryItems.ui.offlineSaleForm.trigger": "Record sale",
   "inventory.features.inventoryItems.readModel.schema.create.table.if.not.exists.inventory":
     "\nCREATE TABLE IF NOT EXISTS inventory_items (\n  item_id text PRIMARY KEY,\n  account_id text NOT NULL,\n  catalog_catalog_item_id text NOT NULL,\n  product_id text NOT NULL,\n  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,\n  graded_card jsonb NULL,\n  storage_location_id text NOT NULL REFERENCES inventory_storage_locations(storage_location_id),\n  total_quantity integer NOT NULL CHECK (total_quantity >= 0),\n  last_stream_version bigint NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0),\n  acquisition_cost_amount numeric(12,2) NULL,\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS inventory_items_account_idx\n  ON inventory_items (account_id, updated_at DESC);\n\nCREATE INDEX IF NOT EXISTS inventory_items_storage_location_idx\n  ON inventory_items (storage_location_id);\n\nCREATE INDEX IF NOT EXISTS inventory_items_catalog_version_idx\n  ON inventory_items (product_id);\n",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.1.or.5": "-1 or 5",
@@ -92,6 +135,10 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.view.order": "View order {orderId}",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost": "Acquisition cost",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.2": "Acquisition Cost",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.currency.code":
+    "Acquisition cost currency",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost.currency.not.recorded":
+    "{amount} (currency not recorded)",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.actions": "Actions",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.available": "Available",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item": "Catalog item",
@@ -255,6 +302,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.importBatches.ui.importBatchPage.items.created": "Items created",
   "inventory.features.importBatches.ui.importBatchPage.latest.batch": "Latest batch",
   "inventory.features.importBatches.ui.importBatchPage.listing.draft": "Listing draft",
+  "inventory.features.importBatches.ui.importBatchPage.listing.price.incomplete": "Incomplete listing price",
   "inventory.features.importBatches.ui.importBatchPage.listings": "Listings",
   "inventory.features.importBatches.ui.importBatchPage.mode": "Mode",
   "inventory.features.importBatches.ui.importBatchPage.needs.row.fixes": "Needs row fixes",
@@ -393,4 +441,9 @@ export const inventoryEnglishTranslations = {
   "inventory.features.recoveredItems.ui.page.action.failed": "The recovered item action could not be recorded.",
   "inventory.features.recoveredItems.ui.page.action.unknown": "Choose a recovered item action.",
   "inventory.routes.admin.recoveredItems.title": "Recovered Returns | Admin",
+  "inventory.checkoutReservation.unavailable": "Checkout reservation is unavailable.",
+  "inventory.checkoutReservation.extensionUnavailable": "Checkout reservation extension is unavailable.",
+  "inventory.checkoutReservation.releaseUnavailable": "Checkout reservation release is unavailable.",
+  "inventory.shell.inventory.label": "Inventory",
+  "inventory.shell.inventoryImports.label": "Import",
 } as const;

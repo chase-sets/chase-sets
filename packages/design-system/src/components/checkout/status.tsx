@@ -34,7 +34,7 @@ export function CheckoutStateNotice({
   ...rest
 }: CheckoutStateNoticeProps) {
   return (
-    <Surface {...rest} tone={tone}>
+    <Surface {...rest} tone={tone} elevation="tinted">
       <IconRow
         gap={3}
         nudge={false}
@@ -130,7 +130,7 @@ export function CheckoutConfirmationPanel({
   ...rest
 }: CheckoutConfirmationPanelProps) {
   return (
-    <Surface {...rest} element="section" tone={tone} padding={5}>
+    <Surface {...rest} element="section" tone={tone} padding={5} elevation="tinted">
       <Stack gap={3}>
         <CheckoutStatusBadge tone={tone}>{title}</CheckoutStatusBadge>
         {description ? <p className="m-0 text-sm leading-5 text-secondary">{description}</p> : null}

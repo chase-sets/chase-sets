@@ -568,6 +568,20 @@ export const decideReturnShipment: AggregateDecider<ReturnShipmentState, ReturnS
   state,
   command,
 ) => {
+  if (
+    [
+      "RecordReturnShipmentCarrierAccepted",
+      "RecordReturnShipmentInTransit",
+      "RecordReturnShipmentDelivered",
+      "RaiseReturnShipmentException",
+    ].includes(command.type) &&
+    "metadata" in command &&
+    command.metadata &&
+    state.idempotencyKey !== null &&
+    state.idempotencyKey === command.metadata.idempotencyKey
+  ) {
+    return [];
+  }
   switch (command.type) {
     case "RequestReturnShipment": {
       const returnDirective = assertReturnDirective(command.returnDirective);

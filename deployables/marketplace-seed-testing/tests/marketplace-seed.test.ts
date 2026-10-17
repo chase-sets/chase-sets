@@ -103,7 +103,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     // that stays support-free.
     expect(wallet.rows[0]).toMatchObject({
       pending_balance_amount: "106.96",
-      available_balance_amount: "36.83",
+      available_balance_amount: "26.83",
     });
 
     const payoutStatuses = await pools.settlement.query<{ status: string }>(

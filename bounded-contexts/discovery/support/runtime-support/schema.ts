@@ -6,8 +6,14 @@ import {
   discoveryItemDetailSchemaMigrations,
   discoveryItemDetailSchemaSql,
 } from "../../features/item-detail/read-model/schema";
-import { discoveryProductAlertSchemaSql } from "../../features/product-alerts/read-model/schema";
-import { discoveryGoogleShoppingSchemaSql } from "../../features/google-shopping-operations/api/schema";
+import {
+  discoveryProductAlertSchemaMigrations,
+  discoveryProductAlertSchemaSql,
+} from "../../features/product-alerts/read-model/schema";
+import {
+  discoveryGoogleShoppingSchemaMigrations,
+  discoveryGoogleShoppingSchemaSql,
+} from "../../features/google-shopping-operations/api/schema";
 import { discoveryMarketSchemaMigrations, discoveryMarketSchemaSql } from "../market-support/schema";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "../../features/search/read-model/schema";
 import { discoverySavedListPickerSchemaSql } from "../../features/saved-list-addition/read-model/schema";
@@ -31,4 +37,6 @@ export const discoverySchemaMigrations = [
   ...discoveryMarketSchemaMigrations,
   ...discoverySearchSchemaMigrations,
   ...discoveryItemDetailSchemaMigrations,
+  ...discoveryGoogleShoppingSchemaMigrations,
+  ...discoveryProductAlertSchemaMigrations,
 ] as const;

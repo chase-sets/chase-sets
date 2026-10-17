@@ -31,6 +31,8 @@ import {
   type ObservationPackObjectStorage,
 } from "./observation-pack";
 import { assertDecodableProductAssetSource } from "./product-asset-normalization";
+import { recoverObservationPackAssetReferences } from "./observation-pack-asset-references";
+import { resolveTcgdexImageReference } from "../providers/tcgdex/image-reference";
 import type { ProviderAdapter, ProviderImportPlan, ProviderImportScope } from "../provider-adapters/provider-adapter";
 import {
   catalogProviderProfileVersionIngestionUnitKey,
@@ -431,6 +433,11 @@ async function prepareObservations(
   assets: readonly PreflightAsset[],
 ): Promise<readonly PreparedObservation[]> {
   const contract = requireSourceObservationMappingContract(profileVersion);
+  const connector = profileVersion.profile.connector;
+  const resolveImageReference =
+    connector.kind === "tcgdex-json"
+      ? (reference: string) => resolveTcgdexImageReference(reference, connector.highQualityAssetVariant)
+      : undefined;
   const assetsByEnvelope = new Map<string, PreflightAsset[]>();
   const imageReferencesByEnvelope = new Map(
     envelopes.map((envelope) => [
@@ -442,7 +449,11 @@ async function prepareObservations(
     const candidateReferences = [
       ...new Set(asset.envelopeContentHashes.flatMap((hash) => imageReferencesByEnvelope.get(hash) ?? [])),
     ].sort();
-    const sourceReferences = recoverAssetSourceReferences(candidateReferences, asset.sourceReferenceHash);
+    const sourceReferences = recoverObservationPackAssetReferences(
+      candidateReferences,
+      asset.sourceReferenceHash,
+      resolveImageReference,
+    );
     if (sourceReferences.length === 0) {
       throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
     }
@@ -494,27 +505,6 @@ async function prepareObservations(
     throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
   }
   return prepared;
-}
-
-function recoverAssetSourceReferences(candidates: readonly string[], expectedHash: string): readonly string[] {
-  const hash = (values: readonly string[]) => sha256(new TextEncoder().encode([...values].sort().join("\n")));
-  if (hash(candidates) === expectedHash) {
-    return candidates;
-  }
-  const singles = candidates.filter((candidate) => hash([candidate]) === expectedHash);
-  if (singles.length === 1) {
-    return singles;
-  }
-  if (candidates.length > 16) {
-    return [];
-  }
-  for (let mask = 1; mask < 2 ** candidates.length; mask += 1) {
-    const subset = candidates.filter((_, index) => (mask & (1 << index)) !== 0);
-    if (hash(subset) === expectedHash) {
-      return subset;
-    }
-  }
-  return [];
 }
 
 function preferredObservationImageReferences(observation: CatalogProviderSourceObservationInput): readonly string[] {
@@ -600,7 +590,7 @@ function sourceObservationEvent(row: StoredEventRow): SourceObservationEvent {
   }
 }
 
-function createPackBackedProviderAdapter(
+export function createPackBackedProviderAdapter(
   manifest: ObservationPackManifestV1,
   envelopes: readonly ObservationPackEnvelope[],
 ): ProviderAdapter {
@@ -627,7 +617,27 @@ function createPackBackedProviderAdapter(
       throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
     },
     planImport: async (requested) => {
-      if (requested.unitKey !== scope.unitKey || requested.scopeKey !== scope.scopeKey) {
+      const manifestCoordinates = [scope.values.expansionId, scope.values.setId, scope.values.setCode].filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      );
+      const requestedCoordinates = [
+        requested.values.expansionId,
+        requested.values.setId,
+        requested.values.setCode,
+      ].filter((value): value is string => typeof value === "string" && value.length > 0);
+      if (
+        requested.unitKey !== scope.unitKey ||
+        !["expansion", "set"].includes(scope.scopeKey) ||
+        !["expansion", "set"].includes(requested.scopeKey) ||
+        manifestCoordinates.length === 0 ||
+        requestedCoordinates.length === 0 ||
+        new Set(manifestCoordinates).size !== 1 ||
+        new Set(requestedCoordinates).size !== 1 ||
+        manifestCoordinates[0] !== requestedCoordinates[0] ||
+        !scope.values.languageCode ||
+        scope.values.languageCode !== manifest.identity.language ||
+        requested.values.languageCode !== scope.values.languageCode
+      ) {
         throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
       }
       return {
@@ -680,7 +690,9 @@ function providerImportScopeFromManifest(manifest: ObservationPackManifestV1): P
   };
 }
 
-function integrationScopeFromManifest(manifest: ObservationPackManifestV1): SourceObservationIntegrationJobScope {
+export function integrationScopeFromManifest(
+  manifest: ObservationPackManifestV1,
+): SourceObservationIntegrationJobScope {
   const coordinates = Object.fromEntries(manifest.identity.scope.coordinates.map(({ key, value }) => [key, value]));
   return {
     provider: manifest.identity.provider.key,

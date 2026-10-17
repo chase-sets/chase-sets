@@ -4,6 +4,8 @@ import {
   type ValidatedConsentActivationGuard,
 } from "@chase-sets/platform-policy/consent-activation-authority";
 import type { ConsentActivationAuthorityRuntime } from "@chase-sets/platform-policy/runtime";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "../../memberships/read-model/constants";
 import {
   publicPolicyHrefsByKey,
   publicPolicyPublicationRecords,
@@ -47,9 +49,8 @@ import { IdentityDomainError } from "../../../support/runtime-support/common";
  * declared member list or a derived requirement list to decide whether
  * resolution runs, whether a guard is retained, or whether a bundle applies.
  *
- * This slice delivers the domain and read side only. No write or admission path
- * consumes a resolved bundle yet; binding Consent recording and registration to
- * a resolved bundle is owned by the terminal replacement slice.
+ * Terms recording consumes an issued member through the provenance gate below;
+ * read-side callers retain the outcome-only API.
  */
 
 export type ConsentSubjectScope = "user" | "account";
@@ -74,18 +75,18 @@ export type ConsentBundleDeclaration = Readonly<{
  * account-scoped: the seller obligations bind the selling account, with the
  * acting user captured by the write slice that records the agreement.
  */
-export const consentBundleDeclarations = {
-  registration: {
+export const consentBundleDeclarations = Object.freeze({
+  registration: Object.freeze({
     bundleKey: "registration",
     subjectScope: "user",
-    members: ["terms-of-service", "privacy-policy"],
-  },
-  "seller-onboarding": {
+    members: Object.freeze(["terms-of-service", "privacy-policy"] as const),
+  }),
+  "seller-onboarding": Object.freeze({
     bundleKey: "seller-onboarding",
     subjectScope: "account",
-    members: ["seller-agreement", "payments-terms"],
-  },
-} as const satisfies Readonly<Record<ConsentBundleKey, ConsentBundleDeclaration>>;
+    members: Object.freeze(["seller-agreement", "payments-terms"] as const),
+  }),
+} as const satisfies Readonly<Record<ConsentBundleKey, ConsentBundleDeclaration>>);
 
 export function isConsentBundleKey(bundleKey: string): bundleKey is ConsentBundleKey {
   return (CONSENT_BUNDLE_KEYS as readonly string[]).includes(bundleKey);
@@ -187,6 +188,83 @@ export type ConsentBundleResolution =
  */
 export type ConsentActivationAuthorityReader = Pick<ConsentActivationAuthorityRuntime, "read">;
 
+declare const registrationDeclarationBrand: unique symbol;
+declare const boundRegistrationDeclarationBrand: unique symbol;
+
+export type RegistrationConsentDeclaration = Extract<ConsentBundleResolution, { resolved: true }> &
+  Readonly<{
+    bundleKey: "registration";
+    subjectScope: "user";
+    [registrationDeclarationBrand]: true;
+  }>;
+
+export type RegistrationConsentSubject = Readonly<{ userId: UserId; accountId: AccountId }>;
+
+export type BoundRegistrationConsentDeclaration = Readonly<{
+  declaration: RegistrationConsentDeclaration;
+  subject: RegistrationConsentSubject;
+  [boundRegistrationDeclarationBrand]: true;
+}>;
+
+export type RegistrationConsentBundles = Readonly<{
+  resolve(): Promise<RegistrationConsentDeclaration>;
+  forRegistration(subject: RegistrationConsentSubject): Promise<BoundRegistrationConsentDeclaration>;
+}>;
+
+export class RegistrationConsentBundleUnresolvedError extends Error {
+  constructor() {
+    super("Registration requires an issued canonical consent declaration bound to its registering subject.");
+    this.name = "RegistrationConsentBundleUnresolvedError";
+  }
+}
+
+const issuedRegistrationDeclarations = new WeakSet<object>();
+const issuedBoundRegistrationDeclarations = new WeakSet<object>();
+
+export function assertRegistrationConsentDeclaration(value: unknown): asserts value is RegistrationConsentDeclaration {
+  if (typeof value !== "object" || value === null || !issuedRegistrationDeclarations.has(value)) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+}
+
+export function bindRegistrationConsentSubject(
+  declaration: RegistrationConsentDeclaration,
+  subject: RegistrationConsentSubject,
+): BoundRegistrationConsentDeclaration {
+  assertRegistrationConsentDeclaration(declaration);
+  if (
+    !subject ||
+    typeof subject.userId !== "string" ||
+    !/^usr_[A-Za-z0-9_-]{1,80}$/.test(subject.userId) ||
+    typeof subject.accountId !== "string" ||
+    !/^acc_[A-Za-z0-9_-]{1,80}$/.test(subject.accountId) ||
+    subject.userId === "usr_guest_checkout" ||
+    subject.userId === IDENTITY_BOOTSTRAP_USER_ID ||
+    subject.accountId === IDENTITY_BOOTSTRAP_ACCOUNT_ID
+  ) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+  const bound = Object.freeze({
+    declaration,
+    subject: Object.freeze({ userId: subject.userId, accountId: subject.accountId }),
+  });
+  issuedBoundRegistrationDeclarations.add(bound);
+  return bound as BoundRegistrationConsentDeclaration;
+}
+
+export function assertBoundRegistrationConsentDeclaration(
+  value: unknown,
+  expected: RegistrationConsentSubject,
+): asserts value is BoundRegistrationConsentDeclaration {
+  if (typeof value !== "object" || value === null || !issuedBoundRegistrationDeclarations.has(value)) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+  const bound = value as BoundRegistrationConsentDeclaration;
+  if (bound.subject.userId !== expected.userId || bound.subject.accountId !== expected.accountId) {
+    throw new RegistrationConsentBundleUnresolvedError();
+  }
+}
+
 /**
  * The publication metadata requirement derivation consults, keyed by consent
  * policy key. Supplied explicitly by the corpus-taking entry points so the
@@ -257,6 +335,45 @@ type ResolvedMember = Readonly<{
   guard: ConsentActivationGuardBinding | null;
 }>;
 
+declare const resolvedMemberBrand: unique symbol;
+export type ResolvedMemberProvenance = Readonly<{
+  outcome: Extract<ConsentBundleMemberOutcome, { kind: "required" }>;
+  guard: ConsentActivationGuardBinding;
+  [resolvedMemberBrand]: true;
+}>;
+
+const issuedMembers = new WeakMap<object, ResolvedMember>();
+
+export function assertResolvedMemberProvenance(
+  value: unknown,
+  expectedPolicyKey: IdentityConsentPolicyKey,
+): asserts value is ResolvedMemberProvenance {
+  const member = typeof value === "object" && value !== null ? issuedMembers.get(value) : undefined;
+  if (
+    !member ||
+    member.outcome.policyKey !== expectedPolicyKey ||
+    member.outcome.kind !== "required" ||
+    !member.guard
+  ) {
+    throw new IdentityDomainError(
+      `Consent policy '${expectedPolicyKey}' requires an issued, active member at its published version.`,
+    );
+  }
+}
+
+function issueResolvedMember(
+  outcome: ConsentBundleMemberOutcome,
+  guard: ConsentActivationGuardBinding | null,
+): ResolvedMember {
+  if (outcome.kind === "required") Object.freeze(outcome.requirement);
+  const member = Object.freeze({
+    outcome: Object.freeze(outcome),
+    guard: guard === null ? null : Object.freeze(guard),
+  });
+  issuedMembers.set(member, member);
+  return member;
+}
+
 async function resolveMember(
   authority: ConsentActivationAuthorityReader,
   policyKey: IdentityConsentPolicyKey,
@@ -273,7 +390,7 @@ async function resolveMember(
   // would make an inert member indistinguishable from a live one in the read
   // trace an operator inspects.
   if (!isConsentActivatablePublication(publication)) {
-    return { outcome: { kind: "publication-ineligible", policyKey }, guard: null };
+    return issueResolvedMember({ kind: "publication-ineligible", policyKey }, null);
   }
 
   const activeVersionPolicyKey = identityConsentActiveVersionPolicyFor(policyKey).policyKey;
@@ -286,15 +403,17 @@ async function resolveMember(
     // activation fact. Anything else is a defect in this process and must not
     // be laundered into a policy answer.
     if (error instanceof ConsentActivationAuthorityError) {
-      return { outcome: { kind: "unresolved", policyKey, reason: "authority-unreadable" }, guard: null };
+      return issueResolvedMember({ kind: "unresolved", policyKey, reason: "authority-unreadable" }, null);
     }
     throw error;
   }
 
-  return {
-    outcome: deriveActivatedConsentMemberOutcome(policyKey, publication, snapshot),
-    guard: { policyKey, activeVersionPolicyKey, guard: snapshot.guard },
-  };
+  Object.freeze(snapshot.guard);
+  return issueResolvedMember(deriveActivatedConsentMemberOutcome(policyKey, publication, snapshot), {
+    policyKey,
+    activeVersionPolicyKey,
+    guard: snapshot.guard,
+  });
 }
 
 /**
@@ -323,14 +442,14 @@ export async function resolveConsentBundleAgainstCorpus(
     }
 
     if (outcome.kind === "unresolved") {
-      return {
+      return Object.freeze({
         bundleKey: declaration.bundleKey,
         subjectScope: declaration.subjectScope,
         resolved: false,
         unresolvedPolicyKey: outcome.policyKey,
         unresolvedReason: outcome.reason,
-        guards,
-      };
+        guards: Object.freeze(guards),
+      });
     }
 
     outcomes.push(outcome);
@@ -339,14 +458,16 @@ export async function resolveConsentBundleAgainstCorpus(
     }
   }
 
-  return {
+  const resolution = Object.freeze({
     bundleKey: declaration.bundleKey,
     subjectScope: declaration.subjectScope,
-    resolved: true,
-    requirements,
-    guards,
-    outcomes,
-  };
+    resolved: true as const,
+    requirements: Object.freeze(requirements),
+    guards: Object.freeze(guards),
+    outcomes: Object.freeze(outcomes),
+  });
+  if (bundleKey === "registration") issuedRegistrationDeclarations.add(resolution);
+  return resolution;
 }
 
 /**
@@ -371,6 +492,25 @@ export async function resolveConsentPolicyMemberAgainstPublication(
   return (await resolveMember(authority, policyKey, publication)).outcome;
 }
 
+/** Test-only publication override; production recording uses the canonical resolver below. */
+export async function resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+  authority: ConsentActivationAuthorityReader,
+  policyKey: IdentityConsentPolicyKey,
+  publication: PublicPolicyPublicationRecord,
+): Promise<ResolvedMember> {
+  return resolveMember(authority, policyKey, publication);
+}
+
+export async function resolveConsentPolicyMemberWithProvenance(
+  authority: ConsentActivationAuthorityReader,
+  policyKey: IdentityConsentPolicyKey,
+): Promise<ResolvedMember> {
+  if (!isIdentityConsentPolicyKey(policyKey)) {
+    throw new IdentityDomainError(`Consent policy key '${policyKey}' is not a recognized Identity consent policy.`);
+  }
+  return resolveMember(authority, policyKey, identityConsentPolicyPublications[policyKey]);
+}
+
 /**
  * The production per-policy entry point, for surfaces that gate on one policy
  * rather than a whole bundle. Same derivation, same authority read, no corpus
@@ -380,12 +520,5 @@ export async function resolveConsentPolicyMember(
   authority: ConsentActivationAuthorityReader,
   policyKey: IdentityConsentPolicyKey,
 ): Promise<ConsentBundleMemberOutcome> {
-  if (!isIdentityConsentPolicyKey(policyKey)) {
-    throw new IdentityDomainError(`Consent policy key '${policyKey}' is not a recognized Identity consent policy.`);
-  }
-  return resolveConsentPolicyMemberAgainstPublication(
-    authority,
-    policyKey,
-    identityConsentPolicyPublications[policyKey],
-  );
+  return (await resolveConsentPolicyMemberWithProvenance(authority, policyKey)).outcome;
 }

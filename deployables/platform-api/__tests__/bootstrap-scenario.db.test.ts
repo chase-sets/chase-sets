@@ -32,6 +32,7 @@ describe("platform api bootstrap scenario", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -134,6 +135,7 @@ describe("platform api bootstrap scenario", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -154,7 +156,7 @@ describe("platform api bootstrap scenario", () => {
       clientId: "oauth-revoke-client",
       userId: "usr_oauth_revoke",
       accountId,
-      scopes: ["checkout:write"],
+      scopes: ["dev.ucp.shopping.checkout:manage"],
       accessTokenHash: "hash:oauth-revoke-access",
       refreshTokenHash: "hash:oauth-revoke-refresh",
       accessTokenExpiresAt: "2026-07-20T22:00:00.000Z",

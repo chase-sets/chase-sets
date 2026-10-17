@@ -53,7 +53,9 @@ export type BulkRepriceListingOutcome = Readonly<{
 
 export type BulkRepriceMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
-    body: Readonly<{ updates: readonly Readonly<{ listingId: string; priceAmount: string }>[] }>,
+    body: Readonly<{
+      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+    }>,
   ) => Promise<Readonly<{ items: readonly BulkRepriceListingOutcome[] }>>;
 }>;
 
@@ -511,11 +513,23 @@ async function processBulkRepriceWave(params: {
 
   const listingsByListingId = new Map<
     string,
-    { listing_id: string; inventory_item_id: string | null; price_amount: string; status: string }
+    {
+      listing_id: string;
+      inventory_item_id: string | null;
+      price_amount: string;
+      price_currency_code: string | null;
+      status: string;
+    }
   >();
   const listingsByInventoryItemId = new Map<
     string,
-    { listing_id: string; inventory_item_id: string | null; price_amount: string; status: string }
+    {
+      listing_id: string;
+      inventory_item_id: string | null;
+      price_amount: string;
+      price_currency_code: string | null;
+      status: string;
+    }
   >();
 
   if (directListingIds.length > 0 || resolvedInventoryItemIds.length > 0) {
@@ -523,9 +537,10 @@ async function processBulkRepriceWave(params: {
       listing_id: string;
       inventory_item_id: string | null;
       price_amount: string;
+      price_currency_code: string | null;
       status: string;
     }>(
-      `SELECT listing_id, inventory_item_id, price_amount::text AS price_amount, status
+      `SELECT listing_id, inventory_item_id, price_amount::text AS price_amount, price_currency_code, status
        FROM pricing_market_listing_inputs
        WHERE seller_account_id = $1
          AND (listing_id = ANY($2::text[]) OR inventory_item_id = ANY($3::text[]))`,
@@ -539,11 +554,13 @@ async function processBulkRepriceWave(params: {
     }
   }
 
-  const updatesByListingId = new Map<string, { rowNumber: number; priceAmount: string }>();
+  const updatesByListingId = new Map<string, { rowNumber: number; priceAmount: string; priceCurrencyCode: string }>();
   const claimedListingIds = new Set<string>();
 
   for (const row of candidateRows) {
-    let listing: { listing_id: string; price_amount: string; status: string } | undefined;
+    let listing:
+      | { listing_id: string; price_amount: string; price_currency_code: string | null; status: string }
+      | undefined;
     let failureMessage: string | null = null;
 
     if (row.listingId) {
@@ -591,6 +608,20 @@ async function processBulkRepriceWave(params: {
       continue;
     }
 
+    if (!listing.price_currency_code) {
+      outcomes.push({
+        rowNumber: row.rowNumber,
+        sellerSku: row.sellerSku,
+        listingId: row.listingId,
+        requestedPriceAmount: row.newPriceAmount,
+        resolvedListingId: listing.listing_id,
+        previousPriceAmount: listing.price_amount,
+        outcome: "failed",
+        errorMessage: `Listing '${listing.listing_id}' has an incomplete price and needs seller-authored currency.`,
+      });
+      continue;
+    }
+
     const requestedPrice = normalizeMoney(row.newPriceAmount as string);
     const previousPrice = normalizeMoney(listing.price_amount);
 
@@ -609,13 +640,18 @@ async function processBulkRepriceWave(params: {
     }
 
     claimedListingIds.add(listing.listing_id);
-    updatesByListingId.set(listing.listing_id, { rowNumber: row.rowNumber, priceAmount: requestedPrice });
+    updatesByListingId.set(listing.listing_id, {
+      rowNumber: row.rowNumber,
+      priceAmount: requestedPrice,
+      priceCurrencyCode: listing.price_currency_code,
+    });
   }
 
   if (updatesByListingId.size > 0) {
     const updates = [...updatesByListingId.entries()].map(([listingId, entry]) => ({
       listingId,
       priceAmount: entry.priceAmount,
+      priceCurrencyCode: entry.priceCurrencyCode,
     }));
     const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({ updates });
     const outcomeByListingId = new Map(bulkResult.items.map((item) => [item.listingId, item] as const));

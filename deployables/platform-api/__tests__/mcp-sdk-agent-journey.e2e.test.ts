@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it, vi } from "vitest";
@@ -7,9 +7,56 @@ import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "@chase-sets/settlement";
-import { createUcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
+import { createUcpEnvelope, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantRateLimiter } from "@chase-sets/platform-runtime/agent-guardrails";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import { buildPlatformApiApp } from "../src/app";
+
+/**
+ * Derived from the Checkout module's own MCP service contract, so the SDK
+ * journey drives the same Cart interface the composed handler calls. The row
+ * keeps `buyer_account_id` because the real internal row does -- whether it
+ * survives the composed boundary is what this journey observes.
+ */
+type CheckoutMcpCartService = Parameters<NonNullable<typeof checkoutModule.buildMcpHandlers>>[0]["cart"];
+type CheckoutCartRead = CheckoutMcpCartService["listAuthorizedCartLines"];
+type CheckoutCartLineRow = Awaited<ReturnType<CheckoutCartRead>>[number];
+
+function checkoutCartLineRow(overrides: Partial<CheckoutCartLineRow> = {}): CheckoutCartLineRow {
+  return {
+    buyer_account_id: "anon_raw_marker",
+    line_id: "cart_line_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "product_1",
+    item_language_code: "en",
+    item_title: "Charizard ex",
+    item_subtitle: null,
+    item_image_url: null,
+    item_image_srcset: null,
+    item_image_loading_url: null,
+    item_image_loading_alt: null,
+    item_image_loading_srcset: null,
+    selected_options: [],
+    product_summary: null,
+    quantity: 1,
+    fulfillment_mode: "locked-listing",
+    locked_listing_id: "listing_1",
+    selected_listing_id: null,
+    selected_listing_seller_account_id: null,
+    selected_listing_seller_display_name: null,
+    selected_listing_seller_slug: null,
+    selected_listing_price_amount: null,
+    selected_listing_snapshot_source: null,
+    selected_listing_snapshot_captured_at: null,
+    seller_preference_id: null,
+    availability_state: "available",
+    seller_options: [],
+    created_at: "2026-07-08T00:00:00.000Z",
+    updated_at: "2026-07-08T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 function agentActor(permissions: readonly string[]) {
   return {
@@ -213,16 +260,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     };
     const checkoutServices = {
       cart: {
-        listCartLines: vi.fn(async () => [
-          {
-            line_id: "cart_line_1",
-            buyer_account_id: "acc_1",
-            listing_id: "listing_1",
-            product_id: "product_1",
-            quantity: 1,
-            unit_price_amount: "25.00",
-          },
-        ]),
+        listAuthorizedCartLines: vi.fn<CheckoutCartRead>(async () => [checkoutCartLineRow()]),
       },
     };
     const fulfillmentServices = {
@@ -324,6 +362,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           productId: "product_1",
           itemTitle: "Charizard ex",
           priceAmount: "24.00",
+          priceCurrencyCode: "USD",
           quantityRequested: 1,
           shippingDestinationSnapshot: shippingDestination,
           idempotencyKey: "offer-submit-1",
@@ -367,9 +406,27 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         ],
       });
 
-      expect(
-        expectStructured(await client.callTool({ name: "checkout.get-cart", arguments: { accountId: "acc_1" } })),
-      ).toMatchObject({ accountId: "acc_1", total: 1 });
+      const cart = expectStructured(
+        await client.callTool({ name: "checkout.get-cart", arguments: { accountId: "acc_1" } }),
+      );
+      expect(cart).toMatchObject({ accountId: "acc_1", total: 1 });
+      // The official SDK validated this payload against the published
+      // `checkout.get-cart` output schema it cached from `listTools()`. The
+      // owner marker the service returned is absent from the wire, and the
+      // schema no longer demands it.
+      expect(JSON.stringify(cart)).not.toContain("anon_raw_marker");
+      expect(JSON.stringify(cart)).not.toContain("buyer_account_id");
+      expect((cart as { items: readonly Record<string, unknown>[] }).items[0]).toMatchObject({
+        line_id: "cart_line_1",
+        item_title: "Charizard ex",
+      });
+      const publishedCartLineSchema = (
+        tools.tools.find((tool) => tool.name === "checkout.get-cart")?.outputSchema?.properties as
+          | Record<string, { items?: { required?: readonly string[]; properties?: Record<string, unknown> } }>
+          | undefined
+      )?.items?.items;
+      expect(publishedCartLineSchema?.required).toEqual(["line_id", "quantity"]);
+      expect(Object.keys(publishedCartLineSchema?.properties ?? {})).not.toContain("buyer_account_id");
       expect(
         expectStructured(
           await client.callTool({
@@ -419,10 +476,57 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
   });
 
   it("asserts native MCP agent grant rate-limit and checkout spend-cap guardrail rejections", async () => {
+    type CheckoutSession = Awaited<
+      ReturnType<Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]>
+    >["session"];
+
+    const buyNowSession: CheckoutSession = {
+      session_id: "chk_1",
+      buyer_account_id: "acc_1",
+      source_type: "buy-now",
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      fulfillment_preview_snapshot: null,
+      cart_readiness_snapshot: null,
+      split_group_handoff: null,
+      shipping_option: "standard",
+      shipping_address_id: null,
+      shipping_address: null,
+      authenticity_check_opt_in: null,
+      lines: [
+        {
+          listingId: "listing_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "product_1",
+          itemTitle: "Charizard ex",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+          offerPriceAmount: null,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "listing_1",
+          sellerPreferenceId: null,
+          availabilityState: "available",
+        },
+      ],
+      order_ids: ["order_1"],
+      order_write_commit_positions: [],
+      checkout_reservations: [],
+      payment_id: null,
+      submitted_offer_id: null,
+      cancelled_at: null,
+      created_at: "2026-07-08T00:00:00.000Z",
+      updated_at: "2026-07-08T00:00:00.000Z",
+    };
     const checkoutSessions = {
       createOfferIntent: vi.fn(),
       createBuyNowSession: vi.fn(),
       getSession: vi.fn(),
+      resumeOrderCartCleanup: vi.fn<
+        Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]
+      >(async () => ({ sessionId: "chk_1", session: buyNowSession })),
       projectionHandlerSets: [],
     };
     const rateLimiter: AgentGrantRateLimiter = {
@@ -452,6 +556,11 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         capCents: 100,
       })),
     };
+    const grantOwner = {
+      isActiveGrant: vi.fn<AgentGrantRevocations["isActiveGrant"]>(
+        async (accountId, grantId) => accountId === "acc_1" && grantId === "grant_full_journey",
+      ),
+    } satisfies Pick<AgentGrantRevocations, "isActiveGrant">;
     const paymentServices = {
       publicConfig: {
         processorName: "stripe",
@@ -464,7 +573,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
             id: "stripe-shared-payment-token",
             provider: "stripe",
             type: "shared_payment_token",
-            requiresAp2Mandate: true,
             confirmationExperience: "server-confirmed-payment-intent",
           },
         ],
@@ -495,7 +603,6 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         unavailable_reason_details: [],
       })),
     };
-    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const app = buildPlatformApiApp(
       createRuntime(
         {
@@ -506,6 +613,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
             offers: guardedOffers,
             reviews: {},
           },
+          identity: { agentGrantRevocations: grantOwner },
         },
         [
           {
@@ -529,21 +637,18 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         resolveActor: vi.fn(async () => agentActor(["offers.manage", "orders.view", "orders.manage"])),
         mcp: { agentGrantRateLimiter: rateLimiter },
         agentGrantSpendPolicy: spendPolicy,
-        ucpAp2MandateVerifier: {
-          verify: vi.fn(async () => ({
-            ok: true as const,
-            mode: "human-present" as const,
-            evidence: { verifier: "uat" },
-          })),
-        },
         ucp: {
-          businessSigningKeys: {
-            current: {
-              kid: "merchant-uat",
-              alg: "ES256",
-              privateJwk: privateKey.export({ format: "jwk" }),
+          profileResolver: async () => ({
+            ok: true,
+            profile: {
+              ucp: {
+                version: UCP_VERSION,
+                services: {},
+                payment_handlers: {},
+                capabilities: { "dev.ucp.shopping.checkout": [{ version: UCP_VERSION }] },
+              },
             },
-          },
+          }),
           allowInMemoryIdempotencyStoreForTests: true,
         },
       },
@@ -559,6 +664,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
             productId: "product_1",
             itemTitle: "Charizard ex",
             priceAmount: "24.00",
+            priceCurrencyCode: "USD",
             quantityRequested: 1,
             shippingDestinationSnapshot: shippingDestination,
             idempotencyKey: "rate-limit-first",
@@ -576,6 +682,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
           productId: "product_1",
           itemTitle: "Charizard ex",
           priceAmount: "24.00",
+          priceCurrencyCode: "USD",
           quantityRequested: 1,
           shippingDestinationSnapshot: shippingDestination,
           idempotencyKey: "rate-limit-second",
@@ -592,43 +699,14 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       ]);
     });
 
-    checkoutSessions.getSession = vi.fn(async () => ({
-      session_id: "chk_1",
-      source_type: "buy-now",
-      shipping_option: null,
-      optimization_goal: null,
-      shipping_address: null,
-      lines: [
-        {
-          catalogItemId: "cat_1",
-          productId: "product_1",
-          listingId: "listing_1",
-          title: "Charizard ex",
-          quantity: 1,
-          unitPriceAmount: "25.00",
-          offerPriceAmount: null,
-          sellerAccountId: "acc_1",
-          fulfillmentMode: "seller-managed",
-          availabilityState: "available",
-        },
-      ],
-      order_ids: ["order_1"],
-      payment_id: null,
-      submitted_offer_id: null,
-      created_at: "2026-07-08T00:00:00.000Z",
-      updated_at: "2026-07-08T00:00:00.000Z",
-      totals: [{ type: "total", amount: 2500 }],
-    }));
+    checkoutSessions.getSession = vi.fn(async () => buyNowSession);
     const checkoutBody = JSON.stringify(
       createUcpEnvelope("ok", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
         total_amount: "10.00",
-        ap2: {
-          checkout_mandate: "checkout_mandate",
-        },
         payment_data: {
           provider: "stripe",
-          token: "spt_123",
+          saved_checkout_instrument_id: "sci_journey_1",
         },
       }),
     );
@@ -653,6 +731,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         ],
       });
       expect(paymentsFetch).toHaveBeenCalledTimes(1);
+      expect(grantOwner.isActiveGrant).toHaveBeenCalledWith("acc_1", "grant_full_journey");
       expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
         expect.objectContaining({
           orderIds: ["order_1"],
@@ -662,6 +741,9 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         expect.objectContaining({
           operation: "complete_checkout",
           amountCents: 2_605,
+          rail: "stored-pm",
+          humanPresent: false,
+          humanNotPresentAuthorized: true,
         }),
       );
     } finally {

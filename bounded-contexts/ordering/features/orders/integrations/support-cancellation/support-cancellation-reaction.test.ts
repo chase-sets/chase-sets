@@ -31,6 +31,11 @@ function resolvedEvent(resolutionType: string, flowType = "buyer-cancel-request"
 }
 
 describe("ordering support cancellation reaction", () => {
+  it("pins both designed-flow cancellation reasons to their public literals", () => {
+    expect(SUPPORT_CANCEL_ORDER_REASON).toBe("support-cancel-order");
+    expect(SELLER_CANNOT_FULFILL_REASON).toBe("seller-cannot-fulfill");
+  });
+
   it("dispatches CancelOrder for a cancel-order resolution", async () => {
     const dispatch = vi.fn(async () => ({ version: 5 }));
     const handlers = buildOrderingSupportCancellationReactionHandlers(dispatch);

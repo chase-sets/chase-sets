@@ -20,7 +20,7 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type { OfferBuyerMute, OfferMatchListItem } from "./contracts";
+import type { OfferMatchListItem } from "./contracts";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 import { formatPriceGap } from "./price-gap";
 
@@ -35,11 +35,9 @@ function statusTone(status: string) {
 
 export function MarketplaceOfferMatchListPage({
   data,
-  buyerMutes,
   errorMessage,
 }: {
   data: { items: readonly OfferMatchListItem[] };
-  buyerMutes?: { items: readonly OfferBuyerMute[] };
   errorMessage?: string | null;
 }) {
   const fulfillableCount = data.items.filter((item) => item.can_fulfill).length;
@@ -143,7 +141,9 @@ export function MarketplaceOfferMatchListPage({
               header: t("marketplace.features.offers.ui.offerMatchListPage.your.listing"),
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text weight="semibold">{formatMoney(row.listing_price_amount, "USD")}</Text>
+                  <Text weight="semibold">
+                    {formatMoney(row.listing_price_amount, row.listing_price_currency_code)}
+                  </Text>
                   <Text size="sm" tone="secondary">
                     {t("marketplace.features.offers.ui.offerMatchListPage.listing.quantity", {
                       visible: row.listing_visible_quantity,
@@ -158,7 +158,7 @@ export function MarketplaceOfferMatchListPage({
               header: t("marketplace.features.offers.ui.offerMatchListPage.best.offer"),
               cell: (row) => (
                 <Stack gap={1}>
-                  <Text weight="semibold">{formatMoney(row.price_amount, "USD")}</Text>
+                  <Text weight="semibold">{formatMoney(row.price_amount, row.price_currency_code!)}</Text>
                   <AccountReputationSummary
                     accountName={row.buyer_display_name ?? row.buyer_account_id}
                     averageRating={row.buyer_average_rating}
@@ -210,9 +210,11 @@ export function MarketplaceOfferMatchListPage({
                   <Badge tone={row.can_fulfill ? "success" : "warning"}>
                     {row.seller_listing_availability_status === "unavailable"
                       ? t("marketplace.features.offers.ui.offerMatchListPage.listings.unavailable")
-                      : row.can_fulfill
-                        ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
-                        : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
+                      : row.managed_status
+                        ? t(`marketplace.marketFollowing.seller.${row.managed_status}`)
+                        : row.can_fulfill
+                          ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
+                          : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
                   </Badge>
                 </Stack>
               ),
@@ -248,12 +250,6 @@ export function MarketplaceOfferMatchListPage({
                       {t("marketplace.features.offers.ui.offerMatchListPage.decline")}
                     </Button>
                   </Form>
-                  <Form spacing="none" method="post" action={`/account/offers/matches/${row.offer_id}`}>
-                    <HiddenInput type="hidden" name="intent" value="mute-offer-buyer" />
-                    <Button type="submit" tone="secondary" size="sm" disabled={row.status !== "submitted"}>
-                      {t("marketplace.features.offers.ui.offerMatchListPage.mute.buyer")}
-                    </Button>
-                  </Form>
                 </Stack>
               ),
             },
@@ -262,46 +258,6 @@ export function MarketplaceOfferMatchListPage({
           emptyDescription={t(
             "marketplace.features.offers.ui.offerMatchListPage.offer.matches.appear.here.when.submitted",
           )}
-        />
-      </PageSection>
-
-      <PageSection title={t("marketplace.features.offers.ui.offerMatchListPage.muted.buyers")}>
-        <DataTable
-          rows={[...(buyerMutes?.items ?? [])]}
-          getRowId={(row) => `${row.listing_id}:${row.buyer_account_id}`}
-          columns={[
-            {
-              key: "buyer",
-              header: t("marketplace.features.offers.ui.offerMatchListPage.buyer"),
-              cell: (row) => row.buyer_display_name ?? row.buyer_account_id,
-            },
-            {
-              key: "listing",
-              header: t("marketplace.features.offers.ui.offerMatchListPage.listing"),
-              cell: (row) => row.listing_id,
-            },
-            {
-              key: "muted",
-              header: t("marketplace.features.offers.ui.offerMatchListPage.muted.on"),
-              cell: (row) => formatDate(row.muted_at),
-            },
-            {
-              key: "actions",
-              header: t("marketplace.features.offers.ui.offerMatchListPage.actions"),
-              cell: (row) => (
-                <Form spacing="none" method="post">
-                  <HiddenInput type="hidden" name="intent" value="unmute-offer-buyer" />
-                  <HiddenInput type="hidden" name="listingId" value={row.listing_id} />
-                  <HiddenInput type="hidden" name="buyerAccountId" value={row.buyer_account_id} />
-                  <Button type="submit" tone="secondary" size="sm">
-                    {t("marketplace.features.offers.ui.offerMatchListPage.unmute")}
-                  </Button>
-                </Form>
-              ),
-            },
-          ]}
-          emptyTitle={t("marketplace.features.offers.ui.offerMatchListPage.no.muted.buyers")}
-          emptyDescription={t("marketplace.features.offers.ui.offerMatchListPage.muted.buyers.appear.here")}
         />
       </PageSection>
     </Page>

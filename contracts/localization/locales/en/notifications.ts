@@ -1,9 +1,44 @@
 export const notificationsEnglishTranslations = {
+  "notifications.intents.orderCancelled.title": "Order {orderReference} cancelled",
+  "notifications.intents.orderCancelled.body.pendingReservation": "You have not been charged.",
+  "notifications.intents.orderCancelled.body.paymentDetails": "View your order for any payment or refund details.",
+  "notifications.intents.orderCancelled.body.unknown": "View your order for details about this cancellation.",
   "notifications.api.authentication.required": "Authentication required.",
   "notifications.api.email.webhook.failed": "Email webhook failed.",
   "notifications.api.forbidden": "Forbidden.",
   "notifications.api.mobile.webhook.failed": "Mobile message webhook failed.",
   "notifications.api.preference.invalid": "Notification preference is not supported.",
+  "notifications.features.notificationCenter.ui.page.feed.empty.description":
+    "Order, shipment, and Product alert updates will appear here.",
+  "notifications.features.notificationCenter.ui.page.feed.empty.title": "No notifications",
+  "notifications.features.notificationCenter.ui.page.feed.heading": "Recent updates",
+  "notifications.features.notificationCenter.ui.page.feed.label": "Feed",
+  "notifications.features.notificationCenter.ui.page.feed.markAllRead": "Mark all read",
+  "notifications.features.notificationCenter.ui.page.feed.markRead": "Mark read",
+  "notifications.features.notificationCenter.ui.page.feed.new": "New",
+  "notifications.features.notificationCenter.ui.page.feed.read": "Read",
+  "notifications.features.notificationCenter.ui.page.feed.unread": "{count} unread",
+  "notifications.features.notificationCenter.ui.page.heading": "Notifications",
+  "notifications.features.notificationCenter.ui.page.loading": "Loading notifications",
+  "notifications.features.notificationCenter.ui.page.readFailure.description": "Try again in a moment.",
+  "notifications.features.notificationCenter.ui.page.readFailure.retry": "Try again",
+  "notifications.features.notificationCenter.ui.page.readFailure.title": "Notifications could not load",
+  "notifications.features.notificationCenter.ui.page.settings.label": "Settings",
+  "notifications.features.notificationCenter.ui.page.settings.preferences.description":
+    "Control how marketplace updates reach this account.",
+  "notifications.features.notificationCenter.ui.page.settings.preferences.heading": "Delivery settings",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.delete": "Delete",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.description":
+    "Pause or remove watches created from product detail pages.",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.empty.description":
+    "Create alerts from product detail pages after choosing product options.",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.empty.title": "No Product alerts yet",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.heading": "Product alerts",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.pause": "Pause",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.resume": "Resume",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.status.active": "active",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.status.paused": "paused",
+  "notifications.features.notificationCenter.ui.page.settings.productAlerts.viewProduct": "View product",
   "notifications.features.notificationCenter.ui.shell.open": "Open",
   "notifications.features.notificationCenter.ui.shell.preference.email.description":
     "Allow email delivery for eligible marketplace updates.",
@@ -37,6 +72,9 @@ export const notificationsEnglishTranslations = {
   "notifications.intents.sellerAvailabilityRestored.title": "Your listings are live again",
   "notifications.intents.sellerAvailabilityRestored.body":
     "Your away period ended, so your listings automatically resumed and are visible to buyers again.",
+  "notifications.intents.shipmentDispatched.title": "Your shipment is on the way",
+  "notifications.intents.shipmentDispatched.body.tracked": "Tracking identifier: {trackingIdentifier}.",
+  "notifications.intents.shipmentDispatched.body.trackingless": "Open the shipment for the latest details.",
   "notifications.intents.customerFeedbackAttention.title": "Customer feedback needs attention",
   "notifications.intents.customerFeedbackAttention.body":
     "A {priority}-priority CSAT response rated {rating} needs review.",
@@ -133,6 +171,10 @@ export const notificationsEnglishTranslations = {
     "Held funds were used for a refund on order {orderReference}",
   "notifications.intents.supportDispute.holdConsumed.body":
     "The case resolved with a {resolution}, so the held funds were applied to the buyer's refund rather than paid out to you.",
+  "notifications.intents.repricingDigest.title": "Repricing activity for {day}",
+  "notifications.intents.repricingDigest.body":
+    "{policiesEvaluated} policies evaluated; {listingsChanged} listing changes; {floorClamped} floor clamps; {ceilingClamped} ceiling clamps; {maxMoveClamped} maximum-move clamps; {budgetExhausted} budget limits; {pausedForMissingInput} pauses for missing input; {withinTolerance} within tolerance; {spiralBreakerTrips} spiral breaker trips.",
   "notifications.routes.accountNotifications.description": "Review marketplace updates from the notification center.",
   "notifications.routes.accountNotifications.title": "Notifications | Marketplace",
+  "notifications.shell.notifications.label": "Notifications",
 } as const;

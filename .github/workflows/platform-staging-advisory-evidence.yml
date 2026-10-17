@@ -29,6 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
+    outputs:
+      scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -49,10 +54,10 @@ jobs:
           PLATFORM_IMAGE_DIGEST: ${{ inputs.platform_image_digest }}
         run: |
           set -euo pipefail
-          if ! [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
             echo "Advisory evidence requires a full release commit SHA." >&2
             exit 1
-          fi
+          }
           if ! [[ "$PLATFORM_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "Advisory evidence requires an immutable platform image digest." >&2
             exit 1
@@ -158,6 +163,11 @@ jobs:
             echo "Staging catalog asset runtime env outputs are required before scenario seeding." >&2
             exit 1
           fi
+          managed_postgres_ca_sha256="$(helm get values "$CHASE_SETS_HELM_RELEASE" --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --output json | jq -r '.global.managedPostgresCaSha256 // empty')"
+          if ! [[ "$managed_postgres_ca_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "The deployed staging Helm release is not managed-Postgres-CA mount-aware." >&2
+            exit 1
+          fi
           pnpm run platform:kubernetes-deployment -- scenario-seed \
             --image "$PLATFORM_IMAGE_REF" \
             --image-pull-secret chase-sets \
@@ -169,9 +179,49 @@ jobs:
             --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
-            --quiesce-workers false \
+            --quiesce-workers true \
+            --managed-postgres-ca-sha256 "$managed_postgres_ca_sha256" \
             --timeout 60m \
             --out artifacts/staging-advisory-evidence/scenario-seed.json
+
+      - name: Await staging scenario-seed Job termination
+        if: always() && steps.scenario_seed.outcome != 'skipped'
+        timeout-minutes: 60
+        env:
+          ADVISORY_CANCELLED: ${{ job.status == 'cancelled' }}
+        run: |
+          set -euo pipefail
+          ns="$CHASE_SETS_KUBERNETES_NAMESPACE"
+          job="${CHASE_SETS_HELM_RELEASE}-scenario-seed-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          pods="app.kubernetes.io/instance=${CHASE_SETS_HELM_RELEASE},app.kubernetes.io/component=scenario-seed,batch.kubernetes.io/job-name=${job}"
+          deadline=$(( $(date +%s) + 3420 ))
+          if [ "$ADVISORY_CANCELLED" = "true" ]; then
+            kubectl delete job "$job" -n "$ns" --cascade=foreground --wait=true --ignore-not-found=true
+          fi
+          while true; do
+            status="$(kubectl get job "$job" -n "$ns" --ignore-not-found=true -o json)"
+            active="$(kubectl get pods -n "$ns" -l "$pods" \
+              --field-selector=status.phase!=Succeeded,status.phase!=Failed -o name)"
+            if { [ -z "$status" ] || jq -e '(.status.succeeded // 0) > 0 or
+                any(.status.conditions[]?; (.type == "Complete" or .type == "Failed") and .status == "True")' <<< "$status" >/dev/null; } \
+                && [ -z "$active" ]; then
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::scenario-seed Job still active; staging serialization group must not be released" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          # A deleted or deadline-killed seed pod never reaches the quiesce wrapper's finally.
+          worker_so="${CHASE_SETS_HELM_RELEASE}-chase-sets-platform-platform-worker"
+          if [ -n "$(kubectl get scaledobject "$worker_so" -n "$ns" --ignore-not-found=true \
+              -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused-replicas}')" ]; then
+            kubectl annotate scaledobject "$worker_so" -n "$ns" autoscaling.keda.sh/paused-replicas-
+          fi
+          kubectl delete rolebinding,role,serviceaccount -n "$ns" \
+            -l "app.kubernetes.io/instance=${CHASE_SETS_HELM_RELEASE},app.kubernetes.io/component=scenario-seed-quiesce,chase-sets.com/scenario-seed-job=${job}" \
+            --ignore-not-found=true
 
       - name: Resolve Playwright Chromium version
         id: staging-playwright-chromium
@@ -238,21 +288,38 @@ jobs:
           ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" PUBLIC_WEB_URL="https://${landing_domain}" pnpm run test:e2e:deployed
 
       - name: Summarize staging advisory evidence
+        id: summarize
         if: always()
         env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
           SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
           MARKETPLACE_E2E_OUTCOME: ${{ steps.marketplace_e2e.outcome || 'skipped' }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Advisory evidence requires a full release commit SHA." >&2
+            exit 1
+          }
           mkdir -p artifacts/staging-advisory-evidence
           checked_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          # The seed CLI writes this record on failure too, so the pod's bootstrap error survives the
+          # continue-on-error step and reaches both the step summary and the advisory incident comment.
+          scenario_seed_error=""
+          if [ -f artifacts/staging-advisory-evidence/scenario-seed.json ]; then
+            scenario_seed_error="$(jq -r '.bootstrapError // empty' artifacts/staging-advisory-evidence/scenario-seed.json)"
+          fi
+          {
+            echo "scenario_seed_error<<SCENARIO_SEED_ERROR_EOF"
+            echo "$scenario_seed_error"
+            echo "SCENARIO_SEED_ERROR_EOF"
+          } >> "$GITHUB_OUTPUT"
           failed_phases="$(jq -cn \
             --arg scenarioSeed "$SCENARIO_SEED_OUTCOME" \
             --arg marketplaceE2e "$MARKETPLACE_E2E_OUTCOME" \
             '[if $scenarioSeed == "success" then empty else "scenario-seed" end, if $marketplaceE2e == "success" then empty else "marketplace-e2e" end]')"
           jq -n \
             --arg checkedAt "$checked_at" \
-            --arg releaseCommit "${{ inputs.release_commit }}" \
+            --arg releaseCommit "$RELEASE_COMMIT" \
             --arg platformImage "${{ inputs.platform_image }}" \
             --arg platformImageDigest "${{ inputs.platform_image_digest }}" \
             --arg scenarioSeed "$SCENARIO_SEED_OUTCOME" \
@@ -268,7 +335,9 @@ jobs:
             echo "| Scenario seed | ${SCENARIO_SEED_OUTCOME} | Advisory |"
             echo "| Marketplace deployed E2E | ${MARKETPLACE_E2E_OUTCOME} | Advisory |"
             echo ""
-            echo "Release: ${{ inputs.release_commit }}@${{ inputs.platform_image_digest }}"
+            echo "Scenario seed bootstrap error: ${scenario_seed_error:-none captured}"
+            echo ""
+            echo "Release: $RELEASE_COMMIT@${{ inputs.platform_image_digest }}"
             echo ""
             echo "Failures remain visible here and through the deduplicated advisory incident; they do not govern production promotion."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -312,11 +381,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ADVISORY_RESULT: ${{ needs.staging-advisory-evidence.result }}
+          SCENARIO_SEED_ERROR: ${{ needs.staging-advisory-evidence.outputs.scenario_seed_error }}
           RELEASE_COMMIT: ${{ inputs.release_commit }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Advisory evidence requires a full release commit SHA." >&2
+            exit 1
+          }
           title="Incident: Staging advisory evidence failing"
           existing_issue="$(
             gh issue list \
@@ -341,6 +415,7 @@ jobs:
 
           - Release commit: ${RELEASE_COMMIT}
           - Advisory result: ${ADVISORY_RESULT}
+          - Scenario seed bootstrap error: ${SCENARIO_SEED_ERROR:-none captured}
           - Workflow run: ${RUN_URL}
           - Evidence artifacts: ${ARTIFACTS_URL}
 

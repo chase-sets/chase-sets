@@ -131,6 +131,7 @@ describe("fulfillment seller shipment packing route", () => {
         intent: "set-line-confirmed",
         lineId: "spl_1",
         confirmedQuantity: "2",
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       }),
       params: { shipmentId: "shp_1" },
       context: undefined,
@@ -142,7 +143,12 @@ describe("fulfillment seller shipment packing route", () => {
       version: 63,
       confirmedQuantity: 2,
     });
-    expect(mockApi.updatePackingLineQuantity).toHaveBeenCalledWith("shp_1", "spl_1", 2);
+    expect(mockApi.updatePackingLineQuantity).toHaveBeenCalledWith(
+      "shp_1",
+      "spl_1",
+      2,
+      "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
+    );
   });
 
   it("returns temporary recovery when a fresh packing read times out on projection freshness", async () => {

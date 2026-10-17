@@ -28,7 +28,7 @@ describe("google shopping feed row projection", () => {
       link: "https://marketplace.chasesets.com/listings/charizard-lst_1",
     });
     expect(db.queries[1]?.sql).toContain("INSERT INTO discovery_google_shopping_feed_rows");
-    expect(JSON.parse(String(db.queries[1]?.values[8]))).toMatchObject({ priceAmount: "51.25" });
+    expect(JSON.parse(String(db.queries[1]?.values[11]))).toMatchObject({ priceAmount: "51.25" });
     expect(db.queries[2]?.sql).toContain("discovery_google_shopping_incremental_sync_requests");
     expect(JSON.parse(String(db.queries[2]?.values[1]))).toEqual(["price"]);
     expect(db.queries[2]?.values[3]).toBe(5_000);
@@ -49,7 +49,7 @@ describe("google shopping feed row projection", () => {
       status: "excluded",
       reasons: ["not-crawlable"],
     });
-    expect(JSON.parse(String(db.queries[1]?.values[11]))).toEqual(["not-crawlable"]);
+    expect(JSON.parse(String(db.queries[1]?.values[14]))).toEqual(["not-crawlable"]);
   });
 
   it("persists noindex rows without a Merchant payload or payload hash", async () => {
@@ -62,10 +62,10 @@ describe("google shopping feed row projection", () => {
       debounceMs: 0,
     });
 
-    expect(JSON.parse(String(db.queries[1]?.values[8]))).toEqual({});
-    expect(db.queries[1]?.values[9]).toBeNull();
-    expect(db.queries[1]?.values[10]).toBe("excluded");
-    expect(db.queries[1]?.values[17]).toBe("live");
+    expect(JSON.parse(String(db.queries[1]?.values[11]))).toEqual({});
+    expect(db.queries[1]?.values[12]).toBeNull();
+    expect(db.queries[1]?.values[13]).toBe("excluded");
+    expect(db.queries[1]?.values[20]).toBe("live");
   });
 
   it("marks withdrawn listings as tombstones while retaining explainable exclusion state", async () => {
@@ -80,7 +80,7 @@ describe("google shopping feed row projection", () => {
 
     expect(row?.payload).toBeNull();
     expect(row?.eligibility.reasons).toEqual(expect.arrayContaining(["listing-not-active", "not-crawlable"]));
-    expect(db.queries[1]?.values[17]).toBe("withdrawn");
+    expect(db.queries[1]?.values[20]).toBe("withdrawn");
     expect(JSON.parse(String(db.queries[2]?.values[1]))).toEqual(["visibility"]);
   });
 
@@ -95,7 +95,7 @@ describe("google shopping feed row projection", () => {
     });
 
     expect(row?.payload?.link).toBe("https://marketplace.chasesets.com/listings/charizard%20holo%2Flst%201");
-    expect(JSON.parse(String(db.queries[1]?.values[8]))).toMatchObject({
+    expect(JSON.parse(String(db.queries[1]?.values[11]))).toMatchObject({
       link: "https://marketplace.chasesets.com/listings/charizard%20holo%2Flst%201",
     });
   });
@@ -277,6 +277,8 @@ function listingFacts(overrides: Record<string, unknown> = {}) {
     product_summary: "A Base Set Charizard card.",
     ship_from_code: "US",
     price_amount: "42.00",
+    price_currency_code: "USD",
+    listing_stream_version: 7,
     shipping_allowance_percentage_bps: 500,
     quantity_cap: 1,
     status: "active",

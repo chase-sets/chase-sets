@@ -42,6 +42,31 @@ Payments terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 Stripe runtime configuration, webhook setup, smoke tests, and incident workflows live in [Money Operations](../../docs/runbooks/money-operations.md).
 
+### Card-Decline Admission
+
+`POST /api/marketplace/account/payments` and `POST /api/marketplace/account/checkout/recover`
+share the `payments.card-decline.fingerprint` window across Payments replicas and restarts.
+The default is five declines per hour, with the existing rate-limit environment overrides.
+The window starts at the first recorded decline, not a wall-clock boundary. Attempts already
+in flight are not cancelled; unknown or blank fingerprints retain their existing behavior.
+
+A known fingerprint at the limit returns the existing `429 rate_limited` response and
+`Retry-After` header. If shared admission storage cannot be read, both endpoints return
+`503` with `error.code = payment_decline_limit_unavailable`; no new provider call is made.
+Other validation errors remain `400`.
+
+Parsed card-failure webhooks commit a receipt keyed by processor and event ID together with
+the fingerprint counter before payment handling. Matching retries resume payment handling
+without another increment; conflicting facts fail without acknowledging the webhook.
+The existing transactional inbox completes with payment handling, never at counter commit.
+Reconciliation does not record declines. Counters store one-way fingerprint digests; receipts
+store one-way fact digests, not provider payloads. Neither digest is logged.
+
+Startup installs additive, ledgered tables. Each distinct recorded decline removes at most
+100 expired counters through the expiry index. Receipts remain durable so late retries cannot
+be counted again; cleanup never deletes active windows. No cache infrastructure or local
+counter fallback is used.
+
 ## Outgoing Integration Events
 
 - `PaymentAuthorized`

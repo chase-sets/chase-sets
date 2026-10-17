@@ -1,0 +1,38 @@
+/** Closed browser-neutral data passed from an embedded surface to its provider adapter. */
+export type EmbeddedSurfaceTheme = Readonly<{
+  mode: "light" | "dark";
+  pageBackground: string;
+  surface: string;
+  subtleSurface: string;
+  text: string;
+  secondaryText: string;
+  mutedText: string;
+  border: string;
+  accent: string;
+  onAccent: string;
+  focusRing: string;
+  danger: string;
+  dangerSoft: string;
+  success: string;
+  successSoft: string;
+  warning: string;
+  warningSoft: string;
+  overlayBackdrop: string;
+  bodyFontFamily: string;
+  baseLineHeight: string;
+  baseFontSize: string;
+  smallFontSize: string;
+  extraSmallFontSize: string;
+  largeFontSize: string;
+  extraLargeFontSize: string;
+  unit: string;
+  small: string;
+  medium: string;
+  controlPaddingInline: string;
+  controlPaddingBlock: string;
+  smallRadius: string;
+  mediumRadius: string;
+  largeRadius: string;
+  smallShadow: string;
+  modalLayer: string;
+}>;

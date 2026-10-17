@@ -4,6 +4,7 @@ import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "@chase-sets/typescript-compiler-api";
+import { parseCLI } from "vitest/node";
 
 /**
  * The single authority for which case runs in which file, which file runs in
@@ -11,9 +12,8 @@ import ts from "@chase-sets/typescript-compiler-api";
  * job, and what each case asserts.
  *
  * `referenceDurationMs` values are the per-case durations reported by the
- * hosted `DB Profile Tests` job named in `bootstrapDbScheduleModel`. They are
- * the only timing authority this guard accepts; no lane-host measurement can
- * confirm or refute them.
+ * accepted measurement named below or in `bootstrapDbScheduleModel`,
+ * ceiling-rounded per case.
  *
  * `identity` is a digest of the case's own parsed arguments after its name —
  * its callback and its per-case timeout, if any. It therefore covers every
@@ -23,6 +23,18 @@ import ts from "@chase-sets/typescript-compiler-api";
  * feeds the digest.
  */
 export const bootstrapDbEnrollmentManifest = Object.freeze({
+  "bootstrap-shared-seed-command.db.test.ts": Object.freeze({
+    executionUnit: "test:db:2",
+    databaseSuffix: "platform_api_bootstrap_shared_seed_command",
+    bootBearingCases: "all",
+    cases: Object.freeze([
+      Object.freeze({
+        name: "boots every non-production profile on one shared max-one seed command pool",
+        referenceDurationMs: 91265,
+        identity: "4d891cb822a0a334",
+      }),
+    ]),
+  }),
   "bootstrap-scenario.db.test.ts": Object.freeze({
     executionUnit: "test:db:2",
     databaseSuffix: "platform_api_bootstrap_scenario",
@@ -30,80 +42,85 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "boots with context-owned pools and replays cross-context projections",
-        referenceDurationMs: 90877,
-        identity: "ea12b6d3f3a538ba",
+        referenceDurationMs: 114511,
+        identity: "d5d72806700dfd1c",
       }),
       Object.freeze({
         name: "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
-        referenceDurationMs: 1202,
-        identity: "fa0e6fbbe051d0fe",
+        referenceDurationMs: 2417,
+        identity: "d4f92c858dc82bee",
       }),
       Object.freeze({
         name: "records context schema migrations once during concurrent bootstrap",
-        referenceDurationMs: 1716,
+        referenceDurationMs: 1765,
         identity: "5765a6ba4a890be6",
       }),
     ]),
   }),
   "bootstrap-production-reconciliation.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
+    executionUnit: "test:db:1",
     databaseSuffix: "platform_api_bootstrap_production_reconciliation",
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
-        name: "bootstraps and reconciles every whitelisted public policy value in the production landing profile",
-        referenceDurationMs: 8250,
-        identity: "37b0e09726e4529e",
+        name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
+        referenceDurationMs: 9361,
+        identity: "fcf65b142a0bbe05",
       }),
       Object.freeze({
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
-        referenceDurationMs: 16350,
-        identity: "05afe53d6dbc6aff",
+        referenceDurationMs: 17438,
+        identity: "f749da3c0ba3e000",
       }),
       Object.freeze({
         name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
-        referenceDurationMs: 17258,
-        identity: "c9351aa5fd10ecb6",
+        referenceDurationMs: 17365,
+        identity: "1e91d11294f92825",
       }),
       Object.freeze({
         name: "limits and reconciles every production-like seed context against current-code state",
-        referenceDurationMs: 20217,
-        identity: "6b7c87db7e1a0d46",
+        referenceDurationMs: 23199,
+        identity: "91ce1f9bea42efa9",
       }),
       Object.freeze({
         name: "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
-        referenceDurationMs: 20576,
-        identity: "170dd2ca3aa2dca2",
+        referenceDurationMs: 23138,
+        identity: "5d22ae06208e8106",
       }),
       Object.freeze({
         name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
-        referenceDurationMs: 1084,
-        identity: "ab68f4b84303d9ef",
+        referenceDurationMs: 1365,
+        identity: "90b195ccf8bfe4d8",
       }),
       Object.freeze({
         name: "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
-        referenceDurationMs: 636,
-        identity: "ec6d52932ca711b2",
+        referenceDurationMs: 641,
+        identity: "5faa4bae78495bc7",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative Account profile with actionable detail",
-        referenceDurationMs: 320,
+        referenceDurationMs: 360,
         identity: "22153693f009807d",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative User profile with actionable detail",
-        referenceDurationMs: 473,
+        referenceDurationMs: 494,
         identity: "d76b1ce3679034a0",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative Shipping Address profile with actionable detail",
-        referenceDurationMs: 483,
+        referenceDurationMs: 485,
         identity: "de799f65824dcee1",
       }),
       Object.freeze({
+        name: "publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables",
+        referenceDurationMs: 109728,
+        identity: "534d5752dbc527b6",
+      }),
+      Object.freeze({
         name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",
-        referenceDurationMs: 61339,
-        identity: "4994a619e1d95849",
+        referenceDurationMs: 43899,
+        identity: "f9e31ed90041d384",
       }),
     ]),
   }),
@@ -114,18 +131,213 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "recovers when bootstrap-touched table locks release within the retry budget",
-        referenceDurationMs: 1109,
+        referenceDurationMs: 1227,
         identity: "bf6e839e420caad8",
       }),
       Object.freeze({
         name: "fails closed when bootstrap-touched table locks exhaust the retry budget",
-        referenceDurationMs: 1120,
+        referenceDurationMs: 1301,
         identity: "d18b9e8333f5c0e7",
       }),
       Object.freeze({
         name: "isolates partition databases and bootstrap advisory locks",
-        referenceDurationMs: 2535,
+        referenceDurationMs: 1732,
         identity: "c31f3a59baae1188",
+      }),
+    ]),
+  }),
+  "seed-command-full-pools.db.test.ts": Object.freeze({
+    executionUnit: "test:db:2",
+    databaseSuffix: "platform_api_seed_command_full_pools",
+    bootBearingCases: "all",
+    cases: Object.freeze([
+      Object.freeze({
+        name: "completes representative commerce seeds, projections, fan-outs and post-state",
+        referenceDurationMs: 29444,
+        identity: "0204be7639f55534",
+      }),
+      Object.freeze({
+        name: "completes admin-QA fixtures and retains their seeded identity post-state",
+        referenceDurationMs: 11963,
+        identity: "9e7b99abfd2756ab",
+      }),
+    ]),
+  }),
+  "connector-mount-gate-isolation.db.test.ts": Object.freeze({
+    executionUnit: "test:db:2",
+    databaseSuffix: "connector_composed_7993",
+    bootBearingCases: "all",
+    cases: Object.freeze([
+      Object.freeze({
+        name: "connector-context-free-bound-settlement: real composed route/Postgres atomicity at success",
+        referenceDurationMs: 2273,
+        identity: "8e6da445d63de885",
+      }),
+      Object.freeze({
+        name: "connector-context-free-bound-settlement: real composed route/Postgres atomicity at run-append",
+        referenceDurationMs: 1959,
+        identity: "dc78ebf502f34d74",
+      }),
+      Object.freeze({
+        name: "connector-context-free-bound-settlement: real composed route/Postgres atomicity at projection",
+        referenceDurationMs: 1851,
+        identity: "ec452b4eda143648",
+      }),
+      Object.freeze({
+        name: "connector-context-free-bound-settlement: real composed route/Postgres atomicity at receipt",
+        referenceDurationMs: 1718,
+        identity: "2c16372bc3e4e36b",
+      }),
+      Object.freeze({
+        name: "connector-context-free-bound-settlement: real composed route/Postgres atomicity at missing-origin",
+        referenceDurationMs: 1642,
+        identity: "a78a2edc4b5ba59c",
+      }),
+      Object.freeze({
+        name: "runs public registration, seller pairing, credential exchange and denies both principal substitutions",
+        referenceDurationMs: 1392,
+        identity: "a323ff8a1803c065",
+      }),
+      Object.freeze({
+        name: "connector-feed-audit-completeness: one safe row per success/refusal, verified identities only",
+        referenceDurationMs: 1371,
+        identity: "1c52c83b94b7148c",
+      }),
+      Object.freeze({
+        name: "classifies raw exceptions without leaking their sentinel into responses, audit, logs or events",
+        referenceDurationMs: 1328,
+        identity: "c32e8f3114e13a9f",
+      }),
+      Object.freeze({
+        name: "audits every OAuth refusal and malformed transport once with unresolved identity",
+        referenceDurationMs: 1605,
+        identity: "f4325e300b6b29b5",
+      }),
+      Object.freeze({
+        name: "audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity",
+        referenceDurationMs: 1403,
+        identity: "f239ff43a5fed707",
+      }),
+    ]),
+  }),
+  "authoritative-seed-resume-recovery.db.test.ts": Object.freeze({
+    executionUnit: "test:db:3",
+    databaseSuffix: "platform_api_authoritative_seed_resume_recovery",
+    bootBearingCases: "all",
+    cases: Object.freeze([
+      Object.freeze({
+        name: "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
+        referenceDurationMs: 109347,
+        identity: "3bd5ce2166de99ce",
+      }),
+      Object.freeze({
+        name: "recreates only a missing review-eligible payment after a sibling payment has completed",
+        referenceDurationMs: 106202,
+        identity: "68188141fd171819",
+      }),
+    ]),
+  }),
+  "inventory-seed-resume.db.test.ts": Object.freeze({
+    executionUnit: "test:db:3",
+    databaseSuffix: "platform_api_inventory_seed_resume",
+    bootBearingCases: "all",
+    cases: Object.freeze([
+      Object.freeze({
+        name: "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
+        referenceDurationMs: 26178,
+        identity: "0b053db039f00b7d",
+      }),
+      Object.freeze({
+        name: "appends events only on the first of three same-boot inventory and checkout seed invocations",
+        referenceDurationMs: 23330,
+        identity: "9f9a50a07958feca",
+      }),
+      Object.freeze({
+        name: "resumes inventory after only its first storage-location create commits",
+        referenceDurationMs: 24791,
+        identity: "0d059da8303ae139",
+      }),
+      Object.freeze({
+        name: "resumes an archived storage location committed before its archive step",
+        referenceDurationMs: 29811,
+        identity: "2f1e5800d580e926",
+      }),
+      Object.freeze({
+        name: "resumes a checkout cart holding only one of its two seeded lines",
+        referenceDurationMs: 31014,
+        identity: "6dd2f79404be0d62",
+      }),
+      Object.freeze({
+        name: "fails closed on conflicting retained inventory identity metadata",
+        referenceDurationMs: 25194,
+        identity: "c54552620ac0570c",
+      }),
+      Object.freeze({
+        name: "fails closed on a terminal retained inventory aggregate",
+        referenceDurationMs: 25129,
+        identity: "5883b8dd80d4e395",
+      }),
+      Object.freeze({
+        name: "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
+        referenceDurationMs: 19749,
+        identity: "35debe29ef133878",
+      }),
+    ]),
+  }),
+  "catalog-seed-aggregate-state.db.test.ts": Object.freeze({
+    executionUnit: "test:db:2",
+    databaseSuffix: "platform_api_catalog_seed_aggregate_state",
+    bootBearingCases: "all",
+    cases: Object.freeze([
+      Object.freeze({
+        name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
+        referenceDurationMs: 13519,
+        identity: "f78d626bdd98a1c4",
+      }),
+      Object.freeze({
+        name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
+        referenceDurationMs: 23990,
+        identity: "119d53278b4453d7",
+      }),
+      Object.freeze({
+        name: "NC-1 resumes an undrained Dimension seed without duplicate creation",
+        referenceDurationMs: 17250,
+        identity: "ddeee7bac7384389",
+      }),
+      Object.freeze({
+        name: "NC-2 resumes a Component committed at created version one across two ordinary boots",
+        referenceDurationMs: 20787,
+        identity: "d6b487fe4780b81f",
+      }),
+      Object.freeze({
+        name: "NC-3 restores lagging projections without re-authoring active aggregates",
+        referenceDurationMs: 7839,
+        identity: "5370dfdb151548b6",
+      }),
+      Object.freeze({
+        name: "rebuilds lost Catalog Item projections from retained streams without appending item events",
+        referenceDurationMs: 30283,
+        identity: "f7c024ac13659525",
+      }),
+      Object.freeze({
+        name: "NC-4 ignores populated containers when required aggregates have zero events",
+        referenceDurationMs: 26720,
+        identity: "31ea7ebe99c1ec04",
+      }),
+      Object.freeze({
+        name: "NC-5a repairs a draft partial aggregate rather than skipping it",
+        referenceDurationMs: 16685,
+        identity: "da4c8d1fc71a5c6b",
+      }),
+      Object.freeze({
+        name: "NC-5b rejects conflicting retained identity metadata on both boots",
+        referenceDurationMs: 3459,
+        identity: "220cd5f763d298b2",
+      }),
+      Object.freeze({
+        name: "NC-5c rejects a terminal retained aggregate on both boots",
+        referenceDurationMs: 15025,
+        identity: "547ba56539985bfc",
       }),
     ]),
   }),
@@ -140,23 +352,23 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "derives the exact active and source-only seed universe for every host profile",
-        referenceDurationMs: 348,
-        identity: "12b7b08e0c1a6bb1",
+        referenceDurationMs: 566,
+        identity: "d81e26884f288aba",
       }),
       Object.freeze({
         name: "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
-        referenceDurationMs: 75314,
+        referenceDurationMs: 114906,
         identity: "9e25aef167dc384f",
       }),
       Object.freeze({
         name: "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
-        referenceDurationMs: 28241,
+        referenceDurationMs: 43094,
         identity: "b8a98c6398a79ad2",
       }),
       Object.freeze({
         name: "does not re-author Settlement while its payout projection lags the stream",
-        referenceDurationMs: 77914,
-        identity: "4b8f47463aabf78e",
+        referenceDurationMs: 111463,
+        identity: "7be95cff42705d0f",
       }),
     ]),
   }),
@@ -171,188 +383,74 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
-        referenceDurationMs: 73270,
-        identity: "0c68e2995d4125d4",
+        referenceDurationMs: 111790,
+        identity: "309fc59ff41d9ee4",
       }),
       Object.freeze({
         name: "enumerates stream-sourced seed-state coverage from the runtime mount list",
-        referenceDurationMs: 608,
+        referenceDurationMs: 1226,
         identity: "944a32d056bf4f61",
       }),
       Object.freeze({
         name: "resumes every converted context after its UNLOGGED guard projections are truncated",
-        referenceDurationMs: 71709,
+        referenceDurationMs: 106430,
         identity: "97c0a8c137819d55",
       }),
       Object.freeze({
         name: "accepts a seeded resolution after the real deadline sweep advances it to closed",
-        referenceDurationMs: 59351,
+        referenceDurationMs: 84293,
         identity: "0efa7d5e61dc8603",
       }),
     ]),
   }),
-  "authoritative-seed-resume-recovery.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
-    databaseSuffix: "platform_api_authoritative_seed_resume_recovery",
+  "catalog-seed-interruption-resume.db.test.ts": Object.freeze({
+    executionUnit: "test:db:3",
+    databaseSuffix: "platform_api_catalog_seed_interruption_resume",
     bootBearingCases: "all",
     cases: Object.freeze([
-      Object.freeze({
-        name: "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
-        referenceDurationMs: 57961,
-        identity: "3bd5ce2166de99ce",
-      }),
-      Object.freeze({
-        name: "recreates only a missing review-eligible payment after a sibling payment has completed",
-        referenceDurationMs: 58195,
-        identity: "68188141fd171819",
-      }),
-    ]),
-  }),
-  "inventory-seed-resume.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
-    databaseSuffix: "platform_api_inventory_seed_resume",
-    bootBearingCases: "all",
-    cases: Object.freeze([
-      Object.freeze({
-        name: "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
-        referenceDurationMs: 24711,
-        identity: "0b053db039f00b7d",
-      }),
-      Object.freeze({
-        name: "appends events only on the first of three same-boot inventory and checkout seed invocations",
-        referenceDurationMs: 21675,
-        identity: "9f9a50a07958feca",
-      }),
-      Object.freeze({
-        name: "resumes inventory from a committed-but-incomplete storage location",
-        referenceDurationMs: 28234,
-        identity: "c93a07182fe7d5ff",
-      }),
-      Object.freeze({
-        name: "resumes an archived storage location committed before its archive step",
-        referenceDurationMs: 28971,
-        identity: "8c5dc773de3c8363",
-      }),
-      Object.freeze({
-        name: "resumes a checkout cart holding only one of its two seeded lines",
-        referenceDurationMs: 24479,
-        identity: "6dd2f79404be0d62",
-      }),
-      Object.freeze({
-        name: "fails closed on conflicting retained inventory identity metadata",
-        referenceDurationMs: 20292,
-        identity: "c54552620ac0570c",
-      }),
-      Object.freeze({
-        name: "fails closed on a terminal retained inventory aggregate",
-        referenceDurationMs: 16012,
-        identity: "5883b8dd80d4e395",
-      }),
-      Object.freeze({
-        name: "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
-        referenceDurationMs: 12671,
-        identity: "35debe29ef133878",
-      }),
-    ]),
-  }),
-  "catalog-seed-aggregate-state.db.test.ts": Object.freeze({
-    executionUnit: "test:db:1",
-    databaseSuffix: "platform_api_catalog_seed_aggregate_state",
-    bootBearingCases: "all",
-    cases: Object.freeze([
-      Object.freeze({
-        name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
-        referenceDurationMs: 11470,
-        identity: "f78d626bdd98a1c4",
-      }),
-      Object.freeze({
-        name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
-        referenceDurationMs: 19248,
-        identity: "a0661cfb08a350b5",
-      }),
-      Object.freeze({
-        name: "NC-1 resumes an undrained Dimension seed without duplicate creation",
-        referenceDurationMs: 13264,
-        identity: "ddeee7bac7384389",
-      }),
-      Object.freeze({
-        name: "NC-2 resumes a Component committed at created version one across two ordinary boots",
-        referenceDurationMs: 16156,
-        identity: "d6b487fe4780b81f",
-      }),
-      Object.freeze({
-        name: "NC-3 restores lagging projections without re-authoring active aggregates",
-        referenceDurationMs: 6218,
-        identity: "5370dfdb151548b6",
-      }),
-      Object.freeze({
-        name: "rebuilds lost Catalog Item projections from retained streams without appending item events",
-        referenceDurationMs: 23434,
-        identity: "f7c024ac13659525",
-      }),
-      Object.freeze({
-        name: "NC-4 ignores populated containers when required aggregates have zero events",
-        referenceDurationMs: 25049,
-        identity: "31ea7ebe99c1ec04",
-      }),
-      Object.freeze({
-        name: "NC-5a repairs a draft partial aggregate rather than skipping it",
-        referenceDurationMs: 16069,
-        identity: "da4c8d1fc71a5c6b",
-      }),
-      Object.freeze({
-        name: "NC-5b rejects conflicting retained identity metadata on both boots",
-        referenceDurationMs: 3223,
-        identity: "220cd5f763d298b2",
-      }),
-      Object.freeze({
-        name: "NC-5c rejects a terminal retained aggregate on both boots",
-        referenceDurationMs: 14123,
-        identity: "547ba56539985bfc",
-      }),
       Object.freeze({
         name: "resumes after Dimensions under scenario-seed and production-like profiles",
-        referenceDurationMs: 20952,
+        referenceDurationMs: 28081,
         identity: "b006b495c2b4a662",
       }),
       Object.freeze({
         name: "resumes after Fields under scenario-seed and production-like profiles",
-        referenceDurationMs: 20631,
+        referenceDurationMs: 27074,
         identity: "13b82872bb3ba0b8",
       }),
       Object.freeze({
         name: "resumes after Reference Data under scenario-seed and production-like profiles",
-        referenceDurationMs: 20554,
+        referenceDurationMs: 26072,
         identity: "3cfe7d19f03127f2",
       }),
       Object.freeze({
         name: "resumes after Components under scenario-seed and production-like profiles",
-        referenceDurationMs: 20933,
+        referenceDurationMs: 26957,
         identity: "7ef841ec166b46d3",
       }),
       Object.freeze({
         name: "resumes after Blueprints under scenario-seed and production-like profiles",
-        referenceDurationMs: 22067,
+        referenceDurationMs: 28388,
         identity: "9a1c524b0483b012",
       }),
       Object.freeze({
         name: "resumes after the final Category under scenario-seed and production-like profiles",
-        referenceDurationMs: 20945,
+        referenceDurationMs: 26557,
         identity: "cb5ecec3a418a82a",
       }),
       Object.freeze({
         name: "resumes mid catalog.component.created under scenario-seed and production-like profiles",
-        referenceDurationMs: 20553,
+        referenceDurationMs: 25934,
         identity: "ea939096e104ab7e",
       }),
       Object.freeze({
         name: "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
-        referenceDurationMs: 13278,
+        referenceDurationMs: 16585,
         identity: "2be8f4782fdbd9eb",
       }),
       Object.freeze({
         name: "preserves duplicate CreateDimension rejection through the non-seed command handler",
-        referenceDurationMs: 13522,
+        referenceDurationMs: 13451,
         identity: "b21990765232df57",
       }),
     ]),
@@ -368,44 +466,56 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
  * schedule model to be re-derived rather than silently absorbing the load.
  */
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
-  "test:db:1": 25,
-  "test:db:2": 27,
+  "test:db:1": 18,
+  "test:db:2": 29,
+  "test:db:3": 19,
 });
 
 /**
- * The deterministic, host-independent execution-unit schedule model.
- *
- * Every constant below is derived from one hosted `DB Profile Tests` job — the
- * only timing authority for this partition — and the model reproduces that
- * job's own numbers before it is used to project anything. Against the
- * reference job the model returns 514210ms for its first unit against an
- * observed 514210ms, and 194356ms for its second against an observed 186210ms,
- * so it never under-states the measured cost.
- *
- * `testFileFixedCostMs` and `executionUnitFixedCostMs` are the largest
- * per-file and per-unit residuals observed in that job (file duration minus the
- * sum of its cases; unit duration minus its longest worker chain), taken at the
- * maximum rather than the mean so the projection stays conservative.
- *
- * A unit's makespan is the worst list-schedule of its files across
- * `maxWorkersPerExecutionUnit` workers over every possible file ordering, so
- * the projection holds whatever order the runner happens to start files in.
+ * Measured timing inputs: run 38958136653, attempt 1, job 117166086217.
+ * Artifact 12072326766, SHA256 aad0400cc9de6ea26546c4410ec7179eea53f94fc5162b72443397eab02fea5a.
+ * All 68 bootstrap callbacks and six non-bootstrap files passed on frozen source
+ * dd8cb1d3bc00e43c36cb636d97d50b84bde3f686; complete provenance and residuals are in
+ * __tests__/fixtures/bootstrap-db-capture-38958136653.json.
+ * Each case reference is ceil(observed passing duration), never a copied cost.
+ * File/unit fixed costs use ceil(max(0, observed residuals)), including zero
+ * only when every measured residual at that level is nonpositive.
+ * This measured source assignment remains minimal under unchanged limits,
+ * not product qualification.
+ * Historical captures remain immutable; normal final-head DB CI owns qualification.
  */
 export const bootstrapDbScheduleModel = Object.freeze({
-  referenceRunId: 30843957451,
-  referenceJobId: 91787818558,
-  referenceJobName: "DB Profile Tests",
-  referenceHeadSha: "f78143573af96c636d97696b987a82990df23904",
-  referenceEvent: "merge_group",
+  referenceRunId: 38958136653,
+  referenceJobId: 117166086217,
+  referenceJobName: "Diagnostic API Bootstrap Measurement Only",
+  referenceHeadSha: "3f7cc203d63c18fb9fc759b59b450d05d3e81d94",
+  referenceEvent: "push",
   maxWorkersPerExecutionUnit: 3,
-  testFileFixedCostMs: 1248,
-  executionUnitFixedCostMs: 10051,
-  jobOverheadMs: 48_000,
-  executionUnitCeilingMs: 420_000,
-  aggregateCeilingMs: 1_080_000,
-  maximumCaseReferenceDurationMs: 600_000,
-  maximumScheduledFileCount: 10,
+  testFileFixedCostMs: 1653,
+  executionUnitFixedCostMs: 13693,
+  jobOverheadMs: 49120,
+  executionUnitCeilingMs: 420000,
+  aggregateCeilingMs: 1080000,
+  maximumCaseReferenceDurationMs: 600000,
+  maximumScheduledFileCount: 12,
   maximumEnumeratedUnitCount: 4,
+});
+
+// These entries contribute to unit residuals, not the manifested bootstrap
+// case schedule. Membership and provenance must be re-frozen together with the
+// model after measurement; discovery never expands this workload. The accepted
+// capture binding is not hosted qualification of the shipping topology.
+export const platformApiNonBootstrapDbCensus = Object.freeze({
+  referenceRunId: 38958136653,
+  referenceJobId: 117166086217,
+  entries: Object.freeze({
+    "__tests__/operator-session/operator-session-grant-mint.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-session-grant-scope.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-extension-route-contract.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-session-push.db.test.ts": "test:db:2",
+    "__tests__/seed-command-catalog.db.test.ts": "test:db:2",
+  }),
 });
 
 const dbPartitionScriptNamePattern = /^test:db:\d+$/;
@@ -671,12 +781,18 @@ function resolveLocalTestImport(importerPath, specifier, testDirectory) {
   );
 }
 
-function referencedDbTestFileNames(command) {
-  return [...command.matchAll(/__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]);
-}
-
-function referencedDbTestFileOrder(command) {
-  return referencedDbTestFileNames(command);
+function readVitestInvocation(command, scriptName, violations) {
+  const invocations = command.split(/\s*&&\s*/).filter((part) => /^vitest\s/.test(part.trim()));
+  if (invocations.length !== 1) {
+    violations.push(`${scriptName} must contain exactly one Vitest invocation`);
+    return { filter: [], options: {} };
+  }
+  try {
+    return parseCLI(invocations[0].trim());
+  } catch (error) {
+    violations.push(`${scriptName} has an unreadable Vitest invocation: ${error.message}`);
+    return { filter: [], options: {} };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -721,15 +837,16 @@ function readVitestIncludeGlobs(root) {
 
   const sourceFile = sourceFileFor(configPath, readFileSync(configPath, "utf8"));
   const globs = [];
+  const excludes = [];
   function visit(node) {
     if (
       ts.isPropertyAssignment(node) &&
       (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
-      node.name.text === "include" &&
+      ["include", "exclude"].includes(node.name.text) &&
       ts.isArrayLiteralExpression(node.initializer)
     ) {
       for (const element of node.initializer.elements) {
-        if (ts.isStringLiteralLike(element)) globs.push(element.text);
+        if (ts.isStringLiteralLike(element)) (node.name.text === "include" ? globs : excludes).push(element.text);
       }
     }
     ts.forEachChild(node, visit);
@@ -739,7 +856,7 @@ function readVitestIncludeGlobs(root) {
   if (globs.length === 0) {
     return { globs: [], violation: `${configPath} declares no vitest include globs to derive test entries from` };
   }
-  return { globs, violation: null };
+  return { globs, excludes, violation: null };
 }
 
 function collectSourceFilesUnder(directory) {
@@ -756,41 +873,105 @@ function collectSourceFilesUnder(directory) {
   return found;
 }
 
-function importsBootstrapHarness(filePath, source, testDirectory, cache) {
-  if (cache.has(filePath)) return cache.get(filePath);
-  cache.set(filePath, false);
-
-  const sourceFile = sourceFileFor(filePath, source);
-  const specifiers = [];
-  let declaresFactory = false;
-  function visit(node) {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      specifiers.push(node.moduleSpecifier.text);
+function importsBootstrapHarness(filePath, root, cache) {
+  const pending = [filePath];
+  const visited = new Set();
+  while (pending.length) {
+    const next = pending.pop();
+    if (visited.has(next)) continue;
+    visited.add(next);
+    for (const imported of localDbFacts(next, root, cache).imports) {
+      if (imported.split(/[\\/]/).at(-1)?.startsWith(bootstrapHarnessModuleBaseName)) return true;
+      pending.push(imported);
     }
-    if (ts.isFunctionDeclaration(node) && node.name?.text === bootstrapHarnessFactoryName) {
-      declaresFactory = true;
+  }
+  return false;
+}
+
+function accessName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression)) {
+    return node.argumentExpression.text;
+  }
+  return null;
+}
+
+function localDbFacts(filePath, root, cache) {
+  if (cache.has(filePath)) return cache.get(filePath);
+  const sourceFile = sourceFileFor(filePath, readFileSync(filePath, "utf8"));
+  const imports = [];
+  let readsDatabaseUrl = false;
+  function visit(node) {
+    if (
+      accessName(node) === "TEST_DATABASE_URL" &&
+      accessName(node.expression) === "env" &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "process" &&
+      !(
+        ts.isBinaryExpression(node.parent) &&
+        node.parent.left === node &&
+        node.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      )
+    ) {
+      readsDatabaseUrl = true;
+    }
+    let specifier;
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) specifier = node.moduleSpecifier;
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      specifier = node.arguments[0];
+    }
+    if (specifier && ts.isStringLiteralLike(specifier) && specifier.text.startsWith(".")) {
+      const imported = resolveLocalTestImport(filePath, specifier.text, root);
+      if (imported) imports.push(imported);
     }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
+  const facts = { readsDatabaseUrl, imports };
+  cache.set(filePath, facts);
+  return facts;
+}
 
-  let result = false;
-  for (const specifier of specifiers) {
-    if (!specifier.startsWith(".")) continue;
-    const resolved = resolveLocalTestImport(filePath, specifier, testDirectory);
-    if (!resolved) continue;
-    if (resolved.split(/[\\/]/).at(-1)?.startsWith(bootstrapHarnessModuleBaseName)) {
-      result = true;
-      break;
-    }
-    if (importsBootstrapHarness(resolved, readFileSync(resolved, "utf8"), testDirectory, cache)) {
-      result = true;
-      break;
+function reachesDatabaseUrl(filePath, root, cache) {
+  const pending = [filePath];
+  const visited = new Set();
+  while (pending.length) {
+    const next = pending.pop();
+    if (visited.has(next)) continue;
+    visited.add(next);
+    const facts = localDbFacts(next, root, cache);
+    if (facts.readsDatabaseUrl) return true;
+    pending.push(...facts.imports);
+  }
+  return false;
+}
+
+export function derivePlatformApiDbTestCensus({ platformApiRoot } = {}) {
+  const root = platformApiRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const testDirectory = resolve(root, "__tests__");
+  const { globs, violation } = readVitestIncludeGlobs(root);
+  const violations = violation ? [violation] : [];
+  const patterns = globs.map(globToRegExp);
+  const entries = [];
+  const bootstrapEntries = [];
+  const dbEntries = [];
+  const suffixEntries = [];
+  const dbCache = new Map();
+  for (const filePath of collectSourceFilesUnder(testDirectory).sort()) {
+    const entry = relative(root, filePath).replaceAll("\\", "/");
+    if (!patterns.some((pattern) => pattern.test(entry))) continue;
+    entries.push(entry);
+    const bootstrap = importsBootstrapHarness(filePath, root, dbCache);
+    const db = bootstrap || reachesDatabaseUrl(filePath, root, dbCache);
+    if (bootstrap) bootstrapEntries.push(entry);
+    if (db) dbEntries.push(entry);
+    const suffix = entry.endsWith(".db.test.ts");
+    if (suffix) suffixEntries.push(entry);
+    if (db !== suffix) {
+      violations.push(`${entry} DB census disagrees with *.db.test.ts suffix (code-shaped DB entry: ${db})`);
     }
   }
-
-  cache.set(filePath, result && !declaresFactory);
-  return cache.get(filePath);
+  return { entries, bootstrapEntries, dbEntries, suffixEntries, violations };
 }
 
 // ---------------------------------------------------------------------------
@@ -800,46 +981,84 @@ function importsBootstrapHarness(filePath, source, testDirectory, cache) {
 /**
  * The worst makespan any list schedule of `durationsMs` can produce on
  * `workerCount` workers: each file in turn goes to the least-loaded worker, and
- * the model takes the maximum over every possible file order. Memoized on the
- * placed set plus the sorted worker loads, which collapses the orderings that
- * reach the same state.
+ * the model takes the maximum over every possible file order. For each possible
+ * final file, maximize the least worker load over partitions of the other files.
+ * A maximum-minimum partition is list-schedulable: choose one minimizing squared
+ * loads; moving a job from a larger load to the least load cannot improve it,
+ * so every worker's last job starts at or below the least final load. Interleave
+ * those worker lists at their least loads, then append the chosen final file.
  */
 function worstCaseListScheduleMs(durationsMs, workerCount) {
   if (durationsMs.length === 0) return 0;
   if (durationsMs.length <= workerCount) return Math.max(...durationsMs);
+  // Refused references and file sets are still projected. Preserve those values
+  // outside the nonnegative safe-integer domain, including its total, or 16 files.
+  if (
+    durationsMs.length > 16 ||
+    durationsMs.some((duration) => !Number.isSafeInteger(duration) || duration < 0) ||
+    !Number.isSafeInteger(durationsMs.reduce((sum, duration) => sum + duration, 0))
+  ) {
+    const complete = (1 << durationsMs.length) - 1;
+    const memo = new Map();
+    function walk(placed, loads) {
+      if (placed === complete) return Math.max(...loads);
+      const key = `${placed}|${loads.join(",")}`;
+      const cached = memo.get(key);
+      if (cached !== undefined) return cached;
+      let worst = 0;
+      const considered = new Set();
+      for (let index = 0; index < durationsMs.length; index += 1) {
+        if (placed & (1 << index) || considered.has(durationsMs[index])) continue;
+        considered.add(durationsMs[index]);
+        const next = [...loads];
+        next[0] += durationsMs[index];
+        next.sort((left, right) => left - right);
+        worst = Math.max(worst, walk(placed | (1 << index), next));
+      }
+      memo.set(key, worst);
+      return worst;
+    }
+    return walk(0, new Array(workerCount).fill(0));
+  }
+  if (workerCount === 1) return durationsMs.reduce((sum, duration) => sum + duration, 0);
 
   const complete = (1 << durationsMs.length) - 1;
-  const memo = new Map();
+  const sums = new Float64Array(complete + 1);
+  const counts = new Uint8Array(complete + 1);
+  for (let mask = 1; mask <= complete; mask += 1) {
+    const bit = mask & -mask;
+    sums[mask] = sums[mask ^ bit] + durationsMs[31 - Math.clz32(bit)];
+    counts[mask] = counts[mask ^ bit] + 1;
+  }
+  const memo = Array.from({ length: workerCount + 1 }, () => new Map());
 
-  function walk(placedMask, loads) {
-    if (placedMask === complete) return Math.max(...loads);
-    const key = `${placedMask}|${loads.join(",")}`;
-    const cached = memo.get(key);
+  function greatestLeastLoad(mask, workers) {
+    if (workers === 1) return sums[mask];
+    if (counts[mask] < workers) return 0;
+    const cached = memo[workers].get(mask);
     if (cached !== undefined) return cached;
-
-    let leastLoadedIndex = 0;
-    for (let index = 1; index < loads.length; index += 1) {
-      if (loads[index] < loads[leastLoadedIndex]) leastLoadedIndex = index;
+    let best = 0;
+    const upper = Math.floor(sums[mask] / workers);
+    const first = mask & -mask;
+    // Anchor one block to its first file to remove worker-label permutations.
+    for (let block = mask; block > 0; block = (block - 1) & mask) {
+      if (!(block & first)) continue;
+      const rest = mask ^ block;
+      if (counts[rest] < workers - 1 || sums[block] <= best || Math.floor(sums[rest] / (workers - 1)) <= best) continue;
+      best = Math.max(best, Math.min(sums[block], greatestLeastLoad(rest, workers - 1)));
+      if (best === upper) break;
     }
-
-    let worst = 0;
-    const consideredDurations = new Set();
-    for (let index = 0; index < durationsMs.length; index += 1) {
-      if (placedMask & (1 << index)) continue;
-      if (consideredDurations.has(durationsMs[index])) continue;
-      consideredDurations.add(durationsMs[index]);
-      const next = [...loads];
-      next[leastLoadedIndex] = loads[leastLoadedIndex] + durationsMs[index];
-      next.sort((left, right) => left - right);
-      const candidate = walk(placedMask | (1 << index), next);
-      if (candidate > worst) worst = candidate;
-    }
-
-    memo.set(key, worst);
-    return worst;
+    memo[workers].set(mask, best);
+    return best;
   }
 
-  return walk(0, new Array(workerCount).fill(0));
+  let worst = 0;
+  for (let index = 0; index < durationsMs.length; index += 1) {
+    const rest = complete ^ (1 << index);
+    if (durationsMs[index] + Math.floor(sums[rest] / workerCount) <= worst) continue;
+    worst = Math.max(worst, durationsMs[index] + greatestLeastLoad(rest, workerCount));
+  }
+  return worst;
 }
 
 function executionUnitMakespanMs(fileDurationsMs, model) {
@@ -874,15 +1093,28 @@ function* canonicalAssignments(length, blockCount) {
   yield* place(0, 0);
 }
 
-function scheduleUnits(files, assignment, unitCount, model) {
+function subsetMakespanFor(files, model) {
+  // An injected lookup is valid only for this exact files vector and model.
+  const cache = new Map();
+  return (mask) => {
+    if (!cache.has(mask)) {
+      const durations = files.filter((_, index) => mask & (1 << index)).map((file) => file.durationMs);
+      cache.set(mask, executionUnitMakespanMs(durations, model));
+    }
+    return cache.get(mask);
+  };
+}
+
+function scheduleUnits(files, assignment, unitCount, model, makespanForSubset) {
   const grouped = Array.from({ length: unitCount }, () => []);
-  assignment.forEach((unitIndex, fileIndex) => grouped[unitIndex].push(files[fileIndex]));
-  return grouped.map((unitFiles) => ({
+  const masks = new Array(unitCount).fill(0);
+  assignment.forEach((unitIndex, fileIndex) => {
+    grouped[unitIndex].push(files[fileIndex]);
+    masks[unitIndex] |= 1 << fileIndex;
+  });
+  return grouped.map((unitFiles, unitIndex) => ({
     files: unitFiles,
-    makespanMs: executionUnitMakespanMs(
-      unitFiles.map((file) => file.durationMs),
-      model,
-    ),
+    makespanMs: makespanForSubset(masks[unitIndex]),
   }));
 }
 
@@ -900,7 +1132,7 @@ function assignmentIsFeasible(units, model) {
  * then does the model enumerate assignments, and it refuses rather than samples
  * when the file count or the unit count leaves its declared bounds.
  */
-function computeMinimumUnitCount(files, model) {
+function computeMinimumUnitCount(files, model, makespanForSubset = subsetMakespanFor(files, model), observeAssignment) {
   if (files.length === 0) {
     return { minimumUnitCount: null, refusal: "the schedule model has no manifested files to schedule" };
   }
@@ -942,7 +1174,8 @@ function computeMinimumUnitCount(files, model) {
   const maximumUnitCount = Math.min(files.length, model.maximumEnumeratedUnitCount);
   for (let unitCount = 1; unitCount <= maximumUnitCount; unitCount += 1) {
     for (const assignment of canonicalAssignments(files.length, unitCount)) {
-      const units = scheduleUnits(files, assignment, unitCount, model);
+      observeAssignment?.("minimum", unitCount, assignment);
+      const units = scheduleUnits(files, assignment, unitCount, model, makespanForSubset);
       if (assignmentIsFeasible(units, model)) {
         return { minimumUnitCount: unitCount, witness: units, refusal: null };
       }
@@ -958,15 +1191,32 @@ function computeMinimumUnitCount(files, model) {
   };
 }
 
-function bestAssignmentAt(files, unitCount, model) {
+function bestAssignmentAt(
+  files,
+  unitCount,
+  model,
+  makespanForSubset = subsetMakespanFor(files, model),
+  observeAssignment,
+) {
   if (unitCount < 1 || unitCount > files.length) return null;
   let best = null;
   for (const assignment of canonicalAssignments(files.length, unitCount)) {
-    const units = scheduleUnits(files, assignment, unitCount, model);
+    observeAssignment?.("oneFewer", unitCount, assignment);
+    const units = scheduleUnits(files, assignment, unitCount, model, makespanForSubset);
     const worst = Math.max(...units.map((unit) => unit.makespanMs));
     if (!best || worst < best.worstMakespanMs) best = { units, worstMakespanMs: worst };
   }
   return best;
+}
+
+function calculateMinimumAndOneFewer(files, model, observeAssignment) {
+  const makespanForSubset = subsetMakespanFor(files, model);
+  const minimum = computeMinimumUnitCount(files, model, makespanForSubset, observeAssignment);
+  const oneFewer =
+    minimum.minimumUnitCount > 1
+      ? bestAssignmentAt(files, minimum.minimumUnitCount - 1, model, makespanForSubset, observeAssignment)
+      : null;
+  return { ...minimum, oneFewer };
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,7 +1587,7 @@ function projectExecutionUnitSchedule({
     );
   }
 
-  const { minimumUnitCount, refusal } = computeMinimumUnitCount(scheduledFiles, scheduleModel);
+  const { minimumUnitCount, refusal, oneFewer } = calculateMinimumAndOneFewer(scheduledFiles, scheduleModel);
   if (refusal) {
     violations.push(refusal);
   } else if (shippedUnits.length > minimumUnitCount) {
@@ -1353,11 +1603,6 @@ function projectExecutionUnitSchedule({
     );
   }
 
-  const oneFewerUnit =
-    minimumUnitCount && minimumUnitCount > 1
-      ? bestAssignmentAt(scheduledFiles, minimumUnitCount - 1, scheduleModel)
-      : null;
-
   return {
     units: shippedUnits.map((unit) => ({
       scriptName: unit.scriptName,
@@ -1371,10 +1616,10 @@ function projectExecutionUnitSchedule({
     minimumUnitCount: minimumUnitCount ?? null,
     aggregateMs,
     aggregateWithOverheadMs,
-    oneFewerUnit: oneFewerUnit
+    oneFewerUnit: oneFewer
       ? {
           unitCount: minimumUnitCount - 1,
-          units: oneFewerUnit.units.map((unit) => ({
+          units: oneFewer.units.map((unit) => ({
             fileNames: unit.files.map((file) => file.fileName),
             makespanMs: unit.makespanMs,
           })),
@@ -1391,6 +1636,7 @@ export function checkBootstrapDbEnrollment({
   manifest = bootstrapDbEnrollmentManifest,
   executionUnitBootBearingCaseCeilings = bootstrapDbExecutionUnitBootBearingCaseCeilings,
   scheduleModel = bootstrapDbScheduleModel,
+  nonBootstrapCensus = platformApiNonBootstrapDbCensus,
 } = {}) {
   const root = platformApiRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const testDirectory = resolve(root, "__tests__");
@@ -1414,7 +1660,15 @@ export function checkBootstrapDbEnrollment({
   }
 
   const partitionFileNames = Object.keys(manifest);
-  const partitionMemberships = new Map(partitionFileNames.map((fileName) => [fileName, []]));
+  const census = derivePlatformApiDbTestCensus({ platformApiRoot: root });
+  const configExcludes = readVitestIncludeGlobs(root).excludes ?? [];
+  violations.push(...census.violations);
+  const manifestedPaths = new Map(partitionFileNames.map((fileName) => [`__tests__/${fileName}`, fileName]));
+  const bootstrapEntries = new Set(census.bootstrapEntries);
+  const dbEntries = new Set(census.dbEntries);
+  const partitionMemberships = new Map(
+    [...new Set([...manifestedPaths.keys(), ...dbEntries])].map((entry) => [entry, []]),
+  );
   const partitionScripts = selectedDbPartitionScripts(packageScripts);
   if (partitionScripts.length === 0) {
     violations.push("package.json must publish at least one numbered test:db:* partition script");
@@ -1428,24 +1682,81 @@ export function checkBootstrapDbEnrollment({
     }
   }
   for (const [scriptName, command] of partitionScripts) {
-    for (const fileName of referencedDbTestFileOrder(command)) {
-      const memberships = partitionMemberships.get(fileName);
-      if (!memberships) {
-        violations.push(`${scriptName} references unmanifested bootstrap DB file '${fileName}'`);
+    const { filter, options } = readVitestInvocation(command, scriptName, violations);
+    if (
+      (options.config !== undefined && resolve(root, options.config) !== resolve(root, "vitest.config.ts")) ||
+      options.root ||
+      options.dir ||
+      options.project ||
+      options.testNamePattern ||
+      options.shard ||
+      options.changed ||
+      options.related
+    ) {
+      violations.push(
+        `${scriptName} changes the canonical Vitest discovery or case selection; complete DB entry execution is required`,
+      );
+    }
+    if (filter.length === 0) violations.push(`${scriptName} must select explicit DB test entry filters`);
+    const excludes = [...configExcludes, ...(options.exclude ?? [])].map((glob) =>
+      globToRegExp(glob.replaceAll("\\", "/")),
+    );
+    for (const value of filter) {
+      const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
+      const matches = census.entries.filter((entry) => entry.toLowerCase().includes(normalized.toLowerCase()));
+      if (matches.length !== 1) {
+        violations.push(`${scriptName} filter '${value}' must select exactly one test entry; found ${matches.length}`);
         continue;
       }
-      memberships.push(scriptName);
+      const [entry] = matches;
+      if (excludes.some((pattern) => pattern.test(entry))) {
+        violations.push(`${scriptName} excludes selected DB test entry '${entry}'`);
+        continue;
+      }
+      if (bootstrapEntries.has(entry) && !manifestedPaths.has(entry)) {
+        violations.push(`${scriptName} references unmanifested bootstrap DB file '${entry}'`);
+      } else if (!dbEntries.has(entry)) {
+        violations.push(`${scriptName} selects non-DB test entry '${entry}'`);
+      }
+      partitionMemberships.get(entry)?.push(scriptName);
     }
   }
-  for (const [fileName, memberships] of partitionMemberships) {
+  for (const [entry, memberships] of partitionMemberships) {
+    const fileName = manifestedPaths.get(entry) ?? entry;
     if (memberships.length !== 1) {
       violations.push(
         `${fileName} must appear in exactly one numbered test:db:* partition script; found ${memberships.length}${
           memberships.length > 0 ? ` (${memberships.join(", ")})` : ""
         }`,
       );
-    } else if (memberships[0] !== manifest[fileName].executionUnit) {
+      if (memberships.length === 0 && dbEntries.has(entry)) {
+        violations.push(`${entry} is not selected by any numbered unit`);
+      }
+    } else if (manifest[fileName] && memberships[0] !== manifest[fileName].executionUnit) {
       violations.push(`${fileName} belongs in ${manifest[fileName].executionUnit}, not ${memberships[0]}`);
+    }
+  }
+
+  if (
+    validatedScheduleModel &&
+    (nonBootstrapCensus.referenceRunId !== validatedScheduleModel.referenceRunId ||
+      nonBootstrapCensus.referenceJobId !== validatedScheduleModel.referenceJobId)
+  ) {
+    violations.push(
+      "non-bootstrap DB census reference is stale relative to the schedule model; re-measurement required",
+    );
+  }
+  const nonBootstrapEntries = new Set(census.dbEntries.filter((entry) => !bootstrapEntries.has(entry)));
+  for (const entry of new Set([...nonBootstrapEntries, ...Object.keys(nonBootstrapCensus.entries)])) {
+    const expectedUnit = nonBootstrapCensus.entries[entry];
+    const memberships = partitionMemberships.get(entry) ?? [];
+    if (
+      !nonBootstrapEntries.has(entry) ||
+      !expectedUnit ||
+      memberships.length !== 1 ||
+      memberships[0] !== expectedUnit
+    ) {
+      violations.push(`${entry} non-bootstrap DB census changed; re-measurement required`);
     }
   }
 
@@ -1492,12 +1803,11 @@ export function checkBootstrapDbEnrollment({
       violations.push(`package.json must publish ${scriptName}`);
       continue;
     }
-    const excludedFiles = new Set(
-      [...command.matchAll(/--exclude(?:=|\s+)__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]),
-    );
-    for (const fileName of partitionFileNames) {
-      if (!excludedFiles.has(fileName)) {
-        violations.push(`${scriptName} must exclude __tests__/${fileName}`);
+    const { options } = readVitestInvocation(command, scriptName, violations);
+    const excludes = (options.exclude ?? []).map((glob) => globToRegExp(glob.replaceAll("\\", "/")));
+    for (const entry of new Set([...manifestedPaths.keys(), ...dbEntries])) {
+      if (!excludes.some((pattern) => pattern.test(entry))) {
+        violations.push(`${scriptName} must exclude ${entry}`);
       }
     }
   }
@@ -1547,25 +1857,12 @@ export function checkBootstrapDbEnrollment({
   // through its import graph, has to be manifested and scheduled. A new DB test
   // that merely imports the harness is therefore undiscovered until it is
   // actually enrolled, rather than silently running outside every unit.
-  const { globs: includeGlobs, violation: includeViolation } = readVitestIncludeGlobs(root);
-  if (includeViolation) {
-    violations.push(includeViolation);
-  } else {
-    const includePatterns = includeGlobs.map((glob) => globToRegExp(glob));
-    const harnessImportCache = new Map();
-    for (const filePath of collectSourceFilesUnder(testDirectory)) {
-      const relativePath = relative(root, filePath).replaceAll("\\", "/");
-      if (!includePatterns.some((pattern) => pattern.test(relativePath))) continue;
-      if (!importsBootstrapHarness(filePath, readFileSync(filePath, "utf8"), testDirectory, harnessImportCache)) {
-        continue;
-      }
-      const fileName = filePath.split(/[\\/]/).at(-1);
-      if (!partitionMemberships.has(fileName)) {
-        violations.push(
-          `${relativePath} is an executable test entry that stands up a bootstrap database but is not manifested ` +
-            "in any numbered test:db:* execution unit",
-        );
-      }
+  for (const entry of bootstrapEntries) {
+    if (!manifestedPaths.has(entry)) {
+      violations.push(
+        `${entry} is an executable test entry that stands up a bootstrap database but is not manifested ` +
+          "in any numbered test:db:* execution unit",
+      );
     }
   }
 
@@ -1717,6 +2014,10 @@ const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;
 if (invokedPath === fileURLToPath(import.meta.url)) {
   const result = checkBootstrapDbEnrollment();
   console.log(formatBootstrapDbEnrollmentResult(result));
+  const census = derivePlatformApiDbTestCensus();
+  console.log(
+    `Platform API DB census: ${census.dbEntries.length} entries = ${census.bootstrapEntries.length} bootstrap + ${census.dbEntries.length - census.bootstrapEntries.length} non-bootstrap; ${census.entries.length} include-selected entries scanned.`,
+  );
   if (result.violations.length > 0) {
     process.exitCode = 1;
   }

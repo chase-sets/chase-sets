@@ -26,6 +26,7 @@ import {
   type PlatformLease,
   type ProjectionOperationRecord,
 } from "./control-plane";
+import { randomUUID } from "node:crypto";
 import { attachRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
 import type { PostgresWorkSignalStore } from "./work-signal-store";
 import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
@@ -118,11 +119,43 @@ export type WorkerRuntimeObserver = Readonly<{
   leaseMissed?: (event: WorkerLeaseEvent) => void;
   leaseRenewFailed?: (event: WorkerLeaseEvent & Readonly<{ error?: unknown }>) => void;
   runnerCompleted?: (event: WorkerRunnerCompletedEvent) => void;
+  projectionStatusObserved?: (status: ContextProjectionGroupStatus) => void;
   runnerFailed?: (event: WorkerRunnerFailedEvent) => void;
   projectionOperationStarted?: (event: WorkerProjectionOperationEvent) => void;
   projectionOperationCompleted?: (event: WorkerProjectionOperationEvent) => void;
   projectionOperationFailed?: (event: WorkerProjectionOperationEvent & Readonly<{ error: unknown }>) => void;
+  holderLifecycle?: (event: WorkerHolderLifecycleEvent) => void;
 }>;
+
+export type WorkerHolderLifecycleOutcome = "success" | "error" | "cancelled" | "lease-lost";
+export type WorkerHolderLifecycleDisposition = "retained" | "release-pending" | "lost";
+export type WorkerHolderLifecycleReason = "idle" | "stop" | "renewal-loss";
+
+type WorkerHolderLifecycleCommon = Readonly<{
+  workerId: string;
+  runnerName: string;
+  leaseIntervalId: string;
+  timestamp: string;
+  elapsedMs: number;
+}>;
+
+type WorkerHolderLifecycleBoundary =
+  | Readonly<{ phase: "acquired" }>
+  | Readonly<{ phase: "pass-start"; passSeq: number }>
+  | Readonly<{ phase: "run-start"; passSeq: number }>
+  | Readonly<{ phase: "run-end"; passSeq: number; outcome: WorkerHolderLifecycleOutcome }>
+  | Readonly<{
+      phase: "pass-end";
+      passSeq: number;
+      outcome: WorkerHolderLifecycleOutcome;
+      disposition: WorkerHolderLifecycleDisposition;
+      processed?: number;
+    }>
+  | Readonly<{ phase: "released"; reason: WorkerHolderLifecycleReason }>
+  | Readonly<{ phase: "release-failed"; reason: WorkerHolderLifecycleReason }>
+  | Readonly<{ phase: "lost"; reason: "renewal-loss" }>;
+
+export type WorkerHolderLifecycleEvent = WorkerHolderLifecycleCommon & WorkerHolderLifecycleBoundary;
 
 export type WorkerLeaseEvent = Readonly<{
   workerId: string;
@@ -272,6 +305,7 @@ type WorkerStatusPublishState = {
 };
 
 type HeldRunnerLease = {
+  workerId: string;
   runner: WorkerRunner;
   leaseName: string;
   lease: PlatformLease;
@@ -281,6 +315,10 @@ type HeldRunnerLease = {
   renewalTimer: ReturnType<typeof setInterval> | null;
   activeRunCount: number;
   releaseAfterActiveRun: boolean;
+  leaseIntervalId: string;
+  acquiredAtMonotonicMs: number;
+  nextPassSeq: number;
+  terminalEventEmitted: boolean;
   releasePromise?: Promise<void>;
 };
 
@@ -518,12 +556,32 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
+  const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
   const refreshableRunners = options.runners.filter((runner) => runner.refreshPriority);
   const priorityRefreshIntervalMs = Math.max(0, Math.floor(options.priorityRefreshIntervalMs ?? 0));
   let priorityRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let priorityRefreshing = false;
+  let holderLifecycleErrorReported = false;
+  const notifyHolderLifecycle = (runner: WorkerRunner, event: WorkerHolderLifecycleEvent): void => {
+    if (runner.kind !== "projection-group" || !options.observer?.holderLifecycle) {
+      return;
+    }
+    try {
+      options.observer.holderLifecycle(event);
+    } catch (error) {
+      if (holderLifecycleErrorReported) {
+        return;
+      }
+      holderLifecycleErrorReported = true;
+      try {
+        options.onError?.(error, runner);
+      } catch {
+        // Observer failures must never alter runner control flow.
+      }
+    }
+  };
   const statusPublishState: WorkerStatusPublishState = {
     heartbeatIntervalMs: Math.max(
       0,
@@ -553,7 +611,11 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     immediate.unref?.();
   };
 
-  const releaseHeldRunnerLease = async (heldLease: HeldRunnerLease, scheduleAfterRelease = false): Promise<void> => {
+  const releaseHeldRunnerLease = async (
+    heldLease: HeldRunnerLease,
+    scheduleAfterRelease = false,
+    reason: WorkerHolderLifecycleReason = "stop",
+  ): Promise<void> => {
     heldLease.leaseActive = false;
     heldLease.abortController.abort();
     if (heldLease.renewalTimer) {
@@ -569,7 +631,19 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       });
     }
 
-    await heldLease.releasePromise;
+    try {
+      await heldLease.releasePromise;
+    } catch (error) {
+      if (!heldLease.terminalEventEmitted) {
+        heldLease.terminalEventEmitted = true;
+        notifyHolderLifecycle(heldLease.runner, holderLifecycleEvent(heldLease, { phase: "release-failed", reason }));
+      }
+      throw error;
+    }
+    if (!heldLease.terminalEventEmitted) {
+      heldLease.terminalEventEmitted = true;
+      notifyHolderLifecycle(heldLease.runner, holderLifecycleEvent(heldLease, { phase: "released", reason }));
+    }
     if (scheduleAfterRelease) {
       queueImmediateSchedule();
     }
@@ -586,6 +660,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       clearInterval(heldLease.renewalTimer);
       heldLease.renewalTimer = null;
     }
+    notifyHolderLifecycle(heldLease.runner, holderLifecycleEvent(heldLease, { phase: "lost", reason: "renewal-loss" }));
     options.observer?.leaseRenewFailed?.({
       ...leaseEvent(options.workerId, heldLease.runner, heldLease.lease),
       ...(error === undefined ? {} : { error }),
@@ -595,7 +670,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       return;
     }
 
-    void releaseHeldRunnerLease(heldLease, true).catch((releaseError: unknown) => {
+    void releaseHeldRunnerLease(heldLease, true, "renewal-loss").catch((releaseError: unknown) => {
       options.onError?.(releaseError, heldLease.runner);
     });
   };
@@ -631,7 +706,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       return existingLease;
     }
     if (existingLease) {
-      await releaseHeldRunnerLease(existingLease);
+      await releaseHeldRunnerLease(existingLease, false, "renewal-loss");
     }
 
     const lease = await options.controlPlane.acquireLease({
@@ -651,6 +726,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
     }
 
     const heldLease: HeldRunnerLease = {
+      workerId: options.workerId,
       runner,
       leaseName,
       lease,
@@ -660,9 +736,14 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       renewalTimer: null,
       activeRunCount: 0,
       releaseAfterActiveRun: false,
+      leaseIntervalId: runner.kind === "projection-group" ? randomUUID() : "",
+      acquiredAtMonotonicMs: performance.now(),
+      nextPassSeq: 0,
+      terminalEventEmitted: false,
     };
     heldRunnerLeases.set(leaseName, heldLease);
     startLeaseRenewal(heldLease);
+    notifyHolderLifecycle(runner, holderLifecycleEvent(heldLease, { phase: "acquired" }));
     return heldLease;
   };
 
@@ -690,6 +771,7 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
               releaseHeldRunnerLease,
               runAbortController.signal,
               statusPublishState,
+              notifyHolderLifecycle,
             )
           : ({ leaseAcquired: false } satisfies LeasedRunnerOutcome);
       })
@@ -741,15 +823,17 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           //   already-satisfied) — the push-wake fast path degrades to the
           //   polling loop's rotation latency, which stretches to minutes
           //   during post-rollout replay.
-          // Busy passes (processed > 0) keep the lease and reschedule
-          // immediately, so backlog draining never churns its lease.
+          // Productive continuations reuse the lease; schedule releases a
+          // retained holder only after selection leaves it inactive.
           if (acquiredLease && shouldYieldIdleProjectionGroupLease(runner, completedResult)) {
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
             // freed lease stays available for queued wakes and operations.
-            void releaseHeldRunnerLease(acquiredLease, false).catch((error: unknown) => {
+            void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
               options.onError?.(error, runner);
             });
+          } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
+            retainedProjectionLeases.add(acquiredLease);
           }
           try {
             if (shouldRescheduleAfterCompletion(runner, completedResult)) {
@@ -885,6 +969,28 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         }
         nextRunnerIndex = (selection.index + 1) % options.runners.length;
         startRunner(selection.runner, "shared");
+      }
+
+      for (const heldLease of retainedProjectionLeases) {
+        if (activeRunnerNames.has(heldLease.runner.name) || !heldLease.leaseActive) {
+          retainedProjectionLeases.delete(heldLease);
+          continue;
+        }
+        // Another runner can share this lease, including one selected above
+        // whose asynchronous acquisition has not incremented activeRunCount yet.
+        if (
+          heldLease.activeRunCount > 0 ||
+          options.runners.some(
+            (runner) =>
+              activeRunnerNames.has(runner.name) && createWorkerRunnerLeaseName(runner) === heldLease.leaseName,
+          )
+        ) {
+          continue;
+        }
+        retainedProjectionLeases.delete(heldLease);
+        void releaseHeldRunnerLease(heldLease, false, "idle").catch((error: unknown) => {
+          options.onError?.(error, heldLease.runner);
+        });
       }
     } finally {
       scheduling = false;
@@ -1097,9 +1203,14 @@ async function runLeasedRunner(
   options: WorkerRunnerLoopOptions,
   runner: WorkerRunner,
   heldLease: HeldRunnerLease,
-  releaseHeldRunnerLease: (heldLease: HeldRunnerLease, scheduleAfterRelease?: boolean) => Promise<void>,
+  releaseHeldRunnerLease: (
+    heldLease: HeldRunnerLease,
+    scheduleAfterRelease?: boolean,
+    reason?: WorkerHolderLifecycleReason,
+  ) => Promise<void>,
   runSignal?: AbortSignal,
   statusPublishState?: WorkerStatusPublishState,
+  notifyHolderLifecycle?: (runner: WorkerRunner, event: WorkerHolderLifecycleEvent) => void,
 ): Promise<LeasedRunnerOutcome> {
   if (runSignal?.aborted) {
     return { leaseAcquired: true };
@@ -1132,8 +1243,17 @@ async function runLeasedRunner(
     runnerStatuses: new Map<string, PublishedFingerprint>(),
     projectionSnapshots: new Map<string, PublishedFingerprint>(),
   };
+  const passSeq = ++heldLease.nextPassSeq;
+  let passSucceeded = false;
+  let result: ProjectorRunResult | undefined;
+  // Cancellation wins over lease loss, which wins over the run result: a stop
+  // or renewal loss during final status publication remains observable even
+  // when the runner already returned successfully.
+  const observedOutcome = (succeeded: boolean): WorkerHolderLifecycleOutcome =>
+    stoppedCooperatively() ? "cancelled" : heldLeaseLost() ? "lease-lost" : succeeded ? "success" : "error";
 
   try {
+    notifyHolderLifecycle?.(runner, holderLifecycleEvent(heldLease, { phase: "pass-start", passSeq }));
     await maybeRecordRunnerStatus(options, publishState, {
       runnerName: runner.name,
       runnerKind: runner.kind,
@@ -1152,9 +1272,24 @@ async function runLeasedRunner(
         options.projectionTransactionIdleTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
       throwIfLeaseLost,
     };
-    const result = await runner.runOnce(runnerContext);
+    notifyHolderLifecycle?.(runner, holderLifecycleEvent(heldLease, { phase: "run-start", passSeq }));
+    try {
+      result = await runner.runOnce(runnerContext);
+    } finally {
+      notifyHolderLifecycle?.(
+        runner,
+        holderLifecycleEvent(heldLease, { phase: "run-end", passSeq, outcome: observedOutcome(result !== undefined) }),
+      );
+    }
     throwIfLeaseLost();
     const projectionStatusSnapshot = runner.projectionStatusSnapshot?.();
+    if (projectionStatusSnapshot) {
+      try {
+        options.observer?.projectionStatusObserved?.(projectionStatusSnapshot);
+      } catch {
+        // Telemetry must not fail an already-completed projection pass.
+      }
+    }
     options.observer?.runnerCompleted?.({
       ...leaseEvent(options.workerId, runner, lease),
       processed: result.processed,
@@ -1201,6 +1336,7 @@ async function runLeasedRunner(
         { force: result.processed > 0 || state === "degraded" },
       );
     }
+    passSucceeded = true;
     return { leaseAcquired: true, result };
   } catch (error) {
     if (stoppedCooperatively()) {
@@ -1230,11 +1366,25 @@ async function runLeasedRunner(
     }
     throw error;
   } finally {
+    notifyHolderLifecycle?.(
+      runner,
+      holderLifecycleEvent(heldLease, {
+        phase: "pass-end",
+        passSeq,
+        outcome: observedOutcome(passSucceeded),
+        disposition: heldLeaseLost()
+          ? "lost"
+          : stoppedCooperatively() || (passSucceeded && shouldYieldIdleProjectionGroupLease(runner, result))
+            ? "release-pending"
+            : "retained",
+        ...(result === undefined ? {} : { processed: result.processed }),
+      }),
+    );
     runSignal?.removeEventListener("abort", abortForStop);
     heldLease.abortController.signal.removeEventListener("abort", abortForLeaseLoss);
     heldLease.activeRunCount = Math.max(0, heldLease.activeRunCount - 1);
     if (heldLease.releaseAfterActiveRun && heldLease.activeRunCount === 0) {
-      await releaseHeldRunnerLease(heldLease, true);
+      await releaseHeldRunnerLease(heldLease, true, "renewal-loss");
     }
   }
 
@@ -1314,6 +1464,8 @@ export function createProjectionGroupWorkerRunner(
   const idleInTransactionSessionTimeoutMs =
     options.idleInTransactionSessionTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS;
   let rebuildingRevision: number | null = null;
+  let revisionSyncToken: Parameters<ContextProjectionGroup["markRevisionSynced"]>[0];
+  let hasRevisionSyncToken = false;
 
   return {
     name: createProjectionGroupRunnerName(group),
@@ -1338,14 +1490,18 @@ export function createProjectionGroupWorkerRunner(
       };
       try {
         runContext.throwIfLeaseLost?.();
-        const refreshedStatus = await group.refreshStatus();
+        const refreshedStatus = await group.refreshStatus({ captureRevisionSyncToken: true });
+        if (!hasRevisionSyncToken) {
+          revisionSyncToken = refreshedStatus.revisionSyncToken;
+          hasRevisionSyncToken = true;
+        }
         const status = { ...refreshedStatus, recoveryRequired: group.getStatus().recoveryRequired };
         if (status.revisionStale && revisionStaleBehavior === "reject") {
           throw new ProjectionGroupRevisionStaleError(group);
         }
         if (status.recoveryRequired || (status.revisionStale && rebuildingRevision !== group.projectionRevision)) {
           runContext.throwIfLeaseLost?.();
-          await resetProjectionGroup(group, runContext);
+          revisionSyncToken = await resetProjectionGroup(group, runContext);
           rebuildingRevision = group.projectionRevision;
           if (options.onCheckpointsReset) {
             try {
@@ -1371,8 +1527,10 @@ export function createProjectionGroupWorkerRunner(
 
         if (processed === 0 && blockedStreams === 0) {
           runContext.throwIfLeaseLost?.();
-          await group.markRevisionSynced();
+          await group.markRevisionSynced(revisionSyncToken, runContext);
           rebuildingRevision = null;
+          revisionSyncToken = undefined;
+          hasRevisionSyncToken = false;
         }
 
         if (processed > 0 && options.onCheckpointsAdvanced) {
@@ -1392,6 +1550,8 @@ export function createProjectionGroupWorkerRunner(
         };
       } catch (error) {
         rebuildingRevision = null;
+        revisionSyncToken = undefined;
+        hasRevisionSyncToken = false;
         throw error;
       }
     },
@@ -2090,6 +2250,20 @@ function leaseEvent(workerId: string, runner: WorkerRunner, lease: PlatformLease
     leaseName: lease.leaseName,
     ownerId: lease.ownerId,
     fencingToken: lease.fencingToken,
+  };
+}
+
+function holderLifecycleEvent(
+  heldLease: HeldRunnerLease,
+  boundary: WorkerHolderLifecycleBoundary,
+): WorkerHolderLifecycleEvent {
+  return {
+    workerId: heldLease.workerId,
+    runnerName: heldLease.runner.name,
+    leaseIntervalId: heldLease.leaseIntervalId,
+    timestamp: new Date().toISOString(),
+    elapsedMs: Math.max(0, performance.now() - heldLease.acquiredAtMonotonicMs),
+    ...boundary,
   };
 }
 

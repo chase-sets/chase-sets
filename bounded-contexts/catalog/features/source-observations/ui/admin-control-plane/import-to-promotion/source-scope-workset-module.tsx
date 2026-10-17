@@ -173,6 +173,7 @@ function SourceScopeCommandButton({
       <HiddenInput name="seriesName" value={row.commandContext.seriesName ?? ""} />
       <HiddenInput name="expansionId" value={row.commandContext.expansionId ?? ""} />
       <HiddenInput name="expansionName" value={row.commandContext.expansionName ?? ""} />
+      <HiddenInput name="productId" value={row.commandContext.productId ?? ""} />
       <HiddenInput name="selectedObservationIds" value="" />
       <HiddenInput name="promotionPreviewId" value="" />
       <Button type="submit" size="sm" tone="ghost" disabled={!available}>

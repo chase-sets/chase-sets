@@ -29,12 +29,35 @@ import {
 } from "../provider-integration-profiles";
 import {
   planCatalogProviderPromotionCommands,
+  type CatalogProviderPromotionPlanInput,
   type CatalogProviderPromotionResolvedCatalogMapping,
 } from "./provider-promotion-command-planner";
+import {
+  createSyntheticDisplayIdentityQueryable,
+  syntheticCurrentCatalogItem,
+  type SyntheticDisplayIdentityFixture,
+} from "../seeding/synthetic-display-identity-queryable";
+
+// Every plan here runs the validated entry against SYNTHETIC display identity
+// data: a resolving global title template, plus a draft current item for
+// refreshes. Identity-degradation cases build their own fixtures below.
+function planPromotion(
+  input: CatalogProviderPromotionPlanInput & Readonly<{ promoteAsDraft?: boolean }>,
+  displayIdentity: SyntheticDisplayIdentityFixture = {},
+) {
+  return planCatalogProviderPromotionCommands({
+    db: createSyntheticDisplayIdentityQueryable({
+      currentItems:
+        input.mode === "refresh" ? [syntheticCurrentCatalogItem({ catalog_item_id: input.catalogItemId })] : [],
+      ...displayIdentity,
+    }),
+    ...input,
+  });
+}
 
 describe("planCatalogProviderPromotionCommands", () => {
-  it("plans the TCGdex Pokemon card create command sequence from profile catalog mapping", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans the TCGdex Pokemon card create command sequence from profile catalog mapping", async () => {
+    const result = await planPromotion({
       profile: tcgdexPokemonTcgProviderProfile,
       ...profileIdentity(),
       providerKey: "tcgdex",
@@ -113,8 +136,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("promotes approved image evidence through Catalog-owned asset URLs without leaking provider payload facts", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("promotes approved image evidence through Catalog-owned asset URLs without leaking provider payload facts", async () => {
+    const result = await planPromotion({
       profile: tcgdexPokemonTcgProviderProfile,
       ...profileIdentity(),
       providerKey: "tcgdex",
@@ -173,8 +196,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(JSON.stringify(result.plan?.commands)).not.toContain("redacted fixture boundary");
   });
 
-  it("plans refresh without blueprint or category assignment and clears missing asset sets", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans refresh without blueprint or category assignment and clears missing asset sets", async () => {
+    const result = await planPromotion({
       profile: tcgdexPokemonTcgProviderProfile,
       ...profileIdentity(),
       providerKey: "tcgdex",
@@ -210,8 +233,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("preserves actual variant dimensions when refreshing a previously promoted item", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("preserves actual variant dimensions when refreshing a previously promoted item", async () => {
+    const result = await planPromotion({
       profile: tcgdexPokemonTcgProviderProfile,
       ...profileIdentity(),
       providerKey: "tcgdex",
@@ -233,9 +256,9 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("plans Pokemon sealed-product creation with images, asset sets, and external references", () => {
+  it("plans Pokemon sealed-product creation with images, asset sets, and external references", async () => {
     const assetSet = pokemonSealedProductAssetSet();
-    const result = planCatalogProviderPromotionCommands({
+    const result = await planPromotion({
       profile: tcgplayerPokemonSealedProductProviderProfile,
       profileKey: "pokemon-sealed-product-sku",
       profileVersion: "2026.07.13",
@@ -310,8 +333,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     );
   });
 
-  it("plans Pokemon sealed-product refresh without recreating Catalog structure", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans Pokemon sealed-product refresh without recreating Catalog structure", async () => {
+    const result = await planPromotion({
       profile: tcgplayerPokemonSealedProductProviderProfile,
       profileKey: "pokemon-sealed-product-sku",
       profileVersion: "2026.07.13",
@@ -361,9 +384,9 @@ describe("planCatalogProviderPromotionCommands", () => {
     );
   });
 
-  it("plans YGOJSON Yu-Gi-Oh! sealed-product creation with the resolved Set, assets, and external references", () => {
+  it("plans YGOJSON Yu-Gi-Oh! sealed-product creation with the resolved Set, assets, and external references", async () => {
     const assetSet = ygojsonSealedProductAssetSet();
-    const result = planCatalogProviderPromotionCommands({
+    const result = await planPromotion({
       profile: ygojsonYugiohSealedProductReferenceProviderProfile,
       profileKey: "yugioh-sealed-product-reference-data",
       profileVersion: "2026.07.14",
@@ -434,7 +457,7 @@ describe("planCatalogProviderPromotionCommands", () => {
     );
   });
 
-  it("refreshes YGOJSON sealed products without recreating Catalog structure and blocks a missing Set", () => {
+  it("refreshes YGOJSON sealed products without recreating Catalog structure and blocks a missing Set", async () => {
     const input = {
       profile: ygojsonYugiohSealedProductReferenceProviderProfile,
       profileKey: "yugioh-sealed-product-reference-data",
@@ -448,11 +471,11 @@ describe("planCatalogProviderPromotionCommands", () => {
       metadata: { title: "LOB Booster Box (updated)", subtitle: "Yu-Gi-Oh! sealed product" },
       productAssetSet: null,
     };
-    const refreshed = planCatalogProviderPromotionCommands({
+    const refreshed = await planPromotion({
       ...input,
       setReferenceId: "ref_yugioh_set_lob" as ReferenceRecordId,
     });
-    const blocked = planCatalogProviderPromotionCommands(input);
+    const blocked = await planPromotion(input);
 
     expect(refreshed.status).toBe("planned");
     expect(refreshed.plan?.commands).toEqual(
@@ -499,8 +522,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("omits optional Pokemon card field commands when normalized values are absent", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("omits optional Pokemon card field commands when normalized values are absent", async () => {
+    const result = await planPromotion({
       profile: tcgdexPokemonTcgProviderProfile,
       ...profileIdentity(),
       providerKey: "tcgdex",
@@ -524,8 +547,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     ).toEqual([]);
   });
 
-  it("blocks provider-product observations until the profile declares a valid promotion plan", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks provider-product observations until the profile declares a valid promotion plan", async () => {
+    const result = await planPromotion({
       profile: tcgplayerAutomationClientProviderProfile,
       profileKey: "pokemon-single-card-product-sku",
       profileVersion: "2026.06.05",
@@ -550,8 +573,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("plans Magic card-print Catalog Item promotion with Set reference fields", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans Magic card-print Catalog Item promotion with Set reference fields", async () => {
+    const result = await planPromotion({
       profile: scrydexScryfallCardProviderProfile,
       profileKey: "scryfall-card-fixture",
       profileVersion: "2026.06.03",
@@ -605,8 +628,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("plans Magic sealed-product Catalog Item promotion when required facts are sufficient", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans Magic sealed-product Catalog Item promotion when required facts are sufficient", async () => {
+    const result = await planPromotion({
       profile: magicSealedProductProfile(),
       profileKey: "tcgplayer-magic-sealed-fixture",
       profileVersion: "2026.06.03",
@@ -643,8 +666,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     );
   });
 
-  it("plans One Piece card-print Catalog Item promotion with Set reference fields", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans One Piece card-print Catalog Item promotion with Set reference fields", async () => {
+    const result = await planPromotion({
       profile: scrydexOnePieceCardPrintProviderProfile,
       profileKey: "scrydex-one-piece-card-print",
       profileVersion: "2026.06.22",
@@ -692,8 +715,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     );
   });
 
-  it("plans One Piece sealed-product Catalog Item promotion without price or inventory facts", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans One Piece sealed-product Catalog Item promotion without price or inventory facts", async () => {
+    const result = await planPromotion({
       profile: scrydexOnePieceSealedProductProviderProfile,
       profileKey: "scrydex-one-piece-sealed-product",
       profileVersion: "2026.06.22",
@@ -731,8 +754,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(JSON.stringify(result.plan?.commands)).not.toMatch(/price|inventory|seller|listing/i);
   });
 
-  it("plans Lorcana card-print Catalog Item promotion with Set reference fields", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans Lorcana card-print Catalog Item promotion with Set reference fields", async () => {
+    const result = await planPromotion({
       profile: lorcanajsonLorcanaCardReferenceProviderProfile,
       profileKey: "lorcanajson-lorcana-card-reference",
       profileVersion: "2026.06.23",
@@ -780,8 +803,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     );
   });
 
-  it("plans Lorcana sealed-product Catalog Item promotion without price or inventory facts", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans Lorcana sealed-product Catalog Item promotion without price or inventory facts", async () => {
+    const result = await planPromotion({
       profile: lorcanaSealedProductProfile(),
       profileKey: "lorcana-sealed-fixture",
       profileVersion: "2026.06.23",
@@ -819,8 +842,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(JSON.stringify(result.plan?.commands)).not.toMatch(/price|inventory|seller|listing/i);
   });
 
-  it("blocks incomplete Magic card-print facts before command planning", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks incomplete Magic card-print facts before command planning", async () => {
+    const result = await planPromotion({
       profile: scrydexScryfallCardProviderProfile,
       profileKey: "scryfall-card-fixture",
       profileVersion: "2026.06.03",
@@ -849,8 +872,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("blocks incomplete Magic sealed-product facts before command planning", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks incomplete Magic sealed-product facts before command planning", async () => {
+    const result = await planPromotion({
       profile: magicSealedProductProfile(),
       profileKey: "tcgplayer-magic-sealed-fixture",
       profileVersion: "2026.06.03",
@@ -879,8 +902,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("blocks Magic Set reference observations because the current promotion path writes Catalog Items", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks Magic Set reference observations because the current promotion path writes Catalog Items", async () => {
+    const result = await planPromotion({
       profile: {
         ...scrydexScryfallCardProviderProfile,
         normalizedObservationMapping: {
@@ -915,8 +938,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("blocks One Piece Set reference observations because the Catalog Item path writes cards or sealed products", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks One Piece Set reference observations because the Catalog Item path writes cards or sealed products", async () => {
+    const result = await planPromotion({
       profile: {
         ...scrydexOnePieceCardPrintProviderProfile,
         normalizedObservationMapping: {
@@ -966,8 +989,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("blocks Lorcana Set reference observations because the Catalog Item path writes cards or sealed products", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks Lorcana Set reference observations because the Catalog Item path writes cards or sealed products", async () => {
+    const result = await planPromotion({
       profile: {
         ...lorcanajsonLorcanaCardReferenceProviderProfile,
         normalizedObservationMapping: {
@@ -1002,7 +1025,7 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("keeps Magic promotion fingerprints stable for replay and changes when normalized facts change", () => {
+  it("keeps Magic promotion fingerprints stable for replay and changes when normalized facts change", async () => {
     const assets = productAssetSet();
     const reorderedAssets = {
       variants: assets.variants.map((variant) => ({
@@ -1059,13 +1082,13 @@ describe("planCatalogProviderPromotionCommands", () => {
       productAssetSet: assets,
     };
 
-    const first = planCatalogProviderPromotionCommands({ ...baseInput, normalized: magicCardPrintObservation() });
-    const replay = planCatalogProviderPromotionCommands({
+    const first = await planPromotion({ ...baseInput, normalized: magicCardPrintObservation() });
+    const replay = await planPromotion({
       ...baseInput,
       normalized: magicCardPrintObservation(),
       productAssetSet: reorderedAssets,
     });
-    const changed = planCatalogProviderPromotionCommands({
+    const changed = await planPromotion({
       ...baseInput,
       normalized: magicCardPrintObservation({ rarity: "Special" }),
     });
@@ -1077,8 +1100,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(changed.plan?.planFingerprint).not.toBe(first.plan?.planFingerprint);
   });
 
-  it("plans Product Contents promotion only after review resolves one contained Catalog Item target", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("plans Product Contents promotion only after review resolves one contained Catalog Item target", async () => {
+    const result = await planPromotion({
       profile: magicSealedProductProfile(),
       profileKey: "tcgplayer-magic-sealed-fixture",
       profileVersion: "2026.06.03",
@@ -1120,8 +1143,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("does not write Product Contents for observations with retained evidence but no reviewed contents promotion", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("does not write Product Contents for observations with retained evidence but no reviewed contents promotion", async () => {
+    const result = await planPromotion({
       profile: magicSealedProductProfile(),
       profileKey: "tcgplayer-magic-sealed-fixture",
       profileVersion: "2026.06.03",
@@ -1142,8 +1165,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     expect(result.plan?.productContents).toBeNull();
   });
 
-  it("blocks Product Contents promotion when reviewed evidence has no resolved contained target", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks Product Contents promotion when reviewed evidence has no resolved contained target", async () => {
+    const result = await planPromotion({
       profile: magicSealedProductProfile(),
       profileKey: "tcgplayer-magic-sealed-fixture",
       profileVersion: "2026.06.03",
@@ -1169,8 +1192,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("blocks ambiguous Product Contents targets and ambiguous content types", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks ambiguous Product Contents targets and ambiguous content types", async () => {
+    const result = await planPromotion({
       profile: magicSealedProductProfile(),
       profileKey: "tcgplayer-magic-sealed-fixture",
       profileVersion: "2026.06.03",
@@ -1200,8 +1223,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("blocks ambiguous Magic identity preflight before returning executable commands", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks ambiguous Magic identity preflight before returning executable commands", async () => {
+    const result = await planPromotion({
       profile: scrydexScryfallCardProviderProfile,
       profileKey: "scryfall-card-fixture",
       profileVersion: "2026.06.03",
@@ -1235,8 +1258,8 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 
-  it("blocks ambiguous duplicate candidates before returning executable commands", () => {
-    const result = planCatalogProviderPromotionCommands({
+  it("blocks ambiguous duplicate candidates before returning executable commands", async () => {
+    const result = await planPromotion({
       profile: tcgdexPokemonTcgProviderProfile,
       ...profileIdentity(),
       providerKey: "tcgdex",
@@ -1266,6 +1289,261 @@ describe("planCatalogProviderPromotionCommands", () => {
           diagnosticText: "Multiple Catalog Items match this Source Observation's duplicate evidence.",
         },
       ],
+    });
+  });
+
+  describe("display identity validation before commands", () => {
+    // A blueprint template whose title needs the expansion reference's code
+    // attribute; the field definitions map the plan's field ids to keys.
+    const expansionCodeTemplate = {
+      key: "pokemon-card-title",
+      target_kind: "blueprint" as const,
+      target_id: "bp_pokemon_card",
+      priority: 10,
+      title_template: "{field.card-name} {field.card-number} {reference.expansion.attributes.code}",
+      subtitle_template: null,
+      required_field_keys: ["card-name"],
+    };
+    const fields = [
+      { field_id: "field_card_name", key: "card-name" },
+      { field_id: "field_card_number", key: "card-number" },
+      { field_id: "field_expansion", key: "expansion" },
+    ];
+    const expansionWithCode = {
+      reference_record_id: "ref_expansion_sword_shield",
+      type_key: "expansion",
+      key: "swsh1",
+      name: "Sword & Shield",
+      attributes: { code: "SSH" },
+      relationships: [],
+      status: "active",
+    };
+    const expansionWithoutCode = { ...expansionWithCode, attributes: {} };
+
+    function createInput(
+      overrides: Partial<CatalogProviderPromotionPlanInput> = {},
+    ): CatalogProviderPromotionPlanInput {
+      return {
+        profile: tcgdexPokemonTcgProviderProfile,
+        ...profileIdentity(),
+        providerKey: "tcgdex",
+        externalKey: "swsh1-001",
+        mode: "create",
+        catalogItemId: "cat_001" as CatalogItemId,
+        normalized: pokemonCardObservation(),
+        catalog: catalogMapping(),
+        expansionReferenceId: "ref_expansion_sword_shield" as ReferenceRecordId,
+        metadata: { title: "Pikachu", subtitle: "" },
+        productAssetSet: null,
+        preflight: { status: "ready" },
+        ...overrides,
+      };
+    }
+
+    it("resolves a create against the complete proposed item and binds the resolver outcome into the fingerprint", async () => {
+      const fixture = { fields, templates: [expansionCodeTemplate], referenceRecords: [expansionWithCode] };
+      const result = await planPromotion(createInput(), fixture);
+      const replay = await planPromotion(createInput(), fixture);
+      const changedReference = await planPromotion(createInput(), {
+        ...fixture,
+        referenceRecords: [{ ...expansionWithCode, attributes: { code: "SSH2" } }],
+      });
+
+      expect(result.status).toBe("planned");
+      expect(result.diagnostics).toEqual([]);
+      expect(result.plan?.displayIdentity).toMatchObject({
+        resolutionStatus: "resolved",
+        missingTokens: [],
+        templateKey: "pokemon-card-title",
+      });
+      expect(result.plan?.promoteAsDraft).toBe(false);
+      expect(replay.plan?.planFingerprint).toBe(result.plan?.planFingerprint);
+      // Same commands, different resolver input: the fingerprint must re-plan.
+      expect(changedReference.plan?.commands).toEqual(result.plan?.commands);
+      expect(changedReference.plan?.planFingerprint).not.toBe(result.plan?.planFingerprint);
+    });
+
+    it("blocks a create whose matched template has an unresolved title token and names the token", async () => {
+      const result = await planPromotion(createInput(), {
+        fields,
+        templates: [expansionCodeTemplate],
+        referenceRecords: [expansionWithoutCode],
+      });
+
+      expect(result).toEqual({
+        status: "blocked",
+        plan: null,
+        diagnostics: [
+          {
+            code: "display-identity-unresolvable",
+            path: "displayIdentity",
+            diagnosticText: "Matched template has unresolved title tokens.",
+            displayIdentity: {
+              missingTokens: ["reference.expansion.attributes.code"],
+              templateKey: "pokemon-card-title",
+              templateTargetKind: "blueprint",
+              templateTargetId: "bp_pokemon_card",
+              templateReason: "unresolved-title-tokens",
+            },
+          },
+        ],
+      });
+    });
+
+    it("blocks when no display template targets the item and when the targeted template misses required fields", async () => {
+      const noTemplate = await planPromotion(createInput(), { fields, templates: [], referenceRecords: [] });
+      const missingRequired = await planPromotion(createInput(), {
+        fields,
+        templates: [{ ...expansionCodeTemplate, required_field_keys: ["card-name", "card-illustrator", "rarity"] }],
+        referenceRecords: [expansionWithCode],
+      });
+
+      expect(noTemplate.status).toBe("blocked");
+      expect(noTemplate.diagnostics[0]).toMatchObject({
+        code: "display-identity-unresolvable",
+        diagnosticText: "No display template targets this item.",
+        displayIdentity: { missingTokens: ["template"], templateKey: null, templateReason: "no-targeted-template" },
+      });
+      expect(missingRequired.status).toBe("blocked");
+      expect(missingRequired.diagnostics[0]).toMatchObject({
+        code: "display-identity-unresolvable",
+        diagnosticText: "Targeted template is missing required fields.",
+        displayIdentity: {
+          missingTokens: ["card-illustrator", "rarity"],
+          templateKey: null,
+          templateReason: "missing-required-fields",
+        },
+      });
+    });
+
+    it("overlays every refresh mutation on the current item, retaining a required current field the plan does not touch", async () => {
+      // The current item already carries the illustrator field the template
+      // requires; a refresh keeps it while replacing the fields it does set.
+      const currentItem = syntheticCurrentCatalogItem({
+        catalog_item_id: "cat_existing",
+        blueprint_id: "bp_pokemon_card",
+        field_values: [{ fieldId: "field_illustrator", value: "Retained Illustrator" }],
+      });
+      const template = { ...expansionCodeTemplate, required_field_keys: ["card-name", "card-illustrator"] };
+      const refreshFields = [...fields, { field_id: "field_illustrator", key: "card-illustrator" }];
+      const retained = await planPromotion(
+        createInput({
+          mode: "refresh",
+          catalogItemId: "cat_existing" as CatalogItemId,
+          normalized: pokemonCardObservation({ illustrator: null }),
+        }),
+        {
+          fields: refreshFields,
+          templates: [template],
+          referenceRecords: [expansionWithCode],
+          currentItems: [currentItem],
+        },
+      );
+      const degradedByReferenceChange = await planPromotion(
+        createInput({ mode: "refresh", catalogItemId: "cat_existing" as CatalogItemId }),
+        {
+          fields: refreshFields,
+          templates: [template],
+          referenceRecords: [expansionWithoutCode],
+          currentItems: [currentItem],
+        },
+      );
+
+      expect(retained.status).toBe("planned");
+      expect(retained.plan?.displayIdentity.resolutionStatus).toBe("resolved");
+      expect(degradedByReferenceChange.status).toBe("blocked");
+      expect(degradedByReferenceChange.diagnostics[0]).toMatchObject({
+        code: "display-identity-unresolvable",
+        displayIdentity: { missingTokens: ["reference.expansion.attributes.code"] },
+      });
+    });
+
+    it("blocks a refresh whose current Catalog Item is missing instead of validating a partial tuple", async () => {
+      const result = await planPromotion(
+        createInput({ mode: "refresh", catalogItemId: "cat_missing" as CatalogItemId }),
+        { fields, templates: [expansionCodeTemplate], referenceRecords: [expansionWithCode], currentItems: [] },
+      );
+
+      expect(result.status).toBe("blocked");
+      expect(result.diagnostics[0]).toMatchObject({ code: "missing-catalog-item-target", path: "catalogItemId" });
+    });
+
+    it("lets only an explicit promote-as-draft choice carry a degraded identity, and only for draft-only writes", async () => {
+      const degraded = { fields, templates: [expansionCodeTemplate], referenceRecords: [expansionWithoutCode] };
+      const omitted = await planPromotion(createInput(), degraded);
+      const explicitFalse = await planPromotion({ ...createInput(), promoteAsDraft: false }, degraded);
+      const draftCreate = await planPromotion({ ...createInput(), promoteAsDraft: true }, degraded);
+      const draftRefresh = await planPromotion(
+        { ...createInput({ mode: "refresh", catalogItemId: "cat_existing" as CatalogItemId }), promoteAsDraft: true },
+        { ...degraded, currentItems: [syntheticCurrentCatalogItem({ catalog_item_id: "cat_existing" })] },
+      );
+      const publishedRefresh = await planPromotion(
+        { ...createInput({ mode: "refresh", catalogItemId: "cat_live" as CatalogItemId }), promoteAsDraft: true },
+        { ...degraded, currentItems: [syntheticCurrentCatalogItem({ catalog_item_id: "cat_live", status: "active" })] },
+      );
+
+      expect(omitted.status).toBe("blocked");
+      expect(explicitFalse.status).toBe("blocked");
+      expect(draftCreate.status).toBe("planned");
+      expect(draftCreate.plan?.promoteAsDraft).toBe(true);
+      expect(draftCreate.plan?.displayIdentity.resolutionStatus).toBe("degraded");
+      // The diagnostic stays visible on the planned result.
+      expect(draftCreate.diagnostics).toEqual([
+        expect.objectContaining({
+          code: "display-identity-unresolvable",
+          diagnosticText: "Matched template has unresolved title tokens.",
+        }),
+      ]);
+      expect(draftCreate.plan?.commands.some((command) => command.type === "PublishCatalogItem")).toBe(false);
+      expect(draftRefresh.status).toBe("planned");
+      // Never bypass-update a published item with a degraded identity.
+      expect(publishedRefresh.status).toBe("blocked");
+      expect(publishedRefresh.diagnostics[0]).toMatchObject({ code: "display-identity-unresolvable" });
+      // The draft choice is part of the fingerprint: a resolved plan under each choice differs.
+      const resolved = { fields, templates: [expansionCodeTemplate], referenceRecords: [expansionWithCode] };
+      const publishable = await planPromotion(createInput(), resolved);
+      const draftResolved = await planPromotion({ ...createInput(), promoteAsDraft: true }, resolved);
+      expect(draftResolved.plan?.planFingerprint).not.toBe(publishable.plan?.planFingerprint);
+    });
+
+    it("never copies provider error or body text into the serialized identity diagnostic", async () => {
+      const providerErrorBody =
+        '<html><body>502 Bad Gateway: upstream tcgdex.net timed out; token=sk_live_ABC123; {"error":"boom"}</body></html>';
+      const adversarial = createInput({
+        normalized: pokemonCardObservation({
+          name: providerErrorBody,
+          cardNumber: providerErrorBody,
+          illustrator: providerErrorBody,
+          expansionName: providerErrorBody,
+        }),
+        metadata: { title: providerErrorBody, subtitle: providerErrorBody },
+      });
+      const result = await planPromotion(adversarial, {
+        fields,
+        templates: [expansionCodeTemplate],
+        referenceRecords: [{ ...expansionWithoutCode, name: providerErrorBody }],
+      });
+
+      expect(result.status).toBe("blocked");
+      const serialized = JSON.stringify(result.diagnostics);
+      expect(serialized).not.toContain("502 Bad Gateway");
+      expect(serialized).not.toContain("sk_live");
+      expect(serialized).not.toContain("boom");
+      expect(serialized).not.toContain("<html>");
+      expect(result.diagnostics).toEqual([
+        {
+          code: "display-identity-unresolvable",
+          path: "displayIdentity",
+          diagnosticText: "Matched template has unresolved title tokens.",
+          displayIdentity: {
+            missingTokens: ["reference.expansion.attributes.code"],
+            templateKey: "pokemon-card-title",
+            templateTargetKind: "blueprint",
+            templateTargetId: "bp_pokemon_card",
+            templateReason: "unresolved-title-tokens",
+          },
+        },
+      ]);
     });
   });
 });

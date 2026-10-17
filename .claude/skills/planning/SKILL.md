@@ -36,6 +36,76 @@ Calibration may revise itself mid-flight: when an issue-sized idea grows a secon
 context or a full-path trigger during discovery, escalate the tier — start small,
 escalate the moment scope demands it.
 
+## Agent-owned placement
+
+Choose placement and priority yourself using `docs/contributing/backlog-model.md`.
+Todd's steering overrides routine ordering; it is not a mandatory approval step.
+Todd owns product prioritization: which product outcome or pilot is the current
+priority, and adding or dropping accepted product scope. Everything inside
+that priority is yours.
+Identify the issue's observable acceptance, the outcome that requires it, and
+its genuine native prerequisites. Reuse a milestone for acceptance fit, never
+just a shared theme. Create a bounded outcome when independently usable work
+needs a separate finish line; keep future options in candidate milestones.
+
+Set the outcome metadata and issue Dispatch rank, record material placement
+reasons on the roadmap, and preserve current steering until achieved or
+superseded. Never ask Todd which milestone to use, make him supply routine
+ranks, or turn missing priority evidence into a Decision. Send Todd only a
+product priority or scope change, or an operator action no lane can perform
+([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838628573)).
+Other unresolved product, legal and provider-authority choices inside accepted
+scope go to the orchestrator as host. The host decides same-attempt, in-scope
+repairs itself and records its reasoning. An independent decision lane is
+required only for a change to accepted scope or acceptance criteria, an attempt
+ceiling, ownership or authority, or a cross-lineage question; its verdict is
+final. A decision lane may not return `TODD_RULING_NEEDED`; if it believes Todd
+must decide, the host resolves that finding with a second independent lane.
+Do not use candidate placement to hide stopped implementation or active lanes.
+Planning recovery queries `status:needs-replan` across all milestones, including
+candidates; candidate status only excludes ordinary implementation dispatch.
+
+Apply the [delivery operator boundary](../delivery/SKILL.md#operator-boundary)
+when forecasting human dependencies. Agents own probe preparation, execution,
+monitoring, evidence, cleanup, and reporting, including permitted sandbox/test
+credential entry through supported computer use. Reserve for Todd only production
+credential or real-money authorization/supervision, private entry for credentials
+agents may not hold, protected Windows permission prompts, or an actual
+policy/external-authority step agents cannot lawfully perform; do not assign him
+routine sign-ins or watch windows. Live credentials or real charges do not become
+autonomous sandbox work because the task is called a test. Missing tooling,
+including sandbox/test safe-entry gaps, is agent repair. Preserve actual tool
+policy, secret safety, provider restrictions (including no automated TCGplayer
+login), external approvals at their ruled
+lifecycle, and unrelated reserved authority. This grants no provider or
+production authorization. Explicit performer-specific acceptance needs
+prospective repair through the decision route and independent validation before
+agent execution, never relabeled human evidence.
+
+## Bounded brief contract
+
+A brief:
+
+- is at most about 12 KB of body; anything larger splits into sub-issues with native sub-issue links;
+- carries no collision census. Collision is a controller concern, resolved from GitHub native relationships and the board, not restated in prose;
+- lists at most five don't-rebuild pointers, each a path or symbol, not a narrative;
+- never designates a live draft PR as read-only salvage. A reviewed draft PR is always the implementation head for its issue; salvage applies only to a branch with no push in seven days;
+- states acceptance as observable outcomes with the proving check named once, and repeats no policy that the orchestrator or review contract already owns.
+
+For this contract, "about 12 KB" means at most 12 × 1024 = 12,288
+UTF-8 bytes in the Markdown issue body. Put any don't-rebuild pointers under a
+`Don't-rebuild pointers` heading with one backticked path or symbol per list
+item. Before registration, render the prospective issue body to a Markdown
+file and run:
+
+```powershell
+node ./scripts/brief-lint.mjs <path-to-brief.md>
+```
+
+Apply this contract to new planning and to the next planning round for an
+existing issue. Never rewrite, split, or re-register existing open briefs
+solely to adopt it.
+
 ## Pipeline
 
 Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milestone: all.
@@ -44,7 +114,10 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    track placement plus entry/exit gates against other milestones.
 2. **Discovery.** Repo evidence sweep: owning contexts' README/GLOSSARY, prior
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
-   never reimplementation. Check glossary conformance of every term the plan
+   never reimplementation. Run a **supersession check**: inventory every existing
+   path the planned change replaces or makes redundant, including code, docs,
+   flags, and workflows. Stage 2-light for Issues still requires this check.
+   Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
 
@@ -59,10 +132,18 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
 3. **Decomposition.** Vertical slices, one behavior owner each. **Footprint
    analysis drives topology:** slices sharing files form declared serial chains;
    disjoint slices form parallel waves. Declare the chain DAG explicitly — this
-   is what lets the orchestrator parallelize lanes safely.
+   is what lets the orchestrator parallelize lanes safely. Place each superseded
+   path's removal in the replacing slice or in a removal slice natively dependent
+   on the switchover, in the same committed outcome, never candidate, parked or
+   unfiled work. Each removal has an owning acceptance criterion and named
+   evidence method.
 4. **Decision extraction.** Enumerate every decision the work will hit. Resolve
    what repo evidence can; everything else goes to the decision queue NOW, each
    with a recommendation — never leave a known decision to surface mid-lane.
+   The queue is the orchestrator and its independent decision lanes, not Todd,
+   unless the decision changes product priority or scope. Route it by the
+   threshold in Agent-owned placement: same-attempt, in-scope repairs stay with
+   the host; the listed heavier changes get a final independent verdict.
    Issues behind an unresolved decision are created blocked, linked to it.
    Route every authority-timing uncertainty (will this AC's data exist from
    the external authority at the moment implementation needs it?) to a
@@ -70,6 +151,8 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    (`references/issue-standard.md` item 8).
 5. **Drafting.** Author artifacts per the reference standards. Every path
    terminates in issues meeting `references/issue-standard.md`, whatever the tier.
+   For Issues tier, Stage 5 performs the removal placement specified in
+   Decomposition; tier shortcuts never skip the supersession check or placement.
 6. **Pressure test.** Adversarial pass in a FRESH context (independent agent)
    per `references/pressure-test.md`. Repair findings before registration.
 7. **Registration.** Create on GitHub (issue forms under `.github/ISSUE_TEMPLATE/`)
@@ -77,9 +160,18 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    - every child **attached as a sub-issue** of its epic (one parent per slice);
    - every chain link recorded as a **GitHub issue dependency**, not only as a
      `Blocked by #N` line;
+   - when a replacement round dispositions a predecessor, before removing its
+     parent link in the same registration pass, confirm that the predecessor's
+     disposition is already recorded, exactly one durable disposition comment
+     or record names the successor set, and every successor carries a
+     reverse-reference to the predecessor; first attach every successor that
+     carries the parent's acceptance as a child of that parent; only after every
+     attached successor carries that parentage, detach the predecessor from the
+     parent in the same registration pass. If no successor is attached to the
+     parent, keep the predecessor's parent link;
    - every open slice classified (`refined ≡ classified`) with a wave milestone
      + `priority:*` + `area:*` + `kind:*`, excluding Epics,
-     `status:tracking-only`, `Deferred / Incubation`, and `Operations` (the
+     `status:tracking-only`, candidate outcomes, `Deferred / Incubation`, and `Operations` (the
      slice form's dropdowns set the labels; API-created issues must set type and
      labels explicitly);
    - parent attachment is reported, not gating: attach a slice to the Epic that
@@ -114,7 +206,7 @@ contract (`planning-repair/v1`) automatically; solo sessions follow the same
 shape.
 
 Before Stage 1, gather and state: the closed PR with its **exact head and
-branch** (read-only salvage), every blocking finding ID from the reviews that
+branch** (historical evidence), every blocking finding ID from the reviews that
 stopped it, the decision issues that governed it and how each resolved, and
 current `origin/main` — the findings were written against a head that has moved.
 
@@ -169,6 +261,7 @@ highest-traffic first.
 
 Calibration, decomposition, decision extraction, and synthesis are frontier-
 judgment work (model-routing row 8). Discovery sweeps and drafting mechanics go
-to cheap workers. The pressure test runs on an independent capable model, never
-the one that wrote the plan. Always route by exact model version; a successor is
-a new model with new evidence, and predecessor vetoes or scores never transfer.
+to cheap workers. The pressure test runs in a fresh session (new agent, no planning
+context) on the row-8 routing pick, which may be the model that wrote the plan.
+Always route by exact model version; a successor is a new model with new
+evidence, and predecessor vetoes or scores never transfer.

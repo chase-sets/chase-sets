@@ -6,6 +6,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  ProgressiveDisclosureGroup,
   Stack,
   Surface,
   Table,
@@ -20,7 +21,6 @@ import {
   type FeeComparisonCompetitor,
   type PublicMarketplaceFeeSchedule,
 } from "./fee-comparison-calculator";
-import { launchTimeline } from "./launch-config";
 import { PublicPresencePageShell } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -61,7 +61,6 @@ function competitorKey(competitor: FeeComparisonCompetitor, suffix: string) {
 function competitorValues(competitor: FeeComparisonCompetitor) {
   return {
     ...competitorFeeFactValues[competitor],
-    ...launchTimeline,
     competitor: t(competitorNameKeys[competitor]),
   };
 }
@@ -85,6 +84,9 @@ export function compareMeta(competitor: FeeComparisonCompetitor, publicOrigin = 
   ];
 }
 
+/** Stable bounded item identity for the disclosure group; positions match `buildCompareFaqEntries`. */
+const compareFaqItemValues = ["competitor-fees", "chase-sets-fees", "keep-more", "launch"] as const;
+
 /** The visible FAQ and the FAQPage structured data render from this same list. */
 export function buildCompareFaqEntries(competitor: FeeComparisonCompetitor) {
   const values = competitorValues(competitor);
@@ -104,7 +106,7 @@ export function buildCompareFaqEntries(competitor: FeeComparisonCompetitor) {
     },
     {
       question: t("publicPresence.faq.launch.question"),
-      answer: t("publicPresence.faq.launch.answer", launchTimeline),
+      answer: t("publicPresence.faq.launch.answer"),
     },
   ] as const;
 }
@@ -196,7 +198,6 @@ export function ComparePage({
 }) {
   const competitorName = t(competitorNameKeys[competitor]);
   const values = competitorValues(competitor);
-  const otherCompetitor: FeeComparisonCompetitor = competitor === "tcgplayer" ? "ebay" : "tcgplayer";
 
   // Truth gate: the Chase Sets fee cell only shows numbers from the live
   // published schedule; without it the cell points at the published
@@ -213,7 +214,7 @@ export function ComparePage({
     [t("publicPresence.compare.row.sellerFees"), chaseSetsFeeCell, t(competitorKey(competitor, "sellerFees"), values)],
     ...chaseSetsCellKeys.map(([rowKey, chaseSetsKey], index) => [
       t(rowKey),
-      t(chaseSetsKey, launchTimeline),
+      t(chaseSetsKey),
       t(competitorKey(competitor, competitorCellSuffixes[index]), values),
     ]),
   ];
@@ -242,35 +243,32 @@ export function ComparePage({
           />
         </PageSection>
         <Grid columns={{ base: 1, md: 2 }} gap={4}>
-          <Surface elevated>
+          <Surface elevation="tinted">
             <Stack gap={3}>
               <Heading level={2}>{t("publicPresence.compare.why.title")}</Heading>
               <Text tone="secondary">{t("publicPresence.compare.why.body")}</Text>
             </Stack>
           </Surface>
-          <Surface elevated>
+          <Surface elevation="tinted">
             <Stack gap={3}>
               <Heading level={2}>{t("publicPresence.compare.honesty.title", values)}</Heading>
               <Text tone="secondary">{t(competitorKey(competitor, "honesty.body"), values)}</Text>
             </Stack>
           </Surface>
         </Grid>
-        <FeeCalculatorSection schedule={feeSchedule} compareLinks={[otherCompetitor]} />
+        <FeeCalculatorSection schedule={feeSchedule} competitor={competitor} />
         <PageSection data-public-presence-section="compare_faq" title={t("publicPresence.compare.faq.title")}>
-          <Grid columns={{ base: 1, md: 2 }} gap={4}>
-            {buildCompareFaqEntries(competitor).map((entry) => (
-              <Surface key={entry.question} tone="subtle">
-                <Stack gap={2}>
-                  <Heading level={3}>{entry.question}</Heading>
-                  <Text tone="secondary">{entry.answer}</Text>
-                </Stack>
-              </Surface>
-            ))}
-          </Grid>
+          <ProgressiveDisclosureGroup
+            items={buildCompareFaqEntries(competitor).map((entry, index) => ({
+              value: compareFaqItemValues[index],
+              title: entry.question,
+              content: entry.answer,
+            }))}
+          />
         </PageSection>
-        <Surface tone="subtle">
+        <Surface tone="subtle" elevation="tinted">
           <Stack gap={3}>
-            <Text tone="secondary">{t("publicPresence.compare.cta.text", launchTimeline)}</Text>
+            <Text tone="secondary">{t("publicPresence.compare.cta.text")}</Text>
             <Inline gap={2}>
               <LinkButton
                 href="/#waitlist-form"

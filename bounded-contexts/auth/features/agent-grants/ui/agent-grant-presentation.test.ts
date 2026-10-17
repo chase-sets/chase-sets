@@ -1,4 +1,13 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { cleanup, render, screen } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { ChaseRoot } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
+import { CHANNEL_CONNECTOR_SCOPE_FAMILY } from "@chase-sets/auth-context";
+import { AgentGrantDetailPage } from "./agent-grant-detail-page";
+import { AgentConsentPage } from "./agent-consent-page";
 import type { AgentGrant } from "./contracts";
 import {
   agentGrantActivityOutcomeTone,
@@ -27,6 +36,48 @@ function grant(overrides: Partial<AgentGrant> = {}): AgentGrant {
     ...overrides,
   };
 }
+
+afterEach(cleanup);
+it.each(["consent", "grant"])("shows capability scope labels on the %s screen", (surface) => {
+  const scopes = ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"];
+  const element =
+    surface === "grant"
+      ? createElement(AgentGrantDetailPage, { grant: grant({ scopes }), activity: [], webhook: null })
+      : createElement(AgentConsentPage, {
+          consentToken: "synthetic-token",
+          consent: {
+            clientName: "Synthetic Agent",
+            redirectOrigin: "https://agent.example",
+            sessionId: "synthetic-session",
+            accountId: "account-one",
+            accountName: "Account One",
+            scopes,
+            memberships: [],
+            authorizePath: "/ucp/oauth/authorize",
+          },
+        });
+  const router = createMemoryRouter([{ path: "/", element }]);
+  render(createElement(ChaseRoot, { linkComponent: RouterLinkAdapter }, createElement(RouterProvider, { router })));
+  expect(screen.getByText("Manage checkout", { exact: false })).toBeTruthy();
+  expect(screen.getByText("Read orders", { exact: false })).toBeTruthy();
+  expect(screen.queryByText("Read checkout", { exact: false })).toBeNull();
+});
+
+it("connector-scope-family-isolation: agent grant detail never advertises connector scopes", () => {
+  const router = createMemoryRouter([
+    {
+      path: "/",
+      element: createElement(AgentGrantDetailPage, {
+        grant: grant({ scopes: CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes }),
+        activity: [],
+        webhook: null,
+      }),
+    },
+  ]);
+  render(createElement(ChaseRoot, { linkComponent: RouterLinkAdapter }, createElement(RouterProvider, { router })));
+  expect(screen.getByText("This connection has no granted scopes.")).toBeTruthy();
+  for (const scope of CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes) expect(screen.queryByText(scope)).toBeNull();
+});
 
 describe("agentGrantStatusTone", () => {
   it("maps active to success and revoked to danger", () => {
@@ -58,7 +109,6 @@ describe("agentGrantPaymentRailLabel", () => {
   it("has a plain-language label for every supported rail", () => {
     expect(agentGrantPaymentRailLabel("handoff-only")).toBe("Trusted checkout handoff");
     expect(agentGrantPaymentRailLabel("stored-pm")).toBe("Saved payment method");
-    expect(agentGrantPaymentRailLabel("ap2")).toBe("AP2 mandate");
   });
 });
 
@@ -74,7 +124,7 @@ describe("agentGrantSpendSummary", () => {
         daily_cap_cents: 5_000,
         monthly_cap_cents: 20_000,
         human_present_required: false,
-        allowed_rails: ["ap2"],
+        allowed_rails: ["stored-pm"],
       },
       spend: { daily_cents: 1_250, monthly_cents: 1_250 },
     });

@@ -13,7 +13,7 @@ contracted events without importing infrastructure observability directly.
 - Runtime metrics use `chase_sets_checkout_observability_events_total`. Operator queries must use the typed profile event names and bounded label values only.
 - Unassigned fulfillment and optional savings optimization emit readiness telemetry before checkout. Checkout telemetry may consume the accepted or declined decision, but must not record checkout-time allocation or optimization repair.
 - Operator-signal rows emit `capability-decision` so enabled, disabled, unsupported, provider-limited, and risk-held states are operable.
-- Support-visible states emit support-safe references only. No raw `afterWrite`, cookies, emails, addresses, provider payloads, checkout session ids, account ids, event ids, full URLs, card data, bank data, secrets, or sensitive risk signals belong in telemetry, operator views, or GitHub issue comments.
+- Support-visible states emit support-safe references only. No raw `afterWrite`, cookies, emails, addresses, provider payloads, checkout session ids, account ids, event ids, full URLs, anonymous owner keys, request headers or bodies, raw exception messages or stacks, card data, bank data, secrets, or sensitive risk signals belong in telemetry, operator views, or GitHub issue comments.
 - Pending downstream rows emit `downstream-status` so confirmation, Marketplace handoff, notification, account history, reconciliation, and reversal states cannot imply completed Ordering, Fulfillment, Settlement, Notifications, Support, or Payments facts before the owning context commits them.
 
 ## Operator View
@@ -45,7 +45,8 @@ Rows add focused dimensions such as `readiness-contract`, `readiness-snapshot-ve
 | Buy Cart review ready | `checkout.cart.review_ready` | funnel | event-only | No | Cart review telemetry shows mutable intent rendered without checkout repair machinery. |
 | Buy readiness attention | `checkout.readiness.unassigned_fulfillment` | readiness | support-alert | Yes | Unassigned fulfillment telemetry stays in readiness and shows no downstream side effects started. |
 | Buy readiness savings optimization | `checkout.readiness.optimization_decision` | readiness | event-only | No | Optimization telemetry records accepted or declined savings before checkout entry. |
-| Guest Buy Checkout | `checkout.buy.guest_review_rendered` | checkout-entry | event-only | No | Guest buy checkout telemetry shows form-first review rendered from current readiness only. |
+| Guest Buy Checkout | `checkout.buy.guest_review_rendered` | checkout-entry | event-only | No | Guest buy checkout telemetry shows one-step entry rendered from current union readiness only. |
+| Cart merge best-effort failure | `checkout.entry.cart_merge_best_effort_failed` | checkout-entry | event-only | No | Cart entry continues from the Account-plus-presented-anonymous union after a copy merge failure. |
 | Signed-in Buy Checkout | `checkout.buy.signed_in_review_rendered` | checkout-entry | event-only | No | Signed-in buy telemetry shows saved rows rendered with fresh account facts. |
 | Sell List review ready | `checkout.sell_list.review_ready` | funnel | event-only | No | Sell List review telemetry shows seller intent rendered before sale action commitment. |
 | Sell List readiness blocked | `checkout.sell_list.readiness_blocked` | readiness | support-alert | Yes | Seller readiness telemetry keeps eligibility, payout, label, and provider blockers before checkout. |

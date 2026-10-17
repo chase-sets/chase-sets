@@ -7,18 +7,61 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { createDemandCurveCloser } from "../features/market-estimates/api/demand-curve-closer";
+import { getDemandCurve, listDemandCurvePoints } from "../features/market-estimates/read-model/demand-curve-queries";
+import {
+  curveFingerprint,
+  demandCurveModelVersion,
+  demandCurveStreamId,
+} from "../features/market-estimates/read-model/demand-curve-writes";
+import { pricingDemandCurveSchemaMigrations } from "../features/market-estimates/read-model/demand-curve-schema";
+import { seedDemandCurveParityFixture } from "../features/market-estimates/tests/demand-curve-db-fixture";
+import type { MoneyAmount } from "@chase-sets/primitives/money";
 import {
   MARKET_STAT_HYGIENE_COMPILED_REVISION_ID,
   MARKET_STAT_HYGIENE_LEGACY_UNTRIMMED_REVISION_ID,
 } from "../features/market-rollups/read-model/stat-hygiene-policy-revision";
+import { buildPricingMarketTradesProjectionHandlers } from "../features/market-trades/integrations/source/source-projection";
+import { buildPricingInventoryInputProjectionHandlers } from "../features/recommendations/integrations/source/source-projection";
+import { composePricingInventoryEconomicsProjectionHandlers } from "../features/economics/integrations/inventory/projection";
+import { deriveCostBasisFacts } from "../features/economics/domain/derivation";
+import { ECONOMICS_LAUNCH_POLICY_VALUE, type ResolvedEconomicsPolicy } from "../features/economics/domain/policy";
+import type { EconomicsEvidenceSnapshot } from "../features/economics/domain/resolution";
+import {
+  createPostgresEconomicsEvidenceReader,
+  economicsInventoryCheckpointKey,
+  economicsSalesCheckpointKey,
+} from "../features/economics/read-model/evidence-queries";
+import { buildEconomicsOverrideProjectionHandlers } from "../features/economics/read-model/override-projection";
+import { readCurrentEconomicsOverrides } from "../features/economics/read-model/override-queries";
 import { module as pricingModule } from "../index";
+import { runDailyRollupCloser } from "../features/market-rollups/read-model/rollup-maintenance";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
+
+function event(
+  id: string,
+  type: string,
+  streamVersion: number,
+  data: Record<string, unknown>,
+  occurredAt: string,
+  recordedAt: string,
+) {
+  return {
+    id,
+    type,
+    streamId: `stream_${id}`,
+    streamVersion,
+    data,
+    timing: { occurredAt, recordedAt },
+  } as never;
+}
 
 describeDb("pricing schema upgrades", () => {
   let pools: Readonly<Record<"pricing", PgTransactionalPool>>;
@@ -32,9 +75,212 @@ describeDb("pricing schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  it("keeps pre-denomination versions null across two boots and rebuilds them on the next closer pass", async () => {
+    const pool = pools.pricing;
+    const migration = pricingDemandCurveSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261011_pricing_demand_curve_currency_freshness",
+    )!;
+    // Execute the deployed boot shape, not the new columns with manufactured null values.
+    const oldModule = {
+      ...pricingModule,
+      schemaSql: migration.statements.reduce((sql, statement) => sql.replace(statement, ""), pricingModule.schemaSql),
+      schemaMigrations: pricingModule.schemaMigrations?.filter((entry) => entry.migrationId !== migration.migrationId),
+    };
+    await bootstrapContextDatabase(oldModule, pool);
+    const { builtAt, identities } = await seedDemandCurveParityFixture(pool);
+    const identity = identities[0]!;
+    const legacyFingerprint = curveFingerprint({ modelVersion: "pooled-supply-v1" });
+    const eventStore = createPostgresEventStore({ pool });
+    await pool.query(
+      `INSERT INTO pricing_demand_curve_versions
+       (catalog_item_id,product_id,version,provider_condition,provider_variant,provider_language,fingerprint,
+        model_version,policy_revision_id,ladder_method,exposure_start_reason,sales_coverage,supply_status,built_at)
+       VALUES ($1,$2,1,'Near Mint','Normal','English',$3,'pooled-supply-v1','synthetic-legacy','neutral-condition-fallback',
+               'history-window','complete','unavailable',$4)`,
+      [identity.catalogItemId, identity.productId, legacyFingerprint, builtAt],
+    );
+    await eventStore.appendToStream({
+      streamId: demandCurveStreamId(identity),
+      expectedVersion: "no_stream",
+      context: {
+        tenantId: "tnt_synthetic_curve_upgrade" as never,
+        audit: { performedByUserId: "usr_synthetic_upgrade" as never, forAccountId: "acc_synthetic_upgrade" as never },
+      },
+      events: [
+        {
+          eventType: "pricing.liquidity-estimated",
+          payload: {
+            schemaVersion: 1,
+            catalogItemId: identity.catalogItemId,
+            productId: identity.productId,
+            curveVersion: 1,
+            fingerprint: legacyFingerprint,
+            builtAt,
+            fastestMedianSellDays: null,
+            marketMedianSellDays: null,
+            competingSellerCount: null,
+            supplyStatus: "unavailable",
+          },
+        },
+      ],
+    });
+    await bootstrapContextDatabase(pricingModule, pool);
+    await bootstrapContextDatabase(pricingModule, pool);
+    expect(
+      (
+        await pool.query(`SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id=$1`, [
+          migration.migrationId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    const old = await getDemandCurve(pool, { ...identity, asOf: builtAt });
+    expect(old).toMatchObject({ version: 1, currencyCode: null, freshUntil: null, fingerprint: legacyFingerprint });
+    const closer = createDemandCurveCloser({
+      pool,
+      eventStore,
+      policies: createPolicyRuntime({ eventStore, db: pool }),
+    });
+    expect(await closer.runDemandCurveCloser({ now: builtAt })).toMatchObject({ built: 2 });
+    const rebuilt = await getDemandCurve(pool, { ...identity, asOf: builtAt });
+    expect(demandCurveModelVersion).not.toBe("pooled-supply-v1");
+    expect(curveFingerprint({ modelVersion: demandCurveModelVersion })).not.toBe(legacyFingerprint);
+    expect(rebuilt).toMatchObject({
+      version: 2,
+      currencyCode: "USD",
+      modelVersion: demandCurveModelVersion,
+      freshUntil: new Date(Date.parse(builtAt) + 48 * 3_600_000).toISOString(),
+    });
+    expect(rebuilt!.fingerprint).not.toBe(legacyFingerprint);
+    expect(await listDemandCurvePoints(pool, { ...identity, version: 2 })).toHaveLength(19);
+    expect(
+      (
+        await pool.query(
+          `SELECT currency_code,fresh_until FROM pricing_demand_curve_versions
+      WHERE catalog_item_id=$1 AND product_id=$2 AND version=1`,
+          [identity.catalogItemId, identity.productId],
+        )
+      ).rows,
+    ).toEqual([{ currency_code: null, fresh_until: null }]);
+    expect(await eventStore.readStream({ streamId: demandCurveStreamId(identity) })).toHaveLength(2);
+  });
+
+  it("guards an old-boot currency migration, preserves USD rows, and re-derives mixed days in bounded passes", async () => {
+    const pool = pools.pricing;
+    await pool.query(pricingModule.schemaSql);
+    for (const table of ["pricing_daily_product_rollups", "pricing_product_market_aggregates"]) {
+      await pool.query(`ALTER TABLE ${table} DROP CONSTRAINT ${table}_pkey`);
+      await pool.query(`ALTER TABLE ${table} DROP COLUMN currency_code`);
+    }
+    await pool.query(`ALTER TABLE pricing_daily_product_rollups
+      ADD PRIMARY KEY (catalog_catalog_item_id, product_id, day)`);
+    await pool.query(`ALTER TABLE pricing_product_market_aggregates
+      ADD PRIMARY KEY (catalog_catalog_item_id, product_id)`);
+    for (const [product, currency, order] of [
+      ["usd", "USD", "ord_usd"],
+      ["mixed", "USD", "ord_mixed_usd"],
+      ["mixed", "EUR", "ord_mixed_eur"],
+    ]) {
+      await pool.query(
+        `INSERT INTO pricing_market_trades
+         (order_id, line_id, seller_account_id, buyer_account_id, catalog_catalog_item_id, product_id,
+          unit_price_amount, currency_code, quantity, sale_channel, sold_at, updated_at)
+         VALUES ($1, 'line_1', 'seller', 'buyer', 'cat', $2, 10, $3, 1, 'buy-now', '2026-07-01', now())`,
+        [order, product, currency],
+      );
+    }
+    await pool.query(`INSERT INTO pricing_market_trades
+      (order_id, line_id, seller_account_id, buyer_account_id, catalog_catalog_item_id, product_id,
+       unit_price_amount, quantity, sale_channel, sold_at, updated_at)
+      VALUES ('ord_unknown', 'line_1', 'seller', 'buyer', 'cat', 'unknown', 10, 1, 'buy-now', '2026-07-01', now())`);
+    await pool.query(`INSERT INTO pricing_daily_product_rollups
+      (catalog_catalog_item_id, product_id, day, trade_count, updated_at)
+      VALUES ('cat', 'usd', '2026-07-01', 1, now()), ('cat', 'mixed', '2026-07-01', 2, now())`);
+    await pool.query(`INSERT INTO pricing_product_market_aggregates
+      (catalog_catalog_item_id, product_id, trade_count_90d, updated_at)
+      VALUES ('cat', 'usd', 1, now()), ('cat', 'mixed', 2, now())`);
+
+    await expect(bootstrapContextDatabase(pricingModule, pool)).rejects.toThrow("must have currency");
+    expect((await pool.query(`SELECT COUNT(*)::integer AS count FROM pricing_daily_product_rollups`)).rows[0]).toEqual({
+      count: 2,
+    });
+    expect(
+      (await pool.query(`SELECT COUNT(*)::integer AS count FROM pricing_product_market_aggregates`)).rows[0],
+    ).toEqual({ count: 2 });
+    await pool.query(`UPDATE pricing_market_trades
+      SET excluded = true, exclusion_reason = 'fraud-flagged' WHERE order_id = 'ord_unknown'`);
+    await pool.query(`INSERT INTO pricing_market_trade_rollup_rederive_queue
+      (catalog_catalog_item_id, product_id, day, queued_at) VALUES ('cat', 'usd', '2026-07-01', now())`);
+    await expect(bootstrapContextDatabase(pricingModule, pool)).rejects.toThrow("queue must drain");
+    await pool.query(`DELETE FROM pricing_market_trade_rollup_rederive_queue`);
+
+    await bootstrapContextDatabase(pricingModule, pool);
+    const pendingBeforeRetry = await pool.query(
+      `SELECT * FROM pricing_market_trade_rollup_rederive_queue ORDER BY product_id, day`,
+    );
+    // Simulate losing the connection after reshape commit but before its ledger receipt.
+    await pool.query(`DELETE FROM bounded_context_schema_migrations
+      WHERE migration_id IN ('20260927_pricing_currency_keyed_rollups', '20260927_pricing_currency_rollup_series_index')`);
+    await bootstrapContextDatabase(pricingModule, pool);
+    expect(
+      (await pool.query(`SELECT * FROM pricing_market_trade_rollup_rederive_queue ORDER BY product_id, day`)).rows,
+    ).toEqual(pendingBeforeRetry.rows);
+    await bootstrapContextDatabase(pricingModule, pool);
+    const existing = await pool.query<{ product_id: string; currency_code: string }>(
+      `SELECT product_id, currency_code FROM pricing_daily_product_rollups ORDER BY product_id`,
+    );
+    expect(existing.rows).toEqual([{ product_id: "usd", currency_code: "USD" }]);
+    const aggregate = await pool.query<{ product_id: string; currency_code: string }>(
+      `SELECT product_id, currency_code FROM pricing_product_market_aggregates ORDER BY product_id`,
+    );
+    expect(aggregate.rows).toEqual([{ product_id: "usd", currency_code: "USD" }]);
+    const queued = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::integer AS count FROM pricing_market_trade_rollup_rederive_queue`,
+    );
+    expect(queued.rows).toEqual([{ count: 3 }]);
+    for (let pass = 0; pass < 3; pass++) {
+      await runDailyRollupCloser(pool, { now: "2026-07-02T00:00:00.000Z", rederiveQueueLimit: 1 });
+    }
+    expect(
+      (await pool.query(`SELECT COUNT(*)::integer AS count FROM pricing_market_trade_rollup_rederive_queue`)).rows[0],
+    ).toEqual({ count: 0 });
+    const split = await pool.query<{ currency_code: string; stat_hygiene_policy_revision_id: string }>(
+      `SELECT currency_code, stat_hygiene_policy_revision_id FROM pricing_daily_product_rollups
+       WHERE product_id = 'mixed' ORDER BY currency_code`,
+    );
+    expect(split.rows).toEqual([
+      { currency_code: "EUR", stat_hygiene_policy_revision_id: MARKET_STAT_HYGIENE_COMPILED_REVISION_ID },
+      { currency_code: "USD", stat_hygiene_policy_revision_id: MARKET_STAT_HYGIENE_COMPILED_REVISION_ID },
+    ]);
+  });
+
+  it("boots currency-keyed tables and series index on a fresh database", async () => {
+    await bootstrapContextDatabase(pricingModule, pools.pricing);
+    await bootstrapContextDatabase(pricingModule, pools.pricing);
+    const index = await pools.pricing.query<{ definition: string; valid: boolean }>(
+      `SELECT pg_get_indexdef(indexrelid) AS definition, indisvalid AS valid FROM pg_index
+       WHERE indexrelid = 'pricing_daily_product_rollups_series_idx'::regclass`,
+    );
+    expect(index.rows[0]?.definition).toContain("currency_code");
+    expect(index.rows[0]?.valid).toBe(true);
+    const checks = await pools.pricing.query<{ convalidated: boolean }>(
+      `SELECT convalidated FROM pg_constraint
+       WHERE conname IN ('pricing_daily_product_rollups_currency_required', 'pricing_product_market_aggregates_currency_required')`,
+    );
+    expect(checks.rows).toEqual([{ convalidated: true }, { convalidated: true }]);
+    const keys = await pools.pricing.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_name IN ('pricing_daily_product_rollups', 'pricing_product_market_aggregates')
+         AND column_name = 'currency_code' AND is_nullable = 'NO' ORDER BY table_name`,
+    );
+    expect(keys.rows).toHaveLength(2);
+  });
+
   it("upgrades deployed pricing schema idempotently across two boots", async () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
+    // The deployed schema predates Own-Sale Observations. The current boot SQL
+    // owns this additive table and must recreate it without a ledgered migration.
+    await pool.query("DROP TABLE pricing_own_sale_observations");
     await pool.query("ALTER TABLE pricing_daily_product_rollups DROP COLUMN stat_hygiene_policy_revision_id");
     await pool.query(
       "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260720_pricing_daily_rollup_policy_revision_binding'",
@@ -43,11 +289,25 @@ describeDb("pricing schema upgrades", () => {
     await pool.query(
       "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260720_pricing_rollup_rederive_queue_generation'",
     );
+    await pool.query("ALTER TABLE pricing_market_trades DROP COLUMN inventory_item_id");
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260908_pricing_market_trades_inventory_item'",
+    );
+    await pool.query("DROP TABLE pricing_inventory_acquisition_lots");
+    await pool.query("DROP TABLE pricing_economics_overrides");
+    await pool.query(
+      `DELETE FROM bounded_context_schema_migrations
+       WHERE migration_id IN (
+         '20260907_pricing_economics_acquisition_lots',
+         '20260907_pricing_economics_overrides',
+         '20260908_pricing_economics_unlogged_projections'
+       )`,
+    );
     await pool.query(
       `INSERT INTO pricing_daily_product_rollups (
-         catalog_catalog_item_id, product_id, day, median_price_amount,
+         catalog_catalog_item_id, product_id, day, currency_code, median_price_amount,
          unit_volume, trade_count, verified_trade_count, updated_at
-       ) VALUES ('cat_deployed', 'prod_deployed', '2026-07-01', 15.00, 8, 8, 0, now())`,
+       ) VALUES ('cat_deployed', 'prod_deployed', '2026-07-01', 'USD', 15.00, 8, 8, 0, now())`,
     );
 
     await bootstrapContextDatabase(pricingModule, pool);
@@ -64,6 +324,11 @@ describeDb("pricing schema upgrades", () => {
         rederive_queue: "pricing_market_trade_rollup_rederive_queue",
       },
     ]);
+
+    const ownSaleTable = await pool.query<{ own_sale_observations: string }>(
+      `SELECT to_regclass('pricing_own_sale_observations')::text AS own_sale_observations`,
+    );
+    expect(ownSaleTable.rows).toEqual([{ own_sale_observations: "pricing_own_sale_observations" }]);
 
     const queueGeneration = await pool.query<{ generation_default: string; nullable: string }>(
       `SELECT column_default AS generation_default, is_nullable AS nullable
@@ -85,9 +350,9 @@ describeDb("pricing schema upgrades", () => {
 
     await pool.query(
       `INSERT INTO pricing_daily_product_rollups (
-         catalog_catalog_item_id, product_id, day, median_price_amount,
+         catalog_catalog_item_id, product_id, day, currency_code, median_price_amount,
          unit_volume, trade_count, verified_trade_count, updated_at
-       ) VALUES ('cat_new', 'prod_new', '2026-07-02', 10.00, 8, 8, 0, now())`,
+       ) VALUES ('cat_new', 'prod_new', '2026-07-02', 'USD', 10.00, 8, 8, 0, now())`,
     );
     const fresh = await pool.query<{ stat_hygiene_policy_revision_id: string }>(
       `SELECT stat_hygiene_policy_revision_id
@@ -109,5 +374,426 @@ describeDb("pricing schema upgrades", () => {
        WHERE migration_id = '20260720_pricing_rollup_rederive_queue_generation'`,
     );
     expect(generationMigration.rows).toEqual([{ applied_count: 1 }]);
+
+    const economicsUpgrade = await pool.query<{
+      inventory_item_column: string;
+      acquisition_lots: string;
+      overrides: string;
+      override_scope_key: string;
+      legacy_connection_column: number;
+      applied_count: number;
+    }>(
+      `SELECT
+         (SELECT is_nullable
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'pricing_market_trades'
+            AND column_name = 'inventory_item_id') AS inventory_item_column,
+         to_regclass('pricing_inventory_acquisition_lots')::text AS acquisition_lots,
+         to_regclass('pricing_economics_overrides')::text AS overrides,
+         (SELECT is_nullable
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'pricing_economics_overrides'
+            AND column_name = 'scope_key') AS override_scope_key,
+         (SELECT COUNT(*)::integer
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'pricing_economics_overrides'
+            AND column_name = 'connection_id') AS legacy_connection_column,
+         (SELECT COUNT(*)::integer
+          FROM bounded_context_schema_migrations
+          WHERE migration_id IN (
+            '20260908_pricing_market_trades_inventory_item',
+            '20260907_pricing_economics_acquisition_lots',
+            '20260907_pricing_economics_overrides',
+            '20260908_pricing_economics_unlogged_projections'
+          )) AS applied_count`,
+    );
+    expect(economicsUpgrade.rows).toEqual([
+      {
+        inventory_item_column: "YES",
+        acquisition_lots: "pricing_inventory_acquisition_lots",
+        overrides: "pricing_economics_overrides",
+        override_scope_key: "NO",
+        legacy_connection_column: 0,
+        applied_count: 4,
+      },
+    ]);
+
+    const persistence = await pool.query<{ relname: string; relpersistence: string }>(
+      `SELECT relname, relpersistence
+       FROM pg_class
+       WHERE relname IN (
+         'pricing_external_catalog_item_reference_inputs',
+         'pricing_external_market_captures',
+         'pricing_external_sale_observations',
+         'pricing_external_weekly_sale_buckets',
+         'pricing_external_listing_snapshots',
+         'pricing_external_listing_ask_depth',
+         'pricing_inventory_acquisition_lots',
+         'pricing_economics_overrides'
+       )
+       ORDER BY relname`,
+    );
+    expect(persistence.rows).toEqual([
+      { relname: "pricing_economics_overrides", relpersistence: "u" },
+      { relname: "pricing_external_catalog_item_reference_inputs", relpersistence: "u" },
+      { relname: "pricing_external_listing_ask_depth", relpersistence: "p" },
+      { relname: "pricing_external_listing_snapshots", relpersistence: "p" },
+      { relname: "pricing_external_market_captures", relpersistence: "p" },
+      { relname: "pricing_external_sale_observations", relpersistence: "p" },
+      { relname: "pricing_external_weekly_sale_buckets", relpersistence: "p" },
+      { relname: "pricing_inventory_acquisition_lots", relpersistence: "u" },
+    ]);
+  });
+
+  it("persists explicit acquisition and sale occurrences for account-qualified Economics history", async () => {
+    expect(new Date("2026-08-01T04:00:00.000-05:00")).toEqual(new Date("2026-08-01T09:00:00.000Z"));
+    expect(new Date("2026-08-01T09:00:00.000-05:00")).not.toEqual(new Date("2026-08-01T09:00:00.000Z"));
+    const pool = pools.pricing;
+    await bootstrapContextDatabase(pricingModule, pool);
+    const inventoryHandlers = composePricingInventoryEconomicsProjectionHandlers(
+      pool,
+      buildPricingInventoryInputProjectionHandlers(pool),
+    );
+    const created = event(
+      "evt_inventory",
+      "inventory.item.created",
+      1,
+      {
+        itemId: "item_1",
+        accountId: "seller_1",
+        catalogItemId: "cat_1",
+        productId: "product_1",
+        totalQuantity: 2,
+        acquisitionCostAmount: "5.00",
+        acquisitionCostCurrencyCode: "USD",
+        acquisitionOccurrence: {
+          kind: "occurred",
+          occurredAt: "2026-08-01T09:00:00.000Z",
+          source: "import-supplied",
+        },
+      },
+      "2026-09-01T10:00:00.000Z",
+      "2026-09-01T10:00:05.000Z",
+    );
+    await inventoryHandlers["inventory.item.created"]!(created);
+    const cleanFirstWrite = await pool.query(
+      `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
+              acquired_at, occurrence_source, last_source_event_id, last_source_event_recorded_at
+       FROM pricing_inventory_acquisition_lots`,
+    );
+    expect(cleanFirstWrite.rows).toEqual([
+      {
+        account_id: "seller_1",
+        inventory_item_id: "item_1",
+        event_stream_version: 1,
+        quantity: 2,
+        occurrence_kind: "occurred",
+        acquired_at: new Date("2026-08-01T09:00:00.000Z"),
+        occurrence_source: "import-supplied",
+        last_source_event_id: "evt_inventory",
+        last_source_event_recorded_at: new Date("2026-09-01T10:00:05.000Z"),
+      },
+    ]);
+    await inventoryHandlers["inventory.item.created"]!(created);
+    const exactReplay = await pool.query(
+      `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
+              acquired_at, occurrence_source, last_source_event_id, last_source_event_recorded_at
+       FROM pricing_inventory_acquisition_lots`,
+    );
+    expect(exactReplay.rows).toEqual(cleanFirstWrite.rows);
+    await expect(
+      inventoryHandlers["inventory.item.created"]!(
+        event(
+          "evt_inventory_conflict",
+          "inventory.item.created",
+          1,
+          {
+            itemId: "item_1",
+            accountId: "seller_1",
+            catalogItemId: "cat_1",
+            productId: "product_1",
+            totalQuantity: 2,
+            acquisitionCostAmount: "5.00",
+            acquisitionOccurrence: { kind: "unknown" },
+          },
+          "2026-09-01T10:00:00.000Z",
+          "2026-09-01T10:00:06.000Z",
+        ),
+      ),
+    ).rejects.toThrow(/conflicts with a different source event/);
+    const conflictingSourceRefused = await pool.query(
+      `SELECT account_id, inventory_item_id, event_stream_version, quantity, occurrence_kind,
+              acquired_at, occurrence_source, last_source_event_id, last_source_event_recorded_at
+       FROM pricing_inventory_acquisition_lots`,
+    );
+    expect(conflictingSourceRefused.rows).toEqual(cleanFirstWrite.rows);
+    await inventoryHandlers["inventory.item.adjusted"]!(
+      event(
+        "evt_adjust_unknown",
+        "inventory.item.adjusted",
+        2,
+        { itemId: "item_1", quantityDelta: 1 },
+        "2026-09-02T10:00:00.000Z",
+        "2026-09-02T10:00:05.000Z",
+      ),
+    );
+    await inventoryHandlers["inventory.item.adjusted"]!(
+      event(
+        "evt_adjust_negative",
+        "inventory.item.adjusted",
+        3,
+        { itemId: "item_1", quantityDelta: -1, acquisitionOccurrence: { kind: "unknown" } },
+        "2026-09-03T10:00:00.000Z",
+        "2026-09-03T10:00:05.000Z",
+      ),
+    );
+
+    const tradeHandlers = buildPricingMarketTradesProjectionHandlers(pool);
+    await tradeHandlers["ordering.order.created"]!(
+      event(
+        "evt_order",
+        "ordering.order.created",
+        1,
+        {
+          orderId: "order_1",
+          sourceType: "cart-checkout",
+          buyerAccountId: "buyer_1",
+          sellerAccountId: "seller_1",
+          lines: [
+            {
+              lineId: "line_1",
+              inventoryItemId: "item_1",
+              catalogItemId: "cat_1",
+              productId: "product_1",
+              unitPriceAmount: "10.00",
+              quantity: 1,
+            },
+          ],
+        },
+        "2026-09-05T12:00:00.000Z",
+        "2026-09-05T12:00:01.000Z",
+      ),
+    );
+    await tradeHandlers["ordering.order.ready-for-fulfillment-recorded"]!(
+      event(
+        "evt_ready",
+        "ordering.order.ready-for-fulfillment-recorded",
+        2,
+        { orderId: "order_1", readyForFulfillmentAt: "2026-09-05T12:30:00.000Z" },
+        "2026-09-05T12:30:00.000Z",
+        "2026-09-05T12:45:00.000Z",
+      ),
+    );
+    await pool.query(
+      `INSERT INTO event_subscription_checkpoints (
+         checkpoint_key, projection_name, source_context_name, subscription_version,
+         last_global_position, lease_owner_id, lease_fencing_token, updated_at
+       ) VALUES
+         ($1, 'pricing-inventory-input-projection', 'inventory', 3, 41, NULL, NULL, '2026-09-05T13:00:00.000Z'),
+         ($2, 'pricing-market-trades-projection', 'ordering', 2, 57, NULL, NULL, '2026-09-05T13:05:00.000Z')`,
+      [economicsInventoryCheckpointKey, economicsSalesCheckpointKey],
+    );
+
+    const evidence = await createPostgresEconomicsEvidenceReader(pool).resolve({
+      accountId: "seller_1",
+      scope: { kind: "native-marketplace" },
+      catalogItemId: "cat_1",
+      inventoryItemId: "item_1",
+      marketUnitPrice: { amount: "10.00" as MoneyAmount, currency: "usd" },
+      quantity: 1,
+      effectiveAt: "2026-09-06T00:00:00.000Z",
+    });
+
+    expect(evidence.acquisitions).toMatchObject([
+      {
+        accountId: "seller_1",
+        inventoryItemId: "item_1",
+        quantity: 2,
+        occurrence: {
+          kind: "occurred",
+          occurredAt: "2026-08-01T09:00:00.000Z",
+          source: "import-supplied",
+        },
+      },
+      { accountId: "seller_1", inventoryItemId: "item_1", quantity: 1, occurrence: { kind: "unknown" } },
+    ]);
+    expect(evidence.sales).toEqual([
+      {
+        accountId: "seller_1",
+        inventoryItemId: "item_1",
+        saleId: "order_1:line_1",
+        quantity: 1,
+        soldAt: "2026-09-05T12:30:00.000Z",
+        excluded: false,
+      },
+    ]);
+    expect(evidence.costLots).toMatchObject([
+      {
+        accountId: "seller_1",
+        inventoryItemId: "item_1",
+        quantity: 2,
+        acquisitionCostPerUnit: { amount: "5.00", currency: "usd" },
+        observedAt: "2026-09-03T10:00:05.000Z",
+      },
+    ]);
+    expect(evidence).toMatchObject({
+      inventoryWatermark: `${economicsInventoryCheckpointKey}@41`,
+      pricingWatermark: `${economicsSalesCheckpointKey}@57`,
+      inventoryObservedAt: "2026-09-05T13:00:00.000Z",
+      pricingObservedAt: "2026-09-05T13:05:00.000Z",
+    });
+
+    const acquisitionRows = await pool.query<{
+      event_stream_version: number;
+      occurrence_kind: string;
+      acquired_at: Date | null;
+      last_source_event_recorded_at: Date;
+    }>(
+      `SELECT event_stream_version, occurrence_kind, acquired_at, last_source_event_recorded_at
+       FROM pricing_inventory_acquisition_lots
+       ORDER BY event_stream_version`,
+    );
+    expect(acquisitionRows.rows).toEqual([
+      {
+        event_stream_version: 1,
+        occurrence_kind: "occurred",
+        acquired_at: new Date("2026-08-01T09:00:00.000Z"),
+        last_source_event_recorded_at: new Date("2026-09-01T10:00:05.000Z"),
+      },
+      {
+        event_stream_version: 2,
+        occurrence_kind: "unknown",
+        acquired_at: null,
+        last_source_event_recorded_at: new Date("2026-09-02T10:00:05.000Z"),
+      },
+    ]);
+  });
+
+  it("keeps Inventory cost denomination authoritative through the upgraded schema", async () => {
+    const pool = pools.pricing;
+    await bootstrapContextDatabase(pricingModule, pool);
+    await pool.query(
+      `INSERT INTO pricing_inventory_item_inputs (
+         item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity,
+         acquisition_cost_amount, acquisition_cost_currency_code, updated_at, last_stream_version
+       ) VALUES
+         ('item_usd', 'seller_1', 'cat_usd', 'product_usd', 1, 71.70, 'USD', '2026-09-01T11:00:00Z', 4),
+         ('item_legacy', 'seller_1', 'cat_legacy', 'product_legacy', 1, 71.70, NULL, '2026-09-01T11:00:00Z', 4)`,
+    );
+
+    const reader = createPostgresEconomicsEvidenceReader(pool);
+    const requestFor = (inventoryItemId: string, catalogItemId: string, currency: string) => ({
+      accountId: "seller_1",
+      scope: { kind: "native-marketplace" as const },
+      catalogItemId,
+      inventoryItemId,
+      marketUnitPrice: { amount: "100.00" as MoneyAmount, currency },
+      quantity: 1,
+      effectiveAt: "2026-09-06T00:00:00.000Z",
+    });
+    const usdRequest = requestFor("item_usd", "cat_usd", "usd");
+    const eurRequest = requestFor("item_usd", "cat_usd", "eur");
+    const legacyRequest = requestFor("item_legacy", "cat_legacy", "usd");
+    const [sameCurrency, mismatchedCurrency, legacyNullCurrency] = await Promise.all([
+      reader.resolve(usdRequest),
+      reader.resolve(eurRequest),
+      reader.resolve(legacyRequest),
+    ]);
+
+    expect(sameCurrency.costLots[0]?.acquisitionCostPerUnit).toEqual({ amount: "71.70", currency: "usd" });
+    expect(deriveDbCostFacts(sameCurrency, usdRequest)).toMatchObject({ coveredQuantity: 1, selectedQuantity: 1 });
+    expect(mismatchedCurrency.costLots[0]?.acquisitionCostPerUnit).toEqual({ amount: "71.70", currency: "usd" });
+    expect(mismatchedCurrency.costLots[0]?.revision).toBe(sameCurrency.costLots[0]?.revision);
+    expect(deriveDbCostFacts(mismatchedCurrency, eurRequest)).toMatchObject({
+      coveredQuantity: 0,
+      selectedQuantity: 1,
+    });
+    expect(legacyNullCurrency.costLots[0]?.acquisitionCostPerUnit).toBeNull();
+    expect(deriveDbCostFacts(legacyNullCurrency, legacyRequest)).toMatchObject({
+      coveredQuantity: 0,
+      selectedQuantity: 1,
+    });
+  });
+
+  it("keeps override tombstones monotonic under duplicate and stale delivery", async () => {
+    const pool = pools.pricing;
+    await bootstrapContextDatabase(pricingModule, pool);
+    const handlers = buildEconomicsOverrideProjectionHandlers(pool);
+    const key = { accountId: "seller_1", scopeKey: "native-marketplace", currency: "usd" } as const;
+    const set = event(
+      "evt_set",
+      "pricing.economics-fact-override-set",
+      1,
+      {
+        ...key,
+        factName: "platformFeeCapPerUnitAmount",
+        value: null,
+        occurredAt: "2026-09-01T10:00:00.000Z",
+      },
+      "2026-09-01T10:00:00.000Z",
+      "2026-09-01T10:00:01.000Z",
+    );
+    await handlers["pricing.economics-fact-override-set"]!(set);
+    await handlers["pricing.economics-fact-override-set"]!(set);
+    const clear = event(
+      "evt_clear",
+      "pricing.economics-fact-override-cleared",
+      2,
+      {
+        ...key,
+        factName: "platformFeeCapPerUnitAmount",
+        value: null,
+        occurredAt: "2026-09-02T10:00:00.000Z",
+      },
+      "2026-09-02T10:00:00.000Z",
+      "2026-09-02T10:00:01.000Z",
+    );
+    await handlers["pricing.economics-fact-override-cleared"]!(clear);
+    await handlers["pricing.economics-fact-override-set"]!(set);
+
+    const state = await readCurrentEconomicsOverrides(pool, key);
+    expect(state).toMatchObject({
+      version: 2,
+      lastChangedAt: "2026-09-02T10:00:00.000Z",
+      entries: {
+        platformFeeCapPerUnitAmount: {
+          kind: "cleared",
+          value: null,
+          revision: 2,
+          setAt: null,
+          clearedAt: "2026-09-02T10:00:00.000Z",
+        },
+      },
+    });
   });
 });
+
+const syntheticEconomicsPolicy: ResolvedEconomicsPolicy = {
+  value: ECONOMICS_LAUNCH_POLICY_VALUE,
+  policyRevision: "sha256:synthetic-policy-revision",
+  observedAt: "2026-09-06T20:28:41Z",
+  source: "fallback",
+  documentId: null,
+  effectiveFrom: null,
+  effectiveUntil: null,
+};
+
+function deriveDbCostFacts(
+  evidence: EconomicsEvidenceSnapshot,
+  request: Parameters<ReturnType<typeof createPostgresEconomicsEvidenceReader>["resolve"]>[0],
+) {
+  return deriveCostBasisFacts({
+    accountId: request.accountId,
+    inventoryItemId: request.inventoryItemId,
+    marketUnitPrice: request.marketUnitPrice,
+    quantity: request.quantity,
+    effectiveAt: request.effectiveAt,
+    inventoryWatermark: evidence.inventoryWatermark,
+    inventoryObservedAt: evidence.inventoryObservedAt,
+    lots: evidence.costLots,
+    policy: syntheticEconomicsPolicy,
+  });
+}

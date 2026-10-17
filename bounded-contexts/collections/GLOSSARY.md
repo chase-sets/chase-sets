@@ -1,5 +1,9 @@
 # Collections Domain Glossary
 
+## Saved List Analytics Event
+
+A **Saved List Analytics Event** is a bounded, identifier-free operational record of a Saved List interaction, distinct from the client-facing `analyticsLabel` response hint. Its **Coverage Band** counts priced versus total lines; its **Estimate State** gives the first applicable coverage condition, never a money estimate.
+
 ## Saved List
 
 A **Saved List** is an account-owned, ordered set of exact Catalog Products kept for curation, tracking, sharing, copying, or launching later workflows.
@@ -9,6 +13,15 @@ Notes:
 - A Saved List is private when created.
 - A Saved List expresses intent; it is not an owned-stock record.
 - “List” is acceptable inside the My Collection Lists section when context is clear. “Collection” does not mean a Saved List.
+
+## Saved List Operation
+
+A **Saved List Operation** is an Account-owned, durable reservation to add one exact Product to a confirmed Saved List destination. Recovery reconstructs the frozen request and reports success only from a matching aggregate receipt, never from the reservation alone.
+
+Notes:
+
+- Not-sent operations expire after 30 days. Possible-send operations remain unknown until receipt proof or serialized expiry proves the outcome.
+- Recovery `lineResults[].operationId` identifies the durable reservation; `result.receipt.lineResults[].operationId` identifies a line command within its batch.
 
 ## Saved List Line
 

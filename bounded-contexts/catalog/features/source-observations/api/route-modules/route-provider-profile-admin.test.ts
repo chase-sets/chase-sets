@@ -330,6 +330,7 @@ describe("source observation routes: integration discovery and profile administr
   it("returns Catalog integration control-plane readiness grouped by ingestion unit", async () => {
     const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
       generatedAt: "2026-06-05T00:00:00.000Z",
+      providerUsage: [],
       units: [
         {
           unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
@@ -391,6 +392,7 @@ describe("source observation routes: integration discovery and profile administr
   it("returns the Admin Control Plane overview with adapter readiness and lifecycle audit entries", async () => {
     const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
       generatedAt: "2026-06-05T00:00:00.000Z",
+      providerUsage: [],
       units: [
         {
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
@@ -483,6 +485,10 @@ describe("source observation routes: integration discovery and profile administr
     const services = {
       getCatalogIntegrationControlPlaneReadiness,
       listRecentIntegrationJobs,
+      getProviderSendWindow: vi.fn(async () => ({
+        state: "unavailable" as const,
+        refusal: "authority-unavailable" as const,
+      })),
     } as unknown as SourceObservationRouteServices;
     const store = mutableProfileStore([
       profileVersion("tcgdex", {
@@ -499,6 +505,16 @@ describe("source observation routes: integration discovery and profile administr
     const app = buildApp(services, store);
 
     const response = await app.request("/source-observations/integration-control-plane/overview");
+
+    const beforeReadiness = getCatalogIntegrationControlPlaneReadiness.mock.calls.length;
+    const quotaReadout = await app.request(
+      "/source-observations/integration-control-plane/overview?provider-send-window=true",
+    );
+    expect(quotaReadout.status).toBe(503);
+    await expect(quotaReadout.json()).resolves.toEqual({
+      providerSendWindow: { state: "unavailable", refusal: "authority-unavailable" },
+    });
+    expect(getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledTimes(beforeReadiness);
 
     expect(response.status).toBe(200);
     const json = await response.json();
@@ -572,6 +588,7 @@ describe("source observation routes: integration discovery and profile administr
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
     const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
       generatedAt: "2026-06-22T05:00:00.000Z",
+      providerUsage: [],
       units: [
         {
           unitKey: mtgUnit,
@@ -680,6 +697,7 @@ describe("source observation routes: integration discovery and profile administr
   it("trims the audit-lifecycle projection from the daily-audience overview while keeping the daily slices", async () => {
     const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
       generatedAt: "2026-06-05T00:00:00.000Z",
+      providerUsage: [],
       units: [
         {
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",

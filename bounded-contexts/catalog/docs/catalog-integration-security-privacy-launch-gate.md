@@ -5,7 +5,7 @@ This note defines the security/privacy launch gate for the rebuilt Catalog Contr
 The authoritative executable gate lives in:
 
 ```text
-bounded-contexts/catalog/features/source-observations/api/catalog-integration-security-privacy-launch-gate.ts
+scripts/check-structure/catalog-integration-security-privacy-launch-gate.ts
 ```
 
 ## Launch Packet

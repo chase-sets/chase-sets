@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type { CatalogIntegrationEngineServices, PromotionReapplyServices } from "../runtime";
-import { parseObservationIds, parsePromotionScope } from "./route-helpers";
+import { parseObservationIds, parsePromoteAsDraft, parsePromotionScope, parseValidationAfter } from "./route-helpers";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
 
 export type PromotionReviewRouteServices = Pick<
@@ -20,16 +20,24 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
       return permissionError;
     }
 
+    // Read-only: counts, content fingerprint, and per-observation validation
+    // diagnostics over a bounded page. Nothing is provisioned or executed.
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
+      promoteAsDraft?: unknown;
+      validationAfter?: unknown;
     };
     const observationIds = parseObservationIds(body.observationIds);
+    const promoteAsDraft = parsePromoteAsDraft(body.promoteAsDraft);
+    const validationAfter = parseValidationAfter(body.validationAfter);
     const result =
       observationIds.length > 0
-        ? await services.previewPromoteObservations({ observationIds })
+        ? await services.previewPromoteObservations({ observationIds, promoteAsDraft, validationAfter })
         : await services.previewPromoteObservationScope({
             scope: parsePromotionScope(body.scope),
+            promoteAsDraft,
+            validationAfter,
           });
 
     return c.json(result);

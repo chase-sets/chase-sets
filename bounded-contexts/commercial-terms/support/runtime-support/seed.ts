@@ -1,6 +1,6 @@
 import type { BcSeedOptions, EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { buildCreatePolicyDocumentCommand } from "@chase-sets/platform-policy/commands";
 import { commercialTermsSeedIds } from "../seed-support/ids";
 import { createCommercialTermsServices, type CommercialTermsServices } from "./services";

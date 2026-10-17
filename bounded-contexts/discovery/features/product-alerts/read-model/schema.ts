@@ -1,3 +1,5 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+
 export const discoveryProductAlertSchemaSql = `
 CREATE TABLE IF NOT EXISTS discovery_product_alert_pages (
   alert_id text PRIMARY KEY,
@@ -8,6 +10,7 @@ CREATE TABLE IF NOT EXISTS discovery_product_alert_pages (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   threshold_amount numeric(12, 2) NULL,
+  threshold_currency_code text NULL,
   status text NOT NULL CHECK (status IN ('active', 'paused', 'deleted')),
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
@@ -30,6 +33,8 @@ CREATE TABLE IF NOT EXISTS discovery_product_alert_market_activity (
   item_subtitle text NULL,
   product_summary text NULL,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
+  source_stream_version integer NOT NULL DEFAULT 0,
   quantity integer NOT NULL CHECK (quantity >= 0),
   status text NOT NULL,
   created_at timestamptz NOT NULL,
@@ -58,6 +63,7 @@ CREATE TABLE IF NOT EXISTS discovery_anonymous_product_alert_intents (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   threshold_amount numeric(12, 2) NULL,
+  threshold_currency_code text NULL,
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'claimed', 'expired')),
   claimed_account_id text NULL,
   claimed_alert_id text NULL,
@@ -73,3 +79,19 @@ CREATE INDEX IF NOT EXISTS discovery_anonymous_product_alert_intents_owner_activ
 CREATE INDEX IF NOT EXISTS discovery_anonymous_product_alert_intents_expiry_idx
   ON discovery_anonymous_product_alert_intents (status, expires_at);
 `;
+
+export const discoveryProductAlertSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_discovery_product_alert_price_currency",
+    description: "Store Alert thresholds and Marketplace activity with explicit price currency.",
+    statements: [
+      `ALTER TABLE discovery_product_alert_pages
+  ADD COLUMN IF NOT EXISTS threshold_currency_code text NULL`,
+      `ALTER TABLE discovery_product_alert_market_activity
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS source_stream_version integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE discovery_anonymous_product_alert_intents
+  ADD COLUMN IF NOT EXISTS threshold_currency_code text NULL`,
+    ],
+  },
+];

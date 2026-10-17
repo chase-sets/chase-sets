@@ -1,5 +1,8 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
+import { trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
+  AddressBlock,
+  AlertDialog,
   Form,
   Badge,
   OrderProtectionModule,
@@ -7,6 +10,7 @@ import {
   CheckoutLayout,
   Divider,
   Grid,
+  HiddenInput,
   ImageGallery,
   LinkText,
   LinkButton,
@@ -22,9 +26,21 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { PurchaseDetail, SaleDetail } from "./contracts";
 import { OrderMoneyTimeline } from "./order-money-timeline";
+
+function destinationLines(order: PurchaseDetail | SaleDetail) {
+  const address = order.shipping_destination_snapshot;
+  return [
+    address.name,
+    address.company,
+    address.line1,
+    address.line2,
+    `${address.city}, ${address.state} ${address.postalCode}`,
+    address.country,
+  ].filter((line): line is string => Boolean(line));
+}
 
 function isPendingStatus(status: string) {
   return status === "pending-payment" || status === "pending-reservation";
@@ -88,7 +104,14 @@ export function OrderingOrderDetailPage({
       ? (order.seller_display_name ?? order.seller_account_id)
       : (order.buyer_display_name ?? order.buyer_account_id);
   const canPay = order.status === "pending-payment" && paymentHref;
-  const canCancel = role === "buyer" ? canSelfServiceCancel(order) : isPendingStatus(order.status);
+  const deliverySummary = role === "buyer" && "delivery_summary" in order ? order.delivery_summary : undefined;
+  const fullyDelivered = Boolean(
+    deliverySummary &&
+    deliverySummary.shipment_count > 0 &&
+    deliverySummary.delivered_count === deliverySummary.shipment_count,
+  );
+  const canCancel = !fullyDelivered && canSelfServiceCancel(order);
+  const sellerCancellationIntentRef = useRef<HTMLInputElement>(null);
   const projectionLabel =
     role === "buyer"
       ? t("ordering.features.orders.ui.orderDetailPage.purchase")
@@ -98,6 +121,18 @@ export function OrderingOrderDetailPage({
   const canViewFulfillment =
     Boolean(fulfillmentHref) && order.status !== "pending-payment" && order.status !== "pending-reservation";
   const paymentDeadlineAt = order.status === "pending-payment" ? order.payment_deadline_at : null;
+  const cancellationWindowStatus =
+    !fullyDelivered && order.status === "ready-for-fulfillment"
+      ? order.self_service_cancellation_available
+        ? t("ordering.features.orders.ui.orderDetailPage.cancellation.window.open", {
+            projectionLabel: projectionLabel.toLowerCase(),
+          })
+        : order.cancellation_unavailable_reason === "fulfillment-started"
+          ? t("ordering.features.orders.ui.orderDetailPage.cancellation.window.fulfillment.started", {
+              projectionLabel: projectionLabel.toLowerCase(),
+            })
+          : null
+      : null;
   const moneyTimeline = order.money_timeline ?? {
     refunds: [],
     support_cases: [],
@@ -107,14 +142,18 @@ export function OrderingOrderDetailPage({
   const hasMoneyTimeline =
     moneyTimeline.refunds.length > 0 ||
     moneyTimeline.support_cases.some((supportCase) => supportCase.active_hold) ||
-    Number.parseFloat(moneyTimeline.refunded_amount) > 0;
+    (trySignedMoneyToCents(moneyTimeline.refunded_amount) ?? 0n) > 0n;
   const supportLabel =
-    role === "buyer" && order.cancellation_unavailable_reason === "fulfillment-started"
+    order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")
       : t("ordering.features.orders.ui.orderDetailPage.open.support");
   const statusLine = {
     label: t("ordering.features.orders.ui.orderDetailPage.status"),
-    value: <Badge tone={statusTone(order.status)}>{order.status}</Badge>,
+    value: (
+      <Badge tone={fullyDelivered ? "success" : statusTone(order.status)}>
+        {fullyDelivered ? t("ordering.features.orders.ui.orderDetailPage.delivered") : order.status}
+      </Badge>
+    ),
   };
   const itemSubtotalLine = {
     label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"),
@@ -127,6 +166,14 @@ export function OrderingOrderDetailPage({
     role === "buyer"
       ? [
           statusLine,
+          ...(fullyDelivered && deliverySummary?.latest_delivered_at
+            ? [
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.delivered.at"),
+                  value: formatDateTime(deliverySummary.latest_delivered_at),
+                },
+              ]
+            : []),
           itemSubtotalLine,
           {
             label: t("ordering.features.orders.ui.orderDetailPage.shipping"),
@@ -290,11 +337,12 @@ export function OrderingOrderDetailPage({
                   })}
                 />
               ) : null}
+              {cancellationWindowStatus ? <MarketplaceNotice tone="info" title={cancellationWindowStatus} /> : null}
               <Stack gap={3} direction={{ base: "column", sm: "row" }}>
                 {canPay ? (
                   <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>
                 ) : null}
-                {supportHref ? (
+                {supportHref && !(fullyDelivered && order.cancellation_unavailable_reason === "fulfillment-started") ? (
                   <LinkButton href={supportHref} tone="secondary">
                     {supportLabel}
                   </LinkButton>
@@ -306,16 +354,43 @@ export function OrderingOrderDetailPage({
                 ) : null}
                 {canCancel ? (
                   <Form spacing="none" method="post">
-                    <Button type="submit" name="intent" value={cancelIntent} tone="danger">
-                      {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
-                        projectionLabel: projectionLabel.toLowerCase(),
-                      })}
-                    </Button>
+                    {role === "seller" ? (
+                      <>
+                        <HiddenInput ref={sellerCancellationIntentRef} name="intent" value="cancel-sale" />
+                        <AlertDialog
+                          title={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.title")}
+                          description={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.description")}
+                          confirmLabel={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.confirm")}
+                          cancelLabel={t("ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.cancel")}
+                          tone="danger"
+                          onConfirm={() => sellerCancellationIntentRef.current?.form?.requestSubmit()}
+                          trigger={
+                            <Button type="button" tone="danger">
+                              {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
+                                projectionLabel: projectionLabel.toLowerCase(),
+                              })}
+                            </Button>
+                          }
+                        />
+                      </>
+                    ) : (
+                      <Button type="submit" name="intent" value={cancelIntent} tone="danger">
+                        {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
+                          projectionLabel: projectionLabel.toLowerCase(),
+                        })}
+                      </Button>
+                    )}
                   </Form>
                 ) : null}
               </Stack>
             </Stack>
           </Surface>
+
+          <AddressBlock
+            aria-label={t("ordering.features.orders.ui.orderDetailPage.shipping.destination")}
+            title={t("ordering.features.orders.ui.orderDetailPage.shipping.destination")}
+            lines={destinationLines(order)}
+          />
 
           {supplementarySection ? (
             <PageSection title={supplementarySectionTitle}>{supplementarySection}</PageSection>

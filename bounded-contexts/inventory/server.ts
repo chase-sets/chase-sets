@@ -1,4 +1,9 @@
 export { createInventoryRequestApiClient } from "./support/request-support/api-client";
+export {
+  inventoryMutationAttemptFromSource,
+  withInventoryMutationAttempt,
+} from "./support/runtime-support/mutation-attempt";
+export { createStorageLocationAuthority } from "./features/storage-locations/api/authority";
 export type {
   InventoryAccountSellerSkuItemResolution,
   InventoryCatalogItemSnapshot,
@@ -8,6 +13,53 @@ export type {
   InventoryListingStockSnapshot,
 } from "./support/request-support/api-client";
 export type { InventoryDraftListingCreator } from "./features/import-batches/api/runtime";
+export type { InventoryServices } from "./support/runtime-support/services";
+export type { InventoryCheckoutReservationAuthority } from "./features/holds/api/checkout-reservation-authority";
+export type {
+  CommittedExternalChannelSale,
+  ExternalChannelSaleConflictField,
+  ExternalChannelSaleHistoryFailure,
+  ExternalChannelSaleHistoryFailureReason,
+  ExternalChannelSaleKeyV1,
+  RecordExternalChannelSale,
+  RecordExternalChannelSaleCommand,
+  RecordExternalChannelSaleConflict,
+  RecordExternalChannelSaleOutcome,
+  RecordExternalChannelSaleResult,
+} from "./features/channel-sales/api/contracts";
+export { channelAllocationModes } from "./features/channel-allocations/domain/allocation";
+export type {
+  ChannelStockAllocation,
+  SetChannelStockAllocation,
+  SetChannelStockAllocationCommand,
+  SetChannelStockAllocationResult,
+  ChannelStockAllocationHistoryFailure,
+  ChannelStockAllocationHistoryFailureReason,
+} from "./features/channel-allocations/api/contracts";
+/**
+ * Read-only Hold/reservation cleanup authority. The platform-api
+ * composition root binds this to Ordering's `inventoryCleanupAuthority` host
+ * capability; Ordering never imports Inventory code.
+ */
+export {
+  createInventoryExternalChannelSaleRecorderForPool,
+  createInventoryHoldCleanupAuthorityForPool,
+} from "./support/runtime-support/services";
+export {
+  INVENTORY_HOLD_AUTHORITY_MAX_EVENTS,
+  INVENTORY_HOLD_SOURCE_LOOKUP_FETCH_ROWS,
+  INVENTORY_HOLD_SOURCE_LOOKUP_MAX_HOLDS,
+  INVENTORY_HOLD_SOURCE_ORDER_INDEX_NAME,
+  INVENTORY_RESERVATION_AUTHORITY_MAX_EVENTS,
+  createInventoryHoldCleanupAuthority,
+  inventoryHoldIdFromStreamId,
+} from "./features/holds/api/cleanup-authority";
+export type {
+  InventoryHoldCleanupAuthority,
+  InventoryHoldCleanupAuthorityServices,
+  InventoryHoldSourceLookup,
+  InventoryReservationAuthority,
+} from "./features/holds/api/cleanup-authority";
 export {
   inventorySavedListImportSourceKind,
   prepareInventorySavedListImportBatch,
@@ -23,3 +75,4 @@ export type {
 export type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
 export { createImportResolutionAttentionSourceFromReadModel } from "./features/import-batches/read-model/seller-attention-source";
 export { inventorySeedIds } from "./support/seed-support/ids";
+export { createInventoryRepresentativeSeedServices } from "./support/seed-support/representative-services";

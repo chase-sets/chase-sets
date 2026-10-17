@@ -1,0 +1,89 @@
+Chase Sets Proprietary Source Inspection License
+Version 1.0
+
+Copyright (c) 2026 Chase Sets Limited Company. All rights reserved.
+
+1. Scope and ownership
+
+This license applies to the source code, documentation, designs, and other
+materials in this repository for which Chase Sets Limited Company holds the
+copyright (the "Materials"), unless a file is expressly provided under separate
+terms. The Materials are proprietary, not open source. Public availability does
+not transfer ownership or grant rights beyond those stated below.
+
+2. Limited permission to inspect
+
+Subject to this license, Chase Sets Limited Company grants you a non-exclusive,
+non-transferable, royalty-free permission to view and read the Materials, and
+to make unmodified local copies solely for private inspection and study. You
+may also maintain unmodified GitHub forks for that purpose. Keep this license
+and all copyright and attribution notices with every permitted copy.
+
+These permissions do not authorize you to build, execute, deploy, modify, or
+incorporate the Materials into other software, products, or services.
+
+3. No operational or commercial use
+
+Except as provided in sections 4 and 5, prior written permission from Chase
+Sets Limited Company is required to:
+
+- Build, execute, deploy, host, or otherwise operate any part of the Materials,
+  whether for production, testing, evaluation, internal use, or another purpose.
+- Modify, adapt, translate, or create derivative works of the Materials.
+- Copy or redistribute the Materials beyond the inspection copies and forks
+  permitted in section 2, or sell, sublicense, rent, or license the Materials.
+- Incorporate any part of the Materials into another product or service, or
+  offer a hosted service, marketplace, or other system based on the Materials.
+- Use the Materials or any derivative work to generate revenue or for commercial
+  advantage, including paid access, advertising, subscriptions, consulting,
+  resale, or use in internal business operations. Providing a product or service
+  at no charge does not itself make its use permitted.
+
+Merely viewing, reading, or maintaining permitted inspection copies does not
+violate this section because the viewer is a company or its employee.
+
+4. GitHub permissions
+
+Nothing in this license limits permissions granted to GitHub or its users under
+the applicable GitHub Terms of Service, including permissions to view and fork
+a public repository through GitHub's functionality. If a restriction above
+conflicts with those permissions, those permissions control to the extent of
+the conflict. A GitHub fork does not by itself grant permission to commercialize
+the Materials or operate them outside those permissions.
+
+5. Third-party materials, separate agreements, and legal exceptions
+
+Third-party dependencies and materials remain subject to their own licenses
+and notices. This license neither replaces those terms nor restricts rights
+granted by their owners. It does not revoke rights already granted under a
+separate license or written agreement. Authorized use of Chase Sets services
+or separately distributed software remains governed by the applicable service
+terms or separate license, not by this repository's inspection permission.
+
+Nothing in this license restricts rights that cannot lawfully be restricted,
+including applicable fair use or other statutory exceptions. This license
+does not claim exclusive rights in ideas, concepts, or independently developed
+software that does not copy protected expression from the Materials.
+
+6. Reservation of rights and additional permission
+
+All rights not expressly granted are reserved. No trademark or patent license
+is granted. For use beyond these permissions, obtain a separate written license
+from Chase Sets Limited Company before using the Materials. Silence or public
+availability is not permission.
+
+7. Termination
+
+The permissions granted by this license terminate automatically if you violate
+its terms. On termination, stop the unauthorized use and delete copies made
+under this license, except to the extent you are independently entitled or
+legally required to retain them. Sections 1 and 3 through 8 survive termination.
+
+8. Disclaimer and limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE MATERIALS ARE PROVIDED
+"AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NONINFRINGEMENT. CHASE SETS LIMITED COMPANY AND ITS CONTRIBUTORS WILL NOT BE
+LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED TO
+THE MATERIALS OR THEIR USE, WHETHER IN CONTRACT, TORT, OR OTHERWISE.

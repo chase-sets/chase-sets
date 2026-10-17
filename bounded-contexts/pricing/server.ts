@@ -1,5 +1,41 @@
 export { getAccountRecommendation, listAccountRecommendations } from "./features/recommendations/read-model/queries";
+export { evaluateBuyerOfferTarget } from "./features/offer-targets/domain/evaluate";
+export { seedSyntheticOfferMarketPrice } from "./support/runtime-support/seed";
+export type {
+  BuyerMarketPrice,
+  BuyerOfferTargetEvidence,
+  BuyerOfferTargetHoldReason,
+  BuyerOfferTargetInput,
+  BuyerOfferTargetResult,
+  BuyerOfferTargetSelection,
+} from "./features/offer-targets/domain/evaluate";
+export { loadBuyerOfferMarketPrices, createBuyerOfferPricing } from "./features/offer-targets/read-model/queries";
+export type { BuyerOfferProductKey } from "./features/offer-targets/read-model/queries";
+export { getOwnSaleLows, listOwnSaleObservations } from "./features/own-sale-observations/read-model/queries";
+export type {
+  GetOwnSaleLowsParams,
+  ListOwnSaleObservationsParams,
+  OwnSaleLow,
+  OwnSaleObservation,
+  OwnSaleObservationSource,
+  OwnSaleSellerCurrency,
+} from "./features/own-sale-observations/read-model/queries";
 export { createPricingRequestApiClient } from "./support/request-support/api-client";
+export type { PricingHostPorts, PricingServices } from "./support/runtime-support/services";
+export type {
+  TcgplayerMarketTransport,
+  TcgplayerMarketTransportCapability,
+} from "./features/price-signals/integrations/tcgplayer/transport-port";
+export type {
+  TcgplayerMarketCaptureReceiptSink,
+  TcgplayerMarketCaptureReceiptSinkCapability,
+  TcgplayerMarketCaptureReceiptStorage,
+  TcgplayerMarketCaptureReceiptV1,
+} from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
+export { createObjectStorageTcgplayerMarketCaptureReceiptSink } from "./features/price-signals/integrations/tcgplayer/capture-sanitizer";
+export type { PricingRecommendationServices } from "./features/recommendations/api/runtime";
+export type { RepricingEngineServices } from "./features/repricing-engine/api/runtime";
+export type { BulkRepriceIngestionServices } from "./features/bulk-reprice-ingestion/api/runtime";
 /**
  * Platform-wide market analytics reads: imported by the platform-api
  * composition root to build platform-operations' `opsMarketAnalyticsCrossContext`
@@ -33,6 +69,26 @@ export type {
   RollupGranularity,
 } from "./support/request-support/api-client";
 export { pricingRealtimeManifest } from "./support/realtime-support/topics";
+export { economicsPolicy, type EconomicsPolicyValue } from "./features/economics/domain/policy";
+export { toEconomicsForPricingGoal } from "./features/economics/domain/resolution";
+export { economicsFactNames } from "./features/economics/domain/contracts";
+export type {
+  ChannelConnectionIdentityReader,
+  Economics,
+  EconomicsFact,
+  EconomicsFactName,
+  EconomicsFacts,
+  EconomicsScope,
+  FactSource,
+  ResolveEconomicsInput,
+  ResolveEconomicsRequest,
+} from "./features/economics/domain/contracts";
+export type {
+  EconomicsForPricingGoal,
+  EconomicsResolution,
+  EconomicsResolver,
+  UnavailableEconomics,
+} from "./features/economics/domain/resolution";
 /**
  * The m110 platform-policy declarations for pricing's market-analytics
  * dials: assembled once, cross-context, by the `platform-api` composition
@@ -53,5 +109,36 @@ export {
   marketEstimatePolicy,
   type MarketEstimatePolicyValue,
 } from "./features/market-estimates/domain/estimate-policy";
+export { demandCurvePolicy, type DemandCurvePolicyValue } from "./features/market-estimates/domain/demand-curve-policy";
+export {
+  getDemandCurve,
+  listDemandCurvePoints,
+  type DemandCurveRecord,
+  type DemandCurvePoint,
+} from "./features/market-estimates/read-model/demand-curve-queries";
+export {
+  createCurveBuilderRegistry,
+  registerCurveBuilder,
+  type CurveBuilderDefinition,
+} from "./features/market-estimates/domain/demand-curve/curve-builder-registry";
+export { liquidityEstimatedEventType, type LiquidityEstimatedPayload } from "./features/market-estimates/read-model";
 export { repricingEnginePolicy, type RepricingEnginePolicyValue } from "./features/repricing-engine/domain/policy";
+export { repricingManagementPolicy } from "./features/repricing-engine/domain/management-policy";
+export { forecastLedgerPolicy, type ForecastLedgerPolicyValue } from "./features/forecast-ledger/domain/policy";
+export { createRepricingAttentionSourceFromReadModel } from "./features/repricing-engine/read-model/seller-attention-source";
+export { priceSignalPolicy, type PriceSignalPolicyValue } from "./features/price-signals/domain/price-signal-policy";
+export {
+  providerObservationPolicy,
+  type ProviderObservationPolicyValue,
+} from "./features/price-signals/domain/provider-observation-policy";
+export { effectiveSaleAmount, effectiveSaleAmountExact } from "./features/price-signals/domain/effective-sale-price";
+export {
+  listProviderSaleEvidence,
+  listProviderWeeklySaleBuckets,
+  listProviderListingSnapshots,
+  listProviderListingAskDepth,
+  countProviderCompetingSellersAt,
+  listProviderListingAskGroups,
+  latestProviderMarketCapture,
+} from "./features/price-signals/read-model/provider-observation-queries";
 export type { ProductMarketStatsSnapshotResponse } from "./features/market-rollups/api/runtime";

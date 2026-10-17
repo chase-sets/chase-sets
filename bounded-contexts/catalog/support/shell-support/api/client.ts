@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCatalogAuthoringApi } from "../../authoring-support/api";
+import type { CountCaptureLifecycle } from "../../../features/scope-sync-batches/api/count-capture-lifecycle";
 
 type CatalogAuthoringApiApp = ReturnType<typeof buildCatalogAuthoringApi>;
 
@@ -33,6 +34,24 @@ export class ApiError extends Error {
   }
 }
 
+export type CatalogItemPublicationApiErrorCode =
+  | "display-identity-degraded"
+  | "display-identity-unavailable"
+  | "display-identity-outdated";
+
+export class CatalogItemPublicationApiError extends ApiError {
+  public constructor(
+    status: number,
+    body: unknown,
+    public readonly code: CatalogItemPublicationApiErrorCode,
+    public readonly readiness: "degraded" | "unavailable" | "outdated",
+    public readonly missingTokens: readonly string[],
+  ) {
+    super(status, body);
+    this.name = "CatalogItemPublicationApiError";
+  }
+}
+
 export interface CatalogApiClientOptions {
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
@@ -52,6 +71,25 @@ export type CatalogBulkActionProgressOptions = Readonly<{
   onProgress?: (progress: CatalogBulkActionProgress) => void;
   signal?: AbortSignal;
 }>;
+
+/** Promotion execution options: the explicit draft choice defaults to false. */
+export type CatalogPromotionActionOptions = CatalogBulkActionProgressOptions &
+  Readonly<{
+    promoteAsDraft?: boolean;
+  }>;
+
+/** Promotion preview options: draft choice plus the bounded validation page cursor. */
+export type CatalogPromotionPreviewOptions = Readonly<{
+  promoteAsDraft?: boolean;
+  validationAfter?: string | null;
+}>;
+
+function promotionPreviewBody(options: CatalogPromotionPreviewOptions): {
+  promoteAsDraft: boolean;
+  validationAfter: string | null;
+} {
+  return { promoteAsDraft: options.promoteAsDraft === true, validationAfter: options.validationAfter ?? null };
+}
 
 export type CatalogBulkReviewJob<T = unknown> = Readonly<{
   jobId: string;
@@ -145,10 +183,38 @@ function queryFromString(query: string) {
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
+    const publicationError = catalogItemPublicationApiError(response.status, errorBody);
+    if (publicationError) {
+      throw publicationError;
+    }
     throw new ApiError(response.status, errorBody);
   }
 
   return attachResponseMetadata(await response.json(), response) as T;
+}
+
+function catalogItemPublicationApiError(status: number, body: unknown): CatalogItemPublicationApiError | null {
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return null;
+  }
+  const error = (body as Record<string, unknown>).error;
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const record = error as Record<string, unknown>;
+  const code = record.code;
+  const readiness = record.readiness;
+  if (
+    (code !== "display-identity-degraded" &&
+      code !== "display-identity-unavailable" &&
+      code !== "display-identity-outdated") ||
+    (readiness !== "degraded" && readiness !== "unavailable" && readiness !== "outdated") ||
+    !Array.isArray(record.missingTokens) ||
+    record.missingTokens.some((token) => typeof token !== "string")
+  ) {
+    return null;
+  }
+  return new CatalogItemPublicationApiError(status, body, code, readiness, record.missingTokens);
 }
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
@@ -1440,15 +1506,16 @@ export function createCatalogApiClient({
     },
     async bulkPromoteSourceObservations<T>(
       observationIds: string[],
-      options: CatalogBulkActionProgressOptions = {},
+      options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
+      const promoteAsDraft = options.promoteAsDraft === true;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { observationIds },
+          body: { observationIds, promoteAsDraft },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1463,36 +1530,43 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { observationIds },
+        json: { observationIds, promoteAsDraft },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async previewBulkPromoteSourceObservations<T>(scope: unknown): Promise<T> {
+    async previewBulkPromoteSourceObservations<T>(
+      scope: unknown,
+      options: CatalogPromotionPreviewOptions = {},
+    ): Promise<T> {
       const response = await client["source-observations"]["bulk-promote"].preview.$post({
-        json: { scope },
+        json: { scope, ...promotionPreviewBody(options) },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
-    async previewBulkPromoteSourceObservationIds<T>(observationIds: string[]): Promise<T> {
+    async previewBulkPromoteSourceObservationIds<T>(
+      observationIds: string[],
+      options: CatalogPromotionPreviewOptions = {},
+    ): Promise<T> {
       const response = await client["source-observations"]["bulk-promote"].preview.$post({
-        json: { observationIds },
+        json: { observationIds, ...promotionPreviewBody(options) },
         header: headers,
       });
       return parseJsonResponse<T>(response);
     },
     async bulkPromoteSourceObservationsByScope<T>(
       scope: unknown,
-      options: CatalogBulkActionProgressOptions = {},
+      options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
+      const promoteAsDraft = options.promoteAsDraft === true;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { scope },
+          body: { scope, promoteAsDraft },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1507,7 +1581,7 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { scope },
+        json: { scope, promoteAsDraft },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -1639,9 +1713,10 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async promoteSourceObservation<T>(id: string): Promise<T> {
+    async promoteSourceObservation<T>(id: string, options: Readonly<{ promoteAsDraft?: boolean }> = {}): Promise<T> {
       const response = await client["source-observations"][":id"].promote.$post({
         param: { id },
+        json: { promoteAsDraft: options.promoteAsDraft === true },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -1791,6 +1866,53 @@ export function createCatalogApiClient({
         method: "GET",
         headers: headersToRecord(headers),
       });
+      return parseJsonResponse<T>(response);
+    },
+    async enqueueCatalogMergeCandidateBulkJob<T>(
+      kind: "merge-candidate-promote" | "merge-candidate-defer",
+      scopeRecordId: string,
+      reason: string | null,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidate-bulk-jobs`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ kind, scopeRecordId, reason }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async listCatalogMergeCandidateBulkJobs<T>(input: {
+      scopeRecordId: string;
+      status: "active" | "completed";
+      cursor?: string | null;
+    }): Promise<T> {
+      const query = new URLSearchParams({ scopeRecordId: input.scopeRecordId });
+      if (input.status === "completed") {
+        query.set("status", "completed");
+      }
+      if (input.cursor) {
+        query.set("cursor", input.cursor);
+      }
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/active?${query.toString()}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async listFailedCatalogMergeCandidateBulkJobs<T>(scopeRecordId: string): Promise<T> {
+      const query = new URLSearchParams({ scopeRecordId });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/merge-candidate-bulk-jobs/failed?${query.toString()}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
       return parseJsonResponse<T>(response);
     },
     async getSourceObservationPromotionOutcome<T>(jobId: string): Promise<T> {
@@ -1962,6 +2084,91 @@ export function createCatalogApiClient({
     async previewScopeSyncBatch<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/preview", input);
     },
+    async quoteScopeSyncCounts<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/quote", input);
+    },
+    async acquireScopeSyncCounts<T>(input: unknown): Promise<T> {
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/counts/acquire", input);
+    },
+    // Staging count-capture steps, each sent with the explicit capture marker.
+    async captureScopeSyncCountBaseline(
+      input: Readonly<{ scopeRecordId: string; authority: unknown }>,
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["baseline"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/baseline", input);
+    },
+    async captureScopeSyncCountInitialNotice(): Promise<Awaited<ReturnType<CountCaptureLifecycle["initialNotice"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/initial-notice",
+        {},
+      );
+    },
+    async captureScopeSyncCountUsage(): Promise<Awaited<ReturnType<CountCaptureLifecycle["usage"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/usage", {});
+    },
+    async quoteScopeSyncCaptureCounts(
+      input: Parameters<CountCaptureLifecycle["quote"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["quote"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/counts/quote", input);
+    },
+    async readBackScopeSyncCaptureQuote(): Promise<Awaited<ReturnType<CountCaptureLifecycle["quoteReadback"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/quote-readback",
+        {},
+      );
+    },
+    async recordScopeSyncCaptureFinalNotice(): Promise<Awaited<ReturnType<CountCaptureLifecycle["finalNotice"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/final-notice",
+        {},
+      );
+    },
+    async acquireScopeSyncCaptureCounts(
+      input: Parameters<CountCaptureLifecycle["acquire"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["acquire"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/counts/acquire", input);
+    },
+    async previewScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["preview"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["preview"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/preview", input);
+    },
+    async preConfirmScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["preConfirm"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["preConfirm"]>>> {
+      return scopeSyncBatchRequest(
+        configuredFetch,
+        captureHeaders(headers),
+        baseUrl,
+        "/count-capture/pre-confirm",
+        input,
+      );
+    },
+    async freezeScopeSyncCountCapture(
+      input: Parameters<CountCaptureLifecycle["freeze"]>[1],
+    ): Promise<Awaited<ReturnType<CountCaptureLifecycle["freeze"]>>> {
+      return scopeSyncBatchRequest(configuredFetch, captureHeaders(headers), baseUrl, "/count-capture/freeze", input);
+    },
+    async getScopeSyncCountQuote<T>(quoteId: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/scope-sync-batches/counts/quote/${encodeURIComponent(quoteId)}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async resolveHeldSetExport<T>(file: File): Promise<T> {
+      const formData = new FormData();
+      formData.set("file", file);
+      return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/resolve-held-sets", formData);
+    },
     async confirmScopeSyncBatch<T>(input: unknown): Promise<T> {
       return scopeSyncBatchRequest<T>(configuredFetch, headers, baseUrl, "/confirm", input);
     },
@@ -2020,8 +2227,11 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async getUnmappedScopeInbox<T>(limit?: number): Promise<T> {
-      const search = limit ? `?limit=${encodeURIComponent(String(limit))}` : "";
+    async getUnmappedScopeInbox<T>(options: { limit?: number; productDomain?: string } = {}): Promise<T> {
+      const query = new URLSearchParams();
+      if (options.limit) query.set("limit", String(options.limit));
+      if (options.productDomain) query.set("productDomain", options.productDomain);
+      const search = query.size > 0 ? `?${query.toString()}` : "";
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/provider-scope-mappings/inbox${search}`, {
         method: "GET",
         headers: headersToRecord(headers),
@@ -2495,12 +2705,17 @@ async function scopeSyncBatchRequest<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  const multipart = body instanceof FormData;
   const response = await fetch(`${baseUrl.replace(/\/$/, "")}/scope-sync-batches${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headersToRecord(headers) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    headers: { ...(multipart ? {} : { "content-type": "application/json" }), ...headersToRecord(headers) },
+    ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }),
   });
   return parseJsonResponse<T>(response);
+}
+
+function captureHeaders(headers?: HeadersInit): Record<string, string> {
+  return { ...headersToRecord(headers), "x-catalog-count-capture": "1" };
 }
 
 function headersToRecord(headers?: HeadersInit): Record<string, string> {

@@ -1,11 +1,14 @@
 {
   "schemaVersion": "platform-runtime-values/v1",
   "productionEnvOverrides": {
-    "CATALOG_INTEGRATION_ACTIVATION_MODE": "test-profiles-only",
-    "CATALOG_INTEGRATION_CONTROL_PLANE_MODE": "dry-run-only",
-    "CATALOG_INTEGRATION_IMPORTS_DISABLED": "mtgjson,scryfall,tcgplayer",
-    "CATALOG_INTEGRATION_PROMOTION_DISABLED": "mtgjson,scryfall,tcgplayer",
-    "CATALOG_INTEGRATION_REAPPLY_DISABLED": "mtgjson,scryfall,tcgplayer",
+    "CHASE_SETS_CHECKOUT_CLOSED": "true",
+    "CATALOG_INTEGRATION_ACTIVATION_MODE": "open",
+    "CATALOG_INTEGRATION_CONTROL_PLANE_MODE": "open",
+    "CATALOG_INTEGRATION_IMPORTS_DISABLED": "tcgdex,ygoprodeck,ygojson",
+    "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED": "lorcanajson:lorcana:set:reference-data,lorcanajson:lorcana:single-card:reference-data,lorcast:lorcana:set:reference-data,lorcast:lorcana:single-card:reference-data,scrydex:lorcana:sealed-product:source-observation-import,scrydex:lorcana:set:reference-data,scrydex:lorcana:single-card:source-observation-import,tcgplayer:lorcana:sealed-product:source-observation-import,tcgplayer:lorcana:single-card:source-observation-import",
+    "CATALOG_INTEGRATION_PROMOTION_DISABLED": "tcgdex,ygoprodeck,ygojson",
+    "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED": "lorcanajson:lorcana:set:reference-data,lorcanajson:lorcana:single-card:reference-data,lorcast:lorcana:set:reference-data,lorcast:lorcana:single-card:reference-data,scrydex:lorcana:sealed-product:source-observation-import,scrydex:lorcana:set:reference-data,scrydex:lorcana:single-card:source-observation-import,tcgplayer:lorcana:sealed-product:source-observation-import,tcgplayer:lorcana:single-card:source-observation-import",
+    "CATALOG_INTEGRATION_REAPPLY_DISABLED": "tcgdex,ygoprodeck,ygojson",
     "CHASE_SETS_PUBLIC_INDEXING": "true",
     "PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED": "true",
     "PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS": "public-presence",
@@ -241,10 +244,6 @@
       "command": "pnpm --filter @chase-sets/app-marketplace-web run start",
       "env": [
         {
-          "name": "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE",
-          "value": "false"
-        },
-        {
           "name": "CHASE_SETS_INTERNAL_API_ORIGIN",
           "value": "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
         },
@@ -395,6 +394,26 @@
       "command": "pnpm --filter @chase-sets/app-platform-api run start:production",
       "env": [
         {
+          "name": "CHASE_SETS_DEPLOYMENT_INSTANCE",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_IMPLEMENTATION_SHA",
+          "value": ""
+        },
+        {
+          "name": "SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_CHECKOUT_CLOSED",
+          "value": "false"
+        },
+        {
+          "name": "CHASE_SETS_OFFER_LIFECYCLE_OPEN",
+          "value": "false"
+        },
+        {
           "name": "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS",
           "value": ""
         },
@@ -445,7 +464,31 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
           "value": ""
         },
         {
@@ -459,6 +502,14 @@
         {
           "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
           "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+          "value": "false"
         },
         {
           "name": "CHASE_SETS_INTERNAL_API_ORIGIN",
@@ -489,6 +540,90 @@
           "value": "6"
         },
         {
+          "name": "BOOTSTRAP_DATABASE_URL_AUTH",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_AUTHENTICITY",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_CATALOG",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_CHANNELS",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_CHECKOUT",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_COMMERCIAL_TERMS",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_CUSTOMER_FEEDBACK",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_DISCOVERY",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_FULFILLMENT",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_IDENTITY",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_INVENTORY",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_MARKETPLACE",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_NOTIFICATIONS",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_ORDERING",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_PAYMENTS",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_PLATFORM_OPERATIONS",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_PRICING",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_PUBLIC_PRESENCE",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+          "secret": true
+        },
+        {
+          "name": "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL",
+          "secret": true
+        },
+        {
           "name": "DATABASE_URL_AUTH",
           "secret": true,
           "secretKey": "DATABASE_URL_AUTH"
@@ -502,6 +637,31 @@
           "name": "DATABASE_URL_CATALOG",
           "secret": true,
           "secretKey": "DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CHANNELS_CREDENTIAL_KEYRING_JSON"
+        },
+        {
+          "name": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+          "secret": true,
+          "secretKey": "EBAY_ACCOUNT_DELETION_ENDPOINT"
+        },
+        {
+          "name": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+          "secret": true,
+          "secretKey": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        },
+        {
+          "name": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        },
+        {
+          "name": "DATABASE_URL_CHANNELS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CHANNELS"
         },
         {
           "name": "DATABASE_URL_CATALOG_WAITER",
@@ -801,21 +961,6 @@
           "secretKey": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
         },
         {
-          "name": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-          "secret": true,
-          "secretKey": "UCP_AP2_VERIFIER_AUTH_TOKEN"
-        },
-        {
-          "name": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-          "secret": true,
-          "secretKey": "UCP_AP2_VERIFIER_TIMEOUT_MS"
-        },
-        {
-          "name": "UCP_AP2_VERIFIER_URL",
-          "secret": true,
-          "secretKey": "UCP_AP2_VERIFIER_URL"
-        },
-        {
           "name": "UCP_BUSINESS_SIGNING_ALG",
           "secret": true,
           "secretKey": "UCP_BUSINESS_SIGNING_ALG"
@@ -899,6 +1044,23 @@
       "command": "pnpm --filter @chase-sets/app-platform-worker run start:production",
       "env": [
         {
+          "name": "CHASE_SETS_DEPLOYMENT_INSTANCE",
+          "value": ""
+        },
+        {
+          "name": "CHASE_SETS_IMPLEMENTATION_SHA",
+          "value": ""
+        },
+        {
+          "name": "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON",
+          "value": ""
+        },
+        {
+          "name": "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        },
+        {
           "name": "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS",
           "value": ""
         },
@@ -945,6 +1107,10 @@
           "value": "1"
         },
         {
+          "name": "CHANNELS_OUTBOUND_OPERATION_LANE_COUNT",
+          "value": "1"
+        },
+        {
           "name": "CATALOG_INTEGRATION_ACTIVATION_MODE",
           "value": "open"
         },
@@ -957,7 +1123,31 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
           "value": ""
         },
         {
@@ -971,6 +1161,14 @@
         {
           "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
           "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+          "value": "false"
         },
         {
           "name": "CHASE_SETS_MARKETPLACE_INDEXING",
@@ -1006,6 +1204,31 @@
           "name": "DATABASE_URL_CATALOG",
           "secret": true,
           "secretKey": "DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CHANNELS_CREDENTIAL_KEYRING_JSON"
+        },
+        {
+          "name": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+          "secret": true,
+          "secretKey": "EBAY_ACCOUNT_DELETION_ENDPOINT"
+        },
+        {
+          "name": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+          "secret": true,
+          "secretKey": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        },
+        {
+          "name": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        },
+        {
+          "name": "DATABASE_URL_CHANNELS",
+          "secret": true,
+          "secretKey": "DATABASE_URL_CHANNELS"
         },
         {
           "name": "DATABASE_URL_CHECKOUT",
@@ -1506,7 +1729,31 @@
           "value": ""
         },
         {
+          "name": "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+          "value": ""
+        },
+        {
           "name": "CATALOG_INTEGRATION_PROMOTION_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED",
           "value": ""
         },
         {
@@ -1519,6 +1766,10 @@
         },
         {
           "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
+          "value": ""
+        },
+        {
+          "name": "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
           "value": ""
         },
         {
@@ -1535,7 +1786,7 @@
         },
         {
           "name": "DATABASE_POOL_MAX",
-          "value": "4"
+          "value": "1"
         },
         {
           "name": "DATABASE_URL_AUTH",
@@ -1551,6 +1802,11 @@
           "name": "DATABASE_URL_CATALOG",
           "secret": true,
           "secretKey": "BOOTSTRAP_DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "DATABASE_URL_CHANNELS",
+          "secret": true,
+          "secretKey": "BOOTSTRAP_DATABASE_URL_CHANNELS"
         },
         {
           "name": "DATABASE_URL_CHECKOUT",

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "scrydex-usage-test-mode-fixture-v1",
+  "providerKey": "scrydex",
+  "observedAt": "2026-10-09T23:32:04.579Z",
+  "attemptState": "checked",
+  "lagCategory": "documented-window",
+  "providerUpdatedAt": null,
+  "creditUnit": "credits",
+  "creditState": "available",
+  "totalCredits": 50000,
+  "remainingCredits": 49993,
+  "usedCredits": 7,
+  "diagnosticCode": null,
+  "operatorConfirmation": "required",
+  "importAuthorization": "none"
+}

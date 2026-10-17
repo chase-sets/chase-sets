@@ -1,3 +1,5 @@
+import { catalogFixtureTransports, catalogProductionTransport } from "../catalog-fixture-transports";
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -104,6 +106,10 @@ type ScryfallCard = Readonly<{
 export function createScryfallProviderAdapter(
   options: ScryfallProviderAdapterOptions = {},
 ): ProviderAdapter<ScryfallProviderPayload> {
+  return createScryfallAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createScryfallAdapter(options: ScryfallProviderAdapterOptions = {}): ProviderAdapter<ScryfallProviderPayload> {
   return {
     providerKey: "scryfall",
     capabilities: {
@@ -289,8 +295,8 @@ export function createScryfallProviderAdapter(
 }
 
 export function createScryfallValidationProviderAdapter(): ProviderAdapter<ScryfallProviderPayload> {
-  return createScryfallProviderAdapter({
-    fetch: scryfallValidationFetch,
+  return createScryfallAdapter({
+    fetch: catalogFixtureTransports.scryfall,
     now: () => new Date("2026-06-08T00:00:00.000Z"),
     profileVersion: SCRYFALL_VALIDATION_PROFILE_VERSION,
   });
@@ -498,7 +504,7 @@ async function fetchScryfallSets(options: ScryfallProviderAdapterOptions): Promi
 }
 
 async function fetchJson<T>(url: string, options: ScryfallProviderAdapterOptions): Promise<T> {
-  const response = await (options.fetch ?? globalThis.fetch)(url, {
+  const response = await sendCatalogProviderRequest("scryfall", options.fetch ?? globalThis.fetch, url, {
     headers: {
       "User-Agent":
         options.userAgent ??
@@ -594,95 +600,3 @@ function stringValue(value: unknown): string | null {
 
   return null;
 }
-
-function scryfallValidationFetch(input: RequestInfo | URL): Promise<Response> {
-  const response = scryfallValidationResponses[String(input)];
-  if (!response) {
-    return Promise.resolve(new Response(null, { status: 404 }));
-  }
-
-  return Promise.resolve(
-    new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-const scryfallValidationCard = {
-  object: "card",
-  id: "0000579f-7b35-4ed3-b44c-db2a538066fe",
-  oracle_id: "44623693-51d6-49ad-8cd7-140505caf02f",
-  name: "Fury Sliver",
-  lang: "en",
-  released_at: "2006-10-06",
-  uri: "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe",
-  scryfall_uri: "https://scryfall.com/card/tsp/157/fury-sliver?utm_source=api",
-  layout: "normal",
-  image_status: "highres_scan",
-  image_uris: {
-    normal: "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
-    png: "https://cards.scryfall.io/png/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.png",
-  },
-  mana_cost: "{5}{R}",
-  type_line: "Creature - Sliver",
-  oracle_text: "All Sliver creatures have double strike.",
-  set: "tsp",
-  set_name: "Time Spiral",
-  collector_number: "157",
-  rarity: "uncommon",
-  finishes: ["nonfoil", "foil"],
-  artist: "Pete Venters",
-  tcgplayer_id: 14240,
-  prices: { usd: "0.53", usd_foil: "2.60" },
-};
-
-const scryfallValidationResponses: Readonly<Record<string, unknown>> = {
-  "https://api.scryfall.com/cards/0000579f-7b35-4ed3-b44c-db2a538066fe": scryfallValidationCard,
-  "https://api.scryfall.com/cards/search?q=!%22Fury%20Sliver%22&unique=prints": {
-    object: "list",
-    has_more: false,
-    data: [scryfallValidationCard],
-  },
-  "https://api.scryfall.com/cards/search?q=set%3ATSP&unique=prints": {
-    object: "list",
-    has_more: false,
-    data: [scryfallValidationCard],
-  },
-  "https://api.scryfall.com/cards/search?q=set%3Atsp&unique=prints": {
-    object: "list",
-    has_more: false,
-    data: [scryfallValidationCard],
-  },
-  "https://api.scryfall.com/sets": {
-    object: "list",
-    has_more: false,
-    data: [
-      {
-        object: "set",
-        id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
-        code: "tsp",
-        name: "Time Spiral",
-        set_type: "expansion",
-        released_at: "2006-10-06",
-        card_count: 301,
-        digital: false,
-      },
-    ],
-  },
-  "https://api.scryfall.com/bulk-data": {
-    object: "list",
-    has_more: false,
-    data: [
-      {
-        object: "bulk_data",
-        type: "default_cards",
-        name: "Default Cards",
-        updated_at: "2026-06-08T09:13:03.704+00:00",
-        download_uri: "https://data.scryfall.io/default-cards/default-cards-20260608091303.json",
-        content_type: "application/json",
-        content_encoding: "gzip",
-      },
-    ],
-  },
-};

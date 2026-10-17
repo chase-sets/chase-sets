@@ -596,7 +596,7 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     expect(listAction).toHaveProperty("disabled", false);
     expect(screen.getByText("List this product")).toBeTruthy();
     expect(screen.getByText("Current best listing is 399.99.")).toBeTruthy();
-    expect(screen.getByLabelText(/Listing price/)).toHaveProperty("value", "399.99");
+    expect(screen.getByLabelText("Listing price")).toHaveProperty("value", "399.99");
     expect(screen.getByLabelText(/Quantity/)).toHaveProperty("value", "1");
     expect(screen.queryByText("Listing stock is created automatically.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View creating a listing details" }));
@@ -621,7 +621,7 @@ describe("item detail commerce panel rendering and mobile sections", () => {
     const listForm = listAction.closest("form") as HTMLFormElement;
     expect(listForm.id).toBe("list-at-price-form");
     expect(listAction).toHaveProperty("disabled", true);
-    expect(screen.getByLabelText(/Listing price/)).toBeTruthy();
+    expect(screen.getByLabelText("Listing price")).toBeTruthy();
     expect(screen.getByLabelText(/Quantity/)).toBeTruthy();
     expect(listForm.querySelector("[name='shipFromName']")).toBeNull();
 

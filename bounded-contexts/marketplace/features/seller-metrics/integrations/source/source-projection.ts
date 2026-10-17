@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { normalizeConsumedResponsibility } from "../../domain/common";
@@ -77,14 +78,11 @@ export function buildSellerMetricsShipmentSourceProjectionHandlers(
   db: PgQueryable,
   options: SourceProjectionOptions = {},
 ): ProjectorHandlerMap {
-  return {
+  return defineProjectorHandlers<
+    Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.dispatched">
+  >({
     "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        sellerAccountId: string;
-        createdAt: string;
-      };
+      const { data } = event;
 
       await db.query(
         `INSERT INTO marketplace_seller_metrics_shipment_sources (
@@ -103,7 +101,7 @@ export function buildSellerMetricsShipmentSourceProjectionHandlers(
       );
     },
     "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as { shipmentId: string; dispatchedAt: string };
+      const { data } = event;
 
       const result = await db.query<{ seller_account_id: string }>(
         `UPDATE marketplace_seller_metrics_shipment_sources
@@ -119,7 +117,7 @@ export function buildSellerMetricsShipmentSourceProjectionHandlers(
         await refreshSellerBehavioralMetrics(db, sellerAccountId, data.dispatchedAt, options.resolvePolicy);
       }
     },
-  };
+  });
 }
 
 export function buildSellerMetricsSupportSourceProjectionHandlers(

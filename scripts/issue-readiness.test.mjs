@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { parse as parseYaml } from "yaml";
@@ -33,8 +32,10 @@ const CHECKED_AT = new Date("2026-07-29T19:04:00.000Z");
 const CHECKER_SHA = "a".repeat(40);
 const LABELS = ["priority:p1", "area:ops", "kind:tech-debt"];
 const MILESTONE = {
+  id: "MI_kwDORKgVcc4AAAAABaseMilestone",
   number: 136,
   title: "Wave 1 — Platform Foundation & Representative Staging",
+  description: '<!-- outcome: {"version":1,"track":"wave","order":1,"status":"committed"} -->',
   state: "open",
 };
 
@@ -45,7 +46,7 @@ const GOLDEN_READINESS_METADATA = Object.freeze({
   number: 6749,
   state: "open",
   issueType: Object.freeze({ nodeId: "synthetic-slice-type", name: "Slice", isEnabled: true }),
-  milestone: Object.freeze({ number: 136, title: MILESTONE.title, state: "open" }),
+  milestone: Object.freeze({ ...MILESTONE }),
   labels: Object.freeze(["priority:p1", "area:ops", "kind:tech-debt"]),
   parentNumber: null,
   dependencies: Object.freeze([]),
@@ -298,15 +299,27 @@ function scalingBody(lineCount) {
   return ["## Context", ...Array.from({ length: lineCount - 1 }, () => "payload-alpha")].join("\n");
 }
 
-function bestElapsed(operation, input, samples, iterations = 1) {
-  for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
-  let best = Number.POSITIVE_INFINITY;
-  for (let sample = 0; sample < samples; sample += 1) {
-    const startedAt = performance.now();
-    for (let iteration = 0; iteration < iterations; iteration += 1) operation(input);
-    best = Math.min(best, performance.now() - startedAt);
+function cumulativeEncodingInput(operation, input) {
+  const actualByteLength = Buffer.byteLength;
+  let inputUnits = 0;
+  Buffer.byteLength = (value, ...arguments_) => {
+    inputUnits += typeof value === "string" ? value.length : value.byteLength;
+    return actualByteLength(value, ...arguments_);
+  };
+  try {
+    operation(input);
+    return inputUnits;
+  } finally {
+    Buffer.byteLength = actualByteLength;
   }
-  return best;
+}
+
+function hasLinearEncodingGrowth(operation, smallerInput, largerInput) {
+  const smallerWork = cumulativeEncodingInput(operation, smallerInput);
+  const largerWork = cumulativeEncodingInput(operation, largerInput);
+  const growth = largerWork / smallerWork;
+
+  return { smallerWork, largerWork, growth, isLinear: growth < 5 };
 }
 
 function replaceField(body, label, value) {
@@ -408,6 +421,18 @@ function createHarness(scenario, { comments = [] } = {}) {
     return issueReads >= 2 && scenario.finalUpdatedAt ? scenario.finalUpdatedAt : authorityUpdatedAt;
   }
 
+  function currentMilestone() {
+    const milestone =
+      issueReads >= 2 && scenario.finalMilestone ? { ...MILESTONE, ...scenario.finalMilestone } : MILESTONE;
+    return {
+      node_id: milestone.id,
+      number: milestone.number,
+      title: milestone.title,
+      description: milestone.description,
+      state: milestone.state,
+    };
+  }
+
   function issuePayload() {
     return {
       node_id: ISSUE_NODE_ID,
@@ -416,7 +441,7 @@ function createHarness(scenario, { comments = [] } = {}) {
       updated_at: currentUpdatedAt(),
       body: scenarioBody(scenario),
       type: issueType,
-      milestone: MILESTONE,
+      milestone: currentMilestone(),
       comments: commentState.length,
       issue_dependencies_summary: {
         blocked_by: dependencies.filter((item) => item.state === "open").length,
@@ -808,6 +833,32 @@ describe("predecessor-recorded structural scanner oracle", () => {
     expect(parseIssueFormBody(body).fields).toMatchObject({ Context: "kept", "Scope fence": "scope" });
   });
 
+  it.each(["###", "####"])("keeps Don't-rebuild pointers at heading level %s inside Context", (level) => {
+    const body = [
+      "## Context",
+      "scripts/issue-readiness.mjs",
+      `${level} Don't-rebuild pointers`,
+      "corpus-r2.json",
+      "## Scope fence",
+      "bounded parser repair",
+    ].join("\n");
+    const parsed = parseIssueFormBody(body);
+
+    expect(parsed.status).toBe("ok");
+    expect(parsed.fields.Context).toContain("corpus-r2.json");
+    expect(parsed.fields.Context).not.toContain("bounded parser repair");
+    expect(parsed.fields["Scope fence"]).toBe("bounded parser repair");
+  });
+
+  it("ends Context at an unrelated level-3 heading", () => {
+    const parsed = parseIssueFormBody(
+      ["## Context", "bounded parser repair", "### Unrelated", "not Context", "## Scope fence", "scope"].join("\n"),
+    );
+
+    expect(parsed.fields.Context).toBe("bounded parser repair");
+    expect(parsed.fields["Scope fence"]).toBe("scope");
+  });
+
   it("the returned structure record uses exact UTF-8 offsets and key order", () => {
     const structure = scanIssueFormStructure("é\r\n## Context\n💩\n漢");
 
@@ -852,22 +903,26 @@ describe("predecessor-recorded structural scanner oracle", () => {
     });
   });
 
-  it("the scanner stays linear against a prefix-re-encoding mutant", () => {
+  it("the scanner's encoding work stays linear and rejects a prefix-re-encoding mutant", () => {
     const fourThousandLines = scalingBody(4_000);
     const sixteenThousandLines = scalingBody(16_000);
-    const candidateRatio =
-      bestElapsed(parseIssueFormBody, sixteenThousandLines, 3, 3) /
-      bestElapsed(parseIssueFormBody, fourThousandLines, 3, 3);
-    const mutantRatio =
-      bestElapsed(prefixReencodingParserMutant, sixteenThousandLines, 2) /
-      bestElapsed(prefixReencodingParserMutant, fourThousandLines, 2);
+    const candidate = hasLinearEncodingGrowth(parseIssueFormBody, fourThousandLines, sixteenThousandLines);
+    const prefixReencodingMutant = hasLinearEncodingGrowth(
+      prefixReencodingParserMutant,
+      fourThousandLines,
+      sixteenThousandLines,
+    );
 
     console.info(
-      `structural scanner scaling candidate=${candidateRatio.toFixed(3)} prefix-re-encoding-mutant=${mutantRatio.toFixed(3)}`,
+      `structural scanner encoding-work candidate=${candidate.growth.toFixed(3)} ` +
+        `prefix-re-encoding-mutant=${prefixReencodingMutant.growth.toFixed(3)}`,
     );
-    expect(candidateRatio).toBeLessThan(8);
-    expect(mutantRatio).toBeGreaterThan(8);
-  }, 60_000);
+    // Four times as many fixed-width lines produce four times the scanner's
+    // encoding input. A bound below five admits that linear work, while the
+    // mutant's cumulative growing-prefix input approaches sixteen times.
+    expect(candidate.isLinear).toBe(true);
+    expect(prefixReencodingMutant.isLinear).toBe(false);
+  });
 });
 
 describe("issue-readiness/v1 receipt and rule contract", () => {
@@ -913,6 +968,13 @@ describe("issue-readiness/v1 receipt and rule contract", () => {
   it("keeps the JSON schema rule IDs exact and versioned", () => {
     expect(schema.properties.schemaVersion.const).toBe(ISSUE_READINESS_SCHEMA_VERSION);
     expect(schema.properties.claim.const).toBe("structural-only");
+    expect(schema.properties.facts.properties.milestone.oneOf[1].required).toEqual([
+      "id",
+      "number",
+      "title",
+      "description",
+      "state",
+    ]);
     expect(schema.properties.checkedRules.items.properties.id.enum).toEqual(ISSUE_READINESS_RULES.map(({ id }) => id));
     expect(schema.properties.checkedRules.minItems).toBe(ISSUE_READINESS_RULES.length);
     expect(schema.properties.checkedRules.maxItems).toBe(ISSUE_READINESS_RULES.length);
@@ -1002,6 +1064,68 @@ describe("issue-readiness/v1 receipt and rule contract", () => {
     });
   }
 
+  it("keeps Terms: none. accepted for glossary impact", async () => {
+    const { result } = await runScenario(fixtureScenario("glossary-terms-none"));
+
+    expect(result.receipt.status).toBe("ready");
+    expect(result.receipt.checkedRules).toContainEqual({
+      id: "ready-07-terms-declared",
+      status: "pass",
+      reasonCodes: [],
+    });
+  });
+
+  it("shared explicit-none forms pass both checkers", () => {
+    const body = replaceField(
+      replaceField(fixture.readyBody, "Glossary impact", fixture.explicitNone.glossary),
+      "External authority probe & evidence timing",
+      fixture.explicitNone.externalAuthority,
+    );
+    const result = prospectiveResult(body);
+
+    expect(result.checkedRules).toContainEqual({ id: "ready-07-terms-declared", status: "pass", reasonCodes: [] });
+    expect(result.checkedRules).toContainEqual({
+      id: "ready-08-authority-probe-timed",
+      status: "pass",
+      reasonCodes: [],
+    });
+  });
+
+  it.each(["corpus-r2.json", "`corpus-r2.json`"])(
+    "accepts the same named authority artifact with formatting %s",
+    (artifact) => {
+      const body = replaceField(
+        fixture.readyBody,
+        "External authority probe & evidence timing",
+        `${artifact} after acceptance.`,
+      );
+      const result = prospectiveResult(body);
+
+      expect(result.checkedRules).toContainEqual({
+        id: "ready-08-authority-probe-timed",
+        status: "pass",
+        reasonCodes: [],
+      });
+    },
+  );
+
+  it.each([
+    "after acceptance.",
+    "corpus-r2.json; no lifecycle moment is stated.",
+    "Evidence `later` after acceptance.",
+    "Evidence `TBD` after merge.",
+    "Evidence after acceptance `not-a-reference`.",
+  ])("does not accept authority evidence without artifact and lifecycle timing: %s", (field) => {
+    const body = replaceField(fixture.readyBody, "External authority probe & evidence timing", field);
+    const result = prospectiveResult(body);
+
+    expect(result.checkedRules).toContainEqual({
+      id: "ready-08-authority-probe-timed",
+      status: "fail",
+      reasonCodes: ["AUTHORITY_PROBE_OR_TIMING_MISSING"],
+    });
+  });
+
   it("rejects headings-only prose instead of treating heading presence as readiness", async () => {
     const { result } = await runScenario(fixtureScenario("headings-only"));
 
@@ -1071,6 +1195,23 @@ describe("bounded complete GitHub authority collection", () => {
     });
   });
 
+  it("returns unknown when milestone policy changes without moving issue updatedAt", async () => {
+    const candidateDescription = '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"candidate"} -->';
+    const { result } = await runScenario({
+      ...fixtureScenario("ready"),
+      finalMilestone: { description: candidateDescription },
+    });
+
+    expect(result.receipt.status).toBe("unknown");
+    expect(result.receipt.reasonCodes).toContain("ISSUE_REVISION_MOVED");
+    expect(result.receipt.subject.updatedAt).toBe(UPDATED_AT);
+    expect(result.receipt.coverage.issue).toEqual({
+      initialRead: true,
+      finalRead: true,
+      revisionStable: false,
+    });
+  });
+
   it("returns unknown when the selected issue authority has moved repositories", async () => {
     const { result } = await runScenario(fixtureScenario("issue-moved"));
 
@@ -1130,6 +1271,72 @@ describe("bounded complete GitHub authority collection", () => {
 });
 
 describe("prospective issue readiness", () => {
+  it.each([
+    ...["corpus-r2.json", "`corpus-r2.json`"].map((artifact) => ({
+      ruleId: "ready-08-authority-probe-timed",
+      body: replaceField(
+        fixture.readyBody,
+        "External authority probe & evidence timing",
+        `${artifact} after acceptance.`,
+      ),
+    })),
+    ...[
+      "after acceptance.",
+      "corpus-r2.json; no lifecycle moment is stated.",
+      "Evidence `later` after acceptance.",
+      "Evidence `TBD` after merge.",
+      "Evidence after acceptance `not-a-reference`.",
+    ].map((field) => ({
+      ruleId: "ready-08-authority-probe-timed",
+      body: replaceField(fixture.readyBody, "External authority probe & evidence timing", field),
+    })),
+    {
+      ruleId: "ready-08-authority-probe-timed",
+      secondaryRuleId: "ready-01-repo-evidence",
+      body: replaceField(
+        fixture.readyBody,
+        "Context",
+        "Context scope.\n### Don't-rebuild pointers\n- scripts/issue-readiness.mjs\n- bounded-contexts/catalog/README.md",
+      ),
+    },
+  ])(
+    "prospective CLI matches evaluator for readiness rule matrix ($ruleId)",
+    async ({ ruleId, secondaryRuleId, body }) => {
+      const files = new Map([
+        ["body.md", body],
+        ["metadata.json", JSON.stringify(prospectiveMetadata())],
+      ]);
+      const requests = [];
+      const logs = [];
+      const result = await main({
+        argv: [
+          "--prospective-body",
+          "body.md",
+          "--prospective-metadata",
+          "metadata.json",
+          "--checker-sha",
+          CHECKER_SHA,
+        ],
+        client: async (...args) => {
+          requests.push(args);
+          throw new Error("prospective parity mode reached GitHub");
+        },
+        readTextFile: async (file) => files.get(file),
+        logger: { log: (value) => logs.push(value), error: (value) => logs.push(value) },
+        now: () => CHECKED_AT,
+      });
+      const cliRecord = JSON.parse(logs[0]);
+      const evaluator = prospectiveResult(body);
+      const findRule = (record, id) => record.checkedRules.find((entry) => entry.id === id);
+
+      expect(result.exitCode).toBe(0);
+      expect(logs).toHaveLength(1);
+      expect(findRule(cliRecord, ruleId)).toEqual(findRule(evaluator, ruleId));
+      if (secondaryRuleId) expect(findRule(cliRecord, secondaryRuleId)).toEqual(findRule(evaluator, secondaryRuleId));
+      expect(requests).toEqual([]);
+    },
+  );
+
   it("prospective CLI emits decomposition facts", async () => {
     const files = new Map([
       ["body.md", fixture.readyBody],
@@ -1207,6 +1414,53 @@ describe("prospective issue readiness", () => {
     expect(prospective.reasonCodes).toEqual(live.reasonCodes);
   });
 
+  it.each(["Wave 9", "Mobile 4"])("rejects an untagged %s as MILESTONE_NOT_OUTCOME", (title) => {
+    const result = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({ milestone: { number: 200, title, state: "open" } }),
+    );
+    expect(result.status).toBe("not-ready");
+    expect(result.reasonCodes).toContain("MILESTONE_NOT_OUTCOME");
+  });
+
+  it("accepts tagged Mobile and renamed outcomes while excluding candidates", () => {
+    const mobile = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({
+        milestone: {
+          number: 200,
+          title: "Mobile 3 — App delivery",
+          description: '<!-- outcome: {"version":1,"track":"mobile","order":3,"status":"committed"} -->',
+          state: "open",
+        },
+      }),
+    );
+    expect(mobile.status).toBe("ready");
+
+    const managedDescription = '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"committed"} -->';
+    const managed = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({
+        milestone: { number: 900, title: "Renamed checkout outcome", description: managedDescription, state: "open" },
+      }),
+    );
+    expect(managed.status).toBe("ready");
+
+    const candidate = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({
+        milestone: {
+          number: 901,
+          title: "Candidate checkout idea",
+          description: managedDescription.replace('"committed"', '"candidate"'),
+          state: "open",
+        },
+      }),
+    );
+    expect(candidate.status).toBe("not-ready");
+    expect(candidate.reasonCodes).toEqual(expect.arrayContaining(["MILESTONE_CANDIDATE", "MILESTONE_NOT_EXECUTABLE"]));
+  });
+
   it("advisory decomposition facts never change readiness status", () => {
     const threeCriteria = prospectiveResult(bodyWithAcceptanceCriteria(3));
     const twelveCriteria = prospectiveResult(bodyWithAcceptanceCriteria(12));
@@ -1233,6 +1487,7 @@ describe("prospective issue readiness", () => {
       number: ISSUE_NUMBER,
       nodeId: ISSUE_NODE_ID,
       updatedAt: UPDATED_AT,
+      milestone: MILESTONE,
     };
 
     expect(retrospectiveRecord).not.toHaveProperty("decompositionFacts");
@@ -1384,6 +1639,7 @@ describe("stable comment state machine", () => {
           number: rebound.subject.number,
           nodeId: rebound.subject.nodeId,
           updatedAt: "2026-07-29T19:05:00.000Z",
+          milestone: rebound.facts.milestone,
         },
         trustedCheckerSha: CHECKER_SHA,
         semanticPressureTest: "pass",
@@ -1466,6 +1722,7 @@ describe("runnable-set receipt consumer", () => {
       number: ISSUE_NUMBER,
       nodeId: ISSUE_NODE_ID,
       updatedAt: UPDATED_AT,
+      milestone: MILESTONE,
     };
 
     expect(
@@ -1516,6 +1773,84 @@ describe("runnable-set receipt consumer", () => {
     ).toMatchObject({ decision: "dispatch-planning-repair", reasonCode: "STRUCTURAL_NOT_READY" });
   });
 
+  it("rejects legacy receipts that do not bind milestone identity and description", async () => {
+    const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
+    const legacyReceipt = {
+      ...receipt,
+      facts: {
+        ...receipt.facts,
+        milestone: {
+          number: receipt.facts.milestone.number,
+          title: receipt.facts.milestone.title,
+          state: receipt.facts.milestone.state,
+        },
+      },
+    };
+
+    expect(validateIssueReadinessReceipt(legacyReceipt)).toContain("facts");
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt: legacyReceipt,
+        currentRevision: {
+          repository: REPOSITORY,
+          number: ISSUE_NUMBER,
+          nodeId: ISSUE_NODE_ID,
+          updatedAt: UPDATED_AT,
+          milestone: MILESTONE,
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toMatchObject({ decision: "reject", reasonCode: "RECEIPT_MALFORMED" });
+  });
+
+  it.each([
+    ["identity", { ...MILESTONE, id: "MI_changed" }],
+    [
+      "description",
+      {
+        ...MILESTONE,
+        description: '<!-- outcome: {"version":1,"track":"commerce","order":100,"status":"candidate"} -->',
+      },
+    ],
+    ["state", { ...MILESTONE, state: "closed" }],
+  ])("rejects a ready receipt after milestone %s changes with stable issue updatedAt", async (_field, milestone) => {
+    const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
+
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt,
+        currentRevision: {
+          repository: REPOSITORY,
+          number: ISSUE_NUMBER,
+          nodeId: ISSUE_NODE_ID,
+          updatedAt: UPDATED_AT,
+          milestone,
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toEqual({ decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: "ready" });
+  });
+
+  it("rejects a caller that omits current milestone authority", async () => {
+    const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
+
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt,
+        currentRevision: {
+          repository: REPOSITORY,
+          number: ISSUE_NUMBER,
+          nodeId: ISSUE_NODE_ID,
+          updatedAt: UPDATED_AT,
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toEqual({ decision: "reject", reasonCode: "RECEIPT_STALE", structuralStatus: "ready" });
+  });
+
   it("keeps semantic pressure-test rejection representable beside a structurally ready receipt", async () => {
     const receipt = (await runScenario(fixtureScenario("ready"))).result.receipt;
     const currentRevision = {
@@ -1523,6 +1858,7 @@ describe("runnable-set receipt consumer", () => {
       number: ISSUE_NUMBER,
       nodeId: ISSUE_NODE_ID,
       updatedAt: UPDATED_AT,
+      milestone: MILESTONE,
     };
 
     expect(receipt.status).toBe("ready");
@@ -1628,13 +1964,33 @@ describe("slice form and trusted-base workflow integration", () => {
       form.body.filter((entry) => entry.id).map((entry) => [entry.attributes.label, entry]),
     );
     expect(fields["Operator actions"].attributes.description).toContain("`none`");
+    expect(fields["Operator actions"].attributes.description).toContain("Residual human steps only");
+    expect(fields["Operator actions"].attributes.description).toContain("environment");
+    expect(fields["Operator actions"].attributes.description).toContain("reason a human is needed");
+    expect(fields["Operator actions"].attributes.description).toContain("exact step");
+    expect(fields["Operator actions"].attributes.description).toContain("agent resumption point");
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "production-credential or real-money authorization/supervision",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "private entry for credentials agents may not hold",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain("a protected permission prompt");
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "an actual policy/external-authority step agents cannot lawfully perform",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "agent-owned sign-ins, probe execution, and watch windows are not operator actions",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain("Enter `none` when there are none.");
+    expect(fields["Operator actions"].attributes.description).not.toContain("live watch windows");
     expect(fields["External authority probe & evidence timing"].attributes.description).toContain(
       "exact lifecycle moment",
     );
     expect(fields["Review packet seed"].attributes.description).toContain("omission-revealing");
   });
 
-  it("slice-form fields other than the acceptance description and registered area options are unchanged", () => {
+  it("freezes slice-form fields except acceptance/operator-actions descriptions and area options", () => {
     const predecessorForm = parseYaml(
       execFileSync("git", ["show", "05afe2b107e922ee05c12be3bacecae108d01845:.github/ISSUE_TEMPLATE/slice.yml"], {
         cwd: repoRoot,
@@ -1642,7 +1998,7 @@ describe("slice form and trusted-base workflow integration", () => {
       }),
     );
     const differences = fieldDifferences(fieldProjection(predecessorForm), fieldProjection(form)).filter(
-      (key) => key !== "acceptance.description" && key !== "area.options",
+      (key) => key !== "acceptance.description" && key !== "operator-actions.description" && key !== "area.options",
     );
 
     expect(differences).toEqual([]);

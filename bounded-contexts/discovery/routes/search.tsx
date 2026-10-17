@@ -3,6 +3,7 @@ import type { ClientLoaderFunctionArgs, LoaderFunctionArgs, MetaFunction } from 
 import {
   type ActionFunctionArgs,
   redirect,
+  useFetcher,
   useLoaderData,
   useLocation,
   useNavigate,
@@ -17,11 +18,8 @@ import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtim
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { defineFormAction, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import { createDiscoveryRequestApiClient } from "../support/request-support/api-client";
-import type {
-  CategoryListResponse,
-  DiscoveryBulkCartPreview,
-  DiscoverySearchResponse,
-} from "../support/request-support/api-client";
+import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
+import type { DiscoverySearchInterpretation } from "../support/client-support/contracts";
 import {
   appendAnonymousCartCookie,
   createCheckoutRequestApiClient,
@@ -29,6 +27,7 @@ import {
 } from "@chase-sets/checkout/server";
 import { applyDiscoverySearchPatch } from "../support/client-support/realtime-market";
 import { SearchPage } from "../features/search/ui/search-page";
+import { EMPTY_CATEGORY_LIST, EMPTY_DISCOVERY_SEARCH_RESPONSE } from "../features/search/ui/route-data-defaults";
 import {
   buildSearchResultSetKey,
   persistSearchRestoration,
@@ -53,6 +52,7 @@ import {
 } from "../support/request-support/saved-list-addition";
 
 const PAGE_SIZE = 24;
+const INTERPRETED_PARAM = "interpreted";
 const HOME_FEATURED_CATEGORY_LIMIT = 4;
 const HOME_NEW_ARRIVALS_LIMIT = 3;
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -69,28 +69,13 @@ const EMPTY_SEARCH_RESULT = {
   inStock: false,
   sort: "relevance",
   dynamicFilters: [],
+  interpreted: null,
+  interpretedFilters: [],
   data: null,
   categories: [],
   homeMerchandising: null,
   savedListClaim: { preparation: null, error: null },
 } as const;
-const EMPTY_CATEGORY_LIST: CategoryListResponse = {
-  items: [],
-  total: 0,
-  count: 0,
-};
-const EMPTY_DISCOVERY_SEARCH_RESPONSE: DiscoverySearchResponse = {
-  items: [],
-  facets: [],
-  category_counts: [],
-  total: 0,
-  count: 0,
-  nextCursor: null,
-  retrievalMode: "lexical",
-  lexicalCount: 0,
-  queryHash: "",
-  resultSetKey: "",
-};
 const EMPTY_EXTRA_PAGES: readonly DiscoverySearchResponse[] = [];
 
 type DynamicSearchFilterSelection = Readonly<{
@@ -99,6 +84,13 @@ type DynamicSearchFilterSelection = Readonly<{
   value: string;
 }>;
 type MarketActivityFilter = "" | "any" | "listings" | "offers";
+type SearchResultPageState = Readonly<{
+  key: string;
+  // A cursor-restart replacement for the loader's first page. It applies only while the
+  // loader still serves the page it replaced; a revalidated or re-cached payload wins.
+  firstPage: Readonly<{ replaces: DiscoverySearchResponse | null; page: DiscoverySearchResponse }> | null;
+  pages: DiscoverySearchResponse[];
+}>;
 
 function buildSearchQuery({
   search,
@@ -113,6 +105,7 @@ function buildSearchQuery({
   cursor,
   limit = PAGE_SIZE,
   dynamicFilters,
+  interpreted = null,
 }: {
   search: string;
   category: string;
@@ -126,6 +119,7 @@ function buildSearchQuery({
   cursor?: string | null;
   limit?: number;
   dynamicFilters: readonly DynamicSearchFilterSelection[];
+  interpreted?: string | null;
 }) {
   const params = new URLSearchParams();
   if (search) {
@@ -160,7 +154,64 @@ function buildSearchQuery({
     params.set("includeTotal", "true");
   }
   appendDynamicSearchFilters(params, dynamicFilters);
+  if (interpreted !== null) {
+    params.set(INTERPRETED_PARAM, interpreted);
+  }
   return params.toString();
+}
+
+/**
+ * The one canonical URL for an interpreted search: the remaining words as `q`, each newly
+ * applied value as its stable filter param, every other param preserved, and the marker
+ * listing the newly applied param keys so no later load interprets the words again.
+ */
+function buildInterpretedSearchPath(url: URL, interpretation: DiscoverySearchInterpretation): string {
+  const next = new URLSearchParams(url.searchParams);
+  next.delete("search");
+  next.set("q", interpretation.remainingQuery);
+  const keys: string[] = [];
+  for (const value of interpretation.applied) {
+    if (value.param === "language") {
+      next.set("language", value.language);
+    } else {
+      next.append(value.param, value.optionId);
+    }
+    if (!keys.includes(value.param)) {
+      keys.push(value.param);
+    }
+  }
+  next.set(INTERPRETED_PARAM, keys.join(","));
+  return `${url.pathname}?${next.toString()}`;
+}
+
+function readInterpretedFilters(searchParams: URLSearchParams): string[] {
+  return (searchParams.get(INTERPRETED_PARAM) ?? "").split(",").filter(Boolean);
+}
+
+/**
+ * Keeps the interpretation marker only while the change removes marked filter values: a
+ * removed chip drops out of the notice, but a new query or any other filter change is a new
+ * search whose words were never interpreted.
+ */
+function retainInterpretationMarker(current: URLSearchParams, next: URLSearchParams): URLSearchParams {
+  if (!next.has(INTERPRETED_PARAM)) {
+    return next;
+  }
+  const marked = new Set(readInterpretedFilters(current));
+  const ignored = new Set([INTERPRETED_PARAM, "sort", "page", "cursor"]);
+  const keys = new Set([...current.keys(), ...next.keys()].filter((key) => !ignored.has(key)));
+  const retained = [...keys].every((key) => {
+    const before = current.getAll(key);
+    const after = next.getAll(key);
+    if (before.join("\n") === after.join("\n")) {
+      return true;
+    }
+    return marked.has(key) && after.every((value) => before.includes(value)) && after.length < before.length;
+  });
+  if (!retained) {
+    next.delete(INTERPRETED_PARAM);
+  }
+  return next;
 }
 
 function buildCategoryPath(categorySlug: string, current: URLSearchParams) {
@@ -189,6 +240,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const inStock = url.searchParams.get("inStock") === "true";
   const sort = url.searchParams.get("sort") ?? "relevance";
   const dynamicFilters = readDynamicSearchFilters(url.searchParams);
+  const interpreted = url.searchParams.get(INTERPRETED_PARAM);
   const isHomeLanding =
     url.pathname === "/" &&
     !search &&
@@ -237,6 +289,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           inStock,
           sort,
           dynamicFilters,
+          interpreted,
         }),
       )
       .catch(() => EMPTY_DISCOVERY_SEARCH_RESPONSE),
@@ -261,6 +314,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       : Promise.resolve(EMPTY_DISCOVERY_SEARCH_RESPONSE),
     loadSavedListClaimPreparation(request, (product) => product.productId),
   ]);
+  // Interpreted rows are never shown here: the canonical URL is loaded as its own request,
+  // whose marker keeps the dispatcher from interpreting again.
+  if (data.interpretation && interpreted === null) {
+    throw redirect(buildInterpretedSearchPath(url, data.interpretation), { status: 302 });
+  }
   const canonicalPath =
     params.categorySlug && resolvedCategory
       ? buildCategoryPath(resolvedCategory.slug, url.searchParams)
@@ -277,6 +335,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     inStock,
     sort,
     dynamicFilters,
+    interpreted,
+    interpretedFilters: readInterpretedFilters(url.searchParams),
     data,
     categories: categories.items,
     homeMerchandising: isHomeLanding
@@ -321,6 +381,68 @@ type BulkAddActionData =
       failedLineCount: number;
       requestedLineCount: number;
     }>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isBulkPreview(value: unknown): value is DiscoveryBulkCartPreview {
+  if (!isRecord(value)) return false;
+  return (
+    (value.totalMatches === null || isCount(value.totalMatches)) &&
+    isCount(value.eligibleCount) &&
+    isCount(value.skippedCount) &&
+    typeof value.overLimit === "boolean" &&
+    isCount(value.limit) &&
+    value.limit > 0 &&
+    Array.isArray(value.lines) &&
+    value.lines.every(
+      (line: unknown) =>
+        isRecord(line) &&
+        ["catalog_item_id", "slug", "title", "product_id"].every((key) => typeof line[key] === "string") &&
+        [
+          "subtitle",
+          "image_url",
+          "image_srcset",
+          "image_loading_url",
+          "image_loading_alt",
+          "image_loading_srcset",
+          "product_summary",
+        ].every((key) => line[key] === null || typeof line[key] === "string") &&
+        isCount(line.quantity) &&
+        line.quantity > 0 &&
+        Array.isArray(line.selected_options) &&
+        line.selected_options.every(
+          (option: unknown) =>
+            isRecord(option) && typeof option.dimensionId === "string" && typeof option.optionId === "string",
+        ),
+    ) &&
+    Array.isArray(value.skippedItems) &&
+    value.skippedItems.every(
+      (item: unknown) =>
+        isRecord(item) &&
+        ["catalog_item_id", "slug", "title", "message"].every((key) => typeof item[key] === "string") &&
+        (item.reason === "product-options-required" || item.reason === "invalid-product-selection"),
+    )
+  );
+}
+
+function isBulkAddActionData(
+  value: unknown,
+  intent: "preview-bulk-add" | "commit-bulk-add",
+): value is BulkAddActionData {
+  if (!isRecord(value) || !isBulkPreview(value.preview)) return false;
+  if (value.status === "bulk-preview") return true;
+  return (
+    intent === "commit-bulk-add" &&
+    value.status === "bulk-added" &&
+    ["addedLineCount", "mergedLineCount", "failedLineCount", "requestedLineCount"].every((key) => isCount(value[key]))
+  );
+}
 
 async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   if (intent === "commit-saved-list") {
@@ -455,6 +577,12 @@ export const action = defineFormAction({
     "commit-bulk-add": (context) => handleAction("commit-bulk-add", context),
   },
   onUnknownIntent: (context) => handleAction("", context),
+  onError: (error, { intent }) => {
+    if (intent === "preview-bulk-add" || intent === "commit-bulk-add") {
+      return Response.json({ status: "bulk-error" }, { status: 500 });
+    }
+    throw error;
+  },
 });
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
@@ -516,6 +644,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     inStock: data.inStock,
     sort: data.sort,
     dynamicFilters,
+    // Presence, as the API reads it: an empty marker is still marked.
+    interpreted: data.interpreted != null,
   });
   const resultSetKeyRef = useRef(resultSetKey);
   const pendingScrollRestorationRef = useRef<{
@@ -524,12 +654,13 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     scrollY: number;
   } | null>(null);
   const lastObservedScrollYRef = useRef(0);
-  const [extraPageState, setExtraPageState] = useState<{
-    key: string;
-    pages: DiscoverySearchResponse[];
-  }>({ key: resultSetKey, pages: [] });
-  const extraPageStateRef = useRef(extraPageState);
-  extraPageStateRef.current = extraPageState;
+  const [resultPageState, setResultPageState] = useState<SearchResultPageState>({
+    key: resultSetKey,
+    firstPage: null,
+    pages: [],
+  });
+  const resultPageStateRef = useRef(resultPageState);
+  resultPageStateRef.current = resultPageState;
   const [loadMoreState, setLoadMoreState] = useState<{
     loading: boolean;
     error: string | null;
@@ -541,20 +672,36 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
   }>({ status: "idle" });
   const loadMoreInFlightRef = useRef(false);
   const bulkAddRequestIdRef = useRef(0);
+  const bulkFetcher = useFetcher<unknown>();
+  const { reset: resetBulkFetcher } = bulkFetcher;
+  const activeBulkRequestRef = useRef<{
+    id: number;
+    key: string;
+    intent: "preview-bulk-add" | "commit-bulk-add";
+    pending: boolean;
+  } | null>(null);
   let draftSearch = draftSearchState.value;
   let draftPriceMin = draftPriceState.min;
   let draftPriceMax = draftPriceState.max;
-  const activeExtraPages = extraPageState.key === resultSetKey ? extraPageState.pages : EMPTY_EXTRA_PAGES;
+  const activeResultPages = resultPageState.key === resultSetKey ? resultPageState : null;
+  const activeExtraPages = activeResultPages?.pages ?? EMPTY_EXTRA_PAGES;
+  const restartedFirstPage =
+    activeResultPages?.firstPage && activeResultPages.firstPage.replaces === data.data
+      ? activeResultPages.firstPage.page
+      : null;
+  const activeFirstPage = restartedFirstPage ?? data.data;
   const accumulatedData = useMemo(
-    () => mergeDiscoverySearchResponses(data.data, activeExtraPages),
-    [activeExtraPages, data.data],
+    () => mergeDiscoverySearchResponses(activeFirstPage, activeExtraPages),
+    [activeExtraPages, activeFirstPage],
   );
   const accumulatedSnapshotKey = JSON.stringify([
     resultSetKey,
-    data.data?.nextCursor,
+    restartedFirstPage !== null,
+    activeFirstPage?.nextCursor,
     activeExtraPages.length,
     activeExtraPages.at(-1)?.nextCursor,
   ]);
+  const loaderCacheKey = searchLoaderCacheKey(`${location.pathname}${location.search}`);
   const visibleData = useRealtimePatchedSnapshot<DiscoverySearchResponse | null>({
     initialSnapshot: accumulatedData,
     snapshotKey: accumulatedSnapshotKey,
@@ -571,18 +718,41 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       restoration.scrollY === null
         ? null
         : { key: resultSetKey, pageCount: restoration.pages.length, scrollY: restoration.scrollY };
-    setExtraPageState({ key: resultSetKey, pages: restoration.pages });
+    setResultPageState({ key: resultSetKey, firstPage: null, pages: restoration.pages });
     setLoadMoreState({ loading: false, error: null });
+    bulkAddRequestIdRef.current += 1;
+    activeBulkRequestRef.current = null;
+    resetBulkFetcher();
     setBulkAddState({ status: "idle" });
-  }, [resultSetKey]);
+  }, [resultSetKey, resetBulkFetcher]);
+
+  useEffect(() => {
+    const request = activeBulkRequestRef.current;
+    if (!request || request.key !== resultSetKey || request.id !== bulkAddRequestIdRef.current) return;
+    if (bulkFetcher.state !== "idle") {
+      request.pending = true;
+      return;
+    }
+    if (!request.pending) return;
+    activeBulkRequestRef.current = null;
+    if (isBulkAddActionData(bulkFetcher.data, request.intent)) {
+      setBulkAddState({ status: "idle", data: bulkFetcher.data });
+    } else {
+      setBulkAddState((current) => ({
+        ...current,
+        status: "idle",
+        error: t("discovery.features.search.ui.searchPage.bulk.error.description"),
+      }));
+    }
+  }, [bulkFetcher.data, bulkFetcher.state, resultSetKey]);
 
   useEffect(() => {
     const pending = pendingScrollRestorationRef.current;
     if (
       !pending ||
       pending.key !== resultSetKey ||
-      extraPageState.key !== pending.key ||
-      extraPageState.pages.length !== pending.pageCount
+      resultPageState.key !== pending.key ||
+      resultPageState.pages.length !== pending.pageCount
     ) {
       return;
     }
@@ -590,7 +760,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     pendingScrollRestorationRef.current = null;
     lastObservedScrollYRef.current = pending.scrollY;
     window.scrollTo({ top: pending.scrollY, left: 0, behavior: "instant" });
-  }, [extraPageState, resultSetKey]);
+  }, [resultPageState, resultSetKey]);
 
   useEffect(() => {
     lastObservedScrollYRef.current = window.scrollY;
@@ -598,7 +768,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       lastObservedScrollYRef.current = window.scrollY;
     };
     const persistCurrentRestoration = () => {
-      const current = extraPageStateRef.current;
+      const current = resultPageStateRef.current;
       const currentKey = resultSetKeyRef.current;
       if (current.key !== currentKey) {
         return;
@@ -628,12 +798,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
     if (!("canonicalUrl" in data)) {
       return;
     }
-    cacheSearchLoaderData(
-      getSearchSessionStorage(),
-      searchLoaderCacheKey(`${location.pathname}${location.search}`),
-      data,
-    );
-  }, [data, location.pathname, location.search]);
+    cacheSearchLoaderData(getSearchSessionStorage(), loaderCacheKey, data);
+  }, [data, loaderCacheKey]);
 
   if (
     draftSearchState.committedSearch !== data.search &&
@@ -708,6 +874,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
           current.delete("search");
         }
         current.delete("page");
+        current.delete(INTERPRETED_PARAM);
         navigate(buildCategoryPath(nextValues.category, current), { preventScrollReset: true });
         return;
       }
@@ -800,7 +967,7 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
             next.delete("page");
           }
 
-          return next;
+          return retainInterpretationMarker(current, next);
         },
         { preventScrollReset: true, replace },
       );
@@ -973,6 +1140,8 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       sort: data.sort,
       dynamicFilters,
       cursor: visibleData.nextCursor,
+      // A marked page pages under its marker, so a continuation or restart keeps its policy.
+      interpreted: data.interpreted,
     });
 
     loadMoreInFlightRef.current = true;
@@ -990,14 +1159,31 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         return;
       }
 
-      setExtraPageState((current) => {
-        if (current.key !== requestKey) {
-          return current;
+      if (nextPage.cursorRestarted) {
+        // The cursor was rejected, so this is a fresh first page with fresh metadata. Replace
+        // the shown first page and discard every extra page; both stored copies are rewritten
+        // so back navigation cannot replay the old order, metadata, or notice.
+        const { cursorRestarted: _cursorRestarted, ...firstPage } = nextPage;
+        setResultPageState((current) => {
+          if (current.key !== requestKey) {
+            return current;
+          }
+          persistSearchRestoration(getSearchSessionStorage(), requestKey, [], window.scrollY);
+          return { key: current.key, firstPage: { replaces: data.data, page: firstPage }, pages: [] };
+        });
+        if ("canonicalUrl" in data) {
+          cacheSearchLoaderData(getSearchSessionStorage(), loaderCacheKey, { ...data, data: firstPage });
         }
-        const pages = [...current.pages, nextPage];
-        persistSearchRestoration(getSearchSessionStorage(), requestKey, pages, window.scrollY);
-        return { key: current.key, pages };
-      });
+      } else {
+        setResultPageState((current) => {
+          if (current.key !== requestKey) {
+            return current;
+          }
+          const pages = [...current.pages, nextPage];
+          persistSearchRestoration(getSearchSessionStorage(), requestKey, pages, window.scrollY);
+          return { ...current, pages };
+        });
+      }
       setLoadMoreState({ loading: false, error: null });
     } catch {
       if (resultSetKeyRef.current === requestKey) {
@@ -1011,61 +1197,41 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
         loadMoreInFlightRef.current = false;
       }
     }
-  }, [
-    data.category,
-    data.language,
-    data.marketActivity,
-    data.priceMin,
-    data.priceMax,
-    data.inStock,
-    data.search,
-    data.tag,
-    data.sort,
-    dynamicFilters,
-    visibleData?.nextCursor,
-  ]);
+  }, [data, dynamicFilters, loaderCacheKey, visibleData?.nextCursor]);
 
-  const submitBulkAddIntent = useCallback(async (intent: "preview-bulk-add" | "commit-bulk-add") => {
-    if (typeof window === "undefined") {
-      return;
-    }
+  const submitBulkAddIntent = useCallback(
+    async (intent: "preview-bulk-add" | "commit-bulk-add") => {
+      if (activeBulkRequestRef.current) return;
+      const request = {
+        id: ++bulkAddRequestIdRef.current,
+        key: resultSetKeyRef.current,
+        intent,
+        pending: false,
+      };
+      activeBulkRequestRef.current = request;
+      const formData = new FormData();
+      formData.set("intent", intent);
+      setBulkAddState((current) => ({ ...current, status: "submitting", error: null }));
 
-    const requestId = bulkAddRequestIdRef.current + 1;
-    const requestKey = resultSetKeyRef.current;
-    bulkAddRequestIdRef.current = requestId;
-    const formData = new FormData();
-    formData.set("intent", intent);
-    setBulkAddState((current) => ({ ...current, status: "submitting", error: null }));
-
-    try {
-      const response = await fetch(window.location.href, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
-        throw new Error(`Bulk cart request failed with ${response.status}.`);
-      }
-
-      const data = (await response.json()) as BulkAddActionData;
-      if (bulkAddRequestIdRef.current === requestId && resultSetKeyRef.current === requestKey) {
-        setBulkAddState({
-          status: "idle",
-          data,
+      try {
+        await bulkFetcher.submit(formData, {
+          method: "post",
+          defaultShouldRevalidate: false,
+          preventScrollReset: true,
         });
+      } catch {
+        if (activeBulkRequestRef.current === request && resultSetKeyRef.current === request.key) {
+          activeBulkRequestRef.current = null;
+          setBulkAddState((current) => ({
+            ...current,
+            status: "idle",
+            error: t("discovery.features.search.ui.searchPage.bulk.error.description"),
+          }));
+        }
       }
-    } catch (error) {
-      console.error("Bulk add search results failed.", error);
-      if (bulkAddRequestIdRef.current === requestId && resultSetKeyRef.current === requestKey) {
-        setBulkAddState((current) => ({
-          ...current,
-          status: "idle",
-          error: t("discovery.features.search.ui.searchPage.bulk.error.description"),
-        }));
-      }
-    }
-  }, []);
+    },
+    [bulkFetcher],
+  );
 
   return (
     <SearchPage
@@ -1080,8 +1246,9 @@ function DiscoverySearchRealtimeView({ data }: { data: DiscoverySearchRouteData 
       inStock={data.inStock}
       sort={data.sort}
       dynamicFilters={dynamicFilters}
+      interpretedFilters={data.interpretedFilters}
       data={visibleData}
-      resultSetKey={data.data?.resultSetKey}
+      resultSetKey={activeFirstPage?.resultSetKey}
       categories={[...data.categories]}
       homeMerchandising={data.homeMerchandising}
       loading={navigation.state !== "idle"}

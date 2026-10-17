@@ -67,6 +67,7 @@ function createServices(): ProductAlertServices {
         selected_options: params.selectedOptions ?? [],
         product_summary: params.productSummary ?? null,
         threshold_amount: params.thresholdAmount ?? null,
+        threshold_currency_code: params.thresholdCurrencyCode ?? null,
         status: "active" as const,
         claimed_account_id: null,
         claimed_alert_id: null,
@@ -88,6 +89,7 @@ function createServices(): ProductAlertServices {
         selected_options: [{ dimensionId: "form", optionId: "raw" }],
         product_summary: "Form: Raw",
         threshold_amount: "20.00",
+        threshold_currency_code: "USD",
         status: "claimed" as const,
         claimed_account_id: params.accountId,
         claimed_alert_id: "pal_1",
@@ -124,6 +126,7 @@ describe("product alert routes", () => {
           selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
           productSummary: "Form: Raw",
           thresholdAmount: "20.00",
+          thresholdCurrencyCode: "USD",
         }),
       }),
     );
@@ -134,6 +137,7 @@ describe("product alert routes", () => {
       anonymous_owner_id: "anon_watch_1",
       catalog_item_id: "cat_charizard",
       threshold_amount: "20.00",
+      threshold_currency_code: "USD",
       status: "active",
     });
     expect(services.createAnonymousProductAlertIntent).toHaveBeenCalledWith({
@@ -145,6 +149,7 @@ describe("product alert routes", () => {
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       thresholdAmount: "20.00",
+      thresholdCurrencyCode: "USD",
     });
   });
 

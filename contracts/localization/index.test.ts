@@ -37,6 +37,22 @@ describe("localization", () => {
     expect(translator.t("localization.testGreeting", { name: "Ada" })).toBe("Hello, Ada.");
   });
 
+  it("distinguishes live workers from informational expired heartbeat history", () => {
+    const translator = createTranslator();
+
+    expect(translator.t("platformOperations.projectionOperations.activeWorkerSummary", { active: 1, stale: 0 })).toBe(
+      "1 active · 0 stale",
+    );
+    expect(translator.t("platformOperations.projectionOperations.activeWorkerSummary", { active: 2, stale: 1 })).toBe(
+      "2 active · 1 stale",
+    );
+    for (const count of [0, 6, 150]) {
+      expect(translator.t("platformOperations.projectionOperations.expiredHeartbeatHistory", { count })).toBe(
+        `${count} expired heartbeats in the last 7 days: no action needed`,
+      );
+    }
+  });
+
   it("reports missing translations", () => {
     const missing: string[] = [];
     const translator = createTranslator({

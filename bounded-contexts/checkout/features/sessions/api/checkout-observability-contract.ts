@@ -40,6 +40,11 @@ export type CheckoutObservabilityForbiddenField =
   | "account-id"
   | "event-id"
   | "full-url"
+  | "anonymous-owner-key"
+  | "request-header"
+  | "request-body"
+  | "raw-exception-message"
+  | "raw-exception-stack"
   | "card-data"
   | "bank-data"
   | "secret"
@@ -79,6 +84,7 @@ export const checkoutObservabilityRequiredStates = [
   "buy-readiness-unassigned-fulfillment",
   "buy-readiness-optimization",
   "guest-buy-checkout",
+  "cart-merge-best-effort-failed",
   "signed-in-buy-checkout",
   "sell-list-review-ready",
   "sell-list-readiness-blocked",
@@ -126,6 +132,11 @@ export const checkoutObservabilityForbiddenFields = [
   "account-id",
   "event-id",
   "full-url",
+  "anonymous-owner-key",
+  "request-header",
+  "request-body",
+  "raw-exception-message",
+  "raw-exception-stack",
   "card-data",
   "bank-data",
   "secret",
@@ -188,7 +199,19 @@ export const checkoutObservabilityProfiles = [
     dimensions: ["readiness-contract", "readiness-snapshot-version", "performance-budget-id", "latency-ms"],
     alertClass: "event-only",
     operatorSignalRequired: false,
-    expectation: "Guest buy checkout telemetry shows form-first review rendered from current readiness only.",
+    expectation: "Guest buy checkout telemetry shows one-step entry rendered from current union readiness only.",
+  }),
+  profile({
+    state: "cart-merge-best-effort-failed",
+    eventName: "checkout.entry.cart_merge_best_effort_failed",
+    docLabel: "Cart merge best-effort failure",
+    ownerIssues: ["#5734"],
+    telemetryClass: "checkout-entry",
+    scenarioStates: ["reconciliation"],
+    dimensions: [],
+    alertClass: "event-only",
+    operatorSignalRequired: false,
+    expectation: "Cart entry continues from the Account-plus-presented-anonymous union after a copy merge failure.",
   }),
   profile({
     state: "signed-in-buy-checkout",

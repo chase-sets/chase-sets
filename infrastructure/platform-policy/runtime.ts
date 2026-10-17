@@ -2,6 +2,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { EventStreamTooLongError, readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -17,6 +18,7 @@ import {
   consentActivationAuthorityStreamId,
   consentActivationGuardAppendInput,
   decideConsentActivationAuthority,
+  decodeConsentActivationAuthorityEvent,
   evolveConsentActivationAuthority,
   initialConsentActivationAuthorityState,
   readConsentActivationAuthority,
@@ -105,18 +107,47 @@ export type ConsentActivationAuthorityRuntime = Readonly<{
 }>;
 
 export type PolicyRuntime = Readonly<{
+  activateConsentPolicyVersion: (
+    definition: PolicyDefinition<Readonly<{ version: string }>>,
+    params: Readonly<{ version: string; documentId: string; actorUserId: string }>,
+    context: EventStoreContext,
+  ) => Promise<ValidatedConsentActivationAuthoritySnapshot>;
   commandHandler: CommandHandler<PolicyDocumentCommand, PolicyDocumentState, PolicyDocumentEvent>;
   createPolicyDocument: <Value>(
     definition: PolicyDefinition<Value>,
     params: Omit<CreatePolicyDocumentParams<Value>, "documentId">,
     context: EventStoreContext,
   ) => Promise<{ documentId: string; version: number }>;
+  /**
+   * Creates a document under a caller-chosen id. The event stream is the only
+   * authority: the append requires `no_stream`, and no projection-based
+   * active-overlap precheck runs, so a duplicate id can never append a second
+   * create even while the read model lags.
+   */
+  createPolicyDocumentWithId: <Value>(
+    definition: PolicyDefinition<Value>,
+    documentId: string,
+    params: Omit<CreatePolicyDocumentParams<Value>, "documentId">,
+    context: EventStoreContext,
+  ) => Promise<{ documentId: string; version: number }>;
+  /**
+   * `options.expectedVersion`, when given, reaches the append boundary: a
+   * revision against a stream that has moved since that version appends
+   * nothing and rejects with the event store's concurrency conflict.
+   */
   revisePolicyDocument: <Value>(
     definition: PolicyDefinition<Value>,
     documentId: string,
     params: RevisePolicyDocumentParams<Value>,
     context: EventStoreContext,
+    options?: Readonly<{ expectedVersion?: number }>,
   ) => Promise<{ documentId: string; version: number }>;
+  /**
+   * Authoritative document state from a complete replay of the document's
+   * event stream through the aggregate repository (never the projection).
+   * An absent document reads as the initial state at version 0.
+   */
+  readPolicyDocumentState: (documentId: string) => Promise<Readonly<{ state: PolicyDocumentState; version: number }>>;
   resolvePolicy: <Value>(
     definition: PolicyDefinition<Value>,
     params?: Readonly<{ at?: string }>,
@@ -129,6 +160,20 @@ export type PolicyRuntime = Readonly<{
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
+export class ConsentActivationDocumentError extends PlatformPolicyDomainError {
+  constructor(
+    public readonly code:
+      | "document_not_found"
+      | "document_policy_mismatch"
+      | "document_version_mismatch"
+      | "document_invalid"
+      | "atomic_append_unavailable",
+  ) {
+    super(code);
+    this.name = "ConsentActivationDocumentError";
+  }
+}
+
 /**
  * Composes the shared platform-policy machinery into one runtime: a context
  * mounts `projectors` alongside its own, and calls `createPolicyDocument` /
@@ -138,7 +183,7 @@ export type PolicyRuntime = Readonly<{
  */
 export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
   const cache = deps.cache ?? createPolicyCache();
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<PolicyDocumentEvent>(),
     initialState: () => initialPolicyDocumentState,
@@ -241,6 +286,75 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
 
   return {
     commandHandler,
+    async activateConsentPolicyVersion(definition, params, context) {
+      const appendToStreams = deps.eventStore.appendToStreams;
+      if (!appendToStreams) {
+        throw new ConsentActivationDocumentError("atomic_append_unavailable");
+      }
+      const documentStreamId = policyDocumentStreamId(params.documentId);
+      const documentEvents = await readCompleteStream(deps.eventStore, {
+        streamId: documentStreamId,
+        maxEvents: 9_999,
+      });
+      const documentCodec = createPassthroughDomainEventCodec<PolicyDocumentEvent>();
+      let document = initialPolicyDocumentState;
+      for (const stored of documentEvents) {
+        document = evolvePolicyDocument(document, documentCodec.decode(stored));
+      }
+      if (document.documentId === null) {
+        throw new ConsentActivationDocumentError("document_not_found");
+      }
+      if (document.documentId !== params.documentId || document.policyKey !== definition.policyKey) {
+        throw new ConsentActivationDocumentError("document_policy_mismatch");
+      }
+      let version: string;
+      try {
+        version = definition.decodeValue(document.value).version;
+      } catch {
+        throw new ConsentActivationDocumentError("document_invalid");
+      }
+      if (version !== params.version) {
+        throw new ConsentActivationDocumentError("document_version_mismatch");
+      }
+
+      // Registration can survive interruption, but cannot itself activate a key.
+      await consentActivation.read(definition.policyKey);
+      await consentActivation.register(definition, context);
+      const authorityStreamId = consentActivationAuthorityStreamId(definition.policyKey);
+      const authorityEvents = await readCompleteStream(deps.eventStore, {
+        streamId: authorityStreamId,
+        maxEvents: 9_999,
+      });
+      let authority = initialConsentActivationAuthorityState;
+      for (const stored of authorityEvents) {
+        authority = evolveConsentActivationAuthority(authority, decodeConsentActivationAuthorityEvent(stored));
+      }
+      const events = decideConsentActivationAuthority(authority, {
+        type: "ActivateConsentPolicyVersion",
+        policyKey: definition.policyKey,
+        ...params,
+        activatedAt: now().toISOString(),
+      });
+      const codec = createPassthroughDomainEventCodec<ConsentActivationAuthorityEvent>();
+      if (authorityEvents.length + events.length > 9_999) {
+        throw new EventStreamTooLongError(authorityStreamId, 9_999);
+      }
+      await appendToStreams([
+        {
+          streamId: documentStreamId,
+          expectedVersion: documentEvents.at(-1)?.streamVersion ?? "no_stream",
+          events: [],
+          context,
+        },
+        {
+          streamId: authorityStreamId,
+          expectedVersion: authorityEvents.at(-1)?.streamVersion ?? "no_stream",
+          events: events.map(codec.encode),
+          context,
+        },
+      ]);
+      return consentActivation.read(definition.policyKey);
+    },
     async createPolicyDocument(definition, params, context) {
       const documentId = createId("pol");
       await assertNoActiveOverlap({
@@ -257,7 +371,22 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
       });
       return { documentId, version: result.version };
     },
-    async revisePolicyDocument(definition, documentId, params, context) {
+    async createPolicyDocumentWithId(definition, documentId, params, context) {
+      if (documentId.trim() !== documentId) {
+        // The domain trims the id it records; reject rather than let the
+        // recorded id diverge from the stream it is addressed by.
+        throw new PlatformPolicyDomainError("Policy document id must not have surrounding whitespace.");
+      }
+      const command = buildCreatePolicyDocumentCommand(definition, { ...params, documentId });
+      const result = await commandHandler({
+        streamId: policyDocumentStreamId(documentId),
+        command,
+        context,
+        expectedVersion: "no_stream",
+      });
+      return { documentId, version: result.version };
+    },
+    async revisePolicyDocument(definition, documentId, params, context, options) {
       await assertNoActiveOverlap({
         policyKey: definition.policyKey,
         status: params.status,
@@ -270,8 +399,13 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
         streamId: policyDocumentStreamId(documentId),
         command,
         context,
+        ...(options?.expectedVersion === undefined ? {} : { expectedVersion: options.expectedVersion }),
       });
       return { documentId, version: result.version };
+    },
+    async readPolicyDocumentState(documentId) {
+      const { state, version } = await repository.load(policyDocumentStreamId(documentId));
+      return { state, version };
     },
     resolvePolicy: resolver.resolvePolicy,
     getPolicyDocument: (documentId) => getPolicyDocument(deps.db, documentId),

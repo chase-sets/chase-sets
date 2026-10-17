@@ -19,6 +19,7 @@ Each context `README.md` follows a common shape — see [Fulfillment](./fulfillm
 | [Discovery](./discovery/README.md) | Own browse, search, and detail discovery experiences for catalog items. |
 | [Checkout](./checkout/README.md) | Own account cart intent and active checkout session orchestration. |
 | [Inventory](./inventory/README.md) | Own account-held stock and operational availability. |
+| [Channels](./channels/README.md) | Own marketplace Sales Channel connection and channel-sync language. |
 | [Commercial Terms](./commercial-terms/README.md) | Own seller-side marketplace sales fee policy and account-specific commercial agreements. |
 | [Marketplace](./marketplace/README.md) | Own listing and offer workflows before an order exists, plus post-transaction reviews and review summaries. |
 | [Ordering](./ordering/README.md) | Own per-seller orders, commercial commitment, provider-agnostic tax quotes, and tax nexus readiness. |
@@ -30,6 +31,12 @@ Each context `README.md` follows a common shape — see [Fulfillment](./fulfillm
 | [Platform Operations](./platform-operations/README.md) | Own operator workflows for platform runtime health, release controls, cross-context insights reporting, platform feedback, and marketplace support requests. |
 
 Implemented contexts are the directories that contain both `package.json` and `context.json`.
+
+## Planned Contexts
+
+A planned context reserves ownership and vocabulary before any code exists. It has no directory, no `package.json`, and no `context.json`, and nothing in this repository implements it yet. It is listed separately from the map above and must not be treated as an implemented context.
+
+- **Scanning** (planned) will own Card Scan and Scan Session lifecycle, provider-neutral identification orchestration, seller match confirmation and correction, and the Unidentified Scan queue for camera-based seller intake. Provider identification output is advisory evidence; only an explicit seller-confirmed complete Catalog Product selection is authoritative, and provider vocabulary stays behind a provider port with an anti-corruption mapping. Boundaries: Catalog keeps canonical Product identity, the valid set of selected Options, and reusable provider references and mappings; Inventory keeps Import review, Product validation, and stock — including Import Batch creation, quantity validation, and stock quantity truth — which Scanning may later feed with a confirmed fact carrying scan-count evidence but never bypasses or writes directly; Discovery keeps Relevance, the advisory ranking it expresses as ordered Result Sets, and owns no seller Product-resolution behavior; Marketplace keeps Listing creation. Scanning reuses those owners' surfaces instead of building a second Product chooser or a second ranker, and condition, price, and listing-draft fields stay seller-declared. Recorded in [ADR 0031: Card Identification Authority And Provider Boundary](../docs/adr/0031-card-identification-authority-and-provider-boundary.md); the planned term family is registered in the [Marketplace Glossary](../docs/GLOSSARY.md).
 
 ## Ownership Rules
 

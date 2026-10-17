@@ -3,7 +3,7 @@ import { loadSeedAggregateState, type SeedAggregateState } from "@chase-sets/bou
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { catalogScenarioItems, catalogSeedIds, type SeedCatalogItemId } from "@chase-sets/catalog-seed";
-import { demoIdentitySeedIds, identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { demoIdentitySeedIds, identitySeedIds } from "@chase-sets/identity-seed";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   inventorySeedIds,
@@ -31,9 +31,16 @@ import {
 } from "../../features/holds/domain/domain";
 import { createInventoryProductDescriptor } from "../../features/inventory-items/integrations/catalog/versioning";
 import { createInventoryServices } from "./services";
-import { sendSeedCommand } from "../seed-support/context";
+import { seedContext } from "../seed-support/context";
+import { inventorySeedMutationIntent, type InventorySeedCommandHandler } from "../seed-support/mutation-command";
+import {
+  inventoryMutationAttemptFromSource,
+  withInventoryMutationAttempt,
+  withInventoryMutationTargetAccount,
+} from "./mutation-attempt";
 
 const DEMO_RELEASED_AT = "2026-03-31T00:00:00.000Z";
+const DEMO_INVENTORY_COMMAND_OCCURRED_AT = "2026-04-01T00:00:00.000Z";
 
 type StorageLocationSeed = Readonly<{
   storageLocationId: SeedStorageLocationId;
@@ -53,6 +60,7 @@ type InventoryItemSeed = Readonly<{
   storageLocationId: SeedStorageLocationId;
   totalQuantity: number;
   acquisitionCostAmount: string;
+  acquisitionCostCurrencyCode: string;
 }>;
 
 type GradedCardSeedDetails = Readonly<{
@@ -204,6 +212,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 3,
     acquisitionCostAmount: "275.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.charizardBaseSetPsa8,
@@ -227,6 +236,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 1,
     acquisitionCostAmount: "520.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.pikachuJungleLightlyPlayed,
@@ -244,6 +254,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 8,
     acquisitionCostAmount: "12.50",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.lugiaNeoGenesisNearMint,
@@ -261,6 +272,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 2,
     acquisitionCostAmount: "180.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.lugiaNeoGenesisBgs95,
@@ -279,6 +291,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 1,
     acquisitionCostAmount: "475.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.mewtwoBlackStarPromoNearMint,
@@ -296,6 +309,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 5,
     acquisitionCostAmount: "34.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsNearMint,
@@ -313,6 +327,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 12,
     acquisitionCostAmount: "8.25",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.pikachuPrismaticEvolutionsPsa10,
@@ -336,6 +351,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 2,
     acquisitionCostAmount: "44.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.prismaticEvolutionsBoosterPack,
@@ -344,6 +360,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 24,
     acquisitionCostAmount: "4.10",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.surgingSparksBoosterBox,
@@ -352,6 +369,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.vaultAnnex,
     totalQuantity: 6,
     acquisitionCostAmount: "119.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.twilightMasqueradeEliteTrainerBox,
@@ -360,6 +378,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.northShelf,
     totalQuantity: 4,
     acquisitionCostAmount: "41.50",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultCharizardNearMint,
@@ -378,6 +397,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 4,
     acquisitionCostAmount: "292.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultCharizardPsa8,
@@ -402,6 +422,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 1,
     acquisitionCostAmount: "535.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultPikachuExcellent,
@@ -420,6 +441,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 14,
     acquisitionCostAmount: "11.75",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultMewtwoNearMint,
@@ -438,6 +460,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 5,
     acquisitionCostAmount: "32.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.cardVaultTwilightMasqueradeEliteTrainerBox,
@@ -447,6 +470,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.cardVaultBackRoom,
     totalQuantity: 6,
     acquisitionCostAmount: "40.50",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.sealedStockroomPrismaticEvolutionsBoosterPack,
@@ -456,6 +480,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 96,
     acquisitionCostAmount: "4.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.sealedStockroomSurgingSparksBoosterBox,
@@ -465,6 +490,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 10,
     acquisitionCostAmount: "116.00",
+    acquisitionCostCurrencyCode: "USD",
   },
   {
     itemId: inventorySeedIds.items.sealedStockroomTwilightMasqueradeEliteTrainerBox,
@@ -474,6 +500,7 @@ const inventoryItems: readonly InventoryItemSeed[] = [
     storageLocationId: inventorySeedIds.storageLocations.sealedCaseWall,
     totalQuantity: 8,
     acquisitionCostAmount: "39.50",
+    acquisitionCostCurrencyCode: "USD",
   },
 ];
 
@@ -696,6 +723,45 @@ export async function inspectInventorySeedState(db: PgQueryable): Promise<readon
 
 export async function seedInventoryDatabase(pool: PgTransactionalPool) {
   const services = createInventoryServices(pool);
+  const retained = await inspectInventorySeedState(pool);
+  const absent = new Set(retained.filter((state) => state.kind === "absent").map((state) => state.streamId));
+  for (const item of inventoryItems) {
+    if (!absent.has(inventoryItemStreamId(item.itemId))) continue;
+    const catalogItem = await services.catalogItems.getCatalogItem(item.catalogItemId);
+    if (!catalogItem) throw new Error(`Inventory seed could not load catalog item ${item.catalogItemId}.`);
+    createInventoryProductDescriptor({
+      catalogItemId: item.catalogItemId,
+      productSchema: catalogItem.product_schema,
+      selection: item.selectedOptions,
+    });
+  }
+  async function sendSeedCommand<Command>(
+    handler: InventorySeedCommandHandler<Command>,
+    streamId: string,
+    command: Command,
+    ordinal = 0,
+  ) {
+    const prefix = ["inventory.storage-location-", "inventory.item-", "inventory.hold-"].find((value) =>
+      streamId.startsWith(value),
+    );
+    if (!prefix) throw new Error("Unknown Inventory seed stream.");
+    const targetId = streamId.slice(prefix.length);
+    const location = storageLocations.find((entry) => entry.storageLocationId === targetId);
+    const item = inventoryItems.find((entry) => entry.itemId === targetId);
+    const accountId = location?.accountId ?? item?.accountId ?? demoIdentitySeedIds.accountId;
+    const intent = inventorySeedMutationIntent(command, targetId, accountId, location);
+    const context = withInventoryMutationAttempt(
+      withInventoryMutationTargetAccount(seedContext, accountId),
+      inventoryMutationAttemptFromSource(
+        "c1-seed-5cf346e0-47d4-4ad7-a5b2-d5b02b3da3d3",
+        `${streamId}/${intent.family}/${ordinal}`,
+      ),
+    );
+    return services.mutations.execute(intent.family, targetId, accountId, intent.params, context, async () => {
+      const result = await handler({ streamId, command, context });
+      return { targetId, version: result.version };
+    });
+  }
 
   console.log("Starting inventory development seed...\n");
 
@@ -767,17 +833,32 @@ export async function seedInventoryDatabase(pool: PgTransactionalPool) {
         storageLocationId: item.storageLocationId,
         totalQuantity: item.totalQuantity,
         acquisitionCostAmount: item.acquisitionCostAmount,
+        acquisitionCostCurrencyCode: item.acquisitionCostCurrencyCode,
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: DEMO_INVENTORY_COMMAND_OCCURRED_AT,
       });
     }
 
-    for (const adjustment of itemAdjustments(item).slice(countAppliedAdjustments(persisted.events))) {
-      await sendSeedCommand(services.items.commandHandler, streamId, {
-        type: "AdjustInventoryItemQuantity",
-        quantityDelta: adjustment.quantityDelta,
-        heldQuantity: adjustment.heldQuantity,
-        reason: adjustment.reason,
-        reasonCode: adjustment.reasonCode,
-      });
+    for (const [ordinal, adjustment] of itemAdjustments(item).entries()) {
+      if (ordinal < countAppliedAdjustments(persisted.events)) continue;
+      await sendSeedCommand(
+        services.items.commandHandler,
+        streamId,
+        {
+          type: "AdjustInventoryItemQuantity",
+          quantityDelta: adjustment.quantityDelta,
+          heldQuantity: adjustment.heldQuantity,
+          reason: adjustment.reason,
+          reasonCode: adjustment.reasonCode,
+          ...(adjustment.quantityDelta > 0
+            ? {
+                acquisitionOccurrence: { kind: "unknown" as const },
+                commandOccurredAt: DEMO_INVENTORY_COMMAND_OCCURRED_AT,
+              }
+            : {}),
+        },
+        ordinal,
+      );
     }
 
     console.log(`  Inventory item "${item.itemId}" created`);

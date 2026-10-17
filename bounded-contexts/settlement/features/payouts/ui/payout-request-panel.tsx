@@ -1,9 +1,12 @@
 import { formatMoney, t } from "@chase-sets/localization";
+import { trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
   Button,
   CurrencyInput,
   Form,
   HiddenInput,
+  LinkButton,
+  PriceBreakdown,
   ProgressiveDisclosure,
   Stack,
   Text,
@@ -26,10 +29,24 @@ function unavailableReasons(wallet: SettlementWalletRow, readiness: SettlementPa
   if (readiness.missing_requirements.length > 0) {
     reasons.push(payoutUnavailableReasonLabel("provider-requirements-open"));
   }
-  if (Number.parseFloat(wallet.available_balance_amount) <= 0) {
+  const availableCents = trySignedMoneyToCents(wallet.available_balance_amount);
+  if (availableCents === null || availableCents <= 0n) {
     reasons.push(payoutUnavailableReasonLabel("no-available-wallet-balance"));
   }
   return reasons;
+}
+
+function PayoutFeeDisclosureLinks() {
+  return (
+    <Stack gap={2}>
+      <LinkButton href="/payments-terms#payout-fee" tone="secondary" size="sm">
+        {t("settlement.features.payouts.ui.payoutFeeTerms")}
+      </LinkButton>
+      <LinkButton href="/seller-agreement#fees-and-deductions" tone="secondary" size="sm">
+        {t("settlement.features.payouts.ui.sellerFeesAndDeductions")}
+      </LinkButton>
+    </Stack>
+  );
 }
 
 export function SettlementPayoutRequestPanel({
@@ -45,19 +62,34 @@ export function SettlementPayoutRequestPanel({
   draft?: Readonly<{ amount: string; note: string | null }> | null;
   confirmation?: Readonly<{ amount: string; note: string | null; preview: SettlementPayoutPreview }> | null;
 }) {
+  const availableCents = trySignedMoneyToCents(wallet.available_balance_amount);
   const canRequest =
     canRequestPayouts &&
     payoutReadiness.status === "ready" &&
     Boolean(payoutReadiness.updated_at) &&
-    Number.parseFloat(wallet.available_balance_amount) > 0;
+    availableCents !== null &&
+    availableCents > 0n;
   const reasons = canRequest ? [] : unavailableReasons(wallet, payoutReadiness);
 
   if (confirmation) {
     return (
       <Stack gap={3}>
         <Text weight="semibold">{t("settlement.features.moneyDashboard.ui.confirmPayout")}</Text>
+        <PriceBreakdown
+          lines={[
+            {
+              label: t("settlement.features.payouts.ui.requestedAmount"),
+              value: formatMoney(confirmation.preview.requested_amount, wallet.currency_code),
+            },
+            ...confirmation.preview.fee_lines.map((line) => ({
+              label: line.label,
+              value: formatMoney(line.amount, wallet.currency_code),
+            })),
+          ]}
+          total={formatMoney(confirmation.preview.net_amount, wallet.currency_code)}
+          totalLabel={t("settlement.features.payouts.ui.netPayout")}
+        />
         <Text>
-          {formatMoney(confirmation.amount, wallet.currency_code)} ·{" "}
           {t("settlement.features.moneyDashboard.ui.availableAfter", {
             amount: formatMoney(confirmation.preview.estimated_wallet_balance_after, wallet.currency_code),
           })}
@@ -78,6 +110,7 @@ export function SettlementPayoutRequestPanel({
             </Stack>
           </ProgressiveDisclosure>
         ) : null}
+        <PayoutFeeDisclosureLinks />
         <Form spacing="none" method="post">
           <HiddenInput type="hidden" name="intent" value="confirm-payout" />
           <HiddenInput type="hidden" name="amount" value={confirmation.amount} />
@@ -163,6 +196,7 @@ export function SettlementPayoutRequestPanel({
             disabled={!canRequest}
           />
         </ProgressiveDisclosure>
+        <PayoutFeeDisclosureLinks />
         <Button type="submit" disabled={!canRequest}>
           {t("settlement.features.moneyDashboard.ui.previewPayout")}
         </Button>

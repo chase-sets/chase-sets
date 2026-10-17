@@ -1,3 +1,7 @@
+import {
+  assertMeasurePublicationConsumer,
+  withMeasurePublicationStaging,
+} from "@chase-sets/event-core-postgres/measure-publication-test-support";
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -138,7 +142,7 @@ describe("marketplace catalog projection", () => {
       ),
     );
     await handlers["catalog.catalog-item.category-assigned"]!(
-      event("catalog.catalog-item.category-assigned", { categoryId: "category_cards" }, "catalog.catalog-item-cat_1"),
+      event("catalog.catalog-item.category-assigned", { categoryId: "category_cards" }, "catalog.item-cat_1"),
     );
 
     expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("marketplace_catalog_categories"), [
@@ -152,6 +156,37 @@ describe("marketplace catalog projection", () => {
       "2026-05-09T00:00:00.000Z",
     ]);
   });
+
+  for (const eventType of [
+    "catalog.catalog-item.category-assigned",
+    "catalog.catalog-item.category-removed",
+  ] as const) {
+    it(`updates the matching catalog item for ${eventType} and rejects foreign streams`, async () => {
+      const catalogItems = new Set(["cat_1"]);
+      const db = {
+        query: vi.fn(async (_sql: string, values: readonly unknown[]) => ({
+          rows: [],
+          rowCount: catalogItems.has(String(values[0])) ? 1 : 0,
+        })),
+      };
+      const handlers = buildMarketplaceCatalogProjectionHandlers(db as never);
+
+      await handlers[eventType]!(event(eventType, { categoryId: "category_cards" }, "catalog.item-cat_1"));
+
+      expect((await db.query.mock.results[0]?.value).rowCount).toBe(1);
+      expect(db.query).toHaveBeenCalledWith(expect.stringContaining("WHERE catalog_item_id = $1"), [
+        "cat_1",
+        "category_cards",
+        "2026-05-09T00:00:00.000Z",
+      ]);
+
+      db.query.mockClear();
+      await expect(
+        handlers[eventType]!(event(eventType, { categoryId: "category_cards" }, "catalog.category-cat_1")),
+      ).rejects.toThrow();
+      expect(db.query).not.toHaveBeenCalled();
+    });
+  }
 });
 
 describe("marketplace account projection", () => {
@@ -417,5 +452,27 @@ describe("marketplace inventory supply projection", () => {
       1,
       "2026-05-09T00:00:00.000Z",
     ]);
+  });
+});
+
+it("stages the complete 85-Product Catalog mirror replacement without partial visibility", async () => {
+  let products: unknown = [];
+  let updatedAt: unknown = null;
+  const db: PgQueryable = {
+    async query(sql: string, values: readonly unknown[] = []) {
+      if (sql.includes("UPDATE marketplace_catalog_items") && sql.includes("product_measure_snapshots")) {
+        products = JSON.parse(String(values[1]));
+        updatedAt = values[2];
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected serving SQL: ${sql}`);
+    },
+  };
+  const staging = withMeasurePublicationStaging(db);
+  await assertMeasurePublicationConsumer({
+    handlers: buildMarketplaceCatalogProjectionHandlers(staging.db),
+    staging,
+    visible: () => ({ products, updatedAt }),
+    assertProducts: (expected) => expect(products).toEqual(expected),
   });
 });

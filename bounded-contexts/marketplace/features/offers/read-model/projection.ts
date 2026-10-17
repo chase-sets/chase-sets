@@ -20,6 +20,8 @@ async function loadRealtimeOffer(db: PgQueryable, offerId: string) {
     product_summary: string | null;
     shipping_destination_snapshot: unknown;
     price_amount: string;
+    price_currency_code: string | null;
+    last_stream_version: number;
     quantity_requested: number;
     status: string;
     accepted_seller_account_id: string | null;
@@ -90,7 +92,39 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
 }
 
 export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const projectOfferStatus =
+    (status: "submitted" | "paused" | "withdrawn"): ProjectorHandlerMap[string] =>
+    async (event) => {
+      const data = event.data as { offerId: string };
+      await db.query(
+        `UPDATE marketplace_offer_pages
+         SET status = $2,
+             last_stream_version = $3,
+             updated_at = $4
+         WHERE offer_id = $1
+           AND last_stream_version < $3`,
+        [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+      );
+      await emitOfferPatch(db, event, data.offerId);
+    };
+
   return {
+    "marketplace.offer.paused": projectOfferStatus("paused"),
+    "marketplace.offer.resumed": projectOfferStatus("submitted"),
+    "marketplace.offer.withdrawn": projectOfferStatus("withdrawn"),
+    "marketplace.offer.managed-evaluated": async (event) => {
+      await db.query(
+        `UPDATE marketplace_offer_pages SET last_stream_version = $2 WHERE offer_id = $1 AND last_stream_version < $2`,
+        [event.data.offerId, event.streamVersion],
+      );
+    },
+    "marketplace.offer.buyer-policy-bound": async (event) => {
+      await db.query(
+        `UPDATE marketplace_offer_pages SET last_stream_version = $2
+         WHERE offer_id = $1 AND last_stream_version < $2`,
+        [event.data.offerId, event.streamVersion],
+      );
+    },
     "marketplace.offer.submitted": async (event) => {
       const data = event.data as {
         offerId: string;
@@ -103,6 +137,7 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
         productSummary: string | null;
         shippingDestinationSnapshot: unknown;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityRequested: number;
       };
 
@@ -118,6 +153,8 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           product_summary,
           shipping_destination_snapshot,
           price_amount,
+          price_currency_code,
+          last_stream_version,
           quantity_requested,
           status,
           accepted_seller_account_id,
@@ -125,7 +162,7 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'submitted', NULL, NULL, $12, $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'submitted', NULL, NULL, $14, $14
         )
         ON CONFLICT (offer_id) DO UPDATE SET
           buyer_account_id = EXCLUDED.buyer_account_id,
@@ -137,11 +174,14 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           product_summary = EXCLUDED.product_summary,
           shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
           price_amount = EXCLUDED.price_amount,
+          price_currency_code = EXCLUDED.price_currency_code,
+          last_stream_version = EXCLUDED.last_stream_version,
           quantity_requested = EXCLUDED.quantity_requested,
           status = EXCLUDED.status,
           accepted_seller_account_id = EXCLUDED.accepted_seller_account_id,
           accepted_at = EXCLUDED.accepted_at,
-          updated_at = EXCLUDED.updated_at`,
+          updated_at = EXCLUDED.updated_at
+        WHERE marketplace_offer_pages.last_stream_version < EXCLUDED.last_stream_version`,
         [
           data.offerId,
           data.buyerAccountId,
@@ -153,9 +193,30 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           data.productSummary,
           JSON.stringify(data.shippingDestinationSnapshot),
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
           data.quantityRequested,
           event.timing.recordedAt,
         ],
+      );
+      await emitOfferPatch(db, event, data.offerId);
+    },
+    "marketplace.offer.price-updated": async (event) => {
+      const data = event.data as {
+        offerId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+      };
+
+      await db.query(
+        `UPDATE marketplace_offer_pages
+         SET price_amount = $2,
+             price_currency_code = $3,
+             last_stream_version = $4,
+             updated_at = $5
+         WHERE offer_id = $1
+           AND last_stream_version < $4`,
+        [data.offerId, data.priceAmount, data.priceCurrencyCode, event.streamVersion, event.timing.recordedAt],
       );
       await emitOfferPatch(db, event, data.offerId);
     },
@@ -167,6 +228,8 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
         inventoryItemId: string;
         listingEvidencePolicyHash: string;
         listingEvidenceSnapshot: { snapshotHash: string };
+        priceAmount: string;
+        priceCurrencyCode?: string | null;
         acceptedAt: string;
       };
 
@@ -178,9 +241,13 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
              accepted_inventory_item_id = $4,
              listing_evidence_policy_hash = $5,
              listing_evidence_snapshot_hash = $6,
-             accepted_at = $7,
-             updated_at = $7
-         WHERE offer_id = $1`,
+             price_amount = $7,
+             price_currency_code = $8,
+             last_stream_version = $9,
+             accepted_at = $10,
+             updated_at = $10
+         WHERE offer_id = $1
+           AND last_stream_version < $9`,
         [
           data.offerId,
           data.sellerAccountId,
@@ -188,6 +255,9 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           data.inventoryItemId,
           data.listingEvidencePolicyHash,
           data.listingEvidenceSnapshot.snapshotHash,
+          data.priceAmount,
+          data.priceCurrencyCode ?? null,
+          event.streamVersion,
           data.acceptedAt,
         ],
       );
@@ -201,7 +271,9 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
         productId: string;
         offerId: string;
         offerPriceAmount: string;
+        offerPriceCurrencyCode: string;
         listingPriceAmount: string;
+        listingPriceCurrencyCode: string;
         declinedAt: string;
         lowballDeclineCount: number;
         lowballCooldownUntil: string | null;
@@ -215,10 +287,12 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           product_id,
           offer_id,
           offer_price_amount,
+          offer_price_currency_code,
           listing_price_amount,
+          listing_price_currency_code,
           declined_at,
           lowball_cooldown_until
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT (seller_account_id, listing_id, offer_id) DO UPDATE SET
           declined_at = EXCLUDED.declined_at,
           lowball_cooldown_until = EXCLUDED.lowball_cooldown_until`,
@@ -229,7 +303,9 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           data.productId,
           data.offerId,
           data.offerPriceAmount,
+          data.offerPriceCurrencyCode,
           data.listingPriceAmount,
+          data.listingPriceCurrencyCode,
           data.declinedAt,
           data.lowballCooldownUntil,
         ],
@@ -243,9 +319,10 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           declined_offer_count,
           lowball_decline_count,
           last_lowball_declined_amount,
+          last_lowball_declined_currency_code,
           lowball_cooldown_until,
           updated_at
-        ) VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8)
+        ) VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9)
         ON CONFLICT (seller_account_id, buyer_account_id, listing_id) DO UPDATE SET
           product_id = EXCLUDED.product_id,
           declined_offer_count = marketplace_offer_seller_controls.declined_offer_count + 1,
@@ -253,6 +330,10 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           last_lowball_declined_amount = COALESCE(
             EXCLUDED.last_lowball_declined_amount,
             marketplace_offer_seller_controls.last_lowball_declined_amount
+          ),
+          last_lowball_declined_currency_code = COALESCE(
+            EXCLUDED.last_lowball_declined_currency_code,
+            marketplace_offer_seller_controls.last_lowball_declined_currency_code
           ),
           lowball_cooldown_until = COALESCE(
             EXCLUDED.lowball_cooldown_until,
@@ -266,6 +347,7 @@ export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): Projec
           data.productId,
           data.lowballDeclineCount,
           data.lowballCooldownUntil ? data.offerPriceAmount : null,
+          data.lowballCooldownUntil ? data.offerPriceCurrencyCode : null,
           data.lowballCooldownUntil,
           data.declinedAt,
         ],

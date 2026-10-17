@@ -40,17 +40,20 @@ import type {
   MarketplaceSellerOrderCapacity,
   MarketplaceSellerListingStatusCounts,
 } from "./contracts";
-import type { SellerBehavioralMetricsSummary } from "../../../support/request-support/seller-metrics-client";
+import type {
+  SellerBehavioralMetricsAvailability,
+  SellerBehavioralMetricsSummary,
+} from "../../../support/request-support/seller-metrics-client";
 import { TimeAwayCapacityCard } from "./time-away-capacity-card";
 
 const SELLER_LISTING_STATUS_FILTERS = ["all", "draft", "active", "paused", "withdrawn"] as const;
 
-function formatMoney(amount: string | null) {
-  if (!amount) {
+function formatMoney(amount: string | null, currencyCode: string | null) {
+  if (!amount || !currencyCode) {
     return t("marketplace.features.listings.ui.listingListPage.not.set");
   }
 
-  return formatMoneyDisplay(amount, "USD");
+  return formatMoneyDisplay(amount, currencyCode);
 }
 
 function statusTone(status: string) {
@@ -73,10 +76,10 @@ function renderFeeSummary(listing: MarketplaceListingListItem) {
 
   const segments = [
     t("marketplace.features.listings.ui.listingListPage.marketplace.fee.summary", {
-      amount: formatMoney(listing.marketplace_sales_fee_unit_amount),
+      amount: formatMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
     }),
     t("marketplace.features.listings.ui.listingListPage.net.summary", {
-      amount: formatMoney(listing.seller_net_unit_amount),
+      amount: formatMoney(listing.seller_net_unit_amount, listing.price_currency_code),
     }),
     t("marketplace.features.listings.ui.listingListPage.buyer.shipping.credit.summary", {
       percentage: formatBpsPercent(listing.shipping_allowance_percentage_bps),
@@ -102,7 +105,8 @@ function formatTimestamp(value: string | null) {
 
 // The own-account seller-metrics read is never N-gated (see the prop doc
 // comment below), but a brand-new seller's denominator is legitimately
-// zero -- the rate column is null, not a misleading 0%.
+// zero -- the rate column is null, not a misleading 0%. Only a successful
+// summary reaches this formatter; a failed read renders the unavailable notice.
 function formatBehavioralMetricRate(rate: string | null) {
   if (rate === null) {
     return t("marketplace.features.listings.ui.listingListPage.not.enough.orders.yet");
@@ -112,6 +116,40 @@ function formatBehavioralMetricRate(rate: string | null) {
   // through the canonical percent formatter at the same 0.1% precision the
   // page always displayed.
   return formatBpsPercent(Number(rate) * 10_000, { maximumFractionDigits: 1 });
+}
+
+function SellerReliabilityPanel({ summary }: { summary: SellerBehavioralMetricsSummary }) {
+  return (
+    <MarketplaceDashboardPanel
+      title={t("marketplace.features.listings.ui.listingListPage.seller.reliability")}
+      description={t("marketplace.features.listings.ui.listingListPage.seller.reliability.description", {
+        windowDays: summary.window_days,
+      })}
+      metrics={[
+        {
+          label: t("marketplace.features.listings.ui.listingListPage.on.time.shipment.rate"),
+          value: formatBehavioralMetricRate(summary.on_time_shipment_rate),
+          detail: t("marketplace.features.listings.ui.listingListPage.on.time.shipment.rate.detail", {
+            count: summary.shipments_dispatched_count,
+          }),
+        },
+        {
+          label: t("marketplace.features.listings.ui.listingListPage.cancellation.rate"),
+          value: formatBehavioralMetricRate(summary.cancellation_rate),
+          detail: t("marketplace.features.listings.ui.listingListPage.cancellation.rate.detail", {
+            count: summary.orders_created_count,
+          }),
+        },
+        {
+          label: t("marketplace.features.listings.ui.listingListPage.dispute.rate"),
+          value: formatBehavioralMetricRate(summary.dispute_rate),
+          detail: t("marketplace.features.listings.ui.listingListPage.dispute.rate.detail", {
+            count: summary.orders_created_count,
+          }),
+        },
+      ]}
+    />
+  );
 }
 
 function navigateToListingListPage(page: number, pageSize: number) {
@@ -175,7 +213,7 @@ export function MarketplaceListingListPage({
   filters = { status: "all", search: "" },
   bulkActionOutcomes,
   errorMessage,
-  sellerBehavioralMetrics = null,
+  sellerBehavioralMetrics = { status: "unavailable" },
 }: {
   data: { items: readonly MarketplaceListingListItem[] };
   statusCounts?: MarketplaceSellerListingStatusCounts;
@@ -188,8 +226,8 @@ export function MarketplaceListingListPage({
   filters?: Readonly<{ status: string; search: string }>;
   bulkActionOutcomes?: readonly MarketplaceListingBulkActionOutcome[] | null;
   errorMessage?: string | null;
-  /** The seller's own rolling-window behavioral metrics, own-account read only -- no display gating (a seller may always see their own raw counts). Null while unauthenticated/unavailable. */
-  sellerBehavioralMetrics?: SellerBehavioralMetricsSummary | null;
+  /** The seller's own rolling-window behavioral metrics, own-account read only -- no display gating (a seller may always see their own raw counts). Unavailable when the read failed or was not made; never rendered as insufficient history. */
+  sellerBehavioralMetrics?: SellerBehavioralMetricsAvailability;
 }) {
   const [selectedListingIds, setSelectedListingIds] = useState<Set<string>>(new Set());
   const activeListings = statusCounts
@@ -272,35 +310,15 @@ export function MarketplaceListingListPage({
         ]}
       />
 
-      <MarketplaceDashboardPanel
-        title={t("marketplace.features.listings.ui.listingListPage.seller.reliability")}
-        description={t("marketplace.features.listings.ui.listingListPage.seller.reliability.description", {
-          windowDays: sellerBehavioralMetrics?.window_days ?? 90,
-        })}
-        metrics={[
-          {
-            label: t("marketplace.features.listings.ui.listingListPage.on.time.shipment.rate"),
-            value: formatBehavioralMetricRate(sellerBehavioralMetrics?.on_time_shipment_rate ?? null),
-            detail: t("marketplace.features.listings.ui.listingListPage.on.time.shipment.rate.detail", {
-              count: sellerBehavioralMetrics?.shipments_dispatched_count ?? 0,
-            }),
-          },
-          {
-            label: t("marketplace.features.listings.ui.listingListPage.cancellation.rate"),
-            value: formatBehavioralMetricRate(sellerBehavioralMetrics?.cancellation_rate ?? null),
-            detail: t("marketplace.features.listings.ui.listingListPage.cancellation.rate.detail", {
-              count: sellerBehavioralMetrics?.orders_created_count ?? 0,
-            }),
-          },
-          {
-            label: t("marketplace.features.listings.ui.listingListPage.dispute.rate"),
-            value: formatBehavioralMetricRate(sellerBehavioralMetrics?.dispute_rate ?? null),
-            detail: t("marketplace.features.listings.ui.listingListPage.dispute.rate.detail", {
-              count: sellerBehavioralMetrics?.orders_created_count ?? 0,
-            }),
-          },
-        ]}
-      />
+      {sellerBehavioralMetrics.status === "available" ? (
+        <SellerReliabilityPanel summary={sellerBehavioralMetrics.summary} />
+      ) : (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("marketplace.features.listings.ui.listingListPage.seller.reliability")}
+          description={t("marketplace.features.sellerDesk.degraded.title")}
+        />
+      )}
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.current.listings")}>
         <Stack gap={3}>
@@ -424,7 +442,11 @@ export function MarketplaceListingListPage({
                     header: t("marketplace.features.listings.ui.listingListPage.price.2"),
                     cell: (row) => (
                       <Stack gap={1}>
-                        <Text weight="semibold">{formatMoney(row.price_amount)}</Text>
+                        <Text weight="semibold">
+                          {row.price_currency_code
+                            ? formatMoney(row.price_amount, row.price_currency_code)
+                            : t("marketplace.features.listings.ui.listingListPage.price.incomplete")}
+                        </Text>
                         <Text size="sm" tone="secondary">
                           {renderFeeSummary(row)}
                         </Text>
@@ -539,10 +561,10 @@ export function MarketplaceListingListPage({
                 header: t("marketplace.features.listings.ui.listingListPage.locked.fee"),
                 cell: (row) => (
                   <Stack gap={1}>
-                    <Text>{formatMoney(row.marketplace_sales_fee_unit_amount)}</Text>
+                    <Text>{formatMoney(row.marketplace_sales_fee_unit_amount, row.price_currency_code)}</Text>
                     <Text size="sm" tone="secondary">
                       {t("marketplace.features.listings.ui.listingListPage.seller.net.report", {
-                        amount: formatMoney(row.seller_net_unit_amount),
+                        amount: formatMoney(row.seller_net_unit_amount, row.price_currency_code),
                       })}
                     </Text>
                   </Stack>

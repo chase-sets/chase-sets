@@ -124,7 +124,7 @@ describe("authoritative seed resume", () => {
     // executable stand-in for the `undefined` universe in the boot cases below.
     expect(derived.undefined).toEqual(derived.proof);
     expect(derived.undefined).toEqual(derived.public);
-    expect(derived.undefined!.active).toHaveLength(19);
+    expect(derived.undefined!.active).toHaveLength(20);
     expect(derived.undefined!.sourceOnly).toEqual([]);
 
     // Omitted-context negative control: a context omitted under `landing` is
@@ -588,7 +588,7 @@ describe("authoritative seed resume", () => {
     expect(settlementEventsAfterRepeat - retainedSettlementEvents).toBe(0);
     expect(await settlementPayoutPageIds(), "the withheld projection must stay behind").toEqual([]);
     expect(await loadSubscriptionCheckpoint(pools.settlement, settlementPayoutCheckpointKey)).toBeNull();
-    expect(await payoutsMissingFromStreams(), "the streams still carry both seeded payouts").toEqual([]);
+    expect(await payoutsMissingFromStreams(), "the streams still carry all seeded payouts").toEqual([]);
     console.log(
       `[#6396 lag] settlement prefix ${retainedSettlementEvents} -> ${settlementEventsAfterRepeat} (delta 0); ` +
         `settlement_payout_pages=0 rows; checkpoint '${settlementPayoutCheckpointKey}'=absent; ` +

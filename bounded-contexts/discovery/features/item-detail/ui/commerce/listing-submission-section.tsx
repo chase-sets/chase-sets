@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
-import { useEffect, type ReactNode } from "react";
+import { Form } from "../../../../support/ui-support/mutation-form";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   HiddenInput,
-  Form,
   Button,
   CurrencyInput,
   FormPanel,
@@ -32,7 +32,7 @@ export function ListingStockShipFromSetupSection({
 }) {
   return (
     <FormPanel variant="card">
-      <Form spacing="none" id={formId} method="post">
+      <Form family="location-create" targetId="draft" spacing="none" id={formId} method="post">
         <Stack gap={3}>
           <HiddenInput type="hidden" name="intent" value="create-listing-stock-location" />
           <Stack gap={1}>
@@ -108,6 +108,7 @@ export function MarketplaceListingSubmissionSection({
   allowDraftWithoutShipFromSetup?: boolean;
   errorMessage?: string | null;
 }) {
+  const [priceCurrencyCode, setPriceCurrencyCode] = useState("");
   const listing = ownListing ?? null;
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
   const defaultQuantity = listing?.quantity_cap ?? 1;
@@ -139,6 +140,9 @@ export function MarketplaceListingSubmissionSection({
 
   const form = (
     <Form
+      family="listing-stock-ensure"
+      targetId="listing-stock"
+      enabled={!listing && !allowDraftWithoutShipFromSetup}
       spacing="none"
       id={formId}
       method="post"
@@ -215,16 +219,24 @@ export function MarketplaceListingSubmissionSection({
             <CurrencyInput
               label={t("discovery.routes.itemDetail.listing.price")}
               name="priceAmount"
-              currencyCode="USD"
-              currencyAccessibleDescription={t("localization.currency.amountIn", {
-                currency: t("localization.currency.usd"),
-              })}
+              currencyCode={priceCurrencyCode}
               decrementLabel={t("localization.currency.decreaseAmount")}
               incrementLabel={t("localization.currency.increaseAmount")}
               defaultValue={listPrice || undefined}
               placeholder="24.99"
               min="0"
               step="0.01"
+              required
+            />
+            <TextInput
+              label={t("discovery.routes.itemDetail.listing.price.currency.code")}
+              name="priceCurrencyCode"
+              value={priceCurrencyCode}
+              onChange={(event) => setPriceCurrencyCode(event.target.value)}
+              placeholder={t("discovery.routes.itemDetail.listing.price.currency.code.placeholder")}
+              minLength={3}
+              maxLength={3}
+              autoCapitalize="characters"
               required
             />
             <NumberField

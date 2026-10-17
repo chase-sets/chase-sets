@@ -15,6 +15,9 @@ import type { PlatformApiContextName } from "../src/config";
 export type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
 export const platformApiContextNames = getApiHostContextNames(apiContextRegistry, "platform-api");
 export const listingPhotoStorage: ListingPhotoStorage = {
+  async getObject() {
+    return null;
+  },
   async putObject(input) {
     return { key: input.key, publicUrl: `https://assets.test/${input.key}` };
   },

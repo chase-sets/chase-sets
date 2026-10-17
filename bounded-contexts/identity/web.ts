@@ -8,3 +8,4 @@ export {
   displayRole,
   type CurrentActorDisplay,
 } from "./support/shell-support/current-actor-display";
+export { identityPortableRoutes } from "./support/shell-support/portable-routes";

@@ -26,6 +26,7 @@ Do not rebuild `deployables/design-system-showcase` as the default answer to com
 - Styling system: Tailwind CSS v4
 - Primitive behavior layer: Base UI Shadcn-compatible primitives
 - Theme model: Chase Sets marketplace theme with light, dark, and system semantic tokens
+- Embedded surfaces: `embedded-surface-theme/v1` is the closed 34-slot neutral theme input; `resolveEmbeddedSurfaceTheme`, `embeddedSurfaceThemeSnapshot`, and `observeEmbeddedSurfaceTheme` read the nearest theme scope. Provider-specific mapping and invalid-value fallbacks belong to browser adapters, not this package.
 - Typography: IBM Plex Sans with tabular numerals for price, rating, quantity, fee, and total displays
 - Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 
@@ -36,7 +37,8 @@ Design-system props use one vocabulary across the canonical layer:
 - `tone` describes intent and semantic color, such as neutral, accent, success, warning, danger, or info.
 - `variant` describes structural kind, not semantic intent.
 - `Eyebrow` is the uppercase kicker above a heading: `variant` is the closed vocabulary `accent | primary` (default `accent`) naming the frozen per-site treatment, it always renders a `div`, and it accepts no `className`, `style`, or polymorphic `as`/`render`/`element` props.
-- `elevation` describes surface treatment on `Card` and `Surface` with the vocabulary `flush | tinted | outlined | elevated`. It is orthogonal to `variant`/`tone`: the semantic prop names the background family wherever a fill exists, while `elevation` decides whether a fill exists at all and owns the surface chrome (glass, border, shadow). Omitting `elevation` renders the legacy raised recipe unchanged.
+- `NumericValue` is the closed inline role carrier for prices and market data: it always renders a `span`, its entire class string is the mono face plus tabular figures, it inherits the owner's size, weight, tone, and line height, and it accepts no `className`, `style`, or polymorphic `as`/`render`/`element` props.
+- `elevation` describes surface treatment on `Card` and `Surface` with the vocabulary `flush | tinted | outlined | elevated`. It is orthogonal to `variant`/`tone`: the semantic prop names the background family wherever a fill exists, while `elevation` decides whether a fill exists at all and owns the surface chrome (glass, border, shadow). Omitting `elevation` on `Card` renders the quiet `outlined` treatment; omitting it on `Surface` renders exactly the `flush` treatment for its tone. Production Card and Surface roots must declare elevation explicitly, including roots inside composed emitters. Surface has no `elevated` boolean; use `elevation="elevated"` for raised chrome and opt-in glow.
 - `size` describes control scale.
 - `density` describes row scale and uses the canonical `comfortable | compact` vocabulary. Legacy `default` and `regular` inputs resolve to `comfortable`; marketplace components do not define a separate `focused` density.
 - Icon slots use DS Icon registry names. Prefer leading or trailing slot names such as `leadingIcon?: IconName` and `trailingIcon?: IconName`; single icon slots should also accept `IconName` strings and render through the design-system `Icon` component.
@@ -113,6 +115,8 @@ The primitive preserves native form behavior for `id`, `method`, `action`, `encT
 
 Use `ValidationSummary`, `useFormState`, and `normalizeFormErrors` for controlled client forms that need dirty/touched state, validation timing, server error mapping, status text, counters, and form-level messages:
 
+`Form` and `RouterForm` accept `errorAnnouncement="inline"` (the default) or `"summary"`. Select summary ownership in the same render as a populated `ValidationSummary` covering every displayed field error. Inline errors stay visible, invalid and described, but no longer have an alert/status role or live-region behavior; the summary keeps its existing alert semantics. Clear summary ownership with those errors. Do not select it for field failures absent from the summary. Ownership is not inferred from `validationSummaryId`, form status or mounting a summary. Each nearest form/provider defaults independently to inline announcements, while portal descendants retain their React provider scope. Status and counter announcements are unchanged. This policy does not focus anything; caller-controlled summary focus and natural field links remain unchanged.
+
 ```tsx
 import { Button, Form, TextInput, ValidationSummary, useFormState } from "@chase-sets/design-system";
 
@@ -126,25 +130,24 @@ export function ContactForm() {
       }),
     },
   );
+  const errors = [
+    ...Object.entries(form.errors.fieldErrors).flatMap(([fieldId, messages]) =>
+      (messages ?? []).map((message) => ({ fieldId, fieldName: fieldId, message })),
+    ),
+    ...form.errors.formErrors.map((message) => ({ message })),
+  ];
 
   return (
     <Form
       id="contact-form"
-      validationSummaryId="contact-errors"
+      errorAnnouncement={errors.length > 0 ? "summary" : "inline"}
+      validationSummaryId={errors.length > 0 ? "contact-errors" : undefined}
       onSubmit={(event) => {
         event.preventDefault();
         form.submitAttempted();
       }}
     >
-      <ValidationSummary
-        id="contact-errors"
-        errors={[
-          ...Object.entries(form.errors.fieldErrors).flatMap(([fieldId, messages]) =>
-            (messages ?? []).map((message) => ({ fieldId, fieldName: fieldId, message })),
-          ),
-          ...form.errors.formErrors.map((message) => ({ message })),
-        ]}
-      />
+      <ValidationSummary id="contact-errors" errors={errors} />
       <TextInput id="email" label="Email" description="Used for receipts." {...form.fieldProps("email")} />
       <TextInput id="name" label="Name" counter={`${form.values.name.length} characters`} {...form.fieldProps("name")} />
       <Button type="submit">Save</Button>
@@ -158,6 +161,7 @@ Field controls should keep helper text visible when errors are present. Controls
 `useFormState` supports synchronous validation through `validate()`/`submitAttempted()` and asynchronous validation through `validateAsync()`/`submitAttemptedAsync()`. Async validation exposes `validating`, suppresses stale results after field edits or reset, maps rejected validators into form-level errors, and clears stale field/form errors when the user edits. Use `reset()` after successful saves to clear dirty/touched/submitted metadata, and use `setSubmitting()` to coordinate long-running save state with `Form submitting`.
 
 `ValidationSummary` links focus the invalid field target. If the target is a grouped control such as a fieldset, focus delegates to the first focusable control inside the group.
+Pass a `ref` to focus the summary root after committing an action failure; the root has `tabIndex={-1}`, stays out of the tab order, and is never focused automatically.
 
 For React Router route actions, import `RouterForm` from `@chase-sets/design-system/react-router` instead of importing `Form` from `react-router` directly:
 
@@ -254,7 +258,7 @@ The design system does not own:
 - data fetching
 - domain rules
 
-Provider-owned embedded flows still use design-system token mappings. See [Embedded Stripe Appearance](./EMBEDDED_STRIPE_APPEARANCE.md) for the Stripe-specific boundary and residual styling limits.
+Provider-owned embedded flows resolve this neutral contract; browser adapters document provider-specific limits.
 
 ## Validation
 

@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund", "cancel-order"]);
@@ -13,20 +14,19 @@ function currencyCode(value: unknown): string {
 
 export function buildOrderingMoneyTimelineProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "payments.refund-requested": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        paymentId: string;
-        orderIds: readonly string[];
-        amount: string;
-        currencyCode: string;
-        requestedAt: string;
-      };
-      const orderAmount = data.orderIds.length === 1 ? data.amount : null;
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        "payments.refund-requested" | "payments.refund-issued" | "payments.refund-failed" | "payments.payment-refunded"
+      >
+    >({
+      "payments.refund-requested": async (event) => {
+        const { data } = event;
+        const orderAmount = data.orderIds.length === 1 ? data.amount : null;
 
-      for (const orderId of data.orderIds) {
-        await db.query(
-          `INSERT INTO ordering_order_refund_timeline_pages (
+        for (const orderId of data.orderIds) {
+          await db.query(
+            `INSERT INTO ordering_order_refund_timeline_pages (
              refund_id,
              order_id,
              payment_id,
@@ -48,55 +48,50 @@ export function buildOrderingMoneyTimelineProjectionHandlers(db: PgQueryable): P
                failed_at = NULL,
                last_stream_version = EXCLUDED.last_stream_version
            WHERE ordering_order_refund_timeline_pages.last_stream_version < EXCLUDED.last_stream_version`,
-          [
-            data.refundId,
-            orderId,
-            data.paymentId,
-            orderAmount,
-            currencyCode(data.currencyCode),
-            data.requestedAt,
-            event.streamVersion,
-          ],
-        );
-      }
-    },
-    "payments.refund-issued": async (event) => {
-      const data = event.data as { refundId: string; issuedAt: string };
-      await db.query(
-        `UPDATE ordering_order_refund_timeline_pages
+            [
+              data.refundId,
+              orderId,
+              data.paymentId,
+              orderAmount,
+              currencyCode(data.currencyCode),
+              data.requestedAt,
+              event.streamVersion,
+            ],
+          );
+        }
+      },
+      "payments.refund-issued": async (event) => {
+        const { data } = event;
+        await db.query(
+          `UPDATE ordering_order_refund_timeline_pages
          SET status = 'issued',
              issued_at = $2,
              failed_at = NULL,
              last_stream_version = $3
          WHERE refund_id = $1
            AND last_stream_version < $3`,
-        [data.refundId, data.issuedAt, event.streamVersion],
-      );
-    },
-    "payments.refund-failed": async (event) => {
-      const data = event.data as { refundId: string; failedAt: string };
-      await db.query(
-        `UPDATE ordering_order_refund_timeline_pages
+          [data.refundId, data.issuedAt, event.streamVersion],
+        );
+      },
+      "payments.refund-failed": async (event) => {
+        const { data } = event;
+        await db.query(
+          `UPDATE ordering_order_refund_timeline_pages
          SET status = 'failed',
              failed_at = $2,
              last_stream_version = $3
          WHERE refund_id = $1
            AND last_stream_version < $3`,
-        [data.refundId, data.failedAt, event.streamVersion],
-      );
-    },
-    "payments.payment-refunded": async (event) => {
-      const data = event.data as {
-        currencyCode: string;
-        refundedOrderAmounts?: readonly Readonly<{ orderId: string; amount: string }>[];
-        orderRefundAmounts?: readonly Readonly<{ orderId: string; amount: string }>[];
-        refundedAt: string;
-      };
-      const cumulativeAmounts = data.refundedOrderAmounts ?? data.orderRefundAmounts ?? [];
+          [data.refundId, data.failedAt, event.streamVersion],
+        );
+      },
+      "payments.payment-refunded": async (event) => {
+        const { data } = event;
+        const cumulativeAmounts = data.refundedOrderAmounts ?? data.orderRefundAmounts ?? [];
 
-      for (const orderAmount of cumulativeAmounts) {
-        await db.query(
-          `INSERT INTO ordering_order_refund_totals (
+        for (const orderAmount of cumulativeAmounts) {
+          await db.query(
+            `INSERT INTO ordering_order_refund_totals (
              order_id,
              refunded_amount,
              currency_code,
@@ -107,10 +102,11 @@ export function buildOrderingMoneyTimelineProjectionHandlers(db: PgQueryable): P
                currency_code = EXCLUDED.currency_code,
                refunded_at = EXCLUDED.refunded_at
            WHERE ordering_order_refund_totals.refunded_at < EXCLUDED.refunded_at`,
-          [orderAmount.orderId, orderAmount.amount, currencyCode(data.currencyCode), data.refundedAt],
-        );
-      }
-    },
+            [orderAmount.orderId, orderAmount.amount, currencyCode(data.currencyCode), data.refundedAt],
+          );
+        }
+      },
+    }),
     "support.support-request.opened": async (event) => {
       const data = event.data as {
         supportRequestId: string;

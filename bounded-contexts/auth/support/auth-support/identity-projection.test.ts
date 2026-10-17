@@ -84,6 +84,7 @@ describe("auth identity membership reads", () => {
 
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0]?.[0]).toContain("FROM auth_identity_user_memberships");
+    expect(query.mock.calls[0]?.[0]).toContain("accounts.status = 'active'");
     expect(query.mock.calls[0]?.[1]).toEqual(["usr_platform_admin", "acc_platform_admin"]);
   });
 
@@ -101,6 +102,9 @@ describe("auth identity membership reads", () => {
     expect(query).toHaveBeenCalledTimes(2);
     expect(query.mock.calls[0]?.[0]).toContain("FROM auth_identity_user_memberships");
     expect(query.mock.calls[1]?.[0]).toContain("FROM auth_identity_memberships");
+    for (const [sql] of query.mock.calls) {
+      expect(sql).toContain("accounts.status = 'active'");
+    }
   });
 
   it("keeps request-time membership lookups indexed", () => {

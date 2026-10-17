@@ -2,6 +2,18 @@
 
 This glossary defines the canonical terminology for the Inventory bounded context.
 
+## Acquisition Occurrence
+
+An **Acquisition Occurrence** is Inventory-owned evidence of when a positive quantity actually entered a seller's stock and capital cycle. It is either a timezone-bearing seller/import-supplied occurrence or explicitly unknown. Event recording, upload, import commit, and item creation times never substitute for an unknown acquisition occurrence.
+
+## Inventory Mutation Attempt
+
+An **Inventory Mutation Attempt** is an opaque identity created by a caller before submitting a stock, Hold, Storage Location, or Restock Decision mutation. Inventory binds it to the trusted Tenant, acting User, Account, mutation family, target or draft, and versioned normalized intent. It is not an Inventory Item, Hold, Order, or background-job identity.
+
+Acceptance, owned facts, child receipts, and the first terminal receipt commit together. An identical accepted intent reads that immutable first result, even after later changes to the item or Hold. Changed binding or intent cannot authorize another write. After a possible send, recovery reads the exact private receipt rather than silently resubmitting.
+
+A Restock Decision attempt includes the expected decision version, outcome and normalized damage note. Restocking commits its stock adjustment and distinct child receipt with the decision and first result; writing off changes no stock quantity. Retained split-write adjustment evidence without a terminal decision requires reconciliation, not another restock.
+
 ## Inventory Item
 
 An **Inventory Item** is a seller's stock for one specific product and storage location.
@@ -86,6 +98,37 @@ Values:
 - `manual`: an account-initiated Inventory action released the hold.
 - `superseded`: a newer hold or lifecycle transition replaced the hold.
 
+## Inventory Reservation Authority
+
+**Inventory Reservation Authority** is the complete `inventory.reservation-*` stream history for one Ordering reservation request, read as the canonical answer to whether that request was confirmed or rejected.
+
+Notes:
+
+- Valid authority is exactly a v1 `inventory.reservation.confirmed` or `inventory.reservation.rejected`, optionally followed by a v2 `inventory.reservation.released` that may only follow a confirmation.
+- A rejection proves no Hold was ever created; a confirmation supplies the Hold created atomically with it.
+- Missing, over-bound, malformed, mixed, repeated, or non-terminal history is not authority. It is never treated as "no reservation".
+- The UNLOGGED `inventory_reservation_pages` projection is never this authority.
+
+## Hold Cleanup Authority
+
+**Hold Cleanup Authority** is the complete `inventory.hold-*` stream history for one Hold, read as the canonical answer to whether that Hold is still active or reached a real terminal.
+
+Notes:
+
+- A direct Order Hold is `placed` with Hold Purpose `order` and an exact Hold Source Reference; a converted checkout Hold is `placed` with purpose `checkout`, extended zero or more times, then `converted` to purpose `order`.
+- At most one `released`, `consumed`, or `expired` terminal may appear, and nothing may follow it.
+- Reading Hold Cleanup Authority never releases, consumes, or otherwise mutates the Hold.
+
+## Hold Source Lookup
+
+A **Hold Source Lookup** is the reverse, exact-tenant query from an Ordering order id to the Hold streams whose Hold Source Reference carries it.
+
+Notes:
+
+- It covers both source-bearing events: a direct `inventory.hold.placed` with purpose `order` and an `inventory.hold.converted` that promotes a checkout Hold.
+- Results are ordered by first matching global position, then stream id, and are bounded so an order with more Holds than the contract allows is refused rather than truncated.
+- Its authority is the event stream, never a projection.
+
 ## Hold Collision
 
 A **Hold Collision** occurs when a requested stock reduction is larger than Available Quantity because active Inventory Holds already commit part of the Inventory Item.
@@ -134,6 +177,7 @@ An **Inventory Adjustment Reason** is the typed reason an Inventory quantity adj
 Values:
 
 - `sold-offline`: an Honor Offline reduction recorded stock sold outside an online order.
+- `sold-external-channel`: Inventory applied stock for one immutable connected-channel order line while protecting active order commitments.
 - `damaged`: an operator removed stock that was damaged.
 - `lost`: an operator removed stock that could not be found.
 - `found`: an operator added stock that was found.
@@ -147,6 +191,51 @@ Values:
 
 An **Adjustment Note** is optional operator context attached to an Inventory adjustment. A blank note is stored as no note, and it never replaces or derives from the required free-text reason.
 
+## Offline Sale
+
+An **Offline Sale** is an immutable Inventory fact that records stock sold in person or outside a connected marketplace channel. It preserves sale provenance while the companion Inventory Item adjustment remains the quantity source of truth.
+
+## Offline Sale Channel
+
+An **Offline Sale Channel** identifies where an Offline Sale occurred.
+
+Values:
+
+- `in-store`: sold at the account's store or counter.
+- `card-show`: sold at a card show or similar in-person event.
+- `other`: sold through another non-connected offline channel.
+
+## External Channel Sale
+
+An **External Channel Sale** is Inventory's permanent, provider-neutral record of one immutable seller order line observed through a connected sales channel.
+
+Notes:
+
+- Its versioned key is supplied by the owning channel adapter and never inferred from provider data by Inventory.
+- The canonical event stream is the sole permanent uniqueness authority; notification and polling delivery replay the first committed result.
+- Inventory protects active order commitments, applies only currently available stock, and preserves any refused quantity as a stable shortfall reference.
+- Provider events, connection identity, paging state, and delivery path are never the durable sale identity.
+
+## Unit Price Amount
+
+**Unit Price Amount** is the optional gross per-unit item price recorded on an External Channel Sale line. It is sale provenance in the line's Currency Code, without payment, settlement, or provider-receipt meaning.
+
+## Shipping Collected Amount
+
+**Shipping Collected Amount** is the optional shipping total collected for the provider's ordered External Channel Sale line. It is line-level sale provenance in the line's Currency Code and is never prorated to the quantity Inventory can apply. It has no payment, settlement, or provider-receipt meaning.
+
+## Channel Fee Amount
+
+**Channel Fee Amount** is the optional channel-fee total for the provider's ordered External Channel Sale line. It is line-level sale provenance in the line's Currency Code and is never prorated to the quantity Inventory can apply. It has no payment, settlement, or provider-receipt meaning.
+
+## Sale Price Amount
+
+**Sale Price Amount** is the optional canonical per-unit amount recorded on an Offline Sale. It is sales provenance without currency, payment, settlement, or provider-receipt meaning.
+
+## Cost Basis Snapshot
+
+A **Cost Basis Snapshot** is the Inventory Item's per-unit Acquisition Cost captured when an Offline Sale is recorded. It remains part of the immutable sale fact even if the item's current cost later changes.
+
 ## Storage Location
 
 A **Storage Location** is a seller-defined place where stock is stored.
@@ -156,6 +245,14 @@ Notes:
 - An account may have more than one storage location.
 - A storage location may be as broad as a room or as granular as a bin, shelf, or aisle.
 - Each storage location maps to exactly one ship-from location.
+
+## Channel Stock Allocation
+
+A **Channel Stock Allocation** is Inventory's absolute per-item declaration of how much stock each Channel Connection may publish. In `shared-pool` mode every connected listing sees the same Available Quantity after the Inventory safety buffer; in `partitioned` mode a connection is capped by its declared units and an undeclared connection receives zero.
+
+## Channel Allocation Mode
+
+A **Channel Allocation Mode** is the closed `shared-pool | partitioned` rule on a Channel Stock Allocation. `shared-pool` preserves today's common-pool behavior, while `partitioned` applies connection-specific publish caps without consuming or reserving stock.
 
 ## Import
 
@@ -190,7 +287,7 @@ Notes:
 
 ## Acquisition Cost
 
-**Acquisition Cost** is the seller's recorded cost to acquire stock in inventory.
+**Acquisition Cost** is the seller's recorded per-unit cost to acquire stock in inventory.
 
 ## Recovered Item
 
@@ -211,6 +308,8 @@ A **Recovered Item Disposition** is Inventory's append-only decision to return a
 ## Planned Store, Location, And Channel Inventory
 
 These planned terms pre-register upcoming store, multi-location, and channel inventory language. They are not shipped behavior until Inventory adds the corresponding aggregates, events, imports, exports, and read models.
+
+Channels owns Channel Listing Link, Channel Sync, Channel Sync Run, Channel Sync Error, and Channel Inventory Snapshot; see the [Channels glossary](../channels/GLOSSARY.md). Inventory retains stock truth and the shipped Channel Stock Allocation above; the reservation and fulfillment-rule terms below remain planned.
 
 ### Store
 
@@ -280,46 +379,14 @@ A **Count Variance** is the planned difference between recorded quantity and cou
 
 A **Stock Ledger** is the planned account-facing history of quantity-affecting Inventory facts.
 
-### Channel Stock Allocation
-
-A **Channel Stock Allocation** is the planned quantity reserved for a specific external or native sales channel.
-
-### Channel Allocation Mode
-
-A **Channel Allocation Mode** is the planned rule for how inventory quantity is shared, capped, or reserved across channels.
-
 ### Channel Allocation
 
-A **Channel Allocation** is the planned Inventory quantity assignment for a native or external sales channel.
+See **Channel Stock Allocation** above; this retained pointer keeps the earlier Inventory term reachable without defining a second concept.
 
 ### Channel Reservation
 
 A **Channel Reservation** is the planned temporary channel-sourced hold against available inventory.
 
-### Channel Listing Link
-
-A **Channel Listing Link** is the planned association between a Chase Sets Listing or Inventory Item and an external channel listing.
-
-### Channel Sync
-
-**Channel Sync** is the planned Inventory workflow that reconciles stock facts with an external sales channel.
-
-### Channel Sync Run
-
-A **Channel Sync Run** is the planned execution record for one Channel Sync attempt.
-
-### Channel Sync Error
-
-A **Channel Sync Error** is the planned actionable failure captured during Channel Sync.
-
-### Channel Inventory Snapshot
-
-A **Channel Inventory Snapshot** is the planned channel-reported quantity state captured for reconciliation.
-
 ### Channel Fulfillment Rule
 
 A **Channel Fulfillment Rule** is the planned Inventory-owned rule that decides which stock can satisfy channel demand.
-
-### Offline Sale
-
-An **Offline Sale** is the planned Inventory fact that stock left availability through an in-person or non-channel sale.

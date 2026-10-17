@@ -2,6 +2,124 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
+## Demand Curve
+
+A **Demand Curve** is a Product-Key-scoped version of ordered price percentiles, buyer arrival, supply, and sell-time evidence for one currency, variant, language, and condition. Its points, version, fingerprint, and build instant are immutable. Its freshness horizon advances only when the closer verifies the same inputs for that served version. The same card-wide Condition Ladder rescales all conditions; a missing, superseded, stale, or undenominated curve is not a positive estimate. Historical versions retain null currency and freshness until replaced, never backfilled.
+
+## Buyer Arrival Interval
+
+The **Buyer Arrival Interval** is the effective decayed exposure days divided by decayed sales at or above a curve price. Its exposure starts at the history window, sales cap, or known availability, whichever is latest.
+
+## Store Win Share
+
+**Store Win Share** is `1/(competing sellers + 1)` when Pooled Supply is observed. An unavailable or truncated seller count never implies full share.
+
+## Sell-Time Forecast
+
+The **Sell-Time Forecast** is `ln(2) × Buyer Arrival Interval / Store Win Share`. A forecast beyond the policy horizon carries a hopeless marker, not a forced sale date.
+
+## Condition Ladder
+
+The **Condition Ladder** is a card-wide monotone condition-value scale. It selects a time-controlled Zipf fit when evidence supports it, otherwise sibling market ratios, otherwise neutral scaling; unknown provider conditions do not enter its ordering.
+
+## Pooled Supply
+
+**Pooled Supply** counts distinct capture-local sellers at or below the curve price only after each condition's ask is rescaled by the Condition Ladder. Its status distinguishes observed-empty, truncated, unavailable, and disabled; an ordinal is never a seller identity across captures.
+
+## Pricing Goal
+
+A **Pricing Goal** is a versioned registry entry that solves one seller objective on a Demand Curve; `fixed-percentile`, `target-horizon`, and `profit-per-day` register first. It declares named numeric parameters with defaults and inclusive bounds, the curve features it requires, and whether it requires Economics. It reads Economics as facts and never derives a fee or hurdle; its explanation carries values, never copy.
+
+## Goal Lifecycle
+
+**Goal Lifecycle** is the reviewed registration state of a Pricing Goal version: `selectable` can be authored and prices listings; `shadow` is compared only in live rounds and never emits commands; `retired` cannot be authored and exhausts a recorded anchor as `absent`, with reason `goal-retired`. Version 1 starts selectable; later versions start shadow. At most one version per goal id is shadow. Promotion or retirement is a reviewed registration change, not an automatic transition; promotion above version 1 cites the adoption evidence owned by #7708. After promotion, the selected version runs as incumbent and, without a new shadow registration, no comparisons run.
+
+## Shadow Evaluation
+
+A **Shadow Evaluation** compares the whole matched directive on the incumbent round's captured inputs, independently replacing one goal anchor's version per occurrence. The optional v1 listing trace entries are ordered by zero-based `anchorIndex` and identified by `(evaluationId, listingId, anchorIndex)`. The outer goal names the substitution, while the result's anchor may name a fallback goal. Only incompatible parameters skip evaluation; unreached-anchor parity and missing-Economics fallback or terminal outcomes are evaluated results. There are at most five extra pure evaluations per listing, no new reads, and no comparisons in preview or dry runs. Only the incumbent drives commands, budgets, listing counts and Spiral Breaker direction.
+
+## Forecast Kind
+
+A **Forecast Kind** is a registered sell-time forecast model that, given one evaluated price, its goal's read-back, and the Demand Curve version and provider weeks its evaluation read, returns a median sell time and the model that produced it. Every kind's forecast is fixed when the price is evaluated and carried on the `pricing.repricing-policy.evaluated` fact. `curve` is the goal's own read-back under the curve's builder model, `buyer-choice` is the parity app's buyer-choice forecast under its calibration name, and `condition-rate` is the condition's own sale interval over the Store Win Share at the price under its method. Registering a kind is the whole contract for adding one: the ledger records it and grading scores it with no other change.
+
+## Forecast Ledger
+
+The **Forecast Ledger** is the read model of every price whose forecasts are graded, projected once from `pricing.repricing-policy.evaluated`: one incumbent entry per emitted price, or price held within tolerance, that a goal read back, and one shadow entry per priced shadow trace, which is never emitted. Each entry records the listing, price, goal id and version, curve version, the listing's quantity, and the forecasts its evaluation recorded, so a late or replayed projection records the same ones; an evaluation recorded before forecasts were fixed keeps entries with none, which are never graded. An entry is never rewritten.
+
+## Forecast Cohort
+
+A **Forecast Cohort** is the set of a goal version's listings in one role followed for one horizon from their first in-stock entry carrying the forecast under one model, within two horizons before the cohort closes at the start of a UTC day. A listing sold when the trades tape or an Own-Sale Observation records a sale within the horizon, or when it stopped being priced before the horizon less the grace and is out of stock now; one that stopped early while still in stock is censored out.
+
+## Forecast Grade
+
+A **Forecast Grade** scores one Forecast Kind and model at one horizon over its Forecast Cohort: the sold share, the share the forecasts implied, the Brier score beside the base rate's Brier, and fastest-to-slowest deciles. The grading job records each grade as a `pricing.forecast.graded` fact naming its grading rules (the grace, every horizon, and the grading implementation) and keeps it until those rules or the cohort's ledger entries, realized sales or stock change.
+
+## Adoption Gate
+
+The **Adoption Gate** decides whether a goal version above 1 may be selected: its latest closed shadow grade for the policy's adopted Forecast Kind and horizon must be at or below the Brier of its incumbent, the newest earlier version not in shadow, on the same day and model, both under the grading rules in force; until a rule change is regraded the grade is missing. A shadow version reports whether it is promotable; a version registered selectable that fails is refused in the Authoring Prerequisites with its reason. The gate never changes a Goal Lifecycle.
+
+## Goal Decision
+
+A **Goal Decision** is a Pricing Goal's answer on one curve: selected and unconstrained amounts in the curve currency, the equivalent percentile and sell-time forecast read at the selected price, whether Net Proceeds there clear overhead, and the echoed parameters. A goal that cannot solve returns a typed unavailable reason and no price.
+
+## Goal Version
+
+A **Goal Version** is one `(id, version)` registration of a Pricing Goal. Any change to its Golden Decision makes a new version, which registers as `shadow` beside the incumbent; a change that keeps every Golden Decision keeps the version.
+
+## Golden Decision
+
+A **Golden Decision** is a Goal Version's recorded decision at default parameters on each shared fixture curve, kept as reviewed data in the Conformance Kit and checked against an independent expectation when recorded. A test run never rewrites one; a changed decision is a new Goal Version with its own Golden Decision.
+
+## Conformance Kit
+
+The **Conformance Kit** (`tests/conformance/`) is the executable contract every Pricing registry entry passes: goals, guardrail kinds, curve builders and Economics providers. Each run records the production registrations through `recordRegistrations`, or reads them from the enumeration a production module exports beside its own construction of the registry, fails any registration it does not exercise and an empty registry, and is required for every registry by the `pricing-registry-conformance` structure guard. The authoring steps are in `bounded-contexts/pricing/docs/pricing-goal-authoring.md`.
+## Repricing Preset
+
+A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
+at most two seller knobs and a floor prompt. A single-rule preset opens in the structured editor;
+a multi-rule preset opens in the advanced ordered-rule editor without losing its trailing default.
+
+## Authoring Prerequisites
+
+**Authoring Prerequisites** are the account-wide facts returned by the Pricing-owned
+`authoring-prerequisites` read. `listingCurrencyCodes` is the sorted distinct non-null currency codes
+of all the account's listings. `hasCostBasis` is true when at least one listing links to an inventory
+item owned by that same account with a non-null acquisition cost amount, including zero. Neither
+fact is filtered by policy scope, listing status, assignment or halt. An unavailable read is not absence.
+`goalAdoption` is the Adoption Gate over every registered goal version that is not retired.
+
+## Economics
+
+**Economics** is the replayable seller fact set Pricing resolves at one evaluation instant for either the native marketplace or an account-qualified Channel Connection. The native marketplace binds Commercial Terms directly; a Channel Connection binds its Channels-owned identity before provider selection. Both scopes bind currency, Inventory cost evidence, observed capital-cycle evidence, policy defaults, and seller overrides without changing any authoritative source.
+
+## Economics Fact
+
+An **Economics Fact** carries a source value, closed Fact Source, effective value, optional seller override, and the oldest observation instant that materially supports it. Missing money is never represented as zero.
+
+## Fact Source
+
+A **Fact Source** is the closed provenance vocabulary for an Economics Fact: Commercial Terms, Inventory observation, Pricing observation, Pricing policy ownership, or an explicit policy default with a failure-only reason.
+
+## Policy-owned
+
+**Policy-owned** is Fact Source provenance for a healthy Economics assumption that Pricing deliberately governs, rather than a fallback for missing authority. It carries the exact `pricing.economics` policy revision and never a Commercial Terms agreement or failure reason.
+
+## Observed Hold
+
+**Observed Hold** is the median elapsed time from an Inventory-owned known Acquisition Occurrence to an eligible Ordering sale occurrence after one-to-one quantity allocation. Unknown acquisition time contributes no sample.
+
+## Observed Turnaround
+
+**Observed Turnaround** is the median elapsed time from an eligible Ordering sale occurrence to a later known Inventory acquisition after independent one-to-one quantity allocation across the account.
+
+## Daily Return Hurdle
+
+The **Daily Return Hurdle** is Pricing's finite per-day return target derived from positive covered cost, positive Net Proceeds, Observed Hold, and Observed Turnaround. When any precondition is unavailable, a numeric policy default remains explicit in provenance.
+
+## Net Proceeds
+
+**Net Proceeds** is a price less its unit overhead from the Economics fee terms: each term's relative part, capped, plus its fixed part. It is signed, so a loss stays visible: goal solving takes the least loss when no price clears overhead, and the Daily Return Hurdle requires it to be positive. The Economics order quote's `netProceedsAmount` is floored at zero and is not this signed value.
+
 ## Price Signal
 
 A **Price Signal** is an observed market input used to estimate fair value for a resolved product.
@@ -12,13 +130,45 @@ Examples:
 - Accepted offers
 - Completed orders
 
+## Market Capture
+
+A **Market Capture** is one immutable, provider-keyed attempt to record secondary sales, weekly-history, and listing-depth evidence for a mapped Product after every selected Price Signal in the pass has committed. Its header preserves the two policy instants, endpoint presence, coverage, and rejection outcome without retaining a provider response body.
+
+## Provider Sale Observation
+
+A **Provider Sale Observation** is a capture-scoped group of provider-returned sale tuples. Its occurrence count is exact only within that returned capture; overlapping captures consolidate by maximum observed tuple multiplicity and are never added as if the provider supplied stable sale identity.
+
+## Weekly Sale Bucket
+
+A **Weekly Sale Bucket** is a provider-reported SKU history bucket keyed by the provider's UTC bucket start. It retains nullable Product mapping, capture provenance, and a source watermark; it is evidence, not an inferred calendar-completeness claim.
+
+## Listing Snapshot
+
+A **Listing Snapshot** is the latest provider listing summary for one UTC day, Product condition, variant, and language: distinct transient seller groups and the two cheapest delivered asks, with its capture and coverage provenance.
+
+## Listing Ask Depth
+
+**Listing Ask Depth** is the immutable capture-local joint of anonymous seller ordinal, provider condition, and cheapest delivered ask. It supports raw depth and requires consumers to scale asks by condition before deduplicating seller ordinals.
+
+## Anonymous Capture Seller Ordinal
+
+An **Anonymous Capture Seller Ordinal** is a sequential, non-identifying grouping label allocated while reducing one Market Capture. It is derived from no durable hash or stable ordering, is meaningless outside that capture, and must never be joined across captures.
+
 ## Market Price Snapshot
 
 A **Market Price Snapshot** is the recorded fair-value output for a resolved product over a defined time window, tied to the source signals used to calculate it.
 
+## Own-Sale Observation
+
+An **Own-Sale Observation** is Pricing's seller-scoped record of one Inventory external-channel or offline sale event. It preserves requested and applied quantities plus the event's available denomination facts without proration or currency invention; item and Product resolution may remain absent when the Inventory input was unavailable. Own-Sale Observations are seller evidence for pricing workflows and never enter the published Market-Value Estimate. Offline observations remain undenominated and are therefore inert for currency-keyed price reads while remaining available to count-and-quantity consumers.
+
 ## Market Price
 
 **Market Price** is the wire noun for Pricing's published current fair-value estimate for one resolved Product. `MarketPriceEstimated` (`pricing.market-price.estimated`) publishes that derived answer -- one event-sourced stream per product, carrying the estimate amount, its Confidence Band, input counts, the previous published amount (so downstream tolerance filtering needs no read), and a freshness horizon; a Market Price Snapshot remains a recorded market-state input rather than the estimate itself.
+
+## Market-Following Offer Target
+
+A **Market-Following Offer Target** is Pricing's proposed unit item amount for a buyer Offer from the exact Product's fresh published Market Price. Pricing floors the market cents adjusted by the authorized nonpositive basis points, then clamps to the buyer's maximum unit item amount; a sub-cent result is held. Preview and attempted application use the same evaluator with their own evaluation instant and published estimate version. Quantity and the lifetime Item Commitment Allowance do not alter the unit target, and an ordinary Offer does not lapse because a target is held.
 
 ## Market-Value Estimate
 
@@ -52,6 +202,84 @@ The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of 
 
 A **Liquidity Estimate** is the modeled expectation of how quickly or reliably a resolved product can transact.
 
+## Repricing Listing Outcome
+
+A **Repricing Listing Outcome** is the current listing-level result derived from retained evaluation
+facts and their compaction summary. Evaluation instant and evaluation ID determine order;
+`global_position` locates digest input, not current state. `floor_binding_since` is the start of the
+trailing uninterrupted floor-binding run. The compaction boundary records the last folded fact and
+the open run start. Compaction retains the greatest fact and never duplicates its payload in the summary.
+
+## Repricing Management Policy
+
+The **Repricing Management Policy** is the platform `pricing.repricing-management` document governing
+seller attention. `floorBindingAlertDays` is an integer from 1 through 90, launching at 7 days and
+defaulting to that value when the stored key is absent.
+`digestSettleMinutes` is an integer from 1 through 120, launching at 10 minutes;
+`digestLagWarnHours` is an integer from 1 through 48, launching at 6 hours.
+Both digest keys default independently when absent from a stored revision.
+
+## Repricing Activity
+
+**Repricing Activity** is the seller's evaluated-policy and listing-outcome history, including changes,
+clamps, missing-input pauses, tolerance decisions, budget limits and Spiral Breaker trips.
+
+## Repricing Attention Source
+
+The **Repricing Attention Source** (`pricing-repricing`) is Pricing's contribution to the Seller Desk
+attention queue. It maps the account's repricing attention summary into queue items for an engaged
+Repricing Halt, aged floor binding, missing-input pauses, today's budget-exhausted outcomes and
+Spiral Breaker freezes. Every count comes from that summary; the halt item reads the Repricing Halt
+aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list.
+
+## Repricing Activity Digest
+
+A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
+It is requested once after the evaluation projection has reached every member, never as a partial summary.
+
+## Pricing Health Summary
+
+A **Pricing Health Summary** is the durable, capture-time seller report for a
+completed repricing dry run. It evaluates the whole candidate population using
+the run's captured prices, served Demand Curves and Economics facts, and keeps
+every money statistic partitioned by currency. Older runs have no summary and
+return `health: null`; health is never recomputed from a trace page.
+
+## Value at Risk
+
+**Value at Risk** is the effective listed value whose modeled median sell time
+is slow or hopeless under the Demand Curve policy revision that built it. A
+missing policy revision is reported as risk unknown, never classified by a
+current default.
+
+## Capital Turn
+
+**Capital Turn** is the signed daily logarithmic return over the weighted median
+wait plus Economics turnaround cycle. **Profit/day** is signed net proceeds
+less unit cost over that same cycle. Both are unavailable when their required
+population or positive cycle is absent. `no-modeled-listings` means M is empty;
+`no-economics` means E is empty. `inventory-item-missing` identifies a modeled
+listing that cannot request Economics because it has no Inventory item.
+Stored Capital Turn is a fractional daily log return; display multiplies it by
+100 for %/day. A curve stamped `fallback` has no resolvable document revision
+and remains risk unknown rather than inheriting the current launch policy.
+
+## Digest Window
+
+A **Digest Window** is an immutable UTC-day capture of eligible evaluated events under a gap-safe
+event-store fence. A late commit joins the next captured window, rather than changing a previous digest.
+Windows emit oldest first and retain the greatest floor below which no evaluated event remains unassigned.
+
+## Digest Window Member
+
+A **Digest Window Member** assigns one evaluation event's exact global position to one Digest Window.
+Its event position joins to listing outcome facts; evaluation time does not determine membership.
+
+## Digest Baseline
+
+A **Digest Baseline** is the single activation row, dated the previous UTC day and already emitted.
+Its gap-safe floor excludes pre-activation events. Concurrent first passes cannot create a second baseline.
+
 ## Repricing Policy
 
 A **Repricing Policy** is a seller-owned, event-sourced aggregate declaring the standing strategy that
@@ -69,12 +297,69 @@ with a directive (Repricing Anchor Chain, offset, Floor Price, Ceiling Price, Re
 rounding, per-rule max move, and terminal behavior). Rules are evaluated first-match-wins; the pipeline's
 last rule is always the unconditional default.
 
+## Repricing Halt
+
+A **Repricing Halt** is the seller's audited account-wide stop for policy repricing. It starts released,
+can be engaged or released, and repeats emit no event. Engaging removes assignments before selection
+and fails the precondition for already planned rounds. Release restores eligibility on the next signal
+or daily drift sweep; it never resumes a policy the seller individually paused.
+
+## Scope Preview
+
+A **Scope Preview** counts the seller's listings matching a candidate Repricing Scope before precedence,
+the listings it would govern, and the existing policies that shadow it (`shadowedBy`) or lose assignments
+to it (`takenFrom`). It shares the candidate assignment predicate with Repricing Dry Runs.
+
 ## Repricing Anchor Chain
 
 A **Repricing Anchor Chain** is the ordered list of Repricing Anchors a Repricing Rule's directive tries in
-sequence -- market-estimate, lowest-competing-ask, comp-percentile, or last-sold -- so a rule degrades
+sequence -- market-estimate, lowest-competing-ask, comp-percentile, last-sold, or curve-objective -- so a rule degrades
 gracefully when its first-choice signal is unavailable, ending in a seller-chosen terminal behavior (hold,
-pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted.
+pause, fallback-price, price-at-floor, or notify-only) if every anchor in the chain is exhausted. Each exhausted
+anchor records its input state; a curve-objective member may also record why it could not solve
+(`economics-unavailable`, `goal-retired`, or `curve-feature-missing:<feature>`).
+
+## Curve-Objective Anchor
+
+A **Curve-Objective Anchor** selects a versioned Pricing Goal and its numeric parameters in a Repricing Anchor Chain. Authoring validates the goal and records filled defaults. Evaluation solves the goal on the product's Demand Curve served at the capture instant, with Economics resolved only when the goal requires it: no curve, a retired goal, or a goal that cannot solve leaves it absent, and an expired curve leaves it stale; a missing or different curve or Economics currency fails closed. Its trace names the goal, goal version and curve version, with the forecast read back at the final price.
+
+## Repricing Guardrail
+
+A **Repricing Guardrail** is an ordered, seller-authored constraint on a Repricing Rule's target. A **Guardrail Kind** registers a version, parameter validation, a pre-offset or post-max-move slot, and a pure hold, clamp, or inert result. Existing fixed floor, ceiling, tolerance, rounding, max move and terminal fields remain fixed, not registered kinds.
+
+## Market-Evidence Floor
+
+A **Market-Evidence Floor** is a post-max-move guardrail: 50 through 100 percent of the fresh, currency-equal Market-Value Estimate, rounded upward to a cent. A lower Second Ask or Curve Low releases that bound; it never lowers a target already above the bound. Unavailable estimates are inert.
+
+## Second Ask
+
+The **Second Ask** is the second-lowest outlier-filtered (through the same ask filter as the hard-ask anchor), currency-equal other-seller hard ask. One eligible ask supplies no Second Ask; the seller's own asks and derived asks are excluded.
+
+## Curve Low
+
+The **Curve Low** is the lowest price on a present, currency-equal Demand Curve. Stale, absent, currency-incomplete or currency-mismatched curves supply no Curve Low.
+
+## Hopeless-Forecast Hold
+
+A **Hopeless-Forecast Hold** is a pre-offset guardrail that keeps the current price only when a Curve-Objective Anchor resolved and the fastest forecast point on its present, currency-equal Demand Curve carries the per-point hopeless marker.
+
+## Any-Mode Anchor
+
+An **Any-Mode Anchor** is a seller's opt-in `lowest-competing-ask` anchor with `strata: "any"`. It considers both hard and policy-derived competing asks, excluding the seller's own listings, incompatible currencies, and outliers through the same ask filter. Absent `strata` remains hard-only; `comp-percentile` remains hard-only. Its trace reports `any-ask` and the contributing listing count, never competing listing identities or pricing modes.
+
+## Anchor Band
+
+An **Anchor Band** is the required seller-authored lower bound for an Any-Mode Anchor: `band: { ground: "market-estimate", minPercentOfGround }`, with a finite percentage from 50 through 100. The anchor is the greater of the lowest eligible ask and that percentage of the current, currency-compatible Market-Value Estimate, rounded upward to a cent. `band-binding` means this lower bound lifted the anchor, before the rule's offset and price clamps. Absent, stale, or currency-incompatible ground exhausts the anchor as `absent` and continues the chain. Bands are not allowed on hard or other anchors; there is no upper band or platform-policy dial.
+
+## Spiral Breaker
+
+A **Spiral Breaker** automatically freezes policy repricing for one Product across all sellers after consecutive
+rounds move in the same net direction. Direction is the sign of the sum of target minus current price over changed
+listing traces, not a vote by listing or seller. Opposite direction starts a new count at one; no net change clears
+the count. A trip clears the count and retains `spiralBreaker.frozenUntil` in each `RepricingPolicyEvaluated` fact,
+plus `spiral-breaker` and `frozenUntil` on every listing trace. Claimed work encountering a freeze records
+`spiral-breaker-frozen`. Expiry releases the Product automatically; no seller release or escalation is involved.
+Launch policy is three rounds and 120 minutes, bounded to 2-10 rounds and 60-1440 minutes.
 
 ## Repricing Scope
 
@@ -107,7 +392,9 @@ A **Historical Price Trend** is an analysis view over prior Market Price Snapsho
 
 ## Trades Tape
 
-The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker, and an exclusion flag with reason. Refunded and cancelled exclusions come from order/shipment facts; fraud-flagged exclusions come from m107 risk-flag events (Identity's `manual-payout-review` badge assignment, Payments' Stripe early-fraud-warning receipt) reacting retroactively against every historical trade for the flagged account or order (#4304); the verified marker is set by an m109 authenticity case's "passed" verdict on the trade's order. Ordering still hard-blocks literal same-account trades; `self-dealing` is the broader pair-scoped proxy-self-dealing reason written when both counterparties belong to the same active Settlement account-linkage cluster. One-sided trades remain included. A clear restores only `self-dealing` rows whose pair is no longer covered by any active cluster; terminal `refunded`, `cancelled`, and `fraud-flagged` reasons always win. Retroactive exclusion and restoration enqueue affected sold-day tuples for bounded asynchronous rollup re-derivation. See [ADR 0026: Market-Price Methodology](../../docs/adr/0026-market-price-methodology.md) for the full exclusion-reason precedence table.
+The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering, Payments, and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker, and an exclusion flag with reason. Refunded and cancelled exclusions come from order/shipment facts; fraud-flagged exclusions come from m107 risk-flag events (Identity's `manual-payout-review` badge assignment, Payments' Stripe early-fraud-warning receipt) reacting retroactively against every historical trade for the flagged account or order (#4304); the verified marker is set by an m109 authenticity case's "passed" verdict on the trade's order. Ordering still hard-blocks literal same-account trades; `self-dealing` is the broader pair-scoped proxy-self-dealing reason written when both counterparties belong to the same active Settlement account-linkage cluster. One-sided trades remain included. A clear restores only `self-dealing` rows whose pair is no longer covered by any active cluster; terminal `refunded`, `cancelled`, and `fraud-flagged` reasons always win. Retroactive exclusion and restoration enqueue affected sold-day tuples for bounded asynchronous rollup re-derivation. See [ADR 0026: Market-Price Methodology](../../docs/adr/0026-market-price-methodology.md) for the full exclusion-reason precedence table.
+
+Each trade's currency is denominated only by Payments' capture fact for its order; without that fact the currency remains unknown, never inferred from a listing or account.
 
 ## Stat-Hygiene Policy
 
@@ -119,11 +406,11 @@ The **Market Analytics Display Policy** is Pricing's m110 platform-policy declar
 
 ## Daily Product Rollup
 
-A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day: first/last/min/max/median trade price, unit volume, trade count, verified-trade count, and the immutable Stat-Hygiene Policy revision that shaped its median, with excluded trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
+A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day per currency: first/last/min/max/median trade price, unit volume, trade count, verified-trade count, and the immutable Stat-Hygiene Policy revision that shaped its median, with excluded and undenominated trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
 
 ## Platform Daily Rollup
 
-A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tape activity for one UTC calendar day, summed across every product: Gross Merchandise Value, trade count, unit volume, order count, and verified-trade count, with excluded trades omitted. It is the platform-wide sibling of the Daily Product Rollup and the sole source pricing publishes for platform-operations' GMV/liquidity ops dashboards (#4309) -- there is no second GMV computation path.
+A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tape activity for one UTC calendar day, summed across every product: Gross Merchandise Value, trade count, unit volume, order count, and verified-trade count, with excluded trades omitted. Its GMV remains undenominated (parked); unlike the per-currency Daily Product Rollup, it does not split by denomination. It is the sole source pricing publishes for platform-operations' GMV/liquidity ops dashboards (#4309) -- there is no second GMV computation path.
 
 ## Gross Merchandise Value
 
@@ -135,7 +422,7 @@ A **Market-State Snapshot** is the recorded end-of-day supply/demand state for a
 
 ## Product Market Aggregate
 
-A **Product Market Aggregate** is the denormalized, always-current summary for a resolved product -- last-sold trade, 30/90-day median price and volume, and Sell-Through Rate -- maintained for cheap surface reads without querying the Trades Tape or Daily Product Rollups directly.
+A **Product Market Aggregate** is the denormalized, always-current summary for a resolved product per currency -- last-sold trade, 30/90-day median price and volume, and Sell-Through Rate -- maintained for cheap surface reads without querying the Trades Tape or Daily Product Rollups directly.
 
 ## Spread
 
@@ -189,6 +476,21 @@ A **Price Index** is the planned normalized trend line for a Market Segment.
 
 A **Price Benchmark** is the planned reference price used to compare listings, offers, or recommendations.
 
+### Repricing Dry Run
+
+A **Repricing Dry Run** durably evaluates a seller's candidate policy body through the same Product round
+planner as preview and live repricing, without Marketplace commands or domain events. It retains per-listing
+traces, an SQL-computed summary, completion time, and a SHA-256 hash of the canonical scope, exclusions,
+ordered rules, and daily change budget. Recording a run does not activate, consume, or enforce a policy.
+
+### Candidate Assignment
+
+A **Candidate Assignment** is the set of a seller's listings a proposed policy body would govern at the query
+instant. The assignment view's scope and exclusion predicate also owns candidate matching: more-specific
+active policies win, as do equally specific policies updated at or after that instant. A replacement removes
+the replaced policy from the competition. Candidate evaluation never reveals competing listing identities
+or pricing modes.
+
 ### Repricing Run
 
 A **Repricing Run** is one simultaneous, Product-scoped evaluation round triggered by a changed Market Price,
@@ -224,7 +526,9 @@ inside or exactly on that band is `within-tolerance`: the engine records the eva
 ### Terminal Price
 
 A **Terminal Price** is the final bounded price the repricing evaluation engine produces after applying a
-Repricing Rule's directive (Repricing Anchor Chain resolution, offset, rounding, and Repricing Guardrail clamps).
+Repricing Rule's directive in a fixed stage order: Repricing Anchor Chain resolution, pre-offset Repricing
+Guardrails, offset, rounding, max move, post-max-move Repricing Guardrails, Floor Price, then Ceiling Price.
+Guardrail kinds run in authored order within their slot; a guardrail hold ends evaluation with no Terminal Price.
 It becomes a Marketplace price-update command only when it falls outside Repricing Tolerance and the daily
 change budget admits it.
 

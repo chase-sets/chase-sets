@@ -1,11 +1,678 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
+import { classifyChanges } from "./change-scope.mjs";
+import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
-import { assertNoDestructiveChanges, destructiveChangeApprovalFromText } from "./terraform-plan-inspection.mjs";
+import {
+  assertNoDestructiveChanges,
+  destructiveChangeApprovalFromText,
+  terraformPlanSummary,
+} from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
+
+// These are the finite input contracts in #8993, executed by Bash's own ERE
+// implementation, not a second regex classifier or a provider integration.
+const operatorSha = "a".repeat(40);
+const operatorBlocks = [
+  {
+    file: "platform-compose-boot-smoke.yml",
+    step: "Validate immutable target provenance",
+    bindings: [
+      ["target_sha", "TARGET_SHA", operatorSha, "target_sha must be a lowercase 40-character"],
+      ["expected_base_sha", "EXPECTED_BASE_SHA", operatorSha, "expected_base_sha must be a lowercase 40-character"],
+    ],
+  },
+  {
+    file: "platform-staging-advisory-evidence.yml",
+    step: "Check out applied staging release",
+    bindings: [
+      ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
+    ],
+  },
+  ...["Summarize staging advisory evidence", "Create, update, or resolve advisory evidence incident"].map((step) => ({
+    file: "platform-staging-advisory-evidence.yml",
+    step,
+    bindings: [
+      ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
+    ],
+  })),
+  {
+    file: "platform-rollback-readiness.yml",
+    step: "Validate rollback target evidence",
+    bindings: [
+      ["target_commit", "target_commit", operatorSha, "Target commit must be a lowercase 40-character"],
+      ["release_tag", "release_tag", "release-20261007071150-aaaaaaaa-123", "Release tag must start with release-"],
+      [
+        "image_ref",
+        "image_ref",
+        "registry.digitalocean.com/example/chase-sets-platform:release-20261007071150-aaaaaaaa-123",
+        "Image reference must start with registry.digitalocean.com/",
+      ],
+    ],
+  },
+  {
+    file: "platform-staging-mixed-version-wake-drills.yml",
+    step: "Confirm mixed-version evidence evaluation",
+    bindings: [
+      [
+        "platform_deploy_run_id",
+        "PLATFORM_DEPLOY_RUN_ID",
+        "123",
+        "Platform deploy run id must contain only decimal digits",
+      ],
+    ],
+  },
+  {
+    file: "platform-staging-mixed-version-wake-drills.yml",
+    step: "Download source evidence",
+    bindings: [
+      [
+        "platform_deploy_run_id",
+        "PLATFORM_DEPLOY_RUN_ID",
+        "123",
+        "Platform deploy run id must contain only decimal digits",
+      ],
+      ["wake_drill_run_id", "WAKE_DRILL_RUN_ID", "456", "Wake drill run id must contain only decimal digits"],
+      [
+        "secondary_wake_drill_run_id",
+        "SECONDARY_WAKE_DRILL_RUN_ID",
+        "789",
+        "Secondary wake drill run id must be empty or contain only decimal digits",
+      ],
+    ],
+  },
+].map((block) => {
+  const workflow = parse(readFileSync(resolve(".github/workflows", block.file), "utf8"));
+  const step = Object.values(workflow.jobs)
+    .flatMap((job) => job.steps ?? [])
+    .find((step) => step.name === block.step);
+  if (!step?.run) throw new Error(`Missing operator block: ${block.file}::${block.step}`);
+  return { ...block, workflow, source: step };
+});
+
+const operatorCases = operatorBlocks.flatMap((block) =>
+  block.bindings.map(([input, name, valid, message]) => ({ block, input, name, valid, message })),
+);
+const operatorBash =
+  process.platform === "win32"
+    ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+    : "bash";
+
+function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
+  const root = mkdtempSync(join(tmpdir(), "operator-input-control-"));
+  const env = {
+    ...process.env,
+    ...Object.fromEntries(block.bindings.map(([, name, value]) => [name, value])),
+    REPOSITORY_URL: "https://example.invalid/synthetic.git",
+    GITHUB_REPOSITORY: "synthetic/operator-input-control",
+    GITHUB_OUTPUT: "output",
+    GITHUB_STEP_SUMMARY: "summary",
+    EVIDENCE_DIR: "evidence",
+    TRIGGER_EVENT: "workflow_dispatch",
+    TRIGGER_REF: "refs/heads/main",
+    TRIGGER_SHA: operatorSha,
+    PLATFORM_IMAGE: `registry.digitalocean.com/example/chase-sets-platform:${operatorSha}`,
+    PLATFORM_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
+    CONTROL_SHA: operatorSha,
+    CONTROL_FAILURE: "",
+    CONTROL_NAME: "",
+    SCENARIO_SEED_OUTCOME: "success",
+    MARKETPLACE_E2E_OUTCOME: "success",
+    ADVISORY_RESULT: "failure",
+    SCENARIO_SEED_ERROR: "",
+    RUN_URL: "https://example.invalid/synthetic-run",
+    ARTIFACTS_URL: "https://example.invalid/synthetic-artifacts",
+    ...overrides,
+  };
+  // Functions intercept every provider-facing command in these extracted
+  // blocks. Trace goes to a file so the real block's redirections cannot hide it.
+  const stubs = `
+    trace() { printf '%s' "$1" >> trace; shift; printf ' <%s>' "$@" >> trace; printf '\\n' >> trace; }
+    git() {
+      trace git "$@"
+      case "$1" in
+        fetch) [[ "$CONTROL_FAILURE" != fetch ]] ;;
+        cat-file) [[ "$CONTROL_FAILURE" != object ]] ;;
+        merge-base) [[ "$CONTROL_FAILURE" != ancestry ]] ;;
+        rev-list) printf '%s\\n' "$CONTROL_SHA" ;;
+        rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
+      esac
+    }
+    gh() { trace gh "$@"; }
+    doctl() { trace doctl "$@"; }
+    docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
+    jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
+    date() { printf '2026-10-07T00:00:00Z'; }
+    control_use() {
+      [[ "$1" == *'=~'* || "$1" == '[ -z '* || "$1" == 'fail '* || "$1" == "$CONTROL_NAME="* ]] && return 0
+      if [[ "$1" == *"\\$$CONTROL_NAME"* || "$1" == *"\\\${$CONTROL_NAME}"* ]]; then
+        trace consume "\${!CONTROL_NAME}"
+      fi
+    }
+    if [[ -n "$CONTROL_NAME" ]]; then trap 'control_use "$BASH_COMMAND"' DEBUG; fi
+  `;
+  try {
+    run = run
+      .replaceAll("\${{ inputs.platform_image }}", env.PLATFORM_IMAGE)
+      .replaceAll("\${{ inputs.platform_image_digest }}", env.PLATFORM_IMAGE_DIGEST);
+    const result = spawnSync(operatorBash, ["-c", `${stubs}\n${run}`], { cwd: root, env, encoding: "utf8" });
+    if (result.error) throw result.error;
+    const read = (name) => (existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : "");
+    return {
+      status: result.status,
+      output: `${result.stdout}${result.stderr}`,
+      trace: read("trace"),
+      injected: existsSync(join(root, "marker")),
+      evidence: read("output"),
+      summary: read("summary"),
+    };
+  } finally {
+    if (!root.startsWith(join(tmpdir(), "operator-input-control-"))) throw new Error("Unexpected control cleanup root");
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function operatorGuard(run, name) {
+  const start = run.indexOf(`[[ "$${name}" =~ `);
+  if (start < 0) throw new Error(`Missing guard for ${name}`);
+  const end = run.indexOf("\n}", start);
+  if (end < 0) throw new Error(`Missing refusal block for ${name}`);
+  return run.slice(start, end + 2);
+}
+
+describe("operator inputs before shell parsing (#8993)", () => {
+  it("reproduces the frozen Compose line-oriented guard bypass without provider effects", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-compose-boot-smoke.yml");
+    const old = parse(
+      execFileSync("git", ["show", `595ea3a666b4a9c92a66cd1b5136230e132277f3:.github/workflows/${block.file}`], {
+        encoding: "utf8",
+      }),
+    );
+    const run = old.jobs.verify.steps.find((step) => step.name === block.step).run;
+    const overrides = { TARGET_SHA: `${operatorSha}\n-e` };
+    const baseline = executeOperatorBlock(block, overrides, run);
+    expect(baseline.status, baseline.output).toBe(0);
+    expect(baseline.trace).toContain(`${operatorSha}\n-e`);
+    const candidate = executeOperatorBlock(block, overrides);
+    expect(candidate.status).toBe(1);
+    expect(candidate.output).toContain("target_sha must be a lowercase 40-character");
+    expect(candidate.trace).toBe("");
+  });
+
+  it("inventories every named run/env occurrence, including the earlier echo and optional condition", () => {
+    for (const block of operatorBlocks) {
+      for (const [input, name] of block.bindings) {
+        expect(block.source.env[name]).toBe(`\${{ inputs.${input} }}`);
+        expect(block.source.run).toContain(`$${name}`);
+      }
+      const inputs = new Set(
+        operatorCases.filter((entry) => entry.block.file === block.file).map((entry) => entry.input),
+      );
+      for (const job of Object.values(block.workflow.jobs)) {
+        for (const step of job.steps ?? []) {
+          for (const input of inputs) {
+            expect(step.run ?? "").not.toMatch(new RegExp(`\\$\\{\\{\\s*inputs\\.${input}\\b`, "u"));
+          }
+        }
+      }
+    }
+  });
+
+  it.each(operatorBlocks)("preserves the valid effect trace: $step", (block) => {
+    const result = executeOperatorBlock(block);
+    expect(result.status, result.output).toBe(0);
+    if (block.step.startsWith("Confirm")) {
+      expect(result.output).toBe("Evaluating mixed-version wake evidence for deploy run 123.\n");
+    } else if (block.file === "platform-compose-boot-smoke.yml") {
+      expect(result.trace).toBe(
+        [
+          "git <init> <--quiet>",
+          "git <remote> <add> <origin> <https://example.invalid/synthetic.git>",
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <${operatorSha}>`,
+          "",
+        ].join("\n"),
+      );
+    } else if (block.step === "Check out applied staging release") {
+      expect(result.trace).toBe(
+        `git <fetch> <origin> <main>\ngit <merge-base> <--is-ancestor> <${operatorSha}> <origin/main>\ngit <checkout> <--detach> <${operatorSha}>\n`,
+      );
+    } else if (block.file === "platform-rollback-readiness.yml") {
+      const [, , tag] = block.bindings[1];
+      const [, , image] = block.bindings[2];
+      expect(result.trace).toBe(
+        [
+          "git <fetch> <origin> <production> <--tags>",
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <origin/production>`,
+          `git <rev-parse> <--verify> <--quiet> <refs/tags/${tag}^{commit}>`,
+          `git <rev-list> <-n> <1> <${tag}>`,
+          "doctl <registry> <login> <--expiry-seconds> <3600>",
+          `docker <buildx> <imagetools> <inspect> <${image}>`,
+          "git <rev-parse> <origin/production>",
+          "",
+        ].join("\n"),
+      );
+      expect(result.evidence).toContain(`last_known_good_commit=${operatorSha}`);
+    } else if (block.step === "Summarize staging advisory evidence") {
+      expect(result.trace).toContain(
+        `jq <-n> <--arg> <checkedAt> <2026-10-07T00:00:00Z> <--arg> <releaseCommit> <${operatorSha}>`,
+      );
+      expect(result.summary).toContain(`Release: ${operatorSha}@sha256:${"b".repeat(64)}`);
+      expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
+    } else if (block.step === "Create, update, or resolve advisory evidence incident") {
+      expect(result.trace).toContain("gh <issue> <list>");
+      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
+    } else {
+      expect(result.trace).toBe(
+        "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\ngh <run> <download> <789> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-secondary>\n",
+      );
+    }
+    if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
+  });
+
+  it.each(operatorCases)(
+    "rejects malformed/option inputs before effects: $input in $block.step",
+    ({ block, input, name, valid, message }) => {
+      const invalid = ["--help", "-e", "-- x", "\n--help", "malformed"];
+      if (input !== "secondary_wake_drill_run_id") invalid.push("");
+      if (valid === operatorSha || /run_id$/u.test(input)) invalid.push(`${valid}\n-e`, `${valid} `, `${valid}\r`);
+      for (const value of invalid) {
+        const result = executeOperatorBlock(block, { [name]: value });
+        expect(result.status, `${input}=${JSON.stringify(value)}: ${result.output}`).toBe(1);
+        expect(result.trace).toBe("");
+        expect(result.output).toContain(
+          value === "" && block.file === "platform-compose-boot-smoke.yml"
+            ? `${input} is required and cannot be empty.`
+            : message,
+        );
+      }
+    },
+  );
+
+  it.each(operatorCases)(
+    "keeps shell syntax inert in env and detects interpolation-before-guard: $input in $block.step",
+    ({ block, name, input }) => {
+      for (const value of [
+        "$(printf injected > marker)",
+        "`printf injected > marker`",
+        '\"; printf injected > marker; #',
+        '\"\nprintf injected > marker\n#',
+      ]) {
+        const candidate = executeOperatorBlock(block, { [name]: value });
+        expect(candidate.status).toBe(1);
+        expect(candidate.injected).toBe(false);
+        expect(candidate.trace).toBe("");
+        const raw = block.source.run.replace(
+          "set -euo pipefail",
+          `set -euo pipefail\n${name}="\${{ inputs.${input} }}"`,
+        );
+        const bypass = executeOperatorBlock(block, { [name]: value }, raw.replace(`\${{ inputs.${input} }}`, value));
+        expect(bypass.injected, `${input}: ${JSON.stringify(value)}: ${bypass.output}`).toBe(true);
+      }
+    },
+  );
+
+  it.each(operatorCases)(
+    "discriminates deleted, rebound, nullable and alternation guards: $input in $block.step",
+    ({ block, name }) => {
+      const guard = operatorGuard(block.source.run, name);
+      const candidate = executeOperatorBlock(block, { [name]: "-e", CONTROL_NAME: name });
+      expect(candidate.status).toBe(1);
+      expect(candidate.trace).toBe("");
+      const mutants = [
+        block.source.run.replace(guard, ""),
+        block.source.run.replace(guard, `${guard}\n${name}="-e"`),
+        block.source.run.replace(guard, guard.replace(/=~ .* \]\]/u, "=~ ^[0-9]*-e$ ]]")),
+        block.source.run.replace(guard, guard.replace(/=~ .* \]\]/u, "=~ ^a|-e$ ]]")),
+      ];
+      for (const [index, run] of mutants.entries()) {
+        const result = executeOperatorBlock(
+          block,
+          { ...(index === 1 ? {} : { [name]: "-e" }), CONTROL_NAME: name },
+          run,
+        );
+        expect(result.trace, result.output).toContain("consume <-e>");
+        if (block.step === "Check out applied staging release") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("release commit's SHA-tagged platform image");
+          expect(result.trace).not.toContain("git <checkout>");
+        } else if (name === "target_commit") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("expected -e");
+          expect(result.trace).not.toContain("docker");
+        } else {
+          expect(result.status, result.output).toBe(0);
+        }
+      }
+    },
+  );
+
+  it("retains the optional secondary nonempty-use condition and decimal argv", () => {
+    const block = operatorBlocks.find((entry) => entry.step === "Download source evidence");
+    const result = executeOperatorBlock(block, { SECONDARY_WAKE_DRILL_RUN_ID: "" });
+    expect(result.status).toBe(0);
+    expect(result.trace).toBe(
+      "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\n",
+    );
+    const bypass = executeOperatorBlock(
+      block,
+      { SECONDARY_WAKE_DRILL_RUN_ID: "" },
+      block.source.run.replace('[ -n "$SECONDARY_WAKE_DRILL_RUN_ID" ]', "true"),
+    );
+    expect(bypass.trace).toContain("gh <run> <download> <>");
+    for (const value of ["0", "000123", "9".repeat(32)]) {
+      const result = executeOperatorBlock(block, {
+        PLATFORM_DEPLOY_RUN_ID: value,
+        WAKE_DRILL_RUN_ID: value,
+        SECONDARY_WAKE_DRILL_RUN_ID: value,
+      });
+      expect(result.status).toBe(0);
+      expect(result.trace).toContain(`gh <run> <view> <${value}>`);
+      expect(result.trace.match(new RegExp(`<${value}>`, "gu"))).toHaveLength(3);
+    }
+  });
+
+  it("accepts producer prefixes without claiming suffix identity or evaluating suffix shell text", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-rollback-readiness.yml");
+    const suffix = "$(printf injected > marker)";
+    const result = executeOperatorBlock(block, {
+      release_tag: `release-${suffix}`,
+      image_ref: `registry.digitalocean.com/${suffix}`,
+    });
+    expect(result.status).toBe(0);
+    expect(result.injected).toBe(false);
+    expect(result.trace).toContain(`git <rev-list> <-n> <1> <release-${suffix}>`);
+    expect(result.trace).toContain(`docker <buildx> <imagetools> <inspect> <registry.digitalocean.com/${suffix}>`);
+    for (const [name, value] of [
+      ["release_tag", "release-"],
+      ["image_ref", "registry.digitalocean.com/"],
+      ["image_ref", "registryXdigitaloceanXcom/example"],
+    ]) {
+      const refused = executeOperatorBlock(block, { [name]: value });
+      expect(refused.status).toBe(1);
+      expect(refused.trace).toBe("");
+    }
+  });
+
+  it("preserves advisory digest, image and ancestry refusals", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-staging-advisory-evidence.yml");
+    for (const [overrides, message, reachedFetch] of [
+      [{ PLATFORM_IMAGE_DIGEST: "sha256:bad" }, "immutable platform image digest", false],
+      [
+        { PLATFORM_IMAGE: `registry.digitalocean.com/example/chase-sets-platform:${"c".repeat(40)}` },
+        "release commit's SHA-tagged platform image",
+        false,
+      ],
+      [{ CONTROL_FAILURE: "ancestry" }, "release commit must be contained in origin/main", true],
+    ]) {
+      const result = executeOperatorBlock(block, overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toContain(message);
+      expect(result.trace.includes("git <fetch>")).toBe(reachedFetch);
+      expect(result.trace).not.toContain("git <checkout>");
+    }
+  });
+
+  it("preserves rollback object, production ancestry, tag association and image-existence behavior", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-rollback-readiness.yml");
+    for (const [overrides, message] of [
+      [{ CONTROL_FAILURE: "object" }, "does not exist in repository history"],
+      [{ CONTROL_FAILURE: "ancestry" }, "not reachable from the smoke-verified production marker"],
+      [{ CONTROL_FAILURE: "tag" }, "does not exist locally after fetching tags"],
+      [{ CONTROL_SHA: "c".repeat(40) }, `expected ${operatorSha}`],
+    ]) {
+      const result = executeOperatorBlock(block, overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toContain(message);
+      expect(result.trace).not.toContain("doctl");
+      expect(result.trace).not.toContain("docker");
+    }
+    const missingImage = executeOperatorBlock(block, { CONTROL_FAILURE: "image" });
+    expect(missingImage.status).toBe(0);
+    expect(missingImage.evidence).toContain("image_exists=false");
+  });
+});
+
+it("maps the optional wallet funding smoke and fail-closed production runtime gates", () => {
+  for (const workflow of ["platform-production.yml", "platform-staging-representative-commerce-state.yml"]) {
+    const source = readFileSync(resolve(".github/workflows", workflow), "utf8");
+    expect(source).toContain(
+      "STAGING_SMOKE_WALLET_FUNDING_AMOUNT: ${{ vars.STAGING_SMOKE_WALLET_FUNDING_AMOUNT || '' }}",
+    );
+  }
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const deployProduction = production.slice(
+    production.indexOf("  deploy-production:"),
+    production.indexOf("  dispatch-ephemeral-verification:"),
+  );
+  for (const name of [
+    "PRODUCTION_WALLET_FUNDING_APPROVED",
+    "PRODUCTION_WALLET_FUNDING_REFERENCE",
+    "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST",
+  ]) {
+    expect(deployProduction).toContain(`vars.${name}`);
+    expect(deployProduction).toContain(`add_optional_runtime_env "${name}"`);
+  }
+});
+
+describe("production Catalog integration deploy preflight (#8072)", () => {
+  const productionWorkflow = parse(readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8"));
+  const deployProduction = productionWorkflow.jobs["deploy-production"];
+  const jobStep = (name) => {
+    const step = deployProduction.steps.find((candidate) => candidate.name === name);
+    if (!step?.run) throw new Error(`Missing deploy-production step: ${name}`);
+    return step;
+  };
+  const shippedRuntimeValues = readFileSync(resolve("infrastructure/helm/platform/runtime-values.json"), "utf8");
+  const providerCredentials = [
+    ["SCRYDEX_API_KEY", "TF_VAR_scrydex_api_key"],
+    ["SCRYDEX_TEAM_ID", "TF_VAR_scrydex_team_id"],
+    ["TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE", "TF_VAR_tcgplayer_automation_tcg_auth_cookie"],
+  ];
+  const enforcedSignoffReferences = [
+    "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+  ];
+  const optionalSignoffReferences = [
+    "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+  ];
+  const recordedSignoffReferences = [...enforcedSignoffReferences, ...optionalSignoffReferences];
+  // [GitHub secret or variable name the message names, deploy-production env name the step reads]
+  const catalogInputs = [...providerCredentials, ...enforcedSignoffReferences.map((name) => [name, name])];
+  const syntheticValue = (name) => `SYNTHETIC-${name}-VALUE`;
+
+  // Executes the real step body in a scratch root holding a copy of the shipped runtime values,
+  // with every other production requirement satisfied by synthetic values.
+  function runCatalogPreflight(overrides = {}, controlPlaneMode, optionalVariables = {}) {
+    const root = mkdtempSync(join(tmpdir(), "catalog-integration-preflight-"));
+    try {
+      const runtimeValues = JSON.parse(shippedRuntimeValues);
+      if (controlPlaneMode === null) delete runtimeValues.productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE;
+      else if (controlPlaneMode !== undefined)
+        runtimeValues.productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE = controlPlaneMode;
+      mkdirSync(join(root, "infrastructure/helm/platform"), { recursive: true });
+      writeFileSync(join(root, "infrastructure/helm/platform/runtime-values.json"), JSON.stringify(runtimeValues));
+      const env = {
+        ...process.env,
+        ...Object.fromEntries(
+          [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DIGITALOCEAN_ACCESS_TOKEN",
+            "TF_VAR_platform_internal_auth_secret",
+            "TF_VAR_platform_admin_email",
+            "TF_VAR_platform_admin_password",
+            "TF_VAR_discord_invite_url",
+          ].map((name) => [name, syntheticValue(name)]),
+        ),
+        TF_VAR_observability_enabled: "false",
+        TF_VAR_admin_google_workspace_hosted_domains: "",
+        TF_VAR_production_runtime_profile: "landing",
+        TF_VAR_production_marketplace_public_enabled: "false",
+        TF_VAR_notification_email_provider: "noop",
+        ...Object.fromEntries(catalogInputs.map(([name, envName]) => [envName, syntheticValue(name)])),
+        ...Object.fromEntries(
+          optionalSignoffReferences.map((name) => [`${name}_PRESENT`, String(Object.hasOwn(optionalVariables, name))]),
+        ),
+        ...Object.fromEntries(optionalSignoffReferences.map((name) => [name, optionalVariables[name] ?? ""])),
+        ...overrides,
+      };
+      const result = spawnSync(operatorBash, ["-s"], {
+        input: jobStep("Validate production configuration").run,
+        cwd: root,
+        env,
+        encoding: "utf8",
+      });
+      if (result.error) throw result.error;
+      return { status: result.status, output: `${result.stdout}${result.stderr}` };
+    } finally {
+      if (!root.startsWith(join(tmpdir(), "catalog-integration-preflight-"))) {
+        throw new Error("Unexpected preflight cleanup root");
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  function expectNoInputValue(output) {
+    for (const [name] of catalogInputs) expect(output).not.toContain(syntheticValue(name));
+  }
+
+  it("admits the shipped open control plane when every credential and enforced signoff reference is present", () => {
+    expect(JSON.parse(shippedRuntimeValues).productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE).toBe("open");
+    const result = runCatalogPreflight();
+    expect(result.status, result.output).toBe(0);
+    expectNoInputValue(result.output);
+  });
+
+  it("admits absent optional game signoffs without activating those games", () => {
+    const result = runCatalogPreflight();
+    expect(result.status, result.output).toBe(0);
+    expect(result.output).toBe("");
+  });
+
+  it.each(optionalSignoffReferences)("rejects a present-but-blank %s by name without exposing values", (name) => {
+    for (const mode of [undefined, "dry-run-only", "read-only", null]) {
+      for (const value of ["", "   ", "false", " None ", "OPEN"]) {
+        const result = runCatalogPreflight({}, mode, { [name]: value });
+        expect(result.status).toBe(1);
+        expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+        expectNoInputValue(result.output);
+      }
+      const result = runCatalogPreflight({}, mode, { [name]: syntheticValue(name) });
+      expect(result.status, result.output).toBe(0);
+      expect(result.output).not.toContain(syntheticValue(name));
+    }
+  });
+
+  it("passes only targeted presence booleans, never the aggregate variable map", () => {
+    const step = jobStep("Validate production configuration");
+    expect(step.env).not.toHaveProperty("CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES");
+    for (const name of optionalSignoffReferences) {
+      expect(step.env[`${name}_PRESENT`]).toBe(`\${{ contains(toJSON(vars), '"${name}":') }}`);
+    }
+    expect(Object.values(step.env)).not.toContain("${{ toJSON(vars) }}");
+  });
+
+  it("uses presence booleans rather than fallback values to distinguish absent references", () => {
+    for (const name of optionalSignoffReferences) {
+      expect(runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "false" }).status).toBe(0);
+      const result = runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "true" });
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+    }
+  });
+
+  it("rejects configured blank optional references even when the control plane is closed", () => {
+    for (const mode of ["dry-run-only", "read-only", null]) {
+      const result = runCatalogPreflight(
+        {},
+        mode,
+        Object.fromEntries(optionalSignoffReferences.map((name) => [name, ""])),
+      );
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(
+        `Invalid production Catalog integration signoff reference: ${optionalSignoffReferences.join(" ")}\n`,
+      );
+    }
+  });
+
+  it.each(catalogInputs)("fails the open-plane preflight by name when %s is withheld", (name, envName) => {
+    const result = runCatalogPreflight({ [envName]: "" });
+    expect(result.status).toBe(1);
+    expect(result.output).toBe(`Missing required production Catalog integration configuration: ${name}\n`);
+    expectNoInputValue(result.output);
+  });
+
+  it("treats blank credentials and open-alias signoff references as withheld, the way the runtime does", () => {
+    for (const [overrides, name] of [
+      [{ TF_VAR_scrydex_team_id: "   " }, "SCRYDEX_TEAM_ID"],
+      [{ CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: " None " }, enforcedSignoffReferences[0]],
+      [{ CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: "false" }, enforcedSignoffReferences[1]],
+    ]) {
+      const result = runCatalogPreflight(overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Missing required production Catalog integration configuration: ${name}\n`);
+    }
+    const allWithheld = runCatalogPreflight(Object.fromEntries(catalogInputs.map(([, envName]) => [envName, ""])));
+    expect(allWithheld.status).toBe(1);
+    expect(allWithheld.output).toBe(
+      `Missing required production Catalog integration configuration: ${catalogInputs.map(([name]) => name).join(" ")}\n`,
+    );
+  });
+
+  it("applies whenever the shipped plane admits writes and never to a closed plane", () => {
+    const withheld = Object.fromEntries(catalogInputs.map(([, envName]) => [envName, ""]));
+    for (const mode of ["rollback-ready", "OPEN", "none"]) {
+      expect(runCatalogPreflight(withheld, mode).status, mode).toBe(1);
+    }
+    for (const mode of ["dry-run-only", "read-only", null]) {
+      const result = runCatalogPreflight(withheld, mode);
+      expect(result.status, `${mode}: ${result.output}`).toBe(0);
+      expect(result.output).toBe("");
+    }
+  });
+
+  it("threads the signoff references from production variables beside the preserved provider secret path", () => {
+    for (const name of recordedSignoffReferences) {
+      expect(deployProduction.env[name]).toBe(`\${{ vars.${name} || '' }}`);
+      expect(jobStep("Deploy production Kubernetes release").run).toContain(
+        `add_optional_runtime_env "${name}" "\${${name}:-}"`,
+      );
+    }
+    // Preserved, not rebuilt: the production environment's provider secrets reach the API and worker
+    // runtime Secret through the same step as Stripe and EasyPost.
+    const secretStep = jobStep("Apply production Kubernetes runtime secrets").run;
+    for (const [name, envName] of [
+      ...providerCredentials,
+      ["STRIPE_SECRET_KEY", "TF_VAR_stripe_secret_key"],
+      ["EASYPOST_API_KEY", "TF_VAR_easypost_api_key"],
+    ]) {
+      expect(secretStep).toContain(`export ${name}="\${${envName}:-}"`);
+    }
+    expect(secretStep).toContain("--deployment-environment production");
+    const runtimeComponents = JSON.parse(shippedRuntimeValues).components;
+    for (const [name, envName] of providerCredentials) {
+      expect(deployProduction.env[envName]).toBe(`\${{ secrets.${name} || '' }}`);
+      for (const consumer of ["platform-api", "platform-worker"]) {
+        expect(runtimeComponents[consumer].env).toContainEqual({ name, secret: true, secretKey: name });
+      }
+    }
+  });
+});
+const platformVersions = readFileSync(resolve("infrastructure/digitalocean/platform/versions.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
 const platformVariables = readFileSync(resolve("infrastructure/digitalocean/platform/variables.tf"), "utf8");
@@ -52,6 +719,10 @@ const environmentDnsVariables = readFileSync(
 );
 const environmentDnsProjects = readFileSync(resolve("infrastructure/digitalocean/environment-dns/projects.tf"), "utf8");
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const platformProductionStaleHelmRecoveryWorkflow = readFileSync(
+  resolve(".github/workflows/platform-production-stale-helm-recovery.yml"),
+  "utf8",
+);
 const exportManagedPostgresAuthorityAction = readFileSync(
   resolve(".github/actions/export-managed-postgres-authority/action.yml"),
   "utf8",
@@ -127,6 +798,10 @@ const platformStagingRollbackDrillWorkflow = readFileSync(
 );
 const platformStagingHelmRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-helm-recovery.yml"),
+  "utf8",
+);
+const platformPreviewWildcardTlsWorkflow = readFileSync(
+  resolve(".github/workflows/platform-preview-wildcard-tls.yml"),
   "utf8",
 );
 const platformStagingBootstrapHookDrillWorkflow = readFileSync(
@@ -207,6 +882,28 @@ function expectTerraformAssignment(source, localName, expression) {
 }
 
 describe("DigitalOcean platform runbook", () => {
+  it("requires scheduled and operator refresh exclusion before arming the Catalog send window", () => {
+    const sendWindow = digitaloceanPlatformRunbook
+      .split(/### Supervised Catalog Provider-Send Window\r?\n/)[1]
+      ?.split(/\r?\n### /)[0];
+    expect(sendWindow).toBeDefined();
+    expect(sendWindow).not.toMatch(/scheduled Provider Scope Refresh is inactive/i);
+    expect(sendWindow).toContain(
+      "scheduled Provider Scope Refresh remains enabled at its 900,000 ms (15-minute) default",
+    );
+    expect(sendWindow).toContain("Before arm, the host must exclude both scheduled and operator-dispatched refresh");
+    expect(sendWindow).toContain("POST /provider-scope-discovery/refresh-schedule/:providerKey/pause");
+    expect(sendWindow).toContain(
+      "read back and verify their paused state via `GET /provider-scope-discovery/refresh-schedule`",
+    );
+    expect(sendWindow).toContain("reconcile already-claimed and in-flight refresh work");
+    expect(sendWindow).toContain("A pause or absent interval variable alone is not drain proof");
+    expect(sendWindow).toContain("Hold this exclusion through the protected interval");
+    expect(sendWindow).toContain("resume only under the existing reconciled-cleanup authority");
+    expect(sendWindow).toContain("Unknown refresh exclusion means STOP");
+    expect(sendWindow).toContain("Platform Staging Bootstrap Hook Drill");
+  });
+
   it("documents the database companion sequence for deployable profiles", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "Database lifecycle is a companion track to runtime profile migration, not a side effect of it.",
@@ -267,6 +964,20 @@ function workflowEnvironmentExpression(step, variableName) {
   return match[1];
 }
 
+function servedMarketplaceSmokeUploadViolations(step) {
+  const expectedGate =
+    "if: always() && env.SHOULD_DEPLOY != 'false' && env.TF_VAR_production_marketplace_served == 'true' && env.TF_VAR_production_marketplace_public_enabled != 'true'";
+  const expectedPath = "artifacts/release-health/served-marketplace-smoke.json";
+  const paths = [...step.matchAll(/^\s+path:\s*(\S+)\s*$/gm)].map((match) => match[1]);
+  const violations = [];
+
+  if (!step.includes(expectedGate)) violations.push("exact served-private posture gate");
+  if (paths.length !== 1 || paths[0] !== expectedPath) violations.push("sole served smoke evidence path");
+  if (!step.includes("if-no-files-found: error")) violations.push("fail-closed missing-file policy");
+
+  return violations;
+}
+
 function evaluateRestorePointWorkflowExpression(expression, { eventName, emergencyRelease, restorePointRequired }) {
   const match = expression.match(/^\$\{\{\s*(.+?)\s*\}\}$/);
   expect(match).not.toBeNull();
@@ -310,6 +1021,80 @@ function workflowSteps(source, stepName) {
   return steps;
 }
 
+function terraformResourceBlock(source, type, name) {
+  const marker = `resource "${type}" "${name}" {`;
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error(`Terraform resource ${type}.${name} was not found.`);
+  const nextResource = source.indexOf('\nresource "', start + marker.length);
+  return source.slice(start, nextResource < 0 ? source.length : nextResource);
+}
+
+function carriesExactProviderCredentials(step) {
+  return [
+    "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+    "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+    "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+  ].every((binding) => step.includes(binding));
+}
+
+function isExactManagedPostgresGrantTrustPlan(plan) {
+  const changed = (plan.resource_changes ?? []).filter((resource) =>
+    (resource.change?.actions ?? []).some((action) => !["no-op", "read"].includes(action)),
+  );
+  return (
+    JSON.stringify(
+      changed.map(({ address, type, provider_name: providerName, change }) => ({
+        address,
+        type,
+        providerName,
+        actions: change.actions,
+      })),
+    ) ===
+    JSON.stringify([
+      {
+        address: "terraform_data.context_database_grants[0]",
+        type: "terraform_data",
+        providerName: "terraform.io/builtin/terraform",
+        actions: ["delete", "create"],
+      },
+      {
+        address: "terraform_data.wake_listener_database_grants[0]",
+        type: "terraform_data",
+        providerName: "terraform.io/builtin/terraform",
+        actions: ["delete", "create"],
+      },
+    ])
+  );
+}
+
+function productionMarketplacePlanFixture({ runtimeProfile, served, publicEnabled }) {
+  const valid = !served || (runtimeProfile === "proof" && publicEnabled === false);
+  const marketplaceServed = publicEnabled || (runtimeProfile === "proof" && served);
+  return {
+    valid,
+    changedResources: marketplaceServed ? ['digitalocean_record.app_serving["marketplace"]'] : [],
+    launchApprovalChecksRead: publicEnabled,
+  };
+}
+
+function classifyProductionDecommissionState(state, publicEnabled) {
+  const instances = (type, name) =>
+    state.resources
+      .filter((resource) => resource.type === type && resource.name === name)
+      .flatMap((resource) => resource.instances ?? []);
+  const marketplaceRecordPresent = instances("digitalocean_record", "app_serving").some(
+    (instance) => instance.index_key === "marketplace",
+  );
+  const hasCheckoutPool = instances("digitalocean_database_connection_pool", "contexts").some(
+    (instance) => instance.index_key === "checkout",
+  );
+  return {
+    marketplaceServed: marketplaceRecordPresent && !publicEnabled,
+    marketplacePublic: publicEnabled,
+    runtimeProfile: publicEnabled ? "public" : hasCheckoutPool ? "proof" : "landing",
+  };
+}
+
 function workflowJob(source, jobName) {
   const match = new RegExp(`(^|\\n)  ${jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`).exec(source);
   expect(match).not.toBeNull();
@@ -339,6 +1124,28 @@ function workflowJobCondition(source, jobName) {
     }
   }
   return expressionLines.join(" ");
+}
+
+function productionReconciliationNeedsSuccessfulStaging(source) {
+  const job = workflowJob(source, "reconcile-managed-postgres-ca-production").replaceAll("\r\n", "\n");
+  return (
+    job.includes("    needs:\n      - resolve-release\n      - reconcile-managed-postgres-ca-staging\n") &&
+    workflowJobCondition(source, "reconcile-managed-postgres-ca-production").includes(
+      "needs['reconcile-managed-postgres-ca-staging'].result == 'success'",
+    ) &&
+    !job.includes("always()")
+  );
+}
+
+function dayAfterManagedPostgresCaJobsAreEligible(source, scope) {
+  const stagingCondition = workflowJobCondition(source, "reconcile-managed-postgres-ca-staging");
+  const productionCondition = workflowJobCondition(source, "reconcile-managed-postgres-ca-production");
+  return (
+    scope.deployRequired === false &&
+    stagingCondition === "needs.resolve-release.outputs.deployment_required != 'true'" &&
+    productionCondition.includes("needs.resolve-release.outputs.deployment_required != 'true'") &&
+    productionCondition.includes("needs['reconcile-managed-postgres-ca-staging'].result == 'success'")
+  );
 }
 
 function workflowPrerequisite(condition, outputName, jobName) {
@@ -516,6 +1323,366 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("enrolls the Catalog send-window composition controls in the required DB proof profile", () => {
+    const compositionTest =
+      "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts";
+    expect(classifyChanges({ changedFiles: [compositionTest] })).toMatchObject({ dbTestsRequired: true });
+  });
+
+  it("opts only staging into the supervised Catalog send window and requires a forced setup", () => {
+    expect(platformProductionWorkflow).toMatch(
+      /catalog_provider_send_window_enabled:\n\s+description:[^\n]+\n\s+required: false\n\s+default: false\n\s+type: boolean/,
+    );
+    const staging = workflowStep(platformProductionWorkflow, "Deploy staging Kubernetes release");
+    expect(staging).toContain(
+      "--runtime-env \"CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}\"",
+    );
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).not.toContain(
+      "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+    );
+    expect(platformReleaseCandidateWorkflow).not.toContain("catalog_provider_send_window_enabled");
+    const validation = workflowStep(
+      workflowJob(platformProductionWorkflow, "resolve-release"),
+      "Validate Catalog provider-send window opt-in",
+    );
+    expect(validation).toContain(
+      'if [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = "true" ] && [ "$FORCE_DEPLOY" != "true" ]; then',
+    );
+    expect(validation).toContain("exit 1");
+    expect(validation).toContain("inputs.force_deploy == true");
+    const scope = workflowStep(platformProductionWorkflow, "Resolve deployment scope");
+    expect(scope).toContain(
+      "--force-deploy \"${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy == true && 'true' || 'false' }}\"",
+    );
+    const parsed = parseReleaseDeploymentScopeArgs(
+      ["--event-name", "workflow_dispatch", "--release-commit", "synthetic-same-sha", "--force-deploy", "true"],
+      {},
+    );
+    expect(
+      resolveReleaseDeploymentScope(parsed, {
+        execFileSync: () => "",
+        log: () => undefined,
+        listChangedFiles: () => {
+          throw new Error("Forced same-SHA deployment must not diff-skip");
+        },
+      }),
+    ).toMatchObject({ deploy: true, reason: "manual-force" });
+  });
+
+  it("threads the exact graph-owned authority and v2 trust trigger to both database-grant provisioners", () => {
+    const contextGrants = terraformResourceBlock(platformMain, "terraform_data", "context_database_grants");
+    const wakeListenerGrants = terraformResourceBlock(platformMain, "terraform_data", "wake_listener_database_grants");
+    const expectedBindings = [
+      "DIGITALOCEAN_ACCESS_TOKEN        = var.digitalocean_token",
+      "DIGITALOCEAN_DATABASE_CLUSTER_ID = digitalocean_database_cluster.postgres[0].id",
+      "PGHOST                           = digitalocean_database_cluster.postgres[0].host",
+      "PGPASSWORD                       = digitalocean_database_cluster.postgres[0].password",
+      "PGPORT                           = tostring(digitalocean_database_cluster.postgres[0].port)",
+      "PGUSER                           = digitalocean_database_cluster.postgres[0].user",
+    ];
+
+    for (const resource of [contextGrants, wakeListenerGrants]) {
+      expect(occurrenceCount(resource, '"managed-postgres-grant-trust-v2"')).toBe(1);
+      expect(resource).toContain('command     = "node scripts/apply-digitalocean-database-grant.mjs"');
+      for (const binding of expectedBindings) expect(resource).toContain(binding);
+      expect(resource).not.toMatch(/\bPGDATABASE\s*=/);
+      expect(resource).not.toMatch(/\bPGSSLMODE\s*=/);
+      const command = /^\s*command\s*=\s*(.+)$/m.exec(resource)?.[1] ?? "";
+      expect(command).not.toMatch(
+        /DIGITALOCEAN_(?:ACCESS_TOKEN|DATABASE_CLUSTER_ID)|PGPASSWORD|DATABASE_GRANTS_JSON|--(?:cluster|token)/i,
+      );
+    }
+
+    const providerSource = /digitalocean\s*=\s*\{[\s\S]*?source\s*=\s*"([^"]+)"/.exec(platformVersions)?.[1];
+    expect(providerSource).toBe("digitalocean/digitalocean");
+    expect(platformVariables).toMatch(
+      /variable "digitalocean_token" \{\s*type\s*=\s*string\s*sensitive\s*=\s*true\s*\}/,
+    );
+  });
+
+  it("models exactly the two v2 grant replacements and rejects one-variable plan/provider drift", () => {
+    const plan = {
+      resource_changes: [
+        {
+          address: "terraform_data.context_database_grants[0]",
+          type: "terraform_data",
+          name: "context_database_grants",
+          provider_name: "terraform.io/builtin/terraform",
+          change: { actions: ["delete", "create"] },
+        },
+        {
+          address: "terraform_data.wake_listener_database_grants[0]",
+          type: "terraform_data",
+          name: "wake_listener_database_grants",
+          provider_name: "terraform.io/builtin/terraform",
+          change: { actions: ["delete", "create"] },
+        },
+        {
+          address: "digitalocean_database_cluster.postgres[0]",
+          type: "digitalocean_database_cluster",
+          name: "postgres",
+          provider_name: "registry.terraform.io/digitalocean/digitalocean",
+          change: { actions: ["no-op"] },
+        },
+        {
+          address: 'digitalocean_database_db.contexts["checkout"]',
+          type: "digitalocean_database_db",
+          name: "contexts",
+          provider_name: "registry.terraform.io/digitalocean/digitalocean",
+          change: { actions: ["no-op"] },
+        },
+        {
+          address: 'digitalocean_database_user.contexts["checkout"]',
+          type: "digitalocean_database_user",
+          name: "contexts",
+          provider_name: "registry.terraform.io/digitalocean/digitalocean",
+          change: { actions: ["no-op"] },
+        },
+      ],
+    };
+
+    expect(isExactManagedPostgresGrantTrustPlan(plan)).toBe(true);
+    expect(terraformPlanSummary(plan)).toMatchObject({ add: 2, change: 0, destroy: 2, omittedResources: 0 });
+    for (const resource of plan.resource_changes.slice(2)) {
+      expect(resource.provider_name).toBe("registry.terraform.io/digitalocean/digitalocean");
+      expect(resource.change.actions).toEqual(["no-op"]);
+    }
+
+    const wrongProvider = structuredClone(plan);
+    wrongProvider.resource_changes[0].provider_name = "registry.terraform.io/hashicorp/null";
+    expect(isExactManagedPostgresGrantTrustPlan(wrongProvider)).toBe(false);
+    const clusterReplacement = structuredClone(plan);
+    clusterReplacement.resource_changes[2].change.actions = ["delete", "create"];
+    expect(isExactManagedPostgresGrantTrustPlan(clusterReplacement)).toBe(false);
+    const missingSibling = structuredClone(plan);
+    missingSibling.resource_changes[1].change.actions = ["no-op"];
+    expect(isExactManagedPostgresGrantTrustPlan(missingSibling)).toBe(false);
+  });
+
+  it("models pending-v2 execution, inert day-after state, and a later graph-owned replacement", () => {
+    const replacementRequired = (before, after) => JSON.stringify(before) !== JSON.stringify(after);
+    const v1 = { clusterId: "cluster-a", grantIds: ["db-a:user-a"], trustVersion: "v1" };
+    const v2 = {
+      clusterId: "cluster-a",
+      grantIds: ["db-a:user-a"],
+      trustVersion: "managed-postgres-grant-trust-v2",
+    };
+    expect(replacementRequired(v1, v2)).toBe(true);
+    expect(replacementRequired(v2, structuredClone(v2))).toBe(false);
+    expect(replacementRequired(v2, { ...v2, grantIds: ["db-a:user-b"] })).toBe(true);
+    expect(JSON.stringify(v2)).not.toMatch(/certificate|BEGIN CERTIFICATE|sha256|fingerprint/i);
+
+    const literalRemovalMutant = platformMain.replaceAll('"managed-postgres-grant-trust-v2",', "");
+    for (const name of ["context_database_grants", "wake_listener_database_grants"]) {
+      expect(terraformResourceBlock(literalRemovalMutant, "terraform_data", name)).not.toContain(
+        "managed-postgres-grant-trust-v2",
+      );
+    }
+  });
+
+  it("keeps environment approval followed by one same-job tfplan and applies those exact bytes", () => {
+    for (const jobName of ["deploy-staging", "deploy-production"]) {
+      const job = workflowJob(platformProductionWorkflow, jobName);
+      const planStep = workflowStep(job, "Terraform plan");
+      const applyStep = workflowSteps(job, "Terraform apply").at(-1);
+      expect(job).toContain(`environment: ${jobName === "deploy-staging" ? "staging" : "production"}`);
+      expect(planStep).toContain("working-directory: infrastructure/digitalocean/platform");
+      expect(planStep).toContain("terraform plan -out=tfplan");
+      expect(applyStep).toContain("working-directory: infrastructure/digitalocean/platform");
+      expect(applyStep).toContain("terraform apply -auto-approve tfplan");
+      expect(applyStep).not.toMatch(/terraform\s+plan/);
+      expect(job.indexOf(planStep)).toBeLessThan(job.indexOf(applyStep));
+    }
+  });
+
+  it("serves the proof marketplace without reading public-launch approvals", () => {
+    expect(platformVariables).toContain('variable "production_marketplace_served"');
+    expect(platformVariables).toMatch(
+      /variable "production_marketplace_served" \{[\s\S]*?default\s+= false[\s\S]*?var\.environment == "production" \|\| var\.production_marketplace_served == false/,
+    );
+    expect(platformLocals).toContain(
+      'local.is_non_production || local.marketplace_public_enabled || (local.runtime_profile == "proof" && var.production_marketplace_served)',
+    );
+    expect(platformLocals).toContain("marketplace_domains = local.marketplace_served ? [");
+    expect(platformLocals).toContain("for domain in local.all_marketplace_domains :");
+    expect(platformLocals).toContain("production_retained_marketplace_uptime_check_targets");
+    expect(platformLocals).toMatch(
+      /marketplace_uptime_check_targets = merge\(\{[\s\S]*?\}, local\.production_retained_marketplace_uptime_check_targets\)/,
+    );
+    expect(platformLocals).toContain('local.marketplace_served ? ["marketplace"] : []');
+    expect(occurrenceCount(platformLocals, "local.marketplace_served")).toBe(2);
+
+    const servedCheck = /check "production_marketplace_served" \{[\s\S]*?\n\}/.exec(platformMain)?.[0] ?? "";
+    expect(servedCheck).toContain("!var.production_marketplace_served || (");
+    expect(servedCheck).toContain('var.production_runtime_profile == "proof"');
+    expect(servedCheck).toContain("var.production_marketplace_public_enabled == false");
+    expect(servedCheck).not.toMatch(/_approved|_reference/);
+
+    const invitedPlan = productionMarketplacePlanFixture({
+      runtimeProfile: "proof",
+      served: true,
+      publicEnabled: false,
+    });
+    expect(invitedPlan).toEqual({
+      valid: true,
+      changedResources: ['digitalocean_record.app_serving["marketplace"]'],
+      launchApprovalChecksRead: false,
+    });
+    expect(productionMarketplacePlanFixture({ runtimeProfile: "proof", served: true, publicEnabled: true }).valid).toBe(
+      false,
+    );
+    expect(
+      productionMarketplacePlanFixture({ runtimeProfile: "landing", served: true, publicEnabled: false }).valid,
+    ).toBe(false);
+    expect(productionMarketplacePlanFixture({ runtimeProfile: "proof", served: false, publicEnabled: false })).toEqual({
+      valid: true,
+      changedResources: [],
+      launchApprovalChecksRead: false,
+    });
+  });
+
+  it("threads served-marketplace configuration and provider credentials through plan and apply", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const decommissionPlan = workflowStep(
+      platformProductionWorkflow,
+      "Plan retired staging and production applications",
+    );
+    const productionHelmDeploy = workflowStep(platformProductionWorkflow, "Deploy production Kubernetes release");
+
+    const platformPlanApplySteps = [
+      workflowStep(stagingJob, "Terraform plan"),
+      workflowSteps(stagingJob, "Terraform apply").at(-1),
+      workflowStep(productionJob, "Terraform plan"),
+      workflowSteps(productionJob, "Terraform apply").at(-1),
+    ];
+    for (const step of platformPlanApplySteps) {
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      expect(step).toContain("TF_VAR_production_marketplace_served:");
+    }
+
+    for (const step of [...platformPlanApplySteps, decommissionPlan, productionHelmDeploy]) {
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      for (const binding of [
+        "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+        "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+        "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+      ]) {
+        expect(carriesExactProviderCredentials(step.replaceAll(binding, ""))).toBe(false);
+      }
+    }
+
+    expect(decommissionPlan).toContain('TF_VAR_production_marketplace_served="$marketplace_served"');
+    expect(productionJob).toContain(
+      "PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+    );
+    expect(productionJob).toContain(
+      "TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+    );
+    expect(productionJob).toContain(
+      "vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing'",
+    );
+    expect(productionJob).toContain(
+      "vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY",
+    );
+
+    const deploymentContractPreflight = workflowStep(platformProductionWorkflow, "Preflight deployment contract");
+    expect(deploymentContractPreflight).toContain(
+      "PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+    );
+    expect(deploymentContractPreflight).toContain('elif [ "$PRODUCTION_MARKETPLACE_SERVED" = "true" ]; then');
+    expect(deploymentContractPreflight).toContain("runtime_profile=proof");
+    expect(deploymentContractPreflight).toContain('--production-runtime-profile-override "$runtime_profile"');
+
+    for (const stepName of [
+      "Verify production DOKS live hosts and certificate",
+      "Wait for production domains",
+      "Smoke check",
+      "Stage 1 production canary",
+    ]) {
+      const step = workflowStep(platformProductionWorkflow, stepName);
+      expect(step).toContain("marketplace_domains");
+      expect(step).not.toContain("TF_VAR_production_marketplace_served");
+      expect(step).not.toContain("TF_VAR_production_marketplace_public_enabled");
+      if (stepName === "Verify production DOKS live hosts and certificate") {
+        expect(step).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
+        expect(step).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
+      }
+    }
+  });
+
+  it("classifies invited marketplace state independently from public launch", () => {
+    const invitedState = {
+      resources: [
+        { type: "digitalocean_record", name: "app_serving", instances: [{ index_key: "marketplace" }] },
+        {
+          type: "digitalocean_database_connection_pool",
+          name: "contexts",
+          instances: [{ index_key: "checkout" }],
+        },
+      ],
+    };
+    expect(classifyProductionDecommissionState(invitedState, false)).toEqual({
+      marketplaceServed: true,
+      marketplacePublic: false,
+      runtimeProfile: "proof",
+    });
+    expect(classifyProductionDecommissionState(invitedState, true)).toEqual({
+      marketplaceServed: false,
+      marketplacePublic: true,
+      runtimeProfile: "public",
+    });
+
+    const decommissionPlan = workflowStep(
+      platformProductionWorkflow,
+      "Plan retired staging and production applications",
+    );
+    expect(decommissionPlan).toContain('marketplace_record_present="$(jq -r');
+    expect(decommissionPlan).toContain('marketplace_public="${PRODUCTION_MARKETPLACE_PUBLIC_ENABLED:-false}"');
+    expect(decommissionPlan).toContain('if [ "$marketplace_public" = "true" ]; then');
+    expect(decommissionPlan).toContain('elif [ "$has_checkout_pool" = "true" ]; then');
+    expect(decommissionPlan).toContain(
+      'if [ "$marketplace_record_present" = "true" ] && [ "$marketplace_public" = "false" ]; then',
+    );
+    expect(decommissionPlan).not.toContain('marketplace_public="$(jq -r');
+    expect(decommissionPlan).not.toMatch(
+      /PRODUCTION_MARKETPLACE_(?:PROMOTION|CHECKOUT|LAUNCH|SUPPORT|FULFILLMENT|TRANSACTIONAL|TAX)/,
+    );
+  });
+
+  it("captures served-not-public route and invitation-gate smoke evidence", () => {
+    const smoke = workflowStep(platformProductionWorkflow, "Smoke served marketplace invitation gate");
+    const productionDeploy = workflowJob(platformProductionWorkflow, "deploy-production");
+    const smokeUpload = workflowStep(productionDeploy, "Upload served marketplace smoke evidence");
+    const releaseHealthUpload = workflowStep(platformProductionWorkflow, "Upload release health summary");
+    const postureGate =
+      "if: always() && env.SHOULD_DEPLOY != 'false' && env.TF_VAR_production_marketplace_served == 'true' && env.TF_VAR_production_marketplace_public_enabled != 'true'";
+    const evidencePath = "artifacts/release-health/served-marketplace-smoke.json";
+    expect(smoke).toContain('base_url="https://marketplace.chasesets.com"');
+    expect(smoke).toContain('root_status="$(curl');
+    expect(smoke).toContain('name="robots"');
+    expect(smoke).toContain("noindex,nofollow");
+    expect(smoke).toContain('"$base_url/api/auth/register"');
+    expect(smoke).toContain('registration_code="$(jq -r');
+    expect(smoke).toContain("registration_admission_required");
+    expect(smoke).toContain('"$base_url/invite/ivt_malformed?token=malformed"');
+    expect(smoke).toContain(evidencePath);
+    expect(smoke).not.toMatch(/PROMOTION_APPROVED|_APPROVAL|_REFERENCE/);
+    expect(servedMarketplaceSmokeUploadViolations(smokeUpload)).toEqual([]);
+    expect(smokeUpload).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(releaseHealthUpload).not.toContain(evidencePath);
+
+    const removalMutants = [
+      ["exact served-private posture gate", smokeUpload.replace(postureGate, "")],
+      ["sole served smoke evidence path", smokeUpload.replace(evidencePath, "")],
+      ["fail-closed missing-file policy", smokeUpload.replace("if-no-files-found: error", "")],
+    ];
+    for (const [violation, mutant] of removalMutants) {
+      expect(mutant).not.toBe(smokeUpload);
+      expect(servedMarketplaceSmokeUploadViolations(mutant)).toContain(violation);
+    }
+  });
+
   it("retires application compute while preserving live DOKS DNS addresses", () => {
     expect(platformMain).not.toMatch(/resource\s+"digitalocean_app"/);
     expect(platformProjects).not.toContain("digitalocean_app.platform.urn");
@@ -663,8 +1830,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionRestorePointCleanupWorkflow).toContain('cron: "17 3,9,15,21 * * *"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain('default: "6"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain(
-      `min_age_hours="\${{ github.event.inputs.min_age_hours || '6' }}"`,
+      `MIN_AGE_HOURS: \${{ github.event.inputs.min_age_hours || '6' }}`,
     );
+    expect(platformProductionRestorePointCleanupWorkflow).toContain('--min-age-hours "$MIN_AGE_HOURS"');
     expect(platformProductionRestorePointCleanupWorkflow).toContain("PRODUCTION_DB_RESTORE_POINT_CLEANUP_HOLD_NAMES");
   });
 
@@ -861,6 +2029,132 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("artifacts/release-health/production-readiness-gate.json");
   });
 
+  it("reconciles managed Postgres CA trust exactly once per staging and production deploy before Helm selection", () => {
+    const credentialNames = [
+      "TF_VAR_digitalocean_token",
+      "TF_VAR_spaces_access_id",
+      "TF_VAR_spaces_secret_key",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "DIGITALOCEAN_ACCESS_TOKEN",
+    ];
+    const stagingTrust = workflowStep(platformProductionWorkflow, "Reconcile staging managed Postgres CA trust");
+    const productionTrust = workflowStep(platformProductionWorkflow, "Reconcile production managed Postgres CA trust");
+    const stagingUrlExport = workflowStep(platformProductionWorkflow, "Export staging Kubernetes database URLs");
+    const productionUrlExport = workflowStep(platformProductionWorkflow, "Export production Kubernetes database URLs");
+
+    for (const [environment, step] of [
+      ["staging", stagingTrust],
+      ["production", productionTrust],
+    ]) {
+      expect(step).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+      expect(step).toContain("mode: trust-only-kubernetes-secret");
+      expect(step).toContain(`environment: ${environment}`);
+      expect(step).toContain("namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}");
+      for (const credential of credentialNames) expect(step).toContain(`${credential}:`);
+      expect(step).not.toContain("contexts:");
+      expect(step).not.toContain("connection-mode:");
+    }
+    expect(workflowSteps(platformProductionWorkflow, "Reconcile staging managed Postgres CA trust")).toHaveLength(1);
+    expect(workflowSteps(platformProductionWorkflow, "Reconcile production managed Postgres CA trust")).toHaveLength(1);
+    expect(stagingUrlExport).not.toContain("DIGITALOCEAN_ACCESS_TOKEN:");
+    expect(productionUrlExport).not.toContain("DIGITALOCEAN_ACCESS_TOKEN:");
+
+    const stagingSecret = platformProductionWorkflow.indexOf("- name: Apply staging Kubernetes runtime secrets");
+    const stagingTrustIndex = platformProductionWorkflow.indexOf("- name: Reconcile staging managed Postgres CA trust");
+    const stagingHelm = platformProductionWorkflow.indexOf("- name: Deploy staging Kubernetes release");
+    expect(stagingSecret).toBeLessThan(stagingTrustIndex);
+    expect(stagingTrustIndex).toBeLessThan(stagingHelm);
+
+    const productionSecret = platformProductionWorkflow.indexOf("- name: Apply production Kubernetes runtime secrets");
+    const productionTrustIndex = platformProductionWorkflow.indexOf(
+      "- name: Reconcile production managed Postgres CA trust",
+    );
+    const productionRollbackTarget = platformProductionWorkflow.indexOf("- name: Capture production rollback target");
+    const productionTerraformApply = platformProductionWorkflow.indexOf(
+      "- name: Terraform apply",
+      productionRollbackTarget,
+    );
+    const productionRollbackReadiness = platformProductionWorkflow.indexOf(
+      "- name: Evaluate production rollback readiness",
+    );
+    const productionHelm = platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release");
+    expect(productionRollbackTarget).toBeLessThan(productionTerraformApply);
+    expect(productionSecret).toBeLessThan(productionTrustIndex);
+    expect(productionTrustIndex).toBeLessThan(productionRollbackReadiness);
+    expect(productionRollbackReadiness).toBeLessThan(productionHelm);
+  });
+
+  it("rolls day-after managed Postgres CA changes through staging before production", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "reconcile-managed-postgres-ca-staging");
+    const productionJob = workflowJob(platformProductionWorkflow, "reconcile-managed-postgres-ca-production");
+    const stagingGate = workflowStep(productionJob, "Require successful staging managed Postgres CA reconciliation");
+    const stagingReceipt = workflowStep(stagingJob, "Record successful staging managed Postgres CA reconciliation");
+    const stagingPublish = workflowStep(stagingJob, "Publish successful staging managed Postgres CA reconciliation");
+
+    expect(stagingJob).toContain("environment: staging");
+    expect(stagingJob).toContain("group: platform-deploy-staging");
+    expect(productionJob).toContain("environment: production");
+    expect(productionJob).toContain("group: platform-deploy-production");
+    expect(stagingJob).not.toContain("matrix:");
+    expect(productionJob).not.toContain("matrix:");
+    expect(productionReconciliationNeedsSuccessfulStaging(platformProductionWorkflow)).toBe(true);
+
+    const dependencyLine = "      - reconcile-managed-postgres-ca-staging\n";
+    expect(occurrenceCount(platformProductionWorkflow.replaceAll("\r\n", "\n"), dependencyLine)).toBe(1);
+    const dependencyRemovalMutant = platformProductionWorkflow.replaceAll("\r\n", "\n").replace(dependencyLine, "");
+    expect(productionReconciliationNeedsSuccessfulStaging(dependencyRemovalMutant)).toBe(false);
+
+    expect(stagingGate).toContain("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
+    expect(stagingGate).toContain("name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(productionJob.indexOf(stagingGate)).toBeLessThan(productionJob.indexOf("digitalocean/action-doctl"));
+    expect(productionJob.indexOf(stagingGate)).toBeLessThan(
+      productionJob.indexOf(workflowStep(productionJob, "Reconcile day-after managed Postgres CA trust")),
+    );
+
+    for (const [environment, job] of [
+      ["staging", stagingJob],
+      ["production", productionJob],
+    ]) {
+      const trustStep = workflowStep(job, "Reconcile day-after managed Postgres CA trust");
+      const rolloutEvaluation = workflowStep(job, "Evaluate managed Postgres CA pod-template reconciliation");
+      const rolloutStep = workflowStep(job, "Reconcile managed Postgres CA pod templates");
+      expect(trustStep).toContain("uses: ./.github/actions/export-managed-postgres-authority");
+      expect(trustStep).toContain("mode: trust-only-kubernetes-secret");
+      expect(trustStep).toContain(`environment: ${environment}`);
+      expect(rolloutEvaluation).toContain('helm get values "$CHASE_SETS_HELM_RELEASE"');
+      expect(rolloutEvaluation).toContain(".global.managedPostgresCaSha256 // empty");
+      expect(rolloutEvaluation).toContain(
+        'desired="${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}"',
+      );
+      expect(rolloutEvaluation).toContain('if [ "$deployed" = "$desired" ]; then');
+      expect(rolloutEvaluation).toContain('echo "changed=false"');
+      expect(rolloutEvaluation).toContain('echo "changed=true"');
+      expect(rolloutStep).toContain("if: steps.managed_postgres_ca_rollout.outputs.changed == 'true'");
+      expect(rolloutStep).toContain(`--runtime-env "DEPLOYMENT_ENVIRONMENT=${environment}"`);
+    }
+
+    expect(stagingPublish).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(stagingPublish).toContain(
+      "name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(stagingPublish).toContain("if-no-files-found: error");
+    expect(stagingJob.indexOf(stagingReceipt)).toBeLessThan(stagingJob.indexOf(stagingPublish));
+
+    const helmOnlyScope = classifyChanges({
+      changedFiles: ["infrastructure/helm/platform/templates/deployment.yaml"],
+      workspaces: [],
+    });
+    const docsOnlyScope = classifyChanges({
+      changedFiles: ["docs/runbooks/digitalocean-platform-deployment.md"],
+      workspaces: [],
+    });
+    expect(dayAfterManagedPostgresCaJobsAreEligible(platformProductionWorkflow, helmOnlyScope)).toBe(false);
+    expect(dayAfterManagedPostgresCaJobsAreEligible(platformProductionWorkflow, docsOnlyScope)).toBe(true);
+    expect(platformKubernetesDeploymentScript).toContain('"--reuse-values"');
+    expect(platformKubernetesDeploymentScript).toContain('"--no-hooks"');
+  });
+
   it("captures staging wake drill worker status through the internal DOKS worker endpoint", () => {
     const wakeDrillJob = workflowJob(platformStagingWakeDrillsWorkflow, "staging-wake-drill");
     const kubeconfigStep = workflowStep(wakeDrillJob, "Configure staging Kubernetes context");
@@ -983,8 +2277,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
-    expect(platformProductionWorkflow).toContain(
-      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    expect(
+      workflowStep(workflowJob(platformProductionWorkflow, "deploy-production"), "Mark production release"),
+    ).toContain("node ./scripts/production-release-marker.mjs publish");
+    expect(readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8")).toMatch(
+      /"docker",\s*\["buildx",\s*"imagetools",\s*"create",\s*"--tag",\s*image,/,
     );
     expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
     expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
@@ -994,9 +2291,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(cleanupStep).toContain("if: steps.deploy_lane.outputs.deferred != 'true'");
     expect(cleanupStep).toContain("--retain-recent-sha-tree-tags=25");
     expect(platformRegistryCleanupWorkflow).toContain(
-      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (inputs.dry_run == 'true' && 'true' || 'false') }}",
+      "DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || github.event.inputs.dry_run }}",
     );
-    expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_REQUESTED_DRY_RUN}"');
+    expect(cleanupStep).toContain('--dry-run="${DIGITALOCEAN_REGISTRY_CLEANUP_RESOLVED_DRY_RUN}"');
     expect(cleanupStep).toContain("--out artifacts/release-health/digitalocean-registry-cleanup.json");
     expect(cleanupStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN }}");
     expect(validateStep).toContain("if: ${{ always() }}");
@@ -1192,7 +2489,7 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("keeps PR fast-lane checks separate from merge-group full battery", () => {
-    const fullBatteryStep = workflowStep(platformPrWorkflow, "Resolve full battery lane");
+    const gatePlanStep = workflowStep(platformPrWorkflow, "Resolve shared gate plan");
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
     const e2eJob = workflowJob(platformPrWorkflow, "e2e-tests");
     const buildJob = workflowJob(platformPrWorkflow, "build");
@@ -1203,36 +2500,44 @@ describe("DigitalOcean platform configuration", () => {
     const terraformObservabilityJob = workflowJob(platformPrWorkflow, "terraform-observability-plan");
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
 
-    expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.full-battery.outputs.required }}");
+    expect(platformPrWorkflow).toContain("gate_plan_json: ${{ steps.gate-plan.outputs.plan_json }}");
+    expect(platformPrWorkflow).toContain("full_battery_required: ${{ steps.gate-plan.outputs.full_battery_required }}");
     expect(platformPrWorkflow).toContain(
       "integration_risk_required: ${{ steps.scope.outputs.integration_risk_required }}",
     );
     expect(platformPrWorkflow).toContain("integration_risk_reason: ${{ steps.scope.outputs.integration_risk_reason }}");
     expect(platformPrWorkflow).toContain(
-      "targeted_heavy_required: ${{ steps.full-battery.outputs.targeted_required }}",
+      "targeted_heavy_required: ${{ steps.gate-plan.outputs.targeted_heavy_required }}",
     );
-    expect(fullBatteryStep).toContain('"${{ github.event_name }}" = "merge_group"');
-    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'full-ci')");
-    expect(fullBatteryStep).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
-    expect(fullBatteryStep).toContain(
-      "INTEGRATION_RISK_REQUIRED: ${{ steps.scope.outputs.integration_risk_required }}",
-    );
-    expect(fullBatteryStep).toContain('targeted_reason="integration-risk: $INTEGRATION_RISK_REASON"');
+    expect(gatePlanStep).toContain("CI_GATE_PLAN_MODE:");
+    expect(gatePlanStep).toContain("CI_GATE_PLAN_LABELS_JSON:");
+    expect(gatePlanStep).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(gatePlanStep).toContain("CI_GATE_PLAN_SCOPE_JSON: ${{ steps.scope.outputs.scope_json }}");
+    expect(gatePlanStep).toContain("node ./scripts/ci-gate-plan.mjs github-output");
 
-    for (const job of [buildJob, dockerJob, terraformPreviewJob, terraformStagingJob, terraformProductionJob]) {
-      expect(job).toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
+    for (const [job, output] of [
+      [buildJob, "build_required"],
+      [dockerJob, "docker_image_required"],
+      [terraformPreviewJob, "terraform_preview_plan_required"],
+      [terraformStagingJob, "terraform_staging_plan_required"],
+      [terraformProductionJob, "terraform_production_plan_required"],
+    ]) {
+      expect(job).toContain(`needs['change-scope'].outputs.${output} == 'true'`);
+      expect(job).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     }
 
     expect(workflowJobCondition(platformPrWorkflow, "db-tests")).toBe(
-      "needs['change-scope'].outputs.db_tests == 'true'",
+      "needs['change-scope'].outputs.db_tests_required == 'true'",
     );
     expect(dbProfileJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     expect(dbProfileJob).not.toContain("needs['change-scope'].outputs.integration_risk_required == 'true'");
     expect(workflowJobCondition(platformPrWorkflow, "e2e-tests")).toBe(
-      "(needs['change-scope'].outputs.full_battery_required == 'true' || needs['change-scope'].outputs.integration_risk_required == 'true') && needs['change-scope'].outputs.e2e_tests == 'true'",
+      "needs['change-scope'].outputs.e2e_tests_required == 'true'",
     );
 
-    expect(terraformObservabilityJob).toContain("if: needs['change-scope'].outputs.terraform == 'true'");
+    expect(terraformObservabilityJob).toContain(
+      "if: needs['change-scope'].outputs.terraform_observability_plan_required == 'true'",
+    );
     expect(terraformObservabilityJob).not.toContain("needs['change-scope'].outputs.full_battery_required == 'true'");
     expect(terraformObservabilityJob).toContain("Terraform plan shared observability");
     expect(terraformObservabilityJob).toContain('plan_root="${RUNNER_TEMP}/chase-sets-observability-plan"');
@@ -1252,20 +2557,15 @@ describe("DigitalOcean platform configuration", () => {
       'node "$GITHUB_WORKSPACE/scripts/terraform-plan-inspection.mjs" assert-no-destructive-changes tfplan',
     );
 
-    expect(requiredJob).toContain(
-      "full_battery_required=\"${{ needs['change-scope'].outputs.full_battery_required }}\"",
-    );
-    expect(requiredJob).toContain(
-      "targeted_heavy_required=\"${{ needs['change-scope'].outputs.targeted_heavy_required }}\"",
-    );
+    expect(requiredJob).toContain("has unknown or missing gate-plan requirement");
     expect(requiredJob).toContain('require_job "DB Profile Tests"');
     expect(requiredJob).not.toContain('require_targeted_heavy_job "DB Profile Tests"');
-    expect(requiredJob).toContain('require_targeted_heavy_job "E2E Tests"');
-    expect(requiredJob).toContain('require_heavy_job "Build"');
-    expect(requiredJob).toContain('require_heavy_job "Docker Image Build"');
-    expect(requiredJob).toContain('require_heavy_job "Terraform Preview Plan"');
-    expect(requiredJob).toContain('require_heavy_job "Terraform Staging Plan"');
-    expect(requiredJob).toContain('require_heavy_job "Terraform Production Plan"');
+    expect(requiredJob).toContain('require_job "E2E Tests"');
+    expect(requiredJob).toContain('require_job "Build"');
+    expect(requiredJob).toContain('require_job "Docker Image Build"');
+    expect(requiredJob).toContain('require_job "Terraform Preview Plan"');
+    expect(requiredJob).toContain('require_job "Terraform Staging Plan"');
+    expect(requiredJob).toContain('require_job "Terraform Production Plan"');
     expect(requiredJob).toContain('require_job "Terraform Observability Plan"');
     expect(requiredJob).toContain('require_job "Workflow Lint"');
   });
@@ -1274,59 +2574,101 @@ describe("DigitalOcean platform configuration", () => {
     const dbCondition = workflowJobCondition(platformPrWorkflow, "db-tests");
     const e2eCondition = workflowJobCondition(platformPrWorkflow, "e2e-tests");
     const overlapValues = {
-      "needs['change-scope'].outputs.full_battery_required": "false",
-      "needs['change-scope'].outputs.integration_risk_required": "false",
-      "needs['change-scope'].outputs.db_tests": "true",
-      "needs['change-scope'].outputs.e2e_tests": "true",
+      "needs['change-scope'].outputs.db_tests_required": "true",
+      "needs['change-scope'].outputs.e2e_tests_required": "false",
     };
 
     expect(evaluateWorkflowBooleanExpression(dbCondition, overlapValues)).toBe(true);
     expect(evaluateWorkflowBooleanExpression(e2eCondition, overlapValues)).toBe(false);
-    expect(dbCondition).toBe("needs['change-scope'].outputs.db_tests == 'true'");
-    expect(e2eCondition).toBe(
-      "(needs['change-scope'].outputs.full_battery_required == 'true' || needs['change-scope'].outputs.integration_risk_required == 'true') && needs['change-scope'].outputs.e2e_tests == 'true'",
-    );
+    expect(dbCondition).toBe("needs['change-scope'].outputs.db_tests_required == 'true'");
+    expect(e2eCondition).toBe("needs['change-scope'].outputs.e2e_tests_required == 'true'");
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
-    expect(dbProfileJob).toContain("timeout-minutes: 20");
+    expect(dbProfileJob).toContain("timeout-minutes: 30");
     expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
+    expect(dbProfileJob).toContain("id: platform-api-selected");
+    const idIdx = dbProfileJob.indexOf("id: platform-api-selected");
+    const runIdx = dbProfileJob.indexOf("- name: Run DB-profile tests");
+    expect(idIdx).toBeGreaterThan(-1);
+    expect(runIdx).toBeGreaterThan(-1);
+    expect(idIdx).toBeLessThan(runIdx);
+    const selection = dbProfileJob.slice(dbProfileJob.lastIndexOf("- name:", idIdx), runIdx);
+    expect(selection).not.toContain("if:");
+    expect(selection).toContain("AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}");
+    expect(selection).toContain(
+      'if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then',
+    );
+    expect(dbProfileJob).toContain("if: always() && steps.platform-api-selected.outputs.selected == 'true'");
+    expect(dbProfileJob).toContain("name: bootstrap-db-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
+    expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}"',
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
     );
   });
 
+  it("requires both isolated DB cells, including empty-group success, before aggregation or preview", () => {
+    const job = parse(platformPrWorkflow).jobs["db-tests"];
+    expect(job.name).toBe("DB Profile Tests (${{ matrix.db-workspace-group }})");
+    expect(job.strategy).toEqual({
+      "fail-fast": false,
+      "max-parallel": 2,
+      matrix: { "db-workspace-group": ["api", "other"] },
+    });
+    expect(job["continue-on-error"]).toBeUndefined();
+    expect(job["timeout-minutes"]).toBe(30);
+    const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
+    expect(execution).toHaveLength(1);
+    expect(execution[0].if).toBeUndefined();
+    expect(execution[0]["continue-on-error"]).toBeUndefined();
+    const prerequisite = workflowPrerequisite(
+      workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke"),
+      "db_tests_required",
+      "db-tests",
+    );
+    const call = workflowRequiredCall(workflowJob(platformPrWorkflow, "pr-required"), "DB Profile Tests");
+    for (const api of ["success", "failure", "cancelled", "skipped", ""]) {
+      for (const other of ["success", "failure", "cancelled", "skipped", ""]) {
+        // Actions aggregates a non-optional matrix dependency; only a complete
+        // all-success pair may supply success. A zero-task cell still executes.
+        const aggregate = [api, other].every((result) => result === "success") ? "success" : "failure";
+        const values = {
+          "needs['db-tests'].result": aggregate,
+          "needs['change-scope'].outputs.db_tests_required": "true",
+        };
+        expect(evaluateWorkflowBooleanExpression(prerequisite, values)).toBe(api === "success" && other === "success");
+        expect(evaluateRequiredWorkflowCall(call, { targetedHeavyRequired: false, templateValues: values })).toBe(
+          api === "success" && other === "success",
+        );
+      }
+    }
+  });
+
   it("evaluates the preview DB prerequisite truth table and retained-bypass mutant from workflow text", () => {
     const previewCondition = workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke");
-    const dbPrerequisite = workflowPrerequisite(previewCondition, "db_tests", "db-tests");
-    const e2ePrerequisite = workflowPrerequisite(previewCondition, "e2e_tests", "e2e-tests");
+    const dbPrerequisite = workflowPrerequisite(previewCondition, "db_tests_required", "db-tests");
+    const e2ePrerequisite = workflowPrerequisite(previewCondition, "e2e_tests_required", "e2e-tests");
     const expectedPreviewCondition = `
       always() &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
       needs['change-scope'].result == 'success' &&
-      (needs['change-scope'].outputs.cluster_preview == 'true' ||
-       contains(github.event.pull_request.labels.*.name, 'preview')) &&
-      (needs['change-scope'].outputs.local_checks != 'true' || needs.static.result == 'success') &&
-      needs.typecheck.result == 'success' &&
-      (needs['change-scope'].outputs.unit_tests != 'true' || needs['unit-tests'].result == 'success') &&
-      (needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.e2e_tests != 'true' ||
+      needs['change-scope'].outputs.preview_deploy_smoke_required == 'true' &&
+      (needs['change-scope'].outputs.static_required != 'true' || needs.static.result == 'success') &&
+      (needs['change-scope'].outputs.typecheck_required != 'true' || needs.typecheck.result == 'success') &&
+      (needs['change-scope'].outputs.unit_tests_required != 'true' || needs['unit-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.db_tests_required != 'true' || needs['db-tests'].result == 'success') &&
+      (needs['change-scope'].outputs.e2e_tests_required != 'true' ||
        needs['e2e-tests'].result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.build != 'true' ||
+      (needs['change-scope'].outputs.build_required != 'true' ||
        needs.build.result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.docker_image != 'true' ||
+      (needs['change-scope'].outputs.docker_image_required != 'true' ||
        needs['docker-image'].result == 'success') &&
-      (needs['change-scope'].outputs.workflow_lint != 'true' || needs['workflow-lint'].result == 'success') &&
-      (needs['change-scope'].outputs.full_battery_required != 'true' ||
-       needs['change-scope'].outputs.terraform != 'true' ||
+      (needs['change-scope'].outputs.workflow_lint_required != 'true' || needs['workflow-lint'].result == 'success') &&
+      (needs['change-scope'].outputs.terraform_preview_plan_required != 'true' ||
        (needs['terraform-preview-plan'].result == 'success' &&
         needs['terraform-staging-plan'].result == 'success' &&
         needs['terraform-production-plan'].result == 'success'))
@@ -1336,10 +2678,10 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(previewCondition.replace(/\s+/g, " ").trim()).toBe(expectedPreviewCondition);
     expect(dbPrerequisite).toBe(
-      "(needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success')",
+      "(needs['change-scope'].outputs.db_tests_required != 'true' || needs['db-tests'].result == 'success')",
     );
     expect(e2ePrerequisite).toBe(
-      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.e2e_tests != 'true' || needs['e2e-tests'].result == 'success')",
+      "(needs['change-scope'].outputs.e2e_tests_required != 'true' || needs['e2e-tests'].result == 'success')",
     );
 
     const results = ["failure", "skipped", "cancelled", "success"];
@@ -1347,7 +2689,7 @@ describe("DigitalOcean platform configuration", () => {
     for (const dbTests of ["true", "false"]) {
       for (const result of results) {
         const admitted = evaluateWorkflowBooleanExpression(dbPrerequisite, {
-          "needs['change-scope'].outputs.db_tests": dbTests,
+          "needs['change-scope'].outputs.db_tests_required": dbTests,
           "needs['db-tests'].result": result,
         });
         truthTable.push({ dbTests, result, admitted });
@@ -1356,16 +2698,16 @@ describe("DigitalOcean platform configuration", () => {
     }
 
     const retainedBypassMutant =
-      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.db_tests != 'true' || needs['db-tests'].result == 'success')";
+      "(needs['change-scope'].outputs.full_battery_required != 'true' || needs['change-scope'].outputs.db_tests_required != 'true' || needs['db-tests'].result == 'success')";
     const retainedBypassMutantAdmitsFailure = evaluateWorkflowBooleanExpression(retainedBypassMutant, {
       "needs['change-scope'].outputs.full_battery_required": "false",
-      "needs['change-scope'].outputs.db_tests": "true",
+      "needs['change-scope'].outputs.db_tests_required": "true",
       "needs['db-tests'].result": "failure",
     });
     expect(retainedBypassMutantAdmitsFailure).toBe(true);
     expect(
       evaluateWorkflowBooleanExpression(dbPrerequisite, {
-        "needs['change-scope'].outputs.db_tests": "true",
+        "needs['change-scope'].outputs.db_tests_required": "true",
         "needs['db-tests'].result": "failure",
       }),
     ).toBe(false);
@@ -1378,18 +2720,22 @@ describe("DigitalOcean platform configuration", () => {
     const dbCall = workflowRequiredCall(requiredJob, "DB Profile Tests");
     const e2eCall = workflowRequiredCall(requiredJob, "E2E Tests");
     const requireJobFunction = workflowShellFunction(requiredJob, "require_job");
-    const targetedHelper = workflowShellFunction(requiredJob, "require_targeted_heavy_job");
 
     expect(dbCall.line).toBe(
-      'require_job "DB Profile Tests" "${{ needs[\'db-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.db_tests }}"',
+      'require_job "DB Profile Tests" "${{ needs[\'db-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.db_tests_required }}"',
     );
     expect(e2eCall.line).toBe(
-      'require_targeted_heavy_job "E2E Tests" "${{ needs[\'e2e-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.e2e_tests }}"',
+      'require_job "E2E Tests" "${{ needs[\'e2e-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.e2e_tests_required }}"',
     );
     expect(requireJobFunction).toBe(`          require_job() {
             local name="$1"
             local result="$2"
             local required="$3"
+
+            if [ "$required" != "true" ] && [ "$required" != "false" ]; then
+              echo "\${name} has unknown or missing gate-plan requirement '\${required}'." >&2
+              exit 1
+            fi
 
             if [ "$required" = "true" ]; then
               if [ "$result" != "success" ]; then
@@ -1404,34 +2750,24 @@ describe("DigitalOcean platform configuration", () => {
               exit 1
             fi
           }`);
-    expect(targetedHelper).toBe(`          require_targeted_heavy_job() {
-            local name="$1"
-            local result="$2"
-            local affected="$3"
-
-            if [ "$targeted_heavy_required" = "true" ] && [ "$affected" = "true" ]; then
-              require_job "$name" "$result" "true"
-              return
-            fi
-
-            require_job "$name" "$result" "false"
-          }`);
-
     const expectedRequiredCalls = [
-      'require_job "Known Failure Guard" "${{ needs[\'known-failure-guard\'].result }}" "true"',
-      'require_job "Change Scope" "${{ needs[\'change-scope\'].result }}" "true"',
-      'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.local_checks }}"',
-      'require_job "Typecheck" "${{ needs.typecheck.result }}" "true"',
-      'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests }}"',
-      'require_job "Workflow Lint" "${{ needs[\'workflow-lint\'].result }}" "${{ needs[\'change-scope\'].outputs.workflow_lint }}"',
+      'require_job "Known Failure Guard" "${{ needs[\'known-failure-guard\'].result }}" "${{ needs[\'change-scope\'].outputs.known_failure_guard_required }}"',
+      'require_job "Change Scope" "${{ needs[\'change-scope\'].result }}" "${{ needs[\'change-scope\'].outputs.change_scope_required }}"',
+      'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.static_required }}"',
+      'require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs[\'change-scope\'].outputs.typecheck_required }}"',
+      'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests_required }}"',
       dbCall.line,
       e2eCall.line,
-      'require_heavy_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build }}"',
-      'require_heavy_job "Docker Image Build" "${{ needs[\'docker-image\'].result }}" "${{ needs[\'change-scope\'].outputs.docker_image }}"',
-      'require_heavy_job "Terraform Preview Plan" "${{ needs[\'terraform-preview-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
-      'require_heavy_job "Terraform Staging Plan" "${{ needs[\'terraform-staging-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
-      'require_heavy_job "Terraform Production Plan" "${{ needs[\'terraform-production-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
-      'require_job "Terraform Observability Plan" "${{ needs[\'terraform-observability-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform }}"',
+      'require_job "Capture Hermetic Chromium" "${{ needs[\'capture-hermetic-chromium\'].result }}" "$capture_required"',
+      'require_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build_required }}"',
+      'require_job "Docker Image Build" "${{ needs[\'docker-image\'].result }}" "${{ needs[\'change-scope\'].outputs.docker_image_required }}"',
+      'require_job "Workflow Lint" "${{ needs[\'workflow-lint\'].result }}" "${{ needs[\'change-scope\'].outputs.workflow_lint_required }}"',
+      'require_job "Terraform Preview Plan" "${{ needs[\'terraform-preview-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_preview_plan_required }}"',
+      'require_job "Terraform Staging Plan" "${{ needs[\'terraform-staging-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_staging_plan_required }}"',
+      'require_job "Terraform Production Plan" "${{ needs[\'terraform-production-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_production_plan_required }}"',
+      'require_job "Terraform Observability Plan" "${{ needs[\'terraform-observability-plan\'].result }}" "${{ needs[\'change-scope\'].outputs.terraform_observability_plan_required }}"',
+      'require_job "Deploy Preview and Smoke" "${{ needs[\'preview-deploy-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.preview_deploy_smoke_required }}"',
+      'require_job "Compose Boot Smoke" "${{ needs[\'compose-preview-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.compose_preview_smoke_required }}"',
     ];
     const actualRequiredCalls = requiredJob
       .split(/\r?\n/)
@@ -1446,7 +2782,7 @@ describe("DigitalOcean platform configuration", () => {
           targetedHeavyRequired: false,
           templateValues: {
             "needs['db-tests'].result": result,
-            "needs['change-scope'].outputs.db_tests": dbTests,
+            "needs['change-scope'].outputs.db_tests_required": dbTests,
           },
         });
         truthTable.push({ dbTests, result, admitted });
@@ -1459,7 +2795,7 @@ describe("DigitalOcean platform configuration", () => {
       targetedHeavyRequired: false,
       templateValues: {
         "needs['db-tests'].result": "skipped",
-        "needs['change-scope'].outputs.db_tests": "true",
+        "needs['change-scope'].outputs.db_tests_required": "true",
       },
     });
     expect(mutantAdmitsFastLaneSkip).toBe(true);
@@ -1468,7 +2804,7 @@ describe("DigitalOcean platform configuration", () => {
         targetedHeavyRequired: false,
         templateValues: {
           "needs['db-tests'].result": "skipped",
-          "needs['change-scope'].outputs.db_tests": "true",
+          "needs['change-scope'].outputs.db_tests_required": "true",
         },
       }),
     ).toBe(false);
@@ -1478,16 +2814,24 @@ describe("DigitalOcean platform configuration", () => {
 
   it("requires preview deploy and smoke for deploy-scoped same-repository PRs without blocking forks", () => {
     const previewJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const composeJob = workflowJob(platformPrWorkflow, "compose-preview-smoke");
     const requiredJob = workflowJob(platformPrWorkflow, "pr-required");
+    const gatePlanStep = workflowStep(platformPrWorkflow, "Resolve shared gate plan");
     const runtimeSecretsStep = workflowStep(previewJob, "Apply preview Kubernetes runtime secrets");
 
-    expect(previewJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(gatePlanStep).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(previewJob).toContain("needs['change-scope'].result == 'success'");
-    expect(previewJob).toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
-    expect(previewJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
-    expect(previewJob).toContain("needs['change-scope'].outputs.e2e_tests != 'true'");
+    expect(previewJob).toContain("needs['change-scope'].outputs.preview_deploy_smoke_required == 'true'");
+    expect(previewJob).not.toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
+    expect(previewJob).not.toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
+    expect(previewJob).toContain("needs['change-scope'].outputs.e2e_tests_required != 'true'");
     expect(previewJob).toContain("needs['e2e-tests'].result == 'success'");
-    expect(previewJob).toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
+    expect(previewJob).not.toContain("needs['change-scope'].outputs.full_battery_required != 'true'");
+    expect(workflowJobCondition(platformPrWorkflow, "compose-preview-smoke")).toContain(
+      "needs['change-scope'].outputs.compose_preview_smoke_required == 'true'",
+    );
+    expect(composeJob).not.toContain("needs['change-scope'].outputs.compose_smoke == 'true'");
+    expect(composeJob).not.toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(previewJob).toContain("id: preview_domains");
     expect(previewJob).toContain('echo "landing_domain_ready=${landing_domain_ready}"');
     expect(previewJob).toContain('} >> "$GITHUB_OUTPUT"');
@@ -1522,24 +2866,16 @@ describe("DigitalOcean platform configuration", () => {
       ["UCP_BUSINESS_SIGNING_ALG", "ucp_business_signing_alg"],
       ["UCP_BUSINESS_SIGNING_PRIVATE_JWK", "ucp_business_signing_private_jwk"],
       ["UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS", "ucp_business_signing_previous_public_jwks"],
-      ["UCP_AP2_VERIFIER_URL", "ucp_ap2_verifier_url"],
-      ["UCP_AP2_VERIFIER_AUTH_TOKEN", "ucp_ap2_verifier_auth_token"],
-      ["UCP_AP2_VERIFIER_TIMEOUT_MS", "ucp_ap2_verifier_timeout_ms"],
     ];
     for (const [environmentName, terraformName] of ucpSecretEnvironmentNames) {
       expect(runtimeSecretsStep).toContain(`TF_VAR_${terraformName}:`);
       expect(runtimeSecretsStep).toContain(`export ${environmentName}="\${TF_VAR_${terraformName}`);
     }
 
-    expect(requiredJob).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-    expect(requiredJob).toContain("needs['change-scope'].outputs.cluster_preview == 'true'");
-    expect(requiredJob).toContain("contains(github.event.pull_request.labels.*.name, 'preview')");
     expect(requiredJob).toContain(
-      "Preview deployment and smoke must pass for same-repository deploy-surface PRs and manual preview-label PRs.",
+      'require_job "Deploy Preview and Smoke" "${{ needs[\'preview-deploy-smoke\'].result }}" "${{ needs[\'change-scope\'].outputs.preview_deploy_smoke_required }}"',
     );
-    expect(requiredJob).toContain(
-      "Preview deployment had an unexpected result when it was not required: ${preview_result}.",
-    );
+    expect(requiredJob).not.toContain("github.event.pull_request.head.repo.full_name == github.repository");
   });
 
   it("keeps non-blocking coverage off merge groups and on a daily workflow", () => {
@@ -1760,6 +3096,72 @@ describe("DigitalOcean platform configuration", () => {
     expect(renderPlatformHelmValuesScript).not.toContain("secretName: `${previewIdentifier}-platform-tls`");
   });
 
+  it("#9268: staging deploys converge the preview DNS-01 token and fail closed on an unhealthy preview wildcard", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+
+    // The token is passed only as an env secret; the script pipes it to
+    // kubectl stdin through applyDoksDnsTokenSecret, never through argv.
+    const convergeStep = workflowStep(stagingJob, "Converge staging preview DNS-01 token and renewal");
+    expect(convergeStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(convergeStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(convergeStep).toContain("run: node ./scripts/preview-wildcard-certificate.mjs converge");
+    expect(convergeStep).not.toMatch(/converge.*DIGITALOCEAN_ACCESS_TOKEN/);
+    expect(convergeStep).not.toContain("continue-on-error");
+
+    const guardStep = workflowStep(stagingJob, "Verify staging preview wildcard certificate");
+    expect(guardStep).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 600",
+    );
+    expect(guardStep).not.toContain("continue-on-error");
+    expect(guardStep).not.toContain("secrets.");
+
+    // Converge runs as soon as the staging kube context exists; the guard
+    // runs after the rollout promote/abort pair (so a preview TLS fault never
+    // aborts the app rollout) but before staging is marked applied.
+    const indexOf = (name) => stagingJob.indexOf(`- name: ${name}`);
+    expect(indexOf("Converge staging preview DNS-01 token and renewal")).toBeGreaterThan(
+      indexOf("Configure staging Kubernetes context"),
+    );
+    expect(indexOf("Converge staging preview DNS-01 token and renewal")).toBeLessThan(
+      indexOf("Deploy staging Kubernetes release"),
+    );
+    expect(indexOf("Verify staging preview wildcard certificate")).toBeGreaterThan(
+      indexOf("Abort staging Argo Rollouts"),
+    );
+    expect(indexOf("Verify staging preview wildcard certificate")).toBeLessThan(indexOf("Mark staging applied"));
+
+    // Production never hosts previews and keeps its own add-on install path.
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    expect(productionJob).not.toContain("preview-wildcard-certificate.mjs");
+
+    // Preview deploys read the source Certificate once: fail on not-Ready or
+    // expired, warn inside the 14-day floor, never poll.
+    const previewVerifyStep = workflowStep(
+      workflowJob(platformPrWorkflow, "preview-deploy-smoke"),
+      "Verify preview TLS secret",
+    );
+    expect(previewVerifyStep).toContain(
+      "node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 0 --warn-remaining-days 14",
+    );
+    expect(previewVerifyStep).not.toContain("--wait-seconds");
+    expect(previewVerifyStep).not.toContain("converge");
+
+    // On-demand restore: confirmed dispatch only, serialized with staging
+    // deploys, same converge + guard, token via env only.
+    expect(platformPreviewWildcardTlsWorkflow).toMatch(/^on:\n  workflow_dispatch:\n/m);
+    expect(platformPreviewWildcardTlsWorkflow).not.toMatch(/^\s+(schedule|push|pull_request):/m);
+    expect(platformPreviewWildcardTlsWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformPreviewWildcardTlsWorkflow).toContain("if: inputs.confirm != 'restore preview wildcard tls'");
+    expect(platformPreviewWildcardTlsWorkflow).toContain("environment: staging");
+    const restoreJob = workflowJob(platformPreviewWildcardTlsWorkflow, "restore-preview-wildcard-tls");
+    expect(workflowStep(restoreJob, "Converge staging preview DNS-01 token and renewal")).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs converge",
+    );
+    expect(workflowStep(restoreJob, "Verify preview wildcard certificate")).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 900",
+    );
+  });
+
   it("gates route-matrix evidence generation on the segment-level projection lag SLO regression gate", () => {
     expect(platformStagingRouteMatrixEvidenceWorkflow).toContain(
       "Evaluate segment-level projection lag SLO regression gate",
@@ -1818,13 +3220,13 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingJob).toContain("TF_VAR_stripe_connect_accounts_api: ${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}");
     expect(stagingJob).toContain("TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}");
     expect(productionJob).toContain(
-      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+      "TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+      "TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
     );
     expect(productionJob).toContain(
-      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
     );
     expect(resetJob).toContain('echo "TF_VAR_platform_image_tag=${release_commit}" >> "$GITHUB_ENV"');
 
@@ -1834,9 +3236,14 @@ describe("DigitalOcean platform configuration", () => {
     ];
 
     for (const step of deployPlanApplySteps) {
-      expect(step).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-      expect(step).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
-      expect(step).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      for (const binding of [
+        "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+        "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+        "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+      ]) {
+        expect(carriesExactProviderCredentials(step.replaceAll(binding, ""))).toBe(false);
+      }
     }
 
     const resetPlanApplySteps = [
@@ -1844,9 +3251,14 @@ describe("DigitalOcean platform configuration", () => {
       ...workflowSteps(platformStagingResetWorkflow, "Terraform apply staging recreate"),
     ];
     for (const step of resetPlanApplySteps) {
-      expect(step).toContain("TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
-      expect(step).toContain("TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}");
-      expect(step).toContain("TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}");
+      expect(carriesExactProviderCredentials(step)).toBe(true);
+      for (const binding of [
+        "TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+        "TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}",
+        "TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}",
+      ]) {
+        expect(carriesExactProviderCredentials(step.replaceAll(binding, ""))).toBe(false);
+      }
     }
   });
 
@@ -2155,7 +3567,84 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain(
       "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
     );
-    expect(platformProductionWorkflow).not.toContain("representative-commerce-state:production");
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).not.toContain(
+      "representative-commerce-state:production",
+    );
+  });
+
+  it("runs representative commerce state in the exact staging release before Buy Now and retains fail-closed evidence", () => {
+    const deployStagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const deployProductionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const deployStep = workflowStep(platformProductionWorkflow, "Deploy staging Kubernetes release");
+    const representativeStep = workflowStep(platformProductionWorkflow, "Await staging projection convergence");
+    const uploadStep = workflowStep(platformProductionWorkflow, "Upload staging Buy Now probe evidence");
+    const buyNowStep = workflowStep(platformProductionWorkflow, "Staging Buy Now freshness probes");
+
+    expect(representativeStep).toContain("set -euo pipefail");
+    expect(representativeStep).not.toContain("continue-on-error");
+    expect(representativeStep).not.toContain("|| true");
+    expect(representativeStep).toContain("KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig");
+    expect(representativeStep).toContain('[ -z "${KUBECONFIG:-}" ] || [ ! -s "$KUBECONFIG" ]');
+    expect(representativeStep).toContain(
+      "EXPECTED_RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}",
+    );
+    expect(representativeStep).toContain("EXPECTED_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    expect(representativeStep).toContain("app.kubernetes.io/component=platform-api");
+    expect(representativeStep).toContain('name == "platform-api" and .ready == true');
+    expect(representativeStep).toContain(".imageID | endswith($image_digest)");
+    expect(representativeStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(representativeStep).toContain("--container platform-api");
+    expect(representativeStep).toContain("DEPLOYMENT_ENVIRONMENT=staging");
+    expect(representativeStep).toContain("REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce'");
+    expect(representativeStep).toContain(
+      "pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
+    );
+    expect(representativeStep).toContain("kubectl cp");
+    expect(representativeStep).toContain('test -s "$evidence_path"');
+    expect(representativeStep).toContain("representative-commerce-state.evidence/v2");
+    expect(representativeStep).toContain('.type == "representative-commerce-state.complete"');
+    expect(representativeStep).toContain('.environmentName == "staging"');
+    expect(representativeStep).toContain('representative-commerce-state"\n            ]');
+    expect(representativeStep).toContain("staging-representative-commerce-state-release-binding/v1");
+    expect(representativeStep).toContain("evidenceSha256: $evidenceSha256");
+    expect(uploadStep).toContain("if: always()");
+    expect(uploadStep).toContain("steps.projection_convergence_gate.conclusion != 'skipped'");
+    expect(uploadStep).toContain("artifacts/release-health/staging-representative-commerce-state");
+    expect(uploadStep).toContain("if-no-files-found: error");
+
+    expect(deployStagingJob.indexOf(deployStep)).toBeLessThan(deployStagingJob.indexOf(representativeStep));
+    expect(deployStagingJob.indexOf(representativeStep)).toBeLessThan(deployStagingJob.indexOf(buyNowStep));
+    expect(deployProductionJob).not.toContain("representative-commerce-state:production");
+
+    const propagatesCommandFailure = (source) =>
+      source.includes("set -euo pipefail") && !source.includes("continue-on-error") && !source.includes("|| true");
+    const threadsKubernetesCredential = (source) =>
+      source.includes("KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig") &&
+      source.includes('[ -z "${KUBECONFIG:-}" ] || [ ! -s "$KUBECONFIG" ]');
+    const validatesEvidence = (source) =>
+      source.includes('test -s "$evidence_path"') &&
+      source.includes("representative-commerce-state.evidence/v2") &&
+      source.includes('.type == "representative-commerce-state.complete"') &&
+      source.includes('.environmentName == "staging"');
+    expect(propagatesCommandFailure(representativeStep)).toBe(true);
+    expect(propagatesCommandFailure(representativeStep.replace("set -euo pipefail", "set +e"))).toBe(false);
+    expect(threadsKubernetesCredential(representativeStep)).toBe(true);
+    expect(
+      threadsKubernetesCredential(
+        representativeStep.replace("KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig", ""),
+      ),
+    ).toBe(false);
+    expect(validatesEvidence(representativeStep)).toBe(true);
+    expect(validatesEvidence(representativeStep.replace('test -s "$evidence_path"', "true"))).toBe(false);
+    expect(
+      validatesEvidence(representativeStep.replace("representative-commerce-state.evidence/v2", "malformed")),
+    ).toBe(false);
+    expect(deployProductionJob.includes("representative-commerce-state:production")).toBe(false);
+    expect(
+      `${deployProductionJob}\n pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production`.includes(
+        "representative-commerce-state:production",
+      ),
+    ).toBe(true);
   });
 
   it("records the DOKS release and namespace in emergency and rollback-readiness evidence", () => {
@@ -2171,6 +3660,68 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("bounds production stale pending-upgrade recovery to the exact #7504 main workflow", () => {
+    const recoveryJob = workflowJob(
+      platformProductionStaleHelmRecoveryWorkflow,
+      "recover-production-stale-helm-upgrade",
+    );
+    const authenticateStep = workflowStep(recoveryJob, "Authenticate immutable recovery identities");
+    const contextStep = workflowStep(recoveryJob, "Configure production Kubernetes context");
+    const ociStep = workflowStep(recoveryJob, "Authenticate production OCI identity");
+    const recoverStep = workflowStep(recoveryJob, "Recover exact stable stale pending-upgrade frontier");
+    const verifyIdentitiesStep = workflowStep(recoveryJob, "Verify immutable identities after recovery");
+    const uploadStep = workflowStep(recoveryJob, "Upload production stale Helm recovery evidence");
+
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("group: platform-registry-mutation");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("cancel-in-progress: false");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("actions: read");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("recover issue 7504 stale pending upgrade");
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/7504",
+    );
+    expect(platformProductionStaleHelmRecoveryWorkflow).toContain("github.ref != 'refs/heads/main'");
+    expect(recoveryJob).toContain("environment: production");
+    expect(recoveryJob).not.toMatch(/branches\/main\/protection|deployment-branch-policies|can_admins_bypass/);
+    expect(recoveryJob).not.toMatch(/recovery-authority|recovery-retry|prevent_self_review|required_reviewers/);
+
+    expect(authenticateStep).toContain("git/ref/heads/main");
+    expect(authenticateStep).toContain('if [ "$GITHUB_SHA" != "$current_main" ]');
+    expect(authenticateStep).toContain('marker_commit="$(git rev-parse origin/production)"');
+    expect(authenticateStep).toContain('if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ]');
+    expect(authenticateStep).toContain('tag_commit="$(git rev-list -n 1 "$RECOVERY_RELEASE_TAG")"');
+    expect(contextStep).toContain("doks/production.tfstate");
+    expect(contextStep).toContain("terraform output -raw cluster_id");
+    expect(contextStep).toContain("terraform output -raw cluster_name");
+    expect(contextStep).not.toMatch(/terraform\s+(?:apply|destroy)|helm\s+(?:rollback|upgrade|uninstall)/);
+
+    expect(ociStep).toContain('if [ "$registry_name" != "chase-sets" ]');
+    expect(ociStep).toContain('if [ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ]');
+    expect(ociStep).toContain("docker buildx imagetools inspect");
+    expect(recoverStep).toContain("recover-stale-pending-upgrade");
+    expect(recoverStep).toContain('--revision "$RECOVERY_SOURCE_REVISION"');
+    expect(recoverStep).toContain('--pending-revision "$RECOVERY_PENDING_REVISION"');
+    expect(recoverStep).toContain('--source-description "$RECOVERY_SOURCE_DESCRIPTION"');
+    expect(recoverStep).toContain('--pending-description "$RECOVERY_PENDING_DESCRIPTION"');
+    expect(recoverStep).toContain('--admission-out "$evidence_dir/admission.json"');
+    expect(recoverStep).toContain('--out "$evidence_dir/recovery.json"');
+    expect(recoverStep).not.toMatch(/helm\s+(?:rollback|upgrade|uninstall)|kubectl\s+(?:patch|delete)/);
+    expect(verifyIdentitiesStep).toContain('if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ]');
+    expect(verifyIdentitiesStep).toContain('[ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ]');
+    expect(verifyIdentitiesStep).toContain(
+      '[ "${{ steps.recover.outputs.recovery_observed_digest }}" != "$RECOVERY_PLATFORM_DIGEST" ]',
+    );
+
+    const orderedSteps = [authenticateStep, contextStep, ociStep, recoverStep, verifyIdentitiesStep, uploadStep];
+    expect(orderedSteps.map((step) => recoveryJob.indexOf(step))).toEqual(
+      [...orderedSteps].map((step) => recoveryJob.indexOf(step)).sort((left, right) => left - right),
+    );
+    expect(uploadStep).toContain("if: always()");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).toContain(
+      "platform-production-stale-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+  });
+
   it("captures production rollback identity before mutation and passes the exact successful revision", () => {
     const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
     const captureStep = workflowStep(productionJob, "Capture production rollback target");
@@ -2179,8 +3730,11 @@ describe("DigitalOcean platform configuration", () => {
     const releaseStateStep = workflowStep(productionJob, "Resolve terminal release state");
     const releaseHealthStep = workflowStep(productionJob, "Write release health summary");
 
-    expect(platformProductionWorkflow.indexOf("- name: Capture production rollback target")).toBeLessThan(
-      platformProductionWorkflow.indexOf("- name: Deploy production Kubernetes release"),
+    expect(productionJob.indexOf("- name: Capture production rollback target")).toBeLessThan(
+      productionJob.indexOf("- name: Terraform apply"),
+    );
+    expect(productionJob.indexOf("- name: Reconcile production managed Postgres CA trust")).toBeLessThan(
+      productionJob.indexOf("- name: Evaluate production rollback readiness"),
     );
     expect(captureStep).toContain("capture-rollback-target");
     expect(captureStep).toContain('--tag="$last_known_good_commit"');
@@ -2206,6 +3760,142 @@ describe("DigitalOcean platform configuration", () => {
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
     );
+  });
+
+  it("offers the admission retry only under the workflow rollback's eligibility and reads its attempts record", () => {
+    const attemptsPath = "artifacts/release-health/production-kubernetes-deploy-attempts.json";
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const deployStep = workflowStep(productionJob, "Deploy production Kubernetes release");
+    const verifyStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    const classifyStep = workflowStep(productionJob, "Classify production deployment failure");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+
+    expect(deployStep).toContain("ADMISSION_RETRY_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result }}");
+    expect(deployStep).toContain(
+      "ADMISSION_RETRY_ROLLBACK_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}",
+    );
+    expect(deployStep).toContain(
+      [
+        'if [ "$ADMISSION_RETRY_READINESS_RESULT" = "success" ] && node ./scripts/agent-grant-revocation-release.mjs check-rollback \\',
+        '            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \\',
+        '            --commit "$ADMISSION_RETRY_ROLLBACK_COMMIT"; then',
+        '            admission_retry_args=(--admission-retry-rollback-target "artifacts/release-health/production-rollback-target.json")',
+        "          fi",
+      ].join("\n"),
+    );
+    // The workflow rollback is gated by the same readiness result and check-rollback commit.
+    expect(rollbackStep).toContain("steps.rollback_readiness.outputs.result == 'success'");
+    expect(rollbackStep).toContain('--commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"');
+    expect(deployStep).toContain(`--attempts-out "${attemptsPath}"`);
+    expect(deployStep).toContain('"${admission_retry_args[@]}"');
+    expect(deployStep).toContain('--timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"');
+    expect(platformProductionWorkflow.split("--admission-retry-rollback-target")).toHaveLength(2);
+    expect(verifyStep).toContain(`--deploy-attempts "${attemptsPath}"`);
+    expect(classifyStep).toContain(`--diagnostics ${attemptsPath}`);
+
+    expect(stagingJob).not.toContain("--attempts-out");
+    expect(stagingJob).not.toContain("--admission-retry-rollback-target");
+    expect(stagingJob).not.toContain("deploy-attempts");
+    expect(workflowStep(stagingJob, "Deploy staging Kubernetes release")).toContain(
+      "platform:kubernetes-deployment -- deploy",
+    );
+    for (const job of [productionJob, stagingJob]) {
+      expect(job).toContain("\n    timeout-minutes: 180\n");
+    }
+
+    expect(doksPlatformOperationsRunbook).toContain("### Admission-Webhook Transient Retry (#9662)");
+    expect(doksPlatformOperationsRunbook).toContain("doks-admission-webhook-unreachable");
+    expect(doksPlatformOperationsRunbook).toContain("If both attempts fail");
+    expect(doksPlatformOperationsRunbook).toContain("rerun the failed Platform Deploy run");
+  });
+
+  it("binds production marker recovery callers and handoff outputs to the verified producer", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const recoveryStep = workflowStep(productionJob, "Capture production rollback target");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const transitionStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    for (const step of [recoveryStep, markerStep, transitionStep]) {
+      expect(step).toContain("GITHUB_TOKEN: ${{ github.token }}");
+      expect(step).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
+      expect(step).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    }
+    expect(recoveryStep).toContain("production-release-marker.mjs reconcile");
+    expect(recoveryStep.indexOf("production-release-marker.mjs reconcile")).toBeLessThan(
+      recoveryStep.indexOf("git fetch origin production --tags"),
+    );
+    expect(markerStep).toContain("production-release-marker.mjs publish");
+    expect(transitionStep).toContain("production-release-marker.mjs retain-identity");
+    expect(recoveryStep).not.toContain("id: production_marker");
+    for (const name of ["Write promoted release handoff", "Upload promoted release handoff"]) {
+      expect(workflowStep(productionJob, name)).toContain(
+        "if: steps.production_marker.outputs.marker_updated == 'true'",
+      );
+    }
+    expect(workflowStep(productionJob, "Write promoted release handoff")).toContain(
+      '--producer-run-attempt "${{ github.run_attempt }}"',
+    );
+    expect(workflowStep(productionJob, "Resolve terminal release state")).toContain(
+      "steps.production_marker.outputs.marker_updated || 'false'",
+    );
+    expect(workflowStep(productionJob, "Write release health summary")).toContain(
+      "steps.production_marker.outputs.marker_mismatch == 'true'",
+    );
+  });
+
+  it("verifies and uploads the exact production Kubernetes transition before every failure handler and marker", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const promoteStep = workflowStep(productionJob, "Promote production Argo Rollouts");
+    const verifyStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    const uploadStep = workflowStep(productionJob, "Upload production Kubernetes deployment transition");
+    const abortStep = workflowStep(productionJob, "Abort production Argo Rollouts");
+    const diagnosticsStep = workflowStep(productionJob, "Capture post-cutover production Kubernetes diagnostics");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const releaseHealthUpload = workflowStep(productionJob, "Upload release health summary");
+
+    const orderedSteps = [promoteStep, verifyStep, uploadStep, abortStep, diagnosticsStep, rollbackStep, markerStep];
+    expect(orderedSteps.map((step) => productionJob.indexOf(step))).toEqual(
+      [...orderedSteps].map((step) => productionJob.indexOf(step)).sort((left, right) => left - right),
+    );
+    expect(productionJob.indexOf('echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"')).toBeLessThan(
+      productionJob.indexOf(verifyStep),
+    );
+
+    expect(verifyStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(verifyStep).not.toContain("ARGO_ROLLOUTS_ENABLED == 'true'");
+    expect(verifyStep).toContain("verify-deployment-transition");
+    expect(verifyStep).toContain('--rollback-target "artifacts/release-health/production-rollback-target.json"');
+    expect(verifyStep).toContain('--out "artifacts/release-health/production-kubernetes-deployment-transition.json"');
+    expect(verifyStep).not.toMatch(/DIGITALOCEAN_ACCESS_TOKEN|SPACES_ACCESS_ID|SPACES_SECRET_KEY|TF_VAR_/);
+
+    expect(uploadStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(uploadStep).not.toContain("ARGO_ROLLOUTS_ENABLED == 'true'");
+    expect(uploadStep).toContain("uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+    expect(uploadStep).toContain("name: production-kubernetes-deployment-transition");
+    expect(uploadStep).toContain("path: artifacts/release-health/production-kubernetes-deployment-transition.json");
+    expect(uploadStep).toContain("if-no-files-found: error");
+    expect(uploadStep).not.toMatch(/DIGITALOCEAN_ACCESS_TOKEN|SPACES_ACCESS_ID|SPACES_SECRET_KEY|TF_VAR_/);
+    expect(releaseHealthUpload).toContain("artifacts/release-health/production-kubernetes-deployment-transition.json");
+  });
+
+  it("keeps deployment-transition verification out of staging, rollback, and incident-resolution call sites", () => {
+    for (const workflow of [
+      platformStagingHelmRecoveryWorkflow,
+      platformStagingRollbackDrillWorkflow,
+      platformRollbackReadinessWorkflow,
+    ]) {
+      expect(workflow).not.toContain("verify-deployment-transition");
+    }
+
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+    expect(rollbackStep).toContain("platform:kubernetes-deployment -- rollback");
+    expect(rollbackStep).not.toContain("verify-deployment-transition");
+
+    const incidentJob = workflowJob(platformProductionWorkflow, "close-resolved-deploy-incidents");
+    expect(incidentJob).toContain('startswith("Incident: Platform Deploy ")');
+    expect(incidentJob).not.toContain("verify-deployment-transition");
   });
 
   it("runs the database restore drill as a confirmed staging-only monthly workflow", () => {
@@ -2606,7 +4296,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingBuyNowProbesStep).toContain("--flow account");
     expect(stagingBuyNowProbesStep).toContain("PLATFORM_ADMIN_EMAIL");
     expect(stagingBuyNowEvidenceStep).toContain(
-      "if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'",
+      "if: always() && env.SHOULD_DEPLOY != 'false' && (steps.projection_convergence_gate.conclusion != 'skipped' || steps.buy_now_probes.conclusion != 'skipped')",
     );
     expect(stagingBuyNowEvidenceStep).toContain("staging-buy-now-freshness-probes");
     expect(stagingBuyNowEvidenceStep).toContain("artifacts/release-health/account-buy-now-freshness-probe.json");
@@ -2718,6 +4408,37 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow.indexOf("- name: Staging Stripe money smoke")).toBeLessThan(
       markStagingDeployedIndex,
     );
+  });
+
+  it("carries the scenario seed bootstrap error into the advisory step summary and incident comment", () => {
+    const advisoryEvidenceJob = workflowJob(platformStagingAdvisoryEvidenceWorkflow, "staging-advisory-evidence");
+    const summarizeStep = workflowStep(platformStagingAdvisoryEvidenceWorkflow, "Summarize staging advisory evidence");
+    const notifyStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Create, update, or resolve advisory evidence incident",
+    );
+
+    // The seed step is continue-on-error, so the pod's bootstrap error only reaches a human if the
+    // summarize step lifts it out of the failure record and the notify step repeats it on the incident.
+    expect(summarizeStep).toContain("id: summarize");
+    expect(summarizeStep).toContain(
+      "scenario_seed_error=\"$(jq -r '.bootstrapError // empty' artifacts/staging-advisory-evidence/scenario-seed.json)\"",
+    );
+    expect(summarizeStep).toContain('echo "scenario_seed_error<<SCENARIO_SEED_ERROR_EOF"');
+    expect(summarizeStep).toContain('} >> "$GITHUB_OUTPUT"');
+    expect(summarizeStep).toContain('echo "Scenario seed bootstrap error: ${scenario_seed_error:-none captured}"');
+    expect(summarizeStep.indexOf('echo "Scenario seed bootstrap error')).toBeLessThan(
+      summarizeStep.indexOf('} >> "$GITHUB_STEP_SUMMARY"'),
+    );
+    expect(advisoryEvidenceJob).toContain("scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}");
+    expect(notifyStep).toContain(
+      "SCENARIO_SEED_ERROR: ${{ needs.staging-advisory-evidence.outputs.scenario_seed_error }}",
+    );
+    expect(notifyStep).toContain("- Scenario seed bootstrap error: ${SCENARIO_SEED_ERROR:-none captured}");
+
+    // The uploaded evidence record keeps its v2 shape; the bootstrap error travels as a job output only.
+    expect(summarizeStep).toContain('schemaVersion:"staging-advisory-evidence/v2"');
+    expect(summarizeStep).not.toContain("bootstrapError:");
   });
 
   it("binds each deployed Playwright project to its own host and never crosses deployables", () => {

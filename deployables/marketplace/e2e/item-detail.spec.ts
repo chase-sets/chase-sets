@@ -1,5 +1,11 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
+import {
+  captureAccessibilityEvidence,
+  captureResponsiveEvidence,
+  expectAccessibleDisclosure,
+  expectAccessibleMain,
+} from "@chase-sets/playwright-evidence";
+import sharp from "sharp";
 import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 
 // Charter scope: this spec owns the browse -> item-detail composition wiring that
@@ -12,6 +18,7 @@ import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 // runs it. Playwright auto-discovers this file via the marketplace testMatch glob.
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
+const seededDetailPath = marketplaceBrowserE2eSeedContract.itemDetail.routePath;
 
 async function expectPageOk(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "domcontentloaded" });
@@ -19,16 +26,235 @@ async function expectPageOk(page: Page, path: string) {
   expect(response!.status(), `${path} returned HTTP ${response!.status()}`).toBeLessThan(400);
 }
 
-test.describe("marketplace item detail", () => {
-  test("searches from the persistent item-detail header @marketplace-browse", async ({ page }) => {
-    await expectPageOk(page, "/search");
+async function openSeededSearchResult(page: Page, colorScheme: "light" | "dark" = "light") {
+  await page.emulateMedia({ colorScheme });
+  await expectPageOk(page, `/search?q=${encodeURIComponent(searchQuery)}`);
+  await page.waitForLoadState("load");
+  const detailLink = page.locator(`article > a[href="${seededDetailPath}"]`);
+  await expect(detailLink, `Search must render the seeded ${seededDetailPath} result`).toHaveCount(1);
+  await expect(detailLink).toBeVisible();
+  return detailLink;
+}
 
-    const pageSearch = page.getByRole("searchbox", { name: "Marketplace search" });
-    await pageSearch.fill(searchQuery);
-    const detailLink = page.getByRole("link", { name: /View details for/i }).first();
-    await expect(detailLink).toBeVisible();
-    await detailLink.click();
-    await expect(page).toHaveURL(/\/items\//);
+async function proveLinkHydrated(link: Locator) {
+  await expect
+    .poll(() => link.evaluate((element) => Object.keys(element).some((key) => key.startsWith("__reactProps$"))))
+    .toBe(true);
+}
+
+async function decodeScreenshot(png: Buffer) {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  return { data, width: info.width, height: info.height, channels: info.channels };
+}
+
+function changedPixelsInBand(
+  before: Awaited<ReturnType<typeof decodeScreenshot>>,
+  after: Awaited<ReturnType<typeof decodeScreenshot>>,
+  band: { x: number; y: number; width: number; height: number },
+) {
+  let changed = 0;
+  for (let y = band.y; y < band.y + band.height; y += 1) {
+    for (let x = band.x; x < band.x + band.width; x += 1) {
+      const offset = (y * before.width + x) * before.channels;
+      if ([0, 1, 2].some((channel) => Math.abs(before.data[offset + channel]! - after.data[offset + channel]!) > 8)) {
+        changed += 1;
+      }
+    }
+  }
+  return { changed, total: band.width * band.height };
+}
+
+async function assertBorderExcludedFocusInk(page: Page, detailLink: Locator, mode: "light" | "dark") {
+  const article = detailLink.locator("..");
+  await article.scrollIntoViewIfNeeded();
+  expect(
+    await page.evaluate(() => window.devicePixelRatio),
+    "focus oracle requires one CSS pixel per screenshot pixel",
+  ).toBe(1);
+  const focusContract = await detailLink.evaluate((link) => {
+    const card = link.closest("article");
+    const focusable = card
+      ? Array.from(
+          card.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ),
+        )
+      : [];
+    return {
+      firstFocusableIsBase: focusable[0] === link,
+      articleRole: card?.getAttribute("role") ?? null,
+      articleTabIndex: card?.getAttribute("tabindex") ?? null,
+    };
+  });
+  expect(focusContract).toEqual({ firstFocusableIsBase: true, articleRole: null, articleTabIndex: null });
+
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const beforeBox = await article.boundingBox();
+  expect(beforeBox, `${mode} Search Result card must have populated geometry`).not.toBeNull();
+  const beforePng = await page.screenshot({ clip: beforeBox! });
+
+  const focusBaseByTab = async (label: string) => {
+    let reachedByTab = false;
+    for (let index = 0; index < 50; index += 1) {
+      await page.keyboard.press("Tab");
+      if (await detailLink.evaluate((link) => document.activeElement === link)) {
+        reachedByTab = true;
+        break;
+      }
+    }
+    expect(reachedByTab, `${mode} ${label} base detail anchor must be reachable through keyboard Tab`).toBe(true);
+    expect(await detailLink.evaluate((link) => link.matches(":focus-visible"))).toBe(true);
+  };
+  await focusBaseByTab("candidate");
+  const afterBox = await article.boundingBox();
+  expect(afterBox, `${mode} focused Search Result card must retain populated geometry`).not.toBeNull();
+  expect({ width: afterBox!.width, height: afterBox!.height }).toEqual({
+    width: beforeBox!.width,
+    height: beforeBox!.height,
+  });
+  const afterPng = await page.screenshot({ clip: afterBox! });
+  const before = await decodeScreenshot(beforePng);
+  const after = await decodeScreenshot(afterPng);
+  expect({ width: after.width, height: after.height, channels: after.channels }).toEqual({
+    width: before.width,
+    height: before.height,
+    channels: before.channels,
+  });
+
+  const start = 2;
+  const depth = 2;
+  const corner = 14;
+  const bands = {
+    top: { x: corner, y: start, width: before.width - corner * 2, height: depth },
+    bottom: {
+      x: corner,
+      y: before.height - start - depth,
+      width: before.width - corner * 2,
+      height: depth,
+    },
+    left: { x: start, y: corner, width: depth, height: before.height - corner * 2 },
+    right: {
+      x: before.width - start - depth,
+      y: corner,
+      width: depth,
+      height: before.height - corner * 2,
+    },
+  };
+  const deltas = Object.fromEntries(
+    Object.entries(bands).map(([name, band]) => [name, changedPixelsInBand(before, after, band)]),
+  );
+  console.log(`Search Result border-excluded focus ink (${mode}): ${JSON.stringify(deltas)}`);
+  for (const [name, delta] of Object.entries(deltas)) {
+    expect(
+      delta.changed / delta.total,
+      `${mode} ${name} band must contain inset-1.5 peer-ring ink beyond the border/anti-alias rows`,
+    ).toBeGreaterThanOrEqual(0.8);
+  }
+
+  const visualRing = article.locator(':scope > span[aria-hidden="true"]');
+  await expect(visualRing).toHaveCount(1);
+  const candidateRingClass = await visualRing.getAttribute("class");
+  for (const mutant of [
+    {
+      name: "clipped inset-0 ring",
+      className: "focus-ring pointer-events-none absolute inset-0 z-40 rounded-tokenMd",
+    },
+    {
+      name: "no ring",
+      className: "pointer-events-none absolute inset-1.5 z-40 rounded-tokenSm",
+    },
+  ]) {
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await visualRing.evaluate((ring, className) => ring.setAttribute("class", className), mutant.className);
+    const mutantBeforeBox = await article.boundingBox();
+    expect(mutantBeforeBox, `${mode} ${mutant.name} unfocused card geometry`).not.toBeNull();
+    const mutantBeforePng = await page.screenshot({ clip: mutantBeforeBox! });
+    await focusBaseByTab(mutant.name);
+    const mutantAfterBox = await article.boundingBox();
+    expect(mutantAfterBox, `${mode} ${mutant.name} focused card geometry`).not.toBeNull();
+    expect({ width: mutantAfterBox!.width, height: mutantAfterBox!.height }).toEqual({
+      width: mutantBeforeBox!.width,
+      height: mutantBeforeBox!.height,
+    });
+    const mutantAfterPng = await page.screenshot({ clip: mutantAfterBox! });
+    const mutantBefore = await decodeScreenshot(mutantBeforePng);
+    const mutantAfter = await decodeScreenshot(mutantAfterPng);
+    const mutantDeltas = Object.fromEntries(
+      Object.entries(bands).map(([name, band]) => [name, changedPixelsInBand(mutantBefore, mutantAfter, band)]),
+    );
+    console.log(`Search Result border-excluded focus ink (${mode}, ${mutant.name}): ${JSON.stringify(mutantDeltas)}`);
+    for (const [name, delta] of Object.entries(mutantDeltas)) {
+      expect(
+        delta.changed / delta.total,
+        `${mode} ${mutant.name} ${name} band must fail the candidate focus-ink threshold`,
+      ).toBeLessThan(0.05);
+    }
+  }
+  await visualRing.evaluate((ring, className) => ring.setAttribute("class", className), candidateRingClass!);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await focusBaseByTab("restored candidate");
+
+  return detailLink;
+}
+
+test.describe("marketplace item detail", () => {
+  test("opens item detail from Search Result card media without an action intent @marketplace-browse", async ({
+    page,
+    context,
+  }) => {
+    const detailLink = await openSeededSearchResult(page);
+    const article = detailLink.locator("..");
+    const media = article.getByRole("img").first();
+    await expect(media).toBeVisible();
+    const mediaBox = await media.boundingBox();
+    expect(mediaBox, "seeded Search Result media must have populated geometry").not.toBeNull();
+    const point = { x: mediaBox!.x + mediaBox!.width / 2, y: mediaBox!.y + mediaBox!.height / 2 };
+    expect(
+      await detailLink.evaluate(
+        (link, coordinates) => document.elementFromPoint(coordinates.x, coordinates.y) === link,
+        point,
+      ),
+    ).toBe(true);
+    expect(await article.evaluate((card) => getComputedStyle(card).cursor)).toBe("pointer");
+    await page.mouse.move(0, 0);
+    const restingBorder = await article.evaluate((card) => getComputedStyle(card).borderColor);
+    await page.mouse.move(point.x, point.y);
+    await expect.poll(() => article.evaluate((card) => getComputedStyle(card).borderColor)).not.toBe(restingBorder);
+
+    await assertBorderExcludedFocusInk(page, detailLink, "light");
+    const focusedMediaBox = await media.boundingBox();
+    expect(focusedMediaBox, "focused modifier-open media must retain populated geometry").not.toBeNull();
+    const focusedMediaPoint = {
+      x: focusedMediaBox!.x + focusedMediaBox!.width / 2,
+      y: focusedMediaBox!.y + focusedMediaBox!.height / 2,
+    };
+    const sourceUrl = page.url();
+    const modifierPagePromise = context.waitForEvent("page");
+    await page.keyboard.down("Control");
+    await page.mouse.click(focusedMediaPoint.x, focusedMediaPoint.y);
+    await page.keyboard.up("Control");
+    const modifierPage = await modifierPagePromise;
+    await modifierPage.waitForLoadState("domcontentloaded");
+    await expect(modifierPage).toHaveURL(new URL(seededDetailPath, sourceUrl).href);
+    expect(page.url()).toBe(sourceUrl);
+    await modifierPage.close();
+
+    const navigationMediaBox = await media.boundingBox();
+    expect(navigationMediaBox, "document-navigation media must retain populated geometry").not.toBeNull();
+    const navigationPoint = {
+      x: navigationMediaBox!.x + navigationMediaBox!.width / 2,
+      y: navigationMediaBox!.y + navigationMediaBox!.height / 2,
+    };
+    const expectedDetailUrl = new URL(seededDetailPath, page.url()).href;
+    const detailResponsePromise = page.waitForResponse(
+      (response) => response.url() === expectedDetailUrl && response.request().resourceType() === "document",
+    );
+    await page.mouse.click(navigationPoint.x, navigationPoint.y);
+    const detailResponse = await detailResponsePromise;
+    expect(detailResponse.status(), "item-detail document should not be a server error").toBeLessThan(400);
+    await expect(page).toHaveURL(expectedDetailUrl);
+    await page.waitForLoadState("load");
+    expect(new URL(page.url()).searchParams.has("market")).toBe(false);
 
     const headerSearch = page.getByRole("combobox", { name: "Search marketplace" });
     await expect(headerSearch).toBeVisible();
@@ -42,29 +268,54 @@ test.describe("marketplace item detail", () => {
     await expect(page.getByRole("searchbox", { name: "Marketplace search" })).toHaveValue("pikachu");
   });
 
-  test("browse search results into the decomposed item-detail route and its commerce panel @marketplace-browse", async ({
+  test("keeps Search Result actions isolated and base navigation browser-native @marketplace-browse", async ({
     page,
   }) => {
-    await expectPageOk(page, "/search");
+    await page.addInitScript(() => {
+      const ledger: unknown[] = [];
+      Object.defineProperty(window, "__issue6874SelectionLedger", { value: ledger });
+      window.addEventListener("chase-sets:item-detail-rail-analytics", (event) => {
+        const detail = (event as CustomEvent).detail;
+        if (detail?.event === "search_result_selected") ledger.push(detail);
+      });
+    });
 
-    const searchBox = page.getByRole("searchbox", { name: "Marketplace search" });
-    await expect(searchBox).toBeVisible();
-    await searchBox.fill(searchQuery);
-    await expect(searchBox).toHaveValue(searchQuery);
+    let detailLink = await openSeededSearchResult(page);
+    const article = detailLink.locator("..");
+    const primaryAction = article.getByRole("link", { name: "Add product to Buy Cart" });
+    await proveLinkHydrated(primaryAction);
+    const actionHref = `${seededDetailPath}?market=buy`;
+    await expect(primaryAction).toHaveAttribute("href", actionHref);
+    await page.evaluate(() => {
+      document.documentElement.dataset.issue6874SourceDocument = "search-source";
+    });
+    const documentRequests: string[] = [];
+    const recordDocumentRequest = (request: { resourceType(): string; url(): string }) => {
+      if (request.resourceType() === "document") documentRequests.push(request.url());
+    };
+    page.on("request", recordDocumentRequest);
+    await primaryAction.click();
+    await expect(page).toHaveURL(new URL(actionHref, page.url()).href);
+    page.off("request", recordDocumentRequest);
+    expect(documentRequests).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.dataset.issue6874SourceDocument)).toBe("search-source");
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { __issue6874SelectionLedger: unknown[] }).__issue6874SelectionLedger,
+      ),
+    ).toEqual([]);
 
-    const detailLink = page.getByRole("link", { name: /View details for/i }).first();
-    await expect(detailLink).toBeVisible();
+    detailLink = await openSeededSearchResult(page, "dark");
+    await assertBorderExcludedFocusInk(page, detailLink, "dark");
 
-    // The search -> item-detail handoff is a real document navigation; assert the
-    // decomposed route both routes to /items/:slug and returns a non-error document.
+    const expectedDetailUrl = new URL(seededDetailPath, page.url()).href;
     const detailResponsePromise = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname.startsWith("/items/") && response.request().resourceType() === "document",
+      (response) => response.url() === expectedDetailUrl && response.request().resourceType() === "document",
     );
-    await detailLink.click();
+    await page.keyboard.press("Enter");
     const detailResponse = await detailResponsePromise;
     expect(detailResponse.status(), "item-detail document should not be a server error").toBeLessThan(400);
-    await expect(page).toHaveURL(/\/items\//);
+    await expect(page).toHaveURL(expectedDetailUrl);
 
     // SSR + hydration composition: the item-detail page renders its title heading,
     // a breadcrumb trail rooted at Home, and the lowest-ask market summary.
@@ -93,6 +344,104 @@ test.describe("marketplace item detail", () => {
       page.getByText(/Time range|Select a condition|No sales recorded yet|Sales history unavailable/i).first(),
     ).toBeVisible({ timeout: 10_000 });
   });
+});
+
+// Charter scope: keeps the populated lowest-ask summary's "All active listings" note
+// clear of its Available fact (#7744). Element boxes cannot discriminate this defect:
+// the lg flex row keeps the note's min-w-0 column and the facts grid disjoint, and the
+// collision is note text overflowing that shrunken column. So the oracle compares the
+// DOM Range client rects of the rendered note text with those of the Available label
+// and value text.
+test.describe("marketplace item detail lowest-ask summary clearance (#7744)", () => {
+  type TextRect = { left: number; top: number; right: number; bottom: number };
+
+  const summaryViewports = [
+    { name: "1280x900 dark", viewport: { width: 1280, height: 900 }, colorScheme: "dark", forcedColors: "none" },
+    {
+      name: "1280x900 light with forced colors",
+      viewport: { width: 1280, height: 900 },
+      colorScheme: "light",
+      forcedColors: "active",
+    },
+    { name: "1024x768 light", viewport: { width: 1024, height: 768 }, colorScheme: "light", forcedColors: "none" },
+    { name: "820x1180 light", viewport: { width: 820, height: 1180 }, colorScheme: "light", forcedColors: "none" },
+    { name: "360x800 light", viewport: { width: 360, height: 800 }, colorScheme: "light", forcedColors: "none" },
+  ] as const;
+
+  function intersects(a: TextRect, b: TextRect) {
+    return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  }
+
+  for (const { name, viewport, colorScheme, forcedColors } of summaryViewports) {
+    test(`keeps the active-listings note clear of the Available fact at ${name} @marketplace-browse`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme, forcedColors });
+      await expectPageOk(page, seededDetailPath);
+      await page.waitForLoadState("load");
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+
+      const summary = page
+        .locator(".modern-surface")
+        .filter({ has: page.getByText("Lowest ask", { exact: true }) })
+        .filter({ has: page.getByText("All active listings", { exact: true }) });
+      await expect(summary, "the populated lowest-ask summary must render exactly once").toHaveCount(1);
+      const note = summary.getByText("All active listings", { exact: true });
+      const availableLabel = summary.getByText("Available", { exact: true });
+      const availableValue = availableLabel.locator("xpath=following-sibling::*[1]");
+      await expect(note).toBeVisible();
+      await expect(availableLabel).toBeVisible();
+      await expect(availableValue).toBeVisible();
+      await expect(availableValue).toHaveText(/^\d[\d,]*$/);
+
+      const geometry = await note.evaluate(
+        (noteElement, [labelElement, valueElement]) => {
+          const textRects = (element: Element) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            return Array.from(range.getClientRects())
+              .filter((rect) => rect.width > 0 && rect.height > 0)
+              .map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
+          };
+          return {
+            note: textRects(noteElement),
+            availableLabel: textRects(labelElement!),
+            availableValue: textRects(valueElement!),
+            documentScrollWidth: document.documentElement.scrollWidth,
+            documentClientWidth: document.documentElement.clientWidth,
+          };
+        },
+        [await availableLabel.elementHandle(), await availableValue.elementHandle()],
+      );
+      await testInfo.attach(`summary-text-rects:${name}`, {
+        body: JSON.stringify(geometry, null, 2),
+        contentType: "application/json",
+      });
+
+      const measured = JSON.stringify(geometry);
+      expect(geometry.note.length, `note text must have positive-area rects: ${measured}`).toBeGreaterThan(0);
+      expect(
+        geometry.availableLabel.length,
+        `Available label must have positive-area rects: ${measured}`,
+      ).toBeGreaterThan(0);
+      expect(
+        geometry.availableValue.length,
+        `Available value must have positive-area rects: ${measured}`,
+      ).toBeGreaterThan(0);
+      const collisions = geometry.note.flatMap((noteRect) =>
+        [...geometry.availableLabel, ...geometry.availableValue]
+          .filter((factRect) => intersects(noteRect, factRect))
+          .map((factRect) => ({ noteRect, factRect })),
+      );
+      expect(collisions, `note text must not intersect the Available fact text: ${measured}`).toEqual([]);
+      expect(geometry.documentScrollWidth, `document must not overflow horizontally: ${measured}`).toBeLessThanOrEqual(
+        geometry.documentClientWidth,
+      );
+    });
+  }
 });
 
 // Charter scope: compacts the mobile Detail Page action dock (#5963). Route identity
@@ -455,6 +804,72 @@ test.describe("marketplace item detail mobile Product options and Market book (#
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     );
   }
+
+  test("6110 expanded item detail passes exclusion-free axe @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, unresolvedProductRoutePath, { width: 390, height: 844 });
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    const mobile = page.locator("main [data-product-options-mobile]");
+    const trigger = mobile.getByRole("button", { name: "Choose options", exact: true });
+    async function ready() {
+      await expect(mobile).toBeVisible();
+      await expectExpandedProductOptions(page);
+      await expect(mobile.getByRole("heading", { level: 2, name: "Choose options", exact: true })).toHaveCount(1);
+      await expect(mobile.locator("h2").getByRole("button", { name: "Choose options", exact: true })).toHaveCount(1);
+      await expectAccessibleDisclosure(trigger);
+      await expectAccessibleMain(page);
+      await expect(mobile.getByRole("region", { name: "Choose options", exact: true })).toBeVisible();
+    }
+    await ready();
+    await testInfo.attach("6110-detail-state", {
+      body: JSON.stringify({
+        url: page.url(),
+        viewport: page.viewportSize(),
+        dom: await mobile.evaluate((element) => ({
+          html: element.outerHTML,
+          bounds: element.getBoundingClientRect().toJSON(),
+          panels: Array.from(element.querySelectorAll('[role="region"]'), (panel) => ({
+            id: panel.id,
+            labelledBy: panel.getAttribute("aria-labelledby"),
+            bounds: panel.getBoundingClientRect().toJSON(),
+          })),
+        })),
+      }),
+      contentType: "application/json",
+    });
+    await ready();
+    await captureAccessibilityEvidence({ page, testInfo, surface: "6110-expanded-item-detail" });
+  });
+
+  test("6110 accessibility helper rejects a real violation @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setContent(
+      '<main><img id="6110-unlabelled-image" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E"></main>',
+    );
+    await expect(page.locator('main [id="6110-unlabelled-image"]')).toHaveCount(1);
+    const failure = await failureMessageOf(
+      captureAccessibilityEvidence({ page, testInfo, surface: "6110-unlabelled-image" }),
+      "the accessibility helper unexpectedly accepted an unlabelled image",
+    );
+    expect(failure).toContain("Accessibility violations on 6110-unlabelled-image");
+    const reports = testInfo.attachments.filter(
+      (attachment) => attachment.name === "accessibility:6110-unlabelled-image",
+    );
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.body).toBeDefined();
+    const report = JSON.parse(reports[0]!.body!.toString()) as {
+      surface: string;
+      scope: string;
+      violations: { id: string; nodes: { html: string }[] }[];
+    };
+    expect(report.surface).toBe("6110-unlabelled-image");
+    expect(report.scope).toBe("main");
+    expect(
+      report.violations.some(
+        (violation) =>
+          violation.id === "image-alt" &&
+          violation.nodes.some((node) => node.html.includes('id="6110-unlabelled-image"')),
+      ),
+    ).toBe(true);
+  });
 
   test("Product options reconcile the real item route after each dependent choice @marketplace-browse", async ({
     page,

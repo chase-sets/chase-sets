@@ -23,6 +23,7 @@ global:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  managedPostgresCaSha256: ""
 observability:
   enabled: false
   environment: ""
@@ -157,6 +158,9 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
+    managedPostgresCa: false
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   marketplace:
     enabled: true
     kind: "service"
@@ -166,8 +170,6 @@ components:
       instanceCountExpression: "local.marketplace_web_instances"
     command: "pnpm --filter @chase-sets/app-marketplace-web run start"
     env:
-      - name: "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"
-        value: "false"
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
       - name: "CHASE_SETS_MARKETPLACE_INDEXING"
@@ -232,6 +234,9 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
+    managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   admin-web:
     enabled: true
     kind: "service"
@@ -264,6 +269,9 @@ components:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
+    managedPostgresCa: false
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   platform-api:
     enabled: true
     kind: "service"
@@ -273,6 +281,16 @@ components:
       instanceCountExpression: "local.api_instances"
     command: "pnpm --filter @chase-sets/app-platform-api run start:production"
     env:
+      - name: "CHASE_SETS_DEPLOYMENT_INSTANCE"
+        value: ""
+      - name: "CHASE_SETS_IMPLEMENTATION_SHA"
+        value: ""
+      - name: "SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON"
+        value: ""
+      - name: "CHASE_SETS_CHECKOUT_CLOSED"
+        value: "false"
+      - name: "CHASE_SETS_OFFER_LIFECYCLE_OPEN"
+        value: "false"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
       - name: "ADMIN_REGISTRATION_ENABLED"
@@ -299,7 +317,19 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_IMPORTS_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
       - name: "CATALOG_INTEGRATION_PROMOTION_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"
         value: ""
@@ -307,6 +337,10 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED"
+        value: "false"
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
       - name: "CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX"
@@ -321,6 +355,48 @@ components:
         value: "5000"
       - name: "DATABASE_POOL_MAX"
         value: "6"
+      - name: "BOOTSTRAP_DATABASE_URL_AUTH"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_AUTHENTICITY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CATALOG"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CHANNELS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CHECKOUT"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_COLLECTIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_COMMERCIAL_TERMS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CUSTOMER_FEEDBACK"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_DISCOVERY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_FULFILLMENT"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_IDENTITY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_INVENTORY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_MARKETPLACE"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_NOTIFICATIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_ORDERING"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PAYMENTS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PLATFORM_OPERATIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PRICING"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PUBLIC_PRESENCE"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        secret: true
+      - name: "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL"
+        secret: true
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "DATABASE_URL_AUTH"
@@ -330,6 +406,21 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "DATABASE_URL_CATALOG"
+      - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+        secret: true
+        secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+      - name: "EBAY_ACCOUNT_DELETION_ENDPOINT"
+        secret: true
+        secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT"
+      - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        secret: true
+        secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secret: true
+        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+      - name: "DATABASE_URL_CHANNELS"
+        secret: true
+        secretKey: "DATABASE_URL_CHANNELS"
       - name: "DATABASE_URL_CATALOG_WAITER"
         secret: true
         secretKey: "DATABASE_URL_CATALOG_WAITER"
@@ -497,15 +588,6 @@ components:
       - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
         secret: true
         secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-      - name: "UCP_AP2_VERIFIER_AUTH_TOKEN"
-        secret: true
-        secretKey: "UCP_AP2_VERIFIER_AUTH_TOKEN"
-      - name: "UCP_AP2_VERIFIER_TIMEOUT_MS"
-        secret: true
-        secretKey: "UCP_AP2_VERIFIER_TIMEOUT_MS"
-      - name: "UCP_AP2_VERIFIER_URL"
-        secret: true
-        secretKey: "UCP_AP2_VERIFIER_URL"
       - name: "UCP_BUSINESS_SIGNING_ALG"
         secret: true
         secretKey: "UCP_BUSINESS_SIGNING_ALG"
@@ -563,6 +645,9 @@ components:
           - 50
           - 100
         pauseAfterWeight: 10
+    managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   platform-worker:
     enabled: true
     kind: "worker"
@@ -572,6 +657,15 @@ components:
       instanceCountExpression: "local.worker_instances"
     command: "pnpm --filter @chase-sets/app-platform-worker run start:production"
     env:
+      - name: "CHASE_SETS_DEPLOYMENT_INSTANCE"
+        value: ""
+      - name: "CHASE_SETS_IMPLEMENTATION_SHA"
+        value: ""
+      - name: "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON"
+        value: ""
+      - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        secret: true
+        secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
       - name: "CATALOG_ASSET_PUBLIC_BASE_URL"
@@ -596,13 +690,27 @@ components:
         value: "1"
       - name: "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
         value: "1"
+      - name: "CHANNELS_OUTBOUND_OPERATION_LANE_COUNT"
+        value: "1"
       - name: "CATALOG_INTEGRATION_ACTIVATION_MODE"
         value: "open"
       - name: "CATALOG_INTEGRATION_CONTROL_PLANE_MODE"
         value: "open"
       - name: "CATALOG_INTEGRATION_IMPORTS_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
       - name: "CATALOG_INTEGRATION_PROMOTION_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"
         value: ""
@@ -610,6 +718,10 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED"
+        value: "false"
       - name: "CHASE_SETS_MARKETPLACE_INDEXING"
         value: "false"
       - name: "CHASE_SETS_RUNTIME_PROFILE"
@@ -629,6 +741,21 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "DATABASE_URL_CATALOG"
+      - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+        secret: true
+        secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+      - name: "EBAY_ACCOUNT_DELETION_ENDPOINT"
+        secret: true
+        secretKey: "EBAY_ACCOUNT_DELETION_ENDPOINT"
+      - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+        secret: true
+        secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
+      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secret: true
+        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+      - name: "DATABASE_URL_CHANNELS"
+        secret: true
+        secretKey: "DATABASE_URL_CHANNELS"
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
         secretKey: "DATABASE_URL_CHECKOUT"
@@ -881,6 +1008,9 @@ components:
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
+    managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   platform-bootstrap:
     enabled: true
     kind: "job"
@@ -912,13 +1042,27 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_IMPORTS_DISABLED"
         value: ""
+      - name: "CATALOG_INTEGRATION_IMPORT_UNITS_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
+      - name: "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE"
+        value: ""
       - name: "CATALOG_INTEGRATION_PROMOTION_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_PROMOTION_UNITS_DISABLED"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP"
         value: ""
       - name: "CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES"
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
+        value: ""
+      - name: "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE"
         value: ""
       - name: "CHASE_SETS_RUNTIME_PROFILE"
         value: "public"
@@ -927,7 +1071,7 @@ components:
       - name: "DATABASE_POOL_IDLE_TIMEOUT_MS"
         value: "5000"
       - name: "DATABASE_POOL_MAX"
-        value: "4"
+        value: "1"
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_AUTH"
@@ -937,6 +1081,9 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_CATALOG"
+      - name: "DATABASE_URL_CHANNELS"
+        secret: true
+        secretKey: "BOOTSTRAP_DATABASE_URL_CHANNELS"
       - name: "DATABASE_URL_CHECKOUT"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_CHECKOUT"
@@ -1059,3 +1206,6 @@ components:
         pollIntervalMs: 2000
         restoreOnFailure: true
         ignoreMissingDeployments: true
+    managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []

@@ -1,32 +1,28 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
-import { InventoryDomainError } from "../../../support/runtime-support/common";
+import { InventoryDomainError, assert } from "../../../support/runtime-support/common";
 import type { InventoryItemServices } from "../../inventory-items/api/runtime";
-import type { InventoryReservationServices } from "../../reservations/api/runtime";
 import {
   decideRestockDecision,
   evolveRestockDecision,
   initialRestockDecisionState,
-  type RestockDecisionCommand,
   type RestockDecisionEvent,
   type RestockDecisionSource,
-  type RestockDecisionState,
 } from "../domain/domain";
 import {
   buildInventoryFulfillmentSourceProjectionHandlers,
   buildInventoryRestockDecisionProjectionHandlers,
 } from "../read-model/projection";
 import { getFulfillmentShipmentSource, getRestockDecision, listPendingRestockDecisions } from "../read-model/queries";
+import { assertNoRetainedRestockStock, loadRestockDecisionHistory } from "./history";
 
 export type RestockDecisionServices = Readonly<{
-  commandHandler: CommandHandler<RestockDecisionCommand, RestockDecisionState, RestockDecisionEvent>;
   markPending: (
     params: Readonly<{
       accountId: string;
@@ -53,6 +49,7 @@ export type RestockDecisionServices = Readonly<{
     params: Readonly<{
       accountId: string;
       decisionId: string;
+      expectedVersion: number;
       outcome: "restocked" | "written-off";
       damageNote?: string | null;
     }>,
@@ -72,11 +69,10 @@ export function restockDecisionId(input: Readonly<{ orderId: string; itemId: str
 
 export function createRestockDecisionRuntime(
   deps: InventoryRuntimeDeps,
-  inventoryItems: InventoryItemServices,
-  reservations: InventoryReservationServices,
+  inventoryItems: Pick<InventoryItemServices, "adjustItem">,
 ): RestockDecisionServices {
   const codec = createPassthroughDomainEventCodec<RestockDecisionEvent>();
-  const { commandHandler, repository } = createAggregateCommandHandler({
+  const { commandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec,
     initialState: () => initialRestockDecisionState,
@@ -120,7 +116,6 @@ export function createRestockDecisionRuntime(
   }
 
   return {
-    commandHandler,
     markPending,
     markShipmentReturned: async (params, context) => {
       const shipment = await getFulfillmentShipmentSource(deps.db, params.shipmentId);
@@ -168,31 +163,21 @@ export function createRestockDecisionRuntime(
     },
     recordDecision: async (params, context) => {
       const streamId = `inventory.restock-decision-${params.decisionId}`;
-      const aggregate = await repository.load(streamId);
-      if (aggregate.state.status === "recorded") {
-        return {
-          decisionId: params.decisionId,
-          version: aggregate.version,
-        };
-      }
-      if (aggregate.state.status !== "pending" || aggregate.state.accountId !== params.accountId) {
+      const aggregate = await loadRestockDecisionHistory(deps, params.decisionId, context);
+      if (aggregate.state.accountId !== params.accountId) {
         throw new InventoryDomainError("Restock decision not found.");
       }
-
-      if (params.outcome === "restocked") {
-        await inventoryItems.adjustItem(
-          {
-            accountId: aggregate.state.accountId,
-            itemId: aggregate.state.itemId!,
-            quantityDelta: aggregate.state.quantity,
-            reason: "return-restocked",
-            reasonCode: "return-restocked",
-            sourceRef: aggregate.state.sourceRef,
-            idempotencyKey: `restock-decision:${params.decisionId}:restocked`,
-          },
-          context,
-        );
-      }
+      assert(aggregate.state.status === "pending", "Restock decision conflicts with its recorded result.");
+      assert(
+        Number.isSafeInteger(params.expectedVersion) && params.expectedVersion === aggregate.version,
+        "Restock decision version conflicts with the current decision.",
+      );
+      await assertNoRetainedRestockStock(deps, aggregate.state, context);
+      const retained = await deps.db.query(
+        "SELECT idempotency_key FROM inventory_item_adjustment_idempotency WHERE idempotency_key = $1",
+        [`restock-decision:${params.decisionId}:restocked`],
+      );
+      assert(retained.rows.length === 0, "Restock decision history is unavailable; reconciliation is required.");
 
       const events = decideRestockDecision(aggregate.state, {
         type: "RecordRestockDecision",
@@ -200,9 +185,30 @@ export function createRestockDecisionRuntime(
         damageNote: params.damageNote ?? null,
         decidedAt: new Date().toISOString(),
       });
+
+      if (params.outcome === "restocked") {
+        const adjustment = {
+          accountId: aggregate.state.accountId,
+          itemId: aggregate.state.itemId!,
+          quantityDelta: aggregate.state.quantity,
+          reason: "return-restocked",
+          reasonCode: "return-restocked",
+          sourceRef: aggregate.state.sourceRef,
+          acquisitionOccurrence: { kind: "unknown" as const },
+        } as const;
+        assert(deps.mutationChild, "Restock stock requires Inventory mutation authority.");
+        await deps.mutationChild(
+          "restock-stock",
+          "item-adjust",
+          adjustment.itemId,
+          adjustment,
+          context,
+          (childContext) => inventoryItems.adjustItem(adjustment, childContext),
+        );
+      }
       const storedEvents = await deps.eventStore.appendToStream({
         streamId,
-        expectedVersion: aggregate.version,
+        expectedVersion: params.expectedVersion,
         events: events.map((event) => codec.encode(event)),
         context,
       });

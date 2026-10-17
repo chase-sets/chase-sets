@@ -445,7 +445,7 @@ const catalogNoConfusionUxNewIaProofTests = [
   // The milestone end-to-end alias-equivalence proof: TCGdex Japanese
   // scope -> import -> candidates -> review -> promotion -> published fact ->
   // English search + display, with stage counts and the revocation scenario.
-  "features/source-observations/api/catalog-integration-alias-equivalence-e2e-proof.test.ts",
+  "scripts/check-structure/catalog-integration-alias-equivalence-e2e-proof.test.mjs",
   // The DB-backed alias persistence acceptance suite that proves the same hops
   // against Postgres, including the full-milestone-flow test.
   "tests/catalog-authoring/acceptance/alias-persistence.test.ts",

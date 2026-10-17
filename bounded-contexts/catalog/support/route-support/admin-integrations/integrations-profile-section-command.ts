@@ -1,6 +1,6 @@
 import type { JsonObject } from "@chase-sets/primitives/json";
-import { CatalogApiError } from "../../../client";
-import type { CatalogProviderProfileVersionReview } from "../../../client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+import type { CatalogProviderProfileVersionReview } from "../../client-support/contracts";
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileEditableSectionKey,

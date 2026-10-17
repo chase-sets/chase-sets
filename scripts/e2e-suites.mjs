@@ -115,6 +115,26 @@ export const e2eSuites = Object.freeze([
     ],
     estimatedDurationSeconds: 90,
   },
+  {
+    id: "tcgplayer_connector_extension",
+    label: "TCGplayer Connector Extension Chromium Authority",
+    deployable: "tcgplayer-connector-extension",
+    journeys: ["extension identity", "callback authority", "popup-less action pairing"],
+    grep: "@tcgplayer-connector-extension-authority",
+    command: ["--filter", "@chase-sets/app-tcgplayer-connector-extension", "run", "test:chromium"],
+    requiresDisplay: true,
+    estimatedDurationSeconds: 180,
+  },
+  {
+    id: "tcgplayer_operator_extension",
+    label: "TCGplayer Operator Extension Isolation",
+    deployable: "tcgplayer-operator-extension",
+    journeys: ["sandbox isolation", "cookie applicability", "retained operator pairing"],
+    grep: "@tcgplayer-operator-extension",
+    command: ["--filter", "@chase-sets/app-tcgplayer-operator-extension", "run", "test:chromium"],
+    requiresDisplay: true,
+    estimatedDurationSeconds: 60,
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
@@ -142,11 +162,15 @@ const browserRuntimePatterns = [
   /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json)$/,
   /^scripts\/validate-responsive-evidence-artifacts\.mjs$/,
   /^scripts\/run-e2e-suite\.mjs$/,
+  /^docker-compose\.dev\.yml$/,
+  /^scripts\/lib\/sandbox\.mjs$/,
+  /^scripts\/dev-system(?:-config)?\.mjs$/,
 ];
 
 const contextSuiteOwnership = new Map([
   ["auth", ["marketplace_account", "admin_auth"]],
   ["catalog", ["marketplace_browse", "catalog_admin_integrations"]],
+  ["channels", ["marketplace_account", "marketplace_seller"]],
   ["checkout", ["marketplace_checkout"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
@@ -165,6 +189,7 @@ const contextSuiteOwnership = new Map([
 
 const marketplaceContextRouteSuiteOwnership = new Map([
   ["auth", ["marketplace_account"]],
+  ["channels", ["marketplace_account", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
   ["fulfillment", ["marketplace_account"]],
   ["identity", ["marketplace_account"]],
@@ -180,6 +205,7 @@ const marketplaceContextRouteSuiteOwnership = new Map([
 const adminContextRouteSuiteOwnership = new Map([
   ["auth", ["admin_auth", "admin_access"]],
   ["catalog", ["catalog_admin_modeling"]],
+  ["channels", ["admin_support"]],
   ["commercial-terms", ["admin_commerce"]],
   ["discovery", ["admin_growth"]],
   ["identity", ["admin_access"]],
@@ -192,6 +218,11 @@ const adminContextRouteSuiteOwnership = new Map([
 ]);
 
 const e2eSpecSuiteOwnership = [
+  {
+    pattern: /^deployables\/marketplace\/e2e\/account-management-interruption\.spec\.ts$/,
+    suites: ["marketplace_account"],
+  },
+  { pattern: /^deployables\/marketplace\/e2e\/account-elevation-intent\.spec\.ts$/, suites: ["marketplace_account"] },
   { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
   { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
   {
@@ -219,6 +250,7 @@ const e2eSpecSuiteOwnership = [
     pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
     suites: ["admin_platform"],
   },
+  { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
 ];
 
 export const e2eNoSuiteExclusions = Object.freeze([
@@ -287,6 +319,10 @@ const marketplaceRouteSuiteOwnership = [
 ];
 
 const boundedContextRouteSuiteOwnership = [
+  {
+    pattern: /^bounded-contexts\/channels\/routes\/marketplace\/account-channels-connection\./,
+    suites: ["marketplace_account", "marketplace_seller"],
+  },
   {
     pattern:
       /^bounded-contexts\/fulfillment\/(?:routes\/admin\/return-intake|features\/return-shipments\/(?:api|ui)\/)/,
@@ -649,6 +685,24 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
 export function e2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
+  if (
+    normalized.startsWith("deployables/tcgplayer-operator-extension/") ||
+    normalized.startsWith("bounded-contexts/catalog/features/operator-session/domain/extension/") ||
+    normalized.startsWith("bounded-contexts/catalog/features/operator-session/ui/extension-popup/") ||
+    normalized.startsWith("bounded-contexts/catalog/features/operator-session/tests/extension/") ||
+    normalized === "bounded-contexts/catalog/client.ts" ||
+    normalized === "contracts/localization/locales/en/catalog/operator-extension.ts"
+  ) {
+    return ["tcgplayer_operator_extension"];
+  }
+
+  if (
+    normalized.startsWith("deployables/tcgplayer-connector-extension/") ||
+    normalized.startsWith("bounded-contexts/channels/features/connector-client/")
+  ) {
+    return ["tcgplayer_connector_extension"];
+  }
+
   if (isE2eSpecFile(normalized)) {
     return e2eSpecSuiteIdsForChangedFile(normalized);
   }
@@ -677,6 +731,10 @@ export function e2eSuiteIdsForChangedFile(filePath) {
     return isDesignSystemNavigationFile(normalized) ? allBrowserSuiteIds : allMarketplaceSuiteIds;
   }
 
+  if (normalized === "bounded-contexts/auth/support/runtime-support/seed.ts") {
+    return boundedContextSuiteIdsForChangedFile(normalized, "auth");
+  }
+
   const boundedContextMatch = normalized.match(
     /^bounded-contexts\/([^/]+)\/(?:(?:routes\/)|(?:features\/[^/]+\/(?:api|ui)\/)|(?:support\/shell-support\/))/,
   );
@@ -685,4 +743,18 @@ export function e2eSuiteIdsForChangedFile(filePath) {
   }
 
   return boundedContextSuiteIdsForChangedFile(normalized, boundedContextMatch[1] ?? "");
+}
+
+export function chromiumProbeCallerViolations(workspaces, suites = e2eSuites) {
+  return workspaces.flatMap((workspace) => {
+    const packageJson = workspace.packageJson ?? workspace;
+    if (typeof packageJson?.scripts?.["test:chromium"] !== "string") return [];
+    const expectedCommand = ["--filter", packageJson.name, "run", "test:chromium"];
+    const callers = suites.filter(
+      (suite) => Array.isArray(suite.command) && JSON.stringify(suite.command) === JSON.stringify(expectedCommand),
+    );
+    return callers.length === 1
+      ? []
+      : [`${packageJson.name} test:chromium must have exactly one registered E2E command caller`];
+  });
 }

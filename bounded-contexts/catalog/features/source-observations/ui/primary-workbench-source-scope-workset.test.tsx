@@ -6,9 +6,151 @@ import { CatalogSourceScopeWorksetModule } from "./admin-control-plane/import-to
 import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
 import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
+import {
+  ygojsonYugiohSetReferenceProviderProfile,
+  ygojsonYugiohSetReferenceSourceObservationMappingContract,
+  ygojsonYugiohSealedProductReferenceProviderProfile,
+  ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
+} from "../api/providers/ygojson/executable-mapping-contract";
+import { scrydexOnePieceSealedProductProviderProfile } from "../api/providers/scrydex/profiles";
+import { scrydexOnePieceSealedProductSourceObservationMappingContract } from "../api/providers/scrydex/one-piece-executable-mapping-contract";
+import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
+import type { CatalogProviderExecutableMappingContract } from "../api/providers/provider-integration-mapping-contract";
+import { guidedSourceScopeFields } from "./primary-workbench-source-scope-fields";
+import { scopeContextFromFormData, scopeContextToIntegrationJobScope } from "./primary-workbench-scope-context";
+
+function sealedProductProfile(): CatalogProviderProfileVersionReview {
+  return activeProfileReview(
+    ygojsonYugiohSealedProductReferenceProviderProfile,
+    ygojsonYugiohSealedProductReferenceSourceObservationMappingContract,
+  );
+}
+
+function activeProfileReview(
+  profile: CatalogProviderIntegrationProfile,
+  executableMappingContract: CatalogProviderExecutableMappingContract,
+): CatalogProviderProfileVersionReview {
+  const ingestionUnitKey = executableMappingContract.ingestionUnitIdentity?.unitKey;
+  if (!ingestionUnitKey) {
+    throw new Error(`Test profile ${executableMappingContract.profileKey} must declare its exact ingestion unit.`);
+  }
+
+  return profileReview({
+    providerKey: profile.providerKey,
+    ingestionUnitKey,
+    profileKey: executableMappingContract.profileKey,
+    profileVersion: executableMappingContract.profileVersion,
+    displayName: profile.displayName,
+    active: true,
+    lifecycle: "active",
+    profile,
+    executableMappingContract,
+    hasExecutableMappingContract: true,
+    mappingOutputKind: executableMappingContract.normalizedObservation.outputKind,
+    languageOptions: [...profile.languageOptions],
+    supportedScopes: [...profile.supportedScopes],
+    sourceOptionKinds: profile.optionQueries.map((query) => ({
+      queryKind: query.queryKind,
+      queryKeySynonyms: [...(query.queryKeySynonyms ?? [])],
+      displayName: query.displayName,
+      scope: query.scope,
+      parentScope: query.parentScope,
+      parentRequired: query.parentValue?.required ?? false,
+      parentValueKind: query.parentValue?.valueKind ?? null,
+      parentDiagnosticText: query.parentValue?.diagnosticText ?? null,
+    })),
+  });
+}
 
 describe("Catalog source-scope workset", () => {
   afterEach(() => cleanup());
+
+  it("carries two product coordinates through the active profile, real workset, guided field, URL and command form", () => {
+    const profile = sealedProductProfile();
+    const identities: string[] = [];
+    for (const productId of ["synthetic-product-a", "synthetic-product-b"]) {
+      const requestUrl = `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=${profile.ingestionUnitKey}&productId=${productId}`;
+      const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+        requestUrl,
+        scopes: { items: [], total: 0, count: 0 },
+        profileReviews: { items: [profile], total: 1, count: 1 },
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      });
+      expect(readModel.routeContext.scope).toMatchObject({ productId, languageCode: "en", expansionId: null });
+      expect(readModel.sourceOptions.pages[0]).toMatchObject({ queryKind: "sealed-products", scope: "product" });
+      expect(readModel.sourceOptions.selectedUnitKey).toBe(profile.ingestionUnitKey);
+      expect(guidedSourceScopeFields(readModel)[0]).toMatchObject({ fieldName: "productId", selectedValue: productId });
+      const row = readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === profile.ingestionUnitKey)!;
+      expect(row.commandContext.productId).toBe(productId);
+      expect(
+        parseCatalogPrimaryWorkbenchRouteContext(`https://admin.example${row.currentWorkbenchHref}`).scope?.productId,
+      ).toBe(productId);
+      identities.push(row.importScope!);
+      render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
+      const form = sourceScopeCommandForm("scope.import", profile.ingestionUnitKey)!;
+      expect(hiddenValue(form, "productId")).toBe(productId);
+      const formData = new FormData(form);
+      const scope = scopeContextFromFormData(formData, readModel.routeContext.scope!);
+      expect(scopeContextToIntegrationJobScope(scope).productId).toBe(productId);
+      formData.set("productId", "");
+      formData.set("importScope", "");
+      expect(scopeContextFromFormData(formData, readModel.routeContext.scope!).productId).toBeNull();
+      cleanup();
+    }
+    expect(new Set(identities).size).toBe(2);
+  });
+
+  it("refuses stale product selection for missing, inactive and mismatched units", () => {
+    const active = sealedProductProfile();
+    for (const [unitKey, profile] of [
+      ["", active],
+      [active.ingestionUnitKey, { ...active, active: false }],
+      ["ygojson:yugioh:set:reference-data", active],
+    ] as const) {
+      const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+        requestUrl: `https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=${unitKey}&productId=synthetic-stale-product&languageCode=en`,
+        scopes: { items: [], total: 0, count: 0 },
+        profileReviews: { items: [profile], total: 1, count: 1 },
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      });
+      expect(readModel.routeContext.scope?.productId).toBeNull();
+      expect(readModel.sourceScopeWorkset.units.every((unit) => !unit.commandContext.productId)).toBe(true);
+    }
+  });
+
+  it.each([
+    [
+      "set-reference executable mapping",
+      activeProfileReview(
+        ygojsonYugiohSetReferenceProviderProfile,
+        ygojsonYugiohSetReferenceSourceObservationMappingContract,
+      ),
+    ],
+    [
+      "parented product option",
+      activeProfileReview(
+        scrydexOnePieceSealedProductProviderProfile,
+        scrydexOnePieceSealedProductSourceObservationMappingContract,
+      ),
+    ],
+  ])("exposes no guided product field or product workset command for a %s profile", (_case, profile) => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: `https://admin.example/catalog/integrations?providerKey=${profile.providerKey}&unitKey=${profile.ingestionUnitKey}&productId=synthetic-refused-product&languageCode=en`,
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.routeContext.scope?.productId).toBeNull();
+    expect(readModel.sourceOptions.pages.some((page) => page.scope === "product")).toBe(false);
+    expect(guidedSourceScopeFields(readModel).some((field) => field.fieldName === "productId")).toBe(false);
+    const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === profile.ingestionUnitKey);
+    expect(unit).toBeDefined();
+    expect(unit?.commandContext.productId).toBeNull();
+  });
 
   it("ties one selected MTG source scope to configured provider-unit sync actions without a Magic-only area", () => {
     const profiles = magicProfiles();

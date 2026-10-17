@@ -1,4 +1,4 @@
-import webhookEventRegistry from "./webhook-events.json";
+import webhookEventRegistry from "./webhook-events.json" with { type: "json" };
 
 export const STRIPE_API_VERSION = webhookEventRegistry.apiVersion;
 

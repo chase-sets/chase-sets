@@ -1,7 +1,42 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { AUTH_ROLE_PERMISSIONS } from "./constants";
+import { AUTH_PERMISSION_PRESETS, AUTH_ROLE_PERMISSIONS } from "./constants";
 
 describe("auth role permissions", () => {
+  it("grants reported-content operator authority to platform-admin only", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "reported-content.view")).toEqual(
+        role === "platform-admin" ? ["reported-content.view"] : [],
+      );
+    }
+    for (const permissions of Object.values(AUTH_PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("reported-content.view");
+    }
+  });
+  it("grants platform payout reads once to platform-admin and never through a preset", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
+        role === "platform-admin" ? ["payouts.platform.view"] : [],
+      );
+      expect(permissions.includes("payouts.platform.view") && permissions.includes("payouts.reconcile")).toBe(false);
+    }
+    for (const permissions of Object.values(AUTH_PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("payouts.platform.view");
+    }
+  });
+  it("grants commercial agreement management only to platform admins", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "commercial-terms.agreements.manage")).toEqual(
+        role === "platform-admin" ? ["commercial-terms.agreements.manage"] : [],
+      );
+    }
+  });
+
+  it("grants provider connections only to platform admins", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.includes("provider-connections.view")).toBe(role === "platform-admin");
+    }
+  });
   it("keeps feedback operator authority on platform staff roles only", () => {
     for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
       expect(AUTH_ROLE_PERMISSIONS[roleKey]).not.toEqual(
@@ -143,5 +178,47 @@ describe("auth role permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.manager).toContain("listing-evidence-policy.view");
     expect(AUTH_ROLE_PERMISSIONS.owner).not.toContain("listing-evidence-policy.activate");
     expect(AUTH_ROLE_PERMISSIONS.manager).not.toContain("listing-evidence-policy.validate");
+  });
+
+  it("mirrors account-scoped Channel Connection authority without granting platform-admin", () => {
+    expect(AUTH_ROLE_PERMISSIONS.owner).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(AUTH_ROLE_PERMISSIONS.manager).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(AUTH_ROLE_PERMISSIONS.fulfillment).toContain("channels.view");
+    expect(AUTH_ROLE_PERMISSIONS.viewer).toContain("channels.view");
+    expect(AUTH_ROLE_PERMISSIONS.fulfillment).not.toContain("channels.manage");
+    expect(AUTH_ROLE_PERMISSIONS.viewer).not.toContain("channels.manage");
+    expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.view");
+    expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.manage");
+  });
+});
+
+describe("pricing preset contract", () => {
+  const expected: Record<string, readonly string[]> = {
+    owner: ["pricing.manage", "pricing.view"],
+    manager: ["pricing.manage", "pricing.view"],
+    fulfillment: ["pricing.view"],
+    viewer: ["pricing.view"],
+    "platform-admin": [],
+  };
+  // Sorted non-pricing sets, including the platform-admin-only reported-content grant.
+  const predecessor = {
+    "platform-admin": "209c0bd015d367f005d7ea75f15101c0273c9bf0266e7b42005d8326aad3310c",
+    owner: "2f44a3531ad460bb8c0e8813515adfccb5299c697e75d0c66afa5880566344d4",
+    manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
+    fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",
+    viewer: "9b653b5afb093be2612860fcb672d437fc50eac3b929b20cb902c0fbe93a9caa",
+  };
+  it("grants pricing permissions to the intended account roles", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      const pricing = permissions.filter((key) => key.startsWith("pricing.")).sort();
+      expect(pricing).toEqual(expected[role as keyof typeof expected]);
+      for (const key of ["pricing.view", "pricing.manage"]) {
+        expect(new Set<string>(permissions).has(key), role + ":" + key).toBe(expected[role]!.includes(key));
+      }
+      const other = [...new Set(permissions.filter((key) => !key.startsWith("pricing.")))].sort();
+      expect(createHash("sha256").update(JSON.stringify(other)).digest("hex")).toBe(
+        predecessor[role as keyof typeof predecessor],
+      );
+    }
   });
 });

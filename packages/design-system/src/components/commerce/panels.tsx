@@ -94,7 +94,7 @@ export interface OfferCardProps {
 
 export function OfferCard({ title, amount, status, accountTrust, details, actions }: OfferCardProps) {
   return (
-    <Card>
+    <Card elevation="elevated">
       <Card.Header>
         <Stack direction="row" justify="between" align="start" gap={3}>
           <div>
@@ -122,7 +122,7 @@ export interface MarketplaceDashboardPanelProps {
 
 export function MarketplaceDashboardPanel({ title, description, metrics, action }: MarketplaceDashboardPanelProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Header>
         <Stack direction="row" justify="between" align="start" gap={3}>
           <div>

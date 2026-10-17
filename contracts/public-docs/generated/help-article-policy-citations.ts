@@ -59,8 +59,12 @@ export const publicHelpArticlePolicyCitations = [
   {
     slug: "sales-fees",
     locale: "en",
-    title: "Marketplace sales and checkout fees",
+    title: "Marketplace sales, payout, and checkout fees",
     href: "/sales-fees",
-    citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
+    citedPolicies: [
+      "commercial-terms.marketplace-sales-fee-schedule",
+      "commercial-terms.checkout-processing-fee",
+      "settlement.payout-fee",
+    ],
   },
 ] as const satisfies readonly PublicHelpArticlePolicyCitation[];

@@ -2,7 +2,7 @@ import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-mod
 import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import type { AccountId, OrderId, SupportRequestId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createPlatformOperationsServices, type PlatformOperationsServices } from "./services";
@@ -26,6 +26,7 @@ import {
   platformRemedyPolicy,
 } from "../../features/support-requests/domain/platform-remedy-policy";
 import { experienceSeedIds, supportSeedIds, supportSeedOrderSourceIds } from "../seed-support/ids";
+import { createSupportEvidenceSeedContext } from "../../features/support-requests/domain/common";
 
 function isoDate(value: string) {
   return new Date(value).toISOString();
@@ -231,13 +232,13 @@ type SupportSeedOrderSource = Readonly<{
 }>;
 
 function createSupportSeedContext(accountId: string, userId: string): EventStoreContext {
-  return {
+  return createSupportEvidenceSeedContext({
     tenantId: "tnt_seed_development" as TenantId,
     audit: {
       performedByUserId: userId as UserId,
       forAccountId: accountId as AccountId,
     },
-  };
+  });
 }
 
 const PLATFORM_OPERATIONS_BOOTSTRAP_LABEL = "Platform Operations seed bootstrap";

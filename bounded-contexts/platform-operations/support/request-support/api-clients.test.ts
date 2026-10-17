@@ -10,6 +10,26 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("platform operations request API clients", () => {
+  it.each(["server", "local"] as const)(
+    "presents the re-upload Banner message for %s unknown references without lookup or retry (mutant: discard participant reference error)",
+    async (source) => {
+      const fetchMock = vi.fn(async () => jsonResponse({ error: { code: "attachment_reference_unknown" } }, 400));
+      const client = createSupportRequestApiClient({ fetch: fetchMock });
+      await expect(
+        client.submitSupportEvidence("sup_case", {
+          submittedByRole: "buyer",
+          evidenceType: "photo",
+          summary: "Photos",
+          attachments: [source === "local" ? "arbitrary" : `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`],
+        }),
+      ).rejects.toMatchObject({
+        phase: "failed-safe",
+        descriptor: null,
+        message: "These photos cannot be submitted. Start a new photo batch and re-upload them.",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(source === "local" ? 0 : 1);
+    },
+  );
   it("returns platform feedback command snapshots from mutating calls", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -78,7 +98,7 @@ describe("platform operations request API clients", () => {
   });
 
   it("returns support request snapshots from mutating calls", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/orders/ord_1")) {
         return jsonResponse({
@@ -158,7 +178,11 @@ describe("platform operations request API clients", () => {
       }),
     ).resolves.toEqual({ id: "sup_1", version: 1, status: "opened" });
     await expect(
-      client.uploadSupportEvidenceAttachments("sup_1", [new File(["photo"], "card.jpg", { type: "image/jpeg" })]),
+      client.uploadSupportEvidenceAttachments(
+        "sup_1",
+        [new File(["photo"], "card.jpg", { type: "image/jpeg" })],
+        "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      ),
     ).resolves.toMatchObject({ attachments: [{ attachmentId: "sea_photo" }] });
     await expect(
       client.submitSupportEvidence("sup_1", {
@@ -273,6 +297,10 @@ describe("platform operations request API clients", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/sup_1/attachments",
       expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+    const uploadCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/sup_1/attachments"))!;
+    expect(new Headers(uploadCall[1]?.headers).get("x-support-attachment-operation-id")).toBe(
+      "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.example.test/support-requests/sup_1/responses",

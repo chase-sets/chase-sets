@@ -13,10 +13,18 @@ import {
   parseVerifyStaticChain,
   resolvePnpmInvocation,
   runVerifyStaticScoped,
+  selectVerifyStaticGuardTests,
   selectVerifyStaticLinks,
+  verifyStaticGuardTestMapCompleteness,
   verifyStaticSurfaceMapCompleteness,
 } from "./verify-static-scoped.mjs";
-import { ALWAYS_RUN, MAY_NARROW, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
+import {
+  ALWAYS_RUN,
+  MAY_NARROW,
+  VERIFY_STATIC_GUARD_TEST_SURFACES,
+  VERIFY_STATIC_SCOPED_EXCLUSIONS,
+  VERIFY_STATIC_SURFACES,
+} from "./verify-static-surfaces.mjs";
 
 const temporaryDirectories = [];
 
@@ -56,6 +64,16 @@ function selectedNames(changedFiles, options = {}) {
     dependencies: noFanoutDependencies(),
     ...options,
   }).selected.map((link) => link.name);
+}
+
+function assertOnlyTestScriptsWasRemoved(basePlan, repairedPlan) {
+  expect(repairedPlan.selected.map(({ name }) => name)).toEqual(
+    basePlan.selected.map(({ name }) => name).filter((name) => name !== "test:scripts"),
+  );
+  expect(repairedPlan.skipped.map(({ link }) => link.name)).toEqual(
+    basePlan.skipped.map(({ link }) => link.name).filter((name) => name !== "test:scripts"),
+  );
+  expect(repairedPlan.excluded.map(({ link }) => link.name)).toEqual(["test:scripts"]);
 }
 
 function execGit(rootDir, args) {
@@ -185,6 +203,399 @@ describe("verify:static surface-map derivation", () => {
     expect(workflow).not.toContain("pnpm run verify:static:scoped");
     expect(workflow).toContain("FORMAT_CHECK_SCOPE: full");
   });
+
+  it("keeps exactly the complete scripts battery outside the focused local contract", () => {
+    const chain = currentChain();
+
+    expect(chain).toHaveLength(29);
+    expect(chain.at(-1)?.name).toBe("test:scripts");
+    expect(Object.keys(VERIFY_STATIC_SCOPED_EXCLUSIONS)).toEqual(["test:scripts"]);
+    expect(packageJson().scripts["verify:static"]).toContain("pnpm run test:scripts");
+  });
+});
+
+describe("scoped guard-test selection", () => {
+  const historicalHeads = JSON.parse(
+    readFileSync(path.join(repoRoot, "scripts/__fixtures__/verify-static-scoped/historical-heads.json"), "utf8"),
+  );
+  const brandGuard = "scripts/check-structure/brand-mark-representations.test.mjs";
+  const representativeSurfaces = [
+    [
+      "scripts/check-structure/sql-execution-surface.test.mjs",
+      [
+        "bounded-contexts/identity/support/runtime-support/seed.ts",
+        "nebula/arbitrary/module.mts",
+        "pnpm-workspace.yaml",
+      ],
+    ],
+    [brandGuard, ["docs/synthetic-brand-caller.md", "deployables/marketplace/public/icons/icon.png", "pnpm-lock.yaml"]],
+    [
+      "scripts/check-structure/deployed-browser-e2e-profile.test.mjs",
+      [
+        "playwright.config.ts",
+        "pnpm-lock.yaml",
+        "deployables/marketplace/e2e/probe.spec.ts",
+        "deployables/admin-web/e2e/probe.spec.ts",
+        "deployables/public-web/e2e/nested/probe.spec.ts",
+      ],
+    ],
+    [
+      "scripts/ci-gate-plan.test.mjs",
+      [".github/workflows/platform-pr.yml", "scripts/e2e-suites.mjs", "nebula/selected/path.ts"],
+    ],
+    [
+      "scripts/check-structure/consent-authorization-sites.test.mjs",
+      ["bounded-contexts/identity/support/runtime-support/seed.ts", "arbitrary/authorization.ts", "docs/evidence.md"],
+    ],
+    [
+      "scripts/check-structure/json-import-attributes.test.mjs",
+      [
+        "bounded-contexts/channels/index.ts",
+        "scripts/sync-workspace-metadata.mjs",
+        "scripts/registry-helper.mjs",
+        "deployables/platform-api/__tests__/operator-session/operator-session-secrecy.test.ts",
+        "deployables/admin-web/app/generated/web-context-registry.ts",
+      ],
+    ],
+    [
+      "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs",
+      [
+        "package.json",
+        "pnpm-lock.yaml",
+        "packages/typescript-compiler-api/index.mjs",
+        "scripts/check-structure/typescript-owner-contexts.json",
+      ],
+    ],
+    [
+      "scripts/check-structure/typescript-owner-context-derivation.test.mjs",
+      [
+        "pnpm-lock.yaml",
+        "packages/typescript-compiler-api/package.json",
+        "vitest.scripts.config.mjs",
+        "scripts/check-structure/typescript-owner-context-partition.json",
+      ],
+    ],
+    [
+      "scripts/check-structure/issue-reference-comments.test.mjs",
+      [
+        "bounded-contexts/catalog/domain.ts",
+        "infrastructure/runtime.ts",
+        "deployables/platform-api/src/start.ts",
+        "scripts/guard.mjs",
+        "pnpm-lock.yaml",
+      ],
+    ],
+  ];
+
+  function assertRepresentativeCoverage(surfaces = VERIFY_STATIC_GUARD_TEST_SURFACES) {
+    for (const [testFile, changedFiles] of representativeSurfaces) {
+      for (const file of changedFiles) {
+        expect(selectVerifyStaticGuardTests({ changedFiles: [file], surfaces }), file).toContain(testFile);
+      }
+    }
+  }
+
+  it.each(historicalHeads)(
+    "replays the merge-base diff for $head and selects $failingTest",
+    ({ changedFiles, failingTest }) => {
+      expect(
+        selectVerifyStaticLinks({
+          chain: currentChain(),
+          changedFiles,
+          repoRoot,
+          dependencies: noFanoutDependencies(),
+        }).guardTests,
+      ).toContain(failingTest);
+    },
+  );
+
+  it("has exactly nine existing, line-cited guard surfaces", () => {
+    expect(Object.keys(VERIFY_STATIC_GUARD_TEST_SURFACES).sort()).toEqual(
+      representativeSurfaces.map(([file]) => file).sort(),
+    );
+    expect(verifyStaticGuardTestMapCompleteness()).toEqual({
+      missingTestFiles: [],
+      invalidTargets: [],
+      invalidInclude: [],
+      invalidEvidence: [],
+    });
+    for (const entry of Object.values(VERIFY_STATIC_GUARD_TEST_SURFACES)) {
+      for (const citation of entry.evidence) {
+        const [file, ranges] = citation.split(":");
+        const lines = readFileSync(path.join(repoRoot, file), "utf8").split(/\r?\n/).length;
+        for (const range of ranges.split(",")) {
+          const [start, end = start] = range.split("-").map(Number);
+          expect(start).toBeGreaterThan(0);
+          expect(end).toBeGreaterThanOrEqual(start);
+          expect(end, citation).toBeLessThanOrEqual(lines);
+        }
+      }
+    }
+    assertRepresentativeCoverage();
+  });
+
+  it.each(representativeSurfaces)("conservatively covers representative inputs of %s", (testFile, changedFiles) => {
+    for (const changedFile of changedFiles) {
+      expect(selectVerifyStaticGuardTests({ changedFiles: [changedFile] })).toContain(testFile);
+    }
+  });
+
+  it("requires repository-wide rules for repository-wide tracked-content and inventory scans", () => {
+    for (const file of [
+      representativeSurfaces[0][0],
+      brandGuard,
+      "scripts/ci-gate-plan.test.mjs",
+      representativeSurfaces[4][0],
+      "scripts/check-structure/json-import-attributes.test.mjs",
+    ]) {
+      expect(VERIFY_STATIC_GUARD_TEST_SURFACES[file].include).toContainEqual({ kind: "any" });
+    }
+  });
+
+  it("documentation-brand-caller-is-selected", () => {
+    expect(selectVerifyStaticGuardTests({ changedFiles: ["docs/synthetic-brand-caller.md"] })).toContain(brandGuard);
+  });
+
+  it("selects the JSON-import census guard for a deployables-only declaring-file change", () => {
+    expect(
+      selectVerifyStaticGuardTests({
+        changedFiles: ["deployables/platform-api/__tests__/operator-session/operator-session-secrecy.test.ts"],
+      }),
+    ).toContain("scripts/check-structure/json-import-attributes.test.mjs");
+  });
+
+  it("documentation-exemption-mutant", () => {
+    const documentationExemptionMutant = (changedFiles) =>
+      changedFiles.every((file) => file.endsWith(".md")) ? [] : selectVerifyStaticGuardTests({ changedFiles });
+    expect(() =>
+      expect(documentationExemptionMutant(["docs/synthetic-brand-caller.md"])).toContain(brandGuard),
+    ).toThrow();
+  });
+
+  it("narrowed-scan-root-mutant", () => {
+    const file = representativeSurfaces[0][0];
+    const narrowed = {
+      ...VERIFY_STATIC_GUARD_TEST_SURFACES,
+      [file]: { ...VERIFY_STATIC_GUARD_TEST_SURFACES[file], include: [{ kind: "prefix", value: "bounded-contexts" }] },
+    };
+    expect(() => assertRepresentativeCoverage(narrowed)).toThrow();
+  });
+
+  it("missing-test-file", () => {
+    const missing = "scripts/synthetic-missing-guard.test.mjs";
+    const surfaces = { [missing]: VERIFY_STATIC_GUARD_TEST_SURFACES[brandGuard] };
+    expect(verifyStaticGuardTestMapCompleteness({ surfaces }).missingTestFiles).toEqual([missing]);
+    expect(() => selectVerifyStaticGuardTests({ changedFiles: [], surfaces })).toThrow(
+      expect.objectContaining({ code: "STATIC_SCOPE_GUARD_TEST_MAP_INVALID" }),
+    );
+  });
+
+  it("reports a missing configured target distinctly without acquiring ownership or running a child", async () => {
+    const events = [];
+    const stderr = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["scripts/deleted.test.mjs"]' },
+      guardSurfaces: { "scripts/synthetic-missing-guard.test.mjs": VERIFY_STATIC_GUARD_TEST_SURFACES[brandGuard] },
+      acquireSlot: () => events.push("acquire"),
+      runLink: () => events.push("link"),
+      runGuardTests: () => events.push("guards"),
+      stderr: (line) => stderr.push(line),
+    });
+    expect(status).toBe(1);
+    expect(events).toEqual([]);
+    expect(stderr[0]).toContain("[STATIC_SCOPE_GUARD_TEST_MAP_INVALID]");
+  });
+
+  it("empty-include", () => {
+    const surfaces = {
+      ...VERIFY_STATIC_GUARD_TEST_SURFACES,
+      [brandGuard]: { ...VERIFY_STATIC_GUARD_TEST_SURFACES[brandGuard], include: [] },
+    };
+    expect(verifyStaticGuardTestMapCompleteness({ surfaces }).invalidInclude).toEqual([brandGuard]);
+    expect(selectVerifyStaticGuardTests({ changedFiles: [], surfaces })).toEqual(Object.keys(surfaces).sort());
+  });
+
+  it("fails closed on invalid guard rules without dropping the known changed-source sibling", async () => {
+    const batches = [];
+    const stderr = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["scripts/verify-static-scoped.mjs"]' },
+      guardSurfaces: {
+        ...VERIFY_STATIC_GUARD_TEST_SURFACES,
+        [brandGuard]: {
+          ...VERIFY_STATIC_GUARD_TEST_SURFACES[brandGuard],
+          include: [{ kind: "synthetic-invalid-rule" }],
+        },
+      },
+      runLink: () => 0,
+      runGuardTests: (files) => {
+        batches.push(files);
+        return 0;
+      },
+      stdout: () => {},
+      stderr: (line) => stderr.push(line),
+    });
+    expect(status).toBe(0);
+    expect(batches).toEqual([
+      [...Object.keys(VERIFY_STATIC_GUARD_TEST_SURFACES), "scripts/verify-static-scoped.test.mjs"].sort(),
+    ]);
+    expect(stderr[0]).toContain("[STATIC_SCOPE_CLASSIFICATION_FAILED]");
+  });
+
+  it("selects changed tests and existing source siblings, normalizing Windows paths and deduplicating", () => {
+    const files = new Set(["scripts/nested/foo.test.mjs", "scripts/changed.test.mjs"]);
+    expect(
+      selectVerifyStaticGuardTests({
+        changedFiles: [
+          "scripts\\nested\\foo.mjs",
+          "scripts/changed.test.mjs",
+          "scripts/nested/foo.test.mjs",
+          "scripts/no-sibling.mjs",
+        ],
+        surfaces: {},
+        testFileExists: (file) => files.has(file),
+      }),
+    ).toEqual([...files].sort());
+  });
+
+  it("deleted-test-not-passed", () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "verify-static-deleted-test-"));
+    temporaryDirectories.push(rootDir);
+    const target = "scripts/impact.test.mjs";
+    writeFixture(rootDir, target, "");
+    writeFixture(rootDir, "scripts/renamed.test.mjs", "");
+    const changedFiles = parseNameStatusZ(
+      "D\0scripts/deleted.test.mjs\0R100\0scripts/old.test.mjs\0scripts/renamed.test.mjs\0",
+    );
+    const selected = selectVerifyStaticGuardTests({
+      repoRoot: rootDir,
+      changedFiles,
+      surfaces: {
+        [target]: {
+          rule: "synthetic old-path impact",
+          evidence: ["fixture:1"],
+          include: [
+            { kind: "exact", value: "scripts/deleted.test.mjs" },
+            { kind: "exact", value: "scripts/old.test.mjs" },
+          ],
+        },
+      },
+    });
+    expect(selected).toEqual([target, "scripts/renamed.test.mjs"]);
+    expect(selected.every((file) => existsSync(path.join(rootDir, file)))).toBe(true);
+    for (const oldPath of ["scripts/deleted.test.mjs", "scripts/old.test.mjs"]) {
+      expect(
+        selectVerifyStaticGuardTests({
+          repoRoot: rootDir,
+          changedFiles: [oldPath],
+          surfaces: {
+            [target]: {
+              rule: "synthetic old-path impact",
+              evidence: ["fixture:1"],
+              include: [{ kind: "exact", value: oldPath }],
+            },
+          },
+        }),
+      ).toEqual([target]);
+    }
+  });
+
+  it("out-of-surface negative control adds no guard run and prints the scoped count", async () => {
+    // Initial repository-wide entries cover every nonempty repository diff.
+    // A synthetic finite map independently exercises the no-match branch.
+    const output = [];
+    const events = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["media/synthetic-unmapped.bin"]' },
+      readPackageJson: () => ({ scripts: { "verify:static": "pnpm run check:finite" } }),
+      surfaces: {
+        "check:finite": {
+          classification: MAY_NARROW,
+          rule: "finite root",
+          include: [{ kind: "prefix", value: "deployables" }],
+        },
+      },
+      guardSurfaces: {
+        [brandGuard]: {
+          ...VERIFY_STATIC_GUARD_TEST_SURFACES[brandGuard],
+          include: [{ kind: "prefix", value: "deployables" }],
+        },
+      },
+      dependencies: noFanoutDependencies(),
+      acquireSlot: () => events.push("acquire"),
+      runLink: () => events.push("link"),
+      runGuardTests: () => events.push("guards"),
+      stdout: (line) => output.push(line),
+    });
+    expect(status).toBe(0);
+    expect(events).toEqual([]);
+    expect(output).toContain(
+      "[VERIFY_STATIC_SCOPE] scanned=0/1; skipped=1; excluded=0; guard-tests=0; changed=1; source=CHANGED_FILES_JSON.",
+    );
+  });
+
+  it("runs one deduplicated explicit-file batch after links under the aggregate slot", async () => {
+    const events = [];
+    const output = [];
+    const guards = selectVerifyStaticGuardTests({ changedFiles: ["docs/synthetic-brand-caller.md"] });
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["docs/synthetic-brand-caller.md"]' },
+      readPackageJson: () => ({ scripts: { "verify:static": "pnpm run check:always" } }),
+      surfaces: { "check:always": { classification: ALWAYS_RUN } },
+      dependencies: noFanoutDependencies(),
+      acquireSlot: () => events.push("acquire"),
+      runLink: ({ name }) => {
+        events.push(name);
+        return 0;
+      },
+      runGuardTests: (files) => {
+        events.push(files);
+        return 19;
+      },
+      stdout: (line) => output.push(line),
+    });
+    expect(events).toEqual(["acquire", "check:always", guards]);
+    expect(status).toBe(19);
+    expect(output).toContain(`[VERIFY_STATIC_GUARD_TESTS] ${guards.join(" ")}`);
+    expect(output.at(-1)).toMatch(/^\[VERIFY_STATIC_GUARD_TESTS\] elapsed=\d+\.\d{2}s$/);
+  });
+
+  it("acquires ownership even when only guard tests are selected and preserves refusal status", async () => {
+    const events = [];
+    const status = await runVerifyStaticScoped({
+      env: { CHANGED_FILES_JSON: '["docs/synthetic-brand-caller.md"]' },
+      readPackageJson: () => ({ scripts: { "verify:static": "pnpm run check:finite" } }),
+      surfaces: { "check:finite": { classification: MAY_NARROW, include: [{ kind: "prefix", value: "deployables" }] } },
+      dependencies: noFanoutDependencies(),
+      acquireSlot: () => events.push("acquire"),
+      runLink: () => {
+        throw new Error("unselected link must not run");
+      },
+      runGuardTests: () => {
+        events.push("guards");
+        return 73;
+      },
+      stdout: () => {},
+    });
+    expect(events).toEqual(["acquire", "guards"]);
+    expect(status).toBe(73);
+  });
+
+  it("stops before guard tests when an existing authority link fails", async () => {
+    const guards = [];
+    expect(
+      await runVerifyStaticScoped({
+        env: { CHANGED_FILES_JSON: '[".github/authority/synthetic-owner/job.json"]' },
+        runLink: () => 1,
+        runGuardTests: (files) => {
+          guards.push(files);
+          return 0;
+        },
+        stdout: () => {},
+      }),
+    ).toBe(1);
+    expect(guards).toEqual([]);
+  });
 });
 
 describe("changed-path discovery", () => {
@@ -306,8 +717,22 @@ describe("changed-path discovery", () => {
 });
 
 describe("soundness corpus", () => {
+  it.each([
+    "A\0.github/authority/new-owner/job.json\0",
+    "M\0.github/authority/new-owner/job.json\0",
+    "D\0.github/authority/new-owner/job.json\0",
+    "R100\0.github/authority/new-owner/job.json\0.github/authority/moved-owner/job.json\0",
+    "R100\0.github/authority/new-owner/job.json\0elsewhere/job.json\0",
+  ])("retains authority freshness and independent reconciliation for source-only change %s", (diff) => {
+    expect(VERIFY_STATIC_SURFACES["check:managed-postgres-authority"].classification).toBe(ALWAYS_RUN);
+    expect(selectedNames(parseNameStatusZ(diff))).toContain("check:managed-postgres-authority");
+    expect(packageJson().scripts["check:managed-postgres-authority"]).toBe(
+      "node ./scripts/managed-postgres-authority-guard.mjs",
+    );
+  });
+
   const alwaysRun = Object.entries(VERIFY_STATIC_SURFACES)
-    .filter(([, entry]) => entry.classification === ALWAYS_RUN)
+    .filter(([name, entry]) => name !== "test:scripts" && entry.classification === ALWAYS_RUN)
     .map(([name]) => name);
   const corpus = [
     {
@@ -347,7 +772,7 @@ describe("soundness corpus", () => {
     {
       change: "no-legacy-forms guard implementation only",
       paths: ["scripts/check-no-legacy-forms.mjs"],
-      fullFailures: ["check:no-legacy-forms", "check:structure", "test:scripts"],
+      fullFailures: ["check:no-legacy-forms", "check:structure"],
     },
     {
       change: "ledger only",
@@ -401,7 +826,8 @@ describe("soundness corpus", () => {
         dependencies: noFanoutDependencies(),
       });
 
-      expect(plan.selected).toEqual(chain);
+      expect(plan.selected).toEqual(chain.filter(({ name }) => name !== "test:scripts"));
+      expect(plan.excluded.map(({ link }) => link.name)).toEqual(["test:scripts"]);
       expect(plan.fullReason).toContain("scripts/** changed");
     },
   );
@@ -487,6 +913,81 @@ expect(keySetFingerprint(Object.keys(discoveryEnglishTranslations))).toEqual(eng
   });
 });
 
+describe("focused-local command-plan boundary", () => {
+  const corpus = [
+    {
+      change: "docs-only",
+      options: { changedFiles: ["docs/readme.md"], dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "ordinary scripts change",
+      options: { changedFiles: ["scripts/check-no-legacy-forms.mjs"], dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "root-runtime fanout",
+      options: {
+        changedFiles: ["package.json"],
+        dependencies: {
+          listWorkspacePackages: () => [{ name: "@fixture/one" }],
+          classifyChanges: () => ({ affectedWorkspaces: ["@fixture/one"] }),
+        },
+      },
+    },
+    {
+      change: "malformed changed-file JSON fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "missing-base fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "non-Git fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+    {
+      change: "classification-failure fallback",
+      options: { changedFiles: [], forceFull: true, dependencies: noFanoutDependencies() },
+    },
+  ];
+
+  it.each(corpus)("$change removes only test:scripts from the base command plan", ({ options }) => {
+    const chain = currentChain();
+    const basePlan = selectVerifyStaticLinks({ chain, repoRoot, scopedExclusions: {}, ...options });
+    const repairedPlan = selectVerifyStaticLinks({ chain, repoRoot, ...options });
+
+    assertOnlyTestScriptsWasRemoved(basePlan, repairedPlan);
+  });
+
+  it("rejects a mutant that restores the complete scripts battery", () => {
+    const chain = currentChain();
+    const options = { chain, changedFiles: ["docs/readme.md"], repoRoot, dependencies: noFanoutDependencies() };
+    const basePlan = selectVerifyStaticLinks({ ...options, scopedExclusions: {} });
+    const restoredBatteryMutant = selectVerifyStaticLinks({ ...options, scopedExclusions: {} });
+
+    expect(() => assertOnlyTestScriptsWasRemoved(basePlan, restoredBatteryMutant)).toThrow();
+  });
+
+  it("rejects a mutant that narrows another fail-closed link", () => {
+    const chain = currentChain();
+    const options = { chain, changedFiles: ["docs/readme.md"], repoRoot, dependencies: noFanoutDependencies() };
+    const basePlan = selectVerifyStaticLinks({ ...options, scopedExclusions: {} });
+    const narrowedGuardMutant = selectVerifyStaticLinks({
+      ...options,
+      surfaces: {
+        ...VERIFY_STATIC_SURFACES,
+        "check:kb-reference-ratchet": {
+          ...VERIFY_STATIC_SURFACES["check:kb-reference-ratchet"],
+          classification: MAY_NARROW,
+          include: [{ kind: "exact", value: "never-selected.fixture" }],
+        },
+      },
+    });
+
+    expect(() => assertOnlyTestScriptsWasRemoved(basePlan, narrowedGuardMutant)).toThrow();
+  });
+});
+
 describe("derived root-runtime fanout", () => {
   const rootRuntimePaths = [
     "package.json",
@@ -508,14 +1009,20 @@ describe("derived root-runtime fanout", () => {
       dependencies: { classifyChanges, listWorkspacePackages },
     });
 
-    expect(plan.selected).toEqual(chain);
+    expect(plan.selected).toEqual(chain.filter(({ name }) => name !== "test:scripts"));
+    expect(plan.excluded.map(({ link }) => link.name)).toEqual(["test:scripts"]);
     expect(plan.fullReason).toContain("affected every workspace");
   });
 
-  it("contains no copied root-runtime filename list in runner or surface-map source", () => {
+  it("contains no copied root-runtime filename list in runner or static-chain surface map", () => {
+    // Guard scan inputs may name root files; static-chain fanout must still
+    // derive from the classifier rather than duplicate its filename list.
+    const surfaceSource = readFileSync(path.join(repoRoot, "scripts/verify-static-surfaces.mjs"), "utf8");
+    const staticSurfaceStart = surfaceSource.indexOf("export const VERIFY_STATIC_SURFACES =");
+    expect(staticSurfaceStart).toBeGreaterThanOrEqual(0);
     const source =
       readFileSync(path.join(repoRoot, "scripts/verify-static-scoped.mjs"), "utf8") +
-      readFileSync(path.join(repoRoot, "scripts/verify-static-surfaces.mjs"), "utf8");
+      surfaceSource.slice(staticSurfaceStart);
     const copiedNames = rootRuntimePaths.filter((file) => source.includes(`"${file}"`));
 
     // package.json appears only because the runner reads the authoritative
@@ -529,7 +1036,7 @@ describe("derived root-runtime fanout", () => {
 describe("fail-closed execution and reporting", () => {
   const fixturePackage = {
     scripts: {
-      "verify:static": "pnpm run check:always && pnpm run check:narrow",
+      "verify:static": "pnpm run check:always && pnpm run check:narrow && pnpm run test:scripts",
     },
   };
   const fixtureSurfaces = {
@@ -556,6 +1063,7 @@ describe("fail-closed execution and reporting", () => {
       execGit,
       readPackageJson: () => fixturePackage,
       surfaces: fixtureSurfaces,
+      runGuardTests: () => 0,
       dependencies: noFanoutDependencies(),
       runLink: (link) => {
         ran.push(link.name);
@@ -567,19 +1075,19 @@ describe("fail-closed execution and reporting", () => {
     return { ran, stdout, stderr, status };
   }
 
-  it("warns on malformed JSON and runs the full chain", async () => {
+  it("warns on malformed JSON and runs the full local link set", async () => {
     const result = await execute({ env: cleanEnvironment({ CHANGED_FILES_JSON: "{" }) });
     expect(result.stderr.join("\n")).toContain("[STATIC_SCOPE_CHANGED_FILES_INVALID]");
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns on an out-of-repository changed path and runs the full chain", async () => {
+  it("warns on an out-of-repository changed path and runs the full local link set", async () => {
     const result = await execute({ env: cleanEnvironment({ CHANGED_FILES_JSON: '["../outside.ts"]' }) });
     expect(result.stderr.join("\n")).toContain("[STATIC_SCOPE_CHANGED_FILES_INVALID]");
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns on a missing base ref and runs the full chain", async () => {
+  it("warns on a missing base ref and runs the full local link set", async () => {
     const result = await execute({
       execGit: (args) => {
         if (args[0] === "rev-parse") return "true\n";
@@ -590,7 +1098,7 @@ describe("fail-closed execution and reporting", () => {
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns outside Git and runs the full chain", async () => {
+  it("warns outside Git and runs the full local link set", async () => {
     const result = await execute({
       execGit: () => {
         throw new Error("not a repository");
@@ -600,7 +1108,7 @@ describe("fail-closed execution and reporting", () => {
     expect(result.ran).toEqual(["check:always", "check:narrow"]);
   });
 
-  it("warns when classifier fanout cannot be evaluated and runs the full chain", async () => {
+  it("warns when classifier fanout cannot be evaluated and runs the full local link set", async () => {
     const ran = [];
     const stderr = [];
     const status = await runVerifyStaticScoped({
@@ -608,6 +1116,7 @@ describe("fail-closed execution and reporting", () => {
       env: cleanEnvironment({ CHANGED_FILES_JSON: '["docs/readme.md"]' }),
       readPackageJson: () => fixturePackage,
       surfaces: fixtureSurfaces,
+      runGuardTests: () => 0,
       dependencies: {
         listWorkspacePackages: () => {
           throw new Error("workspace inventory unavailable");
@@ -640,6 +1149,28 @@ describe("fail-closed execution and reporting", () => {
     expect(result.status).toBe(0);
     expect(result.ran).toEqual([]);
     expect(result.stdout.join("\n")).toContain("scanned=0/2");
+  });
+
+  it("acquires one aggregate slot before selected child links run", async () => {
+    const events = [];
+    const status = await runVerifyStaticScoped({
+      repoRoot,
+      env: cleanEnvironment({ CHANGED_FILES_JSON: '["docs/readme.md"]' }),
+      readPackageJson: () => fixturePackage,
+      surfaces: fixtureSurfaces,
+      runGuardTests: () => 0,
+      dependencies: noFanoutDependencies(),
+      acquireSlot: () => events.push("acquire"),
+      runLink: (link) => {
+        events.push(link.name);
+        return 0;
+      },
+      stdout: () => {},
+      stderr: () => {},
+    });
+
+    expect(status).toBe(0);
+    expect(events).toEqual(["acquire", "check:always"]);
   });
 
   it("names every skipped link and its triggering rule", async () => {

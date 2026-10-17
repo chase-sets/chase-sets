@@ -24,6 +24,28 @@ Platform Deploy renders the canonical runtime values, builds immutable images, e
 
 Platform Deploy, Platform Staging Reset, and Platform Registry Cleanup share the `platform-registry-mutation` GitHub Actions concurrency group so deploy and registry mutations cannot race.
 
+### Supervised Catalog Provider-Send Window
+
+The existing Platform Deploy boolean input `catalog_provider_send_window_enabled` defaults to `false`. It supplies `CATALOG_PROVIDER_SEND_WINDOW_ENABLED=true/false` to staging API and worker only. Production and previews remain false; bootstrap, scenario-seed, and web workloads do not enroll. CLI environment settings do not enable deployed Pods. Opt-in true without `force_deploy=true` is refused. Use `force_deploy=true` for both same-SHA setup and cleanup so a deploy-scoped diff skip cannot mask the choice. A forced setup or cleanup Platform Deploy also redeploys production at the same SHA; it does not pass this opt-in to production. Existing release authorization, credentials, and coupled-production gates still apply.
+
+This is consumer enablement, not permission to arm or send. Execution remains owned by the supervised #7514 host and its existing audited authority.
+
+| State | Admission and required transition |
+| --- | --- |
+| Off | Ordinary steady state. No ledger access. Drain pre-existing Catalog provider jobs before setup. |
+| Enabled / pristine-unarmed | Only affirmative pristine authority (singleton null and no window history) permits ordinary sends. This is not armed protection. Await the setup deploy's auto-dispatched Platform Staging Advisory Evidence run, then drain its null-bound jobs before arm. |
+| Armed / enabled | Host checks both API and worker rollouts, exact image digest, effective flag true, and the armed shared ledger before any provider work. Hold the supervised interval and exclude other provider refresh. |
+| Terminal / enabled | Sends refuse. Termination retains ledger authority and durable job bindings. Reconcile and close the interval before considering off. |
+| Verified cleanup / off | Only after no window-owned queued, running, reclaimable, or in-flight work can execute: force-deploy false and verify both workloads effectively off at the intended digest. Retain ledger and bindings; never retry old jobs after off. Ordinary work may resume only after host reconciliation. |
+| Later window / terminal-retained | Re-enabling refuses until authorized re-arm. It is not pristine-unarmed; retained history must never be reset to simulate it. |
+| Unavailable / unknown | STOP. Missing authority/context, stale bindings, partial rollout, or unknown cleanup never authorize work or off. |
+
+Hold every other staging Helm mutator from setup through verified off, not merely baseline through repeat: non-opt-in Platform Deploy (automatic release-candidate dispatch, reset-triggered, or manual) renders false; Platform Staging Helm Recovery and Platform Staging Rollback Drill can restore an earlier revision's flag. Platform Staging Bootstrap Hook Drill uses `--reuse-values` but can roll workloads and quiesce bootstrap activity; preserving the flag is not an exception to this hold. Any such occurrence is STOP until host reconciliation. Managed-Postgres-CA reconciliation uses `--reuse-values` and preserves the flag, but is not evidence of both effective workloads. GitHub concurrency groups do not implement this lifecycle hold.
+
+Exclude advisory/scenario-seed reruns and other refresh during the armed interval. `CATALOG_PROVIDER_SCOPE_REFRESH_INTERVAL_MS` is not declared in staging Helm; when absent, scheduled Provider Scope Refresh remains enabled at its 900,000 ms (15-minute) default. Before arm, the host must exclude both scheduled and operator-dispatched refresh: pause relevant providers via the existing authorized `POST /provider-scope-discovery/refresh-schedule/:providerKey/pause`, read back and verify their paused state via `GET /provider-scope-discovery/refresh-schedule`, and reconcile already-claimed and in-flight refresh work. A pause or absent interval variable alone is not drain proof. Hold this exclusion through the protected interval; resume only under the existing reconciled-cleanup authority. Unknown refresh exclusion means STOP. The setup advisory scenario seed quiesces/restores the worker and its E2E accesses deployed apps, so its completion and null-bound-job drain must precede arm.
+
+Every outcome, including early cancellation, force cancellation, failed rollout, and runner loss, keeps STOP until the host reconciles both workloads and retained ledger/job state. Off is never automatic, periodic-only, or a substitute for interval closure. If any old work or in-flight request could still execute, or that is unknown, keep STOP and do not deploy off. A successful cleanup render alone does not prove terminal state or jobs were reconciled; the ledger remains retained independently of the Pod flag.
+
 ### Staging DNS Operations
 
 The parent `chasesets.com` zone delegates `staging` to the child `staging.chasesets.com` zone. The child apex combines its DOKS ingress A record with Google Workspace MX/TXT records; it must never be a CNAME. `www`, `marketplace`, and `admin` are also A records targeting the DOKS load balancer. The environment DNS root owns mail, asset, and diagnostic records, while the platform root preserves the live routing resource addresses.
@@ -34,7 +56,15 @@ Retain the incident history that explains this shape: on May 17, 2026, a provide
 
 `landing`, `proof`, and `public` control mounted runtime slices and public exposure. Database lifecycle is a companion track to runtime profile migration, not a side effect of it. Review `provisioned_context_names`, `active_runtime_context_names`, and the exposed route set independently.
 
-Topology/release-health evidence for profile migration must include connection-budget changes, bootstrap success, query and listener key parity, projection readiness, and projection rebuild for derived read models when a newly activated context lacks compatible read state.
+### Served Marketplace (Not Public)
+
+The served marketplace is a `proof` deployment with `PRODUCTION_MARKETPLACE_SERVED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`. It is not a fourth runtime profile and does not satisfy or read any public-launch approval. Terraform's `marketplace_served` local owns the marketplace domain, live A record, and uptime-check decision; the Helm renderer uses the same environment posture for ingress and certificate names. Registration remains invitation-gated and marketplace indexing remains disabled.
+
+Enter the posture by setting `PRODUCTION_MARKETPLACE_SERVED=true` in the production GitHub Environment, leaving `PRODUCTION_RUNTIME_PROFILE` unset, and running Platform Deploy. After the deploy smoke artifact is green, hold all account admission until the [identity-term population receipt](marketplace-production-promotion.md#identity-term-population-receipt) is verified on [#9292](https://github.com/chase-sets/chase-sets/issues/9292); on failure, admit nobody and leave the posture. Only then admit accounts, either by creating the account through the production admin workflow and issuing an Identity invitation, or by admitting the person's waitlist signup in a controlled wave. Do not run ad-hoc Terraform or mutate DNS directly.
+
+Leave the posture by setting `PRODUCTION_MARKETPLACE_SERVED=false` and redeploying. Keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` to return to landing. For a later public launch, have the receipt verified in this posture first, then disable the served switch, complete the Marketplace Production Promotion gates, then enable the public switch; the two switches are intentionally mutually exclusive.
+
+Topology/release-health evidence for profile migration must include connection-budget changes, bootstrap success, query and listener key parity, projection readiness, and projection rebuild for derived read models when a newly activated context lacks compatible read state. For Discovery, that rebuild is the identity-term population command `scripts/discovery-search-identity-terms-populate.mjs`. It runs once per host authorization, outside the deploy, through the [identity-term population receipt](marketplace-production-promotion.md#identity-term-population-receipt) step.
 
 ## Staging Reset And Recovery Drills
 
@@ -70,6 +100,6 @@ Spaces and Terraform-state least privilege remain separate follow-up work.
 
 ## Validation
 
-Before publishing an infrastructure change, run Terraform format/validate for each changed root, `pnpm run check:github-actions-runtime`, focused script tests, and `pnpm run verify:static`. Apply the `full-ci` PR label when broad workflow or infrastructure coverage is required.
+Before publishing an infrastructure change, run Terraform format/validate for each changed root, `pnpm run check:github-actions-runtime`, named focused script tests, and `pnpm run verify:static:scoped`. On concurrent-lane hosts, set `CHASE_SETS_LANE_MODE=1` for local Vitest commands. Hosted CI owns the strict full `pnpm run verify:static`, full `pnpm run verify`, and complete `pnpm run test:scripts` gates. Apply the `full-ci` PR label when broad workflow or infrastructure coverage is required.
 
 See [DOKS Platform Operations](./doks-platform-operations.md) for deploy, diagnostics, rollback, bootstrap-hook drill, ingress, certificate, and secret-rotation procedures.

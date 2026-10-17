@@ -80,12 +80,14 @@ export function buildCheckoutTotalsLines(input: {
               : t("checkout.features.sessions.ui.checkoutPage.calculated.before.payment"),
             muted: !payment,
           },
-          {
-            label: t("checkout.features.sessions.ui.checkoutPage.wallet.credit"),
-            value: payment
-              ? formatMoney(`-${payment.wallet_credit.applied_amount}`, "USD")
-              : formatMoney("0.00", "USD"),
-          },
+          ...(wallet && payment
+            ? [
+                {
+                  label: t("checkout.features.sessions.ui.checkoutPage.wallet.credit"),
+                  value: formatMoney(`-${payment.wallet_credit.applied_amount}`, "USD"),
+                },
+              ]
+            : []),
         ]
       : []),
     ...(authenticityCheckShowsInTotals && authenticityCheckOffer

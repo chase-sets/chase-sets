@@ -8,6 +8,7 @@ import {
   SANCTIONED_SQL_RECEIVER_RESOLUTION,
   classifySqlExecutionSurface,
   deriveChangedSqlExecutionFiles,
+  exceptionalSqlPartition,
   listNonTestTypeScriptModules,
   runSqlExecutionSurfaceGuard,
 } from "./sql-execution-surface.mjs";
@@ -32,12 +33,8 @@ function classify(files, root = repoRoot) {
 function partitionFromFiles(root, files) {
   const result = classifySqlExecutionSurface({ repoRoot: root, files });
   return {
-    sqlExecuting: result.modules.filter((module) => module.outcome === "sql-executing").map((module) => module.file),
-    unprovableForm: result.modules
-      .filter((module) => module.outcome === "unprovable-form")
-      .map((module) => module.file),
+    ...exceptionalSqlPartition(files, result),
     notSql: result.modules.filter((module) => module.outcome === "not-sql").map((module) => module.file),
-    unresolvedMemberRoots: result.unresolvedMemberRoots,
   };
 }
 
@@ -301,17 +298,43 @@ afterEach(() => {
 });
 
 describe("SQL execution fixture matrix through the real guard entrypoint", () => {
+  it("closes all ten wallet funding SQL obligations through the unchanged tracked-source owner", () => {
+    const queries = "bounded-contexts/payments/features/wallet-funding/read-model/queries.ts";
+    const projection = "bounded-contexts/payments/features/wallet-funding/read-model/projection.ts";
+    const runtime = "bounded-contexts/payments/features/wallet-funding/api/runtime.ts";
+    const obligations = [
+      { role: "creation identity under account lock", file: queries, lines: [12, 15], receiver: "db" },
+      { role: "rolling creation amount", file: queries, lines: [28], receiver: "db" },
+      { role: "per-attempt creation reservation", file: queries, lines: [41], receiver: "db" },
+      { role: "creation reservation release", file: queries, lines: [49], receiver: "db" },
+      { role: "account funding history", file: queries, lines: [54], receiver: "db" },
+      { role: "provider funding correlation", file: queries, lines: [61], receiver: "db" },
+      { role: "projection current version", file: projection, lines: [30], receiver: "db" },
+      { role: "projection version-fenced upsert", file: projection, lines: [41], receiver: "db" },
+      { role: "bounded non-refused sweep", file: runtime, lines: [534], receiver: "deps.pool" },
+      { role: "sweep scheduling progress", file: runtime, lines: [648], receiver: "deps.pool" },
+    ];
+    expect(obligations).toHaveLength(10);
+    const result = classify([queries, projection, runtime]);
+    expect(result.violations).toEqual([]);
+    expect(result.modules.map(({ outcome }) => outcome)).toEqual(["sql-executing", "sql-executing", "sql-executing"]);
+    expect(result.modules.flatMap(({ calls }) => calls)).toHaveLength(11);
+    for (const { file, lines, receiver } of obligations) {
+      for (const line of lines) expectSql(result, file, line, receiver);
+    }
+  });
+
   it("classifies P1-P10 and P12-P18 as SQL-executing at their named anchors", () => {
     const anchors = [
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37, "db"],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236, "db"],
-      ["infrastructure/event-core-postgres/types.ts", 40, "client"],
+      ["infrastructure/event-core-postgres/types.ts", 47, "client"],
       ["scripts/catalog-integration-reset.ts", 216, "db"],
       ["infrastructure/event-core-postgres/projection-store.ts", 358, "config.db"],
-      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 145, "deps.db"],
-      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 283, "options.auth.db"],
+      ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
+      ["bounded-contexts/auth/support/ucp-support/oauth.ts", 307, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 284, "db"],
+      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
       ["bounded-contexts/catalog/features/catalog-items/read-model/projection.ts", 28, "projectionDb"],
       [
@@ -320,7 +343,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
         "resolveProjectionDb(context, db)",
       ],
       ["bounded-contexts/catalog/features/categories/read-model/queries.ts", 82, "db"],
-      ["bounded-contexts/discovery/features/search/read-model/market-signals.ts", 70, "db"],
+      ["bounded-contexts/discovery/features/search/read-model/market-signals.ts", 84, "db"],
       [fixtureFile, 29, "db"],
       [fixtureFile, 33, "db"],
       [fixtureFile, 37, "db"],
@@ -358,7 +381,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 284],
+      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255],
       [fixtureFile, 29],
       [fixtureFile, 37],
     ];
@@ -369,7 +392,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       path.join(repoRoot, "bounded-contexts/identity/support/runtime-support/services.ts"),
       "utf8",
     ).split(/\r?\n/);
-    expect(identityServicesLines[51]).toContain("pool as PgQueryable");
+    expect(identityServicesLines[82]).toContain("pool as PgQueryable");
   });
 
   it("classifies every P14 bind-then-call sibling module as SQL-executing", () => {
@@ -419,16 +442,16 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
     for (const [file, line, outcome] of expectations) {
       expect(callAt(result, file, line)?.outcome, `${file}:${line}`).toBe(outcome);
     }
-    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 613)?.outcome).toBe("not-sql");
+    expect(callAt(result, "bounded-contexts/auth/support/ucp-support/oauth.ts", 782)?.outcome).toBe("not-sql");
     expect(callAt(result, "bounded-contexts/customer-feedback/features/attention/api/route.ts", 44)?.outcome).toBe(
       "not-sql",
     );
-    expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 154)?.outcome).toBe("not-sql");
-    expect(callAt(result, "contracts/event-core/projector.ts", 128)).toBeUndefined();
+    expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 168)?.outcome).toBe("not-sql");
+    expect(callAt(result, "contracts/event-core/projector.ts", 130)).toBeUndefined();
     const projectorLines = readFileSync(path.join(repoRoot, "contracts/event-core/projector.ts"), "utf8").split(
       /\r?\n/,
     );
-    expect(projectorLines[127]).toContain('NonNullable<ProjectorHandlerContext["db"]>');
+    expect(projectorLines[129]).toContain('NonNullable<ProjectorHandlerContext["db"]>');
   });
 
   it("reports complete unprovable-form messages and only the sanctioned resolution", () => {
@@ -637,6 +660,78 @@ describe("exact test-only directory segment vocabulary", () => {
 });
 
 describe("SQL execution diff scope fail-closed controls", () => {
+  it("skips a deleted governed path but classifies an existing changed module", () => {
+    const root = createContractRepo();
+    const deleted = "packages/opaque/deleted.ts";
+    const existing = "packages/opaque/existing.ts";
+    mkdirSync(path.dirname(path.join(root, existing)), { recursive: true });
+    writeFileSync(path.join(root, existing), "export const value = 1;\n");
+
+    const result = runSqlExecutionSurfaceGuard({
+      repoRoot: root,
+      changedFilesJson: JSON.stringify([deleted, existing]),
+    });
+    expect(result.modules.map((module) => module.file)).toEqual([existing]);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("skips a renamed-away source and classifies its real destination", () => {
+    const root = createContractRepo();
+    const source = "deployables/platform-api/src/old-support.ts";
+    const destination = "deployables/platform-api/src/renamed-support.ts";
+    mkdirSync(path.dirname(path.join(root, destination)), { recursive: true });
+    writeFileSync(path.join(root, destination), "export const value = 1;\n");
+
+    const result = runSqlExecutionSurfaceGuard({
+      repoRoot: root,
+      changedFilesJson: JSON.stringify([source, destination]),
+    });
+    expect(result.modules.map((module) => module.file)).toEqual([destination]);
+  });
+
+  it("deduplicates normalized Windows and POSIX paths in the diff scope only", () => {
+    const root = createContractRepo();
+    const existing = "packages/opaque/existing.ts";
+    mkdirSync(path.dirname(path.join(root, existing)), { recursive: true });
+    writeFileSync(path.join(root, existing), "export const value = 1;\n");
+
+    const result = runSqlExecutionSurfaceGuard({
+      repoRoot: root,
+      changedFilesJson: JSON.stringify([existing.replaceAll("/", "\\"), existing]),
+    });
+    expect(result.modules.map((module) => module.file)).toEqual([existing]);
+  });
+
+  it("handles the #8227 --no-renames changed-list shape", () => {
+    const root = createContractRepo();
+    const surviving = [
+      "contracts/embedded-surface-theme/index.ts",
+      "infrastructure/stripe-appearance/stripe-appearance.ts",
+      "packages/design-system/src/index.ts",
+    ];
+    for (const file of surviving) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      writeFileSync(path.join(root, file), "export const value = 1;\n");
+    }
+    const changedFiles = [
+      ".github/workflows/platform-pr.yml",
+      "bounded-contexts/payments/tests/stripe-appearance.test.ts",
+      ...surviving,
+      "packages/design-system/src/theme/stripe-appearance.ts",
+      "scripts/check-structure/sql-execution-surface-partition.json",
+    ];
+    const result = runSqlExecutionSurfaceGuard({ repoRoot: root, changedFilesJson: JSON.stringify(changedFiles) });
+    expect(result.modules.map((module) => module.file)).toEqual(surviving);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("still rejects a missing tracked module in the full inventory", () => {
+    const root = createContractRepo();
+    expect(() => classifySqlExecutionSurface({ repoRoot: root, files: ["packages/opaque/deleted.ts"] })).toThrowError(
+      expect.objectContaining({ code: "SQL_INVENTORY_MISSING" }),
+    );
+  });
+
   it.each([
     ["malformed CHANGED_FILES_JSON", "{", "SQL_CHANGED_FILES_INVALID_JSON"],
     ["non-array CHANGED_FILES_JSON", "{}", "SQL_CHANGED_FILES_NOT_ARRAY"],
@@ -798,6 +893,76 @@ describe("repository-wide SQL execution partition", () => {
     expect(partition.notSql).not.toContain(buildOutputFile);
   });
 
+  it("closes the tracked partition for harmless, missing, and arbitrary SQL modules", () => {
+    const root = createContractRepo();
+    const harmless = "packages/opaque/harmless.ts";
+    const executor = "packages/unrelated/receiver.ts";
+    for (const [file, source] of [
+      [harmless, "export const value = 1;\n"],
+      [executor, 'export async function run(db) { await db.query("select 1"); }\n'],
+    ]) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      writeFileSync(path.join(root, file), source);
+    }
+    const files = [harmless, executor];
+    const inventory = listNonTestTypeScriptModules(root, { execGit: () => `${files.join("\0")}\0` });
+    const classified = classify(inventory, root);
+    expect(classified.modules.map((module) => module.file)).toEqual(inventory);
+    expect(classified.modules.find((module) => module.file === harmless)?.outcome).toBe("not-sql");
+    expect(classified.modules.find((module) => module.file === executor)?.outcome).toBe("unprovable-form");
+    expect(exceptionalSqlPartition(inventory, classified).unprovableForm).toEqual([executor]);
+    expect(() => classify([...files, "packages/missing.ts"], root)).toThrowError(
+      expect.objectContaining({ code: "SQL_INVENTORY_MISSING" }),
+    );
+    expect(() => classify([...files, harmless], root)).toThrowError(
+      expect.objectContaining({ code: "SQL_INVENTORY_DUPLICATE" }),
+    );
+  });
+
+  it("rejects incomplete, unknown, and drifted exceptional projections", () => {
+    const files = ["packages/a.ts", "packages/b.ts"];
+    const modules = files.map((file) => ({ file, outcome: "not-sql", calls: [] }));
+    const result = { modules, unresolvedMemberRoots: { count: 0, fileList: [], fileCounts: {} } };
+    const baseline = JSON.stringify(exceptionalSqlPartition(files, result));
+    expect(
+      JSON.stringify(
+        exceptionalSqlPartition([...files, "packages/c.ts"], {
+          ...result,
+          modules: [...modules, { file: "packages/c.ts", outcome: "not-sql", calls: [] }],
+        }),
+      ),
+    ).toBe(baseline);
+    for (const outcome of ["sql-executing", "unprovable-form"]) {
+      const changed = { ...result, modules: [{ ...modules[0], outcome }, modules[1]] };
+      expect(JSON.stringify(exceptionalSqlPartition(files, changed))).not.toBe(baseline);
+    }
+    expect(() => exceptionalSqlPartition(files, { ...result, modules: modules.slice(1) })).toThrow();
+    expect(() => exceptionalSqlPartition(files, { ...result, modules: [...modules, modules[0]] })).toThrow();
+    expect(() =>
+      exceptionalSqlPartition(files, { ...result, modules: [{ ...modules[0], outcome: "unknown" }, modules[1]] }),
+    ).toThrow();
+    const unresolved = {
+      ...result,
+      unresolvedMemberRoots: { count: 2, fileList: [files[0]], fileCounts: { [files[0]]: 2 } },
+    };
+    expect(JSON.stringify(exceptionalSqlPartition(files, unresolved))).not.toBe(baseline);
+    expect(() =>
+      exceptionalSqlPartition(files, {
+        ...unresolved,
+        unresolvedMemberRoots: { ...unresolved.unresolvedMemberRoots, count: 3 },
+      }),
+    ).toThrow();
+    for (const mutant of [
+      { ...exceptionalSqlPartition(files, result), sqlExecuting: [files[0]] },
+      { ...exceptionalSqlPartition(files, result), unprovableForm: ["packages/stale.ts"] },
+      {
+        ...exceptionalSqlPartition(files, unresolved),
+        unresolvedMemberRoots: { count: 1, fileCounts: { [files[0]]: 1 } },
+      },
+    ])
+      expect(JSON.stringify(mutant)).not.toBe(baseline);
+  });
+
   it("measures the exact five-module and enforcement-neutral partition transition", () => {
     const trackedFiles = execFileSync("git", ["ls-files", "-z", "--cached"], {
       cwd: repoRoot,
@@ -820,23 +985,41 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2269);
-    expect(governedModules).toHaveLength(2264);
+    expect(legacyModules.length - governedModules.length).toBe(exactRemovedModules.length);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
     );
     expect(removedClassification.violations).toEqual([]);
-    expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
+    expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [], fileCounts: {} });
 
-    expect(legacyPartition.sqlExecuting).toHaveLength(375);
-    expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(1891);
-    expect(legacyPartition.unresolvedMemberRoots.count).toBe(263);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
-    expect(partition.notSql).toHaveLength(1886);
+    expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/credentials/api/runtime.ts");
+    expect(partition.notSql).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/channels/features/credentials/domain/codecs.ts",
+        "bounded-contexts/channels/features/credentials/domain/contracts.ts",
+        "bounded-contexts/channels/features/credentials/read-model/schema.ts",
+        "infrastructure/platform-runtime/secret-envelope.ts",
+        "bounded-contexts/pricing/features/repricing-policies/ui/policy-controls.ts",
+        "bounded-contexts/pricing/features/repricing-policies/ui/presets.ts",
+      ]),
+    );
+    expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/reconciliation/read-model/detail.ts");
+    expect(partition.sqlExecuting).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-process.ts",
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-release.ts",
+      ]),
+    );
+    expect(partition.notSql).toContain("infrastructure/platform-runtime/evidence-window-source-recovery.ts");
+    expect(partition.notSql).toContain("bounded-contexts/channels/features/reconciliation/api/route.ts");
+    expect(partition.notSql).toContain("bounded-contexts/pricing/features/market-rollups/api/route.ts");
+    expect(
+      partition.unresolvedMemberRoots.fileCounts["bounded-contexts/pricing/features/market-rollups/api/route.ts"],
+    ).toBe(4);
     expect(partition.unresolvedMemberRoots).toEqual(legacyPartition.unresolvedMemberRoots);
     expect(partition.sqlExecuting.filter((file) => !legacyPartition.sqlExecuting.includes(file))).toEqual([]);
     expect(partition.unprovableForm.filter((file) => !legacyPartition.unprovableForm.includes(file))).toEqual([]);
@@ -844,18 +1027,22 @@ describe("repository-wide SQL execution partition", () => {
       governedModules.length,
     );
     console.log(
-      `SQL module inventory 2268 -> ${governedModules.length}; partition 375/3/1890 -> ` +
+      `SQL module inventory ${legacyModules.length} -> ${governedModules.length}; partition ` +
+        `${legacyPartition.sqlExecuting.length}/${legacyPartition.unprovableForm.length}/${legacyPartition.notSql.length} -> ` +
         `${partition.sqlExecuting.length}/${partition.unprovableForm.length}/${partition.notSql.length}; ` +
         `unresolvedMemberRoots=${partition.unresolvedMemberRoots.count}; removed=${removedModules.join(",")}`,
     );
   }, 120_000);
 
   it("keeps the committed partition equal to fresh tracked-inventory classification", () => {
-    const actual = partitionFromTrackedInventory(repoRoot);
-    const expected = JSON.parse(
-      readFileSync(path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"), "utf8"),
+    const files = listNonTestTypeScriptModules(repoRoot);
+    const result = classify(files);
+    expect(result.modules.map((module) => module.file)).toEqual(files);
+    const actual = exceptionalSqlPartition(files, result);
+    const expected = readFileSync(
+      path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"),
+      "utf8",
     );
-
-    expect(actual).toEqual(expected);
+    expect(`${JSON.stringify(actual, null, 2)}\n`).toBe(expected);
   }, 120_000);
 });

@@ -83,6 +83,14 @@
       "projectionHandlerSetNames": ["auth-identity-invitation-projection"]
     },
     {
+      "sourceContextName": "identity",
+      "projectionName": "auth-identity-account-capability-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": ["identity.account-capability.granted", "identity.account-capability.revoked"],
+      "order": 35,
+      "projectionHandlerSetNames": ["auth-identity-account-capability-projection"]
+    },
+    {
       "sourceContextName": "ordering",
       "sourceContextMount": "when-all-sources-mounted",
       "projectionName": "auth-agent-order-webhook-projection",
@@ -143,6 +151,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "auth-identity-account-capability-projection",
+      "sourceContextNames": ["identity"],
+      "ownedTables": ["auth_identity_account_capabilities"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "auth-agent-order-webhook-projection",
       "sourceContextNames": ["ordering", "fulfillment", "payments"],
       "sourceContextMount": "when-all-sources-mounted",
@@ -188,6 +203,11 @@
       "portName": "securityLifetimes",
       "providedBy": "platform-api",
       "purpose": "Bounds-validated, env-configurable session/token lifetimes (issue #4292): session, account-selection, magic-link, challenge, social-login-state, guest-checkout, and UCP OAuth TTLs. Env-tier by design, never admin-policy-editable."
+    },
+    {
+      "portName": "operatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Identity's Membership-aggregate operator authority, exposed on Auth's identity port; native MCP admits operator capabilities only when it grants, and an absent port denies."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -209,6 +229,9 @@
             },
             {
               "readModelTable": "auth_identity_memberships"
+            },
+            {
+              "readModelTable": "auth_identity_users"
             }
           ]
         },
@@ -248,6 +271,35 @@
     { "routePath": "/api/auth/account-selection/complete", "methods": ["POST"] },
     { "routePath": "/api/auth/social/", "methods": ["GET", "HEAD"], "match": "prefix" }
   ],
+  "agentCoverage": {
+    "account-select": {
+      "exempt": "sign-in-flow",
+      "note": "Chooses the browser session's active account; MCP tool calls carry their account scope in each call.",
+      "tools": []
+    },
+    "sign-in": {
+      "exempt": "sign-in-flow",
+      "note": "Browser sign-in form; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "sign-in-magic": {
+      "exempt": "sign-in-flow",
+      "note": "Browser magic-link landing; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "catalog-sign-in": {
+      "exempt": "sign-in-flow",
+      "note": "Catalog entry to the shared browser sign-in form; MCP clients bind to an authenticated operator principal instead.",
+      "tools": []
+    },
+    "sign-out": {
+      "exempt": "sign-in-flow",
+      "note": "Ends the browser session; MCP clients hold no admin browser session.",
+      "tools": []
+    },
+    "sessions": { "pending": "#9238" },
+    "sessions-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -323,77 +375,306 @@
           "routePath": "account/select",
           "fileExport": "./routes/marketplace/account-select",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "register",
           "routePath": "register",
           "fileExport": "./routes/marketplace/register",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "invite",
           "routePath": "invite/:invitationId",
           "fileExport": "./routes/marketplace/invite",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "sign-in",
           "routePath": "sign-in",
           "fileExport": "./routes/marketplace/sign-in",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "sign-in-magic",
           "routePath": "sign-in/magic",
           "fileExport": "./routes/marketplace/sign-in-magic",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "sign-out",
           "routePath": "sign-out",
           "fileExport": "./routes/marketplace/sign-out",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "guest-checkout-exit",
           "routePath": "guest-checkout/exit",
           "fileExport": "./routes/marketplace/guest-checkout-exit",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sessions",
           "routePath": "account/sessions",
           "fileExport": "./routes/marketplace/account-sessions",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sessions-detail",
           "routePath": "account/sessions/:id",
           "fileExport": "./routes/marketplace/account-sessions-detail",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-agents",
           "routePath": "account/agents",
           "fileExport": "./routes/marketplace/account-agents",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-agents-consent",
+          "routePath": "account/agents/consent",
+          "fileExport": "./routes/marketplace/account-agents-consent",
+          "routeType": "route",
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Session-bound OAuth consent is not a public resource."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "OAuth consent requires an interactive browser session."
+          }
         },
         {
           "routeId": "account-agents-detail",
           "routePath": "account/agents/:id",
           "fileExport": "./routes/marketplace/account-agents-detail",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "auth",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }
@@ -420,7 +701,8 @@
       "href": "/account/sessions",
       "order": 205,
       "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
+      "requiredPermissions": ["security.manage"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
@@ -431,7 +713,8 @@
       "href": "/account/agents",
       "order": 206,
       "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
+      "requiredPermissions": ["security.manage"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
@@ -442,7 +725,8 @@
       "href": "/sign-in",
       "order": 900,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility"
     },
     {
       "deployable": "marketplace-web",
@@ -453,7 +737,8 @@
       "href": "/register",
       "order": 910,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility"
     },
     {
       "deployable": "marketplace-web",
@@ -462,9 +747,11 @@
       "label": "Sign In",
       "icon": "user",
       "href": "/sign-in",
-      "order": 900,
+      "order": 20,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility",
+      "packingPriority": 350
     },
     {
       "deployable": "marketplace-web",
@@ -473,9 +760,11 @@
       "label": "Register",
       "icon": "plus",
       "href": "/register",
-      "order": 910,
+      "order": 30,
       "visibility": "signed-out",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "placement": "utility",
+      "packingPriority": 300
     }
   ],
   "directoryIntent": {
@@ -512,12 +801,12 @@
     "api-support": {
       "classification": "support",
       "purpose": "Provide reusable api-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Deployable composition for auth", "sessions"]
+      "expectedConsumers": ["invitation-acceptance"]
     },
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Multiple auth slices"]
+      "expectedConsumers": ["invitation-acceptance"]
     },
     "request-support": {
       "classification": "support",
@@ -528,12 +817,12 @@
     "route-support": {
       "classification": "support",
       "purpose": "Provide reusable route-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["registration", "sign-in"]
+      "expectedConsumers": ["invitation-acceptance", "registration", "sign-in"]
     },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["sessions"]
+      "expectedConsumers": ["invitation-acceptance", "sessions"]
     },
     "seed-support": {
       "classification": "support",
@@ -548,13 +837,13 @@
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Auth-owned UCP OAuth authorization, token, and revocation routes while Identity owns durable linked platform authorization facts.",
-      "expectedConsumers": ["Deployable composition for UCP identity linking"]
+      "purpose": "Provide Auth-owned UCP OAuth authorization, token, and revocation routes for deployable UCP identity-linking composition and the agent-grants slice. Identity owns durable linked platform authorization facts.",
+      "expectedConsumers": ["agent-grants"]
     },
     "ui-support": {
       "classification": "support",
       "purpose": "Provide reusable ui-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance", "registration", "sign-in"]
+      "expectedConsumers": ["agent-grants", "invitation-acceptance", "registration", "sessions", "sign-in"]
     },
     "routes": {
       "classification": "routes",
@@ -652,6 +941,26 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "auth.invitation-acceptance-status-snapshot",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#1",
+        "api-route:bounded-contexts/auth/support/api-support/invitation-routes.ts:POST /invitations/acceptance-status"
+      ],
+      "visibleDestination": {
+        "description": "Invitation status recovery returns only the nonsecret status derived from complete Auth attempt and Identity owner histories. It never repeats acceptance, issues a Session or token, or sets a cookie."
+      },
+      "proof": {
+        "authoritativeResponse": "lookupInvitationAttempt revalidates current owner and credential authority, then returns only confirming, ambiguous or accepted-reauth-required.",
+        "tests": [
+          "bounded-contexts/auth/features/invitation-acceptance/api/journey.test.ts",
+          "bounded-contexts/auth/routes/marketplace/invite-router.test.tsx"
+        ]
+      }
+    },
+    {
       "id": "auth.deployable-shell-sign-out-forms",
       "owner": "auth",
       "risk": "important",
@@ -720,7 +1029,7 @@
       "surfaces": [
         "post-form:bounded-contexts/auth/features/account-selection/ui/account-selection-page.tsx:H7a156fe57c56#1",
         "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:H5c166225bc84#1",
-        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#1",
+        "post-form:bounded-contexts/auth/features/invitation-acceptance/ui/invitation-acceptance-page.tsx:Ha0e18eba9568#2",
         "post-form:bounded-contexts/auth/features/registration/ui/register-page.tsx:H9d861fd197ea#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:H40557e616e62#1",
         "post-form:bounded-contexts/auth/features/sign-in/ui/sign-in-page.tsx:Hc6650289f31b#1",
@@ -816,6 +1125,29 @@
         "tests": [
           "bounded-contexts/auth/features/sessions/domain/domain.test.ts",
           "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "auth.oauth-consent-interaction",
+      "owner": "auth",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/auth/support/ucp-support/oauth.ts:POST /authorize",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-consent-page.tsx:H2bf092fe7eee#1",
+        "post-form:bounded-contexts/auth/features/agent-grants/ui/agent-consent-page.tsx:Hd5e991ad8d78#1",
+        "route-action:bounded-contexts/auth/routes/marketplace/account-agents-consent.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Consent decisions redirect with a code or access_denied only after direct SQL single-use consumption. Account switching awaits the existing Session command, then restarts authorize; Auth resolves the current account from the authoritative Session stream, not the lagging session projection."
+      },
+      "proof": {
+        "authoritativeResponse": "GET creates only a hashed request. POST validates the bound actor and current client, conditionally consumes the unexpired row, and builds the callback from RETURNING values. Account-switch completion precedes authorize re-entry; getSessionForAuth reads readAuthenticatedSession before presentation-only enrichment.",
+        "tests": [
+          "bounded-contexts/auth/support/ucp-support/oauth.test.ts",
+          "bounded-contexts/auth/routes/marketplace/account-agents-consent.test.ts",
+          "bounded-contexts/auth/support/runtime-support/authoritative-session-expiry.db.test.ts"
         ]
       }
     },

@@ -13,6 +13,10 @@ export const REQUIRED_LAUNCH_ENV_VARIABLES = [
   "PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE",
   "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED",
   "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE",
+  "PRODUCTION_PAYOUT_FEE_APPROVED",
+  "PRODUCTION_PAYOUT_FEE_REFERENCE",
+  "PRODUCTION_WALLET_FUNDING_APPROVED",
+  "PRODUCTION_WALLET_FUNDING_REFERENCE",
   "PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED",
   "PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE",
   "PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED",
@@ -32,6 +36,8 @@ export const REQUIRED_LAUNCH_ENV_VARIABLES = [
 ];
 
 export const OPTIONAL_LAUNCH_ENV_VARIABLES = [
+  "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST",
+  "PRODUCTION_MARKETPLACE_SERVED",
   "PRODUCTION_MARKETPLACE_PROOF_ENABLED",
   "PRODUCTION_MARKETPLACE_PROOF_REFERENCE",
 ];
@@ -91,6 +97,7 @@ export function buildProductionEnvSnapshot(input) {
     { optional: true },
   );
   validateProofModePublicSwitch(productionEnvironment, errors);
+  validateServedMarketplacePublicSwitch(productionEnvironment, errors);
   validateProductionRuntimeModes(productionEnvironment, errors);
   validateProductionEvidenceReferences(productionEnvironment, errors);
 
@@ -170,6 +177,7 @@ function validateBooleanVariables(productionEnvironment, errors) {
     if (
       !name.endsWith("_APPROVED") &&
       name !== "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" &&
+      name !== "PRODUCTION_MARKETPLACE_SERVED" &&
       name !== "PRODUCTION_MARKETPLACE_PROOF_ENABLED" &&
       name !== "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
     ) {
@@ -204,6 +212,15 @@ function validateProofModePublicSwitch(productionEnvironment, errors) {
     productionEnvironment.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true"
   ) {
     errors.push("PRODUCTION_MARKETPLACE_PROOF_ENABLED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.");
+  }
+}
+
+function validateServedMarketplacePublicSwitch(productionEnvironment, errors) {
+  if (
+    productionEnvironment.PRODUCTION_MARKETPLACE_SERVED === "true" &&
+    productionEnvironment.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true"
+  ) {
+    errors.push("PRODUCTION_MARKETPLACE_SERVED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.");
   }
 }
 

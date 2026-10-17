@@ -11,6 +11,42 @@ function labelsFor(relativeFile, content) {
 }
 
 describe("software delivery concepts guard", () => {
+  const requestFile = "bounded-contexts/catalog/features/operator-session/api/request.ts";
+  const cleanup = `async function readBody(request: Request) {
+    if (!request.body) return "";
+    const reader = request.body.getReader();
+    try { await reader.read(); } finally { reader.releaseLock(); }
+  }`;
+  it("admits the proven Web Streams reader cleanup in the operator request codec only", () => {
+    expect(labelsFor(requestFile, cleanup)).toEqual([]);
+    expect(labelsFor("deployables/platform-api/src/request.ts", cleanup)).toContain("releaseLock deploy gate");
+  });
+  it.each([
+    cleanup + "\nreleaseLock();",
+    cleanup + "\ndeploy.releaseLock();",
+    cleanup + "\nconst releaseLock = true;",
+    cleanup + "\n// releaseLock deployment gate",
+    cleanup.replace("reader.releaseLock()", "arbitrary.releaseLock()"),
+    cleanup.replace("const reader", "let reader"),
+    cleanup.replace("request.body.getReader()", "getReader()"),
+    cleanup.replace("request: Request", "request: any"),
+    cleanup.replace("reader.releaseLock();", "{ const reader = deploy; reader.releaseLock(); }"),
+    cleanup.replace("await reader.read();", "reader.releaseLock = deploy;"),
+    cleanup.replace("await reader.read();", "request = other; await reader.read();"),
+    cleanup.replace("await reader.read();", "++request.body; await reader.read();"),
+    cleanup.replace("await reader.read();", "request.body.getReader = deploy; await reader.read();"),
+    "interface Request { body: { getReader(): { read(): void; releaseLock(): void } } }\n" + cleanup,
+  ])("refuses unresolved, shadowed, mutable and mixed cleanup control %#", (content) => {
+    expect(labelsFor(requestFile, content)).toContain("releaseLock deploy gate");
+  });
+  it("retains other deny rules and path matches beside legitimate cleanup", () => {
+    expect(labelsFor(requestFile, cleanup + "\nconst productionMarker = true;")).toContain(
+      "productionMarker promotion gate",
+    );
+    expect(labelsFor(requestFile.replace("request.ts", "releaseLock.ts"), cleanup)).toContain(
+      "releaseLock deploy gate",
+    );
+  });
   it("guards only bounded-context and deployable .ts/.tsx source", () => {
     expect(isSoftwareDeliveryConceptGuardedFile("bounded-contexts/platform-operations/routes/admin/x.ts", ".ts")).toBe(
       true,

@@ -68,6 +68,16 @@ export const DEPLOYMENT_ENVIRONMENTS = [
 
 export type DeploymentEnvironment = (typeof DEPLOYMENT_ENVIRONMENTS)[number];
 
+export function loadCatalogProviderSendWindowEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
+  const enabled = env.CATALOG_PROVIDER_SEND_WINDOW_ENABLED;
+  if (enabled === undefined || enabled === "false") return false;
+  if (enabled !== "true") throw new Error("CATALOG_PROVIDER_SEND_WINDOW_ENABLED must be true or false.");
+  if (env.DEPLOYMENT_ENVIRONMENT !== "staging") {
+    throw new Error("Catalog provider-send window enablement requires staging.");
+  }
+  return true;
+}
+
 export type PlatformPostageConfig<TIncludeWebhookSecret extends boolean = boolean> =
   | Readonly<{
       kind: "sandbox";
@@ -858,9 +868,11 @@ export function loadPostageConfig<TIncludeWebhookSecret extends boolean>(input: 
   } as PlatformPostageConfig<TIncludeWebhookSecret>;
 }
 
-export function loadTcgplayerAutomationConfig(): PlatformTcgplayerAutomationConfig | null {
+export function loadTcgplayerAutomationConfig(
+  operatorSessionConfigured = false,
+): PlatformTcgplayerAutomationConfig | null {
   const tcgAuthCookie = getOptionalEnv("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
-  if (!tcgAuthCookie) {
+  if (!tcgAuthCookie && !operatorSessionConfigured) {
     return null;
   }
 
@@ -895,7 +907,7 @@ export function loadTcgplayerAutomationConfig(): PlatformTcgplayerAutomationConf
     ),
   };
 
-  return {
+  const config: PlatformTcgplayerAutomationConfig = {
     auth: {
       tcgAuthCookie,
       userAgent: getOptionalEnv("TCGPLAYER_AUTOMATION_USER_AGENT") ?? DEFAULT_TCGPLAYER_AUTOMATION_USER_AGENT,
@@ -915,6 +927,35 @@ export function loadTcgplayerAutomationConfig(): PlatformTcgplayerAutomationConf
     },
     maxRetries: getRequiredNonNegativeNumberEnv("TCGPLAYER_AUTOMATION_MAX_RETRIES", 3),
   };
+  return enforceTcgplayerAutomationSafetyFloors(config);
+}
+
+function enforceTcgplayerAutomationSafetyFloors(
+  config: PlatformTcgplayerAutomationConfig,
+): PlatformTcgplayerAutomationConfig {
+  const domainConfigs = Object.fromEntries(
+    Object.entries(config.domainConfigs).map(([domainKey, domainConfig]) => {
+      const requestFloor = domainKey === "mpApi" ? 10_000 : 250;
+      const cooldownFloor = domainKey === "mpSearchApi" ? 100_000 : 30_000;
+      if (domainConfig.maxRequestDelayMs < requestFloor) {
+        throw new Error(
+          `TCGPLAYER_AUTOMATION_MAX_REQUEST_DELAY_MS for ${domainKey} must be at least ${requestFloor}ms.`,
+        );
+      }
+      return [
+        domainKey,
+        {
+          ...domainConfig,
+          requestDelayMs: Math.max(domainConfig.requestDelayMs, requestFloor),
+          rateLimitCooldownMs: Math.max(domainConfig.rateLimitCooldownMs, cooldownFloor),
+          maxConcurrentRequests: Math.min(domainConfig.maxConcurrentRequests, 2),
+          minRequestDelayMs: Math.max(domainConfig.minRequestDelayMs, requestFloor),
+          learnedMinDelayMs: Math.max(domainConfig.learnedMinDelayMs, requestFloor),
+        },
+      ];
+    }),
+  ) as Record<PlatformTcgplayerAutomationDomainKey, PlatformTcgplayerAutomationDomainConfig>;
+  return { ...config, domainConfigs };
 }
 
 export function describeTcgplayerAutomationConfigForLogs(config: PlatformTcgplayerAutomationConfig | null) {

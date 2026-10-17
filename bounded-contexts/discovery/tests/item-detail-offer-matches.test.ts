@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildDiscoveryMarketProjectionHandlers } from "../support/market-support/projection";
 import {
@@ -7,14 +8,12 @@ import {
 } from "../features/item-detail/read-model/queries";
 
 function createEvent(type: string, data: Record<string, unknown>, recordedAt: string) {
-  return {
-    type,
+  return buildTransportEvent(type, data, {
     streamId: "marketplace.offer-offer_charizard",
     streamVersion: 1,
     globalPosition: "1",
-    data,
-    timing: { recordedAt },
-  };
+    timing: { occurredAt: recordedAt, recordedAt },
+  });
 }
 
 describe("item detail offer matches", () => {
@@ -42,7 +41,7 @@ describe("item detail offer matches", () => {
           submittedAt: "2026-05-12T00:00:00.000Z",
         },
         "2026-05-12T00:00:00.000Z",
-      ) as never,
+      ),
     );
 
     expect(calls[0].sql).toContain("feedback");
@@ -84,7 +83,7 @@ describe("item detail offer matches", () => {
           lifecycleAt: "2026-05-13T00:00:00.000Z",
         },
         "2026-05-13T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["marketplace.review-hold.released"]?.(
       createEvent(
@@ -95,7 +94,7 @@ describe("item detail offer matches", () => {
           lifecycleAt: "2026-05-14T00:00:00.000Z",
         },
         "2026-05-14T00:00:00.000Z",
-      ) as never,
+      ),
     );
 
     const holdUpdates = calls.filter(({ sql }) => sql.includes("UPDATE discovery_market_account_reviews"));
@@ -131,10 +130,11 @@ describe("item detail offer matches", () => {
           selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
           productSummary: "Raw",
           priceAmount: "350.00",
+          priceCurrencyCode: "EUR",
           quantityRequested: 1,
         },
         "2026-04-28T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["marketplace.offer.accepted"]?.(
       createEvent(
@@ -145,7 +145,7 @@ describe("item detail offer matches", () => {
           acceptedAt: "2026-04-28T01:00:00.000Z",
         },
         "2026-04-28T01:00:00.000Z",
-      ) as never,
+      ),
     );
 
     expect(calls[0].sql).toContain("INSERT INTO discovery_offer_demand_matches");
@@ -159,6 +159,8 @@ describe("item detail offer matches", () => {
       JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
       "Raw",
       "350.00",
+      "EUR",
+      1,
       1,
       "submitted",
       null,
@@ -169,13 +171,7 @@ describe("item detail offer matches", () => {
     const acceptedOfferUpdate = calls.find(
       (call) => call.sql.includes("UPDATE discovery_offer_demand_matches") && call.sql.includes("accepted_at"),
     );
-    expect(acceptedOfferUpdate?.params).toEqual([
-      "accepted",
-      "seller_1",
-      "2026-04-28T01:00:00.000Z",
-      "2026-04-28T01:00:00.000Z",
-      "offer_charizard",
-    ]);
+    expect(acceptedOfferUpdate?.params).toEqual(["offer_charizard", "seller_1", "2026-04-28T01:00:00.000Z", 1]);
   });
 
   it("projects checkout-start availability evidence into public market listings", async () => {
@@ -196,7 +192,7 @@ describe("item detail offer matches", () => {
           products: [{ productId: "cat_charizard::raw", weightOz: 4 }],
         },
         "2026-04-28T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["inventory.item.created"]?.({
       ...createEvent(
@@ -205,8 +201,9 @@ describe("item detail offer matches", () => {
         "2026-04-28T00:01:00.000Z",
       ),
       streamId: "inventory.item-itm_charizard",
-    } as never);
+    });
 
+    expect(calls.shift()?.sql).toContain("DELETE FROM event_projection_measure_publication_parts");
     expect(calls[0].sql).toContain("DELETE FROM discovery_market_product_measures");
     expect(calls[1].sql).toContain("INSERT INTO discovery_market_product_measures");
     expect(calls[2].sql).toContain("UPDATE discovery_market_listings AS listing");
@@ -238,7 +235,7 @@ describe("item detail offer matches", () => {
           shipFromAddress: { country: "US" },
         },
         "2026-04-28T00:00:00.000Z",
-      ) as never,
+      ),
     );
     await handlers["checkout.sell-list.line-added"]?.({
       ...createEvent(
@@ -255,7 +252,7 @@ describe("item detail offer matches", () => {
         "2026-04-28T00:01:00.000Z",
       ),
       streamId: "checkout.sell-list-acc_seller",
-    } as never);
+    });
 
     expect(calls[0].sql).toContain("INSERT INTO discovery_market_supply_locations");
     expect(calls[0].params).toEqual([
@@ -612,5 +609,74 @@ describe("item detail offer matches", () => {
     expect(marketQueries[1]).not.toContain("listing.*");
     expect(marketQueries[1]).not.toContain("SELECT *");
     expect(marketQueries[1]).toContain("LIMIT 25");
+  });
+});
+
+describe("item detail Offer lifecycle projection", () => {
+  function lifecycleDb() {
+    const row = {
+      offer_id: "offer_charizard",
+      catalog_catalog_item_id: "cat_charizard",
+      status: "submitted",
+      version: 1,
+    };
+    const statusUpdates: Array<readonly unknown[] | undefined> = [];
+    const patches: Array<{ changes: Array<{ op: string; entity: string; id: string }> }> = [];
+    const db = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("UPDATE discovery_offer_demand_matches") && sql.includes("SET status")) {
+          statusUpdates.push(params);
+          const [offerId, status, version] = params as [string, string, number];
+          if (offerId !== row.offer_id || version <= row.version) return { rows: [] };
+          Object.assign(row, { status, version });
+          return { rows: [{ offer_id: offerId }] };
+        }
+        if (sql.includes("FROM discovery_offer_demand_matches AS offer") && sql.includes("WHERE offer.offer_id = $1"))
+          return { rows: [{ ...row, selected_options: [] }] };
+        if (sql.includes("RETURNING outbox_id")) {
+          patches.push(JSON.parse(String(params?.[4])));
+          return { rows: [{ outbox_id: patches.length }] };
+        }
+        return { rows: [] };
+      },
+    } satisfies PgQueryable;
+    return { db, row, statusUpdates, patches };
+  }
+
+  const lifecycleEvent = (type: string, streamVersion: number) =>
+    buildTransportEvent(
+      type,
+      { offerId: "offer_charizard", buyerAccountId: "buyer_1", at: "2026-10-14T00:00:00.000Z" },
+      {
+        streamId: "marketplace.offer-offer_charizard",
+        streamVersion,
+        globalPosition: String(streamVersion),
+        timing: { occurredAt: "2026-10-14T00:00:00.000Z", recordedAt: "2026-10-14T00:00:00.000Z" },
+      },
+    );
+
+  it("hides a paused Offer with a live removal and restores it on Resume, guarding stale replays", async () => {
+    const { db, row, statusUpdates, patches } = lifecycleDb();
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+
+    await handlers["marketplace.offer.paused"]!(lifecycleEvent("marketplace.offer.paused", 2));
+    expect(row.status).toBe("paused");
+    expect(statusUpdates[0]).toEqual(["offer_charizard", "paused", 2, "2026-10-14T00:00:00.000Z"]);
+    expect(patches.at(-1)?.changes).toEqual([{ op: "remove", entity: "discovery.buyerOffer", id: "offer_charizard" }]);
+
+    await handlers["marketplace.offer.resumed"]!(lifecycleEvent("marketplace.offer.resumed", 3));
+    expect(row.status).toBe("submitted");
+    expect(patches.at(-1)?.changes).toEqual([
+      expect.objectContaining({ op: "upsert", entity: "discovery.buyerOffer", id: "offer_charizard" }),
+    ]);
+
+    const patchCount = patches.length;
+    await handlers["marketplace.offer.paused"]!(lifecycleEvent("marketplace.offer.paused", 2));
+    expect(row.status).toBe("submitted");
+    expect(patches).toHaveLength(patchCount);
+
+    await handlers["marketplace.offer.withdrawn"]!(lifecycleEvent("marketplace.offer.withdrawn", 4));
+    expect(row.status).toBe("withdrawn");
+    expect(patches.at(-1)?.changes).toEqual([{ op: "remove", entity: "discovery.buyerOffer", id: "offer_charizard" }]);
   });
 });

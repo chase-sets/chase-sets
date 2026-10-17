@@ -21,6 +21,7 @@
     }
   ],
   "tags": [
+    { "name": "Channels" },
     { "name": "Discovery" },
     { "name": "Cart and Checkout" },
     { "name": "Listings and Offers" },
@@ -30,9 +31,62 @@
     { "name": "Reputation" },
     { "name": "Inventory" },
     { "name": "Identity" },
-    { "name": "Notifications" }
+    { "name": "Notifications" },
+    { "name": "Channels" }
   ],
   "paths": {
+    "/api/marketplace/account/listings/{id}/photos/{photoId}/jpeg": {
+      "get": {
+        "tags": ["Listings and Offers"],
+        "summary": "Download an owned active Listing Evidence photo as source-width JPEG.",
+        "description": "Requires listings.view. Account identity comes from the authenticated actor. Retained source alpha is flattened white at fixed JPEG quality 90 without resizing. Every request is authorized; conditional 304 responses are not supported. The account limiter defaults to 30 requests per 600,000 ms and accepts shared policy overrides or disable. Decode is limited to 24,000,000 pixels; success is at most 15,000,000 bytes (the captured JPG / 15 MB limit). JPEGs are computed on demand and never stored.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^lst_[0-7][0-9A-HJKMNP-TV-Z]{25}$" } },
+          { "name": "photoId", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^lpho_[0-7][0-9A-HJKMNP-TV-Z]{25}$" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Buffered JPEG at retained-source width. Identical source bytes, white background and quality yield identical bytes in the deployed encoder.",
+            "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } } },
+            "headers": {
+              "Content-Length": { "description": "Exact response byte count.", "schema": { "type": "integer", "maximum": 15000000 } },
+              "ETag": { "description": "Quoted SHA-256 hex digest of the response body.", "schema": { "type": "string" } },
+              "Cache-Control": { "schema": { "type": "string", "const": "private, max-age=0, must-revalidate" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationFailed" },
+          "401": { "$ref": "#/components/responses/AuthenticationRequired" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "The same not_found listing response for a foreign account, missing listing/photo/source, replaced photo, or removed photo.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Shared rate_limited response, before listing or object I/O.", "headers": { "Retry-After": { "description": "Seconds until retry.", "schema": { "type": "integer", "minimum": 1 } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Storage unavailable, decode failure, pixel limit exceeded, or encoded JPEG exceeds the byte budget; never a JPEG success." }
+        }
+      }
+    },
+    "/api/channels/connections/{connectionId}/outbound-operations": {
+      "get": {
+        "tags": ["Channels"],
+        "summary": "Get an account connection's paginated outbound operation log and time-window summary.",
+        "parameters": [
+          { "name": "connectionId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 } },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "required": false, "description": "Inclusive event-origin summary boundary. Defaults to 30 days before to.", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "required": false, "description": "Exclusive event-origin summary boundary. Defaults to the current instant.", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/OutboundOperations" },
+          "400": { "$ref": "#/components/responses/ValidationFailed" },
+          "401": { "$ref": "#/components/responses/AuthenticationRequired" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+
+    "/api/channels/publication": { "get": { "tags": ["Channels"], "summary": "List the account's channel publication connections.", "responses": { "200": { "$ref": "#/components/responses/List" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/channels/publication/{connectionId}": { "get": { "tags": ["Channels"], "summary": "Get channel publication state for one account connection.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" }, "503": { "$ref": "#/components/responses/ProjectionFreshnessTimeout" } }, "parameters": [{ "$ref": "#/components/parameters/ReadAfterWrite" }, { "$ref": "#/components/parameters/ReadTargetContext" }] } },
+    "/api/channels/publication/{connectionId}/settings": { "put": { "tags": ["Channels"], "summary": "Replace channel publication settings with stream concurrency.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
+    "/api/channels/publication/{connectionId}/mappings/{dimension}/{sourceKey}/decision": { "post": { "tags": ["Channels"], "summary": "Record an account-scoped channel mapping review decision.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
     "/api/marketplace/items": { "get": { "tags": ["Discovery"], "summary": "Search marketplace items.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/items/{id}": {"get":{"tags":["Discovery"],"summary":"Get a marketplace item detail page.","responses":{"200":{"$ref":"#/components/responses/Ok"},"404":{"$ref":"#/components/responses/NotFound"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
     "/api/marketplace/categories": { "get": { "tags": ["Discovery"], "summary": "List browse categories.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
@@ -74,10 +128,10 @@
 
     "/api/marketplace/account/purchases/checkout": { "post": { "tags": ["Orders and Shipments"], "summary": "Create orders from checkout.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
     "/api/marketplace/account/purchases": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer purchases.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
-    "/api/marketplace/account/purchases/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer purchase detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/purchases/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer purchase detail.", "parameters": [{ "$ref": "#/components/parameters/ReadAfterWrite" }, { "$ref": "#/components/parameters/ReadTargetContext" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "503": { "$ref": "#/components/responses/ProjectionFreshnessTimeout" } } } },
     "/api/marketplace/account/purchases/{id}/cancel": { "post": { "tags": ["Orders and Shipments"], "summary": "Cancel a buyer purchase.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
-    "/api/marketplace/account/sales": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller sales.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
-    "/api/marketplace/account/sales/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller sale detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/marketplace/account/sales": { "get": { "tags": ["Orders and Shipments"], "summary": "List seller sales.", "parameters": [{ "$ref": "#/components/parameters/ReadAfterWrite" }, { "$ref": "#/components/parameters/ReadTargetContext" }], "responses": { "200": { "$ref": "#/components/responses/List" }, "503": { "$ref": "#/components/responses/ProjectionFreshnessTimeout" } } } },
+    "/api/marketplace/account/sales/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get seller sale detail.", "parameters": [{ "$ref": "#/components/parameters/ReadAfterWrite" }, { "$ref": "#/components/parameters/ReadTargetContext" }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "503": { "$ref": "#/components/responses/ProjectionFreshnessTimeout" } } } },
     "/api/marketplace/account/sales/{id}/cancel": { "post": { "tags": ["Orders and Shipments"], "summary": "Cancel a seller sale.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/marketplace/account/shipments": { "get": { "tags": ["Orders and Shipments"], "summary": "List buyer shipments.", "responses": { "200": { "$ref": "#/components/responses/List" } } } },
     "/api/marketplace/account/shipments/{id}": { "get": { "tags": ["Orders and Shipments"], "summary": "Get buyer shipment detail.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
@@ -131,7 +185,91 @@
     "/api/inventory/storage-locations/{id}": { "patch": { "tags": ["Inventory"], "summary": "Update storage location.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items": { "get": { "tags": ["Inventory"], "summary": "List inventory items.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Inventory"], "summary": "Create inventory item.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/items/{id}": {"get":{"tags":["Inventory"],"summary":"Get inventory item.","responses":{"200":{"$ref":"#/components/responses/Ok"},"503":{"$ref":"#/components/responses/ProjectionFreshnessTimeout"}},"parameters":[{"$ref":"#/components/parameters/ReadAfterWrite"},{"$ref":"#/components/parameters/ReadTargetContext"}]}},
+    "/api/inventory/items/{id}/channel-stock-allocation": { "get": { "tags": ["Inventory"], "summary": "Read an item's Channel Stock Allocation.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "put": { "tags": ["Inventory"], "summary": "Replace an item's Channel Stock Allocation at an expected revision.", "responses": { "200": { "$ref": "#/components/responses/Command" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
     "/api/inventory/items/{id}/adjustments": { "post": { "tags": ["Inventory"], "summary": "Adjust inventory item quantity.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
+    "/api/inventory/items/{id}/offline-sales": {
+      "post": {
+        "tags": ["Inventory"],
+        "summary": "Record an offline sale with a per-unit price and Inventory-owned channel.",
+        "description": "Records the applied stock reduction and one immutable offline-sale fact. Price and acquisition-cost values are per unit; the server stamps the recorded time. Currency and caller-supplied sale times are not accepted.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["quantity", "channel", "idempotencyKey"],
+                "properties": {
+                  "quantity": { "type": "integer", "minimum": 1 },
+                  "salePriceAmount": { "type": "string", "nullable": true, "pattern": "^(0|[1-9][0-9]{0,9})\\.[0-9]{2}$", "description": "Optional canonical per-unit sale price amount." },
+                  "channel": { "type": "string", "enum": ["in-store", "card-show", "other"] },
+                  "note": { "type": "string", "nullable": true },
+                  "collisionMode": { "type": "string", "enum": ["protect-orders", "honor-offline"], "default": "protect-orders" },
+                  "confirmSellerCannotFulfill": { "type": "boolean" },
+                  "idempotencyKey": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The first committed full, partial, or refused offline-sale result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["itemId", "version", "requestedQuantity", "appliedQuantity", "refusedQuantity", "collision"],
+                  "properties": {
+                    "itemId": { "type": "string" },
+                    "version": { "type": "integer", "minimum": 0 },
+                    "requestedQuantity": { "type": "integer", "minimum": 1 },
+                    "appliedQuantity": { "type": "integer", "minimum": 0 },
+                    "refusedQuantity": { "type": "integer", "minimum": 0 },
+                    "collision": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": false,
+                      "required": ["mode", "authorizedByRole", "requestedQuantity", "appliedQuantity", "refusedQuantity", "heldQuantity", "availableQuantity", "releasedHoldQuantity", "affectedOrders"],
+                      "properties": {
+                        "mode": { "type": "string", "enum": ["protect-orders", "honor-offline"] },
+                        "authorizedByRole": { "type": "string", "nullable": true, "enum": ["manager", "owner", "platform-admin"] },
+                        "requestedQuantity": { "type": "integer" },
+                        "appliedQuantity": { "type": "integer" },
+                        "refusedQuantity": { "type": "integer" },
+                        "heldQuantity": { "type": "integer" },
+                        "availableQuantity": { "type": "integer" },
+                        "releasedHoldQuantity": { "type": "integer" },
+                        "affectedOrders": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["holdId", "orderId", "reservationRequestId", "quantity", "disposition"],
+                            "properties": {
+                              "holdId": { "type": "string" },
+                              "orderId": { "type": "string" },
+                              "reservationRequestId": { "type": "string" },
+                              "quantity": { "type": "integer" },
+                              "disposition": { "type": "string", "enum": ["protected", "released"] }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationFailed" },
+          "401": { "$ref": "#/components/responses/AuthenticationRequired" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
     "/api/inventory/items/{id}/holds": { "post": { "tags": ["Inventory"], "summary": "Place inventory hold.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/inventory/holds/{id}/release": { "post": { "tags": ["Inventory"], "summary": "Release inventory hold.", "responses": { "200": { "$ref": "#/components/responses/Command" } } } },
 
@@ -296,6 +434,107 @@
           "status": { "type": "string" }
         }
       },
+      "OutboundConnection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connectionId", "providerKey", "environment", "status", "createdAt"],
+        "properties": {
+          "connectionId": { "type": "string" },
+          "providerKey": { "type": "string" },
+          "environment": { "type": "string", "enum": ["sandbox", "production"] },
+          "status": { "type": "string", "enum": ["pending-setup", "active", "paused", "disconnected"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "OutboundOperationCompleteness": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "total"],
+            "properties": {
+              "kind": { "type": "string", "const": "complete" },
+              "total": { "type": "integer", "minimum": 0 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "reason"],
+            "properties": {
+              "kind": { "type": "string", "const": "bounded-incomplete" },
+              "reason": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "OutboundOperationLogItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operationId", "channelListingId", "listingId", "operationKind", "status", "terminalReason", "rejectionCode", "attemptCount", "linkWriteState", "sourceOccurredAt", "enqueuedAt", "terminalAt", "eventToEnqueueMs", "enqueueToTerminalMs", "eventToProviderAckMs"],
+        "properties": {
+          "operationId": { "type": "string" },
+          "channelListingId": { "type": "string" },
+          "listingId": { "type": "string" },
+          "operationKind": { "type": "string", "enum": ["publish", "update", "delist"] },
+          "status": { "type": "string", "enum": ["pending", "in-flight", "succeeded", "failed"] },
+          "terminalReason": { "type": ["string", "null"] },
+          "rejectionCode": { "type": ["string", "null"] },
+          "attemptCount": { "type": "integer", "minimum": 0 },
+          "linkWriteState": { "type": "string", "enum": ["pending", "applied", "link-write-refused"] },
+          "sourceOccurredAt": { "type": "string", "format": "date-time" },
+          "enqueuedAt": { "type": "string", "format": "date-time" },
+          "terminalAt": { "type": ["string", "null"], "format": "date-time" },
+          "eventToEnqueueMs": { "type": "number" },
+          "enqueueToTerminalMs": { "type": ["number", "null"] },
+          "eventToProviderAckMs": { "type": ["number", "null"] }
+        }
+      },
+      "OutboundOperationLogPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "completeness"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/OutboundOperationLogItem" } },
+          "nextCursor": { "type": "string" },
+          "completeness": { "$ref": "#/components/schemas/OutboundOperationCompleteness" }
+        }
+      },
+      "OutboundOperationLatencyPercentiles": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["p50", "p95", "p99"],
+        "properties": {
+          "p50": { "type": ["number", "null"] },
+          "p95": { "type": ["number", "null"] },
+          "p99": { "type": ["number", "null"] }
+        }
+      },
+      "OutboundOperationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["completeness", "succeeded", "failed", "pending", "inFlight", "blocked", "inlineEventToProviderAckMs", "claimedEventToProviderAckMs"],
+        "properties": {
+          "completeness": { "$ref": "#/components/schemas/OutboundOperationCompleteness" },
+          "succeeded": { "type": "integer", "minimum": 0 },
+          "failed": { "type": "integer", "minimum": 0 },
+          "pending": { "type": "integer", "minimum": 0 },
+          "inFlight": { "type": "integer", "minimum": 0 },
+          "blocked": { "type": "integer", "minimum": 0 },
+          "inlineEventToProviderAckMs": { "$ref": "#/components/schemas/OutboundOperationLatencyPercentiles" },
+          "claimedEventToProviderAckMs": { "$ref": "#/components/schemas/OutboundOperationLatencyPercentiles" }
+        }
+      },
+      "OutboundOperationsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connection", "log", "summary"],
+        "properties": {
+          "connection": { "$ref": "#/components/schemas/OutboundConnection" },
+          "log": { "$ref": "#/components/schemas/OutboundOperationLogPage" },
+          "summary": { "$ref": "#/components/schemas/OutboundOperationSummary" }
+        }
+      },
       "PostWriteHandoff": {
         "type": "object",
         "required": ["kind", "expectation"],
@@ -446,6 +685,7 @@
     "responses": {
       "Ok": { "description": "Successful response." },
       "List": { "description": "List response.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListResponse" } } } },
+      "OutboundOperations": { "description": "Account-scoped outbound operation log page and independent event-origin summary.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OutboundOperationsResponse" } } } },
       "ListingTermsPreview": { "description": "Seller-confirmed fee preview.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MarketplaceListingTermsPreview" } } } },
       "ListingFeeHistory": { "description": "Listing fee lock history.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeHistoryResponse" } } } },
       "ListingFeeLockReport": { "description": "Marketplace sales fee lock report.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeLockReportResponse" } } } },
@@ -454,6 +694,7 @@
       "AuthenticationRequired": { "description": "Authentication required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Forbidden.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ValidationFailed": { "description": "Validation failed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Conflict": { "description": "The expected stream version is stale.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "FeeQuoteStale": { "description": "Confirmed fee quote is missing or stale. Response includes error.currentQuote.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FeeQuoteStaleError" } } } },
       "ProjectionFreshnessTimeout": {"description":"The fresh-write receipt is valid, but the required projection checkpoints did not catch up before the bounded read consistency timeout. Retry with the same receipt while it remains fresh or show a temporary recovery state.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ProjectionFreshnessTimeoutError"}}}},
       "NotFound": { "description": "Resource not found.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }

@@ -99,7 +99,10 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
     url: productUrl,
     image_urls: imageUrls,
     availability: availability(row.market_summary),
-    price: price(row.market_summary?.lowest_price_amount ?? null),
+    price: price(
+      row.market_summary?.lowest_price_amount ?? null,
+      row.market_summary?.lowest_price_currency_code ?? null,
+    ),
     extensions: {
       chase_sets: {
         catalog_item_id: row.catalog_item_id,
@@ -108,10 +111,13 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
         categories: readStringArray(row.category_names),
         tags: readStringArray(row.tags),
         primary_image_url: imageUrls[0] ?? null,
-        price_display: priceDisplay(row.market_summary?.lowest_price_amount ?? null),
+        price_display: priceDisplay(
+          row.market_summary?.lowest_price_amount ?? null,
+          row.market_summary?.lowest_price_currency_code ?? null,
+        ),
         availability_display: availabilityDisplay(row.market_summary),
         marketplace: marketSummary,
-        actions: marketplaceActions(productUrl, marketSummary.total_visible_quantity),
+        actions: marketplaceActions(productUrl, marketSummary.lowest_price ? marketSummary.total_visible_quantity : 0),
       },
     },
   };
@@ -134,7 +140,7 @@ function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
       id: listing.product_id,
       listing_id: listing.listing_id,
       title: listing.product_summary ?? row.title,
-      price: price(listing.price_amount),
+      price: price(listing.price_amount, listing.price_currency_code),
       availability: {
         status: listing.visible_quantity > 0 ? "available" : "unavailable",
         quantity: listing.visible_quantity,
@@ -152,7 +158,7 @@ function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
           inventory_item_id: listing.inventory_item_id,
           catalog_item_id: row.catalog_item_id,
           product_id: listing.product_id,
-          price_display: priceDisplay(listing.price_amount),
+          price_display: priceDisplay(listing.price_amount, listing.price_currency_code),
           availability_display: `${listing.visible_quantity} available`,
           actions: marketplaceActions(
             marketplaceUrl(request, `/listings/${listing.listing_slug}`),
@@ -271,17 +277,17 @@ function readIds(body: UcpCatalogLookupBody) {
   return id ? [id] : [];
 }
 
-function price(amount: string | null) {
-  return amount
+function price(amount: string | null, currencyCode: string | null) {
+  return amount && currencyCode
     ? {
-        currency: "USD",
+        currency: currencyCode,
         amount: moneyToMinorUnits(amount),
       }
     : null;
 }
 
-function priceDisplay(amount: string | null) {
-  return amount ? formatMoney(amount, "USD") : "Not currently listed";
+function priceDisplay(amount: string | null, currencyCode: string | null) {
+  return amount && currencyCode ? formatMoney(amount, currencyCode) : "Not currently listed";
 }
 
 function availability(summary: DiscoverySearchItemRow["market_summary"]) {
@@ -304,8 +310,11 @@ function availabilityDisplay(summary: DiscoverySearchItemRow["market_summary"]) 
 function marketplaceSummary(summary: DiscoverySearchItemRow["market_summary"]) {
   return {
     status: summary && summary.total_visible_quantity > 0 ? "available" : "unavailable",
-    lowest_price: price(summary?.lowest_price_amount ?? null),
-    lowest_price_display: priceDisplay(summary?.lowest_price_amount ?? null),
+    lowest_price: price(summary?.lowest_price_amount ?? null, summary?.lowest_price_currency_code ?? null),
+    lowest_price_display: priceDisplay(
+      summary?.lowest_price_amount ?? null,
+      summary?.lowest_price_currency_code ?? null,
+    ),
     active_listing_count: summary?.active_listing_count ?? 0,
     total_visible_quantity: summary?.total_visible_quantity ?? 0,
   };

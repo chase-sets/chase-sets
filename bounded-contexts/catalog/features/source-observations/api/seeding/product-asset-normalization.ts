@@ -1,3 +1,9 @@
+import {
+  sendCatalogProviderRequest,
+  currentProviderSendAdmission,
+  currentProviderSendBinding,
+  ProviderSendStoppedError,
+} from "../providers/provider-send-admission";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import {
@@ -245,7 +251,22 @@ export async function normalizeLorcanaImageAsset(
     return null;
   }
 
-  const response = await input.fetcher(sourceUrl);
+  if (currentProviderSendAdmission()?.enabled && currentProviderSendBinding()) {
+    const destination = new URL(sourceUrl);
+    // Evidence approves retention, not API access or credential-bearing image URLs.
+    if (
+      destination.protocol !== "https:" ||
+      destination.username ||
+      destination.password ||
+      destination.search ||
+      destination.hash ||
+      destination.hostname.split(".").includes("api") ||
+      /\/(?:api|v\d+)(?:\/|$)/i.test(destination.pathname) ||
+      !/\.(?:avif|gif|jpe?g|png|webp)$/i.test(destination.pathname)
+    )
+      throw new ProviderSendStoppedError("unknown-request");
+  }
+  const response = await sendCatalogProviderRequest("catalog-mirror", input.fetcher, sourceUrl, undefined, "asset");
   if (!response.ok) {
     throw new Error(`Lorcana image asset request failed with ${response.status} for ${sourceUrl}.`);
   }

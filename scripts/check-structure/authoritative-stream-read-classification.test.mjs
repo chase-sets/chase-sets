@@ -22,26 +22,48 @@ const candidateKeys = [
 const diagnosticKeys = ["file", "line", "node", "outcome", "sourceFile", "sourceStart"];
 
 const production = classification.analyzeAuthoritativeStreamReads({ repoRoot });
+const approvedStandaloneRoot = "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.tsx";
+const excludedStandaloneTestRoot = "bounded-contexts/inventory/features/inventory-items/ui/offline-sale-form.test.tsx";
 
 describe("authoritative-stream-read-classification-acceptance-control", () => {
   it("loads the exact tracked Program corpus and reports the anchor-tree classification", () => {
     expect(ts.version).toBe("6.0.3");
-    expect(production.roots).toHaveLength(2_892);
+    expect(production.roots).toEqual(classification.enumerateTrackedRoots(repoRoot));
+    expect(production.roots).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/channels/features/credentials/api/runtime.ts",
+        "bounded-contexts/channels/features/credentials/domain/codecs.ts",
+        "bounded-contexts/channels/features/credentials/domain/contracts.ts",
+        "bounded-contexts/channels/features/credentials/read-model/schema.ts",
+        "infrastructure/platform-runtime/secret-envelope.ts",
+        "bounded-contexts/channels/features/reconciliation/api/route.ts",
+        "bounded-contexts/channels/features/reconciliation/read-model/detail.ts",
+        "bounded-contexts/channels/features/reconciliation/ui/drift-panel.tsx",
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-process.ts",
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-release.ts",
+        "infrastructure/platform-runtime/evidence-window-source-recovery.ts",
+      ]),
+    );
+    expect(production.roots).toContain("bounded-contexts/channels/support/runtime-support/services.ts");
+    expect(production.roots).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/pricing/features/repricing-policies/api/activation.ts",
+        "bounded-contexts/pricing/features/repricing-policies/api/route.ts",
+        "bounded-contexts/pricing/features/repricing-policies/domain/halt.ts",
+        "bounded-contexts/pricing/features/repricing-policies/read-model/controls.ts",
+        "bounded-contexts/pricing/features/repricing-policies/read-model/halt-projection.ts",
+        "bounded-contexts/pricing/features/repricing-policies/read-model/migrations.ts",
+      ]),
+    );
+    expect(production.roots.filter((root) => root.endsWith("/offline-sale-form.tsx"))).toEqual([
+      approvedStandaloneRoot,
+    ]);
+    expect(production.roots).not.toContain(excludedStandaloneTestRoot);
     expect(production.totals).toMatchObject({
-      roots: 2_892,
-      loadedRoots: 2_892,
-      extensionCounts: {
-        ".ts": 2_259,
-        ".tsx": 614,
-        ".mts": 7,
-        ".cts": 0,
-        ".js": 0,
-        ".jsx": 0,
-        ".mjs": 12,
-        ".cjs": 0,
-      },
-      discoveredCallCandidates: 8,
-      authoritativeSites: 8,
+      roots: production.roots.length,
+      loadedRoots: production.roots.length,
+      discoveredCallCandidates: 20,
+      authoritativeSites: 20,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -50,8 +72,20 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
     });
+    expect(production.totals.extensionCounts).toEqual(
+      Object.fromEntries(
+        [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map((extension) => [
+          extension,
+          production.roots.filter((root) => root.endsWith(extension)).length,
+        ]),
+      ),
+    );
+    expect(Object.values(production.totals.extensionCounts).reduce((sum, count) => sum + count, 0)).toBe(
+      production.roots.length,
+    );
     expect(production.candidates.map(({ file, outcome }) => [file, outcome])).toEqual([
       ["bounded-contexts/auth/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
+      ["bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts", "CANONICAL"],
       [
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
         "CANONICAL",
@@ -60,10 +94,27 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "bounded-contexts/catalog/features/source-observations/api/source-observation-merge-candidate-runtime.ts",
         "CANONICAL",
       ],
+      ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
+      ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
       ["bounded-contexts/identity/api.ts", "CANONICAL"],
+      ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
+      ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
+      ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
+      ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
+      ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
+      ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
+      [
+        "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
+        "CANONICAL",
+      ],
+      [
+        "bounded-contexts/platform-operations/features/support-requests/api/participant-store-matrix.test-data.ts",
+        "CANONICAL",
+      ],
       ["contracts/event-core/complete-stream.ts", "HELPER"],
+      ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
     ]);
     expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:73"]);
@@ -181,6 +232,41 @@ export async function arbitrary(store: Pick<EventStore, "readStream">) {
         });
       },
     );
+  });
+
+  it("accepts two disjoint harmless tracked modules without changing authority evidence", async () => {
+    const first = "packages/opaque/deep/harmless.ts";
+    const second = "bounded-contexts/otherwise-unnamed/support/neutral.mts";
+    const fixture = baseFixture();
+    await classification.withTemporaryCorpus(fixture, async (temporaryRoot) => {
+      const baseline = classification.analyzeAuthoritativeStreamReads({ repoRoot: temporaryRoot });
+      await classification.withTemporaryCorpus(
+        {
+          ...fixture,
+          [first]: "export const harmless = true;\n",
+          [second]: "export const neutral = 2;\n",
+        },
+        async (expandedRoot) => {
+          const result = classification.analyzeAuthoritativeStreamReads({ repoRoot: expandedRoot });
+          expect(result.roots).toEqual(classification.enumerateTrackedRoots(expandedRoot));
+          expect(result.roots).toEqual(expect.arrayContaining([first, second]));
+          expect(
+            result.program
+              .getRootFileNames()
+              .map((file) => normalize(path.relative(expandedRoot, file)))
+              .sort(),
+          ).toEqual(result.roots);
+          expect(result.totals.roots).toBe(baseline.totals.roots + 2);
+          expect(result.totals.loadedRoots).toBe(result.roots.length);
+          expect(Object.values(result.totals.extensionCounts).reduce((sum, count) => sum + count, 0)).toBe(
+            result.roots.length,
+          );
+          expect(result.anchors.canonicalDeclarations).toEqual(baseline.anchors.canonicalDeclarations);
+          expect(result.candidates).toEqual([]);
+          expect(result.diagnostics).toEqual([]);
+        },
+      );
+    });
   });
 
   it("contains temporary corpus seeds inside the disposable repository", async () => {

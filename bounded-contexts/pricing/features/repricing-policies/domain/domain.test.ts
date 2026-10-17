@@ -1,15 +1,21 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import {
   decideRepricingPolicy,
   evolveRepricingPolicy,
   initialRepricingPolicyState,
+  RepricingPolicyValidationError,
   repricingPolicyScopeSpecificity,
   type CreateRepricingPolicyCommand,
+  type RepricingAnchor,
   type RepricingPolicyEvent,
   type RepricingPolicyState,
   type RepricingRule,
 } from "./domain";
 import { REPRICING_POLICY_RULE_CAP } from "./policy-bounds";
+import { hashRepricingDryRunBody, validateRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import { dryRunBody } from "../../repricing-engine/tests/dry-run-fixture";
 
 function fold(state: RepricingPolicyState, events: readonly RepricingPolicyEvent[]): RepricingPolicyState {
   return events.reduce(evolveRepricingPolicy, state);
@@ -18,6 +24,7 @@ function fold(state: RepricingPolicyState, events: readonly RepricingPolicyEvent
 const defaultRule: RepricingRule = {
   conditions: [],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "market-estimate" }],
     offset: { mode: "percent", percent: -2 },
     floor: { mode: "absolute", amount: "5.00" },
@@ -32,6 +39,7 @@ const defaultRule: RepricingRule = {
 const gradedRule: RepricingRule = {
   conditions: [{ type: "item-grading", grading: "graded" }],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "lowest-competing-ask" }, { source: "market-estimate" }],
     offset: { mode: "absolute", amount: "-1.00" },
     floor: { mode: "cost-basis-plus-margin", marginPercent: 20, absoluteFallbackAmount: "10.00" },
@@ -55,6 +63,56 @@ const createCommand = {
 } satisfies CreateRepricingPolicyCommand;
 
 describe("RepricingPolicy lifecycle", () => {
+  it("pins existing recorded fixture bytes and dry-run hashes without guardrails", () => {
+    const recorded = decideRepricingPolicy(initialRepricingPolicyState, createCommand).reduce(
+      evolveRepricingPolicy,
+      initialRepricingPolicyState,
+    );
+    const validated = validateRepricingDryRunBody(dryRunBody, "acc_synthetic");
+    for (const rule of [...recorded.rules, ...validated.rules]) expect(rule.directive).not.toHaveProperty("guardrails");
+    expect({
+      recordedRules: createHash("sha256").update(JSON.stringify(recorded.rules)).digest("hex"),
+      dryRunBytes: createHash("sha256").update(JSON.stringify(validated)).digest("hex"),
+      dryRunHash: hashRepricingDryRunBody(validated),
+    }).toMatchInlineSnapshot(`
+      {
+        "dryRunBytes": "5d9c3ecb68fbdcd15ceef20e30a1526222fa6779d3df6d6f7823b6b572d6462c",
+        "dryRunHash": "9cf72e7a1aa37c3c06a92f8cebecb153ee4ac8b14d45e1e78b5d11723a38683d",
+        "recordedRules": "75338762d285fe1c6cf32125a191db843d92458a25e44c5552370b2bbecbc35a",
+      }
+    `);
+  });
+  it("domain validation details tag existing assertions without tagging TypeErrors or assertNever", () => {
+    expect(() => decideRepricingPolicy(initialRepricingPolicyState, { ...createCommand, rules: [] })).toThrow(
+      RepricingPolicyValidationError,
+    );
+    expect(() => decideRepricingPolicy(initialRepricingPolicyState, { ...createCommand, rules: [] })).toThrow(
+      "A repricing policy must define at least one rule.",
+    );
+    for (const command of [
+      { ...createCommand, rules: undefined },
+      { ...createCommand, scope: { kind: "synthetic-internal-sentinel" } },
+    ]) {
+      let caught: unknown;
+      try {
+        decideRepricingPolicy(initialRepricingPolicyState, command as unknown as CreateRepricingPolicyCommand);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught).not.toBeInstanceOf(RepricingPolicyValidationError);
+    }
+    const created = fold(
+      initialRepricingPolicyState,
+      decideRepricingPolicy(initialRepricingPolicyState, createCommand),
+    );
+    expect(() =>
+      decideRepricingPolicy(
+        { ...created, status: "deleted" },
+        { type: "ResumeRepricingPolicy", resumedAt: "2026-01-01" },
+      ),
+    ).toThrow(RepricingPolicyValidationError);
+  });
   it("creates a policy with normalized fields", () => {
     const events = decideRepricingPolicy(initialRepricingPolicyState, createCommand);
     expect(events).toHaveLength(1);
@@ -210,6 +268,117 @@ describe("RepricingPolicy scope precedence", () => {
     expect(repricingPolicyScopeSpecificity({ kind: "all-listings" })).toBe(0);
     expect(repricingPolicyScopeSpecificity({ kind: "catalog-filter", categoryIds: ["cat_a"] })).toBe(1);
     expect(repricingPolicyScopeSpecificity({ kind: "listing-set", listingIds: ["lst_1"] })).toBe(2);
+  });
+});
+
+describe("RepricingPolicy any-mode band", () => {
+  const bandMessage = "Any-mode anchor requires a market-estimate band with minPercentOfGround between 50 and 100.";
+  const misplacedMessage = "Anchor bands are only allowed on lowest-competing-ask with strata any.";
+  const band = { ground: "market-estimate", minPercentOfGround: 90 } as const;
+  function commandWith(anchor: RepricingAnchor): CreateRepricingPolicyCommand {
+    return {
+      ...createCommand,
+      rules: [{ ...defaultRule, directive: { ...defaultRule.directive, anchorChain: [anchor] } }],
+    };
+  }
+
+  it.each([50, 90, 90.001, 100])("round-trips create and revise at %s percent", (minPercentOfGround) => {
+    const command = commandWith({
+      source: "lowest-competing-ask",
+      strata: "any",
+      band: { ...band, minPercentOfGround },
+    });
+    const codec = createPassthroughDomainEventCodec<RepricingPolicyEvent>();
+    const events = decideRepricingPolicy(initialRepricingPolicyState, command);
+    const created = fold(
+      initialRepricingPolicyState,
+      events.map((event) => codec.decode(codec.encode(event))),
+    );
+    expect(created.rules).toEqual(command.rules);
+    const revised = decideRepricingPolicy(created, {
+      ...command,
+      type: "ReviseRepricingPolicy",
+      name: "Revised any-mode policy",
+      revisedAt: "2026-07-12T00:00:00.000Z",
+    });
+    expect(revised).toHaveLength(1);
+    expect(
+      fold(
+        created,
+        revised.map((event) => codec.decode(codec.encode(event))),
+      ).rules,
+    ).toEqual(command.rules);
+  });
+
+  it.each([49.99, 100.01, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "rejects out-of-bounds or non-finite percent %s in create and revise",
+    (minPercentOfGround) => {
+      const command = commandWith({
+        source: "lowest-competing-ask",
+        strata: "any",
+        band: { ...band, minPercentOfGround },
+      });
+      const created = fold(
+        initialRepricingPolicyState,
+        decideRepricingPolicy(initialRepricingPolicyState, createCommand),
+      );
+      expect(() => decideRepricingPolicy(initialRepricingPolicyState, command)).toThrow(bandMessage);
+      expect(() =>
+        decideRepricingPolicy(created, {
+          ...command,
+          type: "ReviseRepricingPolicy",
+          revisedAt: "2026-07-12T00:00:00.000Z",
+        }),
+      ).toThrow(bandMessage);
+    },
+  );
+
+  it.each([
+    [{ source: "lowest-competing-ask", strata: "any" }, bandMessage],
+    [{ source: "lowest-competing-ask", strata: "any", band: null }, bandMessage],
+    [{ source: "lowest-competing-ask", strata: "any", band: {} }, bandMessage],
+    [{ source: "lowest-competing-ask", strata: "any", band: { ...band, minPercentOfGround: "90" } }, bandMessage],
+    [{ source: "lowest-competing-ask", strata: "any", band: { ...band, ground: "last-sold" } }, bandMessage],
+    [{ source: "lowest-competing-ask", strata: "hard", band }, misplacedMessage],
+    [{ source: "lowest-competing-ask", band }, misplacedMessage],
+    [{ source: "market-estimate", band }, misplacedMessage],
+    [{ source: "comp-percentile", percentile: 50, band }, misplacedMessage],
+    [{ source: "last-sold", band }, misplacedMessage],
+    [
+      { source: "comp-percentile", percentile: 50, strata: "any" },
+      "Only lowest-competing-ask anchors support strata hard or any.",
+    ],
+    [
+      { source: "lowest-competing-ask", strata: "derived" },
+      "Only lowest-competing-ask anchors support strata hard or any.",
+    ],
+  ])("rejects malformed authored anchor %j with a stable message", (input, message) => {
+    const anchor: RepricingAnchor = JSON.parse(JSON.stringify(input));
+    const command = commandWith(anchor);
+    const created = fold(
+      initialRepricingPolicyState,
+      decideRepricingPolicy(initialRepricingPolicyState, createCommand),
+    );
+    expect(() => decideRepricingPolicy(initialRepricingPolicyState, command)).toThrow(message);
+    expect(() =>
+      decideRepricingPolicy(created, {
+        ...command,
+        type: "ReviseRepricingPolicy",
+        revisedAt: "2026-07-12T00:00:00.000Z",
+      }),
+    ).toThrow(message);
+  });
+
+  it("decodes old events without adding strata or a band and accepts explicit hard", () => {
+    const codec = createPassthroughDomainEventCodec<RepricingPolicyEvent>();
+    const oldEvents = decideRepricingPolicy(initialRepricingPolicyState, createCommand);
+    const decoded = oldEvents.map((event) => codec.decode(codec.encode(event)));
+    expect(JSON.stringify(decoded)).toBe(JSON.stringify(oldEvents));
+    expect(fold(initialRepricingPolicyState, decoded).rules).toEqual(createCommand.rules);
+    const hard = commandWith({ source: "lowest-competing-ask", strata: "hard" });
+    expect(fold(initialRepricingPolicyState, decideRepricingPolicy(initialRepricingPolicyState, hard)).rules).toEqual(
+      hard.rules,
+    );
   });
 });
 

@@ -30,7 +30,7 @@ Raw provider payload bodies are not Catalog truth. Catalog truth is normalized S
 
 ## Approval Gate
 
-Provider-data policy/legal review and approval is required before any release, fixture set, dry-run workflow, Admin view, or launch evidence does one of these things for a real provider. The [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md) blocks release when this approval or retained-data exception evidence is missing:
+Provider-data policy/legal review and approval is required before any release, fixture set, dry-run workflow, Admin view, or launch evidence does one of these things for a real provider. The [Catalog Integration Security Privacy Launch Gate](./catalog-integration-security-privacy-launch-gate.md), enforced by `scripts/check-structure/catalog-integration-security-privacy-launch-gate.ts`, blocks release when this approval or retained-data exception evidence is missing:
 
 - stores a raw provider body;
 - retains a real-provider sample;

@@ -1,12 +1,16 @@
 import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
 import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
-import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import { bootstrapPlatformControlPlane, recordWorkerQuiesce } from "@chase-sets/platform-runtime/control-plane";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  PLATFORM_WORKER_KIND,
+  quiescedDeploymentsIncludePlatformWorker,
+} from "@chase-sets/platform-runtime/worker-event-capability";
 import { createPlatformApiHost } from "./app";
 import { createPlatformBootstrapStoragePorts } from "./bootstrap-storage";
 import { loadBootstrapConfig } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { closePlatformApiPools, createSeedCommandPools } from "./database-pools";
 import { ensurePreviewPostgresDatabases } from "./preview-postgres";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
@@ -25,10 +29,17 @@ async function bootstrap() {
   if (config.previewPostgresAdminUrl) {
     await runBootstrapPhase("preview-postgres-databases", () => ensurePreviewPostgresDatabases(config));
   }
-  const pools = await runBootstrapPhase("create-database-pools", () => createPlatformApiPools(config));
+  const pools = await runBootstrapPhase("create-database-pools", () => createSeedCommandPools(config));
 
   try {
     await runBootstrapPhase("platform-control-plane", () => bootstrapPlatformControlPlane(pools.control));
+    // The deployment quiesce sets this only after it confirmed that no platform worker pod remains, which
+    // retires every earlier worker for producers gated on worker event capability.
+    if (quiescedDeploymentsIncludePlatformWorker(process.env.CHASE_SETS_QUIESCED_DEPLOYMENTS)) {
+      await runBootstrapPhase("platform-worker-quiesce", () =>
+        recordWorkerQuiesce(pools.control, PLATFORM_WORKER_KIND),
+      );
+    }
     const paymentProcessorGateway = createFakePaymentProcessorGateway();
     const taxQuoteResolver = shouldBlockProductionTaxQuotes(
       config.deploymentEnvironment,
@@ -41,6 +52,7 @@ async function bootstrap() {
         pools,
         runtimeProfile: config.runtimeProfile,
         hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
           ...createPlatformBootstrapStoragePorts(config),
           processorGateway: paymentProcessorGateway,
           paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
@@ -51,6 +63,7 @@ async function bootstrap() {
     );
     await runBootstrapPhase("seed-api-host", () =>
       seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+        schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
         enabledDataProfiles: config.dataProfiles ?? [],
         environmentName: config.deploymentEnvironment ?? null,
         runtimeProfile: config.runtimeProfile,

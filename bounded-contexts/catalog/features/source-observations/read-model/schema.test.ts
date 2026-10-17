@@ -2,6 +2,26 @@ import { describe, expect, it } from "vitest";
 import { catalogSourceObservationSchemaMigrations, catalogSourceObservationSchemaSql } from "./schema";
 
 describe("catalogSourceObservationSchemaSql", () => {
+  it("adds nullable card-count evidence through the exported migration ledger, never a boot-time backfill", () => {
+    expect(catalogSourceObservationSchemaSql).toContain("total_count integer NULL");
+    expect(catalogSourceObservationSchemaSql).toContain("page_size integer NULL");
+    expect(catalogSourceObservationSchemaMigrations).toContainEqual({
+      migrationId: "20261001_catalog_provider_option_query_cache_card_count",
+      description: "Retain validated Scrydex count pagination on the existing option-query cache row.",
+      statements: [
+        "SET LOCAL lock_timeout = '5s';",
+        expect.stringContaining("ADD COLUMN IF NOT EXISTS total_count integer NULL"),
+      ],
+    });
+    const migration = catalogSourceObservationSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261001_catalog_provider_option_query_cache_card_count",
+    );
+    expect(migration?.statements[1]).toContain("ADD COLUMN IF NOT EXISTS page_size integer NULL");
+    expect(catalogSourceObservationSchemaSql).toContain(migration?.statements[1]);
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS total_count integer NULL");
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS page_size integer NULL");
+  });
+
   it("creates replay-only payload assembly storage without boot-time data reshapes", () => {
     expect(catalogSourceObservationSchemaSql).toContain(
       "CREATE UNLOGGED TABLE IF NOT EXISTS catalog_source_observation_payload_assemblies",

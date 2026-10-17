@@ -8,6 +8,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { authSchemaSql } from "../runtime-support/schema";
+import { createPostgresAgentWebhookOutbox } from "../ucp-support/agent-webhooks/agent-webhook-outbox";
 import {
   bindGuestCheckoutContact,
   consumeAccountSelectionToken,
@@ -55,6 +56,44 @@ describeDb("auth token store persistence boundary", () => {
     if (pools) {
       await closeMultiContextTestPools(pools);
     }
+  });
+
+  describe("agent webhook outbox", () => {
+    it("durably deduplicates an identical per-client event and order delivery", async () => {
+      const outbox = createPostgresAgentWebhookOutbox({
+        db: pool,
+        now: () => new Date("2026-07-08T00:00:00.000Z"),
+        // This persistence-only fixture supplies one synthetic active binding;
+        // revocation.db.test.ts proves the real separate-pool authority fence.
+        withActiveGrants: async (accountId, clientId, grantIds, work) => {
+          expect([accountId, clientId, grantIds]).toEqual(["acc_buyer", "ocl_1", ["grant_outbox_fixture"]]);
+          return work(grantIds);
+        },
+      });
+      const delivery = {
+        clientId: "ocl_1",
+        accountId: "acc_buyer",
+        grantIds: ["grant_outbox_fixture"],
+        callbackUrl: "https://agent.example/hooks",
+        sourceEventId: "evt_1",
+        eventType: "fulfillment.shipment.dispatched",
+        orderId: "ord_1",
+        orderStatus: "shipped",
+        payloadJson: '{"type":"order.updated"}',
+        idempotencyKey: "ocl_1:evt_1:ord_1",
+      } as const;
+
+      await outbox.enqueueDelivery(delivery);
+      await outbox.enqueueDelivery(delivery);
+
+      const persisted = await pool.query<{ status: string; attempt_count: number; grant_ids: readonly string[] }>(
+        `SELECT status, attempt_count, grant_ids
+         FROM identity_agent_webhook_deliveries
+         WHERE idempotency_key = $1`,
+        [delivery.idempotencyKey],
+      );
+      expect(persisted.rows).toEqual([{ status: "pending", attempt_count: 0, grant_ids: ["grant_outbox_fixture"] }]);
+    });
   });
 
   describe("magic link tokens", () => {

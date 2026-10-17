@@ -111,7 +111,8 @@ SELECT operation_kind,
        created_at,
        completed_at
 FROM fulfillment_postage_label_operations
-WHERE shipment_id = '<shipmentId>'
+WHERE subject_kind = 'shipment'
+  AND subject_id = '<shipmentId>'
 ORDER BY created_at DESC
 LIMIT 25;
 ```
@@ -188,19 +189,22 @@ When the controlled parcel label has already been voided, do not purchase anothe
 ```sql
 SELECT provider_event_id,
        event_kind,
-       shipment_id,
+       subject_kind,
+       subject_id,
        tracking_identifier,
        provider_object_reference,
        status,
        received_at
 FROM fulfillment_postage_provider_events
 WHERE event_kind = 'refund-status'
+  AND subject_kind = 'shipment'
   AND (
-    shipment_id = '<controlledParcelShipmentId>'
+    subject_id = '<controlledParcelShipmentId>'
     OR tracking_identifier = '<trackingIdentifier>'
     OR provider_object_reference = '<refundOrProviderObjectReference>'
   )
-ORDER BY received_at DESC;
+ORDER BY received_at DESC
+LIMIT 25;
 ```
 
 Attach the redacted EasyPost Event id and query output to the proof record fields that back `providerEventQueryReference`, `labelVoidRefundReference`, and the `refund-status` provider event id. Only buy and void another low-risk production label if the existing refund is confirmed never to emit the required EasyPost Event and Fulfillment approval is explicit.

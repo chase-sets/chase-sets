@@ -6,6 +6,7 @@ import {
   Grid,
   Inline,
   LinkButton,
+  NumericValue,
   Page,
   PageHeader,
   PageSection,
@@ -123,25 +124,33 @@ function AccountBalanceSummary({ wallet }: { wallet: SettlementWalletRow }) {
           <Text size="sm" tone="secondary">
             {t("settlement.features.wallets.ui.walletWorkbenchPage.available")}
           </Text>
-          <Text size="lg">{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</Text>
+          <Text size="lg">
+            <NumericValue>{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</NumericValue>
+          </Text>
         </Stack>
         <Stack gap={1}>
           <Text size="sm" tone="secondary">
             {t("settlement.features.wallets.ui.walletWorkbenchPage.pending")}
           </Text>
-          <Text size="lg">{formatMoney(wallet.pending_balance_amount, wallet.currency_code)}</Text>
+          <Text size="lg">
+            <NumericValue>{formatMoney(wallet.pending_balance_amount, wallet.currency_code)}</NumericValue>
+          </Text>
         </Stack>
         <Stack gap={1}>
           <Text size="sm" tone="secondary">
             {t("settlement.features.wallets.ui.walletWorkbenchPage.lifetime.credits")}
           </Text>
-          <Text size="lg">{formatMoney(wallet.total_credited_amount, wallet.currency_code)}</Text>
+          <Text size="lg">
+            <NumericValue>{formatMoney(wallet.total_credited_amount, wallet.currency_code)}</NumericValue>
+          </Text>
         </Stack>
         <Stack gap={1}>
           <Text size="sm" tone="secondary">
             {t("settlement.features.wallets.ui.walletWorkbenchPage.lifetime.debits")}
           </Text>
-          <Text size="lg">{formatMoney(wallet.total_debited_amount, wallet.currency_code)}</Text>
+          <Text size="lg">
+            <NumericValue>{formatMoney(wallet.total_debited_amount, wallet.currency_code)}</NumericValue>
+          </Text>
         </Stack>
       </Grid>
       <Inline gap={2} align="center">
@@ -304,7 +313,9 @@ function AdjustmentHistorySection({
           <Badge tone={walletAdjustmentDirectionTone(row.direction)}>
             {walletAdjustmentDirectionLabel(row.direction)}
           </Badge>
-          <Text weight="semibold">{formatMoney(row.amount, row.currency_code)}</Text>
+          <Text weight="semibold">
+            <NumericValue>{formatMoney(row.amount, row.currency_code)}</NumericValue>
+          </Text>
         </Stack>
       ),
     },
@@ -351,7 +362,12 @@ function AdjustmentHistorySection({
     {
       key: "resulting-balance",
       header: t("settlement.features.wallets.ui.walletWorkbenchPage.resulting.balance"),
-      cell: (row) => (row.available_balance_after ? formatMoney(row.available_balance_after, row.currency_code) : "—"),
+      cell: (row) =>
+        row.available_balance_after ? (
+          <NumericValue>{formatMoney(row.available_balance_after, row.currency_code)}</NumericValue>
+        ) : (
+          "—"
+        ),
     },
     {
       key: "reversal",
@@ -514,7 +530,7 @@ function LedgerSection({
             key: "amount",
             header: t("settlement.features.wallets.ui.walletWorkbenchPage.amount"),
             align: "right",
-            cell: (row) => formatMoney(row.amount, row.currency_code),
+            cell: (row) => <NumericValue>{formatMoney(row.amount, row.currency_code)}</NumericValue>,
           },
           {
             key: "posted_at",

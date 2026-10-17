@@ -1,0 +1,521 @@
+export { default as contextManifest } from "./context.json" with { type: "json" };
+export { type ChannelEnvironment } from "./features/connections/domain/contracts";
+export {
+  TCGPLAYER_CONNECTOR_EXTENSION_ID,
+  TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+  TCGPLAYER_CONNECTOR_REDIRECT_URI,
+} from "./features/connector-client/domain/identity";
+export { buildConnectorManifest } from "./features/connector-client/domain/connector-manifest";
+export { channelProviderRegistry, createChannelProviderRegistry } from "./features/publication-port/api/registry";
+export { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
+export { type ChannelListingCompositionServices } from "./features/listing-composition/api/runtime";
+export { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
+export {
+  buildChannelCategorySourceKeys,
+  buildChannelConditionSourceKeys,
+  buildChannelGradedAttributeSourceEntries,
+  channelCompositionProfileRegistry,
+  createChannelCompositionProfileRegistry,
+  deriveChannelListingId,
+  deriveChannelSelectedOptionKey,
+} from "./features/listing-composition/domain/canonical";
+export { composeChannelListingPublication } from "./features/listing-composition/domain/compose";
+export { parseChannelListingCompositionInput } from "./features/listing-composition/domain/parse";
+export { type ChannelMappingCandidate } from "./features/listing-composition/domain/configuration";
+export {
+  channelCompositionProgrammingErrors,
+  channelListingPublishStates,
+  channelMappingConfidenceTiers,
+  channelMappingDimensions,
+  channelMappingReviewStatuses,
+  channelPublicationBlockingReasons,
+  channelPublicationConfigurationBlockingReasons,
+  channelPublicationListingBlockingReasons,
+} from "./features/listing-composition/domain/contracts";
+export {
+  type ChannelCommandRefusal,
+  type ChannelCommandResult,
+  type ChannelCompositionProfile,
+  type ChannelCompositionProfileRegistry,
+  type ChannelCompositionProgrammingError,
+  type ChannelListingCompositionInput,
+  type ChannelListingCompositionResult,
+  type ChannelListingDelistDirective,
+  type ChannelListingDesiredStateChangedData,
+  type ChannelListingEvent,
+  type ChannelListingLinkState,
+  type ChannelMappingConfidenceTier,
+  type ChannelMappingDimension,
+  type ChannelMappingResolution,
+  type ChannelMappingReviewPage,
+  type ChannelMappingReviewStatus,
+  type ChannelPublicationAdoption,
+  type ChannelPublicationBlockingReason,
+  type ChannelPublicationConnectionDetail,
+  type ChannelPublicationConnectionSummary,
+  type ChannelPublicationOutcome,
+  type ChannelPublicationSettings,
+  type ChannelReferenceRead,
+  type ChannelReferenceResolution,
+  type ParseChannelListingCompositionInputResult,
+} from "./features/listing-composition/domain/contracts";
+export { type ChannelListingReconciliationScope } from "./features/listing-composition/domain/reconciliation";
+export {
+  channelExecutionModes,
+  channelPublicationRejectionCodes,
+  type ChannelExecutionMode,
+  type ChannelFetchBoundedUnknownReason,
+  type ChannelProviderDescriptor,
+  type ChannelProviderIdentity,
+  type ChannelProviderRegistry,
+  type ChannelPublicationAttribute,
+  type ChannelPublicationCapability,
+  type ChannelPublicationDraft,
+  type ChannelPublicationPrice,
+  type ChannelPublicationRejection,
+  type ChannelPublicationRejectionCode,
+  type ChannelPublicationResult,
+  type ChannelPublicationSuccess,
+  type ChannelSaleFetchResult,
+  type ChannelSaleLineV1,
+  type ChannelStateFetchResult,
+  type ChannelStateLineV1,
+  type DelistListingInput,
+  type PublishListingInput,
+  type ResolvedChannelProvider,
+  type ResolvedChannelPublication,
+  type UpdatePriceQuantityInput,
+} from "./features/publication-port/domain/contracts";
+import {
+  buildEventReactionsFromManifest,
+  buildEventSubscriptionsFromManifest,
+  defineBoundedContextModule,
+  type BcContextManifest,
+} from "@chase-sets/bounded-context-module";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
+import contextManifest from "./context.json" with { type: "json" };
+import { buildChannelsApi } from "./api";
+import { createEbayAccountDeletionRuntime } from "./features/ebay-account-deletion/api/runtime";
+import { createEbayReceiptStaffRoutes } from "./features/ebay-account-deletion/api/staff-route";
+import { createEbayReceiptExpiryStore } from "./features/ebay-account-deletion/read-model/expiry";
+import { ebayReceiptCustomRetention } from "./features/ebay-account-deletion/read-model/retention-policy";
+import { ebayReceiptSchemaSql, ebayReceiptSchemaMigrations } from "./features/ebay-account-deletion/read-model/schema";
+import { createChannelConnectionRuntime } from "./features/connections/api/runtime";
+import { createConnectionPolicyAuthority } from "./features/connections/api/policy-authority";
+import type {
+  ChannelConnectionHostPorts,
+  ChannelStorageLocationAuthorityResolver,
+} from "./features/connections/domain/contracts";
+import { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
+import { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
+import { createChannelCompositionProfileRegistry } from "./features/listing-composition/domain/canonical";
+import {
+  buildChannelCatalogDesiredStateReactionHandlers,
+  buildChannelInventoryDesiredStateReactionHandlers,
+  buildChannelMarketplaceDesiredStateReactionHandlers,
+  buildChannelOwnedDesiredStateReactionHandlers,
+} from "./features/listing-composition/integrations/reactions";
+import {
+  channelListingCompositionSchemaMigrations,
+  channelListingCompositionSchemaSql,
+} from "./features/listing-composition/read-model/schema";
+import {
+  buildChannelCatalogFactsProjectionHandlers,
+  buildChannelConnectionFactsProjectionHandlers,
+  buildChannelInventoryFactsProjectionHandlers,
+  buildChannelMarketplaceFactsProjectionHandlers,
+} from "./features/listing-composition/read-model/facts-projection";
+import { buildChannelListingStateProjectionHandlers } from "./features/listing-composition/read-model/state-projection";
+import { buildTcgplayerCsvProjectionHandlers } from "./features/tcgplayer-csv/read-model/projection";
+import { channelProviderRegistry } from "./features/publication-port/api/registry";
+import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { createOutboundSyncRuntime } from "./features/outbound-sync/api/runtime";
+import { outboundOperationBudgetPolicy } from "./features/outbound-sync/domain/policy";
+import { createChannelListingPublicationOutcomeRecorder } from "./features/outbound-sync/integrations/listing-composition";
+import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "./features/outbound-sync/read-model/schema";
+import { createTcgplayerCsvRuntime } from "./features/tcgplayer-csv/api/runtime";
+import { tcgplayerCompositionProfiles } from "./features/tcgplayer-csv/domain/profile";
+import { createTcgplayerClaimedReservationRunSettlementPort } from "./features/tcgplayer-csv/integrations/outbound-sync-settlement";
+import { tcgplayerCsvSchemaMigrations, tcgplayerCsvSchemaSql } from "./features/tcgplayer-csv/read-model/schema";
+import {
+  channelStockAllocationBufferPolicy,
+  resolveChannelStockAllocationBufferPolicy,
+} from "./features/listing-composition/domain/allocation";
+import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
+import {
+  channelConnectionSchemaMigrations,
+  channelConnectionSchemaSql,
+} from "./features/connections/read-model/schema";
+import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
+import { createChannelReconciliationRuntime } from "./features/reconciliation/api/runtime";
+import { readPersistedClaimedState } from "./features/reconciliation/read-model/claimed";
+import { readReconciliationConnection } from "./features/reconciliation/read-model/source";
+import type { ChannelsServices } from "./support/runtime-support/services";
+import {
+  createChannelCredentialRuntime,
+  type ChannelCredentialCapabilityBinding,
+} from "./features/credentials/api/runtime";
+import type { ChannelCredentialKeyring } from "./features/credentials/domain/contracts";
+import {
+  channelCredentialSchemaSql,
+  channelCredentialSchemaMigrations,
+} from "./features/credentials/read-model/schema";
+import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
+import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
+import { channelHealthSchemaMigrations, channelHealthSchemaSql } from "./features/connection-health/read-model/schema";
+import type { MarketplaceChannelInboundClampCapability } from "./support/request-support/marketplace-channel-inbound-clamp";
+import { createManualSyncRuntime } from "./features/manual-sync/api/runtime";
+import { inspectManualSyncSeedState, seedManualSyncScenario } from "./features/manual-sync/api/seed";
+import { manualSyncSchemaMigrations, manualSyncSchemaSql } from "./features/manual-sync/read-model/schema";
+import { manualSyncRetentionExemptions } from "./features/manual-sync/read-model/retention-policy";
+import { channelOutboundKillSwitchPolicy, channelReconciliationPolicy } from "./features/reconciliation/domain/policy";
+import {
+  channelReconciliationSchemaMigrations,
+  channelReconciliationSchemaSql,
+} from "./features/reconciliation/read-model/schema";
+import { createConnectionAttentionRuntime } from "./features/connection-attention/api/runtime";
+import {
+  channelAttentionSchemaSql,
+  channelAttentionSchemaMigrations,
+} from "./features/connection-attention/read-model/schema";
+import type { ConnectorOAuthService } from "./support/request-support/connector-oauth";
+import { createConnectorFeedRuntime } from "./features/connector-feed/api/runtime";
+import { createConnectorCredentialRoutes } from "./features/connector-feed/api/routes";
+import { connectorFeedSchemaMigrations, connectorFeedSchemaSql } from "./features/connector-feed/read-model/schema";
+import {
+  connectorInboundSchemaMigrations,
+  connectorInboundSchemaSql,
+} from "./features/connector-feed/read-model/inbound-schema";
+import { createConnectorTransport } from "./features/connector-feed/api/transport";
+import { createStagedImportDispatchPolicyReader } from "./features/connector-feed/api/staged-import-dispatch-policy";
+import { createStagedImportDispatchPolicyRoutes } from "./features/connector-feed/api/staged-import-dispatch-policy-routes";
+import { createConnectorLivenessReader } from "./features/connector-feed/read-model/liveness";
+import {
+  connectorLivenessSchemaSql,
+  connectorLivenessSchemaMigrations,
+} from "./features/connector-feed/read-model/liveness-schema";
+import { createConnectorTransportRoutes } from "./features/connector-feed/api/transport-routes";
+import { connectorTransportPolicy, decodeConnectorPolicy } from "./features/connector-feed/domain/policy";
+import { createTcgplayerOrderRuntime } from "./features/tcgplayer-orders/api/runtime";
+import { createTcgplayerLiveExportSnapshotRuntime } from "./features/live-export-snapshot/api/runtime";
+import {
+  liveExportSnapshotSchemaSql,
+  liveExportSnapshotSchemaMigrations,
+} from "./features/live-export-snapshot/read-model/schema";
+import {
+  tcgplayerOrdersSchemaSql,
+  tcgplayerOrdersSchemaMigrations,
+} from "./features/tcgplayer-orders/read-model/schema";
+import { createConnectorInboundReader } from "./features/connector-feed/read-model/inbound";
+import {
+  connectorInboundRetentionExemptions,
+  connectorInboundRetentionSweeps,
+} from "./features/connector-feed/read-model/retention-policy";
+
+import { createFulfillmentObservationRuntime } from "./features/order-fulfillment-observations/api/runtime";
+import { buildFulfillmentItemProjection } from "./features/order-fulfillment-observations/read-model/item-projection";
+import { buildFulfillmentObservationReactions } from "./features/order-fulfillment-observations/integrations/reactions";
+import {
+  fulfillmentObservationSchemaSql,
+  fulfillmentObservationSchemaMigrations,
+  fulfillmentObservationRetentionSweeps,
+  fulfillmentObservationRetentionExemptions,
+} from "./features/order-fulfillment-observations/read-model/schema";
+
+import { createEbayAccountDeletionRoutes } from "./features/ebay-account-deletion/api/route";
+import type { EbayAccountDeletionConfiguration } from "./features/ebay-account-deletion/domain/configuration";
+import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
+
+const channelsContextManifest = contextManifest as BcContextManifest;
+type ChannelsHostPorts = ChannelConnectionHostPorts &
+  Readonly<{
+    channelCredentialKeyring?: ChannelCredentialKeyring | null;
+    ebayAccountDeletionConfiguration?: EbayAccountDeletionConfiguration | null;
+    webhookTelemetry?: ProviderWebhookTelemetry;
+    channelCredentialCapabilities?: readonly ChannelCredentialCapabilityBinding[];
+    marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability;
+    channelSaleRecorder: RecordExternalChannelSale;
+    readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
+    connectorOAuth?: ConnectorOAuthService;
+    /** Governed TCGplayer order-pull authority; absent until bound, which denies scheduling. */
+    resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
+  }>;
+
+export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
+  manifest: channelsContextManifest,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}`,
+  schemaMigrations: [
+    ...ebayReceiptSchemaMigrations,
+    ...channelConnectionSchemaMigrations,
+    ...channelCredentialSchemaMigrations,
+    ...channelListingCompositionSchemaMigrations,
+    ...outboundSyncSchemaMigrations,
+    ...tcgplayerCsvSchemaMigrations,
+    ...channelHealthSchemaMigrations,
+    ...manualSyncSchemaMigrations,
+    ...channelReconciliationSchemaMigrations,
+    ...channelAttentionSchemaMigrations,
+    ...connectorFeedSchemaMigrations,
+    ...connectorInboundSchemaMigrations,
+    ...tcgplayerOrdersSchemaMigrations,
+    ...liveExportSnapshotSchemaMigrations,
+    ...connectorLivenessSchemaMigrations,
+    ...fulfillmentObservationSchemaMigrations,
+  ],
+  retentionSweeps: [...connectorInboundRetentionSweeps, ...fulfillmentObservationRetentionSweeps],
+  retentionExemptions: [
+    ...ebayReceiptCustomRetention,
+    ...manualSyncRetentionExemptions,
+    ...connectorInboundRetentionExemptions,
+    ...fulfillmentObservationRetentionExemptions,
+  ],
+  seedProfiles: ["scenario-seed"],
+  seed: (pool, services) => seedManualSyncScenario(pool, services),
+  inspectSeedState: inspectManualSyncSeedState,
+  createServices: (pool, ports) => {
+    if (!ports?.channelSaleRecorder) {
+      throw new Error("Channels reconciliation requires the typed Inventory channelSaleRecorder host port.");
+    }
+    const eventStore = createPostgresEventStore({
+      pool,
+      wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
+    });
+    const connectorFeed = createConnectorFeedRuntime({ db: pool, eventStore, oauth: ports?.connectorOAuth });
+    const policies = createPolicyRuntime({ eventStore, db: pool });
+    const storageLocationAuthority: ChannelStorageLocationAuthorityResolver = {
+      resolve: async (input) => {
+        try {
+          return (await ports.storageLocationAuthority?.resolve(input)) ?? null;
+        } catch {
+          return null;
+        }
+      },
+    };
+    const connections = createChannelConnectionRuntime(
+      {
+        eventStore,
+        db: pool,
+        disconnectChannelConnection: connectorFeed.disconnectChannelConnection,
+      },
+      {
+        ...(ports ?? {}),
+        setupResolver: ports?.setupResolver ?? channelProviderRegistry.setupResolver,
+        policyAuthority: ports.policyAuthority ?? createConnectionPolicyAuthority(policies),
+        storageLocationAuthority,
+      },
+    );
+    const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
+    const connectionHealth = createConnectionHealthRuntime({
+      db: pool,
+      eventStore,
+      connectorLiveness: createConnectorLivenessReader(pool),
+      resolvePolicy: (db, at) => resolveChannelHealthPolicy(eventStore, db, at),
+    });
+    const readChannelHealthHold =
+      ports.readChannelHealthHold ??
+      (async (connectionId: string) => {
+        const connection = await readReconciliationConnection(pool, connectionId);
+        if (!connection) return true;
+        return (await connectionHealth.readConnectionHealth({ connectionId, accountId: connection.accountId }))
+          .systemPaused;
+      });
+    const listingComposition = createChannelListingCompositionRuntime({
+      eventStore,
+      transactionalEventStore: eventStore,
+      db: pool,
+      profiles: compositionProfiles,
+      resolveChannelStockAllocationBufferPolicy: () =>
+        resolveChannelStockAllocationBufferPolicy(
+          async () => (await policies.resolvePolicy(channelStockAllocationBufferPolicy)).value,
+        ),
+    });
+    const outboundSync = createOutboundSyncRuntime(
+      {
+        db: pool,
+        resolveBudgetPolicy: async () => (await policies.resolvePolicy(outboundOperationBudgetPolicy)).value,
+        recordOutcome: createChannelListingPublicationOutcomeRecorder(listingComposition),
+        claimedReservationRunSettlement: createTcgplayerClaimedReservationRunSettlementPort(eventStore),
+        orderPull: {
+          resolveAuthority: ports.resolveTcgplayerOrderPullAuthority ?? (async () => null),
+          resolveConnectorPolicy: async () =>
+            decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
+        },
+        liveExport: {
+          resolveConnectorPolicy: async () =>
+            decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
+        },
+        readAdditionalOutboundHold: async ({ connectionId, providerIdentity }) => {
+          let killSwitch = null;
+          try {
+            killSwitch = (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value;
+          } catch {
+            // An unreadable policy fails closed as an operator hold.
+          }
+          const sources: ("health" | "operator-kill")[] = [];
+          if (await readChannelHealthHold(connectionId)) sources.push("health");
+          if (
+            killSwitch === null ||
+            killSwitch.heldConnectionIds.includes(connectionId) ||
+            killSwitch.heldProviderKeys.includes(providerIdentity.providerKey)
+          ) {
+            sources.push("operator-kill");
+          }
+          return { held: sources.length > 0, sources };
+        },
+      },
+      {
+        assertDelistDirective: assertChannelListingDelistDirective,
+      },
+    );
+    const reconciliation = createChannelReconciliationRuntime({
+      db: pool,
+      eventStore,
+      outboundSync,
+      channelSaleRecorder: ports.channelSaleRecorder,
+      readClaimedChannelState: (input) => readPersistedClaimedState(pool, input),
+      resolvePolicy: async () => {
+        const resolved = await policies.resolvePolicy(channelReconciliationPolicy);
+        const document = resolved.documentId === null ? null : await policies.getPolicyDocument(resolved.documentId);
+        return { value: resolved.value, revision: document?.history?.length ?? 0 };
+      },
+      resolveKillSwitch: async () => (await policies.resolvePolicy(channelOutboundKillSwitchPolicy)).value,
+      readHealthHold: readChannelHealthHold,
+    });
+    const tcgplayerCsv = createTcgplayerCsvRuntime({
+      db: pool,
+      eventStore,
+      transactionalEventStore: eventStore,
+      outboundSync,
+      listingComposition,
+      providerRegistry: channelProviderRegistry,
+      compositionProfiles,
+    });
+    const manualSync = createManualSyncRuntime({
+      db: pool,
+      connections,
+      tcgplayerCsv,
+      connectorFeed,
+      policies,
+      marketplaceClamp: ports?.marketplaceChannelInboundClamp ?? { kind: "not-mounted" },
+    });
+    return {
+      connections,
+      ebayAccountDeletion: {
+        config: ports.ebayAccountDeletionConfiguration ?? null,
+        telemetry: ports.webhookTelemetry,
+      },
+      storageLocationAuthority,
+      credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
+      ebayAccountDeletionReceipts: createEbayAccountDeletionRuntime(pool, ports.channelCredentialKeyring),
+      ebayReceiptExpiry: createEbayReceiptExpiryStore(pool),
+      connectionHealth,
+      connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
+      listingComposition,
+      outboundSync,
+      reconciliation,
+      fulfillmentObservations: createFulfillmentObservationRuntime({
+        db: pool,
+        eventStore,
+        readAdmittedConnectorInboundEvents: createConnectorInboundReader(pool),
+      }),
+      tcgplayerOrders: createTcgplayerOrderRuntime({
+        db: pool,
+        readAdmittedConnectorInboundEvents: createConnectorInboundReader(pool),
+        channelSaleRecorder: ports.channelSaleRecorder,
+        backdatingAttentionAfterMs: async () =>
+          (await policies.resolvePolicy(channelReconciliationPolicy)).value.backdatingAttentionAfterMs,
+      }),
+      liveExportSnapshots: createTcgplayerLiveExportSnapshotRuntime({
+        db: pool,
+        readAdmittedConnectorInboundEvents: createConnectorInboundReader(pool),
+        resolveConnectorPolicy: async () =>
+          decodeConnectorPolicy((await policies.resolvePolicy(connectorTransportPolicy)).value),
+      }),
+      tcgplayerCsv,
+      manualSync,
+      connectorFeed: {
+        ...connectorFeed,
+        readStagedImportDispatchPolicy: createStagedImportDispatchPolicyReader(eventStore, connectorFeed),
+        ...createConnectorLivenessReader(pool),
+        ...createConnectorTransport({
+          db: pool,
+          authority: connectorFeed,
+          outboundSync,
+          registry: channelProviderRegistry,
+          resolvePolicy: () => policies.resolvePolicy(connectorTransportPolicy),
+        }),
+      },
+      db: pool,
+      projectors: [
+        ...connections.projectors,
+        ...listingComposition.projectors,
+        ...policies.projectors,
+        ...tcgplayerCsv.projectors,
+      ],
+    };
+  },
+  buildApis: (services) => [
+    {
+      mountPath: "/api/channels",
+      contextMountOrdinal: 1,
+      router: createEbayReceiptStaffRoutes(services.ebayAccountDeletionReceipts).route(
+        "/",
+        buildChannelsApi(services, { storageLocationAuthority: services.storageLocationAuthority }),
+      ),
+    },
+    {
+      mountPath: "/channel-connector/oauth",
+      contextMountOrdinal: 2,
+      router: createConnectorCredentialRoutes(services.connectorFeed, services.db)
+        .route(
+          "/",
+          createStagedImportDispatchPolicyRoutes(services.connectorFeed.readStagedImportDispatchPolicy, services.db),
+        )
+        .route("/", createConnectorTransportRoutes(services.connectorFeed, services.db)),
+    },
+    {
+      mountPath: "/api/channels-webhooks",
+      contextMountOrdinal: 3,
+      router: createEbayAccountDeletionRoutes(services.ebayAccountDeletion),
+    },
+  ],
+  projectionHandlerSets: (services) => services.projectors,
+  buildSubscriptions: (services) => [
+    ...buildEventSubscriptionsFromManifest({
+      contextName: "channels",
+      manifest: channelsContextManifest,
+      handlers: {
+        "inventory.channel-fulfillment-item-facts": () => buildFulfillmentItemProjection(services.db),
+        "marketplace.channel-marketplace-publication-facts": () =>
+          buildChannelMarketplaceFactsProjectionHandlers(services.db),
+        "catalog.channel-catalog-publication-facts": () => buildChannelCatalogFactsProjectionHandlers(services.db),
+        "inventory.channel-inventory-publication-facts": () =>
+          buildChannelInventoryFactsProjectionHandlers(services.db),
+        "channels.channel-owned-publication-state": () => ({
+          ...buildChannelConnectionFactsProjectionHandlers(services.db),
+          ...buildChannelListingStateProjectionHandlers(services.db),
+        }),
+        "channels.tcgplayer-csv-projection": () => buildTcgplayerCsvProjectionHandlers(services.db),
+      },
+    }),
+    ...buildEventReactionsFromManifest({
+      contextName: "channels",
+      manifest: channelsContextManifest,
+      handlers: {
+        "inventory.channel-fulfillment-observation-retry": () =>
+          buildFulfillmentObservationReactions(services.fulfillmentObservations),
+        "channels.channel-fulfillment-observation-retry": () =>
+          buildFulfillmentObservationReactions(services.fulfillmentObservations),
+        "marketplace.channel-listing-desired-state-reaction": () =>
+          buildChannelMarketplaceDesiredStateReactionHandlers(services.db, services.listingComposition),
+        "catalog.channel-listing-desired-state-reaction": () =>
+          buildChannelCatalogDesiredStateReactionHandlers(services.db, services.listingComposition),
+        "inventory.channel-listing-desired-state-reaction": () =>
+          buildChannelInventoryDesiredStateReactionHandlers(services.db, services.listingComposition),
+        "channels.channel-listing-desired-state-reaction": () =>
+          buildChannelOwnedDesiredStateReactionHandlers(services.listingComposition, services.outboundSync),
+      },
+    }),
+  ],
+});

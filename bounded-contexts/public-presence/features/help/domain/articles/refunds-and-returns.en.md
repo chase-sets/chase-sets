@@ -15,6 +15,9 @@ promiseTable:
   - claim: A buyer can cancel self-service until packing starts, and a captured payment is refunded including the order's checkout-fee share even when capture lands after cancellation.
     issues: ["#3557"]
     tests: ["bounded-contexts/ordering/features/orders/api/runtime-order-lifecycle.test.ts", "bounded-contexts/payments/features/refunds/integrations/ordering/order-cancellation-refund-effect-projection.test.ts"]
+  - claim: A seller can cancel a paid sale self-service until packing starts; the buyer receives a full refund and the cancellation is recorded in the seller cancellation rate.
+    issues: ["#6453"]
+    tests: ["bounded-contexts/ordering/features/orders/api/cancel-sale.db.test.ts", "bounded-contexts/ordering/features/orders/ui/order-detail-page.test.tsx", "bounded-contexts/payments/features/refunds/integrations/ordering/order-cancellation-refund-effect-projection.test.ts"]
   - claim: Order problems run through structured support flows with evidence checklists, stamped response deadlines, and default remedies applied on seller silence.
     issues: ["#3722", "#4288"]
     tests: ["bounded-contexts/platform-operations/features/support-requests/domain/domain.test.ts", "bounded-contexts/platform-operations/features/support-requests/api/runtime.test.ts"]
@@ -35,9 +38,9 @@ There is no ad-hoc refund button on either side. A refund is created by one of t
 
 ## Cancelling an order
 
-Before payment completes, a buyer or seller can cancel and nothing is charged. After payment, a buyer can still cancel self-service until the seller starts packing; the refund covers the order total plus the order's share of the checkout fee, and this holds even if the payment capture lands after the cancellation. Once packing has started, cancellation becomes a request the seller confirms — and if the seller does not respond within {{policy:support-deadlines.buyer-cancel-request.seller-response.hours}}, the cancellation is confirmed automatically.
+Before payment completes, a buyer or seller can cancel and nothing is charged. After payment, either account can still cancel self-service until packing starts. A buyer cancellation refunds the order total plus the order's share of the checkout fee, and this holds even if the payment capture lands after the cancellation. A seller cancellation gives the buyer a full refund and is recorded in the seller cancellation rate. Once packing has started, cancellation becomes a support request the seller confirms — and if the seller does not respond within {{policy:support-deadlines.buyer-cancel-request.seller-response.hours}}, the cancellation is confirmed automatically.
 
-A seller who cannot fulfill an order raises it as an urgent support case whose default outcome is a full refund to the buyer.
+A seller who cannot fulfill an order after packing starts raises it as an urgent support case whose default outcome is a full refund to the buyer.
 
 ## Reporting a problem with an order
 

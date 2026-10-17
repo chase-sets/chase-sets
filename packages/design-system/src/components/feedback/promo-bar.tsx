@@ -28,12 +28,14 @@ export interface PromoBarProps extends Omit<HTMLAttributes<HTMLElement>, "classN
   resumeLabel?: string;
 }
 
+// Surface-diet law: the promo bar is furniture, so it renders as a tinted band
+// (soft tone fill, no border box, no shadow).
 const toneClasses: Record<PromoBarTone, string> = {
-  accent: "border-accent-soft bg-accent-soft text-foreground",
-  info: "border-info-soft bg-info-soft text-foreground",
-  success: "border-success-soft bg-success-soft text-foreground",
-  warning: "border-warning-soft bg-warning-soft text-foreground",
-  danger: "border-danger-soft bg-danger-soft text-foreground",
+  accent: "bg-accent-soft text-foreground",
+  info: "bg-info-soft text-foreground",
+  success: "bg-success-soft text-foreground",
+  warning: "bg-warning-soft text-foreground",
+  danger: "bg-danger-soft text-foreground",
 };
 
 export function PromoBar({
@@ -85,11 +87,7 @@ export function PromoBar({
   }
 
   return (
-    <section
-      {...rest}
-      aria-label={ariaLabel}
-      className={cx("rounded-tokenMd border px-3 py-2 md:px-4", toneClasses[tone])}
-    >
+    <section {...rest} aria-label={ariaLabel} className={cx("rounded-tokenMd px-3 py-2 md:px-4", toneClasses[tone])}>
       <Stack direction="row" align="center" justify="between" gap={3}>
         <FlexItem grow minWidth="0">
           <IconRow icon={<Icon name={toneIcon(tone)} size="sm" tone={toneToIconTone(tone)} />} align="center" gap={3}>

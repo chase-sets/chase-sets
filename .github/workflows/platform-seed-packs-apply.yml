@@ -103,7 +103,9 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
-        run: terraform -chdir="$TERRAFORM_ROOT" init -backend-config=backend.hcl.example
+        # Keep the sealed lock digest identical to a fresh apply checkout.
+        # Provider checksum verification remains enabled in readonly mode.
+        run: terraform -chdir="$TERRAFORM_ROOT" init -lockfile=readonly -backend-config=backend.hcl.example
 
       - name: Terraform format seed packs
         env:
@@ -332,7 +334,7 @@ jobs:
             --state-key "$TERRAFORM_STATE_KEY" \
             --max-age-seconds "$REVIEWED_PLAN_MAX_AGE_SECONDS"
 
-          terraform -chdir="$TERRAFORM_ROOT" init -backend-config=backend.hcl.example
+          terraform -chdir="$TERRAFORM_ROOT" init -lockfile=readonly -backend-config=backend.hcl.example
           terraform -chdir="$TERRAFORM_ROOT" apply -auto-approve "$decrypted_plan"
 
       - name: Verify seed-pack privacy and key isolation

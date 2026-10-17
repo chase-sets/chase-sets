@@ -1,14 +1,22 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
-import type { TransportEvent } from "@chase-sets/event-core/transport";
+import type {
+  FulfillmentShipmentDeliveredPayload,
+  FulfillmentShipmentDispatchedPayload,
+  OrderingOrderCancelledPayload,
+} from "@chase-sets/event-core/public-event-payloads";
+import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core/transport";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
+  classifyShipmentDispatchedPayload,
   mapOrderCreatedToNotification,
+  mapOrderCancelledToNotification,
   mapPayoutReadinessRegressionToNotification,
   mapRestockDecisionPendingToNotification,
   mapSaleRecordedToNotification,
   mapSellerAvailabilityRestoredToNotification,
   mapShipmentDeliveredToNotification,
+  mapShipmentDispatchedToNotification,
   mapStockCommittedToNotification,
   mapStockReturnedToNotification,
 } from "./notification-intents";
@@ -36,27 +44,15 @@ type OrderCreatedEvent = TransportEvent &
     }>;
   }>;
 
-type OrderCancelledEvent = TransportEvent &
-  Readonly<{
-    type: "ordering.order.cancelled";
-    data: Readonly<{
-      orderId: string;
-      reason?: string | null;
-      reservationRequests?: readonly ReservationRequest[];
-    }>;
-  }>;
+type ShipmentDeliveredEvent = TypedTransportEvent<
+  FulfillmentShipmentDeliveredPayload,
+  "fulfillment.shipment.delivered"
+>;
 
-type ShipmentDeliveredEvent = TransportEvent &
-  Readonly<{
-    type: "fulfillment.shipment.delivered";
-    data: Readonly<{
-      shipmentId: string;
-      orderId: string;
-      buyerAccountId: AccountId;
-      trackingIdentifier: string | null;
-      shippingDestinationSnapshot: Readonly<{ email?: string | null }>;
-    }>;
-  }>;
+type ShipmentDispatchedEvent = TypedTransportEvent<
+  FulfillmentShipmentDispatchedPayload,
+  "fulfillment.shipment.dispatched"
+>;
 
 type InventoryHoldConsumedEvent = TransportEvent &
   Readonly<{
@@ -146,7 +142,7 @@ export async function projectSourceEventToNotification(
   }
 
   if (event.type === "ordering.order.cancelled") {
-    const data = event.data as OrderCancelledEvent["data"];
+    const data = event.data as OrderingOrderCancelledPayload;
     for (const stockReturn of stockCommitmentsBySeller(
       data.orderId,
       releasedStockRequests(data.reservationRequests ?? []),
@@ -160,11 +156,13 @@ export async function projectSourceEventToNotification(
         source,
       });
     }
+    const message = mapOrderCancelledToNotification(data, correlationIdFromEvent(event));
+    if (message) await outbox.enqueueNotification({ message, source });
     return;
   }
 
   if (event.type === "fulfillment.shipment.delivered") {
-    const data = event.data as ShipmentDeliveredEvent["data"];
+    const data = (event as ShipmentDeliveredEvent).data;
     const trackingNumber = data.trackingIdentifier ?? data.shipmentId;
     await outbox.enqueueNotification({
       message: mapShipmentDeliveredToNotification({
@@ -173,6 +171,29 @@ export async function projectSourceEventToNotification(
         shipmentId: data.shipmentId,
         orderId: data.orderId,
         trackingNumber,
+        correlationId: correlationIdFromEvent(event),
+      }),
+      source,
+    });
+    return;
+  }
+
+  if (event.type === "fulfillment.shipment.dispatched") {
+    // Carrier handoff routes on the event alone: no shipment, order, contact, or
+    // Delivered-state lookup decides whether the buyer is notified.
+    const dispatch = classifyShipmentDispatchedPayload(event.data);
+    if (dispatch.kind !== "enriched") {
+      return;
+    }
+
+    const data = (event as ShipmentDispatchedEvent).data;
+    await outbox.enqueueNotification({
+      message: mapShipmentDispatchedToNotification({
+        eventId: event.id,
+        shipmentId: data.shipmentId,
+        orderId: dispatch.orderId,
+        buyerAccountId: dispatch.buyerAccountId,
+        trackingIdentifier: dispatch.trackingIdentifier,
         correlationId: correlationIdFromEvent(event),
       }),
       source,
@@ -286,6 +307,7 @@ export function buildNotificationsFulfillmentProjectionHandlers(
   projectionName = NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
 ): ProjectorHandlerMap {
   return {
+    "fulfillment.shipment.dispatched": (event) => projectSourceEventToNotification(outbox, event, projectionName),
     "fulfillment.shipment.delivered": (event) => projectSourceEventToNotification(outbox, event, projectionName),
   };
 }

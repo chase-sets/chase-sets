@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { expect, test, type APIRequestContext, type FrameLocator, type Page, type TestInfo } from "@playwright/test";
 import { signInWithPassword } from "./support/auth";
+import {
+  consumedEmbeddedThemeCssInputs,
+  embeddedAppearanceSourceDigests,
+} from "./support/stripe-appearance-evidence-source";
 
 // Manual staging UAT (issue #3974): the confirmation-card defect cluster left
 // one seam entirely untested -- nothing mounted the real Stripe embed,
@@ -451,51 +455,28 @@ const candidateFixture = JSON.parse(candidateFixtureBytes.toString("utf8")) as {
 const candidateFixtureSha256 = createHash("sha256").update(candidateFixtureBytes).digest("hex");
 const acceptanceReceiptPath = join(
   repositoryRoot(),
-  "packages/design-system/src/theme/__fixtures__/stripe-elements-acceptance-receipt.json",
+  "infrastructure/stripe-appearance/stripe-elements-acceptance-receipt.json",
 );
 
-// The consumed-input inventory is derived from the factory source, never
-// hand-maintained, over both consumption seams.
-const appearanceFactoryRelativePath = "packages/design-system/src/theme/stripe-appearance.ts";
+// The consumed-input inventory is parsed from the design-system's literal
+// embedded-theme map, never hand-maintained across the two evidence seams.
 const probeSpecRelativePath = "deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts";
 const evidenceConfigRelativePath = "playwright.stripe-appearance-evidence.config.ts";
-const appearanceFactorySource = readFileSync(join(repositoryRoot(), appearanceFactoryRelativePath), "utf8");
 
 // The receipt cannot bind to the commit that contains it -- committing the
 // receipt moves the head it would have to name. It binds instead to the exact
 // bytes of everything that could change what the provider was sent or how the
-// run's artifacts were governed: the appearance factory, the candidate
+// run's artifacts were governed: the contract, resolver, adapter, candidate
 // fixture, this probe spec, and the dedicated evidence config. A later edit
 // to any of them stales every receipt that pinned the old bytes, with no
 // self-reference and nothing for a hand edit to satisfy.
-const receiptSourceDigestPaths = [
-  appearanceFactoryRelativePath,
-  candidateFixtureRelativePath,
-  probeSpecRelativePath,
-  evidenceConfigRelativePath,
-] as const;
-
 function receiptSourceDigests() {
-  return Object.fromEntries(
-    receiptSourceDigestPaths.map((relativePath) => [
-      relativePath,
-      createHash("sha256")
-        .update(readFileSync(join(repositoryRoot(), relativePath)))
-        .digest("hex"),
-    ]),
-  );
+  return embeddedAppearanceSourceDigests(repositoryRoot(), probeSpecRelativePath);
 }
-const consumedTokenNames = (() => {
-  const names = new Set<string>();
-  for (const match of appearanceFactorySource.matchAll(/(?:pxToken|token)\(\s*"(--[\w-]+)"/g)) names.add(match[1]!);
-  const snapshot = appearanceFactorySource.match(/const appearanceSnapshotTokens = \[([\s\S]*?)\] as const;/);
-  if (!snapshot) throw new Error("appearanceSnapshotTokens array not found -- the derivation seam moved");
-  for (const match of snapshot[1]!.matchAll(/"(--[\w-]+)"/g)) names.add(match[1]!);
-  return [...names].sort();
-})();
+const consumedTokenNames = consumedEmbeddedThemeCssInputs(repositoryRoot());
 
 // The painted surface the `.Input` and `.Block` rules fill, taken from the
-// factory itself (`backgroundColor: surface` on both rules). A translucent
+// adapter itself (`backgroundColor: surface` on both rules). A translucent
 // border is only meaningful composited over it, so the expectation names it.
 const paintedSurfaceSourceToken = "--surface-2";
 

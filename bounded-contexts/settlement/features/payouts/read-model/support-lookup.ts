@@ -12,7 +12,11 @@ export type SettlementSupportLookupRow = Readonly<{
   display_reference: string;
   status: string;
   account_id: string;
+  /** Historical storage alias for requested_amount. */
   amount: string;
+  requested_amount: string;
+  fee_amount: string;
+  net_amount: string;
   currency_code: string;
   requested_at: string;
 }>;
@@ -24,6 +28,9 @@ const supportLookupSelect = `
     status,
     account_id,
     amount::text AS amount,
+    requested_amount::text AS requested_amount,
+    fee_amount::text AS fee_amount,
+    net_amount::text AS net_amount,
     currency_code,
     requested_at
   FROM settlement_payout_pages

@@ -1,3 +1,10 @@
+import {
+  catalogFixtureTransports,
+  catalogProductionTransport,
+  ygojsonValidationSetId,
+  ygojsonValidationSealedProductId,
+} from "../catalog-fixture-transports";
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -68,7 +75,7 @@ type YgojsonLocaleData = Readonly<{
   externalIDs?: YgojsonExternalIds;
 }>;
 
-type YgojsonSetData = Readonly<{
+export type YgojsonSetData = Readonly<{
   id?: string;
   name?: YgojsonLocalizedText;
   locales?: Readonly<Record<string, YgojsonLocaleData | undefined>>;
@@ -92,7 +99,7 @@ type YgojsonSetCardPrint = Readonly<{
   qty?: number;
 }>;
 
-type YgojsonSealedProductData = Readonly<{
+export type YgojsonSealedProductData = Readonly<{
   id?: string;
   name?: YgojsonLocalizedText;
   boxOf?: readonly string[];
@@ -120,6 +127,10 @@ type YgojsonSealedItemContent = Readonly<{
 export function createYgojsonProviderAdapter(
   options: YgojsonProviderAdapterOptions = {},
 ): ProviderAdapter<YgojsonProviderPayload> {
+  return createYgojsonAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createYgojsonAdapter(options: YgojsonProviderAdapterOptions = {}): ProviderAdapter<YgojsonProviderPayload> {
   return {
     providerKey: "ygojson",
     capabilities: {
@@ -266,8 +277,8 @@ export function createYgojsonProviderAdapter(
 }
 
 export function createYgojsonValidationProviderAdapter(): ProviderAdapter<YgojsonProviderPayload> {
-  return createYgojsonProviderAdapter({
-    fetch: ygojsonValidationFetch,
+  return createYgojsonAdapter({
+    fetch: catalogFixtureTransports.ygojson,
     now: () => new Date("2026-06-21T00:00:00.000Z"),
     profileVersion: YGOJSON_VALIDATION_PROFILE_VERSION,
   });
@@ -279,7 +290,7 @@ export async function runYgojsonSetReferenceValidationDryRun(
   const plan = await adapter.planImport({
     unitKey: YGOJSON_YUGIOH_SET_REFERENCE_DATA_UNIT_KEY,
     scopeKey: "set",
-    values: { setId: ygojsonValidationSet.id },
+    values: { setId: ygojsonValidationSetId },
   });
   const payloads: ProviderPayloadEnvelope<YgojsonProviderPayload>[] = [];
 
@@ -325,7 +336,7 @@ export async function runYgojsonSealedProductReferenceValidationDryRun(
   const plan = await adapter.planImport({
     unitKey: YGOJSON_YUGIOH_SEALED_PRODUCT_REFERENCE_DATA_UNIT_KEY,
     scopeKey: "sealed-product",
-    values: { sealedProductId: ygojsonValidationSealedProduct.id },
+    values: { sealedProductId: ygojsonValidationSealedProductId },
   });
   const payloads: ProviderPayloadEnvelope<YgojsonProviderPayload>[] = [];
 
@@ -418,7 +429,7 @@ async function fetchYgojsonAggregate<TItem>(
 }
 
 async function fetchJson<T>(url: string, options: YgojsonProviderAdapterOptions): Promise<T> {
-  const response = await (options.fetch ?? globalThis.fetch)(url);
+  const response = await sendCatalogProviderRequest("ygojson", options.fetch ?? globalThis.fetch, url);
   if (!response.ok) {
     throw new Error(`YGOJSON request failed with HTTP ${response.status}.`);
   }
@@ -538,87 +549,3 @@ function stringValue(value: unknown): string | null {
 
   return null;
 }
-
-function ygojsonValidationFetch(input: RequestInfo | URL): Promise<Response> {
-  const response = ygojsonValidationResponses[String(input)];
-  if (!response) {
-    return Promise.resolve(new Response(null, { status: 404 }));
-  }
-
-  return Promise.resolve(
-    new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-const ygojsonValidationSet = {
-  id: "11111111-1111-4111-8111-111111111111",
-  name: { en: "Legend of Blue Eyes White Dragon" },
-  locales: {
-    en: {
-      language: "en",
-      date: "2002-03-08",
-      image: "https://ms.yugipedia.com//placeholder/LOB-EN.png",
-      externalIDs: { dbIDs: [100000001] },
-    },
-  },
-  contents: [
-    {
-      locales: ["en"],
-      formats: ["tcg"],
-      editions: ["unlimited"],
-      cards: [
-        {
-          id: "33333333-3333-4333-8333-333333333333",
-          card: "44444444-4444-4444-8444-444444444444",
-          suffix: "LOB-001",
-          rarity: "ultra",
-        },
-      ],
-    },
-  ],
-  externalIDs: {
-    yugipedia: {
-      id: 12345,
-      name: "Legend of Blue Eyes White Dragon",
-    },
-  },
-} as const satisfies YgojsonSetData;
-
-const ygojsonValidationSealedProduct = {
-  id: "22222222-2222-4222-8222-222222222222",
-  name: { en: "Legend of Blue Eyes White Dragon Booster Box" },
-  boxOf: [ygojsonValidationSet.id],
-  locales: {
-    en: {
-      language: "en",
-      date: "2002-03-08",
-      externalIDs: { dbIDs: [100000002] },
-    },
-  },
-  contents: [
-    {
-      locales: ["en"],
-      packs: [{ set: ygojsonValidationSet.id, qty: 24 }],
-    },
-  ],
-  externalIDs: {
-    yugipedia: {
-      id: 67890,
-      name: "Legend of Blue Eyes White Dragon Booster Box",
-    },
-  },
-} as const satisfies YgojsonSealedProductData;
-
-const ygojsonValidationResponses: Readonly<Record<string, unknown>> = {
-  "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/aggregate/sets.json": [ygojsonValidationSet],
-  "https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/aggregate/sealedProducts.json": [
-    ygojsonValidationSealedProduct,
-  ],
-  [`https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/individual/sets/${ygojsonValidationSet.id}.json`]:
-    ygojsonValidationSet,
-  [`https://raw.githubusercontent.com/iconmaster5326/YGOJSON/v1/individual/sealedProducts/${ygojsonValidationSealedProduct.id}.json`]:
-    ygojsonValidationSealedProduct,
-};

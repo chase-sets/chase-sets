@@ -10,6 +10,14 @@ export {
   type FormatDateTimeOptions,
 } from "./date-time";
 export { formatBpsPercent, type FormatBpsPercentOptions } from "./bps-percent";
+export {
+  authenticationMethodLabel,
+  authenticationMethodValues,
+  formatMachineValue,
+  humanizeMachineToken,
+  safeMachineToken,
+  type MachineValueLabelOptions,
+} from "./machine-value";
 
 export function formatDisplayIdentity(
   title: string | null | undefined,

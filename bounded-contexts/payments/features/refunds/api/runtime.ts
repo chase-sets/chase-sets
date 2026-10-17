@@ -41,6 +41,8 @@ import {
   initialPaymentState,
   remainingRefundableAmountForOrders,
   type PaymentEvent,
+  type PaymentCommand,
+  type PaymentState,
 } from "../../payments/domain/domain";
 
 type RefundRuntimeDeps = Readonly<{
@@ -49,6 +51,10 @@ type RefundRuntimeDeps = Readonly<{
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
   notificationOutbox?: NotificationOutbox;
+  handlers?: Readonly<{
+    payment: CommandHandler<PaymentCommand, PaymentState, PaymentEvent>;
+    refund: CommandHandler<RefundCommand, RefundState, RefundEvent>;
+  }>;
 }>;
 
 function arraysEqual(left: readonly string[], right: readonly string[]) {
@@ -100,20 +106,24 @@ export type RefundServices = Readonly<{
 
 export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler: refundCommandHandler, repository } = createAggregateCommandHandler({
+  const { commandHandler: defaultRefundCommandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<RefundEvent>(),
     initialState: () => initialRefundState,
     evolve: evolveRefund,
     decide: decideRefund,
   });
-  const { commandHandler: paymentCommandHandler, repository: paymentRepository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<PaymentEvent>(),
-    initialState: () => initialPaymentState,
-    evolve: evolvePayment,
-    decide: decidePayment,
-  });
+  const { commandHandler: defaultPaymentCommandHandler, repository: paymentRepository } = createAggregateCommandHandler(
+    {
+      eventStore: deps.eventStore,
+      codec: createPassthroughDomainEventCodec<PaymentEvent>(),
+      initialState: () => initialPaymentState,
+      evolve: evolvePayment,
+      decide: decidePayment,
+    },
+  );
+  const refundCommandHandler = deps.handlers?.refund ?? defaultRefundCommandHandler;
+  const paymentCommandHandler = deps.handlers?.payment ?? defaultPaymentCommandHandler;
 
   return {
     commandHandler: refundCommandHandler,

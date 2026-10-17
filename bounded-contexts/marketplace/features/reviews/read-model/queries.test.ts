@@ -61,6 +61,7 @@ describe("marketplace review queries", () => {
             author_role: "buyer",
             eligible_at: "2026-04-02T00:00:00.000Z",
             active_review_id: null,
+            active_review_revealed_at: null,
           },
         ],
       })),
@@ -78,8 +79,12 @@ describe("marketplace review queries", () => {
       author_role: "buyer",
       eligible_at: "2026-04-02T00:00:00.000Z",
       active_review_id: null,
+      active_review_revealed_at: null,
     });
-    expect(db.query).toHaveBeenCalledWith(expect.any(String), ["ord_1", "acc_buyer"]);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("active.revealed_at::text AS active_review_revealed_at"),
+      ["ord_1", "acc_buyer"],
+    );
   });
 
   it("returns the seller-to-buyer review opportunity with the active review id when present", async () => {
@@ -93,6 +98,7 @@ describe("marketplace review queries", () => {
             author_role: "seller",
             eligible_at: "2026-04-02T00:00:00.000Z",
             active_review_id: "rev_1",
+            active_review_revealed_at: "2026-04-05T00:00:00.000Z",
           },
         ],
       })),
@@ -110,6 +116,7 @@ describe("marketplace review queries", () => {
       author_role: "seller",
       eligible_at: "2026-04-02T00:00:00.000Z",
       active_review_id: "rev_1",
+      active_review_revealed_at: "2026-04-05T00:00:00.000Z",
     });
     expect(db.query).toHaveBeenCalledWith(expect.any(String), ["ord_1", "acc_seller"]);
   });

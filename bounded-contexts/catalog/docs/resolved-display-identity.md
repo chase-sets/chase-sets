@@ -147,6 +147,17 @@ Seed reconciliation must:
 
 Bootstrap may include a narrow idempotent publish guard when seeded template reconciliation reads stale projection state during the same run. That guard is not a general domain relaxation and must not become a downstream display propagation path.
 
+## Promotion-Time Validation
+
+Source Observation and Catalog Merge Candidate promotion validate the proposed display identity before exposing any Catalog Item command:
+
+- The validated planner entry composes the complete post-plan item (create from the proposal; refresh loads the current item and overlays every identity-affecting mutation; link-existing validates the unchanged current item) and awaits the unchanged `resolveCatalogItemDisplayIdentity` resolver.
+- A degraded outcome is the bounded, promotion-blocking `display-identity-unresolvable` diagnostic (`bounded-contexts/catalog/features/source-observations/api/governance/catalog-integration-diagnostic-taxonomy.ts`). Its evidence is structured only: sorted unique `missingTokens`, `templateKey`, `templateTargetKind`, `templateTargetId`, and a `templateReason` of `unresolved-title-tokens` (a matched template), `no-targeted-template` (the resolver's `template` sentinel), or `missing-required-fields`. No title, field value, provider payload, or exception text enters it.
+- The plan fingerprint binds the resolver hash, version, and outcome plus the explicit `promoteAsDraft` choice, so a resolver-input change re-plans.
+- The review preview (`/source-observations/bulk-promote/preview`) runs this validation read-only over a bounded page of eligible observations (100, observation-id order) and discloses the covered ids; it provisions no Reference Record and executes no command. Execution revalidates each unit before its first write, so a degraded normal promotion has no partial writes.
+- `promoteAsDraft` defaults to false and fails closed when omitted. An explicit `true` lets a degraded identity through only for draft-only writes; it never publishes and never updates a published (`active`) Catalog Item with a degraded identity, and the diagnostic stays visible on the planned result.
+- Database-free seed and unit evidence uses the clearly synthetic `createSyntheticDisplayIdentityQueryable` fixture; it is never evidence of production identity validation.
+
 ## Backfill, Repair, And Rebuild
 
 Operators need a safe repair path for stale display copy.

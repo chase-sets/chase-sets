@@ -38,6 +38,16 @@ on:
         required: false
         default: false
         type: boolean
+      activate_agent_grant_revocation:
+        description: Activate Agent Grant revocation after support rollout with fresh serving-set proof.
+        required: false
+        default: false
+        type: boolean
+      catalog_provider_send_window_enabled:
+        description: Opt staging API and worker into the supervised Catalog provider-send window. Requires force_deploy.
+        required: false
+        default: false
+        type: boolean
       force_restore_point:
         description: Force a precreated production database restore-point fork for this release.
         required: false
@@ -167,6 +177,7 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
         run: |
           set -euo pipefail
           artifact_root="${GITHUB_WORKSPACE}/artifacts/decommission-live-plans"
@@ -186,16 +197,22 @@ jobs:
             target="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_record" and (.name == "app_serving" or .name == "doks_apex")) | .instances[]?.attributes.value) // empty' "$state_file")"
             project_id="$(jq -r 'first(.resources[]? | select(.type == "digitalocean_project_resources") | .instances[]?.attributes.project) // empty' "$state_file")"
             alert_emails="$(jq -c '[.resources[]?.instances[]?.attributes | ((.alerts? // []) + (.notifications? // []))[]?.email[]?] | unique' "$state_file")"
+            marketplace_record_present=false
+            marketplace_served=false
             marketplace_public=false
             has_checkout_pool=false
             runtime_profile=landing
             if [ "$environment" = "production" ]; then
-              marketplace_public="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "app_serving") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+              marketplace_record_present="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_record" and .name == "app_serving") | .instances[]?; .index_key == "marketplace")' "$state_file")"
+              marketplace_public="${PRODUCTION_MARKETPLACE_PUBLIC_ENABLED:-false}"
               has_checkout_pool="$(jq -r 'any(.resources[]? | select(.type == "digitalocean_database_connection_pool" and .name == "contexts") | .instances[]?; .index_key == "checkout")' "$state_file")"
               if [ "$marketplace_public" = "true" ]; then
                 runtime_profile=public
               elif [ "$has_checkout_pool" = "true" ]; then
                 runtime_profile=proof
+              fi
+              if [ "$marketplace_record_present" = "true" ] && [ "$marketplace_public" = "false" ]; then
+                marketplace_served=true
               fi
             fi
             if [ -z "$target" ]; then
@@ -203,7 +220,7 @@ jobs:
               exit 1
             fi
 
-            TF_VAR_environment="$environment"             TF_VAR_environment_project_id="$project_id"             TF_VAR_doks_ingress_target="$target"             TF_VAR_alert_emails="$alert_emails"             TF_VAR_production_runtime_profile="$runtime_profile"             TF_VAR_production_marketplace_public_enabled="$marketplace_public"             TF_VAR_observability_otlp_headers=plan-only-placeholder               terraform -chdir="$root" plan -lock=false -out="${environment}-platform.tfplan"
+            TF_VAR_environment="$environment"             TF_VAR_environment_project_id="$project_id"             TF_VAR_doks_ingress_target="$target"             TF_VAR_alert_emails="$alert_emails"             TF_VAR_production_runtime_profile="$runtime_profile"             TF_VAR_production_marketplace_served="$marketplace_served"             TF_VAR_production_marketplace_public_enabled="$marketplace_public"             TF_VAR_observability_otlp_headers=plan-only-placeholder               terraform -chdir="$root" plan -lock=false -out="${environment}-platform.tfplan"
             terraform -chdir="$root" show -no-color "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.txt"
             terraform -chdir="$root" show -json "${environment}-platform.tfplan"               > "$artifact_root/${environment}-platform-plan.json"
             node scripts/terraform-plan-inspection.mjs list-destructive-changes               "$artifact_root/${environment}-platform-plan.json"               > "$artifact_root/${environment}-platform-delete-set.txt"
@@ -267,6 +284,17 @@ jobs:
       production_restore_point_required: ${{ steps.recovery_mode.outputs.production_restore_point_required }}
       dispatch_created_at: ${{ steps.dispatch_contract.outputs.dispatch_created_at }}
     steps:
+      - name: Validate Catalog provider-send window opt-in
+        env:
+          CATALOG_PROVIDER_SEND_WINDOW_ENABLED: ${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}
+          FORCE_DEPLOY: ${{ inputs.force_deploy == true && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = "true" ] && [ "$FORCE_DEPLOY" != "true" ]; then
+            echo "Catalog provider-send window opt-in requires force_deploy=true." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
@@ -438,13 +466,25 @@ jobs:
           PLATFORM_BOOTSTRAP_OWNER: ${{ vars.PLATFORM_BOOTSTRAP_OWNER || '' }}
           ARGO_ROLLOUTS_ENABLED: ${{ vars[matrix.argo_rollouts_variable] || '' }}
           PRODUCTION_RUNTIME_PROFILE: ${{ vars.PRODUCTION_RUNTIME_PROFILE || '' }}
+          PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
           PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || '' }}
         run: |
+          set -euo pipefail
+          runtime_profile="$PRODUCTION_RUNTIME_PROFILE"
+          if [ "${{ matrix.environment }}" = "production" ] && [ -z "$runtime_profile" ]; then
+            if [ "$PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" = "true" ]; then
+              runtime_profile=public
+            elif [ "$PRODUCTION_MARKETPLACE_SERVED" = "true" ]; then
+              runtime_profile=proof
+            else
+              runtime_profile=landing
+            fi
+          fi
           node ./scripts/deployment-contract-preflight.mjs \
             --root-dir "${{ steps.deployment_contract_inputs.outputs.contract_root }}" \
             --environment "${{ matrix.environment }}" \
             --bootstrap-owner-override "$PLATFORM_BOOTSTRAP_OWNER" \
-            --production-runtime-profile-override "$PRODUCTION_RUNTIME_PROFILE" \
+            --production-runtime-profile-override "$runtime_profile" \
             --production-marketplace-public-enabled "$PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" \
             --argo-rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
             --out "artifacts/deployment-contract/${{ matrix.environment }}.json" \
@@ -630,6 +670,258 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Pinned candidate ${RELEASE_IMAGE}@${digest}."
 
+  reconcile-managed-postgres-ca-staging:
+    name: Reconcile Managed Postgres CA (staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: resolve-release
+    if: needs.resolve-release.outputs.deployment_required != 'true'
+    environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      ARGO_ROLLOUTS_ENABLED: ${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_commit }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure managed Postgres CA reconciliation Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config="key=doks/staging.tfstate" \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          cluster_id="$(terraform output -raw cluster_id)"
+          if [ -z "$cluster_id" ]; then
+            echo "DOKS Terraform state omitted the managed Postgres CA reconciliation cluster identity." >&2
+            exit 1
+          fi
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging-ca-reconciliation.kubeconfig"
+          doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Reconcile day-after managed Postgres CA trust
+        id: managed_postgres_ca
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          mode: trust-only-kubernetes-secret
+          environment: staging
+          namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}
+
+      - name: Evaluate managed Postgres CA pod-template reconciliation
+        id: managed_postgres_ca_rollout
+        run: |
+          set -euo pipefail
+          deployed="$(
+            helm get values "$CHASE_SETS_HELM_RELEASE" \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --output json \
+              | jq -r '.global.managedPostgresCaSha256 // empty'
+          )"
+          desired="${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}"
+          if [ "$deployed" = "$desired" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Managed Postgres CA digest is unchanged; skipping pod-template reconciliation."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Managed Postgres CA digest changed; reconciling pod templates."
+          fi
+
+      - name: Reconcile managed Postgres CA pod templates
+        if: steps.managed_postgres_ca_rollout.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- reconcile-managed-postgres-ca \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
+            --managed-postgres-ca-sha256 "${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
+      - name: Record successful staging managed Postgres CA reconciliation
+        run: |
+          set -euo pipefail
+          receipt_dir="${RUNNER_TEMP}/managed-postgres-ca-staging"
+          mkdir -p "$receipt_dir"
+          printf '%s\n' "${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
+            > "$receipt_dir/sha256"
+
+      - name: Publish successful staging managed Postgres CA reconciliation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/managed-postgres-ca-staging/sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  reconcile-managed-postgres-ca-production:
+    name: Reconcile Managed Postgres CA (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs:
+      - resolve-release
+      - reconcile-managed-postgres-ca-staging
+    if: >
+      needs.resolve-release.outputs.deployment_required != 'true' &&
+      needs['reconcile-managed-postgres-ca-staging'].result == 'success'
+    environment: production
+    concurrency:
+      group: platform-deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      ARGO_ROLLOUTS_ENABLED: ${{ vars.PRODUCTION_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_commit }}
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Require successful staging managed Postgres CA reconciliation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: managed-postgres-ca-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/managed-postgres-ca-staging
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure managed Postgres CA reconciliation Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config="key=doks/production.tfstate" \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+          cluster_id="$(terraform output -raw cluster_id)"
+          if [ -z "$cluster_id" ]; then
+            echo "DOKS Terraform state omitted the managed Postgres CA reconciliation cluster identity." >&2
+            exit 1
+          fi
+          kubeconfig="${RUNNER_TEMP}/chase-sets-production-ca-reconciliation.kubeconfig"
+          doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+          chmod 600 "$kubeconfig"
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+
+      - name: Reconcile day-after managed Postgres CA trust
+        id: managed_postgres_ca
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          mode: trust-only-kubernetes-secret
+          environment: production
+          namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}
+
+      - name: Evaluate managed Postgres CA pod-template reconciliation
+        id: managed_postgres_ca_rollout
+        run: |
+          set -euo pipefail
+          deployed="$(
+            helm get values "$CHASE_SETS_HELM_RELEASE" \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --output json \
+              | jq -r '.global.managedPostgresCaSha256 // empty'
+          )"
+          desired="${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}"
+          if [ "$deployed" = "$desired" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Managed Postgres CA digest is unchanged; skipping pod-template reconciliation."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Managed Postgres CA digest changed; reconciling pod templates."
+          fi
+
+      - name: Reconcile managed Postgres CA pod templates
+        if: steps.managed_postgres_ca_rollout.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- reconcile-managed-postgres-ca \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
+            --runtime-env "DEPLOYMENT_ENVIRONMENT=production" \
+            --managed-postgres-ca-sha256 "${{ steps.managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+
   deploy-staging:
     name: Deploy Staging
     runs-on: ubuntu-latest
@@ -706,9 +998,6 @@ jobs:
       TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
       TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
       TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
-      TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
-      TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
-      TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
       TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
       TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
       TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
@@ -826,7 +1115,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then
+          if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode test --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then
             echo "Staging requires dedicated Stripe test-mode keys; production live-mode keys must not be used in the staging GitHub Environment." >&2
             exit 1
           fi
@@ -1098,6 +1387,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: "false"
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -1132,6 +1422,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: "false"
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -1271,6 +1562,17 @@ jobs:
           echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
           echo "Configured staging Kubernetes context: ${current_context}"
 
+      # #9268: the staging preview wildcard certificate's DNS-01 solver reads
+      # cert-manager/digitalocean-dns-token. Re-apply it from the current
+      # repository token on every staging deploy so a token rotation cannot
+      # silently stall renewal, and nudge a fresh issuance only when the
+      # certificate is unhealthy. The token reaches kubectl over stdin only.
+      - name: Converge staging preview DNS-01 token and renewal
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: node ./scripts/preview-wildcard-certificate.mjs converge
+
       - name: Install Argo Rollouts kubectl plugin for staging
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -1337,6 +1639,10 @@ jobs:
 
       - name: Apply staging Kubernetes runtime secrets
         env:
+          CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
+          EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
+          EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
+          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -1370,15 +1676,28 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
-          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
-          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --deployment-environment staging \
             --observability-enabled "${TF_VAR_observability_enabled:-true}"
+
+      - name: Reconcile staging managed Postgres CA trust
+        id: staging_managed_postgres_ca
+        if: env.SHOULD_DEPLOY != 'false'
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          mode: trust-only-kubernetes-secret
+          environment: staging
+          namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}
 
       - name: Deploy staging Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
@@ -1438,6 +1757,7 @@ jobs:
             --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
+            --runtime-env "CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
@@ -1453,6 +1773,7 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
+            --managed-postgres-ca-sha256 "${{ steps.staging_managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
       - name: Capture staging Kubernetes deploy diagnostics
@@ -1671,6 +1992,9 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
         env:
+          KUBECONFIG: ${{ runner.temp }}/chase-sets-staging.kubeconfig
+          EXPECTED_RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          EXPECTED_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -1684,6 +2008,87 @@ jobs:
           PROJECTION_CONVERGENCE_PROJECTION_NAMES: ${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'checkout.session-projection' }}
         run: |
           set -euo pipefail
+          cd ../../..
+          evidence_dir=artifacts/release-health/staging-representative-commerce-state
+          evidence_path="$evidence_dir/representative-commerce-state.json"
+          binding_path="$evidence_dir/release-binding.json"
+          remote_evidence_path=/tmp/representative-commerce-state.json
+          mkdir -p "$evidence_dir"
+
+          if [ -z "${KUBECONFIG:-}" ] || [ ! -s "$KUBECONFIG" ]; then
+            echo "Representative commerce state requires the staging Kubernetes credential configured by this job." >&2
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Representative commerce state requires the exact 40-character deployed release commit." >&2
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Representative commerce state requires the exact deployed image digest." >&2
+            exit 1
+          fi
+
+          pod_record="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            -l app.kubernetes.io/component=platform-api -o json \
+            | jq -cer --arg image_digest "$EXPECTED_IMAGE_DIGEST" '
+                [
+                  .items[]
+                  | select(.status.phase == "Running")
+                  | . as $pod
+                  | [
+                      .status.containerStatuses[]?
+                      | select(.name == "platform-api" and .ready == true and (.imageID | endswith($image_digest)))
+                    ] as $containers
+                  | select(($containers | length) == 1)
+                  | { podName: $pod.metadata.name, imageID: $containers[0].imageID }
+                ]
+                | sort_by(.podName)
+                | first // error("no ready platform-api pod runs the exact deployed image digest")
+              ')"
+          pod="$(jq -er '.podName' <<<"$pod_record")"
+          image_id="$(jq -er '.imageID' <<<"$pod_record")"
+
+          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api "$pod" -- \
+            rm -f "$remote_evidence_path"
+          kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api "$pod" -- \
+            env DEPLOYMENT_ENVIRONMENT=staging \
+              REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \
+              REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT="$remote_evidence_path" \
+              pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
+          kubectl cp --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api \
+            "$pod:$remote_evidence_path" "$evidence_path"
+
+          test -s "$evidence_path"
+          jq -e '
+            .schemaVersion == "representative-commerce-state.evidence/v2"
+            and .type == "representative-commerce-state.complete"
+            and .environmentName == "staging"
+            and (.checkedAt | type == "string" and length > 0)
+            and .dataProfiles == [
+              "critical-bootstrap",
+              "catalog-integration-bootstrap",
+              "representative-commerce-state"
+            ]
+          ' "$evidence_path" >/dev/null
+          evidence_sha256="$(sha256sum "$evidence_path" | awk '{print $1}')"
+          jq -n \
+            --arg releaseCommit "$EXPECTED_RELEASE_COMMIT" \
+            --arg imageDigest "$EXPECTED_IMAGE_DIGEST" \
+            --arg podName "$pod" \
+            --arg imageID "$image_id" \
+            --arg evidenceSha256 "$evidence_sha256" \
+            '{
+              schemaVersion: "staging-representative-commerce-state-release-binding/v1",
+              environment: "staging",
+              releaseCommit: $releaseCommit,
+              imageDigest: $imageDigest,
+              podName: $podName,
+              imageID: $imageID,
+              evidenceSha256: $evidenceSha256
+            }' > "$binding_path"
+          echo "Representative commerce state completed in ${pod} for ${EXPECTED_RELEASE_COMMIT}@${EXPECTED_IMAGE_DIGEST}."
+
+          cd infrastructure/digitalocean/platform
           admin_domain="$(terraform output -raw admin_domain)"
           if [ -z "$admin_domain" ]; then
             echo "Required staging admin domain was not present in Terraform outputs." >&2
@@ -1873,12 +2278,13 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-        if: always() && env.SHOULD_DEPLOY != 'false' && steps.buy_now_probes.conclusion != 'skipped'
+        if: always() && env.SHOULD_DEPLOY != 'false' && (steps.projection_convergence_gate.conclusion != 'skipped' || steps.buy_now_probes.conclusion != 'skipped')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: staging-buy-now-freshness-probes
           path: |
             artifacts/release-health/staging-projection-convergence-gate.json
+            artifacts/release-health/staging-representative-commerce-state
             artifacts/release-health/guest-buy-now-freshness-probe.json
             artifacts/release-health/account-buy-now-freshness-probe.json
           if-no-files-found: error
@@ -2006,6 +2412,7 @@ jobs:
           SMOKE_BALANCE_CREDIT_AMOUNT: ${{ vars.STAGING_SMOKE_BALANCE_CREDIT_AMOUNT || '' }}
           SMOKE_PAYMENT_METHOD_CATEGORY: ${{ vars.STAGING_SMOKE_PAYMENT_METHOD_CATEGORY || '' }}
           SMOKE_CREATE_PAYMENT: ${{ vars.STAGING_SMOKE_CREATE_PAYMENT || '' }}
+          STAGING_SMOKE_WALLET_FUNDING_AMOUNT: ${{ vars.STAGING_SMOKE_WALLET_FUNDING_AMOUNT || '' }}
           SMOKE_PAYOUT_AMOUNT: ${{ vars.STAGING_SMOKE_PAYOUT_AMOUNT || '' }}
           SMOKE_REQUEST_PAYOUT: ${{ vars.STAGING_SMOKE_REQUEST_PAYOUT || '' }}
         run: |
@@ -2045,6 +2452,15 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled true || true
+
+      # #9268 guard: fail closed when the shared preview wildcard certificate
+      # is not Ready or expires within 14 days, after giving any renewal the
+      # converge step nudged a bounded window to finish. Placed after the
+      # rollout promote/abort pair so a preview TLS fault never aborts the
+      # staging app rollout, but still before staging is marked applied.
+      - name: Verify staging preview wildcard certificate
+        if: env.SHOULD_DEPLOY != 'false'
+        run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 600
 
       - name: Classify staging deployment failure
         env:
@@ -2391,14 +2807,26 @@ jobs:
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
       TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}
       PRODUCTION_DOKS_INGRESS_TARGET: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
+      PRODUCTION_MARKETPLACE_SERVED: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
       PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_doks_ingress_target: ${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}
-      TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || 'landing') }}
+      TF_VAR_production_runtime_profile: ${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing') }}
+      TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
       TF_VAR_production_marketplace_checkout_fee_approved: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}
+      TF_VAR_production_payout_fee_approved: ${{ vars.PRODUCTION_PAYOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
+      TF_VAR_production_payout_fee_reference: ${{ vars.PRODUCTION_PAYOUT_FEE_REFERENCE || '' }}
+      PRODUCTION_WALLET_FUNDING_APPROVED: ${{ vars.PRODUCTION_WALLET_FUNDING_APPROVED || 'false' }}
+      PRODUCTION_WALLET_FUNDING_REFERENCE: ${{ vars.PRODUCTION_WALLET_FUNDING_REFERENCE || '' }}
+      PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST: ${{ vars.PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST || '' }}
+      CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE || '' }}
+      CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE: ${{ vars.CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE || '' }}
       TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
@@ -2421,24 +2849,21 @@ jobs:
       TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
       TF_VAR_tax_provider_backed_quotes_required: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}
-      TF_VAR_stripe_secret_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
-      TF_VAR_stripe_publishable_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
-      TF_VAR_stripe_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
-      TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
-      TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
+      TF_VAR_stripe_secret_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}
+      TF_VAR_stripe_publishable_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+      TF_VAR_stripe_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}
+      TF_VAR_stripe_connect_accounts_api: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}
+      TF_VAR_stripe_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}
       TF_VAR_ucp_business_signing_key_id: ${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}
       TF_VAR_ucp_business_signing_alg: ${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}
       TF_VAR_ucp_business_signing_private_jwk: ${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}
       TF_VAR_ucp_business_signing_previous_public_jwks: ${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}
-      TF_VAR_ucp_ap2_verifier_url: ${{ secrets.UCP_AP2_VERIFIER_URL || '' }}
-      TF_VAR_ucp_ap2_verifier_auth_token: ${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}
-      TF_VAR_ucp_ap2_verifier_timeout_ms: ${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}
-      TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
+      TF_VAR_easypost_api_key: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}
       TF_VAR_voyage_api_key: ${{ secrets.VOYAGE_API_KEY || '' }}
-      TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
-      TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
-      TF_VAR_easypost_mode: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
+      TF_VAR_easypost_api_base_url: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}
+      TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+      TF_VAR_easypost_mode: ${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}
       TF_VAR_tcgplayer_automation_tcg_auth_cookie: ${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}
       TF_VAR_scrydex_api_key: ${{ secrets.SCRYDEX_API_KEY || '' }}
       TF_VAR_scrydex_team_id: ${{ secrets.SCRYDEX_TEAM_ID || '' }}
@@ -2526,6 +2951,9 @@ jobs:
       - name: Validate production configuration
         if: env.SHOULD_DEPLOY != 'false'
         env:
+          CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE":') }}
+          CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE_PRESENT: ${{ contains(toJSON(vars), '"CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE":') }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -2597,7 +3025,7 @@ jobs:
               exit 1
             fi
 
-            if [[ "${TF_VAR_stripe_secret_key}" != sk_live* || "${TF_VAR_stripe_publishable_key}" != pk_live* ]]; then
+            if ! node scripts/stripe-key-mode.mjs require-unrestricted-pair --mode live --secret-var TF_VAR_stripe_secret_key --publishable-var TF_VAR_stripe_publishable_key; then
               echo "Production proof/public platform deployment requires Stripe live-mode keys." >&2
               exit 1
             fi
@@ -2619,6 +3047,10 @@ jobs:
           fi
 
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            if [ "${PRODUCTION_WALLET_FUNDING_APPROVED:-false}" != "true" ] || [ -z "${PRODUCTION_WALLET_FUNDING_REFERENCE:-}" ]; then
+              echo "Production marketplace promotion requires approved Wallet Funding evidence."
+              exit 1
+            fi
             if [ "${TF_VAR_production_marketplace_promotion_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_marketplace_promotion_reference:-}" ]; then
               echo "Production marketplace promotion requires an approved marketplace promotion record." >&2
               exit 1
@@ -2695,6 +3127,60 @@ jobs:
               exit 1
             fi
           fi
+
+          # Catalog integration writes are admitted by every production control plane mode except
+          # dry-run-only and read-only (unset defaults to dry-run-only). An admitting plane needs the
+          # provider credentials and the code-enforced signoff references; names are printed, never values.
+          catalog_control_plane_mode="$(node -p 'String(require("./infrastructure/helm/platform/runtime-values.json").productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE ?? "").trim().toLowerCase()')"
+          case "$catalog_control_plane_mode" in
+            "" | dry-run-only | read-only) ;;
+            *)
+              trimmed_env() {
+                local value="${!1:-}"
+                value="${value#"${value%%[![:space:]]*}"}"
+                printf '%s' "${value%"${value##*[![:space:]]}"}"
+              }
+              catalog_missing=()
+              # <production GitHub secret>:<deploy-production env var carrying it>
+              for credential in \
+                SCRYDEX_API_KEY:TF_VAR_scrydex_api_key \
+                SCRYDEX_TEAM_ID:TF_VAR_scrydex_team_id \
+                TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE:TF_VAR_tcgplayer_automation_tcg_auth_cookie
+              do
+                if [ -z "$(trimmed_env "${credential#*:}")" ]; then
+                  catalog_missing+=("${credential%%:*}")
+                fi
+              done
+              # The runtime treats a blank, false, none, or open signoff reference as unset.
+              for reference in \
+                CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE \
+                CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE
+              do
+                reference_value="$(trimmed_env "$reference")"
+                case "${reference_value,,}" in
+                  "" | false | none | open) catalog_missing+=("$reference") ;;
+                esac
+              done
+
+              if [ "${#catalog_missing[@]}" -gt 0 ]; then
+                printf 'Missing required production Catalog integration configuration: %s\n' "${catalog_missing[*]}" >&2
+                exit 1
+              fi
+              ;;
+          esac
+          # Per-name presence preserves absence without exposing the variable map.
+          node --input-type=module -e '
+            const invalid = [
+              "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+              "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+              "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+            ].filter((name) => process.env[name + "_PRESENT"] === "true" &&
+              ["", "false", "none", "open"].includes((process.env[name] ?? "").trim().toLowerCase()));
+            if (invalid.length) {
+              console.error("Invalid production Catalog integration signoff reference: " + invalid.join(" "));
+              process.exit(1);
+            }
+          '
 
       - uses: ./.github/actions/setup-pnpm-workspace
         env:
@@ -2909,6 +3395,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -3165,9 +3652,14 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
 
+          node ./scripts/production-release-marker.mjs reconcile
           git fetch origin production --tags
           last_known_good_commit="$(git rev-parse origin/production)"
           release_tag="$(
@@ -3231,29 +3723,6 @@ jobs:
             echo "rollback_release_tag=${release_tag}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Evaluate production rollback readiness
-        if: env.SHOULD_DEPLOY != 'false'
-        id: rollback_readiness
-        env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          ROLLBACK_READINESS_OUT: artifacts/release-health/production-rollback-readiness.json
-          RECOVERY_MODE: rollback
-          ROLLBACK_TARGET_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
-          LAST_KNOWN_GOOD_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
-          ROLLBACK_RELEASE_TAG: ${{ steps.rollback_target.outputs.rollback_release_tag }}
-          ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}
-          ROLLBACK_IMAGE_EXISTS: ${{ steps.rollback_target.outputs.image_exists }}
-          ROLLBACK_SMOKE_VERIFIED: ${{ steps.rollback_target.outputs.smoke_verified }}
-          ROLLBACK_DESTRUCTIVE_PLAN_APPROVED: "false"
-          EMERGENCY_RELEASE_REFERENCE: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          pnpm run rollback:readiness
-          result="$(jq -r '.result // "failure"' artifacts/release-health/production-rollback-readiness.json)"
-          echo "result=${result}" >> "$GITHUB_OUTPUT"
-
       - name: Terraform apply
         if: env.SHOULD_DEPLOY != 'false'
         working-directory: infrastructure/digitalocean/platform
@@ -3261,6 +3730,7 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          TF_VAR_production_marketplace_served: ${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -3327,6 +3797,10 @@ jobs:
 
       - name: Apply production Kubernetes runtime secrets
         env:
+          CHANNELS_CREDENTIAL_KEYRING_JSON: ${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}
+          EBAY_ACCOUNT_DELETION_ENDPOINT: ${{ secrets.EBAY_ACCOUNT_DELETION_ENDPOINT || '' }}
+          EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN: ${{ secrets.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN || '' }}
+          CATALOG_OPERATOR_SESSION_KEYRING_JSON: ${{ secrets.CATALOG_OPERATOR_SESSION_KEYRING_JSON || '' }}
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
@@ -3360,15 +3834,51 @@ jobs:
           export UCP_BUSINESS_SIGNING_ALG="${TF_VAR_ucp_business_signing_alg:-ES256}"
           export UCP_BUSINESS_SIGNING_PRIVATE_JWK="${TF_VAR_ucp_business_signing_private_jwk:-}"
           export UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS="${TF_VAR_ucp_business_signing_previous_public_jwks:-[]}"
-          export UCP_AP2_VERIFIER_URL="${TF_VAR_ucp_ap2_verifier_url:-}"
-          export UCP_AP2_VERIFIER_AUTH_TOKEN="${TF_VAR_ucp_ap2_verifier_auth_token:-}"
-          export UCP_AP2_VERIFIER_TIMEOUT_MS="${TF_VAR_ucp_ap2_verifier_timeout_ms:-5000}"
           export TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE="${TF_VAR_tcgplayer_automation_tcg_auth_cookie:-}"
 
           node ./scripts/platform-kubernetes-secret.mjs \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --deployment-environment production \
             --observability-enabled "${TF_VAR_observability_enabled:-true}"
+
+      - name: Reconcile production managed Postgres CA trust
+        id: production_managed_postgres_ca
+        if: env.SHOULD_DEPLOY != 'false'
+        uses: ./.github/actions/export-managed-postgres-authority
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        with:
+          mode: trust-only-kubernetes-secret
+          environment: production
+          namespace: ${{ env.CHASE_SETS_KUBERNETES_NAMESPACE }}
+
+      - name: Evaluate production rollback readiness
+        if: env.SHOULD_DEPLOY != 'false'
+        id: rollback_readiness
+        env:
+          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
+          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          ROLLBACK_READINESS_OUT: artifacts/release-health/production-rollback-readiness.json
+          RECOVERY_MODE: rollback
+          ROLLBACK_TARGET_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
+          LAST_KNOWN_GOOD_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
+          ROLLBACK_RELEASE_TAG: ${{ steps.rollback_target.outputs.rollback_release_tag }}
+          ROLLBACK_IMAGE_REF: ${{ steps.rollback_target.outputs.rollback_image_ref }}
+          ROLLBACK_IMAGE_EXISTS: ${{ steps.rollback_target.outputs.image_exists }}
+          ROLLBACK_SMOKE_VERIFIED: ${{ steps.rollback_target.outputs.smoke_verified }}
+          ROLLBACK_DESTRUCTIVE_PLAN_APPROVED: "false"
+          EMERGENCY_RELEASE_REFERENCE: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          pnpm run rollback:readiness
+          result="$(jq -r '.result // "failure"' artifacts/release-health/production-rollback-readiness.json)"
+          echo "result=${result}" >> "$GITHUB_OUTPUT"
 
       - name: Deploy production Kubernetes release
         if: env.SHOULD_DEPLOY != 'false'
@@ -3377,10 +3887,27 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          ADMISSION_RETRY_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result }}
+          ADMISSION_RETRY_ROLLBACK_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs prepare \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST"
+
+          # A transient DOKS admission-webhook loss (#9662) is retried once after an exact
+          # restore of the captured source, so it is offered only under the workflow
+          # rollback's own eligibility; otherwise the deploy fails exactly as before.
+          admission_retry_args=()
+          if [ "$ADMISSION_RETRY_READINESS_RESULT" = "success" ] && node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "$ADMISSION_RETRY_ROLLBACK_COMMIT"; then
+            admission_retry_args=(--admission-retry-rollback-target "artifacts/release-health/production-rollback-target.json")
+          fi
           catalog_asset_public_base_url="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_public_base_url)"
           catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
           catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
@@ -3412,6 +3939,14 @@ jobs:
             fi
           }
           add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"
+          add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_APPROVED" "${PRODUCTION_WALLET_FUNDING_APPROVED:-false}"
+          add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_REFERENCE" "${PRODUCTION_WALLET_FUNDING_REFERENCE:-}"
+          add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST" "${PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE:-}"
+          add_optional_runtime_env "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE" "${CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE:-}"
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"
@@ -3448,7 +3983,10 @@ jobs:
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollouts-enabled "$ARGO_ROLLOUTS_ENABLED" \
-            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
+            --managed-postgres-ca-sha256 "${{ steps.production_managed_postgres_ca.outputs.managed-postgres-ca-sha256 }}" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
+            --attempts-out "artifacts/release-health/production-kubernetes-deploy-attempts.json" \
+            "${admission_retry_args[@]}"
 
       - name: Capture production Kubernetes deploy diagnostics
         env:
@@ -3482,6 +4020,8 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         if: env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_DOKS_INGRESS_TARGET != ''
         run: |
           set -euo pipefail
@@ -3497,8 +4037,9 @@ jobs:
             --url https://www.chasesets.com/
             --url https://admin.chasesets.com/health/ready
           )
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            live_urls+=(--url https://marketplace.chasesets.com/health/ready)
+          marketplace_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -json marketplace_domains | jq -r 'first(.[]) // empty')"
+          if [ -n "$marketplace_domain" ]; then
+            live_urls+=(--url "https://${marketplace_domain}/health/ready")
           fi
           node ./scripts/platform-ingress-wait.mjs "${live_urls[@]}"
 
@@ -3531,11 +4072,6 @@ jobs:
             echo "Required production domains were not present in Terraform outputs." >&2
             exit 1
           fi
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ] && [ "${#marketplace_domains[@]}" -eq 0 ]; then
-            echo "Production marketplace promotion was enabled but no marketplace domains were present in Terraform outputs." >&2
-            exit 1
-          fi
-
           wait_for_domain() {
             local hostname="$1"
             local url="https://${hostname}"
@@ -3545,6 +4081,59 @@ jobs:
           for hostname in "${public_domains[@]}" "${marketplace_domains[@]}" "$admin_domain"; do
             wait_for_domain "$hostname"
           done
+
+      - name: Smoke served marketplace invitation gate
+        if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          set -euo pipefail
+          if [ "${TF_VAR_production_marketplace_served:-false}" != "true" ] || [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            echo "Served-not-public marketplace smoke is not required for this deployment posture."
+            exit 0
+          fi
+
+          base_url="https://marketplace.chasesets.com"
+          evidence_path="artifacts/release-health/served-marketplace-smoke.json"
+          mkdir -p "$(dirname "$evidence_path")"
+          root_body="$(mktemp)"
+          registration_body="$(mktemp)"
+          trap 'rm -f "$root_body" "$registration_body"' EXIT
+
+          root_status="$(curl --silent --show-error --output "$root_body" --write-out '%{http_code}' "$base_url/")"
+          if [ "$root_status" != "200" ]; then
+            echo "Served marketplace root must return 200; got ${root_status}." >&2
+            exit 1
+          fi
+          if ! grep -Eqi '<meta[^>]+name="robots"[^>]+content="noindex,nofollow"' "$root_body"; then
+            echo "Served marketplace root must render noindex,nofollow metadata." >&2
+            exit 1
+          fi
+
+          registration_status="$(curl --silent --show-error --output "$registration_body" --write-out '%{http_code}' \
+            --header 'content-type: application/json' \
+            --data '{"email":"served-marketplace-smoke-uninvited@invalid.example"}' \
+            "$base_url/api/auth/register")"
+          registration_code="$(jq -r '.error.code // empty' "$registration_body")"
+          if [ "$registration_status" != "403" ] || [ "$registration_code" != "registration_admission_required" ]; then
+            echo "Unauthenticated registration must return 403 registration_admission_required; got ${registration_status} ${registration_code:-missing-code}." >&2
+            exit 1
+          fi
+
+          invitation_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            "$base_url/invite/ivt_malformed?token=malformed")"
+          if [ "$invitation_status" != "200" ] && [ "$invitation_status" != "302" ]; then
+            echo "Malformed invitation route must remain routed with 200 or 302; got ${invitation_status}." >&2
+            exit 1
+          fi
+
+          jq -n \
+            --arg checkedAt "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --arg baseUrl "$base_url" \
+            --argjson rootStatus "$root_status" \
+            --argjson registrationStatus "$registration_status" \
+            --arg registrationCode "$registration_code" \
+            --argjson invitationStatus "$invitation_status" \
+            '{schemaVersion:"served-marketplace-smoke/v1",checkedAt:$checkedAt,baseUrl:$baseUrl,root:{status:$rootStatus,noindex:true},registration:{status:$registrationStatus,code:$registrationCode},malformedInvitation:{status:$invitationStatus}}' \
+            | tee "$evidence_path"
 
       # Post-deploy readiness gate (#1237): derive direct production database
       # URLs for the audited wave contexts from Terraform state (same pattern
@@ -3646,12 +4235,8 @@ jobs:
             export SMOKE_REQUIRE_NATIVE_MCP="true"
           fi
           export SMOKE_REQUIRE_FULFILLMENT_POSTAGE="${TF_VAR_production_fulfillment_postage_approved:-false}"
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+          if [ -n "$marketplace_domain" ]; then
             export SMOKE_ADMIN_TOPOLOGY="public-marketplace"
-            if [ -z "$marketplace_domain" ]; then
-              echo "Production marketplace promotion was enabled but no marketplace domain was present in Terraform outputs." >&2
-              exit 1
-            fi
             export SMOKE_REQUIRE_MARKETPLACE="true"
             smoke_urls+=("https://${marketplace_domain}")
           else
@@ -3694,11 +4279,7 @@ jobs:
           admin_domain="$(terraform output -raw admin_domain)"
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           canary_urls=("https://${public_domain}" "https://${admin_domain}")
-          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
-            if [ -z "$marketplace_domain" ]; then
-              echo "Production marketplace canary was requested but no marketplace domain was present." >&2
-              exit 1
-            fi
+          if [ -n "$marketplace_domain" ]; then
             canary_urls+=("https://${marketplace_domain}")
           fi
 
@@ -3724,6 +4305,39 @@ jobs:
             --rollouts-enabled true \
             --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"
 
+      - name: Verify production Kubernetes deployment transition
+        if: env.SHOULD_DEPLOY != 'false'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          ACTIVATE_AGENT_GRANT_REVOCATION: ${{ inputs.activate_agent_grant_revocation == true }}
+        run: |
+          set -euo pipefail
+          pnpm run platform:kubernetes-deployment -- verify-deployment-transition \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --rollback-target "artifacts/release-health/production-rollback-target.json" \
+            --deploy-attempts "artifacts/release-health/production-kubernetes-deploy-attempts.json" \
+            --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
+          node ./scripts/production-release-marker.mjs retain-identity
+          if [ "$ACTIVATE_AGENT_GRANT_REVOCATION" = "true" ]; then
+            node ./scripts/agent-grant-revocation-release.mjs activate \
+              --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+              --release-commit "$RELEASE_COMMIT" --image-digest "$RELEASE_IMAGE_DIGEST" \
+              --out artifacts/release-health/agent-grant-revocation-activation.json
+          fi
+
+      - name: Upload production Kubernetes deployment transition
+        if: env.SHOULD_DEPLOY != 'false'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-kubernetes-deployment-transition
+          path: artifacts/release-health/production-kubernetes-deployment-transition.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Abort production Argo Rollouts
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -3731,6 +4345,9 @@ jobs:
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
         if: failure() && env.SHOULD_DEPLOY != 'false' && env.ARGO_ROLLOUTS_ENABLED == 'true'
         run: |
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
           pnpm run platform:kubernetes-deployment -- abort \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
@@ -3759,6 +4376,9 @@ jobs:
         if: failure() && env.SHOULD_DEPLOY != 'false' && steps.rollback_readiness.outputs.result == 'success'
         run: |
           set -euo pipefail
+          node ./scripts/agent-grant-revocation-release.mjs check-rollback \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"
 
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
@@ -3839,81 +4459,13 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         id: production_marker
         if: env.SHOULD_DEPLOY != 'false'
-        run: |
-          set -euo pipefail
-          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
-          release_tag="release-$(date -u +%Y%m%d%H%M%S)-$(printf '%s' "$release_commit" | cut -c1-8)"
-          promoted_image="${{ steps.image.outputs.image }}"
-          promoted_digest="${{ steps.image.outputs.digest }}"
-          release_image="${promoted_image%:*}:${release_tag}"
-
-          docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin production || true
-          git fetch origin --tags || true
-
-          if ! git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
-            git tag -a "$release_tag" "$release_commit" -m "Production release ${release_tag}"
-            git push origin "refs/tags/${release_tag}"
-          fi
-
-          if git show-ref --verify --quiet refs/remotes/origin/production; then
-            production_marker_commit="$(git rev-parse origin/production)"
-            git checkout -B production origin/production
-            if ! git merge --ff-only "$release_commit"; then
-              {
-                echo "marker_updated=false"
-                echo "marker_mismatch=true"
-                echo "production_marker_commit=${production_marker_commit}"
-                echo "marker_error=production-marker-non-fast-forward"
-              } >> "$GITHUB_OUTPUT"
-              {
-                echo "## Production marker mismatch"
-                echo
-                echo "Production deployed successfully, but the smoke-verified production marker could not fast-forward."
-                echo
-                echo "- Deployed commit: ${release_commit}"
-                echo "- Current production marker: ${production_marker_commit}"
-                echo "- Error: production-marker-non-fast-forward"
-              } >> "$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
-          else
-            production_marker_commit=""
-            git checkout -B production "$release_commit"
-          fi
-
-          if ! git push origin production; then
-            git fetch origin production || true
-            production_marker_commit="$(git rev-parse origin/production 2>/dev/null || printf '%s' "${production_marker_commit}")"
-            {
-              echo "marker_updated=false"
-              echo "marker_mismatch=true"
-              echo "production_marker_commit=${production_marker_commit}"
-              echo "marker_error=production-marker-push-failed"
-            } >> "$GITHUB_OUTPUT"
-            {
-              echo "## Production marker mismatch"
-              echo
-              echo "Production deployed successfully, but the smoke-verified production marker push failed."
-              echo
-              echo "- Deployed commit: ${release_commit}"
-              echo "- Current production marker: ${production_marker_commit:-unknown}"
-              echo "- Error: production-marker-push-failed"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          {
-            echo "marker_updated=true"
-            echo "marker_mismatch=false"
-            echo "production_marker_commit=${release_commit}"
-            echo "marker_error="
-          } >> "$GITHUB_OUTPUT"
+        run: node ./scripts/production-release-marker.mjs publish
 
       - name: Write promoted release handoff
         if: steps.production_marker.outputs.marker_updated == 'true'
@@ -4103,6 +4655,7 @@ jobs:
             --diagnostics artifacts/release-health/production-kubernetes-deploy-diagnostics.json \
             --diagnostics artifacts/release-health/production-readiness-gate.json \
             --diagnostics artifacts/release-health/production-rollback.json \
+            --diagnostics artifacts/release-health/production-kubernetes-deploy-attempts.json \
             --out artifacts/release-health/production-deploy-root-cause.json \
             --github-summary "$GITHUB_STEP_SUMMARY" \
             --format github-output >> "$GITHUB_OUTPUT"
@@ -4206,8 +4759,27 @@ jobs:
             artifacts/release-health/production-rollback-target.json
             artifacts/release-health/production-rollback-readiness.json
             artifacts/release-health/production-kubernetes-deploy-diagnostics.json
+            artifacts/release-health/production-kubernetes-deployment-transition.json
             artifacts/release-health/production-deploy-root-cause.json
           if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload served marketplace smoke evidence
+        if: always() && env.SHOULD_DEPLOY != 'false' && env.TF_VAR_production_marketplace_served == 'true' && env.TF_VAR_production_marketplace_public_enabled != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: served-marketplace-smoke
+          path: artifacts/release-health/served-marketplace-smoke.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Agent Grant revocation activation
+        if: always() && env.SHOULD_DEPLOY != 'false' && inputs.activate_agent_grant_revocation == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-grant-revocation-activation
+          path: artifacts/release-health/agent-grant-revocation-activation.json
+          if-no-files-found: error
           retention-days: 30
 
   dispatch-ephemeral-verification:

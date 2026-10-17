@@ -3,6 +3,8 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createMarketplaceOfferMcpHandlers } from "./mcp";
 import type { MarketplaceOfferServices } from "./runtime";
+import { ManagedOfferConflictError } from "./managed-authority";
+import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
 
 const actor = {
   sessionId: "sess_1",
@@ -33,6 +35,7 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
 
 function offerRow(overrides: Record<string, unknown> = {}) {
   return {
+    ...privatePolicyFields,
     offer_id: "off_1",
     buyer_account_id: "acc_buyer",
     catalog_catalog_item_id: "cat_1",
@@ -112,6 +115,7 @@ const submitArgs = {
     country: "US",
   },
   priceAmount: "20.00",
+  priceCurrencyCode: "USD",
   quantityRequested: 1,
   offerIdOverride: "off_natural_1",
 };
@@ -202,6 +206,18 @@ describe("marketplace offer MCP handlers", () => {
     );
   });
 
+  it("propagates managed refresh conflicts without silently requoting or retrying acceptance", async () => {
+    const fake = services();
+    vi.mocked(fake.acceptOffer).mockRejectedValue(new ManagedOfferConflictError("managed_offer_refresh_required"));
+    const handlers = createMarketplaceOfferMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["marketplace.accept-offer"]!(
+        mcpRequest({ accountId: "acc_1", offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "old" }),
+      ),
+    ).rejects.toMatchObject({ code: "managed_offer_refresh_required" });
+    expect(fake.acceptOffer).toHaveBeenCalledTimes(1);
+  });
+
   it("lists buyer submitted offers and seller matched offers without private shipping snapshots", async () => {
     const fakeServices = services();
     const handlers = createMarketplaceOfferMcpHandlers(fakeServices);
@@ -217,6 +233,13 @@ describe("marketplace offer MCP handlers", () => {
     expect(JSON.stringify(submitted)).not.toContain("shipping_destination_snapshot");
     expect(matched).toMatchObject({ accountId: "acc_1", side: "matched", total: 1, count: 1 });
     expect(JSON.stringify(matched)).not.toContain("shipping_destination_snapshot");
+    for (const output of [submitted, matched]) {
+      const serialized = JSON.stringify(output);
+      for (const [key, value] of Object.entries(privatePolicyFields)) {
+        expect(serialized).not.toContain(key);
+        if (typeof value !== "object") expect(serialized).not.toContain(String(value));
+      }
+    }
     expect(fakeServices.listOfferMatches).toHaveBeenCalledWith(
       expect.objectContaining({
         sellerAccountId: "acc_1",
@@ -269,5 +292,28 @@ describe("marketplace offer MCP handlers", () => {
     expect(JSON.stringify(submitted)).not.toContain("shipping_destination_snapshot");
     expect(matched).toMatchObject({ offer_id: "off_match", listing_id: "lst_1" });
     expect(JSON.stringify(matched)).not.toContain("shipping_destination_snapshot");
+    for (const output of [submitted, matched]) {
+      const serialized = JSON.stringify(output);
+      for (const [key, value] of Object.entries(privatePolicyFields)) {
+        expect(serialized).not.toContain(key);
+        if (typeof value !== "object") expect(serialized).not.toContain(String(value));
+      }
+    }
+  });
+});
+
+describe("marketplace offer MCP price receipts", () => {
+  it("reports the command result status, so a paused Offer's re-price receipt says paused", async () => {
+    const fakeServices = {
+      ...services(),
+      updateOfferPrice: vi.fn(async () => ({ offerId: "off_1", version: 3, status: "paused" })),
+    } as unknown as MarketplaceOfferServices;
+    const handlers = createMarketplaceOfferMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["marketplace.update-offer-price"]?.(
+      mcpRequest({ accountId: "acc_1", offerId: "off_1", priceAmount: "21.00", priceCurrencyCode: "USD" }),
+    );
+
+    expect(result).toMatchObject({ offerId: "off_1", version: 3, status: "paused" });
   });
 });

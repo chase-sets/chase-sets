@@ -19,7 +19,7 @@ export function SavedListValuationSummary({ valuation }: SavedListValuationSumma
     : null;
 
   return (
-    <Surface padding={6}>
+    <Surface padding={6} elevation="flush">
       <Stack gap={4}>
         <StatGrid columns={{ base: 1, sm: 3 }}>
           <Stat

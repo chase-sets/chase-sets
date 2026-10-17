@@ -1,33 +1,23 @@
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
-import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
+import { getWorkerHostEntries } from "@chase-sets/platform-runtime/worker";
 import { loadConfig } from "./config";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { workerContextRegistry } from "./generated/worker-context-registry";
-import {
-  createFakeMoneyMovementGateway,
-  createFakePaymentProcessorGateway,
-  createSandboxPostageLabelProvider,
-} from "./test-support/provider-gateways";
 
 const config = loadConfig();
 const pools = createPlatformWorkerPools(config);
 
 try {
   await bootstrapPlatformControlPlane(pools.control);
-  const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
-    pools,
-    runtimeProfile: config.runtimeProfile,
-    hostPorts: {
-      processorGateway: createFakePaymentProcessorGateway(),
-      moneyMovementGateway: createFakeMoneyMovementGateway(),
-      operationsRecorder: { record: () => undefined },
-      postageLabelProvider: createSandboxPostageLabelProvider(),
-    },
-  });
-
-  for (const context of runtime.mountedContexts) {
-    await bootstrapContextDatabase(context.module, context.pool);
+  const contextPools = pools as unknown as Readonly<Record<string, PgTransactionalPool | undefined>>;
+  for (const context of getWorkerHostEntries(workerContextRegistry, "platform-worker", config.runtimeProfile)) {
+    const pool = contextPools[context.contextName];
+    if (!pool) {
+      throw new Error(`Platform worker bootstrap is missing the '${context.contextName}' database pool.`);
+    }
+    await bootstrapContextDatabase(context.module, pool);
   }
 
   console.log("platform-worker bootstrap complete.");

@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ProjectorHandler, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -120,7 +120,18 @@ ALTER TABLE auth_identity_invitations
   ADD COLUMN IF NOT EXISTS invited_by_user_id text NULL;
 
 CREATE INDEX IF NOT EXISTS auth_identity_invitations_email_status_expires_at_idx
-  ON auth_identity_invitations (email, status, expires_at DESC);`;
+  ON auth_identity_invitations (email, status, expires_at DESC);
+
+CREATE TABLE IF NOT EXISTS auth_identity_account_capabilities (
+  tenant_id text NOT NULL,
+  account_id text NOT NULL,
+  capability_key text NOT NULL,
+  assignment_id text NOT NULL,
+  version integer NOT NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, account_id, capability_key)
+);`;
 
 export type AuthIdentityUserRow = Readonly<{
   user_id: string;
@@ -180,6 +191,21 @@ export type AuthIdentitySessionMembership = Readonly<{
   roleKey: string;
   status: string;
   rolePermissions: readonly string[];
+}>;
+
+/** A current Capability Grant projected from Identity onto every Actor of the granted Account. */
+export type AuthAccountCapabilityAssignment = Readonly<{
+  key: string;
+  assignmentId: string;
+  version: number;
+}>;
+
+type AuthAccountCapabilityAssignmentFact = Readonly<{
+  tenantId: string;
+  accountId: string;
+  capabilityKey: string;
+  assignmentId: string;
+  version: number;
 }>;
 
 type ContactMethodRow = Readonly<{
@@ -1035,6 +1061,80 @@ export function buildAuthIdentityInvitationProjectionHandlers(db: PgQueryable): 
   };
 }
 
+export function buildAuthIdentityAccountCapabilityProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  return {
+    "identity.account-capability.granted": (event) => projectAccountCapabilityAssignment(db, event, "granted"),
+    "identity.account-capability.revoked": (event) => projectAccountCapabilityAssignment(db, event, "revoked"),
+  };
+}
+
+/**
+ * Keeps the newest assignment version per tenant, Account and key. A replayed
+ * or delayed older event is a no-op, so revoke/regrant replays converge.
+ */
+async function projectAccountCapabilityAssignment(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandler>[0],
+  status: "granted" | "revoked",
+) {
+  const fact = parseAccountCapabilityAssignmentFact(event.data, event.tenantId);
+  await db.query(
+    `INSERT INTO auth_identity_account_capabilities
+       (tenant_id, account_id, capability_key, assignment_id, version, status, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (tenant_id, account_id, capability_key) DO UPDATE
+       SET assignment_id = EXCLUDED.assignment_id,
+           version = EXCLUDED.version,
+           status = EXCLUDED.status,
+           updated_at = EXCLUDED.updated_at
+       WHERE auth_identity_account_capabilities.version < EXCLUDED.version`,
+    [
+      fact.tenantId,
+      fact.accountId,
+      fact.capabilityKey,
+      fact.assignmentId,
+      fact.version,
+      status,
+      event.timing.recordedAt,
+    ],
+  );
+}
+
+function parseAccountCapabilityAssignmentFact(
+  data: Readonly<Record<string, unknown>>,
+  eventTenantId: string,
+): AuthAccountCapabilityAssignmentFact {
+  const { tenantId, accountId, capabilityKey, assignmentId, version } = data;
+  if (
+    typeof tenantId !== "string" ||
+    tenantId !== eventTenantId ||
+    typeof accountId !== "string" ||
+    typeof capabilityKey !== "string" ||
+    typeof assignmentId !== "string" ||
+    typeof version !== "number" ||
+    !Number.isSafeInteger(version) ||
+    version < 1
+  ) {
+    throw new Error("Account Capability assignment event is malformed or names another tenant.");
+  }
+  return { tenantId, accountId, capabilityKey, assignmentId, version };
+}
+
+export async function listGrantedAuthAccountCapabilities(
+  db: PgQueryable,
+  tenantId: string,
+  accountId: string,
+): Promise<readonly AuthAccountCapabilityAssignment[]> {
+  const result = await db.query<{ capability_key: string; assignment_id: string; version: number }>(
+    `SELECT capability_key, assignment_id, version
+     FROM auth_identity_account_capabilities
+     WHERE tenant_id = $1 AND account_id = $2 AND status = 'granted'
+     ORDER BY capability_key`,
+    [tenantId, accountId],
+  );
+  return result.rows.map((row) => ({ key: row.capability_key, assignmentId: row.assignment_id, version: row.version }));
+}
+
 export async function getAuthIdentityUser(db: PgQueryable, userId: string) {
   const result = await db.query<AuthIdentityUserRow>(`SELECT * FROM auth_identity_users WHERE user_id = $1`, [userId]);
   return result.rows[0] ?? null;
@@ -1077,16 +1177,41 @@ export async function getAuthIdentityUserBySocialLogin(
   return result.rows[0] ?? null;
 }
 
+export async function insertCreatedAuthIdentityAccountMirror(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; displayName: string }>,
+) {
+  // Only called after successful personal-identity creation. A lifecycle fact
+  // already projected by the worker must never be replaced by this mirror.
+  await db.query(
+    `INSERT INTO auth_identity_accounts (account_id, name, display_name, account_type, status, updated_at)
+     VALUES ($1, '', $2, 'personal', 'active', now())
+     ON CONFLICT (account_id) DO NOTHING`,
+    [params.accountId, params.displayName],
+  );
+}
+
+export async function listActiveAuthAccountIds(db: PgQueryable, accountIds: readonly string[]) {
+  const result = await db.query<{ account_id: string }>(
+    `SELECT account_id FROM auth_identity_accounts
+     WHERE account_id = ANY($1::text[]) AND status = 'active'`,
+    [accountIds],
+  );
+  return new Set(result.rows.map((account) => account.account_id));
+}
+
 export async function listActiveAuthMembershipsForUser(
   db: PgQueryable,
   userId: string,
 ): Promise<readonly AuthIdentitySessionMembership[]> {
   const result = await db.query<AuthIdentityMembershipRow>(
-    `SELECT *
-     FROM auth_identity_user_memberships
-     WHERE user_id = $1
-       AND status = 'active'
-     ORDER BY updated_at DESC`,
+    `SELECT memberships.*
+     FROM auth_identity_user_memberships AS memberships
+     INNER JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+       AND memberships.status = 'active'
+       AND accounts.status = 'active'
+     ORDER BY memberships.updated_at DESC`,
     [userId],
   );
 
@@ -1101,12 +1226,14 @@ export async function listActiveAuthMembershipsForUser(
 
 export async function getActiveAuthMembershipForUserAccount(db: PgQueryable, userId: string, accountId: string) {
   const userMembership = await db.query<AuthIdentityMembershipRow>(
-    `SELECT *
-     FROM auth_identity_user_memberships
-     WHERE user_id = $1
-       AND account_id = $2
-       AND status = 'active'
-     ORDER BY updated_at DESC
+    `SELECT memberships.*
+     FROM auth_identity_user_memberships AS memberships
+     INNER JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+       AND memberships.account_id = $2
+       AND memberships.status = 'active'
+       AND accounts.status = 'active'
+     ORDER BY memberships.updated_at DESC
      LIMIT 1`,
     [userId, accountId],
   );
@@ -1115,12 +1242,14 @@ export async function getActiveAuthMembershipForUserAccount(db: PgQueryable, use
   }
 
   const result = await db.query<AuthIdentityMembershipRow>(
-    `SELECT *
-     FROM auth_identity_memberships
-     WHERE user_id = $1
-       AND account_id = $2
-       AND status = 'active'
-     ORDER BY updated_at DESC
+    `SELECT memberships.*
+     FROM auth_identity_memberships AS memberships
+     INNER JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+       AND memberships.account_id = $2
+       AND memberships.status = 'active'
+       AND accounts.status = 'active'
+     ORDER BY memberships.updated_at DESC
      LIMIT 1`,
     [userId, accountId],
   );

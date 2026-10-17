@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Heading,
   MarketplaceEmptyState,
   SegmentedControl,
   Stack,
@@ -82,8 +83,8 @@ function toChartSeries(
   ];
 }
 
-function formatChartValue(value: number): string {
-  return formatMoney(value.toFixed(2));
+function formatChartValue(value: number, currencyCode: string): string {
+  return formatMoney(value.toFixed(2), currencyCode);
 }
 
 export type ItemDetailMarketPanelProps = Readonly<{
@@ -122,9 +123,8 @@ export function ItemDetailMarketPanel({ catalogItemId, productId, itemTitle }: I
     );
   }
 
-  const lastSold = formatLastSold(stats?.aggregate ?? null);
-  const median30d = formatMedianWindow(stats?.aggregate ?? null, "30d", minimumSample);
-  const median90d = formatMedianWindow(stats?.aggregate ?? null, "90d", minimumSample);
+  const aggregates = stats?.aggregates ?? [];
+  const currencyGroups = aggregates.length > 0 ? aggregates : [null];
   const spread = formatSpread(stats?.marketState ?? null);
   const rangeSelector = (
     <SegmentedControl
@@ -142,39 +142,59 @@ export function ItemDetailMarketPanel({ catalogItemId, productId, itemTitle }: I
 
   return (
     <Stack gap={4}>
-      <StatGrid columns={{ base: 1, sm: 2, lg: 4 }}>
-        <Stat
-          label={t("discovery.features.itemDetail.ui.marketPanel.lastSold.label")}
-          value={lastSold.value}
-          trend={lastSold.note}
-        />
-        <Stat
-          label={t("discovery.features.itemDetail.ui.marketPanel.median30d.label")}
-          value={median30d.value}
-          trend={median30d.note}
-        />
-        <Stat
-          label={t("discovery.features.itemDetail.ui.marketPanel.median90d.label")}
-          value={median90d.value}
-          trend={median90d.note}
-        />
+      <StatGrid columns={1}>
         <Stat
           label={t("discovery.features.itemDetail.ui.marketPanel.spread.label")}
           value={spread.value}
           trend={spread.note}
         />
       </StatGrid>
-      <TimeSeriesChart
-        label={t("discovery.features.itemDetail.ui.marketPanel.chart.label", { title: itemTitle })}
-        series={loading ? [] : toChartSeries(series, showVerifiedMarkers)}
-        rangeSelector={rangeSelector}
-        formatValue={formatChartValue}
-        emptyTitle={t("discovery.features.itemDetail.ui.marketPanel.chart.empty.title")}
-        emptyDescription={t("discovery.features.itemDetail.ui.marketPanel.chart.empty.description")}
-        insufficientTitle={t("discovery.features.itemDetail.ui.marketPanel.chart.insufficient.title")}
-        insufficientDescription={t("discovery.features.itemDetail.ui.marketPanel.chart.insufficient.description")}
-        minChartWidth={480}
-      />
+      {currencyGroups.map((aggregate) => {
+        const lastSold = formatLastSold(aggregate);
+        const median30d = formatMedianWindow(aggregate, "30d", minimumSample);
+        const median90d = formatMedianWindow(aggregate, "90d", minimumSample);
+        const points = series.find((entry) => entry.currencyCode === aggregate?.currencyCode)?.points ?? [];
+
+        return (
+          <Stack key={aggregate?.currencyCode ?? "no-sales"} gap={4}>
+            {aggregates.length > 1 && aggregate ? (
+              <Heading level={3}>
+                {t("discovery.features.itemDetail.ui.marketPanel.currencyGroup", {
+                  currencyCode: aggregate.currencyCode,
+                })}
+              </Heading>
+            ) : null}
+            <StatGrid columns={{ base: 1, sm: 3 }}>
+              <Stat
+                label={t("discovery.features.itemDetail.ui.marketPanel.lastSold.label")}
+                value={lastSold.value}
+                trend={lastSold.note}
+              />
+              <Stat
+                label={t("discovery.features.itemDetail.ui.marketPanel.median30d.label")}
+                value={median30d.value}
+                trend={median30d.note}
+              />
+              <Stat
+                label={t("discovery.features.itemDetail.ui.marketPanel.median90d.label")}
+                value={median90d.value}
+                trend={median90d.note}
+              />
+            </StatGrid>
+            <TimeSeriesChart
+              label={t("discovery.features.itemDetail.ui.marketPanel.chart.label", { title: itemTitle })}
+              series={loading ? [] : toChartSeries(points, showVerifiedMarkers)}
+              rangeSelector={rangeSelector}
+              formatValue={aggregate ? (value) => formatChartValue(value, aggregate.currencyCode) : undefined}
+              emptyTitle={t("discovery.features.itemDetail.ui.marketPanel.chart.empty.title")}
+              emptyDescription={t("discovery.features.itemDetail.ui.marketPanel.chart.empty.description")}
+              insufficientTitle={t("discovery.features.itemDetail.ui.marketPanel.chart.insufficient.title")}
+              insufficientDescription={t("discovery.features.itemDetail.ui.marketPanel.chart.insufficient.description")}
+              minChartWidth={480}
+            />
+          </Stack>
+        );
+      })}
     </Stack>
   );
 }

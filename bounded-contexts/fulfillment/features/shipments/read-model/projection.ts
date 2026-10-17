@@ -1,7 +1,50 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { withShipmentDisplayReference } from "./display-reference";
+
+type PostageSubjectAuthorityInput = Readonly<{
+  subjectKind: "shipment" | "channel-fulfillment-record";
+  subjectId: string;
+  tenantId: string;
+  sellerAccountId: string;
+  resolvedAt: string;
+}>;
+
+async function upsertPostageSubjectAuthority(db: PgQueryable, input: PostageSubjectAuthorityInput) {
+  const authority =
+    input.subjectKind === "shipment"
+      ? {
+          tableName: "fulfillment_shipment_tenant_resolutions",
+          idColumn: "shipment_id",
+        }
+      : {
+          tableName: "fulfillment_channel_fulfillment_record_tenant_resolutions",
+          idColumn: "channel_fulfillment_record_id",
+        };
+  const identityMatches = `${authority.tableName}.tenant_id = EXCLUDED.tenant_id
+                AND ${authority.tableName}.seller_account_id = EXCLUDED.seller_account_id`;
+  const remainsAuthoritative = `${authority.tableName}.status = 'resolved'
+                AND ${identityMatches}`;
+
+  await db.query(
+    `INSERT INTO ${authority.tableName} (
+       ${authority.idColumn}, tenant_id, seller_account_id, status, reason_code, resolved_at
+     ) VALUES ($1, $2, $3, 'resolved', 'authoritative-history', $4)
+     ON CONFLICT (${authority.idColumn}) DO UPDATE
+     SET status = CASE
+           WHEN ${remainsAuthoritative}
+           THEN 'resolved' ELSE 'quarantined' END,
+         reason_code = CASE
+           WHEN ${remainsAuthoritative}
+           THEN 'authoritative-history' ELSE 'projection-identity-mismatch' END,
+         resolved_at = CASE
+           WHEN ${remainsAuthoritative}
+           THEN EXCLUDED.resolved_at ELSE ${authority.tableName}.resolved_at END`,
+    [input.subjectId, input.tenantId, input.sellerAccountId, input.resolvedAt],
+  );
+}
 
 export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   function labelStatusFromRefundStatus(refundStatus: string) {
@@ -19,35 +62,32 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
   }
 
   return {
-    "fulfillment.shipment.created": async (event) => {
+    "fulfillment.channel-fulfillment-record.created": async (event) => {
       const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        buyerAccountId: string;
+        channelFulfillmentRecordId: string;
         sellerAccountId: string;
-        shippingOption: string;
-        shippingDestinationSnapshot: unknown;
-        shippingOriginSnapshot: unknown;
-        shippingPlanSnapshot?: unknown;
-        lines: Array<{
-          lineId: string;
-          orderLineId: string;
-          catalogItemId: string;
-          productId: string;
-          itemTitle: string;
-          itemSubtitle: string | null;
-          productSummary: string | null;
-          quantity: number;
-          packingConfirmedQuantity?: number | null;
-          packingConfirmedAt?: string | null;
-        }>;
         createdAt: string;
       };
 
-      await withShipmentDisplayReference(data.shipmentId as ShipmentId, (displayReference) =>
-        db.query(
-          `INSERT INTO fulfillment_shipment_pages (
+      await upsertPostageSubjectAuthority(db, {
+        subjectKind: "channel-fulfillment-record",
+        subjectId: data.channelFulfillmentRecordId,
+        tenantId: event.tenantId,
+        sellerAccountId: data.sellerAccountId,
+        resolvedAt: data.createdAt,
+      });
+    },
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.packing-started">
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
+
+        await withShipmentDisplayReference(data.shipmentId as ShipmentId, (displayReference) =>
+          db.query(
+            `INSERT INTO fulfillment_shipment_pages (
            shipment_id,
+           tenant_id,
            order_id,
            buyer_account_id,
            seller_account_id,
@@ -91,10 +131,11 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, $9, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $10, $10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $11, $11, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
+             tenant_id = EXCLUDED.tenant_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              shipping_option = EXCLUDED.shipping_option,
@@ -103,26 +144,35 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              shipping_plan_snapshot = EXCLUDED.shipping_plan_snapshot,
              display_reference = EXCLUDED.display_reference,
              updated_at = EXCLUDED.updated_at`,
-          [
-            data.shipmentId,
-            data.orderId,
-            data.buyerAccountId,
-            data.sellerAccountId,
-            data.shippingOption,
-            JSON.stringify(data.shippingDestinationSnapshot),
-            JSON.stringify(data.shippingOriginSnapshot),
-            JSON.stringify(data.shippingPlanSnapshot ?? {}),
-            displayReference,
-            data.createdAt,
-          ],
-        ),
-      );
+            [
+              data.shipmentId,
+              event.tenantId,
+              data.orderId,
+              data.buyerAccountId,
+              data.sellerAccountId,
+              data.shippingOption,
+              JSON.stringify(data.shippingDestinationSnapshot),
+              JSON.stringify(data.shippingOriginSnapshot),
+              JSON.stringify(data.shippingPlanSnapshot ?? {}),
+              displayReference,
+              data.createdAt,
+            ],
+          ),
+        );
 
-      await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);
+        await upsertPostageSubjectAuthority(db, {
+          subjectKind: "shipment",
+          subjectId: data.shipmentId,
+          tenantId: event.tenantId,
+          sellerAccountId: data.sellerAccountId,
+          resolvedAt: data.createdAt,
+        });
 
-      for (const [index, line] of data.lines.entries()) {
-        await db.query(
-          `INSERT INTO fulfillment_shipment_line_pages (
+        await db.query(`DELETE FROM fulfillment_shipment_line_pages WHERE shipment_id = $1`, [data.shipmentId]);
+
+        for (const [index, line] of data.lines.entries()) {
+          await db.query(
+            `INSERT INTO fulfillment_shipment_line_pages (
              shipment_id,
              line_id,
              line_index,
@@ -138,39 +188,37 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            ) VALUES (
              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
            )`,
-          [
-            data.shipmentId,
-            line.lineId,
-            index,
-            line.orderLineId,
-            line.catalogItemId,
-            line.productId,
-            line.itemTitle,
-            line.itemSubtitle,
-            line.productSummary,
-            line.quantity,
-            line.packingConfirmedQuantity ?? (line.packingConfirmedAt ? line.quantity : 0),
-            line.packingConfirmedAt ?? null,
-          ],
-        );
-      }
-    },
-    "fulfillment.shipment.packing-started": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        startedAt: string;
-      };
+            [
+              data.shipmentId,
+              line.lineId,
+              index,
+              line.orderLineId,
+              line.catalogItemId,
+              line.productId,
+              line.itemTitle,
+              line.itemSubtitle,
+              line.productSummary,
+              line.quantity,
+              line.packingConfirmedQuantity ?? (line.packingConfirmedAt ? line.quantity : 0),
+              line.packingConfirmedAt ?? null,
+            ],
+          );
+        }
+      },
+      "fulfillment.shipment.packing-started": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'packing',
              package_status = 'packing',
              packing_started_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.startedAt],
-      );
-    },
+          [data.shipmentId, data.startedAt],
+        );
+      },
+    }),
     "fulfillment.shipment.packing-line-confirmed": async (event) => {
       const data = event.data as {
         shipmentId: string;
@@ -242,55 +290,28 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
         [data.shipmentId, data.setAt],
       );
     },
-    "fulfillment.shipment.package-prepared": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        packageCount: number;
-        preparedAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.package-prepared" | "fulfillment.shipment.label-attached">
+    >({
+      "fulfillment.shipment.package-prepared": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'awaiting-label',
              package_status = 'packed',
              package_count = $2,
              package_prepared_at = $3,
              updated_at = $3
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.packageCount, data.preparedAt],
-      );
-    },
-    "fulfillment.shipment.label-attached": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        shippingMethod: string;
-        carrierName: string;
-        labelReference: string;
-        labelDocumentUrl: string | null;
-        trackingIdentifier: string;
-        postageProviderName: string | null;
-        postageProviderMode: string | null;
-        postageProviderShipmentId: string | null;
-        postageProviderLabelId: string | null;
-        postageRateId: string | null;
-        postageServiceLevel: string | null;
-        postageAmountCents: number | null;
-        postageCurrency: string | null;
-        addressOverrideAudit: {
-          originalSenderSnapshot: unknown;
-          submittedSenderAddress: unknown;
-          originalRecipientSnapshot: unknown;
-          submittedRecipientAddress: unknown;
-          changedSide: string;
-          reason: string;
-          actor: string;
-          timestamp: string;
-        } | null;
-        attachedAt: string;
-      };
+          [data.shipmentId, data.packageCount, data.preparedAt],
+        );
+      },
+      "fulfillment.shipment.label-attached": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'label-attached',
              shipping_method = $2,
              carrier_name = $3,
@@ -314,28 +335,28 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              label_voided_at = NULL,
              updated_at = $15
          WHERE shipment_id = $1`,
-        [
-          data.shipmentId,
-          data.shippingMethod,
-          data.carrierName,
-          data.labelReference,
-          data.labelDocumentUrl,
-          data.trackingIdentifier,
-          data.postageProviderName,
-          data.postageProviderMode,
-          data.postageProviderShipmentId,
-          data.postageProviderLabelId,
-          data.postageRateId,
-          data.postageServiceLevel,
-          data.postageAmountCents,
-          data.postageCurrency,
-          data.attachedAt,
-        ],
-      );
+          [
+            data.shipmentId,
+            data.shippingMethod,
+            data.carrierName,
+            data.labelReference,
+            data.labelDocumentUrl,
+            data.trackingIdentifier,
+            data.postageProviderName,
+            data.postageProviderMode,
+            data.postageProviderShipmentId,
+            data.postageProviderLabelId,
+            data.postageRateId,
+            data.postageServiceLevel,
+            data.postageAmountCents,
+            data.postageCurrency,
+            data.attachedAt,
+          ],
+        );
 
-      if (data.addressOverrideAudit) {
-        await db.query(
-          `INSERT INTO fulfillment_label_address_override_audit_pages (
+        if (data.addressOverrideAudit) {
+          await db.query(
+            `INSERT INTO fulfillment_label_address_override_audit_pages (
              shipment_id,
              recorded_at,
              changed_side,
@@ -354,20 +375,21 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              submitted_sender_address = EXCLUDED.submitted_sender_address,
              original_recipient_snapshot = EXCLUDED.original_recipient_snapshot,
              submitted_recipient_address = EXCLUDED.submitted_recipient_address`,
-          [
-            data.shipmentId,
-            data.addressOverrideAudit.timestamp,
-            data.addressOverrideAudit.changedSide,
-            data.addressOverrideAudit.reason,
-            data.addressOverrideAudit.actor,
-            JSON.stringify(data.addressOverrideAudit.originalSenderSnapshot),
-            JSON.stringify(data.addressOverrideAudit.submittedSenderAddress),
-            JSON.stringify(data.addressOverrideAudit.originalRecipientSnapshot),
-            JSON.stringify(data.addressOverrideAudit.submittedRecipientAddress),
-          ],
-        );
-      }
-    },
+            [
+              data.shipmentId,
+              data.addressOverrideAudit.timestamp,
+              data.addressOverrideAudit.changedSide,
+              data.addressOverrideAudit.reason,
+              data.addressOverrideAudit.actor,
+              JSON.stringify(data.addressOverrideAudit.originalSenderSnapshot),
+              JSON.stringify(data.addressOverrideAudit.submittedSenderAddress),
+              JSON.stringify(data.addressOverrideAudit.originalRecipientSnapshot),
+              JSON.stringify(data.addressOverrideAudit.submittedRecipientAddress),
+            ],
+          );
+        }
+      },
+    }),
     "fulfillment.shipment.label-purchase-failed": async (event) => {
       const data = event.data as {
         shipmentId: string;
@@ -422,6 +444,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
     "fulfillment.shipment.label-refund-status-recorded": async (event) => {
       const data = event.data as {
         shipmentId: string;
+        postageProviderLabelId?: string;
         refundStatus: string;
         refundReference: string | null;
         resolvedAt: string;
@@ -437,48 +460,54 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              label_refund_reference = $5,
              updated_at = $6
          WHERE shipment_id = $1
-           AND label_status = 'void-requested'`,
-        [data.shipmentId, shipmentStatus, labelStatus, data.refundStatus, data.refundReference, data.resolvedAt],
+           AND label_status = 'void-requested'
+           AND ($7::text IS NULL OR postage_provider_label_id = $7)`,
+        [
+          data.shipmentId,
+          shipmentStatus,
+          labelStatus,
+          data.refundStatus,
+          data.refundReference,
+          data.resolvedAt,
+          data.postageProviderLabelId ?? null,
+        ],
       );
     },
-    "fulfillment.shipment.cancelled": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        cancelledAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        "fulfillment.shipment.cancelled" | "fulfillment.shipment.dispatched" | "fulfillment.shipment.delivered"
+      >
+    >({
+      "fulfillment.shipment.cancelled": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'cancelled',
              cancelled_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.cancelledAt],
-      );
-    },
-    "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        dispatchedAt: string;
-      };
+          [data.shipmentId, data.cancelledAt],
+        );
+      },
+      "fulfillment.shipment.dispatched": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'dispatched',
              dispatched_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.dispatchedAt],
-      );
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        deliveredAt: string;
-      };
+          [data.shipmentId, data.dispatchedAt],
+        );
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE fulfillment_shipment_pages
+        await db.query(
+          `UPDATE fulfillment_shipment_pages
          SET status = 'delivered',
              delivered_at = $2,
              current_exception_type = NULL,
@@ -486,9 +515,10 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              exception_raised_at = NULL,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.deliveredAt],
-      );
-    },
+          [data.shipmentId, data.deliveredAt],
+        );
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;
@@ -505,6 +535,36 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              updated_at = $2
          WHERE shipment_id = $1`,
         [data.shipmentId, data.returnedAt],
+      );
+    },
+    "fulfillment.shipment.cancellation-conflict-recorded": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        orderId: string;
+        reason: string | null;
+        shipmentStatus: string;
+        origin: "order-cancelled" | "payment-fraud-warning";
+      };
+
+      await db.query(
+        `INSERT INTO fulfillment_shipment_conflict_pages (
+           shipment_id,
+           order_id,
+           conflict_kind,
+           origin,
+           reason,
+           shipment_status,
+           detected_at
+         ) VALUES ($1, $2, 'cancellation', $3, $4, $5, $6)
+         ON CONFLICT (shipment_id, order_id, conflict_kind, origin) DO NOTHING`,
+        [
+          data.shipmentId,
+          data.orderId,
+          data.origin,
+          data.reason,
+          data.shipmentStatus,
+          event.timing.occurredAt ?? event.timing.recordedAt,
+        ],
       );
     },
     "fulfillment.shipment.exception-raised": async (event) => {

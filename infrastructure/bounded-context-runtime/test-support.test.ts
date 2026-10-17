@@ -1,5 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { describe, expect, it, vi } from "vitest";
+import { createPgPool } from "@chase-sets/event-core-postgres";
 import {
   createAccountUserTestActor,
   createAdminTestActor,
@@ -9,9 +10,51 @@ import {
   createMultiContextTestDatabaseUrls,
   createTestApp,
   createTestEventStoreContext,
+  ensureMultiContextTestDatabases,
   resetMockState,
+  resetMultiContextTestSchemas,
 } from "./test-support";
 import { ensureOwnedPostgresDatabases } from "./provisioning";
+
+vi.mock("@chase-sets/event-core-postgres", async (original) => ({
+  ...(await original<typeof import("@chase-sets/event-core-postgres")>()),
+  createPgPool: vi.fn(),
+}));
+
+it("provisions vector and pg_trgm only in the Discovery test database", async () => {
+  const calls: { url: string; sql: string }[] = [];
+  vi.mocked(createPgPool).mockImplementation((url) => ({
+    query: async <Row>(sql: string) => {
+      calls.push({ url, sql });
+      return { rows: [] as Row[] };
+    },
+    connect: async () => {
+      throw new Error("unexpected transaction");
+    },
+    end: async () => undefined,
+  }));
+  await ensureMultiContextTestDatabases("postgresql://admin:fixture@localhost/postgres", {
+    discovery: "postgresql://discovery:fixture@localhost/test_discovery",
+    catalog: "postgresql://catalog:fixture@localhost/test_catalog",
+  });
+  expect(calls.filter((call) => call.sql.startsWith("CREATE EXTENSION"))).toEqual([
+    { url: "postgresql://admin:fixture@localhost/test_discovery", sql: 'CREATE EXTENSION IF NOT EXISTS "vector"' },
+    { url: "postgresql://admin:fixture@localhost/test_discovery", sql: 'CREATE EXTENSION IF NOT EXISTS "pg_trgm"' },
+  ]);
+});
+
+function createFakeResetPool(connectionString: string) {
+  const resetQueries: string[] = [];
+
+  return {
+    resetQueries,
+    options: { connectionString },
+    query: async (sql: string) => {
+      resetQueries.push(sql);
+      return { rows: [] };
+    },
+  };
+}
 
 type QueryCall = Readonly<{
   sql: string;
@@ -220,5 +263,25 @@ describe("test-support database ownership", () => {
     expect(calls.map((call) => call.sql)).not.toContain(`CREATE DATABASE "auth" OWNER "auth"`);
     expect(calls.map((call) => call.sql)).toContain(`ALTER ROLE "auth" WITH LOGIN PASSWORD 'auth'`);
     expect(calls.map((call) => call.sql)).toContain(`ALTER DATABASE "auth" OWNER TO "auth"`);
+  });
+});
+
+describe("resetMultiContextTestSchemas", () => {
+  it("issues one reset statement per resolved database, not one per distinct pool object", async () => {
+    const sharedDatabaseUrl = "postgresql://acc_suite:acc_suite@localhost:5432/acc_suite_catalog";
+    const otherDatabaseUrl = "postgresql://acc_suite:acc_suite@localhost:5432/acc_suite_identity";
+
+    const catalogPoolA = createFakeResetPool(sharedDatabaseUrl);
+    const catalogPoolB = createFakeResetPool(sharedDatabaseUrl);
+    const identityPool = createFakeResetPool(otherDatabaseUrl);
+
+    await resetMultiContextTestSchemas({
+      catalogA: catalogPoolA,
+      catalogB: catalogPoolB,
+      identity: identityPool,
+    });
+
+    expect(catalogPoolA.resetQueries.length + catalogPoolB.resetQueries.length).toBe(1);
+    expect(identityPool.resetQueries).toHaveLength(1);
   });
 });

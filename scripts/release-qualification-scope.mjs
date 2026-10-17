@@ -39,6 +39,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { classifyChanges } from "./change-scope.mjs";
+import { enumerateGuardImportCandidates } from "./check-structure/module-resolution.mjs";
 import { isCommitSha, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
@@ -46,6 +47,8 @@ import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 export const RELEASE_QUALIFICATION_SCOPE_SCHEMA_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_POLICY_VERSION = "release-qualification-scope/v1";
 export const RELEASE_QUALIFICATION_SCOPE_CLASSES = Object.freeze(["not_applicable", "isolated", "persistent_required"]);
+export const RELEASE_QUALIFICATION_APPLICABILITY_KINDS = Object.freeze(["path-scope/v0", "pure-module/v1"]);
+export const RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS = Object.freeze(["type-only", "value"]);
 
 const CLASS_RANK = { not_applicable: 0, isolated: 1, persistent_required: 2 };
 
@@ -87,6 +90,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-api": "runtime",
     "platform-worker": "runtime",
     "public-web": "runtime",
+    "tcgplayer-connector-extension": "runtime",
+    "tcgplayer-operator-extension": "runtime",
   }),
 
   // Infrastructure workspaces/roots by directory name under infrastructure/.
@@ -107,6 +112,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "provider-webhook-inbox": "live-provider",
     "remote-dev": "repo-tooling",
     "ses-email": "live-provider",
+    "stripe-appearance": "runtime-library",
     "stripe-config": "live-provider",
     "stripe-connect": "live-provider",
     "stripe-payments": "live-provider",
@@ -127,17 +133,23 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "bounded-context-module": "runtime-library",
     "catalog-seed": "seed-machinery",
     "checkout-order-source": "money-movement-contract",
+    "embedded-surface-theme": "runtime-library",
     "event-core": "event-store-persistence",
+    "evidence-window-provider-write": "live-provider",
     http: "runtime-library",
+    "identity-seed": "seed-machinery",
     localization: "runtime-library",
     "market-estimate-display": "runtime-library",
     "money-movement": "money-movement-contract",
+    // Versioned stored public facts constrain durable replay across contexts.
+    "order-groups": "event-store-persistence",
     "outbound-messaging": "live-provider",
     "payment-processing": "live-provider",
     "postage-labels": "live-provider",
     primitives: "runtime-library",
     "product-measures": "runtime-library",
     "product-selection": "runtime-library",
+    "provider-credentials": "runtime-library",
     "public-docs": "runtime-library",
     realtime: "runtime-library",
     "review-eligibility": "runtime-library",
@@ -194,6 +206,9 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     /^bounded-contexts\/settlement\/features\/wallets\/read-model\/wallet-adjustment-reconciliation\.ts$/,
     /^bounded-contexts\/settlement\/features\/liability-allocation\/read-model\/reconciliation-signals\.ts$/,
     /^bounded-contexts\/platform-operations\/features\/insights-dashboards\/read-model\/reconciliation-policy\.ts$/,
+    /^bounded-contexts\/channels\/features\/listing-composition\/domain\/reconciliation\.ts$/,
+    /^bounded-contexts\/channels\/features\/reconciliation\//,
+    /^deployables\/platform-worker\/src\/channels-reconciliation-runners\.ts$/,
   ]),
 
   // Operational scripts that mutate persistent environments even when invoked
@@ -224,10 +239,14 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "browser-boundary-diagnostics.yml": "ci",
+    "catalog-completion-report.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
+    "catalog-staging-count-preparation.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
+    "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
@@ -239,6 +258,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-compose-boot-smoke.yml": "release",
     "platform-coverage.yml": "ci",
     "platform-database-restore-drill.yml": "release",
+    "platform-db-duration-drift.yml": "ci",
     "platform-delivery-health.yml": "ci",
     "platform-digitalocean-drift-digest.yml": "ci",
     "platform-digitalocean-token-rotation-reminder.yml": "ci",
@@ -254,7 +274,9 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-pr-scope.yml": "ci",
     "platform-pr.yml": "release",
     "platform-preview-cleanup.yml": "release",
+    "platform-preview-wildcard-tls.yml": "release",
     "platform-production-restore-point-cleanup.yml": "release",
+    "platform-production-stale-helm-recovery.yml": "release",
     "platform-production-stripe-webhook-endpoint-create.yml": "release",
     "platform-production-stripe-webhook-endpoint-verify.yml": "release",
     "platform-production.yml": "release",
@@ -283,6 +305,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
 
   // Composite actions under .github/actions by directory name.
   actions: Object.freeze({
+    "block-docker-hub": "release",
     "export-managed-postgres-authority": "release",
     "report-scheduled-workflow-alert": "ci",
     "setup-pnpm-workspace": "release",
@@ -294,22 +317,39 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // classify persistent_required.
   reviewedNonPersistentSurfaces: Object.freeze([
     Object.freeze({
+      pattern: /^scripts\/browser-e2e-bootstrap-observation\.mjs$/,
+      expectedClass: "not_applicable",
+      rationale:
+        "Browser e2e bootstrap observation records disposable local test processes and does not seed or mutate persistent environments.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
+    }),
+    Object.freeze({
       pattern: /^deployables\/[^/]+\/e2e\//,
       expectedClass: "not_applicable",
       rationale:
         "End-to-end test seed contracts run only inside disposable e2e environments; they never touch persistent staging or production.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
     Object.freeze({
       pattern: /^bounded-contexts\/(?!checkout\/|ordering\/|payments\/|settlement\/)[^/]+\/index\.ts$/,
       expectedClass: "isolated",
       rationale:
         "Context module barrels import the seed module to compose the context contract; the seed processes themselves are the registered surfaces, and barrels are ordinary application composition. Money-context barrels stay persistent via the money-movement registry.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
     Object.freeze({
       pattern: /^bounded-contexts\/catalog\/features\/source-observations\/ui\//,
       expectedClass: "isolated",
       rationale:
         "Import-to-promotion admin UI renders the import workflow; the import mutations live under the registered source-observations api surface.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
+    }),
+    Object.freeze({
+      pattern: /^scripts\/provider-object-disposition\/browser-boundary\/bootstrap\.mjs$/,
+      expectedClass: "not_applicable",
+      rationale:
+        "Memory-only browser bootstrap under parent-only exact GET; no persistent seed, import, reconciliation or environment mutation.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
   ]),
 });
@@ -366,7 +406,111 @@ export function validateReleaseQualificationScopeRegistry(registry) {
   ) {
     errors.push("reviewedNonPersistentSurfaces must be an array of { pattern, expectedClass, rationale } rulings.");
   }
+  if (Array.isArray(registry.reviewedNonPersistentSurfaces)) {
+    for (const [index, entry] of registry.reviewedNonPersistentSurfaces.entries()) {
+      validateApplicability(errors, entry?.applicability, `reviewedNonPersistentSurfaces[${index}].applicability`);
+    }
+  }
   return errors;
+}
+
+function validateFrozenRecord(errors, value, keys, label) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    errors.push(`${label} must be an object.`);
+    return false;
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length !== keys.length || ownKeys.some((key) => !keys.includes(key))) {
+    errors.push(`${label} must have exactly keys: ${keys.join(", ")}.`);
+    return false;
+  }
+  if (keys.some((key) => !Object.hasOwn(Object.getOwnPropertyDescriptor(value, key), "value"))) {
+    errors.push(`${label} must contain only data properties.`);
+    return false;
+  }
+  if (!Object.isFrozen(value)) errors.push(`${label} must be frozen.`);
+  return true;
+}
+
+function hasOnlyIndexedDataElements(array) {
+  if (Reflect.ownKeys(array).length !== array.length + 1) return false;
+  for (let index = 0; index < array.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(array, index);
+    if (!descriptor || !Object.hasOwn(descriptor, "value")) return false;
+  }
+  return true;
+}
+
+function validateApplicability(errors, applicability, label) {
+  if (typeof applicability !== "object" || applicability === null || Array.isArray(applicability)) {
+    errors.push(`${label} must be an object.`);
+    return;
+  }
+  const kindDescriptor = Object.getOwnPropertyDescriptor(applicability, "kind");
+  if (kindDescriptor && !Object.hasOwn(kindDescriptor, "value")) {
+    errors.push(`${label} must contain only data properties.`);
+    return;
+  }
+  if (!RELEASE_QUALIFICATION_APPLICABILITY_KINDS.includes(applicability.kind)) {
+    errors.push(`${label}.kind must be one of: ${RELEASE_QUALIFICATION_APPLICABILITY_KINDS.join(", ")}.`);
+    return;
+  }
+  const keys = applicability.kind === "path-scope/v0" ? ["kind"] : ["kind", "modules"];
+  if (!validateFrozenRecord(errors, applicability, keys, label) || applicability.kind === "path-scope/v0") return;
+  if (!Array.isArray(applicability.modules) || applicability.modules.length === 0) {
+    errors.push(`${label}.modules must be a non-empty array.`);
+    return;
+  }
+  if (!hasOnlyIndexedDataElements(applicability.modules)) {
+    errors.push(`${label}.modules must contain only indexed data elements.`);
+    return;
+  }
+  if (!Object.isFrozen(applicability.modules)) errors.push(`${label}.modules must be frozen.`);
+  const paths = new Set();
+  for (const [index, module] of applicability.modules.entries()) {
+    const moduleLabel = `${label}.modules[${index}]`;
+    if (!validateFrozenRecord(errors, module, ["path", "specifiers"], moduleLabel)) continue;
+    if (
+      typeof module.path !== "string" ||
+      module.path.length === 0 ||
+      path.posix.isAbsolute(module.path) ||
+      /^[a-z]:/i.test(module.path) ||
+      module.path.includes("\\") ||
+      module.path.startsWith("./") ||
+      module.path.split("/").includes("..")
+    ) {
+      errors.push(
+        `${moduleLabel}.path must be a non-empty repository-relative path without backslashes, leading ./ or .. segments.`,
+      );
+    }
+    if (paths.has(module.path)) errors.push(`${moduleLabel}.path must be unique within modules.`);
+    paths.add(module.path);
+    if (!Array.isArray(module.specifiers)) {
+      errors.push(`${moduleLabel}.specifiers must be an array.`);
+      continue;
+    }
+    if (!hasOnlyIndexedDataElements(module.specifiers)) {
+      errors.push(`${moduleLabel}.specifiers must contain only indexed data elements.`);
+      continue;
+    }
+    if (!Object.isFrozen(module.specifiers)) errors.push(`${moduleLabel}.specifiers must be frozen.`);
+    const specifiers = new Set();
+    for (const [specifierIndex, specifier] of module.specifiers.entries()) {
+      const specifierLabel = `${moduleLabel}.specifiers[${specifierIndex}]`;
+      if (!validateFrozenRecord(errors, specifier, ["specifier", "binding"], specifierLabel)) continue;
+      if (typeof specifier.specifier !== "string" || specifier.specifier.length === 0) {
+        errors.push(`${specifierLabel}.specifier must be a non-empty string.`);
+      }
+      if (!RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS.includes(specifier.binding)) {
+        errors.push(
+          `${specifierLabel}.binding must be one of: ${RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS.join(", ")}.`,
+        );
+      }
+      if (specifiers.has(specifier.specifier))
+        errors.push(`${specifierLabel}.specifier must be unique within its module.`);
+      specifiers.add(specifier.specifier);
+    }
+  }
 }
 
 function validateRecordOfEnums(errors, record, allowed, label) {
@@ -404,7 +548,7 @@ const sqlDdlPattern =
 const migrationContractPattern = /\bBcSchemaMigration\b|\bmigrationId\s*:/;
 const destructiveDataPattern = /\bDELETE\s+FROM\b|\bTRUNCATE\s+TABLE\b|\bDROP\s+TABLE\b/i;
 const seedContractPattern =
-  /@chase-sets\/[a-z0-9-]+\/seed-support\/|\bBcSeedOptions\b|\bEnvironmentDataProfile\b|\bseedProfileEnabled\b|\bscenario-seed\b|bounded-context-runtime\/seeding/;
+  /@chase-sets\/(?:[a-z0-9-]+\/seed-support\/|[a-z0-9-]+-seed\b)|\bBcSeedOptions\b|\bEnvironmentDataProfile\b|\bseedProfileEnabled\b|\bscenario-seed\b|bounded-context-runtime\/seeding/;
 const liveProviderContentPattern =
   /from\s+["']stripe["']|require\(["']stripe["']\)|api\.stripe\.com|@easypost\/api|api\.easypost\.com|@aws-sdk\/client-ses|from\s+["']twilio["']|api\.twilio\.com|digitaloceanspaces\.com|api\.digitalocean\.com|\bdoctl\s|\bkubectl\s|\bhelm\s+(?:upgrade|install|uninstall|rollback)\b/;
 
@@ -719,26 +863,11 @@ function classifyFile(file, ctx) {
 // makes the importer part of that machinery, whether the specifier is
 // relative or package-style.
 function collectResolvedImportCodes(filePath, content, ctx, reasonCodes) {
-  const fileDir = path.posix.dirname(filePath);
   for (const match of content.matchAll(/(?:from\s+|require\(\s*|import\(\s*)["']([^"']+)["']/g)) {
-    const specifier = match[1];
-    const candidates = [];
-    if (specifier.startsWith(".")) {
-      const resolved = path.posix.normalize(path.posix.join(fileDir, specifier));
-      candidates.push(resolved, `${resolved}.ts`, `${resolved}.tsx`, `${resolved}.mjs`, `${resolved}/index.ts`);
-    } else {
-      const packageMatch = specifier.match(/^@chase-sets\/([a-z0-9-]+)\/(.+)$/);
-      if (packageMatch) {
-        const [, packageName, subpath] = packageMatch;
-        for (const root of ["bounded-contexts", "contracts", "infrastructure", "packages"]) {
-          for (const mappedSubpath of [subpath, `support/${subpath}`]) {
-            const resolved = `${root}/${packageName}/${mappedSubpath}`;
-            candidates.push(resolved, `${resolved}.ts`, `${resolved}/index.ts`);
-          }
-        }
-      }
-    }
-    if (candidates.some((candidate) => matchesAny(candidate, ctx.registry.seedBootstrapImportReconciliationPatterns))) {
+    const { candidates } = enumerateGuardImportCandidates({ importerPath: filePath, specifierText: match[1] });
+    if (
+      candidates.some((candidate) => matchesAny(candidate.path, ctx.registry.seedBootstrapImportReconciliationPatterns))
+    ) {
       reasonCodes.add("seed_bootstrap_import_reconciliation");
       return;
     }

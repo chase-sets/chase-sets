@@ -161,6 +161,34 @@ function readMarketplaceWebApiMounts(): readonly string[] {
 }
 
 describe("marketplace OpenAPI parity", () => {
+  it("mounts the account Listing Evidence JPEG GET and documents its binary envelope and errors", () => {
+    const path = "/api/marketplace/account/listings/{id}/photos/{photoId}/jpeg";
+    const openApi = readJson<OpenApiDocument>(openApiPath);
+    expect(readMountedPlatformApiEndpointKeys()).toContain(normalizeEndpointKey(`get ${path}`));
+    expect(openApi.paths[path].get).toMatchObject({
+      responses: {
+        "200": {
+          content: { "image/jpeg": { schema: { type: "string", format: "binary" } } },
+          headers: {
+            "Content-Length": { schema: { type: "integer", maximum: 15_000_000 } },
+            ETag: { schema: { type: "string" } },
+            "Cache-Control": { schema: { const: "private, max-age=0, must-revalidate" } },
+          },
+        },
+        "429": { headers: { "Retry-After": { schema: { type: "integer", minimum: 1 } } } },
+      },
+    });
+    expect(Object.keys((openApi.paths[path].get as OpenApiOperation).responses!)).toEqual([
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "429",
+      "500",
+    ]);
+  });
+
   it("keeps endpoint coverage in the machine-readable OpenAPI contract", () => {
     const content = readFileSync(apiDocPath, "utf8");
 
@@ -182,6 +210,7 @@ describe("marketplace OpenAPI parity", () => {
     const openApiPaths = Object.keys(openApi.paths);
 
     expect(readMarketplaceWebApiMounts()).toEqual([
+      "/api/channels",
       "/api/identity",
       "/api/inventory",
       "/api/marketplace",
@@ -267,5 +296,67 @@ describe("marketplace OpenAPI parity", () => {
 
     expect(documentedFreshReadOperations).toBeGreaterThan(0);
     expect(violations).toEqual([]);
+  });
+
+  it("documents the closed per-unit offline-sale request and typed result", () => {
+    const openApi = readJson<OpenApiDocument>(openApiPath);
+    const operation = openApi.paths["/api/inventory/items/{id}/offline-sales"]?.post as {
+      description?: string;
+      requestBody?: { content?: { "application/json"?: { schema?: Record<string, unknown> } } };
+      responses?: Record<string, unknown>;
+    };
+    const requestSchema = operation.requestBody?.content?.["application/json"]?.schema as {
+      additionalProperties?: boolean;
+      required?: readonly string[];
+      properties?: Record<string, unknown>;
+    };
+    const success = operation.responses?.["200"] as {
+      content?: { "application/json"?: { schema?: Record<string, unknown> } };
+    };
+    const responseSchema = success.content?.["application/json"]?.schema as {
+      additionalProperties?: boolean;
+      required?: readonly string[];
+      properties?: Record<string, unknown>;
+    };
+
+    expect(requestSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["quantity", "channel", "idempotencyKey"],
+      properties: {
+        quantity: { type: "integer", minimum: 1 },
+        salePriceAmount: { type: "string", nullable: true, description: expect.stringContaining("per-unit") },
+        channel: { enum: ["in-store", "card-show", "other"] },
+        collisionMode: { enum: ["protect-orders", "honor-offline"], default: "protect-orders" },
+        idempotencyKey: { type: "string", minLength: 1 },
+      },
+    });
+    expect(Object.keys(requestSchema.properties ?? {})).toEqual([
+      "quantity",
+      "salePriceAmount",
+      "channel",
+      "note",
+      "collisionMode",
+      "confirmSellerCannotFulfill",
+      "idempotencyKey",
+    ]);
+    expect(operation.description).toContain("server stamps the recorded time");
+    expect(operation.description).toContain("Currency");
+    expect(responseSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["itemId", "version", "requestedQuantity", "appliedQuantity", "refusedQuantity", "collision"],
+      properties: {
+        collision: {
+          nullable: true,
+          properties: {
+            affectedOrders: { type: "array" },
+          },
+        },
+      },
+    });
+    expect(operation.responses).toMatchObject({
+      "400": { $ref: "#/components/responses/ValidationFailed" },
+      "401": { $ref: "#/components/responses/AuthenticationRequired" },
+      "403": { $ref: "#/components/responses/Forbidden" },
+    });
   });
 });

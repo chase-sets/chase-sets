@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
+import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
   AccountReputationSummary,
   ActionStack,
@@ -112,7 +113,18 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
 
 function mergeSellerOptions(left: CheckoutCartLine["seller_options"], right: CheckoutCartLine["seller_options"]) {
   return [...new Map([...left, ...right].map((option) => [option.listing_id, option] as const)).values()].sort(
-    (a, b) => Number(a.price_amount) - Number(b.price_amount) || a.listing_id.localeCompare(b.listing_id),
+    (a, b) => {
+      const currencyOrder = (a.price_currency_code ?? "").localeCompare(b.price_currency_code ?? "");
+      if (currencyOrder !== 0) {
+        return currencyOrder;
+      }
+
+      const leftAmount = trySignedMoneyToCents(a.price_amount);
+      const rightAmount = trySignedMoneyToCents(b.price_amount);
+      const amountOrder =
+        leftAmount === rightAmount ? 0 : leftAmount === null || leftAmount > (rightAmount ?? 0n) ? 1 : -1;
+      return amountOrder || a.listing_id.localeCompare(b.listing_id);
+    },
   );
 }
 
@@ -124,6 +136,8 @@ function selectedListingSnapshotFields(
     | "selected_listing_seller_display_name"
     | "selected_listing_seller_slug"
     | "selected_listing_price_amount"
+    | "selected_listing_price_currency_code"
+    | "selected_listing_stream_version"
     | "selected_listing_snapshot_source"
     | "selected_listing_snapshot_captured_at"
   >,
@@ -134,60 +148,97 @@ function selectedListingSnapshotFields(
     selected_listing_seller_display_name: line.selected_listing_seller_display_name,
     selected_listing_seller_slug: line.selected_listing_seller_slug,
     selected_listing_price_amount: line.selected_listing_price_amount,
+    selected_listing_price_currency_code: line.selected_listing_price_currency_code ?? null,
+    selected_listing_stream_version: line.selected_listing_stream_version ?? null,
     selected_listing_snapshot_source: line.selected_listing_snapshot_source,
     selected_listing_snapshot_captured_at: line.selected_listing_snapshot_captured_at,
   };
 }
 
-function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
-  if (!lineHasMeasuredPricedSupply(line)) {
+type CartListingMoney = Readonly<{ amountMinor: bigint; currency: string }>;
+
+function listingMoney(
+  priceAmount: string | null | undefined,
+  priceCurrencyCode: string | null | undefined,
+  listingStreamVersion: number | null | undefined,
+): CartListingMoney | null {
+  const amountMinor = trySignedMoneyToCents(priceAmount ?? "");
+  if (
+    amountMinor === null ||
+    amountMinor < 0n ||
+    !/^[A-Z]{3}$/.test(priceCurrencyCode ?? "") ||
+    !Number.isInteger(listingStreamVersion) ||
+    Number(listingStreamVersion) <= 0
+  ) {
     return null;
   }
 
-  const optionPrices = line.seller_options
-    .filter((option) => sellerOptionHasPricedAvailability(option) && sellerOptionHasProductMeasure(option))
-    .map((option) => Number(option.price_amount))
-    .filter((price) => Number.isFinite(price) && price >= 0);
-  if (optionPrices.length === 0) {
-    return null;
-  }
-
-  return Math.min(...optionPrices);
+  return { amountMinor, currency: priceCurrencyCode as string };
 }
 
-function selectedUnitPrice(line: CheckoutCartLineGroup) {
+function sellerOptionMoney(option: CheckoutCartLine["seller_options"][number] | null | undefined) {
+  return option ? listingMoney(option.price_amount, option.price_currency_code, option.listing_stream_version) : null;
+}
+
+function selectedUnitMoney(line: CheckoutCartLineGroup): CartListingMoney | null {
   if (line.locked_listing_id) {
     const selected = line.seller_options.find((option) => option.listing_id === line.locked_listing_id);
-    const selectedPrice = Number(selected?.price_amount);
-    if (Number.isFinite(selectedPrice) && selectedPrice >= 0) {
-      return selectedPrice;
+    const selectedMoney = sellerOptionMoney(selected);
+    if (selectedMoney) {
+      return selectedMoney;
     }
 
-    const snapshotPrice = Number(line.selected_listing_price_amount);
-    if (line.selected_listing_id === line.locked_listing_id && Number.isFinite(snapshotPrice) && snapshotPrice >= 0) {
-      return snapshotPrice;
+    if (line.selected_listing_id === line.locked_listing_id) {
+      return listingMoney(
+        line.selected_listing_price_amount,
+        line.selected_listing_price_currency_code,
+        line.selected_listing_stream_version,
+      );
     }
 
     return null;
   }
 
-  return lowestKnownUnitPrice(line);
+  return sellerOptionMoney(lowestCartReadinessListing(line));
 }
 
-function estimateCartSubtotal(lines: readonly CheckoutCartLineGroup[]) {
-  return lines.reduce((sum, line) => {
-    const unitPrice = selectedUnitPrice(line);
-    return unitPrice === null ? sum : sum + unitPrice * line.quantity;
-  }, 0);
+function estimateCartSubtotal(
+  lines: readonly CheckoutCartLineGroup[],
+  includedLineIds: readonly string[],
+): CartListingMoney | null {
+  const included = new Set(includedLineIds);
+  const includedLines = lines.filter((line) => included.has(line.line_id));
+  if (includedLines.length === 0 || includedLines.length !== included.size) {
+    return null;
+  }
+
+  const money = includedLines.map(selectedUnitMoney);
+  if (money.some((value) => value === null)) {
+    return null;
+  }
+
+  const completeMoney = money as CartListingMoney[];
+  const currencies = new Set(completeMoney.map((value) => value.currency));
+  if (currencies.size !== 1) {
+    return null;
+  }
+
+  return {
+    amountMinor: completeMoney.reduce(
+      (sum, value, index) => sum + value.amountMinor * BigInt(includedLines[index]!.quantity),
+      0n,
+    ),
+    currency: completeMoney[0]!.currency,
+  };
 }
 
 function hasKnownLinePrice(line: CheckoutCartLineGroup) {
-  return selectedUnitPrice(line) !== null;
+  return selectedUnitMoney(line) !== null;
 }
 
 // A locked listing is pinned, so its price is a charge-grade `exact` value. An
 // `optimize` line resolves its final listing under Smart Match at checkout, so
-// its known floor is surfaced as an `indicative` `from $X`. A line with no
+// its known floor is surfaced as an `indicative` `from <amount>`. A line with no
 // priced options defers to a single quiet `Priced at checkout` statement.
 function linePriceState(line: CheckoutCartLineGroup): "exact" | "indicative" | "deferred" {
   if (!hasKnownLinePrice(line)) {
@@ -198,12 +249,12 @@ function linePriceState(line: CheckoutCartLineGroup): "exact" | "indicative" | "
 }
 
 function linePrice(line: CheckoutCartLineGroup): ReactNode {
-  const unitPrice = selectedUnitPrice(line);
-  if (unitPrice === null) {
+  const unitMoney = selectedUnitMoney(line);
+  if (!unitMoney) {
     return null;
   }
 
-  return formatMoney((unitPrice * line.quantity).toFixed(2), "USD");
+  return formatMoney(centsToSignedMoneyAmount(unitMoney.amountMinor * BigInt(line.quantity)), unitMoney.currency);
 }
 
 function marketRecoveryHref(itemTitle: string) {
@@ -306,13 +357,11 @@ function sellerOptionCanFulfill(option: CheckoutCartSellerOption, quantity: numb
 }
 
 function sellerOptionHasPricedAvailability(option: CheckoutCartSellerOption) {
-  const price = Number(option.price_amount);
-  return option.available_quantity > 0 && Number.isFinite(price) && price >= 0;
+  return option.available_quantity > 0 && sellerOptionMoney(option) !== null;
 }
 
 function sellerOptionHasPricedQuantity(option: CheckoutCartSellerOption, quantity: number) {
-  const price = Number(option.price_amount);
-  return option.available_quantity >= quantity && Number.isFinite(price) && price >= 0;
+  return option.available_quantity >= quantity && sellerOptionMoney(option) !== null;
 }
 
 function sellerOptionHasProductMeasure(option: CheckoutCartSellerOption) {
@@ -716,13 +765,6 @@ export function CheckoutCartPage({
   const cartLineGroups = cartMutations.cartLineGroups;
   const visibleErrorMessage = cartMutations.errorMessage ?? errorMessage;
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
-  const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
-  const pricedLineCount = cartLineGroups.filter(hasKnownLinePrice).length;
-  const hasKnownTotal = pricedLineCount > 0;
-  const estimatedTotal = hasKnownTotal
-    ? formatMoney(estimatedSubtotal.toFixed(2), "USD")
-    : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
-  const blockedLineCount = cartLineGroups.filter((line) => !hasFulfillmentPath(line)).length;
   const baseReadinessSnapshot = createCartReadinessSnapshot(cartLineGroups);
   const declinedOptimizationDecision =
     baseReadinessSnapshot.optimization.available &&
@@ -739,6 +781,15 @@ export function CheckoutCartPage({
   const checkoutReadinessSnapshot = declinedOptimizationDecision
     ? createCartReadinessSnapshot(cartLineGroups, declinedOptimizationDecision)
     : baseReadinessSnapshot;
+  const blockedLineCount = checkoutReadinessSnapshot.unresolvedLineIds.length;
+  const estimatedSubtotal =
+    checkoutReadinessSnapshot.status === "ready"
+      ? estimateCartSubtotal(cartLineGroups, checkoutReadinessSnapshot.includedLineIds)
+      : null;
+  const hasKnownTotal = estimatedSubtotal !== null;
+  const estimatedTotal = estimatedSubtotal
+    ? formatMoney(centsToSignedMoneyAmount(estimatedSubtotal.amountMinor), estimatedSubtotal.currency)
+    : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
   const acceptedOptimizationDecision =
     baseReadinessSnapshot.optimization.available &&
     baseReadinessSnapshot.optimization.proposedLineId &&
@@ -759,7 +810,13 @@ export function CheckoutCartPage({
     : null;
   const cartReady = cartLineGroups.length > 0 && checkoutReadinessSnapshot.status === "ready";
   const optimizationAvailable = cartReady && checkoutReadinessSnapshot.optimization.available;
-  const optimizationSavings = checkoutReadinessSnapshot.optimization.savingsAmount ?? "0.00";
+  const optimizationSavings =
+    checkoutReadinessSnapshot.optimization.savingsAmount && checkoutReadinessSnapshot.optimization.currency
+      ? formatMoney(
+          checkoutReadinessSnapshot.optimization.savingsAmount,
+          checkoutReadinessSnapshot.optimization.currency,
+        )
+      : t("checkout.features.cart.ui.cartPage.priced.at.checkout");
   // Resolve the seller behind the proposed lower-cost listing so the savings
   // notice can name the seller and show its reputation (helps the buyer decide
   // whether the switch is worth it), falling back to the seller-less copy when

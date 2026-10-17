@@ -5,6 +5,7 @@ import process from "node:process";
 import { readEnv } from "./lib/cli-options.mjs";
 import { provisionSyntheticAccountInvitation } from "./lib/synthetic-account-invitations.mjs";
 import { PAYMENTS_PROVIDER_WEBHOOK_PATH, SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH } from "./provider-webhook-paths.mjs";
+import { isUnrestrictedStripeKeyPair } from "./stripe-key-mode.mjs";
 
 function stripTrailingSlash(value) {
   return value.replace(/\/+$/, "");
@@ -341,13 +342,13 @@ function validateSmokeEnvironmentForReport(env, missing) {
   return errors;
 }
 
-function resolveStripeKeyMode(env = process.env) {
+export function resolveStripeKeyMode(env = process.env) {
   const secretKey = readEnv("STRIPE_SECRET_KEY", env);
   const publishableKey = readEnv("STRIPE_PUBLISHABLE_KEY", env);
-  if (secretKey?.startsWith("sk_test") === true && publishableKey?.startsWith("pk_test") === true) {
+  if (isUnrestrictedStripeKeyPair(secretKey, publishableKey, "test")) {
     return "test";
   }
-  if (secretKey?.startsWith("sk_live") === true && publishableKey?.startsWith("pk_live") === true) {
+  if (isUnrestrictedStripeKeyPair(secretKey, publishableKey, "live")) {
     return "live";
   }
   return "unknown";
@@ -766,6 +767,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
   );
 
   const checkout = await runCheckoutProbe(baseUrl, { env, fetchImpl, headers });
+  const walletFunding = await runWalletFundingProbe(baseUrl, { env, fetchImpl, headers });
 
   const setupPage = await getRouteOk(
     fetchImpl,
@@ -827,6 +829,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
     providerIdempotencySurfaces: "ok",
     platformBalanceForecast: "ok",
     checkout,
+    walletFunding,
     readiness: "ok",
     setupPage,
     embeddedSetupSession,
@@ -936,6 +939,57 @@ async function maybeRequestPayout(baseUrl, options) {
   return {
     status: "ok",
     payoutId: requested.body?.id ?? null,
+  };
+}
+
+export async function runWalletFundingProbe(baseUrl, options = {}) {
+  const env = options.env ?? process.env;
+  const amount = readEnv("STAGING_SMOKE_WALLET_FUNDING_AMOUNT", env);
+  if (!amount) return "skipped";
+  assert(resolveStripeKeyMode(env) === "test", "Wallet funding smoke requires Stripe test mode.");
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const headers = new Headers(options.headers ?? (await resolveAuthHeaders(env, fetchImpl)));
+  headers.set("Content-Type", "application/json");
+  const input = { requestedAmount: amount, currencyCode: "usd", paymentMethodCategory: "card" };
+  const quote = await requestJson(
+    `${baseUrl}/api/marketplace/account/wallet-fundings`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input),
+    },
+    fetchImpl,
+  );
+  assert(quote.response.status === 200 && quote.body?.outcome === "quoted", "Wallet funding quote failed.");
+  const created = await requestJson(
+    `${baseUrl}/api/marketplace/account/wallet-fundings`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        ...input,
+        fundingId: quote.body.fundingId,
+        quoteFingerprint: quote.body.quote.quote_fingerprint,
+      }),
+    },
+    fetchImpl,
+  );
+  assert(
+    created.response.status === 201 &&
+      created.body?.outcome === "created" &&
+      created.body.funding?.processorPaymentReference,
+    "Wallet funding creation failed.",
+  );
+  return {
+    fundingId: created.body.fundingId,
+    processorPaymentReference: created.body.funding.processorPaymentReference,
+    requestedAmount: amount,
+    feeAmount: created.body.quote.marketplace_checkout_fee_amount,
+    grossAmount: created.body.quote.processor_amount,
+    create: "observed",
+    capture: "requires-client-confirmation",
+    dispute: "not-yet-observed",
+    integratedRefundProof: "owed-by-7813",
   };
 }
 

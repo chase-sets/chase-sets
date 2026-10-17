@@ -14,6 +14,11 @@ export type {
   WalletSpendHoldPort,
 } from "./features/wallets/api/balance-credit-resolver";
 export { createSettlementWalletSpendHoldPort } from "./features/wallets/api/balance-credit-hold-port";
+export {
+  activateMarketplaceLabelPostage,
+  MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
+} from "./features/wallets/integrations/fulfillment-source/label-postage-policy";
+export type { MarketplaceLabelPostageActivation } from "./features/wallets/integrations/fulfillment-source/label-postage-policy";
 export type {
   MoneyMovementGateway,
   MoneyMovementWebhookEvent,
@@ -21,6 +26,9 @@ export type {
 } from "@chase-sets/money-movement";
 export { settlementOperationLogFields } from "./support/runtime-support/operations";
 export type { SettlementServices } from "./support/runtime-support/services";
+export { stagingProofCreditPolicy } from "./features/wallets/domain/staging-proof-credit";
+export { createStagingProofCreditRoutes } from "./features/wallets/api/staging-proof-credit-runtime";
+export type { StagingProofCreditServices } from "./features/wallets/api/staging-proof-credit-runtime";
 /**
  * Policy definitions for the platform policy console: Platform
  * Operations imports these (via `policyConsoleCrossContext`, assembled in
@@ -30,8 +38,11 @@ export type { SettlementServices } from "./support/runtime-support/services";
  */
 export { settlementClearancePolicy } from "./features/wallets/domain/clearance-policy";
 export type { SettlementClearancePolicyValue } from "./features/wallets/domain/clearance-policy";
-export { settlementPayoutBoundsPolicy } from "./features/payouts/domain/payout-policy";
-export type { SettlementPayoutBoundsPolicyValue } from "./features/payouts/domain/payout-policy";
+export { settlementPayoutBoundsPolicy, settlementPayoutFeePolicy } from "./features/payouts/domain/payout-policy";
+export type {
+  SettlementPayoutBoundsPolicyValue,
+  SettlementPayoutFeePolicyValue,
+} from "./features/payouts/domain/payout-policy";
 /**
  * Support-safe payout-by-reference lookups for the unified
  * support-reference router, assembled in the `platform-api` composition

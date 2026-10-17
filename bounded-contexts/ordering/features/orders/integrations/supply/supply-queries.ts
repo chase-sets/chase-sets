@@ -28,6 +28,8 @@ type OrderingSupplyCandidateRow = Readonly<{
   ship_from_code: string | null;
   ship_from_address: unknown;
   price_amount: string;
+  price_currency_code: string;
+  listing_stream_version: number;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -85,6 +87,8 @@ export async function listOrderingSupplyCandidates(
        listing.ship_from_code,
        listing.ship_from_address,
        listing.price_amount::text AS price_amount,
+       listing.price_currency_code,
+       listing.listing_stream_version,
        listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
        listing.shipping_allowance_percentage_bps,
@@ -128,6 +132,8 @@ export async function listOrderingSupplyCandidates(
        AND listing.seller_listing_availability_status = 'available'
        AND listing.terms_resolved_at IS NOT NULL
        AND listing.product_id = $1
+       AND listing.price_currency_code = 'USD'
+       AND listing.listing_stream_version > 0
        -- Order Capacity enforcement (m127): an at-capacity seller's
        -- supply drops out of candidates the same way an away seller's
        -- does, so stale carts and checkout sessions fail closed before
@@ -171,6 +177,8 @@ export async function listOrderingSupplyCandidates(
               country: "US",
             },
       priceAmount: row.price_amount,
+      priceCurrencyCode: row.price_currency_code,
+      listingStreamVersion: row.listing_stream_version,
       marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
       sellerNetUnitAmount: row.seller_net_unit_amount,
       shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
@@ -214,6 +222,8 @@ export async function getOrderingSupplyCandidateByListingId(
        listing.ship_from_code,
        listing.ship_from_address,
        listing.price_amount::text AS price_amount,
+       listing.price_currency_code,
+       listing.listing_stream_version,
        listing.marketplace_sales_fee_unit_amount::text AS marketplace_sales_fee_unit_amount,
        listing.seller_net_unit_amount::text AS seller_net_unit_amount,
        listing.shipping_allowance_percentage_bps,
@@ -254,6 +264,8 @@ export async function getOrderingSupplyCandidateByListingId(
      ) AS open_claims
        ON open_claims.seller_account_id = listing.seller_account_id
      WHERE listing.terms_resolved_at IS NOT NULL
+       AND listing.price_currency_code = 'USD'
+       AND listing.listing_stream_version > 0
        AND listing.listing_id = $1
        -- Order Capacity enforcement (m127): see
        -- listOrderingSupplyCandidates above -- the locked-listing lookup
@@ -298,6 +310,8 @@ export async function getOrderingSupplyCandidateByListingId(
             country: "US",
           },
     priceAmount: row.price_amount,
+    priceCurrencyCode: row.price_currency_code,
+    listingStreamVersion: row.listing_stream_version,
     marketplaceSalesFeeUnitAmount: row.marketplace_sales_fee_unit_amount,
     sellerNetUnitAmount: row.seller_net_unit_amount,
     shippingAllowancePercentageBps: row.shipping_allowance_percentage_bps,
@@ -422,6 +436,8 @@ export type OrderingAcceptedOfferBatchInputRow = Readonly<{
   selected_options: readonly VersionSelectedOptionEntry[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string;
+  offer_stream_version: number;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
   marketplace_sales_fee_cap_amount: string | null;
@@ -466,6 +482,8 @@ export async function listAcceptedOfferBatchInputs(
        selected_options,
        product_summary,
        price_amount::text AS price_amount,
+       price_currency_code,
+       offer_stream_version,
        marketplace_sales_fee_percentage_bps,
        marketplace_sales_fee_fixed_amount::text AS marketplace_sales_fee_fixed_amount,
        marketplace_sales_fee_cap_amount::text AS marketplace_sales_fee_cap_amount,
@@ -486,6 +504,8 @@ export async function listAcceptedOfferBatchInputs(
        acceptance_batch_size
      FROM ordering_offer_acceptance_inputs
      WHERE acceptance_batch_id = $1
+       AND price_currency_code = 'USD'
+       AND offer_stream_version > 0
      ORDER BY buyer_account_id ASC, offer_id ASC`,
     [acceptanceBatchId],
   );

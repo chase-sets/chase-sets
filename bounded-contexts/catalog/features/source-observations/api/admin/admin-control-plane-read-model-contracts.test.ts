@@ -74,7 +74,7 @@ describe("Admin Control Plane read-model contracts", () => {
       freshness: "request-time",
       sources: [
         expect.objectContaining({
-          name: "ProviderAdapterRegistry.getTransportDiagnostics/getCredentialReadiness",
+          name: "ProviderAdapterRegistry.getTransportDiagnostics/getCredentialReadiness/getUsageSnapshot",
         }),
       ],
     });

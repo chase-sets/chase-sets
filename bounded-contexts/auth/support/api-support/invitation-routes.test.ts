@@ -5,7 +5,7 @@ import {
   createTestEventStoreContext,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SERVER_MINTED_REGISTRATION_CONSENT_SUBMISSION,
   withRegistrationConsentResolution,
@@ -14,7 +14,13 @@ import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   encodeFreshWriteReceipt,
   type FreshWriteReceipt,
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  attachResponseMetadata,
+  decodeCommitReceipt,
+  encodeCommitReceipt,
 } from "@chase-sets/http/responses";
+import * as journey from "../../features/invitation-acceptance/api/journey";
+import { InvitationAttemptError } from "../../features/invitation-acceptance/domain/attempt";
 import type { AuthServices } from "../runtime-support/services";
 import { createInvitationProjectionFreshnessWaiter } from "../runtime-support/invitation-projection-freshness";
 import { registerInvitationRoutes } from "./invitation-routes";
@@ -27,6 +33,25 @@ function invitationFreshWriteHeader(maxGlobalPosition: string): Record<string, s
   };
   return { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt) };
 }
+
+const rateLimiters = vi.hoisted(() => new Map<string, import("@chase-sets/http/rate-limit").InMemoryRateLimiter>());
+vi.mock("@chase-sets/http/rate-limit", async (original) => {
+  const actual = await original<typeof import("@chase-sets/http/rate-limit")>();
+  return {
+    ...actual,
+    createConfiguredInMemoryRateLimiter: (
+      surface: string,
+      defaults: import("@chase-sets/http/rate-limit").RateLimitRule,
+    ) => {
+      const limiter = actual.createInMemoryRateLimiter({ ...defaults, disabled: false, keyPrefix: surface });
+      rateLimiters.set(surface, limiter);
+      return limiter;
+    },
+  };
+});
+beforeEach(() => {
+  for (const limiter of rateLimiters.values()) limiter.clear();
+});
 
 const {
   mockConsumeChallenge,
@@ -170,6 +195,144 @@ function createIdentityMutations() {
 useMockReset();
 
 describe("invitation auth routes", () => {
+  const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
+  const keyedRequest = {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": attemptId },
+    body: JSON.stringify({
+      attemptId,
+      invitationId: "ivt_1",
+      token: "synthetic-secret",
+      password: "synthetic-password",
+    }),
+  };
+  it.each([
+    ["auth.invitation.accept.ip", "local", 10],
+    ["auth.invitation.accept.identifier", "invitation:ivt_1", 5],
+  ] as const)("N3 status lookup preserves %s entry limits", async (surface, key, max) => {
+    const limiter = rateLimiters.get(surface)!;
+    for (let count = 0; count < max; count++) limiter.check(key);
+    const lookup = vi.spyOn(journey, "lookupInvitationAttempt");
+    try {
+      const response = await buildApp(createServices()).request("/invitations/acceptance-status", keyedRequest);
+      expect(response.status).toBe(429);
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+  it("F3 keyed ambiguous lock refusal is 503, not conflict", async () => {
+    const accept = vi
+      .spyOn(journey, "acceptInvitationAttempt")
+      .mockRejectedValueOnce(new InvitationAttemptError("invitation_attempt_ambiguous"));
+    try {
+      const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: { code: "invitation_attempt_ambiguous" } });
+    } finally {
+      accept.mockRestore();
+    }
+  });
+  it("F5 unexpected status faults carry a server failure signal without secrets", async () => {
+    const lookup = vi.spyOn(journey, "lookupInvitationAttempt").mockRejectedValueOnce(new Error("synthetic-secret"));
+    try {
+      const response = await buildApp(createServices()).request("/invitations/acceptance-status", keyedRequest);
+      expect(response.status).toBeGreaterThanOrEqual(500);
+      expect(await response.text()).not.toContain("synthetic-secret");
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+  it.each([403, 404])("F5 expected Identity %s refusals remain uniform nonsecret status responses", async (status) => {
+    const lookup = vi
+      .spyOn(journey, "lookupInvitationAttempt")
+      .mockRejectedValueOnce({ status, body: { secret: "synthetic-secret" } });
+    try {
+      const response = await buildApp(createServices()).request("/invitations/acceptance-status", keyedRequest);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ type: "ambiguous" });
+      expect(response.headers.get("Set-Cookie")).toBeNull();
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+  it("F6 first keyed Session response carries Identity commit receipts, without exposing sources", async () => {
+    const sources = [{ sourceContextName: "identity", maxGlobalPosition: "42", eventIds: ["evt_acceptance"] }];
+    const source = attachResponseMetadata(
+      { snapshots: [{ aggregate: "membership", id: "mbr_invited", version: 1, status: "active" }] },
+      new Response(null, {
+        headers: {
+          "Chase-Sets-Consistency": "eventual",
+          [CHASE_SETS_COMMIT_RECEIPT_HEADER]: encodeCommitReceipt(sources),
+        },
+      }),
+    );
+    const accept = vi.spyOn(journey, "acceptInvitationAttempt").mockResolvedValueOnce({
+      type: "session-started",
+      sessionToken: "synthetic-first-secret",
+      mutationSources: [source],
+    } as Awaited<ReturnType<typeof journey.acceptInvitationAttempt>>);
+    try {
+      const response = await buildApp(createServices()).request("/invitations/accept", keyedRequest);
+      expect(response.status).toBe(200);
+      expect(decodeCommitReceipt(response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual(sources);
+      const body = await response.json();
+      expect(body).toMatchObject({ type: "session-started", sessionToken: "synthetic-first-secret" });
+      expect(body).not.toHaveProperty("mutationSources");
+    } finally {
+      accept.mockRestore();
+    }
+  });
+  it.each([
+    ["auth.invitation.accept.ip", "local", 10],
+    ["auth.invitation.accept.identifier", "invitation:ivt_1", 5],
+  ] as const)("invitation-acceptance-attempt-binding preserves %s before journey work", async (surface, key, max) => {
+    const services = createServices();
+    const limiter = rateLimiters.get(surface)!;
+    for (let count = 0; count < max; count++) limiter.check(key);
+    const check = vi.spyOn(limiter, "check");
+    try {
+      const attemptId = "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea";
+      const response = await buildApp(services).request("https://marketplace.test/invitations/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": attemptId },
+        body: JSON.stringify({
+          attemptId,
+          invitationId: "ivt_1",
+          token: "synthetic-token",
+          password: "synthetic-password",
+        }),
+      });
+      expect(check).toHaveBeenCalledWith(key);
+      expect(response.status).toBe(429);
+      expect(mockCreateIdentityAuthRequestClient).not.toHaveBeenCalled();
+      expect(services.db.query).not.toHaveBeenCalled();
+      expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    } finally {
+      check.mockRestore();
+    }
+  });
+  it("invitation-acceptance-attempt-binding: refuses disagreement before any owner or Session command", async () => {
+    const services = createServices();
+    const mutations = createIdentityMutations();
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mutations);
+    const response = await buildApp(services).request("https://marketplace.test/invitations/accept", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "fe477381-15cc-4ca8-9a40-a004a01ee107" },
+      body: JSON.stringify({
+        attemptId: "01c9f50d-cb3e-42ac-a0a8-8b5f887a01ea",
+        invitationId: "ivt_1",
+        token: "invitation-secret",
+        password: "password-secret",
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(mutations.verifyInvitationAcceptanceToken).not.toHaveBeenCalled();
+    expect(mutations.createPersonalIdentity).not.toHaveBeenCalled();
+    expect(mutations.acceptInvitationForUser).not.toHaveBeenCalled();
+    expect(mockStartInteractiveAuth).not.toHaveBeenCalled();
+    expect(await response.text()).not.toMatch(/invitation-secret|password-secret/);
+  });
   it("emails an invitation acceptance token without returning the bearer token", async () => {
     const services = createServices();
     const identityMutations = createIdentityMutations();
@@ -339,6 +502,8 @@ describe("invitation auth routes", () => {
     });
 
     expect(invitationLink.pathname).toBe("/invite/ivt_journey");
+    const invitedPermissions = mockStartInteractiveAuth.mock.calls.at(-1)?.[1].membershipsOverride[0].rolePermissions;
+    expect(invitedPermissions).not.toContain("pricing.manage");
     expect(acceptanceResponse.status).toBe(200);
     await expect(acceptanceResponse.json()).resolves.toMatchObject({
       type: "session-started",
@@ -349,7 +514,9 @@ describe("invitation auth routes", () => {
       services,
       expect.objectContaining({
         accountId: "acc_invited",
-        membershipsOverride: [expect.objectContaining({ roleKey: "viewer" })],
+        membershipsOverride: [
+          expect.objectContaining({ roleKey: "viewer", rolePermissions: expect.arrayContaining(["pricing.view"]) }),
+        ],
       }),
     );
   });

@@ -151,27 +151,41 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "fees-and-deductions",
       title: "Fees and deductions",
       draftText:
-        "Chase Sets charges a marketplace sales fee on each completed sale, computed from the rate, fixed amount, and per-item cap published in the current Marketplace Sales Fee Schedule policy document, and shown to you before you confirm a listing. Confirming a listing locks the fee terms then in effect for the units created at that moment, as described in Chase Sets' Marketplace sales and checkout fees help article; a later revision to the published schedule never changes units already locked, and Chase Sets re-audits the locked fee terms, including the per-item cap, before crediting your sale proceeds.\n\nEvery order also carries a seller-funded fulfillment allowance under the Marketplace Sales Fee Schedule. That allowance funds the order's Order Protection contribution first and your shipping cost second, and your payout detail itemizes both. Chase Sets does not charge you a separate listing fee, and buyer-side checkout processing fees, published in the same fee schedule and the Checkout Processing Fee policy document, are never deducted from your proceeds.\n\nChase Sets may offset or recoup amounts you owe it against your current or future Wallet balance under the Wallet Adjustment authority and Setoff subjects of the Terms of Service, which this Agreement incorporates for your selling account without restating them.",
+        "Chase Sets charges a marketplace sales fee on each completed sale, computed from the rate, fixed amount, and per-item cap published in the current Marketplace Sales Fee Schedule policy document, and shown to you before you confirm a listing. Confirming a listing locks the fee terms then in effect for the units created at that moment, as described in Chase Sets' Marketplace sales, payout, and checkout fees help article; a later revision to the published schedule never changes units already locked, and Chase Sets re-audits the locked fee terms, including the per-item cap, before crediting your sale proceeds.\n\nEvery order also carries a seller-funded fulfillment allowance under the Marketplace Sales Fee Schedule. That allowance funds the order's Order Protection contribution first and your shipping cost second, and your payout detail itemizes both. Chase Sets does not charge you a separate listing fee, and buyer-side checkout processing fees, published in the same fee schedule and the Checkout Processing Fee policy document, are never deducted from your proceeds.\n\nRequesting a payout of your available balance carries the payout fee published in the current Payout Fee policy document, described alongside the other fee schedules in Chase Sets' Marketplace sales, payout, and checkout fees help article. The payout fee is deducted from the amount you request, and Chase Sets shows it to you before you confirm the payout request.\n\nChase Sets may offset or recoup amounts you owe it against your current or future Wallet balance under the Wallet Adjustment authority and Setoff subjects of the Terms of Service, which this Agreement incorporates for your selling account without restating them.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "State the sales-fee, fee-lock, and checkout-fee mechanism by reference to the ratified Commercial Terms fee-schedule policy documents (#4066) and the sales-fees help article, and cross-reference (without restating) the Terms of Service Wallet Adjustment/Setoff subjects for offset and recoupment.",
-        decisionRefs: [4066],
+          "State the sales-fee, fee-lock, checkout-fee, and payout-fee mechanisms by reference to the ratified Commercial Terms fee-schedule policy documents (#4066), the Settlement-owned Payout Fee policy document (#7818, built by #7819), and the sales-fees help article, and cross-reference (without restating) the Terms of Service Wallet Adjustment/Setoff subjects for offset and recoupment.",
+        decisionRefs: [4066, 7818, 7819],
         productTruthRefs: [
           "bounded-contexts/commercial-terms/features/marketplace-sales-fee/domain/policy.ts (commercial-terms.marketplace-sales-fee-schedule)",
           "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts (commercial-terms.checkout-processing-fee)",
+          "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee; quotePayoutFee)",
+          "bounded-contexts/settlement/features/payouts/api/runtime.ts:2225-2260 (Settlement net payout and Payout Fee Ledger Entry posting)",
+          "bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx (fee preview before confirmation)",
           "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts:34-52,105-181 (fee-lock snapshot, tranche preservation, resize)",
           "bounded-contexts/public-presence/features/help/domain/articles/sales-fees.en.md",
           "bounded-contexts/settlement/GLOSSARY.md (Wallet Adjustment; Rebate; Chargeback Clawback)",
           "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts (adjustment-authority, setoff subjects — cross-referenced, not restated)",
         ],
-        openQuestions: [],
+        openQuestions: [
+          "Whether disclosing a payout fee that is deducted from the requested amount, by reference to the " +
+            "Payout Fee policy document rather than by stating a rate in this Agreement, is sufficient " +
+            "disclosure as drafted is reserved for counsel.",
+        ],
         assumptions: [
           {
             assertion:
               "Fee figures are sourced live from the Marketplace Sales Fee Schedule and Checkout Processing Fee policy documents and must not be restated as prose numbers here.",
             evidenceRef:
               "bounded-contexts/public-presence/features/help/domain/public-policy-value-whitelist.mjs (marketplace-sales-fee.* and checkout-processing-fee.* whitelist entries)",
+          },
+          {
+            assertion:
+              "Todd's #7818 ruling establishes the payout fee as a Settlement-owned policy document deducted " +
+              "from the requested payout amount; this draft names that document and its deduction mechanic " +
+              "without restating the ruled percentage, fixed amount, or default monthly-fee value as prose.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7818#issuecomment-5623255030",
           },
         ],
       },
@@ -180,6 +194,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "payouts-holds-and-reserves",
       title: "Payouts, holds, and reserves",
       draftText:
+        "Buyer payments are collected and held on Chase Sets' own platform account with Stripe. After you request and qualify for payout, Chase Sets transfers net proceeds from its platform balance to your connected account and requests an on-demand payout through Stripe.\n\n" +
         "Sale proceeds and any shipping payout post to your Wallet as pending and become available once delivery is recorded and the applicable clearance window described in Chase Sets' Getting paid help article has passed. Open support requests, fraud reviews, and chargebacks hold the affected order's funds beyond that schedule, and a chargeback hold releases only if the dispute is won, all as described in that help article and in the Order protection help article, which this Agreement incorporates by reference.\n\nYou request payouts of your available balance to the payout destination connected during Chase Sets' payout setup process; payout requests are refused while payout setup is incomplete, while support holds cover the requested funds, while your balance is negative, or when the requested amount is unavailable, and additional identity verification applies for a period after you change your payout destination. These bounds and holds are Settlement's Payout Release Hold and Connected Payout Account mechanisms and are not restated here beyond this reference.\n\nThis Agreement does not restate the Wallet's nature, custody, and interest posture, its adjustment authority, setoff rights, negative-balance and restriction rules, or its suspension, closure, dormant-balance, and legal-hold treatment; those are governed by the corresponding Terms of Service subjects, which apply to your account as a Wallet holder in addition to your obligations as a seller under this Agreement. Chase Sets may retain a reasonable reserve against your Wallet balance following suspension, closure, or termination of your selling privileges to cover pending refunds, chargebacks, and other obligations arising from your sales, released once those obligations are resolved or expire under the applicable Wallet rules.",
       reviewStatus: "counsel-required",
       reviewManifest: {
@@ -188,6 +203,8 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         decisionRefs: [],
         productTruthRefs: [
           "bounded-contexts/public-presence/features/help/domain/articles/getting-paid.en.md",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
           "bounded-contexts/public-presence/features/help/domain/articles/order-protection.en.md",
           "bounded-contexts/settlement/features/payouts/api/runtime.ts:1498,1600 (payout requests blocked while readiness is not ready)",
           'bounded-contexts/settlement/features/payouts/api/runtime.test.ts:616 ("blocks payout requests until payout readiness is ready")',
@@ -351,23 +368,22 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "governing-law",
       title: "Governing law and dispute forum",
       draftText:
-        "This Agreement is between you and [ENTITY], and is governed by the laws of [STATE], without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state or federal courts located in [STATE].\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to [NOTICE-CONTACT].",
+        "This Agreement is between you and Chase Sets Limited, registered in Wichita, Kansas, and is governed by the laws of the State of Kansas, without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state and federal courts located in Kansas.\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to [NOTICE-EMAIL].",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Carry #5677's entity/governing-law/notice-contact markers forward as explicit [ENTITY]/[STATE]/[NOTICE-CONTACT] placeholders pending final counsel-approved substitution, consistent with this issue's explicit placeholder instruction.",
+          "Align the entity, governing-law state, courts and mailing notice address with the Terms of Service and #5677, retaining [NOTICE-EMAIL] because that fact remains pending.",
         decisionRefs: [5677],
         productTruthRefs: [],
         openQuestions: [
-          "Final [ENTITY]/[STATE]/[NOTICE-CONTACT] substitution awaits counsel-approved final language during the packet review. #5677's decision thread already records directional facts (Chase Sets Limited, registered Wichita, Kansas; notice address in Maize, KS), but this draft intentionally keeps the placeholders per this issue's scope fence.",
+          "#5677 did not supply a dedicated legal-notice email; [NOTICE-EMAIL] remains pending, as in the Terms of Service. Counsel must confirm the final governing-law and forum language before publication.",
           "Initial rollout jurisdictions (#5678: US, all 50 states + DC) are carried in the artifact's rolloutJurisdictionsOrProductLimits metadata field at publication time, not in this subject's prose.",
         ],
         assumptions: [
           {
             assertion:
-              "Placeholders are used here even though #5677's decision thread records directional entity/notice facts, because this issue's scope fence explicitly calls for [ENTITY]/[STATE] placeholders in the draft.",
-            evidenceRef:
-              'Issue #5687 scope fence: "dispute-resolution + governing-law (#5681/#5677 markers, [ENTITY]/[STATE] placeholders)"',
+              "Contracting entity is Chase Sets Limited, registered in Wichita, Kansas, USA; notice address is PO Box 164, Maize, KS 67101-0164, US.",
+            evidenceRef: "issue #5677 (decision recorded 2026-07-18)",
           },
         ],
       },

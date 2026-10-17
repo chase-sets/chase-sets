@@ -1,4 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import type { AgentGrantRevocations } from "@chase-sets/identity/server";
 import type { AgentOrderUpdateStatus } from "./order-update-payload";
 
 /**
@@ -12,7 +14,6 @@ import type { AgentOrderUpdateStatus } from "./order-update-payload";
  */
 const DEFAULT_TABLE_NAME = "identity_agent_webhook_deliveries";
 const DEFAULT_MAX_ATTEMPTS = 8;
-const STRANDED_SENDING_LAST_ERROR = "attempts exhausted after crash";
 
 export const agentWebhookOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${DEFAULT_TABLE_NAME} (
   outbox_id bigserial PRIMARY KEY,
@@ -36,7 +37,8 @@ export const agentWebhookOutboxSchemaSql = `CREATE TABLE IF NOT EXISTS ${DEFAULT
   last_response_status integer NULL,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,
-  delivered_at timestamptz NULL
+  delivered_at timestamptz NULL,
+  grant_ids jsonb NULL
 );
 
 CREATE INDEX IF NOT EXISTS ${DEFAULT_TABLE_NAME}_pending_idx
@@ -50,7 +52,16 @@ CREATE INDEX IF NOT EXISTS ${DEFAULT_TABLE_NAME}_dead_letter_idx
   ON ${DEFAULT_TABLE_NAME} (status, updated_at)
   WHERE status = 'failed';`;
 
+export const agentWebhookGrantFenceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261012_auth_agent_webhook_grant_fence",
+    description: "Freeze enqueue-time Grant membership; legacy rows have no historical membership proof.",
+    statements: [`ALTER TABLE identity_agent_webhook_deliveries ADD COLUMN IF NOT EXISTS grant_ids jsonb NULL;`],
+  },
+];
+
 export type EnqueueAgentWebhookDeliveryInput = Readonly<{
+  grantIds?: readonly string[];
   clientId: string;
   accountId: string;
   callbackUrl: string;
@@ -67,6 +78,7 @@ export type EnqueueAgentWebhookDeliveryInput = Readonly<{
 }>;
 
 export type ClaimedAgentWebhookDelivery = Readonly<{
+  grantIds?: readonly string[] | null;
   outboxId: string;
   deliveryId: string;
   clientId: string;
@@ -127,6 +139,7 @@ export type MarkAgentWebhookDeliveryFailedInput = Readonly<{
 }>;
 
 export type AgentWebhookOutbox = Readonly<{
+  excludeRevokedGrant: (input: Readonly<{ accountId: string; grantId: string }>) => Promise<boolean>;
   enqueueDelivery: (input: EnqueueAgentWebhookDeliveryInput) => Promise<void>;
   claimPendingDeliveries: (input: ClaimAgentWebhookDeliveriesInput) => Promise<readonly ClaimedAgentWebhookDelivery[]>;
   renewClaim: (
@@ -143,12 +156,14 @@ export type AgentWebhookOutbox = Readonly<{
 }>;
 
 export type PostgresAgentWebhookOutboxOptions = Readonly<{
+  withActiveGrants?: AgentGrantRevocations["withActiveGrants"];
   db: PgQueryable;
   tableName?: string;
   now?: () => Date;
 }>;
 
 type ClaimedRow = Readonly<{
+  grant_ids?: readonly string[] | null;
   outbox_id: string | number | bigint;
   delivery_id: string;
   client_id: string;
@@ -185,8 +200,10 @@ export function createPostgresAgentWebhookOutbox(options: PostgresAgentWebhookOu
       const availableAt = input.availableAt ?? recordedAt;
       const maxAttempts = Math.max(1, input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
 
-      await db.query(
-        `INSERT INTO ${tableName} (
+      if (!options.withActiveGrants) throw new Error("agent_grant_fence_unavailable");
+      await options.withActiveGrants(input.accountId, input.clientId, input.grantIds ?? [], async (grantIds) =>
+        db.query(
+          `INSERT INTO ${tableName} (
            delivery_id,
            idempotency_key,
            client_id,
@@ -202,25 +219,57 @@ export function createPostgresAgentWebhookOutbox(options: PostgresAgentWebhookOu
            max_attempts,
            next_attempt_at,
            created_at,
-           updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 0, $11, $12, $13, $13)
+           updated_at,
+           grant_ids
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', 0, $11, $12, $13, $13, $14::jsonb)
          ON CONFLICT (idempotency_key) DO NOTHING`,
-        [
-          input.idempotencyKey,
-          input.idempotencyKey,
-          input.clientId,
-          input.accountId,
-          input.callbackUrl,
-          input.sourceEventId,
-          input.eventType,
-          input.orderId,
-          input.orderStatus,
-          input.payloadJson,
-          maxAttempts,
-          availableAt,
-          recordedAt,
-        ],
+          [
+            input.idempotencyKey,
+            input.idempotencyKey,
+            input.clientId,
+            input.accountId,
+            input.callbackUrl,
+            input.sourceEventId,
+            input.eventType,
+            input.orderId,
+            input.orderStatus,
+            input.payloadJson,
+            maxAttempts,
+            availableAt,
+            recordedAt,
+            JSON.stringify(grantIds),
+          ],
+        ),
       );
+    },
+
+    async excludeRevokedGrant(input) {
+      if (!options.withActiveGrants) return false;
+      let afterOutboxId = "0";
+      for (;;) {
+        const result = await db.query<ClaimedRow>(
+          `SELECT outbox_id, delivery_id, client_id, account_id, grant_ids FROM ${tableName}
+        WHERE account_id = $1 AND status = 'pending' AND (grant_ids IS NULL OR grant_ids ? $2)
+        AND outbox_id > $3::bigint ORDER BY outbox_id LIMIT 500`,
+          [input.accountId, input.grantId, afterOutboxId],
+        );
+        for (const row of result.rows) {
+          const allowed =
+            row.grant_ids &&
+            (await options.withActiveGrants(row.account_id, row.client_id, row.grant_ids, async () => true));
+          if (!allowed)
+            await db.query(
+              `UPDATE ${tableName} SET status = 'failed', last_error = 'agent_grant_revoked', updated_at = $2
+          WHERE delivery_id = $1 AND status = 'pending'`,
+              [row.delivery_id, now().toISOString()],
+            );
+        }
+        if (result.rows.length < 500) return true;
+        const next = String(result.rows.at(-1)!.outbox_id);
+        if (!/^\d+$/.test(next) || BigInt(next) <= BigInt(afterOutboxId))
+          throw new Error("revocation_exclusion_cursor_invalid");
+        afterOutboxId = next;
+      }
     },
 
     async claimPendingDeliveries(input) {
@@ -244,7 +293,7 @@ export function createPostgresAgentWebhookOutbox(options: PostgresAgentWebhookOu
            SET status = 'failed',
                claim_owner_id = NULL,
                claimed_until = NULL,
-               last_error = $5,
+               last_error = 'delivery_outcome_unknown',
                updated_at = $1
            FROM exhausted
            WHERE outbox.outbox_id = exhausted.outbox_id
@@ -285,8 +334,9 @@ export function createPostgresAgentWebhookOutbox(options: PostgresAgentWebhookOu
            outbox.attempt_count,
            outbox.max_attempts,
            outbox.next_attempt_at,
-           outbox.last_error`,
-        [claimStartedAt, limit, input.claimOwnerId, claimedUntil, STRANDED_SENDING_LAST_ERROR],
+           outbox.last_error,
+           outbox.grant_ids`,
+        [claimStartedAt, limit, input.claimOwnerId, claimedUntil],
       );
 
       return result.rows.map(rowToClaimedDelivery);
@@ -377,6 +427,7 @@ export function createPostgresAgentWebhookOutbox(options: PostgresAgentWebhookOu
 
 function rowToClaimedDelivery(row: ClaimedRow): ClaimedAgentWebhookDelivery {
   return {
+    grantIds: row.grant_ids ?? null,
     outboxId: String(row.outbox_id),
     deliveryId: row.delivery_id,
     clientId: row.client_id,

@@ -35,7 +35,7 @@ afterEach(async () => {
 beforeAll(() => {
   const source = `
       import { register } from "node:module";
-      register("./scripts/typescript-extension-loader.mjs", import.meta.url);
+      register("./infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
       const { SourceObservationIntegrationJobLifecycleCommandError } =
         await import("./bounded-contexts/catalog/features/source-observations/api/runtime.ts");
       const error = new SourceObservationIntegrationJobLifecycleCommandError("unsupported_state", "message");
@@ -56,11 +56,10 @@ beforeAll(() => {
         ownEnumerableFields: Object.keys(error).sort(),
       }));
     `;
-  stripTypesRuntimeProbe = spawnSync(
-    process.execPath,
-    ["--experimental-strip-types", "--input-type=module", "--eval", source],
-    { cwd: path.resolve("."), encoding: "utf8" },
-  );
+  stripTypesRuntimeProbe = spawnSync(process.execPath, ["--input-type=module", "--eval", source], {
+    cwd: path.resolve("."),
+    encoding: "utf8",
+  });
 });
 
 describe("verify-observation-pack real entrypoint", () => {

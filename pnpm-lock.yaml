@@ -48,6 +48,9 @@ importers:
       '@types/node':
         specifier: ^25.6.2
         version: 25.6.2
+      '@types/pg':
+        specifier: 8.20.0
+        version: 8.20.0
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
@@ -123,6 +126,9 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -132,6 +138,9 @@ importers:
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
+      '@chase-sets/payments':
+        specifier: workspace:*
+        version: link:../payments
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -144,6 +153,10 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+    devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
 
   bounded-contexts/authenticity:
     dependencies:
@@ -171,6 +184,9 @@ importers:
 
   bounded-contexts/catalog:
     dependencies:
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
@@ -204,15 +220,97 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
+      '@chase-sets/provider-credentials':
+        specifier: workspace:*
+        version: link:../../contracts/provider-credentials
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+      react:
+        specifier: ^19.2.6
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.2.6
+        version: 19.2.6(react@19.2.6)
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+
+  bounded-contexts/channels:
+    dependencies:
+      '@chase-sets/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
+      '@chase-sets/bounded-context-module':
+        specifier: workspace:*
+        version: link:../../contracts/bounded-context-module
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
+      '@chase-sets/event-core':
+        specifier: workspace:*
+        version: link:../../contracts/event-core
+      '@chase-sets/event-core-postgres':
+        specifier: workspace:*
+        version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/http':
+        specifier: workspace:*
+        version: link:../../contracts/http
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
+      '@chase-sets/inventory':
+        specifier: workspace:*
+        version: link:../inventory
+      '@chase-sets/localization':
+        specifier: workspace:*
+        version: link:../../contracts/localization
+      '@chase-sets/marketplace':
+        specifier: workspace:*
+        version: link:../marketplace
+      '@chase-sets/platform-policy':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-policy
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../../contracts/product-measures
+      '@chase-sets/provider-webhook-inbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/provider-webhook-inbox
+      '@chase-sets/seller-attention-queue':
+        specifier: workspace:*
+        version: link:../../contracts/seller-attention-queue
+      hono:
+        specifier: ^4.12.12
+        version: 4.12.18
+      react:
+        specifier: ^19.2.4
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.2.4
+        version: 19.2.6(react@19.2.6)
+      react-router:
+        specifier: ^7.14.0
+        version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+    devDependencies:
+      fake-indexeddb:
+        specifier: ^6.2.4
+        version: 6.2.5
 
   bounded-contexts/checkout:
     dependencies:
@@ -252,6 +350,9 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
       '@chase-sets/inventory':
         specifier: workspace:*
         version: link:../inventory
@@ -276,9 +377,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
-      '@chase-sets/settlement':
+      '@chase-sets/product-measures':
         specifier: workspace:*
-        version: link:../settlement
+        version: link:../../contracts/product-measures
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -344,6 +445,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -359,6 +463,9 @@ importers:
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -441,6 +548,9 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/catalog-seed':
+        specifier: workspace:*
+        version: link:../../contracts/catalog-seed
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../checkout
@@ -486,6 +596,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../../contracts/product-measures
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -529,9 +642,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/identity':
+      '@chase-sets/identity-seed':
         specifier: workspace:*
-        version: link:../identity
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -541,6 +654,9 @@ importers:
       '@chase-sets/object-storage':
         specifier: workspace:*
         version: link:../../infrastructure/object-storage
+      '@chase-sets/order-groups':
+        specifier: workspace:*
+        version: link:../../contracts/order-groups
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
@@ -593,6 +709,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -615,6 +734,9 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
@@ -648,9 +770,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/identity':
+      '@chase-sets/identity-seed':
         specifier: workspace:*
-        version: link:../identity
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -706,9 +828,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/identity':
+      '@chase-sets/identity-seed':
         specifier: workspace:*
-        version: link:../identity
+        version: link:../../contracts/identity-seed
       '@chase-sets/inventory':
         specifier: workspace:*
         version: link:../inventory
@@ -718,6 +840,9 @@ importers:
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
+      '@chase-sets/object-storage':
+        specifier: workspace:*
+        version: link:../../infrastructure/object-storage
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
@@ -742,6 +867,9 @@ importers:
       '@chase-sets/seller-attention-queue':
         specifier: workspace:*
         version: link:../../contracts/seller-attention-queue
+      '@chase-sets/seller-desk':
+        specifier: workspace:*
+        version: link:../../contracts/seller-desk
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -764,6 +892,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/customer-feedback':
+        specifier: workspace:*
+        version: link:../customer-feedback
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -773,24 +904,45 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/fulfillment':
+        specifier: workspace:*
+        version: link:../fulfillment
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
+      '@chase-sets/inventory':
+        specifier: workspace:*
+        version: link:../inventory
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/marketplace':
+        specifier: workspace:*
+        version: link:../marketplace
       '@chase-sets/notification-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/notification-outbox
+      '@chase-sets/ordering':
+        specifier: workspace:*
+        version: link:../ordering
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
+      '@chase-sets/platform-operations':
+        specifier: workspace:*
+        version: link:../platform-operations
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
+      '@chase-sets/pricing':
+        specifier: workspace:*
+        version: link:../pricing
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       '@chase-sets/web-notifications':
         specifier: workspace:*
         version: link:../../infrastructure/web-notifications
@@ -801,6 +953,12 @@ importers:
         specifier: ^19.2.5
         version: 19.2.6
     devDependencies:
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -843,9 +1001,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/identity':
+      '@chase-sets/identity-seed':
         specifier: workspace:*
-        version: link:../identity
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -898,18 +1056,24 @@ importers:
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
+      '@chase-sets/embedded-surface-theme':
+        specifier: workspace:*
+        version: link:../../contracts/embedded-surface-theme
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../../contracts/event-core
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/identity':
+      '@chase-sets/identity-seed':
         specifier: workspace:*
-        version: link:../identity
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -928,6 +1092,9 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
+      '@chase-sets/platform-policy':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-policy
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -937,6 +1104,9 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
+      '@chase-sets/stripe-appearance':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-appearance
       '@stripe/stripe-js':
         specifier: 9.9.0
         version: 9.9.0
@@ -947,6 +1117,15 @@ importers:
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-config
+      '@chase-sets/stripe-connect':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-connect
+      '@chase-sets/stripe-payments':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-payments
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -977,9 +1156,9 @@ importers:
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
-      '@chase-sets/identity':
+      '@chase-sets/identity-seed':
         specifier: workspace:*
-        version: link:../identity
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -1001,6 +1180,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/provider-credentials':
+        specifier: workspace:*
+        version: link:../../contracts/provider-credentials
       '@chase-sets/public-docs':
         specifier: workspace:*
         version: link:../../contracts/public-docs
@@ -1013,7 +1195,13 @@ importers:
       react-router:
         specifier: ^7.14.0
         version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
     devDependencies:
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@testing-library/react':
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -1041,6 +1229,12 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../channels
+      '@chase-sets/commercial-terms':
+        specifier: workspace:*
+        version: link:../commercial-terms
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -1071,9 +1265,19 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/seller-attention-queue':
+        specifier: workspace:*
+        version: link:../../contracts/seller-attention-queue
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+    devDependencies:
+      '@chase-sets/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@chase-sets/catalog':
+        specifier: workspace:*
+        version: link:../catalog
 
   bounded-contexts/public-presence:
     dependencies:
@@ -1174,12 +1378,18 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
       '@chase-sets/identity':
         specifier: workspace:*
         version: link:../identity
+      '@chase-sets/identity-seed':
+        specifier: workspace:*
+        version: link:../../contracts/identity-seed
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
@@ -1210,6 +1420,9 @@ importers:
       '@chase-sets/seller-attention-queue':
         specifier: workspace:*
         version: link:../../contracts/seller-attention-queue
+      '@chase-sets/stripe-appearance':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-appearance
       '@stripe/connect-js':
         specifier: 3.4.5
         version: 3.4.5
@@ -1217,6 +1430,9 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/fulfillment':
+        specifier: workspace:*
+        version: link:../fulfillment
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1262,13 +1478,27 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  contracts/embedded-surface-theme: {}
+
   contracts/event-core: {}
+
+  contracts/evidence-window-provider-write: {}
 
   contracts/http:
     dependencies:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../primitives
+
+  contracts/identity-seed:
+    dependencies:
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   contracts/localization:
     dependencies:
@@ -1298,6 +1528,9 @@ importers:
 
   contracts/money-movement:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../evidence-window-provider-write
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../primitives
@@ -1306,8 +1539,23 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  contracts/order-groups:
+    devDependencies:
+      '@chase-sets/event-core':
+        specifier: workspace:*
+        version: link:../event-core
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
   contracts/outbound-messaging:
     dependencies:
+      '@chase-sets/bounded-context-module':
+        specifier: workspace:*
+        version: link:../bounded-context-module
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../event-core
@@ -1321,6 +1569,9 @@ importers:
 
   contracts/payment-processing:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../evidence-window-provider-write
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../primitives
@@ -1353,6 +1604,19 @@ importers:
 
   contracts/product-selection:
     devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
+  contracts/provider-credentials:
+    dependencies:
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+    devDependencies:
+      typescript:
+        specifier: ^7.0.0
+        version: 7.0.2
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1395,6 +1659,9 @@ importers:
       '@chase-sets/catalog':
         specifier: workspace:*
         version: link:../../bounded-contexts/catalog
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/channels
       '@chase-sets/commercial-terms':
         specifier: workspace:*
         version: link:../../bounded-contexts/commercial-terms
@@ -1456,6 +1723,9 @@ importers:
         specifier: ^7.14.0
         version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
     devDependencies:
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
       '@chase-sets/playwright-evidence':
         specifier: workspace:*
         version: link:../../infrastructure/playwright-evidence
@@ -1480,6 +1750,9 @@ importers:
       '@chase-sets/auth':
         specifier: workspace:*
         version: link:../../bounded-contexts/auth
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/channels
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout
@@ -1559,6 +1832,9 @@ importers:
       '@chase-sets/playwright-evidence':
         specifier: workspace:*
         version: link:../../infrastructure/playwright-evidence
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.3.0(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1641,6 +1917,9 @@ importers:
 
   deployables/platform-api:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1045.0
+        version: 3.1047.0
       '@chase-sets/auth':
         specifier: workspace:*
         version: link:../../bounded-contexts/auth
@@ -1707,6 +1986,9 @@ importers:
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../../infrastructure/observability
+      '@chase-sets/order-groups':
+        specifier: workspace:*
+        version: link:../../contracts/order-groups
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
@@ -1789,6 +2071,9 @@ importers:
       '@chase-sets/catalog':
         specifier: workspace:*
         version: link:../../bounded-contexts/catalog
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/channels
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../../bounded-contexts/checkout
@@ -1954,6 +2239,68 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  deployables/tcgplayer-connector-extension:
+    dependencies:
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/channels
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.60.0
+        version: 1.60.0
+      '@types/chrome':
+        specifier: ^0.1.36
+        version: 0.1.43
+      '@types/node':
+        specifier: ^25.3.3
+        version: 25.6.2
+      fake-indexeddb:
+        specifier: ^6.2.4
+        version: 6.2.5
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      typescript:
+        specifier: ^7.0.0
+        version: 7.0.2
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4)
+      vitest:
+        specifier: ^4.0.18
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
+  deployables/tcgplayer-operator-extension:
+    dependencies:
+      '@chase-sets/catalog':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/catalog
+      '@chase-sets/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.60.0
+        version: 1.60.0
+      '@tailwindcss/vite':
+        specifier: ^4.3.0
+        version: 4.3.0(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+      '@types/chrome':
+        specifier: ^0.1.36
+        version: 0.1.43
+      '@types/node':
+        specifier: ^25.3.3
+        version: 25.6.2
+      typescript:
+        specifier: ^7.0.0
+        version: 7.0.2
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4)
+      vitest:
+        specifier: ^4.0.18
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
   infrastructure/bounded-context-runtime:
     dependencies:
       '@chase-sets/bounded-context-module':
@@ -2006,6 +2353,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../../contracts/product-measures
       pg:
         specifier: ^8.20.0
         version: 8.20.0
@@ -2117,6 +2467,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../event-core-postgres
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -2129,13 +2482,25 @@ importers:
       '@chase-sets/realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime
+      '@chase-sets/stripe-config':
+        specifier: workspace:*
+        version: link:../stripe-config
       hono:
         specifier: ^4.12.12
         version: 4.12.18
       react:
         specifier: ^19.2.5
         version: 19.2.6
+      react-router:
+        specifier: ^7.14.0
+        version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
     devDependencies:
+      '@chase-sets/ordering':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/ordering
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -2151,6 +2516,9 @@ importers:
 
   infrastructure/playwright-evidence:
     dependencies:
+      '@axe-core/playwright':
+        specifier: ^4.11.1
+        version: 4.13.0(playwright-core@1.60.0)
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.60.0
@@ -2181,16 +2549,35 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  infrastructure/stripe-appearance:
+    dependencies:
+      '@chase-sets/embedded-surface-theme':
+        specifier: workspace:*
+        version: link:../../contracts/embedded-surface-theme
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
   infrastructure/stripe-config: {}
 
   infrastructure/stripe-connect:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
       '@chase-sets/money-movement':
         specifier: workspace:*
         version: link:../../contracts/money-movement
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../platform-runtime
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../../contracts/primitives
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../stripe-config
@@ -2201,12 +2588,18 @@ importers:
 
   infrastructure/stripe-payments:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../platform-runtime
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
@@ -2249,6 +2642,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.4.1
         version: 1.4.1(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@chase-sets/embedded-surface-theme':
+        specifier: workspace:*
+        version: link:../../contracts/embedded-surface-theme
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
@@ -2551,6 +2947,11 @@ packages:
   '@aws/lambda-invoke-store@0.2.4':
     resolution: {integrity: sha512-iY8yvjE0y651BixKNPgmv1WrQc+GZ142sb0z4gYnChDDY2YqI4P/jsSopBWrKfAt7LOJAkOXt7rC/hms+WclQQ==}
     engines: {node: '>=18.0.0'}
+
+  '@axe-core/playwright@4.13.0':
+    resolution: {integrity: sha512-6YLx+kxXu5GJceG4ozFg+33a2EMTdjYwWGloJ3sb9Kta5pp+ZNS53uxGVog5JetIY8s++P5UrtX+cri+u0VAVg==}
+    peerDependencies:
+      playwright-core: '>= 1.0.0'
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -4327,6 +4728,9 @@ packages:
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
+  '@types/chrome@0.1.43':
+    resolution: {integrity: sha512-ukH/HhmR6ht+UTX3PLUWJxgJ/RQcK2Foj4lBzsF24SIWsXgqhGuXqjd8FFuwioPP7d/JUKLM4g8GZxw3F4HTcA==}
+
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
 
@@ -4338,6 +4742,15 @@ packages:
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+
+  '@types/filesystem@0.0.36':
+    resolution: {integrity: sha512-vPDXOZuannb9FZdxgHnqSwAG/jvdGM8Wq+6N4D/d80z+D4HWH+bItqsZaVRQykAn6WEVeEkLm2oQigyHtgb0RA==}
+
+  '@types/filewriter@0.0.33':
+    resolution: {integrity: sha512-xFU8ZXTw4gd358lb2jw25nxY9QAgqn2+bKKjKOYfNCzN4DKCFetK7sPtrlpg66Ywe3vWY9FNxprZawAh9wfJ3g==}
+
+  '@types/har-format@1.2.16':
+    resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
 
   '@types/memcached@2.2.10':
     resolution: {integrity: sha512-AM9smvZN55Gzs2wRrqeMHVP7KE8KWgCJO/XL5yCly2xF6EKa4YlbpK+cLSAH4NG/Ah64HrlegmGqW8kYws7Vxg==}
@@ -4610,6 +5023,10 @@ packages:
 
   ast-v8-to-istanbul@1.0.0:
     resolution: {integrity: sha512-1fSfIwuDICFA4LKkCzRPO7F0hzFf0B7+Xqrl27ynQaa+Rh0e1Es0v6kWHPott3lU10AyAr7oKHa65OppjLn3Rg==}
+
+  axe-core@4.13.0:
+    resolution: {integrity: sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A==}
+    engines: {node: '>=4'}
 
   babel-dead-code-elimination@1.0.12:
     resolution: {integrity: sha512-GERT7L2TiYcYDtYk1IpD+ASAYXjKbLTDPhBtYj7X1NuRMDTMtAx9kyBenub1Ev41lo91OHCKdmP+egTDmfQ7Ig==}
@@ -4906,6 +5323,10 @@ packages:
   extend@3.0.2:
     resolution: {integrity: sha512-fjquC59cD7CyW6urNXK0FBufkZcoiGG80wTuPujX590cB5Ttln20E2UB4S/WARVqhXffZl2LNgS+gQdPIIim/g==}
 
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
+
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
@@ -4935,6 +5356,9 @@ packages:
   fetch-blob@3.2.0:
     resolution: {integrity: sha512-7yAQpD2UMJzLi1Dqv7qFYnPbaPx7ZfFK6PiIxQ4PfkGPyNyl2Ugx+a/umUonmKqjhM4DnfbMvdX6otXq83soQQ==}
     engines: {node: ^12.20 || >= 14.13}
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   finalhandler@1.3.2:
     resolution: {integrity: sha512-aA4RyPcd3badbdABGDuTXCMTtOneUCAYH/gxoYRTZlIJdF0YPWuGqiAsIrhNnnqdXGswYk6dGujem4w80UJFhg==}
@@ -6776,6 +7200,11 @@ snapshots:
       tslib: 2.8.1
 
   '@aws/lambda-invoke-store@0.2.4': {}
+
+  '@axe-core/playwright@4.13.0(playwright-core@1.60.0)':
+    dependencies:
+      axe-core: 4.13.0
+      playwright-core: 1.60.0
 
   '@babel/code-frame@7.29.0':
     dependencies:
@@ -8652,6 +9081,11 @@ snapshots:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
+  '@types/chrome@0.1.43':
+    dependencies:
+      '@types/filesystem': 0.0.36
+      '@types/har-format': 1.2.16
+
   '@types/connect@3.4.38':
     dependencies:
       '@types/node': 25.6.2
@@ -8661,6 +9095,14 @@ snapshots:
   '@types/estree@1.0.8': {}
 
   '@types/estree@1.0.9': {}
+
+  '@types/filesystem@0.0.36':
+    dependencies:
+      '@types/filewriter': 0.0.33
+
+  '@types/filewriter@0.0.33': {}
+
+  '@types/har-format@1.2.16': {}
 
   '@types/memcached@2.2.10':
     dependencies:
@@ -8888,6 +9330,8 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
       estree-walker: 3.0.3
       js-tokens: 10.0.0
+
+  axe-core@4.13.0: {}
 
   babel-dead-code-elimination@1.0.12:
     dependencies:
@@ -9238,6 +9682,8 @@ snapshots:
 
   extend@3.0.2: {}
 
+  fake-indexeddb@6.2.5: {}
+
   fast-deep-equal@3.1.3: {}
 
   fast-uri@3.1.3: {}
@@ -9269,6 +9715,8 @@ snapshots:
     dependencies:
       node-domexception: 1.0.0
       web-streams-polyfill: 3.3.3
+
+  fflate@0.8.3: {}
 
   finalhandler@1.3.2:
     dependencies:

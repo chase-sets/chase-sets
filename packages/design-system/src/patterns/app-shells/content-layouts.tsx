@@ -34,7 +34,9 @@ export function SearchResultsLayout({
     <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <div className="hidden lg:block">
         <Sidebar label={filtersLabel} purpose="support" width="filter" sticky>
-          <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain pb-4 pr-1">{filters}</div>
+          <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto overscroll-contain [--sidebar-content-inset:0.75rem] mx-[calc(-1*var(--sidebar-content-inset))] px-[var(--sidebar-content-inset)]">
+            {filters}
+          </div>
         </Sidebar>
       </div>
       {content}

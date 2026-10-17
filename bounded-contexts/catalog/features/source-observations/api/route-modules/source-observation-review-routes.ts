@@ -8,6 +8,7 @@ import {
   rolloutControlErrorResponse,
 } from "../governance/catalog-integration-rollout-controls";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
+import { parsePromoteAsDraft } from "./route-helpers";
 
 export type SourceObservationReadReviewRouteServices = SourceObservationReadServices & SourceObservationReviewServices;
 
@@ -68,11 +69,15 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
       return permissionError;
     }
 
+    // The single-row promotion carries the same explicit, fail-closed draft
+    // choice as the bulk path: only a literal boolean true counts.
+    const body = (await c.req.json().catch(() => ({}))) as { promoteAsDraft?: unknown };
     let result;
     try {
       result = await services.promoteObservation({
         observationId: c.req.param("id"),
         context: c.get("context"),
+        promoteAsDraft: parsePromoteAsDraft(body.promoteAsDraft),
       });
     } catch (error) {
       if (error instanceof CatalogIntegrationRolloutControlError) {

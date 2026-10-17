@@ -5,7 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { repoRoot } from "./lib/repo.mjs";
 
-register("./typescript-extension-loader.mjs", import.meta.url);
+register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
 
 const outputRoot = path.join(repoRoot, "docs", "api", "agent-connectors");
 const checkMode = process.argv.includes("--check");

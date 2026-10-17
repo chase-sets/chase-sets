@@ -1,0 +1,39 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-route-matrix-evidence.yml",
+      "jobId": "staging-route-matrix-evidence",
+      "stepAnchor": "job",
+      "secretName": "PROMETHEUS_QUERY_TOKEN",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-route-matrix-evidence.yml",
+      "jobId": "staging-route-matrix-evidence",
+      "stepAnchor": "name:Await staging projection convergence#8",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-route-matrix-evidence.yml",
+      "jobId": "staging-route-matrix-evidence",
+      "stepAnchor": "name:Await staging projection convergence#8",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-route-matrix-evidence.yml",
+      "jobId": "staging-route-matrix-evidence",
+      "stepAnchor": "name:Drive checkout route-matrix sample#10",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-route-matrix-evidence.yml",
+      "jobId": "staging-route-matrix-evidence",
+      "stepAnchor": "name:Drive checkout route-matrix sample#10",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "spaces-evidence"
+    }
+  ]
+}

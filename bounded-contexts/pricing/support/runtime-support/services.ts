@@ -11,18 +11,38 @@ import { createPriceSignalRuntime } from "../../features/price-signals/api/runti
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
 import { createMarketEstimatesRuntime } from "../../features/market-estimates/api/runtime";
+import { createDemandCurveCloser } from "../../features/market-estimates/api/demand-curve-closer";
 import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
+import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
+import { createRepricingActivityDigestRunner } from "../../features/repricing-engine/api/activity-digest";
+import { createForecastLedgerRuntime } from "../../features/forecast-ledger/api/runtime";
+import { pricingGoalDefinitions } from "../../features/repricing-policies/domain/domain";
+import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
+import type { ChannelConnectionIdentityReader } from "../../features/economics/domain/contracts";
+import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
+import type { TcgplayerMarketTransportCapability } from "../../features/price-signals/integrations/tcgplayer/transport-port";
+import type { TcgplayerMarketCaptureReceiptSinkCapability } from "../../features/price-signals/integrations/tcgplayer/capture-sanitizer";
+
+export type PricingHostPorts = Readonly<{
+  tcgplayerMarketTransport: TcgplayerMarketTransportCapability;
+  tcgplayerMarketCaptureReceiptSink: TcgplayerMarketCaptureReceiptSinkCapability;
+  commercialTermsResolver: CommercialTermsResolver;
+  channelConnectionIdentityReader: ChannelConnectionIdentityReader;
+}>;
 
 export type PricingServices = Readonly<{
   priceSignals: ReturnType<typeof createPriceSignalRuntime>;
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
   marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
-  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime>;
+  demandCurves: ReturnType<typeof createDemandCurveCloser>;
+  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> &
+    ReturnType<typeof createRepricingPolicyActivationServices>;
   repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
+  forecastLedger: ReturnType<typeof createForecastLedgerRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**
    * The shared platform-policy runtime, mounted for this context's
@@ -34,12 +54,19 @@ export type PricingServices = Readonly<{
    */
   policies: PolicyRuntime;
   bulkRepriceIngestion: ReturnType<typeof createBulkRepriceIngestionRuntime>;
+  economics: EconomicsServices;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
 }>;
 
-export function createPricingServices(pool: PgTransactionalPool): PricingServices {
+export function createPricingServices(pool: PgTransactionalPool, ports: PricingHostPorts): PricingServices {
+  if (
+    typeof ports?.commercialTermsResolver?.resolveListingTerms !== "function" ||
+    typeof ports?.channelConnectionIdentityReader?.resolve !== "function"
+  ) {
+    throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
+  }
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
@@ -47,7 +74,19 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const policies = createPolicyRuntime({ eventStore, db });
-  const priceSignals = createPriceSignalRuntime({ db });
+  const economics = createEconomicsServices({
+    eventStore,
+    db,
+    policies,
+    commercialTermsResolver: ports.commercialTermsResolver,
+    channelConnectionIdentityReader: ports.channelConnectionIdentityReader,
+  });
+  const priceSignals = createPriceSignalRuntime({
+    db,
+    pool,
+    tcgplayerMarketTransport: ports.tcgplayerMarketTransport,
+    tcgplayerMarketCaptureReceiptSink: ports.tcgplayerMarketCaptureReceiptSink,
+  });
   const recommendations = createPricingRecommendationRuntime({
     eventStore,
     checkpointStore,
@@ -55,7 +94,15 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   });
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
   const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
-  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool });
+  const demandCurves = createDemandCurveCloser({ pool, eventStore, policies });
+  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool, economics });
+  const runRepricingActivityDigest = createRepricingActivityDigestRunner({ pool, eventStore, policies });
+  const forecastLedger = createForecastLedgerRuntime({
+    pool,
+    eventStore,
+    policies,
+    goalDefinitions: pricingGoalDefinitions,
+  });
   /**
    * The Market-Value Estimate recompute RIDES the market-rollups closer job
    * (the m112 blended-estimate slice): platform-worker already schedules
@@ -72,11 +119,17 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     runDailyRollupCloser: async (params) => {
       const result = await marketRollupsBase.runDailyRollupCloser(params);
       await marketEstimates.runMarketPriceEstimateCloser({ now: params?.now, limit: params?.limit });
+      await demandCurves.runDemandCurveCloser({ now: params?.now, limit: params?.limit });
       await repricingEngine.enqueueDailyDriftSweep({ now: params?.now, limit: params?.limit });
+      await runRepricingActivityDigest({ now: params?.now });
+      await forecastLedger.runForecastGrading({ now: params?.now });
       return result;
     },
   };
-  const repricingPolicies = createRepricingPolicyRuntime({ eventStore, db });
+  const repricingPolicies = {
+    ...createRepricingPolicyRuntime({ eventStore, db, goalAdoptions: () => forecastLedger.listGoalAdoptions() }),
+    ...createRepricingPolicyActivationServices({ eventStore, pool }),
+  };
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
   const bulkRepriceIngestion = createBulkRepriceIngestionRuntime({ db });
 
@@ -85,18 +138,23 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
     recommendations,
     marketRollups,
     marketEstimates,
+    demandCurves,
     repricingPolicies,
     repricingEngine,
+    forecastLedger,
     publicMarketPages,
     policies,
     bulkRepriceIngestion,
+    economics,
     projectors: [
       ...priceSignals.projectors,
       ...recommendations.projectors,
       ...marketEstimates.projectors,
       ...repricingPolicies.projectors,
       ...repricingEngine.projectors,
+      ...economics.overrides.projectors,
       ...policies.projectors,
+      ...forecastLedger.projectors,
     ],
     pool,
     db,

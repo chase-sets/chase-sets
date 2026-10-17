@@ -3,6 +3,8 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createSavedListDiscoveryRuntime } from "../../features/saved-lists/api/discovery-runtime";
+import { createSavedListRecoveryRuntime } from "../../features/saved-lists/api/recovery-runtime";
+import type { SavedListAnalyticsRecorder } from "../../features/saved-lists/api/analytics-telemetry";
 import {
   createSavedListSharedAccess,
   type SavedListAbuseReportAdapter,
@@ -22,6 +24,7 @@ import { loadSavedListSharedPage } from "../../features/saved-lists/read-model/s
 import { buildSavedListPickerProjectionHandlers } from "../../features/saved-lists/read-model/picker-projection";
 
 export type CollectionsHostPorts = Readonly<{
+  savedListAnalyticsRecorder?: SavedListAnalyticsRecorder;
   savedListProductCatalog?: SavedListProductCatalog;
   inventorySavedListImportBatchCreator?: SavedListInventoryImportBatchCreator;
   savedListCapabilities?: SavedListCapabilityService;
@@ -32,6 +35,7 @@ export type CollectionsHostPorts = Readonly<{
 }>;
 
 export type CollectionsServices = Readonly<{
+  savedListAnalyticsRecorder?: SavedListAnalyticsRecorder;
   savedLists: ReturnType<typeof createSavedListRuntime>;
   savedListInventory: ReturnType<typeof createSavedListInventoryHandoff>;
   savedListValuation: ReturnType<typeof createSavedListValuationRuntime>;
@@ -39,6 +43,7 @@ export type CollectionsServices = Readonly<{
   savedListSharing: ReturnType<typeof createSavedListSharingRuntime>;
   savedListSharedAccess: ReturnType<typeof createSavedListSharedAccess>;
   discovery: ReturnType<typeof createSavedListDiscoveryRuntime>;
+  recovery: ReturnType<typeof createSavedListRecoveryRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   rateLimitPolicyResolver?: RateLimitRuleResolver;
   pool: PgTransactionalPool;
@@ -97,6 +102,7 @@ export function createCollectionsServices(
     capabilities,
   });
   return {
+    savedListAnalyticsRecorder: ports.savedListAnalyticsRecorder,
     savedLists,
     savedListInventory: createSavedListInventoryHandoff({
       savedLists,
@@ -104,7 +110,8 @@ export function createCollectionsServices(
     }),
     savedListValuation: createSavedListValuationRuntime(pool),
     savedListReadModels,
-    discovery: createSavedListDiscoveryRuntime({ db, savedLists, productCatalog }),
+    discovery: createSavedListDiscoveryRuntime({ db, pool, savedLists, productCatalog }),
+    recovery: createSavedListRecoveryRuntime({ pool, eventStore, productCatalog }),
     savedListSharing,
     savedListSharedAccess: createSavedListSharedAccess({
       sharedPages: { load: (listId) => loadSavedListSharedPage(db, listId) },

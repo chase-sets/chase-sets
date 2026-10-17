@@ -4,6 +4,10 @@ This glossary defines the canonical terminology for the Ordering bounded context
 
 Aggregate language and projection language may differ. `Order` is the aggregate and event-stream term; buyer read models and routes use `Purchase`, while seller read models and routes use `Sale`.
 
+## Order Review Outcome
+
+An **Order Review Outcome** is the authorized account's local view of a Marketplace Review Opportunity Fact. Ready with an absent opportunity means proven absence; unavailable means missing, malformed, lagging or rebuilding evidence, or a failed local read. Ordering never reconstructs Marketplace eligibility policy or fetches it during an order request. Held feedback outranks expiry, revealed feedback remains published after its deadline, and unsubmitted opportunities can expire without a new event.
+
 ## Order
 
 An **Order** is the commercial commitment between a buyer account and a seller account created from a listing purchase or accepted offer.
@@ -12,6 +16,15 @@ Notes:
 
 - Orders are owned by Ordering.
 - Fulfillment and Payments react to order facts but do not define orders.
+
+## Order Group
+
+An **Order Group** is the planned Ordering-owned linkage of exactly one existing anchor Order and one follow-on Order for the same signed-in buyer and seller, compatible Shipping policies, and the same standardized origin and destination.
+
+- Its `OrderGroupId` uses `ogr_`; the anchor Order stream owns formation and dissolution.
+- Money, payment, refunds, fees, inventory, and capacity remain per Order. Neither member's committed money is redistributed. A voluntary `buyer-cancelled` anchor's refund withholds the frozen survivor Shipping shortfall; a mandatory-refund cancellation, as ADR 0032 defines it, withholds nothing.
+- Pre-packing cancellation removes only the cancelled member and dissolves the group; the survivor keeps its frozen money. A destination correction changes only its own Order and never dissolves the group. The buyer funds the survivor Shipping shortfall from that refund, per [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md).
+- This is a planned contract, not shipped grouping behavior, an N-member cart, or an Order Split. Fulfillment owns Shipment Group admission and physical execution.
 
 ## Purchase
 
@@ -87,6 +100,19 @@ Notes:
 - Fulfillment owns the operational cutoff.
 - Payments owns any refund created from the cancellation.
 - After package preparation starts, buyers use the Support-owned buyer cancellation request flow.
+- It shares the same pre-packing window as Self-Service Sale Cancellation.
+
+## Self-Service Sale Cancellation
+
+**Self-Service Sale Cancellation** is the seller-initiated cancellation of a paid sale while the Fulfillment-owned shipment is still awaiting package preparation.
+
+Notes:
+
+- Ordering owns the cancellation decision.
+- Fulfillment owns the operational cutoff.
+- Payments owns the buyer's full refund created from the cancellation.
+- The cancellation remains recorded as `seller-cancelled` for the seller cancellation rate.
+- After package preparation starts, sellers use the Support-owned cannot-fulfill flow.
 
 ## Order Split
 
@@ -190,6 +216,37 @@ A **Local Tax Rule** is a development/test rule used by the local stub resolver 
 ## Collection-Required Jurisdiction
 
 A **Collection-Required Jurisdiction** is a state or district where tax readiness shows Chase Sets has crossed the reviewed nexus threshold, has registration coverage or a collection start decision, and must collect sales tax before accepting covered marketplace orders.
+
+## Cleanup Authority
+
+**Cleanup Authority** is Ordering's read-only calculation of whether one Order's inventory commitment may be treated as cleaned up, decided from complete Order, Inventory reservation, and Inventory Hold stream histories.
+
+Notes:
+
+- It is an observation, never a command: it appends no event, issues no cancellation, and calls no provider.
+- Projections and readiness markers are never authority for it. A projection 404 does not prove cleanup.
+- Its states are **Live Cancelable**, **Captured Remedy Required**, **Cancelled Release Pending**, **Cancelled Cleanup Blocked**, and **Cleanup Complete**. "Absent" is never a terminal state.
+- An incomplete Inventory authority, an identity conflict, or an over-bound history is a conflict, never a success.
+
+## Live Cancelable
+
+**Live Cancelable** is the Cleanup Authority state of a valid Order still pending reservation or payment. Nothing is due for cleanup yet, so the observation is retryable.
+
+## Captured Remedy Required
+
+**Captured Remedy Required** is the Cleanup Authority state of any Order history that reached fulfillment readiness, including one a later support cancellation followed. Captured inventory is never cleaned up by this path, so the observation is not retryable.
+
+## Cancelled Release Pending
+
+**Cancelled Release Pending** is the Cleanup Authority state of a cleanup-eligible cancelled Order whose validated Holds are still active, including a Hold Inventory created atomically with a confirmation the Order never recorded. The observation is retryable.
+
+## Cancelled Cleanup Blocked
+
+**Cancelled Cleanup Blocked** is the Cleanup Authority state of a cleanup-eligible cancelled Order whose Hold reached a real terminal that cleanup cannot discharge: consumed, expired, released for a reason outside the governed cancellation mapping, or released before the cancellation. The observation is not retryable.
+
+## Cleanup Complete
+
+**Cleanup Complete** is the Cleanup Authority state reached only when every declared reservation has complete Inventory authority, the Hold set matches the confirmed set exactly, and every Hold was causally released for the governed reason. Zero Holds qualify only when every request was rejected.
 
 ## Planned Counter Orders
 

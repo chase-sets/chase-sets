@@ -14,7 +14,7 @@ import { readEnvFile } from "./lib/env.mjs";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
 import { buildDockerComposeArgs, ensureWorktreeSandboxEnvironment, listSandboxDatabases } from "./lib/sandbox.mjs";
 
-register("./typescript-extension-loader.mjs", import.meta.url);
+register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
 
 const [
   { createFilesystemObjectFileStorage, createFilesystemObjectStorage, createS3ObjectFileStorage },

@@ -9,6 +9,17 @@ import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf } from "../../features/sessions/domain/auth-flow";
 import { mapInvitationAcceptanceLinkRequestedToNotification } from "../../features/invitation-acceptance/integrations/notifications/notification-intents";
+import {
+  hasInvitationAttempt,
+  readInvitationAttemptId,
+} from "../../features/invitation-acceptance/api/attempt-request";
+import {
+  acceptInvitationAttempt,
+  lookupInvitationAttempt,
+  parseJourneyInput,
+} from "../../features/invitation-acceptance/api/journey";
+import { InvitationAttemptError } from "../../features/invitation-acceptance/domain/attempt";
+import { invitationAttemptRollout } from "../../features/invitation-acceptance/api/rollout";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   consumeChallenge,
@@ -226,9 +237,15 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
 
   app.post("/invitations/accept", async (c) => {
     const body = await c.req.json();
-    const identityMutations = createIdentityMutations(c);
+    const idempotencyKey = c.req.header("Idempotency-Key");
+    const hasAttempt = hasInvitationAttempt(body, idempotencyKey);
+    if (hasAttempt && !readInvitationAttemptId(body, idempotencyKey)) {
+      return c.json(
+        { error: { code: "invitation_attempt_invalid", message: t("auth.invitationAttempt.invalid") } },
+        400,
+      );
+    }
     const invitationId = String(body.invitationId ?? "");
-    const token = String(body.token ?? "");
     const ipDecision = invitationAcceptIpRateLimiter.check(publicClientRequestKey(c.req.raw));
     if (ipDecision.limited) {
       return rateLimitExceededJsonResponse("auth.invitation.accept.ip", ipDecision);
@@ -237,6 +254,60 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
     if (invitationDecision.limited) {
       return rateLimitExceededJsonResponse("auth.invitation.accept.identifier", invitationDecision);
     }
+    if (hasAttempt) {
+      try {
+        const result = await acceptInvitationAttempt(
+          services,
+          createIdentityMutations(c),
+          parseJourneyInput(body, idempotencyKey),
+          c.req.raw,
+          getBootstrapContext(c),
+        );
+        if (result.type === "attempts-not-active")
+          return c.json(
+            {
+              error: {
+                code: "invitation_attempts_not_active",
+                message: t("auth.invitationAttempt.notActive"),
+              },
+            },
+            409,
+          );
+        if ("mutationSources" in result) {
+          const { mutationSources, ...body } = result;
+          return jsonWithMutationReceipts(c, body, 200, mutationSources);
+        }
+        return c.json(result);
+      } catch (error) {
+        if (error instanceof InvitationAttemptError)
+          return c.json(
+            { error: { code: error.code, message: t("auth.invitationAttempt.safeRecovery") } },
+            error.code === "invitation_attempt_invalid"
+              ? 400
+              : error.code === "invitation_attempt_conflict"
+                ? 409
+                : 503,
+          );
+        const consent = readRegistrationConsentRejection(error);
+        if (consent) return c.json(consent, 400);
+        return c.json(
+          {
+            error: {
+              code: "invitation_attempt_ambiguous",
+              message: t("auth.invitationAttempt.safeRecovery"),
+            },
+          },
+          503,
+        );
+      }
+    }
+    if (invitationAttemptRollout.requireAttempt)
+      return c.json(
+        { error: { code: "invitation_attempt_invalid", message: t("auth.invitationAttempt.required") } },
+        400,
+      );
+    const identityMutations = createIdentityMutations(c);
+    const token = String(body.token ?? "");
 
     if (!invitationId || !token) {
       return c.json(invalidInvitationToken(), 401);
@@ -398,5 +469,21 @@ export function registerInvitationRoutes(app: AuthApiApp, services: AuthServices
       200,
       [createdIdentity, membership, verifiedEmail, credentialResult],
     );
+  });
+
+  app.post("/invitations/acceptance-status", async (c) => {
+    try {
+      const input = parseJourneyInput(await c.req.json(), c.req.header("Idempotency-Key"));
+      const ipDecision = invitationAcceptIpRateLimiter.check(publicClientRequestKey(c.req.raw));
+      if (ipDecision.limited) return rateLimitExceededJsonResponse("auth.invitation.accept.ip", ipDecision);
+      const invitationDecision = invitationAcceptIdentifierRateLimiter.check(`invitation:${input.invitationId}`);
+      if (invitationDecision.limited)
+        return rateLimitExceededJsonResponse("auth.invitation.accept.identifier", invitationDecision);
+      return c.json(await lookupInvitationAttempt(services, createIdentityMutations(c), input, getBootstrapContext(c)));
+    } catch (error) {
+      if (error instanceof InvitationAttemptError || [403, 404].includes(identityMutationStatus(error) ?? 0))
+        return c.json({ type: "ambiguous" as const });
+      return c.json({ type: "ambiguous" as const }, 503);
+    }
   });
 }

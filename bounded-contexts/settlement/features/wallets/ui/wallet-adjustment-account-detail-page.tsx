@@ -5,6 +5,7 @@ import {
   KeyValueList,
   LinkButton,
   MarketplaceNotice,
+  NumericValue,
   Page,
   PageHeader,
   PageSection,
@@ -52,7 +53,7 @@ export function SettlementWalletAdjustmentAccountDetailPage({
     },
     {
       key: t("settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.amount"),
-      value: formatMoney(adjustment.amount, adjustment.currency_code),
+      value: <NumericValue>{formatMoney(adjustment.amount, adjustment.currency_code)}</NumericValue>,
     },
     {
       key: t("settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.reason"),
@@ -74,7 +75,9 @@ export function SettlementWalletAdjustmentAccountDetailPage({
       ? [
           {
             key: t("settlement.features.wallets.ui.walletAdjustmentAccountDetailPage.resulting.balance"),
-            value: formatMoney(adjustment.available_balance_after, adjustment.currency_code),
+            value: (
+              <NumericValue>{formatMoney(adjustment.available_balance_after, adjustment.currency_code)}</NumericValue>
+            ),
           },
         ]
       : []),

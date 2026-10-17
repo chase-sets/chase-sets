@@ -355,6 +355,39 @@ describeDb("auth projection row identity", () => {
       ],
     });
   });
+
+  it("projects current pricing presets on membership grant and role change", async () => {
+    const handlers = buildAuthIdentityMembershipProjectionHandlers(pool);
+    for (const roleKey of ["owner", "manager", "fulfillment", "viewer", "platform-admin"]) {
+      const membershipId = "mbr_synthetic_pricing_" + roleKey;
+      for (const type of ["identity.membership.granted", "identity.membership.role-changed"]) {
+        await project(
+          handlers,
+          event(type, "identity.membership-" + membershipId, {
+            membershipId,
+            userId: "usr_synthetic_pricing",
+            accountId: "acc_synthetic_pricing",
+            roleKey,
+          }),
+        );
+        for (const table of ["auth_identity_memberships", "auth_identity_user_memberships"]) {
+          const result = await pool.query<{ role_permissions: string[] }>(
+            `SELECT role_permissions FROM ${table} WHERE membership_id = $1`,
+            [membershipId],
+          );
+          expect(result.rows).toHaveLength(1);
+          const pricing = result.rows[0]!.role_permissions.filter((key) => key.startsWith("pricing.")).sort();
+          expect(pricing).toEqual(
+            roleKey === "platform-admin"
+              ? []
+              : ["owner", "manager"].includes(roleKey)
+                ? ["pricing.manage", "pricing.view"]
+                : ["pricing.view"],
+          );
+        }
+      }
+    }
+  });
 });
 
 function requireDatabaseBaseUrl(): string {

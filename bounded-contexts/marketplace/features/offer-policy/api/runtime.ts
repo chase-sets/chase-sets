@@ -1,0 +1,328 @@
+import { createHash } from "node:crypto";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
+import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
+import {
+  decideMarketplaceOffer,
+  evolveMarketplaceOffer,
+  initialMarketplaceOfferState,
+  type MarketplaceOfferEvent,
+} from "../../offers/domain/domain";
+import { buyerOfferPolicyCodec } from "../domain/codec";
+import {
+  buyerOfferPolicyIdSchema,
+  buyerOfferPolicyRequestSchema,
+  type BuyerOfferPolicyRequest,
+} from "../domain/contracts";
+import {
+  assertPolicy,
+  assertBuyerOfferPolicySelection,
+  BuyerOfferPolicyError,
+  decideBuyerOfferPolicy,
+  evolveBuyerOfferPolicy,
+  initialBuyerOfferPolicyState,
+  validateBuyerOfferPolicyTerms,
+  type BuyerOfferPolicyAudit,
+  type BuyerOfferPolicyCommand,
+  type BuyerOfferPolicyState,
+} from "../domain/domain";
+import { buildBuyerOfferPolicyProjectionHandlers } from "../read-model/projection";
+import type { ManagedOfferPricing } from "../../offers/api/managed-authority";
+import { buyerOfferPolicyOutcomeSchema } from "../domain/contracts";
+
+function hash(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+function stableEvidence(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableEvidence);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "evaluatedAt")
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, item]) => [key, stableEvidence(item)]),
+  );
+}
+const streamId = (policyId: string) => `marketplace.offer-policy-${policyId}`;
+
+export function serializeBuyerOfferPolicy(
+  state: BuyerOfferPolicyState,
+  version: number,
+  offerVersions: Readonly<Record<string, number>>,
+) {
+  return {
+    policyId: state.policyId,
+    status: state.status,
+    version,
+    revision: state.revision,
+    currency: state.currency ?? state.preview?.terms.currency ?? null,
+    consumedItemAmount: state.consumedItemAmount,
+    remainingItemAllowance: state.authority
+      ? centsToMoneyAmount(
+          moneyToCents(state.authority.itemCommitmentAllowance) - moneyToCents(state.consumedItemAmount),
+        )
+      : null,
+    authority: state.authority,
+    preview: state.preview,
+    offerVersions,
+  };
+}
+
+export function createBuyerOfferPolicyRuntime(
+  deps: Readonly<{
+    eventStore: EventStore;
+    db: PgQueryable;
+    managedOfferPricing?: ManagedOfferPricing;
+    /** Installed only alongside atomic application/acceptance enforcement, never an account-controlled flag. */
+    enforcement?: Readonly<{ assertInstalled(): void }>;
+  }>,
+) {
+  const { repository } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: buyerOfferPolicyCodec,
+    initialState: () => initialBuyerOfferPolicyState,
+    evolve: evolveBuyerOfferPolicy,
+    decide: decideBuyerOfferPolicy,
+  });
+  const offerCodec = createPassthroughDomainEventCodec<MarketplaceOfferEvent>();
+  const { repository: offers } = createAggregateCommandHandler({
+    eventStore: deps.eventStore,
+    codec: offerCodec,
+    initialState: () => initialMarketplaceOfferState,
+    evolve: evolveMarketplaceOffer,
+    decide: decideMarketplaceOffer,
+  });
+
+  async function owned(policyId: string, buyerAccountId: string) {
+    buyerOfferPolicyIdSchema.parse(policyId);
+    const loaded = await repository.load(streamId(policyId));
+    if (loaded.state.buyerAccountId !== buyerAccountId)
+      throw new BuyerOfferPolicyError("not_found", "Buyer Offer Policy not found.");
+    return loaded;
+  }
+
+  async function snapshot(state: BuyerOfferPolicyState, version: number) {
+    const ids = [
+      ...new Set(
+        [...(state.authority?.offers ?? []), ...(state.preview?.terms.offers ?? [])].map((offer) => offer.offerId),
+      ),
+    ];
+    const selected = await Promise.all(ids.map((id) => offers.load(`marketplace.offer-${id}`)));
+    return serializeBuyerOfferPolicy(
+      state,
+      version,
+      Object.fromEntries(
+        selected
+          .filter((offer) => offer.state.buyerAccountId === state.buyerAccountId)
+          .map((offer) => [offer.state.offerId!, offer.version]),
+      ),
+    );
+  }
+
+  async function execute(policyId: string, input: BuyerOfferPolicyRequest, context: EventStoreContext) {
+    buyerOfferPolicyIdSchema.parse(policyId);
+    const request = buyerOfferPolicyRequestSchema.parse(input);
+    const buyerAccountId = context.audit.forAccountId;
+    const current =
+      request.type === "CreateBuyerOfferPolicy"
+        ? await repository.load(streamId(policyId))
+        : await owned(policyId, buyerAccountId);
+    if (current.state.policyId && current.state.buyerAccountId !== buyerAccountId)
+      throw new BuyerOfferPolicyError("not_found", "Buyer Offer Policy not found.");
+    const requestHash = hash({ policyId, actorUserId: context.audit.performedByUserId, buyerAccountId, request });
+    const prior = current.events.find((event) => event.data.operationId === request.operationId);
+    if (prior) {
+      if (prior.data.requestHash !== requestHash)
+        throw new BuyerOfferPolicyError(
+          "operation_conflict",
+          "Operation identity was already used for different authority.",
+        );
+      return snapshot(current.state, current.version);
+    }
+    if (request.expectedVersion !== current.version)
+      throw new BuyerOfferPolicyError("stale_preview", "Policy version changed. Refresh before continuing.");
+    const audit: BuyerOfferPolicyAudit = {
+      schemaVersion: 1,
+      policyId,
+      buyerAccountId,
+      actorUserId: context.audit.performedByUserId,
+      operationId: request.operationId,
+      requestHash,
+      recordedAt: new Date().toISOString(),
+    };
+    let command: BuyerOfferPolicyCommand;
+    const guards: AppendToStreamInput[] = [];
+    if (request.type === "PreviewBuyerOfferPolicy" || request.type === "AuthorizeBuyerOfferPolicy") {
+      const previewTerms = request.type === "PreviewBuyerOfferPolicy" ? request.terms : current.state.preview?.terms;
+      if (!previewTerms) throw new BuyerOfferPolicyError("stale_preview", "A fresh preview is required.");
+      const terms = validateBuyerOfferPolicyTerms(current.state, previewTerms);
+      const loadedOffers = await Promise.all(
+        terms.offers.map((selection) => offers.load(`marketplace.offer-${selection.offerId}`)),
+      );
+      if (
+        loadedOffers.some(
+          (offer, index) =>
+            offer.state.buyerAccountId === buyerAccountId && offer.version !== terms.offers[index]!.offerVersion,
+        )
+      )
+        throw new BuyerOfferPolicyError("stale_preview", "Offer selection is stale. Request a fresh preview.");
+      assertBuyerOfferPolicySelection(policyId, buyerAccountId, terms, loadedOffers);
+      if (!deps.managedOfferPricing)
+        throw new BuyerOfferPolicyError("enforcement_unavailable", "Market Price evaluation is unavailable.");
+      const evaluatedAt = new Date().toISOString();
+      const targets = await deps.managedOfferPricing.evaluateTargets(
+        terms.offers.map((selection) => ({
+          selection,
+          currency: terms.currency,
+          adjustmentBps: terms.adjustmentBps,
+          policyRevision: current.state.revision + 1,
+          evaluatedAt,
+        })),
+      );
+      assertPolicy(targets.length === terms.offers.length, "Complete Market Price evaluation is required.");
+      const outcomes = targets.map((result, index) =>
+        buyerOfferPolicyOutcomeSchema.parse({
+          offerId: terms.offers[index]!.offerId,
+          currentUnitItemAmount: loadedOffers[index]!.state.priceAmount,
+          result,
+        }),
+      );
+      // Re-evaluate at the current instant, but bind stable evidence and outcomes,
+      // not the clock tick at which Pricing evaluated them.
+      const evidenceHash = (value: unknown) => hash(stableEvidence(value));
+      if (
+        request.type === "AuthorizeBuyerOfferPolicy" &&
+        evidenceHash(outcomes) !== evidenceHash(current.state.preview?.outcomes ?? null)
+      )
+        throw new BuyerOfferPolicyError("stale_preview", "Market Price evidence changed. Request a fresh preview.");
+      for (const [index, loaded] of loadedOffers.entries()) {
+        guards.push({
+          streamId: `marketplace.offer-${terms.offers[index]!.offerId}`,
+          expectedVersion: loaded.version,
+          context,
+          events:
+            request.type === "AuthorizeBuyerOfferPolicy"
+              ? decideMarketplaceOffer(loaded.state, { type: "BindOfferToBuyerPolicy", buyerAccountId, policyId }).map(
+                  offerCodec.encode,
+                )
+              : [],
+        });
+      }
+      if (request.type === "PreviewBuyerOfferPolicy") {
+        command = {
+          type: request.type,
+          audit,
+          preview: {
+            previewId: hash({ policyId, policyVersion: current.version + 1, terms, outcomes }),
+            policyVersion: current.version + 1,
+            terms,
+            outcomes,
+          },
+        };
+      } else {
+        if (!deps.enforcement)
+          throw new BuyerOfferPolicyError(
+            "enforcement_unavailable",
+            "Managed Offer acceptance and application enforcement is not installed.",
+          );
+        deps.enforcement.assertInstalled();
+        command = {
+          type: request.type,
+          audit,
+          previewId: request.previewId,
+          policyVersion: current.version,
+          consent: request.consent,
+        };
+      }
+    } else command = { type: request.type, audit };
+    const events = decideBuyerOfferPolicy(current.state, command);
+    if (events.length === 0) return snapshot(current.state, current.version);
+    assertPolicy(deps.eventStore.appendToStreams, "Buyer Offer Policy commands require atomic append support.");
+    try {
+      const results = await deps.eventStore.appendToStreams([
+        {
+          streamId: streamId(policyId),
+          expectedVersion: current.version,
+          events: events.map(buyerOfferPolicyCodec.encode),
+          context,
+        },
+        ...guards,
+      ]);
+      recordCommittedEvents(results.flatMap((result) => result.storedEvents));
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict") {
+        const latest = await owned(policyId, buyerAccountId);
+        if (
+          latest.events.some(
+            (event) => event.data.operationId === request.operationId && event.data.requestHash === requestHash,
+          )
+        )
+          return snapshot(latest.state, latest.version);
+        throw new BuyerOfferPolicyError("stale_preview", "Policy or selected Offers changed. Request a fresh preview.");
+      }
+      throw error;
+    }
+    return snapshot(events.reduce(evolveBuyerOfferPolicy, current.state), current.version + events.length);
+  }
+  return {
+    execute,
+    async get(policyId: string, buyerAccountId: string) {
+      const current = await owned(policyId, buyerAccountId);
+      return snapshot(current.state, current.version);
+    },
+    async list(buyerAccountId: string, afterPolicyId = "", limit = 100, offerIds: readonly string[] = []) {
+      assertPolicy(
+        Number.isInteger(limit) && limit >= 1 && limit <= 100,
+        "Policy page size must be between 1 and 100.",
+      );
+      if (afterPolicyId) buyerOfferPolicyIdSchema.parse(afterPolicyId);
+      assertPolicy(offerIds.length <= 100, "Offer selection is bounded to 100.");
+      for (const id of offerIds) buyerOfferPolicyIdSchema.parse(id);
+      const result = await deps.db.query<{ state: BuyerOfferPolicyState; last_stream_version: number }>(
+        `SELECT state, last_stream_version FROM marketplace_buyer_offer_policy_pages
+         WHERE buyer_account_id = $1 AND policy_id > $2
+           AND (cardinality($4::text[]) = 0 OR policy_id IN (
+             SELECT policy_id FROM marketplace_buyer_offer_policy_memberships WHERE offer_id = ANY($4::text[])
+           ) OR EXISTS (SELECT 1 FROM jsonb_array_elements(state->'preview'->'terms'->'offers') selected
+                        WHERE selected->>'offerId' = ANY($4::text[])))
+         ORDER BY policy_id LIMIT $3`,
+        [buyerAccountId, afterPolicyId, limit, offerIds],
+      );
+      const selected = await Promise.all(offerIds.map((id) => offers.load(`marketplace.offer-${id}`)));
+      const ownedOffers = selected.filter((offer) => offer.state.buyerAccountId === buyerAccountId);
+      const policyIds = [
+        ...new Set([
+          ...result.rows.map((row) => row.state.policyId!),
+          ...ownedOffers.flatMap((offer) => (offer.state.buyerOfferPolicyId ? [offer.state.buyerOfferPolicyId] : [])),
+        ]),
+      ]
+        .filter((id) => id > afterPolicyId)
+        .sort()
+        .slice(0, limit);
+      const items = await Promise.all(
+        policyIds.map(async (id) => {
+          const current = await owned(id, buyerAccountId);
+          return snapshot(current.state, current.version);
+        }),
+      );
+      return {
+        items,
+        offerVersions: Object.fromEntries(ownedOffers.map((offer) => [offer.state.offerId!, offer.version])),
+        nextCursor: policyIds.length === limit ? policyIds.at(-1)! : null,
+      };
+    },
+    projectors: [
+      createProjectionHandlerSet({
+        projectionName: "marketplace-offer-policy-projection",
+        handlers: buildBuyerOfferPolicyProjectionHandlers(deps.db),
+      }),
+    ],
+  };
+}
+export type BuyerOfferPolicyServices = ReturnType<typeof createBuyerOfferPolicyRuntime>;
+export type BuyerOfferPolicyListSnapshot = Awaited<ReturnType<BuyerOfferPolicyServices["list"]>>;

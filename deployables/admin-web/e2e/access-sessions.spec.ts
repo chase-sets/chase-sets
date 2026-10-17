@@ -38,8 +38,8 @@ test.describe("access admin sessions", () => {
     await expectAdminWebHydrated(page);
     await expect(page.getByText(`${sessionUserLabel(session)} session`, { exact: true }).first()).toBeVisible();
     await expect(page.getByText(session.session_id)).toBeVisible();
-    await expect(page.getByText(session.authentication_method).first()).toBeVisible();
-    await expect(page.getByText(session.expires_at).first()).toBeVisible();
+    await expect(page.getByText(sessionAuthenticationMethodLabel(session.authentication_method)).first()).toBeVisible();
+    await expect(page.getByText(sessionExpiresAtLabel(session.expires_at)).first()).toBeVisible();
     await expect(page.getByLabel("Active Account")).toHaveValue(session.account_id);
     await expect(page.getByRole("button", { name: "Switch Account" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Revoke" })).toBeVisible();
@@ -58,4 +58,34 @@ async function getActiveSession(page: Page) {
 
 function sessionUserLabel(session: SessionSnapshot) {
   return session.user_display_name ?? session.user_primary_email ?? session.user_id;
+}
+
+function sessionAuthenticationMethodLabel(value: string) {
+  const labels: Readonly<Record<string, string>> = {
+    facebook: "Facebook login",
+    google: "Google login",
+    "magic-link": "Magic link",
+    passkey: "Passkey",
+    password: "Password",
+    "sms-code": "SMS code",
+    "social-login": "Social login",
+  };
+  const label = labels[value];
+  expect(label, `session authentication method ${value} should have a visible label`).toBeDefined();
+  return label!;
+}
+
+function sessionExpiresAtLabel(value: string) {
+  const date = new Date(value);
+  expect(Number.isNaN(date.getTime()), "session expiry should be a valid timestamp").toBe(false);
+  const formatted = new Intl.DateTimeFormat("en", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+  return `${formatted} UTC`;
 }

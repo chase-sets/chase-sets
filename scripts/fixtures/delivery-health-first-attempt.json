@@ -1,0 +1,48 @@
+{
+  "probeDate": "2026-10-04",
+  "repository": "chase-sets/chase-sets",
+  "latest": {
+    "id": 36303563930,
+    "workflow_id": 274293632,
+    "event": "pull_request",
+    "head_sha": "491dc46ddc8891b03269cbb68f6f7b02e45bd735",
+    "repository": { "full_name": "chase-sets/chase-sets" },
+    "run_attempt": 2,
+    "status": "completed",
+    "conclusion": "success",
+    "created_at": "2026-09-27T07:35:20Z",
+    "updated_at": "2026-09-27T08:31:35Z"
+  },
+  "firstAttempt": {
+    "id": 36303563930,
+    "workflow_id": 274293632,
+    "event": "pull_request",
+    "head_sha": "491dc46ddc8891b03269cbb68f6f7b02e45bd735",
+    "repository": { "full_name": "chase-sets/chase-sets" },
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "failure"
+  },
+  "mergeGroupLatest": {
+    "id": 36311318669,
+    "workflow_id": 274293632,
+    "event": "merge_group",
+    "head_sha": "112fe19cf3a287ed86a67934a9799f13303190f0",
+    "repository": { "full_name": "chase-sets/chase-sets" },
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "failure",
+    "created_at": "2026-09-27T10:03:36Z",
+    "updated_at": "2026-09-27T10:30:38Z"
+  },
+  "mergeGroupFirstAttempt": {
+    "id": 36311318669,
+    "workflow_id": 274293632,
+    "event": "merge_group",
+    "head_sha": "112fe19cf3a287ed86a67934a9799f13303190f0",
+    "repository": { "full_name": "chase-sets/chase-sets" },
+    "run_attempt": 1,
+    "status": "completed",
+    "conclusion": "failure"
+  }
+}

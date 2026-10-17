@@ -22,6 +22,15 @@ import {
 describe("source-context wake registry", () => {
   const inventory = loadBoundedContextInventory();
 
+  it("includes listing directive delivery without replacing review moderation wake interest", () => {
+    const entry = requireSourceContextWakeRegistryEntry("platform-operations");
+    expect(entry.affectedProjectionNames).toContain("marketplace:marketplace-listing-moderation-reaction");
+    expect(entry.affectedProjectionNames).toContain("marketplace:marketplace-review-moderation-reaction");
+    expect(
+      entry.affectedProjectionNames.filter((name) => name === "marketplace:marketplace-listing-moderation-reaction"),
+    ).toHaveLength(1);
+  });
+
   it("covers every bounded context with the staging-enabled wake sources explicit", () => {
     expect(() =>
       validateSourceContextWakeRegistry({
@@ -167,6 +176,11 @@ describe("source-context wake registry", () => {
       expect(entry.affectedProjectionNames).toEqual(inventory.projectionsBySource.get(sourceContextName) ?? []);
       expect(entry.routeDependencyIds).toEqual(inventory.routeDependencyIdsBySource.get(sourceContextName) ?? []);
     }
+    expect(
+      requireSourceContextWakeRegistryEntry("pricing").affectedProjectionNames.filter(
+        (name) => name === "pricing:pricing-repricing-halt-projection",
+      ),
+    ).toHaveLength(1);
   });
 
   it("prioritizes the checkout and payment hot path before broader platform expansion", () => {
@@ -187,6 +201,23 @@ describe("source-context wake registry", () => {
     expect(checkout.requiredIssueNumbers).toEqual(
       expect.arrayContaining([1219, 1220, 1221, 1223, 1225, 1227, 1239, 1240, 1242, 1245, 1246]),
     );
+  });
+
+  it("registers wallet funding and its policy projection only under their Payments source", () => {
+    const payments = requireSourceContextWakeRegistryEntry("payments");
+    expect(payments).toMatchObject({
+      owner: "Payments",
+      rolloutState: "staging-enabled",
+      rolloutWave: "wave-1-checkout-hot-path",
+      priorityLane: "hot",
+      enablement: { eventStoreWakeNotifications: true, relayFanOut: true },
+    });
+    for (const key of ["payments:payments-wallet-funding-projection", "payments:platform-policy-document-projection"]) {
+      expect(sourceContextWakeRegistry.filter((entry) => entry.affectedProjectionNames.includes(key))).toEqual([
+        payments,
+      ]);
+      expect(payments.affectedProjectionNames.filter((projectionKey) => projectionKey === key)).toHaveLength(1);
+    }
   });
 
   it("creates write-side and relay configs from the same source-context entry", () => {

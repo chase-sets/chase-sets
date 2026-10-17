@@ -14,6 +14,7 @@ export type CreateProductAlertRequest = Readonly<{
   selectedOptions?: readonly { dimensionId: string; optionId: string }[];
   productSummary?: string | null;
   thresholdAmount?: string | null;
+  thresholdCurrencyCode?: string | null;
 }>;
 
 export interface AnonymousProductAlertIntent {
@@ -26,6 +27,7 @@ export interface AnonymousProductAlertIntent {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   threshold_amount: string | null;
+  threshold_currency_code: string | null;
   status: "active" | "claimed" | "expired";
   claimed_account_id: string | null;
   claimed_alert_id: string | null;

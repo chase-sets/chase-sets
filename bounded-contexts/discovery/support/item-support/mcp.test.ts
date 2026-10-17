@@ -25,6 +25,7 @@ function searchRow(overrides: Record<string, unknown> = {}) {
     image_fallback: null,
     market_summary: {
       lowest_price_amount: "12.34",
+      lowest_price_currency_code: "EUR",
       active_listing_count: 2,
       total_visible_quantity: 3,
     },
@@ -59,6 +60,8 @@ function detailRow(overrides: Record<string, unknown> = {}) {
         storage_location_name: "A",
         ship_from_code: "AUS",
         price_amount: "12.34",
+        price_currency_code: "EUR",
+        listing_stream_version: 2,
         shipping_allowance_percentage_bps: 0,
         quantity_cap: 3,
         max_units_per_order: null,
@@ -96,6 +99,7 @@ function services(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryIte
         nextCursor: null,
         retrievalMode: "lexical" as const,
         lexicalCount: 0,
+        cursorState: "fresh" as const,
         queryHash: "",
         resultSetKey: "",
       })),
@@ -125,6 +129,45 @@ function toolInput(args: Record<string, unknown>) {
 }
 
 describe("Discovery item MCP handlers", () => {
+  it("returns corrected rows through search-market and feed without retrieval metadata", async () => {
+    const fakeServices = services();
+    const original = await fakeServices.search.searchItems();
+    vi.mocked(fakeServices.search.searchItems).mockResolvedValue({
+      ...original,
+      retrievalMode: "corrected",
+      lexicalCount: 0,
+      nextCursor: null,
+    });
+    const handlers = createDiscoveryItemMcpHandlers(fakeServices);
+    const result = await handlers.toolHandlers["discovery.search-market"]?.(toolInput({ query: "chraizard" }));
+    expect(result).toMatchObject({ items: [{ catalog_item_id: "cat_1" }], count: 1, nextCursor: null });
+    expect(result).not.toHaveProperty("retrievalMode");
+    expect(result).not.toHaveProperty("lexicalCount");
+    const feed = await handlers.toolHandlers["discovery.get-chatgpt-product-feed"]?.(toolInput({ query: "chraizard" }));
+    expect(feed).toMatchObject({ products: [{ id: "cat_1" }], count: 1, nextCursor: null });
+    expect(feed).not.toHaveProperty("retrievalMode");
+    expect(feed).not.toHaveProperty("lexicalCount");
+  });
+  it("returns interpreted final rows through search-market and feed without interpretation metadata", async () => {
+    const fakeServices = services();
+    const original = await fakeServices.search.searchItems();
+    vi.mocked(fakeServices.search.searchItems).mockResolvedValue({
+      ...original,
+      nextCursor: null,
+      interpretation: {
+        remainingQuery: "charizard",
+        applied: [{ param: "dimension.dim_seed_grade", optionId: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10" }],
+      },
+    });
+    const handlers = createDiscoveryItemMcpHandlers(fakeServices);
+    const result = await handlers.toolHandlers["discovery.search-market"]?.(toolInput({ query: "charizard psa 10" }));
+    expect(result).toMatchObject({ items: [{ catalog_item_id: "cat_1" }], count: 1, nextCursor: null });
+    const feed = await handlers.toolHandlers["discovery.get-chatgpt-product-feed"]?.(
+      toolInput({ query: "charizard psa 10" }),
+    );
+    expect(feed).toMatchObject({ products: [{ id: "cat_1" }], count: 1, nextCursor: null });
+    expect(JSON.stringify([result, feed])).not.toMatch(/interpretation|remainingQuery|Gem Mint|retrievalMode/);
+  });
   it("searches only active public discovery rows for anonymous callers", async () => {
     const fakeServices = services();
     const handlers = createDiscoveryItemMcpHandlers(fakeServices);
@@ -143,6 +186,35 @@ describe("Discovery item MCP handlers", () => {
         includeTotal: true,
       }),
     );
+  });
+
+  it("forwards an opaque cursor and returns a restarted fresh page in the unchanged search envelope", async () => {
+    const fakeServices = services();
+    const fresh = await createDiscoveryItemMcpHandlers(fakeServices).toolHandlers["discovery.search-market"]?.(
+      toolInput({ query: "charizard" }),
+    );
+    vi.mocked(fakeServices.search.searchItems).mockResolvedValueOnce({
+      items: [searchRow()],
+      facets: [],
+      category_counts: [],
+      total: 1,
+      nextCursor: "cursor_v2",
+      retrievalMode: "lexical",
+      lexicalCount: 1,
+      cursorState: "restarted",
+      queryHash: "",
+      resultSetKey: "",
+    });
+
+    const restarted = await createDiscoveryItemMcpHandlers(fakeServices).toolHandlers["discovery.search-market"]?.(
+      toolInput({ query: "charizard", cursor: "legacy-cursor" }),
+    );
+
+    expect(fakeServices.search.searchItems).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: "charizard", cursor: "legacy-cursor", includeTotal: true }),
+    );
+    expect(Object.keys(restarted as object).sort()).toEqual(Object.keys(fresh as object).sort());
+    expect(restarted).toMatchObject({ total: 1, count: 1, nextCursor: "cursor_v2" });
   });
 
   it("reads active item detail and resource payloads without an actor", async () => {
@@ -201,6 +273,7 @@ describe("Discovery item MCP handlers", () => {
           nextCursor: "cursor_1",
           retrievalMode: "lexical" as const,
           lexicalCount: 1,
+          cursorState: "fresh" as const,
           queryHash: "",
           resultSetKey: "",
         })),
@@ -223,7 +296,7 @@ describe("Discovery item MCP handlers", () => {
           id: "cat_1",
           title: "Charizard",
           url: "https://marketplace.example/items/charizard-cat_1",
-          price: { currency: "USD", amount: "12.34", display: "$12.34" },
+          price: { currency: "EUR", amount: "12.34", display: "€12.34" },
           availability: { status: "in_stock", quantity: 3 },
           variants: [
             {

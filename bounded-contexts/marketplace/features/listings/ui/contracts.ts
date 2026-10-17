@@ -78,6 +78,8 @@ export interface MarketplaceListingListItem {
   ship_from_code: string | null;
   ship_from_address: AddressSnapshot;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number | null;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -196,6 +198,7 @@ export interface MarketplaceListingFeeLockReportEntry {
   product_summary: string | null;
   status: string;
   price_amount: string;
+  price_currency_code: string | null;
   quantity_cap: number;
   max_units_per_order?: number | null;
   max_units_per_day?: number | null;
@@ -254,6 +257,7 @@ export interface MarketplaceAnonymousListingDraftIntent {
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   price_amount: string;
+  price_currency_code: string | null;
   quantity_cap: number;
   max_units_per_order: number | null;
   max_units_per_day: number | null;
@@ -264,6 +268,37 @@ export interface MarketplaceAnonymousListingDraftIntent {
   expires_at: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface MarketplaceListingPriceInput {
+  priceAmount: string;
+  priceCurrencyCode: string;
+}
+
+export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput {
+  inventoryItemId: string;
+  quantityCap: number;
+  purchaseLimits?: Readonly<{
+    maxUnitsPerOrder?: number | null;
+    maxUnitsPerDay?: number | null;
+    maxUnitsPerCustomerAccount?: number | null;
+  }> | null;
+  inventorySnapshot?: unknown;
+  listingIdOverride?: string;
+}
+
+export interface MarketplaceUpdateListingPriceInput extends MarketplaceListingPriceInput {
+  feeQuoteFingerprint?: string | null;
+}
+
+export interface MarketplaceAnonymousListingDraftInput extends MarketplaceListingPriceInput {
+  sourcePath: string;
+  catalogItemId: string;
+  productId: string;
+  selectedOptions: readonly { dimensionId: string; optionId: string }[];
+  productSummary?: string | null;
+  quantityCap: number;
+  purchaseLimits?: MarketplaceCreateListingInput["purchaseLimits"];
 }
 
 export interface MarketplaceListingTermsPreview {
@@ -295,6 +330,7 @@ export interface MarketplaceListingTermsPreview {
 export interface MarketplaceBulkListingPriceUpdateInput {
   listingId: string;
   priceAmount: string;
+  priceCurrencyCode: string;
   feeQuoteFingerprint?: string | null;
   /**
    * Optional optimistic precondition used by automated repricing. A manual
@@ -331,6 +367,7 @@ export interface MarketplaceListingFeeHistoryEntry {
   event_type: string;
   stream_version: number;
   price_amount: string | null;
+  price_currency_code: string | null;
   quantity_cap: number | null;
   marketplace_sales_fee_unit_amount: string | null;
   seller_net_unit_amount: string | null;

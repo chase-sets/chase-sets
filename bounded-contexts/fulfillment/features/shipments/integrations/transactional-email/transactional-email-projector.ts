@@ -1,22 +1,14 @@
 import { defineTransactionalEmail, type NotificationOutbox } from "@chase-sets/outbound-messaging";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { FulfillmentShipmentDeliveredPayload } from "@chase-sets/event-core/public-event-payloads";
 import { mapShipmentDeliveredToTransactionalEmail } from "./transactional-email-intents";
 
 export const FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION = "fulfillment-shipment-transactional-email-projection";
-
-type FulfillmentShipmentDeliveredEmailData = Readonly<{
-  shipmentId: string;
-  orderId: string;
-  buyerAccountId: AccountId;
-  trackingIdentifier: string | null;
-  shippingDestinationSnapshot: Readonly<{ email?: string | null }>;
-}>;
 
 export function buildFulfillmentTransactionalEmailProjectionHandlers(
   outbox: NotificationOutbox,
   projectionName = FULFILLMENT_TRANSACTIONAL_EMAIL_PROJECTION,
 ) {
-  return defineTransactionalEmail<FulfillmentShipmentDeliveredEmailData, string, "fulfillment.shipment.delivered">({
+  return defineTransactionalEmail<FulfillmentShipmentDeliveredPayload, string, "fulfillment.shipment.delivered">({
     outbox,
     projectionName,
     on: "fulfillment.shipment.delivered",

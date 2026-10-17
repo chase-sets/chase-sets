@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import {
+  createEvidenceWindowSourceAdmissionMiddleware,
+  type EvidenceWindowById,
+} from "@chase-sets/platform-runtime/control-plane";
 import type { OrderingApiEnv } from "../../../api";
 import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "./route";
 import type { OrderingOrderServices } from "./runtime";
@@ -30,6 +34,7 @@ function buildApp(
   });
 
   app.route("/account", createAccountPurchaseOrderRoutes(options.services));
+  app.route("/account", createAccountSaleOrderRoutes(options.services));
 
   return app;
 }
@@ -58,7 +63,8 @@ function createServices(): OrderingOrderServices {
     getPurchase: vi.fn(async () => null),
     listSales: vi.fn(async () => ({ items: [], total: 0 })),
     getSale: vi.fn(async () => null),
-    getOrderReviewOpportunity: vi.fn(async () => null),
+    getOrderReviewOpportunity: vi.fn(async () => ({ status: "unavailable" as const, opportunity: null })),
+    cleanupAuthority: { kind: "not-mounted" },
     projectors: [],
   } as unknown as OrderingOrderServices;
 }
@@ -112,17 +118,148 @@ describe("ordering purchase routes", () => {
     inventory_holds: [],
   };
 
+  it("returns delivery only for the authorized purchase and preserves foreign, missing, and sale responses", async () => {
+    const delivery_summary = {
+      shipment_count: 2,
+      delivered_count: 2,
+      latest_delivered_at: "2026-04-09T17:42:00.000Z",
+    };
+    const address = {
+      name: "Test",
+      company: null,
+      line1: "1 Main St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+    };
+    const sale: NonNullable<Awaited<ReturnType<OrderingOrderServices["getSale"]>>> = {
+      ...order,
+      display_reference: "ORD-TESTREF1",
+      protection_amount: "0.20",
+      protection_allowance_amount: "0.20",
+      protection_overage_amount: "0.00",
+      pending_payment_at: null,
+      payment_deadline_at: null,
+      payment_deadline_policy: null,
+      shipping_destination_snapshot: address,
+      shipping_origin_snapshot: address,
+      item_titles: [],
+      money_timeline: { refunds: [], support_cases: [], refunded_amount: "0.00", currency_code: "USD" },
+    };
+    const getPurchase = vi.fn<OrderingOrderServices["getPurchase"]>(async (orderId, buyerAccountId) =>
+      orderId === sale.order_id && buyerAccountId === sale.buyer_account_id ? { ...sale, delivery_summary } : null,
+    );
+    const services: OrderingOrderServices = {
+      ...createServices(),
+      getPurchase,
+      getSale: vi.fn(async (orderId, sellerAccountId) =>
+        orderId === sale.order_id && sellerAccountId === sale.seller_account_id ? sale : null,
+      ),
+    };
+    const actor = {
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_buyer",
+      accountId: "acc_buyer",
+      membershipId: "mbr_1",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    };
+    const buyerApp = buildApp({ actor, services });
+    const response = await buyerApp.request("/account/purchases/ord_1");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ delivery_summary, status: "ready-for-fulfillment" });
+    expect(getPurchase).toHaveBeenLastCalledWith("ord_1", "acc_buyer");
+
+    const foreignApp = buildApp({ actor: { ...actor, accountId: "acc_foreign" }, services });
+    expect((await foreignApp.request("/account/purchases/ord_1")).status).toBe(404);
+    expect(getPurchase).toHaveBeenLastCalledWith("ord_1", "acc_foreign");
+    expect((await buyerApp.request("/account/purchases/ord_missing")).status).toBe(404);
+    expect(getPurchase).toHaveBeenLastCalledWith("ord_missing", "acc_buyer");
+
+    const sellerApp = buildApp({ actor: { ...actor, accountId: "acc_seller" }, services });
+    sellerApp.route("/account", createAccountSaleOrderRoutes(services));
+    const saleResponse = await sellerApp.request("/account/sales/ord_1");
+    expect(saleResponse.status).toBe(200);
+    const saleBody = await saleResponse.json();
+    expect(saleBody.status).toBe("ready-for-fulfillment");
+    expect(saleBody).not.toHaveProperty("delivery_summary");
+    expect((await sellerApp.request("/account/purchases/ord_1")).status).toBe(404);
+  });
+
+  it.each(["purchases", "sales"])(
+    "isolates local review failure and proven absence on %s without retry or foreign requests",
+    async (route) => {
+      const accountId = route === "purchases" ? "acc_buyer" : "acc_seller";
+      const review: OrderingOrderServices["getOrderReviewOpportunity"] = vi.fn(async () => {
+        throw new Error("local read failure");
+      });
+      const services = {
+        ...createServices(),
+        getPurchase: vi.fn(async () => order),
+        getSale: vi.fn(async () => order),
+        getOrderReviewOpportunity: review,
+      } as unknown as OrderingOrderServices;
+      const app = buildApp({
+        services,
+        actor: {
+          sessionId: "ses_1",
+          tenantId: "tnt_identity",
+          userId: "usr_1",
+          accountId,
+          membershipId: "mbr_1",
+          roleKey: "owner",
+          permissions: ["orders.view", "reputation.view", "reputation.manage"],
+        },
+      });
+      const foreign = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("foreign request forbidden"));
+      try {
+        const response = await app.request(`/account/${route}/ord_1`);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+          order_id: "ord_1",
+          reviewOutcome: { status: "unavailable", opportunity: null },
+        });
+        expect(review).toHaveBeenCalledTimes(1);
+        vi.mocked(review).mockResolvedValue({ status: "ready", opportunity: null });
+        expect(await (await app.request(`/account/${route}/ord_1`)).json()).toMatchObject({
+          reviewOutcome: { status: "ready", opportunity: null },
+        });
+        vi.mocked(services.getPurchase).mockResolvedValue(null);
+        vi.mocked(services.getSale).mockResolvedValue(null);
+        expect((await app.request(`/account/${route}/missing`)).status).toBe(404);
+        expect(review).toHaveBeenCalledTimes(2);
+        expect(foreign).not.toHaveBeenCalled();
+      } finally {
+        foreign.mockRestore();
+      }
+    },
+  );
+
   it("adds a local Ordering review opportunity to purchase details when the actor can manage reviews", async () => {
     const services = {
       ...createServices(),
       getPurchase: vi.fn(async () => order),
       getOrderReviewOpportunity: vi.fn(async () => ({
-        order_id: "ord_1",
-        subject_account_id: "acc_seller",
-        subject_display_name: "Seller",
-        author_role: "buyer",
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: null,
+        status: "ready" as const,
+        opportunity: {
+          order_id: "ord_1",
+          subject_account_id: "acc_seller",
+          subject_display_name: "Seller",
+          author_role: "buyer",
+          eligible_at: "2026-04-02T00:00:00.000Z",
+          active_review_id: null,
+          active_review_revealed_at: null,
+          window_expires_at: "2026-06-01T00:00:00.000Z",
+          submission_state: "allowed" as const,
+          hold_reason: null,
+          window_expired: false,
+          revealed: false,
+        },
       })),
     } as unknown as OrderingOrderServices;
     const app = buildApp({
@@ -143,9 +280,12 @@ describe("ordering purchase routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       order_id: "ord_1",
-      reviewOpportunity: {
-        subject_account_id: "acc_seller",
-        author_role: "buyer",
+      reviewOutcome: {
+        status: "ready",
+        opportunity: {
+          subject_account_id: "acc_seller",
+          author_role: "buyer",
+        },
       },
     });
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_buyer");
@@ -177,9 +317,30 @@ describe("ordering purchase routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       order_id: "ord_1",
-      reviewOpportunity: null,
+      reviewOutcome: { status: "unavailable", opportunity: null },
     });
     expect(services.getOrderReviewOpportunity).not.toHaveBeenCalled();
+  });
+
+  it("never reads or exposes review outcomes to a guest checkout actor", async () => {
+    const services = { ...createServices(), getPurchase: vi.fn(async () => order) } as unknown as OrderingOrderServices;
+    const app = buildApp({
+      services,
+      actor: {
+        sessionId: "guest:tok_1",
+        tenantId: "tnt_identity",
+        userId: "usr_guest_checkout",
+        accountId: "acc_guest",
+        membershipId: "guest:tok_1",
+        roleKey: "guest-buyer",
+        permissions: ["guest-checkout.manage"],
+      },
+    });
+    const response = await app.request("/account/purchases/ord_1");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ reviewOutcome: { status: "unavailable", opportunity: null } });
+    expect(services.getOrderReviewOpportunity).not.toHaveBeenCalled();
+    expect((await app.request("/account/sales/ord_1")).status).toBe(403);
   });
 
   it("cancels a buyer purchase through the documented API action", async () => {
@@ -281,12 +442,21 @@ describe("ordering purchase routes", () => {
       ...createServices(),
       getSale: vi.fn(async () => order),
       getOrderReviewOpportunity: vi.fn(async () => ({
-        order_id: "ord_1",
-        subject_account_id: "acc_buyer",
-        subject_display_name: "Buyer",
-        author_role: "seller",
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: "rev_1",
+        status: "ready" as const,
+        opportunity: {
+          order_id: "ord_1",
+          subject_account_id: "acc_buyer",
+          subject_display_name: "Buyer",
+          author_role: "seller",
+          eligible_at: "2026-04-02T00:00:00.000Z",
+          active_review_id: "rev_1",
+          active_review_revealed_at: null,
+          window_expires_at: "2026-06-01T00:00:00.000Z",
+          submission_state: "allowed" as const,
+          hold_reason: null,
+          window_expired: false,
+          revealed: false,
+        },
       })),
     } as unknown as OrderingOrderServices;
     const app = new Hono<OrderingApiEnv>();
@@ -309,14 +479,76 @@ describe("ordering purchase routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       order_id: "ord_1",
-      reviewOpportunity: {
-        subject_account_id: "acc_buyer",
-        author_role: "seller",
-        active_review_id: "rev_1",
+      reviewOutcome: {
+        status: "ready",
+        opportunity: {
+          subject_account_id: "acc_buyer",
+          author_role: "seller",
+          active_review_id: "rev_1",
+        },
       },
     });
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_seller");
   });
+
+  it.each(["orders-only", "view-only", "manage-only", "query-failure", "foreign", "buyer", "guest", "denied"] as const)(
+    "retains only authorized sale data under isolated Review/access control: %s",
+    async (control) => {
+      const services = {
+        ...createServices(),
+        getSale: vi.fn(async (_id: string, account: string) => (account === "acc_seller" ? order : null)),
+        getOrderReviewOpportunity: vi.fn(async () => {
+          if (control === "query-failure") throw new Error("Synthetic query failure/private sentinel");
+          return { status: "ready" as const, opportunity: null };
+        }),
+      } as unknown as OrderingOrderServices;
+      const accountId =
+        control === "foreign"
+          ? "acc_foreign"
+          : control === "buyer"
+            ? "acc_buyer"
+            : control === "guest"
+              ? "acc_guest"
+              : "acc_seller";
+      const permissions =
+        control === "guest"
+          ? ["guest-checkout.manage"]
+          : control === "denied"
+            ? ["reputation.view", "reputation.manage"]
+            : control === "view-only"
+              ? ["orders.view", "reputation.view"]
+              : control === "manage-only"
+                ? ["orders.view", "reputation.manage"]
+                : control === "query-failure"
+                  ? ["orders.view", "reputation.view", "reputation.manage"]
+                  : ["orders.view"];
+      const app = buildApp({
+        services,
+        actor: {
+          sessionId: "ses_1",
+          tenantId: "tnt_identity",
+          userId: "usr_test",
+          accountId,
+          membershipId: "mbr_1",
+          roleKey: control === "guest" ? "guest-buyer" : "owner",
+          permissions,
+        },
+      });
+      const response = await app.request("/account/sales/ord_1");
+      expect(response.status).toBe(
+        control === "denied" || control === "guest" ? 403 : control === "foreign" || control === "buyer" ? 404 : 200,
+      );
+      const dto = await response.json();
+      if (response.status === 200)
+        expect(dto).toMatchObject({
+          order_id: "ord_1",
+          reviewOutcome: { status: "unavailable", opportunity: null },
+        });
+      expect(JSON.stringify(dto)).not.toContain("private sentinel");
+      expect(services.getSale).toHaveBeenCalledTimes(control === "denied" || control === "guest" ? 0 : 1);
+      expect(services.getOrderReviewOpportunity).toHaveBeenCalledTimes(control === "query-failure" ? 1 : 0);
+    },
+  );
 
   it("lets signed-in buyers without order-management permissions preview checkout fulfillment", async () => {
     const services = createServices();
@@ -632,5 +864,167 @@ describe("ordering purchase routes", () => {
       }),
       expect.anything(),
     );
+  });
+});
+
+describe("checkout evidence-window admission through the host middleware (#6755 F3)", () => {
+  const windowId = "abcdef0123456789abcdef0123456789";
+  const buyer: NonNullable<OrderingApiEnv["Variables"]["actor"]> = {
+    sessionId: "ses_1",
+    tenantId: "tnt_identity",
+    userId: "usr_buyer",
+    accountId: "acc_buyer",
+    membershipId: "mbr_1",
+    roleKey: "owner",
+    permissions: ["orders.manage"],
+  };
+  const openRegistration = (): EvidenceWindowById => ({
+    windowId,
+    openedAt: "2026-09-26T00:00:00.000Z",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    state: "open",
+    observedMode: "test",
+  });
+  // The body carries forged identity and timing; only the actor and the
+  // registration may reach the runtime.
+  const forgedBody = {
+    checkoutSessionId: "chk_http",
+    sourceType: "cart-checkout",
+    buyerAccountId: "acc_intruder",
+    windowOpenedAt: "2000-01-01T00:00:00.000Z",
+    evidenceWindowSource: { windowId, subInvocation: "2b", windowOpenedAt: "2000-01-01T00:00:00.000Z" },
+    lines: [],
+  };
+  const pair = (subInvocation = "2a") => ({
+    "x-evidence-window-id": windowId,
+    "x-evidence-window-sub-invocation": subInvocation,
+  });
+
+  function admittedApp(
+    options: Readonly<{
+      mode?: "test" | "live";
+      actor?: OrderingApiEnv["Variables"]["actor"];
+      registrationById?: (id: string) => Promise<EvidenceWindowById | null>;
+    }>,
+  ) {
+    const services = createServices();
+    const registrationById = vi.fn(
+      options.registrationById ?? (async (id: string) => (id === windowId ? openRegistration() : null)),
+    );
+    const actor = options.actor === undefined ? buyer : options.actor;
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      c.set(
+        "context",
+        actor
+          ? {
+              tenantId: "tnt_identity" as never,
+              audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+            }
+          : null,
+      );
+      await next();
+    });
+    if (options.mode) {
+      app.use(
+        "/account/purchases/checkout",
+        createEvidenceWindowSourceAdmissionMiddleware({
+          authority: {
+            effectiveMode: options.mode,
+            gatewayKinds: { paymentProcessor: "stripe", moneyMovement: "stripe" },
+          },
+          registrationById,
+        }),
+      );
+    }
+    app.route("/account", createAccountPurchaseOrderRoutes(services));
+    const checkout = (headers: Record<string, string> = {}) =>
+      app.fetch(
+        new Request("http://ordering.test/account/purchases/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(forgedBody),
+        }),
+      );
+    return { checkout, registrationById, createOrders: vi.mocked(services.createOrdersFromCheckout) };
+  }
+
+  it("admits the header pair through the registration and hands the runtime the actor's identity", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test" });
+    const response = await checkout(pair());
+    expect(response.status).toBe(201);
+    expect(registrationById).toHaveBeenCalledExactlyOnceWith(windowId);
+    expect(createOrders.mock.calls[0]![0]).toMatchObject({
+      buyerAccountId: "acc_buyer",
+      checkoutSessionId: "chk_http",
+      evidenceWindowSource: { windowId, subInvocation: "2a", windowOpenedAt: "2026-09-26T00:00:00.000Z" },
+      evidenceWindowSourceAdmissionConfigured: true,
+    });
+  });
+
+  it("refuses a header pair when the host mounted no admission, and leaves no-header checkout ungoverned", async () => {
+    const { checkout, createOrders } = admittedApp({});
+    const refused = await checkout(pair());
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: { code: "evidence-window-source-failed" } });
+    expect(createOrders).not.toHaveBeenCalled();
+    expect((await checkout()).status).toBe(201);
+    const input = createOrders.mock.calls[0]![0];
+    expect(input).not.toHaveProperty("evidenceWindowSource");
+    expect(input).not.toHaveProperty("evidenceWindowSourceAdmissionConfigured");
+    expect(input.buyerAccountId).toBe("acc_buyer");
+  });
+
+  it("stamps nothing in production mode: the pair is refused and no-header checkout stays ungoverned", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "live" });
+    expect((await checkout(pair())).status).toBe(409);
+    expect(registrationById).not.toHaveBeenCalled();
+    expect(createOrders).not.toHaveBeenCalled();
+    expect((await checkout()).status).toBe(201);
+    expect(createOrders.mock.calls[0]![0]).not.toHaveProperty("evidenceWindowSourceAdmissionConfigured");
+  });
+
+  it.each([
+    ["expired", async () => ({ ...openRegistration(), expiresAt: new Date(Date.now() - 1).toISOString() })],
+    ["closed", async () => ({ ...openRegistration(), state: "closed" as const })],
+    ["unknown", async () => null],
+    ["unreadable", async () => Promise.reject(new Error("registration storage unavailable"))],
+  ])("refuses a %s registration before any runtime call", async (_label, registrationById) => {
+    const { checkout, createOrders } = admittedApp({ mode: "test", registrationById });
+    const response = await checkout(pair());
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: { code: "evidence-window-source-failed" } });
+    expect(createOrders).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ "x-evidence-window-id": windowId }],
+    [{ "x-evidence-window-sub-invocation": "2a" }],
+    [pair("2c")],
+    [{ "x-evidence-window-id": "ABCDEF", "x-evidence-window-sub-invocation": "2a" }],
+  ])("refuses partial or malformed headers %j with no registration read", async (headers) => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test" });
+    const response = await checkout(headers);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: { code: "evidence-window-source-admission-refused" } });
+    expect(registrationById).not.toHaveBeenCalled();
+    expect(createOrders).not.toHaveBeenCalled();
+  });
+
+  it("admits nothing without an authenticated actor", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test", actor: null });
+    expect((await checkout(pair())).status).toBe(401);
+    expect(registrationById).not.toHaveBeenCalled();
+    expect(createOrders).not.toHaveBeenCalled();
+  });
+
+  it("carries the configured admission on a same-source no-header retry so the runtime can fence it", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test" });
+    expect((await checkout()).status).toBe(201);
+    expect(registrationById).not.toHaveBeenCalled();
+    const input = createOrders.mock.calls[0]![0];
+    expect(input).not.toHaveProperty("evidenceWindowSource");
+    expect(input).toMatchObject({ evidenceWindowSourceAdmissionConfigured: true, checkoutSessionId: "chk_http" });
   });
 });

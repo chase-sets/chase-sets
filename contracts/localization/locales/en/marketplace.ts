@@ -1,20 +1,98 @@
 export const marketplaceEnglishTranslations = {
+  "marketplace.marketFollowing.title": "Market-following Offers",
+  "marketplace.marketFollowing.toggle": "Follow the market for selected Offers",
+  "marketplace.marketFollowing.itemOnly":
+    "Item-only limits. Checkout fees, shipping, tax and later amounts are not capped.",
+  "marketplace.marketFollowing.effects":
+    "The lifetime Item Commitment Allowance tracks accepted item commitments, not payments. Payment failure, cancellation and refunds never restore it. Pause or stop prevents new managed price changes and seller acceptance after it is saved. Already accepted Orders remain commitments at their accepted amount.",
+  "marketplace.marketFollowing.status.draft": "Draft",
+  "marketplace.marketFollowing.status.active": "Active",
+  "marketplace.marketFollowing.status.paused": "Paused",
+  "marketplace.marketFollowing.status.stopped": "Stopped",
+  "marketplace.marketFollowing.manage": "Manage {status}: {offers}",
+  "marketplace.marketFollowing.pending": "Saving and refreshing current authority...",
+  "marketplace.marketFollowing.errorTitle": "Review your Offer controls",
+  "marketplace.marketFollowing.error":
+    "Check the selected Offers, matching currency and item limits, then request a fresh preview. Your inputs have been kept.",
+  "marketplace.marketFollowing.stale":
+    "The Offer or Market Price evidence changed. Your inputs have been kept. Request a fresh preview and review it before consenting again.",
+  "marketplace.marketFollowing.select": "Select {title} ({offer})",
+  "marketplace.marketFollowing.current": "Current unit amount: {amount}. Quantity: {quantity}. Currency: {currency}.",
+  "marketplace.marketFollowing.maximum": "Maximum unit item amount: {title}",
+  "marketplace.marketFollowing.allowance": "Lifetime Item Commitment Allowance",
+  "marketplace.marketFollowing.allowanceValue": "Lifetime Item Commitment Allowance: {amount}",
+  "marketplace.marketFollowing.consumed": "Accepted item commitments: {amount}",
+  "marketplace.marketFollowing.remaining": "Remaining item commitment allowance: {amount}",
+  "marketplace.marketFollowing.empty": "Select an eligible submitted Offer. Accepted Offers cannot be repriced.",
+  "marketplace.marketFollowing.advanced": "Advanced adjustment",
+  "marketplace.marketFollowing.adjustment": "Market Price adjustment (%)",
+  "marketplace.marketFollowing.adjustmentHelp": "Defaults to 0%. Choose from 0% to -25%, in steps of 0.01%.",
+  "marketplace.marketFollowing.preview": "Preview selected Offers",
+  "marketplace.marketFollowing.resumePreview": "Preview to resume",
+  "marketplace.marketFollowing.review": "Review exact Offer authority",
+  "marketplace.marketFollowing.reviewTerms":
+    "Currency: {currency}. Adjustment: {adjustment}%. Lifetime Item Commitment Allowance: {allowance}.",
+  "marketplace.marketFollowing.selection":
+    "Offer {offer}. Product {product}. Quantity: {quantity}. Maximum unit item amount: {amount}.",
+  "marketplace.marketFollowing.evidence": "Market Price: {amount}. Estimate version: {version}. Fresh until: {until}.",
+  "marketplace.marketFollowing.target": "Proposed unit item amount: {amount}",
+  "marketplace.marketFollowing.held.market-price-unavailable":
+    "Held: a Market Price is not available for this Product yet.",
+  "marketplace.marketFollowing.held.market-price-invalid":
+    "Held: a valid Market Price is not available for this Product yet.",
+  "marketplace.marketFollowing.held.market-price-product-mismatch":
+    "Held: the Market Price does not match this Product.",
+  "marketplace.marketFollowing.held.market-price-currency-mismatch":
+    "Held: the Market Price currency does not match this Offer.",
+  "marketplace.marketFollowing.held.market-price-stale": "Held: the Market Price needs to be refreshed.",
+  "marketplace.marketFollowing.held.evaluation-time-invalid": "Held: a valid evaluation time is unavailable.",
+  "marketplace.marketFollowing.held.target-below-minimum":
+    "Held: the adjustment is below the minimum unit item amount.",
+  "marketplace.marketFollowing.consent":
+    "I authorize these exact selected Offers, quantities, currency, adjustment, maximum unit item amounts and lifetime Item Commitment Allowance. Increasing the allowance or resuming requires a fresh preview and consent.",
+  "marketplace.marketFollowing.authorize": "Authorize reviewed Offers",
+  "marketplace.marketFollowing.pause": "Pause market following",
+  "marketplace.marketFollowing.stop": "Stop market following",
+  "marketplace.marketFollowing.stopEffects":
+    "Stop is permanent. These Offer IDs cannot resume or transfer to another policy. Continuing requires a new Offer. Already accepted Orders are unaffected.",
+  "marketplace.marketFollowing.seller.unavailable":
+    "This Offer is currently unavailable for acceptance. Already accepted Orders are unaffected.",
+  "marketplace.marketFollowing.seller.held":
+    "This Offer is held and cannot currently be accepted. Check again for current terms.",
+  "marketplace.marketFollowing.seller.refresh_required":
+    "Offer terms need refreshing. Review the current price, fees and evidence in Sell List before accepting.",
+  "marketplace.features.listings.api.route.error.unknownField": "Remove unrecognized fields and try again.",
+  "marketplace.features.listings.api.route.error.priceCurrencyInvalid": "Choose a valid three-letter currency code.",
+  "marketplace.features.listings.api.route.error.availabilityReasonInvalid": "Choose a valid availability reason.",
+  "marketplace.features.listings.api.route.error.awayWindowReasonRequired": "Choose a reason for the away window.",
+  "marketplace.features.listings.api.route.error.awayWindowInstantRequired": "Choose a start time for the away window.",
+  "marketplace.features.listings.api.route.error.orderCapacityInvalid":
+    "Enter a whole-number order capacity of at least 1.",
+  "marketplace.features.listings.api.route.error.photoMultipartRequired": "Upload listing photos using the photo form.",
+  "marketplace.features.listings.api.route.error.photoReplacementRequired": "Choose a replacement photo.",
+  "marketplace.features.listings.api.route.error.idInvalid": "Check the ID and try again.",
+  "marketplace.features.listings.api.route.error.inventorySnapshotInvalid":
+    "Check the inventory details and try again.",
+  "marketplace.features.listings.api.route.error.listingNotFound": "Listing not found.",
+  "marketplace.features.listings.api.route.error.inventoryItemNotFound": "Inventory item not found.",
+  "marketplace.features.listings.api.route.error.commandRejected":
+    "This listing change is not available. Check the listing details and try again.",
+  "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":
+    "Bulk price updates are not available with the current settings.",
+  "marketplace.features.listings.api.route.error.evidenceInvalid": "Check the listing photos and try again.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.error.invalid":
+    "Check the listing policy settings and try again.",
+  "marketplace.features.listings.api.route.error.evidenceIncomplete":
+    "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",
+  "marketplace.features.listings.api.route.error.feeQuoteStale":
+    "Fee quote is stale. Refresh the fee preview before continuing.",
   "marketplace.features.listings.api.route.evidence.incomplete":
     "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",
-  "marketplace.app.host.inventory": "Inventory",
-  "marketplace.app.host.listings": "Listings",
-  "marketplace.app.host.offer.matches": "Offer Matches",
-  "marketplace.app.host.notifications": "Notifications",
-  "marketplace.app.host.payouts": "Payouts",
-  "marketplace.app.host.purchases": "Purchases",
-  "marketplace.app.host.reviews": "Reviews",
-  "marketplace.app.host.sales": "Sales",
-  "marketplace.app.host.sell": "Sell",
-  "marketplace.app.host.sell.2": "Sell",
-  "marketplace.app.host.cart": "Buy Cart",
-  "marketplace.app.host.shipping": "Shipping",
-  "marketplace.app.host.submitted.offers": "Submitted Offers",
-  "marketplace.app.host.wallet": "Wallet",
+  "marketplace.shell.listings.label": "Listings",
+  "marketplace.shell.offerMatches.label": "Offer Matches",
+  "marketplace.shell.reviews.label": "Reviews",
+  "marketplace.shell.sellingWorkspace.label": "Sell",
+  "marketplace.shell.submittedOffers.label": "Submitted Offers",
   "marketplace.app.root.browse.marketplace": "Browse marketplace",
   "marketplace.app.root.error.trust.cue": "No payment or account changes were made. You can continue browsing safely.",
   "marketplace.app.root.go.home": "Go home",
@@ -188,6 +266,11 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingDetailPage.preview.fees": "Preview fees",
   "marketplace.features.listings.ui.listingDetailPage.price": "Price: ",
   "marketplace.features.listings.ui.listingDetailPage.price.2": "Price",
+  "marketplace.features.listings.ui.listingDetailPage.price.currency.code": "Price currency code",
+  "marketplace.features.listings.ui.listingDetailPage.price.currency.code.placeholder": "ISO 4217",
+  "marketplace.features.listings.ui.listingDetailPage.price.incomplete": "Incomplete price",
+  "marketplace.features.listings.ui.listingDetailPage.price.incomplete.description":
+    "This historical listing has an amount but no currency. Enter both to repair its price before publishing.",
   "marketplace.features.listings.ui.listingDetailPage.publish.listing": "Publish listing",
   "marketplace.features.listings.ui.listingDetailPage.quantity.cap": "Quantity cap: ",
   "marketplace.features.listings.ui.listingDetailPage.quantity.cap.2": "Quantity cap",
@@ -354,6 +437,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.ui.listingListPage.preview.fees": "Preview fees",
   "marketplace.features.listings.ui.listingListPage.price": "Price",
   "marketplace.features.listings.ui.listingListPage.price.2": "Price",
+  "marketplace.features.listings.ui.listingListPage.price.incomplete": "Incomplete price",
   "marketplace.features.listings.ui.listingListPage.quantity.cap": "Quantity cap",
   "marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy": "Units this listing exposes for sale.",
   "marketplace.features.listings.ui.listingListPage.limit.per.order": "Limit per order",
@@ -461,6 +545,8 @@ export const marketplaceEnglishTranslations = {
     "No active catalog items matched that search.",
   "marketplace.features.listings.ui.listingCreatePage.catalog.item.lookup.failed": "Catalog item lookup failed.",
   "marketplace.features.listings.ui.listingCreatePage.price": "Price",
+  "marketplace.features.listings.ui.listingCreatePage.price.currency.code": "Price currency code",
+  "marketplace.features.listings.ui.listingCreatePage.price.currency.code.placeholder": "ISO 4217",
   "marketplace.features.listings.ui.listingCreatePage.quantity.cap": "Quantity cap",
   "marketplace.features.listings.ui.listingCreatePage.quantity.cap.exposure.copy":
     "Units this listing exposes for sale.",
@@ -528,14 +614,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.api.route.authentication.required": "Authentication required.",
   "marketplace.features.offers.api.route.offer.daily.submission.cap.reached":
     "You can submit up to {limit} offers per day. Try again after your daily window resets.",
-  "marketplace.features.offers.api.route.offer.listing.submission.cap.reached":
-    "You can submit up to {limit} active or declined offers for one listing per day.",
-  "marketplace.features.offers.api.route.offer.price.floor.not.met":
-    "Offer must be at least {amount} for current listings.",
-  "marketplace.features.offers.api.route.offer.lowball.cooldown":
-    "This account declined repeated low offers. Raise your offer before trying again.",
-  "marketplace.features.offers.api.route.offer.muted.by.sellers":
-    "Current matching accounts are not accepting offers from your account.",
   "marketplace.features.offers.api.route.forbidden": "Forbidden.",
   "marketplace.features.offers.api.route.forbidden.2": "Forbidden.",
   "marketplace.features.offers.api.route.forbidden.3": "Forbidden.",
@@ -544,6 +622,13 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.api.route.offer.not.found": "Offer not found.",
   "marketplace.features.offers.api.route.offer.match.not.found": "Offer match not found.",
   "marketplace.features.offers.api.route.request.failed": "Request failed.",
+  "marketplace.features.offers.api.route.offer.transition.rejected":
+    "This Offer can no longer make that change. Withdrawn and accepted Offers are final.",
+  "marketplace.features.offers.api.route.offer.conflict":
+    "This Offer changed while your request was running. Try again.",
+  "marketplace.features.offers.api.route.offer.lifecycle.closed":
+    "Pausing, resuming and withdrawing Offers is not open yet. Try again later.",
+  "marketplace.features.offers.api.route.bulk.invalid": "Choose pause, resume or withdraw for 1 to {limit} Offers.",
   "marketplace.features.offers.api.route.submitted.offer.not.found": "Submitted offer not found.",
   "marketplace.features.offers.api.runtime.catalog.item.not.found": "Catalog item not found.",
   "marketplace.features.offers.api.runtime.offer.could.not.be.accepted": "Offer could not be accepted.",
@@ -586,7 +671,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.match": "Offer match",
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview": "Offer Match Overview",
   "marketplace.features.offers.ui.offerMatchDetailPage.decline": "Decline",
-  "marketplace.features.offers.ui.offerMatchDetailPage.mute.buyer": "Mute buyer",
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.price": "Offer price: ",
   "marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask":
     "Offer is {percentage} of ask, {gap}.",
@@ -628,12 +712,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.item": "Item",
   "marketplace.features.offers.ui.offerMatchListPage.listing": "Listing",
   "marketplace.features.offers.ui.offerMatchListPage.listing.quantity": "{visible} visible of {cap} listed",
-  "marketplace.features.offers.ui.offerMatchListPage.mute.buyer": "Mute buyer",
-  "marketplace.features.offers.ui.offerMatchListPage.muted.buyers": "Muted buyers",
-  "marketplace.features.offers.ui.offerMatchListPage.muted.buyers.appear.here":
-    "Muted buyers appear here after you mute offer matches from an account.",
-  "marketplace.features.offers.ui.offerMatchListPage.muted.on": "Muted on",
-  "marketplace.features.offers.ui.offerMatchListPage.no.muted.buyers": "No muted buyers",
   "marketplace.features.offers.ui.offerMatchListPage.needs.supply": "Needs supply",
   "marketplace.features.offers.ui.offerMatchListPage.listings.unavailable": "Listings unavailable",
   "marketplace.features.offers.ui.offerMatchListPage.no.offer.matches": "No offer matches",
@@ -682,9 +760,9 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.offerMatchListPage.standard.terms": "Standard terms",
   "marketplace.features.offers.ui.offerMatchListPage.status": "Status",
   "marketplace.features.offers.ui.offerMatchListPage.updated": "Updated",
-  "marketplace.features.offers.ui.offerMatchListPage.unmute": "Unmute",
   "marketplace.features.offers.ui.offerMatchListPage.view.listings": "View listings",
   "marketplace.features.offers.ui.offerMatchListPage.your.listing": "Your Listing",
+  "marketplace.features.offers.ui.price.incomplete": "Price incomplete",
   "marketplace.features.offers.ui.priceGap.below.ask": "{amount} below ask",
   "marketplace.features.offers.ui.priceGap.meets.ask": "Meets ask",
   "marketplace.features.offers.ui.priceGap.over.ask": "{amount} over ask",
@@ -736,6 +814,60 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.offers.ui.submittedOfferListPage.submitted.offers.2": "Submitted Offers",
   "marketplace.features.offers.ui.submittedOfferListPage.updated": "Updated",
   "marketplace.features.offers.ui.submittedOfferListPage.updated.on": "Updated {date}",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.status.filter": "Offer status",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.filter.all": "All ({count})",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.filter.submitted": "Open ({count})",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.filter.paused": "Paused ({count})",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.filter.withdrawn": "Withdrawn ({count})",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.filter.accepted": "Accepted ({count})",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.status.submitted": "Open",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.status.paused": "Paused",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.status.withdrawn": "Withdrawn",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.status.accepted": "Accepted",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.empty.submitted": "No open Offers",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.empty.paused": "No paused Offers",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.empty.withdrawn": "No withdrawn Offers",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.empty.accepted": "No accepted Offers",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.empty.description":
+    "Offers with this status appear here. Choose another status to see the rest of your Offers.",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.pause.row": "Pause {title}",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.resume.row": "Resume {title}",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw.row": "Withdraw {title}",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.pause": "Pause",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.resume": "Resume",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw": "Withdraw",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.pause.offer": "Pause Offer",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.resume.offer": "Resume Offer",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw.offer": "Withdraw Offer",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.select.row": "Select {title}",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.selected": "{count} Offers selected",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.pause": "Pause selected",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.resume": "Resume selected",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.withdraw": "Withdraw selected",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.bulk.clear": "Clear selection",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw.confirm.title.one": "Withdraw this Offer?",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw.confirm.title.many": "Withdraw {count} Offers?",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw.confirm.description":
+    "Withdrawal is final. Sellers can no longer see or accept a withdrawn Offer. To bid again, submit a new Offer.",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.withdraw.confirm.cancel": "Keep Offer",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.manage.title": "Manage this Offer",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.paused.notice":
+    "Sellers cannot see or accept this Offer until you resume it.",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.pending": "Updating Offers…",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcomes.title": "Offer changes",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcomes.summary":
+    "{changed} changed, {unchanged} already in that state, {rejected} could not change",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.changed": "{offer}: now {status}",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.unchanged": "{offer}: already {status}",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.not_found": "{offer}: not found",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.offer_transition_rejected":
+    "{offer}: withdrawn and accepted Offers are final",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.offer_conflict":
+    "{offer}: changed during the request. Try again.",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.offer_lifecycle_closed":
+    "{offer}: Pause, Resume and Withdraw are not open yet. Try again later.",
+  "marketplace.features.offers.ui.submittedOfferLifecycle.outcome.request_failed":
+    "{offer}: could not change. Try again.",
   "marketplace.routes.accountListing.inspect.listing.inventory.pricing.quantity.caps":
     "Inspect listing inventory, pricing, quantity caps, and publication status.",
   "marketplace.routes.accountListing.listing.marketplace": "Listing | Marketplace",
@@ -807,7 +939,6 @@ export const marketplaceEnglishTranslations = {
   "marketplace.routes.accountOfferSubmitted.feedback.description":
     "Tell us how the offer submission workflow worked for you.",
   "marketplace.routes.accountOfferSubmitted.feedback.title": "How was making this offer?",
-  "marketplace.app.host.import": "Import",
   "marketplace.features.offers.ui.offerSubmissionSection.recipient.name": "Recipient name",
   "marketplace.features.offers.ui.offerSubmissionSection.address.line1": "Address line 1",
   "marketplace.features.offers.ui.offerSubmissionSection.address.line2": "Address line 2",
@@ -898,6 +1029,14 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listingEvidencePolicy.ui.create.draft": "Create draft",
   "marketplace.features.listingEvidencePolicy.ui.intent.invalid": "Choose a supported policy action.",
   "marketplace.features.sellerDesk.eyebrow": "Seller Desk",
+  "marketplace.features.sellerDesk.reason.connectorLiveness": "Connector not responding",
+  "marketplace.features.sellerDesk.summary.channelActionOpen":
+    "Health reasons needing attention: {reasonCount}. First: {topReason}.",
+  "marketplace.features.sellerDesk.summary.channelDriftCount": "Affected listings: {affectedListingCount}.",
+  "marketplace.features.sellerDesk.summary.channelDriftOverflow":
+    "Affected listings: more than {affectedListingCount}.",
+  "marketplace.features.sellerDesk.action.channelAttention": "Review channel attention",
+  "marketplace.features.sellerDesk.source.channelAction": "Channel action",
   "marketplace.features.sellerDesk.title": "Seller Desk",
   "marketplace.features.sellerDesk.description":
     "Everything that needs you, most important first — alongside the numbers that describe your business.",
@@ -927,6 +1066,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.surfaces.title": "Jump to",
   "marketplace.features.sellerDesk.surfaces.listings": "Listings",
   "marketplace.features.sellerDesk.surfaces.offers": "Offers",
+  "marketplace.features.sellerDesk.surfaces.sales": "Sales",
   "marketplace.features.sellerDesk.surfaces.shipments": "Shipments",
   "marketplace.features.sellerDesk.surfaces.payouts": "Payouts",
   "marketplace.features.sellerDesk.surfaces.inventory": "Inventory",
@@ -940,6 +1080,16 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.summary.importRowsUnresolved": "Import {reference} has {count} rows to resolve",
   "marketplace.features.sellerDesk.summary.offerAwaitingResponse": "Offer on {reference} is awaiting your response",
   "marketplace.features.sellerDesk.summary.listingNeedsAction": "Listing {reference} needs attention ({action})",
+  "marketplace.features.sellerDesk.summary.repricingHaltEngaged":
+    "Repricing is halted: no policy changes prices until you release the halt",
+  "marketplace.features.sellerDesk.summary.repricingFloorBinding":
+    "{count} listings have been held at their price floor past your alert threshold",
+  "marketplace.features.sellerDesk.summary.repricingPausedForMissingInput":
+    "{count} listings are paused from repricing while a required input is missing",
+  "marketplace.features.sellerDesk.summary.repricingBudgetExhausted":
+    "A repricing policy used today's change cap; {count} listings waited for tomorrow",
+  "marketplace.features.sellerDesk.summary.repricingFrozen":
+    "Repricing is briefly frozen on {count} listings of one product and resumes automatically",
   "marketplace.features.sellerDesk.summary.fallback": "An item needs your attention",
   "marketplace.features.sellerDesk.action.shipByLink": "Pack shipment",
   "marketplace.features.sellerDesk.action.payoutLink": "Review payout",
@@ -947,10 +1097,12 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.action.offerLink": "Review offer",
   "marketplace.features.sellerDesk.action.listingLink": "Open listing",
   "marketplace.features.sellerDesk.action.disputeLink": "Respond to dispute",
+  "marketplace.features.sellerDesk.action.repricingLink": "Review repricing",
   "marketplace.features.sellerDesk.source.fulfillmentShipBy": "Shipments",
   "marketplace.features.sellerDesk.source.settlementBlockedPayout": "Blocked payouts",
   "marketplace.features.sellerDesk.source.inventoryResolution": "Import resolution",
   "marketplace.features.sellerDesk.source.offerResponse": "Offers",
   "marketplace.features.sellerDesk.source.listingAction": "Listings",
   "marketplace.features.sellerDesk.source.disputeResponse": "Disputes",
+  "marketplace.features.sellerDesk.source.pricingRepricing": "Repricing",
 } as const;

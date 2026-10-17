@@ -1,3 +1,4 @@
+import { parseProcessorSetupSessionCancellationResult } from "./index";
 import type {
   CreateProcessorCustomerInput,
   CreateProcessorPaymentInput,
@@ -7,6 +8,7 @@ import type {
   PaymentProcessorWebhookEvent,
   ProcessorPaymentReconciliationResult,
   ProcessorSavedPaymentMethod,
+  ProcessorSetupSessionCancellationResult,
 } from "./index";
 
 type FakeWebhookEnvelope = Readonly<{
@@ -23,6 +25,7 @@ export type FakePaymentProcessorGatewayOptions = Readonly<{
   publishableKey?: string | null;
   paymentResults?: Readonly<Record<string, ProcessorPaymentReconciliationResult | null>>;
   paymentResultsByPaymentId?: Readonly<Record<string, ProcessorPaymentReconciliationResult | null>>;
+  setupSessionStatuses?: Readonly<Record<string, string | null>>;
 }>;
 
 function createPaymentReference(input: CreateProcessorPaymentInput) {
@@ -54,6 +57,18 @@ export function createFakePaymentProcessorGateway(
 ): PaymentProcessorGateway {
   const paymentResults = new Map(Object.entries(options.paymentResults ?? {}));
   const paymentResultsByPaymentId = new Map(Object.entries(options.paymentResultsByPaymentId ?? {}));
+  const setupSessionStatuses = new Map<string, string | null>([
+    ["seti_gateway_contract", "requires_payment_method"],
+    ...Object.entries(options.setupSessionStatuses ?? {}),
+  ]);
+
+  const cancellationResult = (value: unknown): ProcessorSetupSessionCancellationResult => {
+    const parsed = parseProcessorSetupSessionCancellationResult(value);
+    if (!parsed) {
+      throw new Error("Fake payment processor produced an invalid setup-session cancellation result.");
+    }
+    return parsed;
+  };
 
   return {
     getPublicConfiguration() {
@@ -73,10 +88,16 @@ export function createFakePaymentProcessorGateway(
     },
     async createSetupSession(input: CreateProcessorSetupSessionInput) {
       const embedded = input.uiMode === "embedded";
+      const processorSetupReference = embedded
+        ? `seti_setup_seed_${input.accountId}`
+        : `cs_setup_seed_${input.accountId}`;
+      if (embedded) {
+        setupSessionStatuses.set(processorSetupReference, "requires_payment_method");
+      }
       return {
         processorName: "stripe",
         processorSetupKind: embedded ? "setup-intent" : "checkout-setup-session",
-        processorSetupReference: embedded ? `seti_setup_seed_${input.accountId}` : `cs_setup_seed_${input.accountId}`,
+        processorSetupReference,
         processorClientSecret: embedded
           ? `seti_setup_seed_${input.accountId}_secret_seed`
           : `cs_setup_seed_${input.accountId}_secret_seed`,
@@ -92,6 +113,28 @@ export function createFakePaymentProcessorGateway(
         setupIntentReference: `seti_${processorSetupReference}`,
         savedPaymentMethod: fakeSavedPaymentMethod(`pm_${processorSetupReference}`, "cus_seed"),
       };
+    },
+    async cancelSetupSession(processorSetupReference) {
+      const reference = processorSetupReference.trim();
+      if (!reference || !reference.startsWith("seti_")) {
+        return cancellationResult({ outcome: "refused", reason: "invalid-reference", httpStatus: null });
+      }
+      if (!setupSessionStatuses.has(reference)) {
+        return cancellationResult({ outcome: "not-found" });
+      }
+
+      const status = setupSessionStatuses.get(reference);
+      if (status === "canceled" || status === "succeeded") {
+        return cancellationResult({ outcome: "already-terminal", processorStatus: status });
+      }
+      if (status !== "requires_payment_method" && status !== "requires_confirmation" && status !== "requires_action") {
+        return cancellationResult({ outcome: "refused", reason: "unexpected-status", httpStatus: 200 });
+      }
+
+      // There is no await between observing and changing state, so only one
+      // concurrent caller can own the effective eligible -> canceled transition.
+      setupSessionStatuses.set(reference, "canceled");
+      return cancellationResult({ outcome: "cancelled", processorStatus: "canceled" });
     },
     async retrieveSavedPaymentMethod(providerReference) {
       return fakeSavedPaymentMethod(providerReference);

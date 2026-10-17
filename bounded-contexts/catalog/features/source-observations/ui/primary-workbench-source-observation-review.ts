@@ -11,7 +11,11 @@ import type {
   CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
 } from "../api/primary-workbench-admin-contracts";
 import type { SourceObservationProductContentsPromotionLine } from "../domain/domain";
-import type { SourceObservationIntegrationScope, SourceObservationListItem } from "./contracts";
+import type {
+  SourceObservationIntegrationScope,
+  SourceObservationListItem,
+  SourceObservationPromotionValidation,
+} from "./contracts";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import { actionStateForBlockers, setQueryParam } from "./primary-workbench-read-model-support";
 import { scopeContextFromRouteContext, scopeContextToObservationFilterScope } from "./primary-workbench-scope-context";
@@ -432,7 +436,11 @@ export function promotionPreviewFor(input: {
   // those (conflicting-disposition count + the replay profile semantics) from the
   // composed evidence index instead.
   reviewEvidenceByObservationId: ReadonlyMap<string, CatalogPrimaryWorkbenchSourceObservationEvidenceDetail>;
+  // The read-only pre-write validation the loader fetched for the route's
+  // preview token; null when no preview is in play or the preview call failed.
+  promotionValidation: SourceObservationPromotionValidation | null;
 }): CatalogPrimaryWorkbenchReadModel["promotionPreview"] {
+  const validation = promotionValidationFor(input.routeContext, input.promotionValidation);
   const selectedObservationIds = input.routeContext.selectedObservationIds;
   const selectedIdSet = new Set(selectedObservationIds);
   const hasExplicitRows = selectedObservationIds.length > 0;
@@ -504,6 +512,9 @@ export function promotionPreviewFor(input: {
   if (scopedRows.some((row) => row.promotionReadiness.blockers.includes("promotion-conflict"))) {
     blockers.add("promotion-conflict");
   }
+  if (validation.identityDiagnostics.some((diagnostic) => diagnostic.blocking)) {
+    blockers.add("display-identity-unresolvable");
+  }
   if (staleReasons.length > 0) {
     blockers.add("stale-promotion-preview");
   }
@@ -521,6 +532,7 @@ export function promotionPreviewFor(input: {
 
   return {
     previewId: input.routeContext.promotionPreviewId,
+    validation,
     freshness: staleReasons.length > 0 ? "stale" : eligibleCount > 0 ? "fresh" : "partial",
     scope,
     dispositions: {
@@ -593,6 +605,56 @@ function promotionFilterSummaryFor(
   return activeFilters.length > 0
     ? activeFilters
     : [t("catalog.features.sourceObservations.ui.primaryWorkbench.command.scope.no.filters")];
+}
+
+// Project the preview's read-only validation page into the operator read
+// model. Only structured resolver evidence crosses: template reason, missing
+// token names, template key. No title, field value, or provider text.
+function promotionValidationFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  validation: SourceObservationPromotionValidation | null,
+): CatalogPrimaryWorkbenchReadModel["promotionPreview"]["validation"] {
+  if (!routeContext.promotionPreviewId || !validation) {
+    return {
+      promoteAsDraft: routeContext.promoteAsDraft === true,
+      coverage: "not-previewed",
+      coveredCount: 0,
+      continuation: null,
+      identityDiagnostics: [],
+      otherBlockedObservationIds: [],
+    };
+  }
+
+  const identityDiagnostics = validation.diagnostics.flatMap((diagnostic) =>
+    diagnostic.code === "display-identity-unresolvable" && diagnostic.displayIdentity
+      ? [
+          {
+            observationId: diagnostic.observationId,
+            blocking: diagnostic.blocking,
+            templateReason: diagnostic.displayIdentity.templateReason,
+            diagnosticText: diagnostic.diagnosticText,
+            missingTokens: diagnostic.displayIdentity.missingTokens,
+            templateKey: diagnostic.displayIdentity.templateKey,
+          },
+        ]
+      : [],
+  );
+  const otherBlockedObservationIds = [
+    ...new Set(
+      validation.diagnostics
+        .filter((diagnostic) => diagnostic.blocking && diagnostic.code !== "display-identity-unresolvable")
+        .map((diagnostic) => diagnostic.observationId),
+    ),
+  ].sort();
+
+  return {
+    promoteAsDraft: validation.promoteAsDraft,
+    coverage: validation.coverage,
+    coveredCount: validation.coveredObservationIds.length,
+    continuation: validation.continuation,
+    identityDiagnostics,
+    otherBlockedObservationIds,
+  };
 }
 
 function promotionPreviewStaleReasonsFor(input: {

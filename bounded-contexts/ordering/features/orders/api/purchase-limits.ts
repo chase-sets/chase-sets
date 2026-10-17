@@ -3,6 +3,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { OrderingDomainError, type OrderSourceType } from "../domain/common";
 import type { MarketplaceSupplyCandidate } from "../domain/policies";
 import { getOrderingSupplyCandidateByListingId } from "../integrations/supply/supply-queries";
+import { lockOpenEvidenceWindowSource } from "./evidence-window-source-release";
 
 type PurchaseLimitCheckoutPlan = Readonly<{
   orderDrafts: readonly Readonly<{
@@ -180,9 +181,10 @@ export async function planHasAccountScopedPurchaseLimits(db: PgQueryable, plan: 
 }
 
 export async function claimPlanPurchaseLimitUsage(
-  db: PgQueryable,
+  db: PgTransactionalPool,
   buyerAccountId: string,
   plan: PurchaseLimitCheckoutPlan,
+  governed = false,
 ) {
   const quantities = new Map<string, number>();
   let sourceType: OrderSourceType | null = null;
@@ -200,24 +202,29 @@ export async function claimPlanPurchaseLimitUsage(
     return;
   }
 
-  for (const [listingId, quantity] of quantities.entries()) {
-    const candidate = await getOrderingSupplyCandidateByListingId(db, listingId);
-    if (
-      !candidate ||
-      (finiteLimit(candidate.maxUnitsPerOrder) === null &&
-        finiteLimit(candidate.maxUnitsPerDay) === null &&
-        finiteLimit(candidate.maxUnitsPerCustomerAccount) === null)
-    ) {
-      continue;
+  await withPgTransaction(db, async (client) => {
+    if (governed && !(await lockOpenEvidenceWindowSource(client, { sourceType, sourceReferenceId, buyerAccountId }))) {
+      throw new OrderingDomainError("Evidence window source binding is missing.");
     }
+    // Every checkout takes usage locks in the same order, including reversed plans.
+    for (const [listingId, quantity] of [...quantities.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      const candidate = await getOrderingSupplyCandidateByListingId(client, listingId);
+      if (
+        !candidate ||
+        (finiteLimit(candidate.maxUnitsPerOrder) === null &&
+          finiteLimit(candidate.maxUnitsPerDay) === null &&
+          finiteLimit(candidate.maxUnitsPerCustomerAccount) === null)
+      ) {
+        continue;
+      }
 
-    const perOrderLimit = finiteLimit(candidate.maxUnitsPerOrder);
-    if (perOrderLimit !== null && quantity > perOrderLimit) {
-      throw new OrderingDomainError(listingPurchaseLimitReachedReason);
-    }
+      const perOrderLimit = finiteLimit(candidate.maxUnitsPerOrder);
+      if (perOrderLimit !== null && quantity > perOrderLimit) {
+        throw new OrderingDomainError(listingPurchaseLimitReachedReason);
+      }
 
-    const insertedClaim = await db.query<{ claim_id: string }>(
-      `INSERT INTO ordering_listing_purchase_limit_claims (
+      const insertedClaim = await client.query<{ claim_id: string }>(
+        `INSERT INTO ordering_listing_purchase_limit_claims (
          claim_id,
          source_type,
          source_reference_id,
@@ -232,33 +239,33 @@ export async function claimPlanPurchaseLimitUsage(
        ON CONFLICT (source_type, source_reference_id, buyer_account_id, listing_id)
        DO NOTHING
        RETURNING claim_id`,
-      [createId("opl"), sourceType, sourceReferenceId, buyerAccountId, listingId, quantity],
-    );
+        [createId("opl"), sourceType, sourceReferenceId, buyerAccountId, listingId, quantity],
+      );
 
-    if (insertedClaim.rowCount === 0) {
-      const existingClaim = await db.query<{
-        quantity: number | string;
-        status: string;
-      }>(
-        `SELECT quantity, status
+      if (insertedClaim.rowCount === 0) {
+        const existingClaim = await client.query<{
+          quantity: number | string;
+          status: string;
+        }>(
+          `SELECT quantity, status
          FROM ordering_listing_purchase_limit_claims
          WHERE source_type = $1
            AND source_reference_id = $2
            AND buyer_account_id = $3
            AND listing_id = $4`,
-        [sourceType, sourceReferenceId, buyerAccountId, listingId],
-      );
-      const existing = existingClaim.rows[0];
-      if (existing?.status === "claimed" && Number(existing.quantity) === quantity) {
-        continue;
+          [sourceType, sourceReferenceId, buyerAccountId, listingId],
+        );
+        const existing = existingClaim.rows[0];
+        if (existing?.status === "claimed" && Number(existing.quantity) === quantity) {
+          continue;
+        }
+        throw new OrderingDomainError("Checkout confirmation for this listing is already in progress.");
       }
-      throw new OrderingDomainError("Checkout confirmation for this listing is already in progress.");
-    }
 
-    const usage = await loadPurchaseLimitUsage(db, buyerAccountId, listingId, sourceType, sourceReferenceId);
-    const dayKey = marketplaceDayKey();
-    await db.query(
-      `INSERT INTO ordering_listing_purchase_limit_usage (
+      const usage = await loadPurchaseLimitUsage(client, buyerAccountId, listingId, sourceType, sourceReferenceId);
+      const dayKey = marketplaceDayKey();
+      await client.query(
+        `INSERT INTO ordering_listing_purchase_limit_usage (
          buyer_account_id,
          listing_id,
          marketplace_day,
@@ -268,21 +275,21 @@ export async function claimPlanPurchaseLimitUsage(
        )
        VALUES ($1, $2, $3::date, $4, $5, now())
        ON CONFLICT (buyer_account_id, listing_id) DO NOTHING`,
-      [buyerAccountId, listingId, dayKey, usage.dayQuantity, usage.customerAccountQuantity],
-    );
-    await db.query(
-      `UPDATE ordering_listing_purchase_limit_usage
+        [buyerAccountId, listingId, dayKey, usage.dayQuantity, usage.customerAccountQuantity],
+      );
+      await client.query(
+        `UPDATE ordering_listing_purchase_limit_usage
        SET marketplace_day = $3::date,
            day_quantity = 0,
            updated_at = now()
        WHERE buyer_account_id = $1
          AND listing_id = $2
          AND marketplace_day <> $3::date`,
-      [buyerAccountId, listingId, dayKey],
-    );
+        [buyerAccountId, listingId, dayKey],
+      );
 
-    const claimed = await db.query<{ buyer_account_id: string }>(
-      `UPDATE ordering_listing_purchase_limit_usage
+      const claimed = await client.query<{ buyer_account_id: string }>(
+        `UPDATE ordering_listing_purchase_limit_usage
        SET day_quantity = day_quantity + $4,
            customer_account_quantity = customer_account_quantity + $4,
            updated_at = now()
@@ -292,33 +299,22 @@ export async function claimPlanPurchaseLimitUsage(
          AND ($5::integer IS NULL OR day_quantity + $4 <= $5)
          AND ($6::integer IS NULL OR customer_account_quantity + $4 <= $6)
        RETURNING buyer_account_id`,
-      [
-        buyerAccountId,
-        listingId,
-        dayKey,
-        quantity,
-        finiteLimit(candidate.maxUnitsPerDay),
-        finiteLimit(candidate.maxUnitsPerCustomerAccount),
-      ],
-    );
-
-    if (claimed.rowCount === 0) {
-      await db.query(
-        `UPDATE ordering_listing_purchase_limit_claims
-         SET status = 'released',
-             released_at = now()
-         WHERE source_type = $1
-           AND source_reference_id = $2
-           AND buyer_account_id = $3
-           AND listing_id = $4
-           AND status = 'pending'`,
-        [sourceType, sourceReferenceId, buyerAccountId, listingId],
+        [
+          buyerAccountId,
+          listingId,
+          dayKey,
+          quantity,
+          finiteLimit(candidate.maxUnitsPerDay),
+          finiteLimit(candidate.maxUnitsPerCustomerAccount),
+        ],
       );
-      throw new OrderingDomainError(listingPurchaseLimitReachedReason);
-    }
 
-    await db.query(
-      `UPDATE ordering_listing_purchase_limit_claims
+      if (claimed.rowCount === 0) {
+        throw new OrderingDomainError(listingPurchaseLimitReachedReason);
+      }
+
+      await client.query(
+        `UPDATE ordering_listing_purchase_limit_claims
        SET status = 'claimed',
            released_at = NULL
        WHERE source_type = $1
@@ -326,9 +322,10 @@ export async function claimPlanPurchaseLimitUsage(
          AND buyer_account_id = $3
          AND listing_id = $4
          AND status = 'pending'`,
-      [sourceType, sourceReferenceId, buyerAccountId, listingId],
-    );
-  }
+        [sourceType, sourceReferenceId, buyerAccountId, listingId],
+      );
+    }
+  });
 }
 
 export async function releasePurchaseLimitClaimsForOrder(
@@ -356,7 +353,8 @@ export async function releasePurchaseLimitClaimsForOrder(
     }>(
       `UPDATE ordering_listing_purchase_limit_claims
        SET status = 'released',
-           released_at = now()
+           released_at = now(),
+           usage_residue_upper_bound_units = NULL
        WHERE source_type = $1
          AND source_reference_id = $2
          AND buyer_account_id = $3
@@ -366,9 +364,42 @@ export async function releasePurchaseLimitClaimsForOrder(
       [order.source_type, order.source_reference_id, order.buyer_account_id, listingIds],
     );
 
-    for (const claim of releasedClaims.rows) {
-      await client.query(
-        `UPDATE ordering_listing_purchase_limit_usage
+    await decrementPurchaseLimitUsage(client, order.buyer_account_id, releasedClaims.rows);
+  });
+}
+
+export type ReleasedPurchaseLimitClaim = Readonly<{
+  listing_id: string;
+  quantity: number | string;
+  claimed_day: string;
+}>;
+
+// The caller holds the owned pending source lock and has proved that no Order exists.
+export async function releasePurchaseLimitClaimsForFailedSource(
+  client: PgQueryable,
+  source: Readonly<{ sourceType: OrderSourceType; sourceReferenceId: string; buyerAccountId: string }>,
+) {
+  const released = await client.query<ReleasedPurchaseLimitClaim & { status: string }>(
+    `DELETE FROM ordering_listing_purchase_limit_claims
+     WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
+     RETURNING listing_id, quantity, claimed_at::date::text AS claimed_day, status`,
+    [source.sourceType, source.sourceReferenceId, source.buyerAccountId],
+  );
+  await decrementPurchaseLimitUsage(
+    client,
+    source.buyerAccountId,
+    released.rows.filter((claim) => claim.status === "claimed"),
+  );
+}
+
+export async function decrementPurchaseLimitUsage(
+  client: PgQueryable,
+  buyerAccountId: string,
+  claims: readonly ReleasedPurchaseLimitClaim[],
+) {
+  for (const claim of [...claims].sort((a, b) => a.listing_id.localeCompare(b.listing_id))) {
+    await client.query(
+      `UPDATE ordering_listing_purchase_limit_usage
          SET day_quantity = CASE
                WHEN marketplace_day = $3::date THEN GREATEST(0, day_quantity - $4)
                ELSE day_quantity
@@ -377,8 +408,7 @@ export async function releasePurchaseLimitClaimsForOrder(
              updated_at = now()
          WHERE buyer_account_id = $1
            AND listing_id = $2`,
-        [order.buyer_account_id, claim.listing_id, claim.claimed_day, Number(claim.quantity)],
-      );
-    }
-  });
+      [buyerAccountId, claim.listing_id, claim.claimed_day, Number(claim.quantity)],
+    );
+  }
 }

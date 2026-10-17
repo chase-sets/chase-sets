@@ -1,20 +1,58 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPgPool,
+  createPostgresEventStore,
+  withPgTransaction,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  bootstrapContextDatabase,
+  loadProjectionGroupGeneration,
+  rebuildProjectionGroup,
+  syncProjectionGroup,
+  type ContextProjectionGroup,
+} from "@chase-sets/bounded-context-runtime";
+import { createProjectionGroupWorkerRunner } from "@chase-sets/platform-runtime/worker";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   closeMultiContextTestPools,
+  createMountedContextTestRuntime,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { module as checkoutModule } from "../../../index";
+import { createCheckoutCartRuntime } from "../api/runtime";
+import { createCheckoutCartMcpHandlers } from "../api/mcp";
+import { createCheckoutSessionRuntime } from "../../sessions/api/runtime";
+import {
+  decideCheckoutCart,
+  evolveCheckoutCart,
+  initialCheckoutCartState,
+  requireCheckoutCartClaimIdentity,
+  type CheckoutCartEvent,
+} from "../domain/domain";
 import {
   applyCartReadinessToLines,
   cartReadinessDecisionsFromSnapshot,
   createCartReadinessSnapshot,
   validateCartReadinessSnapshot,
 } from "../domain/readiness";
-import { listCartLines, type CheckoutCartLineRow } from "./queries";
+import { buildCheckoutCartProjectionHandlers } from "./projection";
+import { listCartLines, listOwnCartLines, type CheckoutCartLineRow } from "./queries";
+import { checkoutCartSchemaMigrations, checkoutCartSchemaSql } from "./schema";
+import {
+  buildCheckoutMarketplaceSellerOptionsProjectionHandlers,
+  withCheckoutProductMeasurePublicationReset,
+} from "../integrations/marketplace/marketplace-projection";
 
 /**
  * DB-tier replacement for the former seller-options readiness interpreter test.
@@ -41,6 +79,8 @@ type SeededSellerOption = Readonly<{
   seller_account_id: string;
   product_id: string;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   listing_quantity_cap: number;
   supply_total_quantity: number | null;
   active_held_quantity: number | null;
@@ -65,6 +105,15 @@ const contextNames = ["checkout"] as const;
 const buyerAccountId = "acc_buyer";
 let pool: PgTransactionalPool;
 let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>> | undefined;
+let checkoutDatabaseUrl: string;
+
+const context: EventStoreContext = {
+  tenantId: "tnt_test" as never,
+  audit: {
+    performedByUserId: "usr_buyer" as never,
+    forAccountId: "acc_buyer" as never,
+  },
+};
 
 describeDb("seller-options readiness against the checkout read model", () => {
   beforeAll(async () => {
@@ -76,6 +125,7 @@ describeDb("seller-options readiness against the checkout read model", () => {
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
     pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
   });
 
   beforeEach(async () => {
@@ -89,7 +139,7 @@ describeDb("seller-options readiness against the checkout read model", () => {
     }
   });
 
-  it("marks an added locked listing ready and offers a Save-$X optimization the buyer can accept", async () => {
+  it("marks an added locked listing ready and offers a currency-qualified optimization the buyer can accept", async () => {
     await seedReadModel(
       [seededLine()],
       [
@@ -118,7 +168,7 @@ describeDb("seller-options readiness against the checkout read model", () => {
       currentListingId: "lst_dear",
       savingsAmount: "6.00",
     });
-    expect(proposed.customerSafeFacts).toContain("Save $6.00 by changing fulfillment before checkout.");
+    expect(proposed.customerSafeFacts).toContain("Save USD 6.00 by changing fulfillment before checkout.");
 
     const accepted = createCartReadinessSnapshot(cartLines, {
       optimization: { decision: "accepted", lineId: "cli_charizard", listingId: "lst_cheap" },
@@ -231,6 +281,31 @@ describeDb("seller-options readiness against the checkout read model", () => {
       lineId: "cli_charizard",
       outcome: "checkout",
       reason: "unassigned-fulfillment",
+    });
+  });
+
+  it("excludes incomplete legacy Listing money pairs from fulfillment readiness", async () => {
+    await seedReadModel(
+      [seededLine({ locked_listing_id: "lst_legacy_amount_only" })],
+      [
+        seededOption({
+          listing_id: "lst_legacy_amount_only",
+          price_currency_code: null,
+          listing_stream_version: 1,
+        }),
+        seededOption({
+          listing_id: "lst_legacy_unversioned",
+          price_currency_code: "USD",
+          listing_stream_version: 0,
+        }),
+      ],
+    );
+
+    const cartLines = await listCartLines(pool, buyerAccountId);
+    expect(cartLines[0]?.seller_options).toEqual([]);
+    expect(createCartReadinessSnapshot(cartLines)).toMatchObject({
+      status: "blocked",
+      unresolvedLineIds: ["cli_charizard"],
     });
   });
 
@@ -437,6 +512,141 @@ describeDb("seller-options readiness against the checkout read model", () => {
     expect(snapshot.fulfillmentGroups.map((group) => group.sellerAccountId).sort()).toEqual(["acc_blue", "acc_red"]);
   });
 
+  it("executes the production union query with Account whole-row precedence and distinct same-product lines", async () => {
+    const anonymousCartId = "anon_postgres_union";
+    await seedReadModel(
+      [
+        seededLine({
+          line_id: "cli_account_only",
+          item_title: "Account only",
+          locked_listing_id: "lst_account",
+          seller_preference_id: "lst_account",
+          updated_at: "2026-06-17T00:00:00.000Z",
+        }),
+        seededLine({
+          line_id: "cli_shared",
+          item_title: "Account winner",
+          quantity: 1,
+          locked_listing_id: "lst_account",
+          seller_preference_id: "lst_account",
+          updated_at: "2026-06-16T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: anonymousCartId,
+          line_id: "cli_shared",
+          item_title: "Anonymous loser",
+          quantity: 3,
+          locked_listing_id: "lst_anonymous",
+          seller_preference_id: "lst_anonymous",
+          updated_at: "2026-06-30T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: anonymousCartId,
+          line_id: "cli_anonymous_only",
+          item_title: "Anonymous only",
+          locked_listing_id: "lst_anonymous",
+          seller_preference_id: "lst_anonymous",
+          updated_at: "2026-06-29T00:00:00.000Z",
+        }),
+        seededLine({ buyer_account_id: "acc_foreign", line_id: "cli_foreign" }),
+        seededLine({ buyer_account_id: "anon_unpresented", line_id: "cli_unpresented" }),
+      ],
+      [
+        seededOption({ listing_id: "lst_account", price_amount: "25.00" }),
+        seededOption({ listing_id: "lst_anonymous", price_amount: "26.00" }),
+      ],
+    );
+
+    const unionLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+
+    expect(unionLines.map((line) => line.line_id)).toEqual(["cli_account_only", "cli_shared", "cli_anonymous_only"]);
+    expect(unionLines.find((line) => line.line_id === "cli_shared")).toMatchObject({
+      buyer_account_id: buyerAccountId,
+      item_title: "Account winner",
+      quantity: 1,
+      locked_listing_id: "lst_account",
+      seller_preference_id: "lst_account",
+    });
+    expect(unionLines.filter((line) => line.product_id === "cat_charizard::form:raw")).toHaveLength(3);
+    expect((await listCartLines(pool, buyerAccountId)).map((line) => line.line_id)).toEqual([
+      "cli_account_only",
+      "cli_shared",
+    ]);
+
+    const source = { accountId: buyerAccountId, presentedAnonymousCartId: anonymousCartId };
+    const before = createCartReadinessSnapshot(unionLines, undefined, source);
+    await pool.query(
+      `UPDATE checkout_cart_line_pages SET item_title = 'Changed losing row', quantity = 2,
+         product_id = 'cat_loser::', locked_listing_id = 'lst_loser', updated_at = '2026-07-01'
+       WHERE buyer_account_id = $1 AND line_id = 'cli_shared'`,
+      [anonymousCartId],
+    );
+    const afterLosingChange = createCartReadinessSnapshot(
+      await listCartLines(pool, buyerAccountId, anonymousCartId),
+      undefined,
+      source,
+    );
+    expect(afterLosingChange).toEqual(before);
+
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE buyer_account_id = $1 AND line_id = 'cli_shared'", [
+      buyerAccountId,
+    ]);
+    const newlyWinningLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+    expect(newlyWinningLines.find((line) => line.line_id === "cli_shared")).toMatchObject({
+      buyer_account_id: anonymousCartId,
+      item_title: "Changed losing row",
+      product_id: "cat_loser::",
+      quantity: 2,
+    });
+    const afterWinnerChange = createCartReadinessSnapshot(newlyWinningLines, undefined, source);
+    expect(afterWinnerChange.sourceRevision).not.toBe(before.sourceRevision);
+    expect(afterWinnerChange.snapshotId).not.toBe(before.snapshotId);
+  });
+
+  it("keeps union identity through real SQL copy relocation and orders equal-time lines by ID within each owner", async () => {
+    const anonymousCartId = "anon_relocation";
+    const moving = seededLine({ buyer_account_id: anonymousCartId, line_id: "cli_moving" });
+    await seedReadModel(
+      [
+        seededLine({ line_id: "cli_b" }),
+        seededLine({ line_id: "cli_a" }),
+        moving,
+        seededLine({ buyer_account_id: anonymousCartId, line_id: "cli_z" }),
+      ],
+      [seededOption()],
+    );
+    const source = { accountId: buyerAccountId, presentedAnonymousCartId: anonymousCartId };
+    const beforeLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+    expect(beforeLines.map((line) => line.line_id)).toEqual(["cli_a", "cli_b", "cli_moving", "cli_z"]);
+    const before = createCartReadinessSnapshot(beforeLines, undefined, source);
+
+    await seedReadModel(
+      [
+        {
+          ...moving,
+          buyer_account_id: buyerAccountId,
+          updated_at: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+      [],
+    );
+    const duringLines = await listCartLines(pool, buyerAccountId, anonymousCartId);
+    expect(duringLines.map((line) => line.line_id)).toEqual(["cli_moving", "cli_a", "cli_b", "cli_z"]);
+    expect(duringLines.find((line) => line.line_id === "cli_moving")?.buyer_account_id).toBe(buyerAccountId);
+    const during = createCartReadinessSnapshot(duringLines, undefined, source);
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE buyer_account_id = $1 AND line_id = $2", [
+      anonymousCartId,
+      moving.line_id,
+    ]);
+    const after = createCartReadinessSnapshot(
+      await listCartLines(pool, buyerAccountId, anonymousCartId),
+      undefined,
+      source,
+    );
+    expect(during).toEqual(before);
+    expect(after).toEqual(before);
+  });
+
   it("ties discovery add-to-cart selection to a ready, optimization-bearing snapshot through one SQL source", async () => {
     const selectedListingId = "lst_dear";
     await seedReadModel(
@@ -526,16 +736,19 @@ async function seedReadModel(
   for (const option of options) {
     await pool.query(
       `INSERT INTO checkout_marketplace_seller_options (
-         listing_id, seller_account_id, product_id, catalog_catalog_item_id, price_amount, listing_quantity_cap,
+         listing_id, seller_account_id, product_id, catalog_catalog_item_id, price_amount, price_currency_code,
+         listing_stream_version, listing_quantity_cap,
          product_summary, product_measure_snapshot, status, updated_at, seller_slug, seller_display_name,
          supply_total_quantity, active_held_quantity
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         option.listing_id,
         option.seller_account_id,
         option.product_id,
         option.product_id.split("::", 1)[0],
         option.price_amount,
+        option.price_currency_code,
+        option.listing_stream_version,
         option.listing_quantity_cap,
         option.product_summary,
         option.product_measure_snapshot,
@@ -595,6 +808,8 @@ function seededOption(overrides: Partial<SeededSellerOption> = {}): SeededSeller
     seller_account_id: "acc_card_vault",
     product_id: "cat_charizard::form:raw",
     price_amount: "30.00",
+    price_currency_code: "USD",
+    listing_stream_version: 1,
     listing_quantity_cap: 3,
     supply_total_quantity: 100,
     active_held_quantity: 0,
@@ -613,3 +828,1916 @@ function requireDatabaseBaseUrl(): string {
   }
   return databaseBaseUrl;
 }
+
+// Frozen pre-claim Cart SQL from ded0c96f223322eaceb7996ec187a140e18f1896.
+// Standalone migration tests must not execute current boot SQL first.
+const parentCartSchemaSql = `
+CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
+  buyer_account_id text NOT NULL,
+  line_id text NOT NULL,
+  catalog_catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  item_language_code text NULL,
+  item_title text NOT NULL,
+  item_subtitle text NULL,
+  item_image_url text NULL,
+  item_image_srcset text NULL,
+  item_image_loading_url text NULL,
+  item_image_loading_alt text NULL,
+  item_image_loading_srcset text NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
+  quantity integer NOT NULL CHECK (quantity > 0),
+  fulfillment_mode text NOT NULL DEFAULT 'optimize',
+  locked_listing_id text NULL,
+  selected_listing_id text NULL,
+  selected_listing_seller_account_id text NULL,
+  selected_listing_seller_display_name text NULL,
+  selected_listing_seller_slug text NULL,
+  selected_listing_price_amount numeric(12, 2) NULL,
+  selected_listing_snapshot_source text NULL,
+  selected_listing_snapshot_captured_at timestamptz NULL,
+  seller_preference_id text NULL,
+  availability_state text NOT NULL DEFAULT 'available',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (buyer_account_id, line_id)
+);
+
+ALTER TABLE checkout_cart_line_pages
+  ADD COLUMN IF NOT EXISTS selected_listing_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_account_id text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_display_name text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_seller_slug text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_price_amount numeric(12, 2) NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_snapshot_source text NULL,
+  ADD COLUMN IF NOT EXISTS selected_listing_snapshot_captured_at timestamptz NULL;
+
+CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx
+  ON checkout_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);
+
+CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_catalog_version_idx
+  ON checkout_cart_line_pages (product_id);
+`;
+
+const claimAccount = "acc_claimer";
+const otherAccount = "acc_rival";
+const claimedSourceA = "anon_cart_a";
+const claimedSourceB = "anon_cart_b";
+const presentedSource = "anon_presented";
+const claimedStreamA = `checkout.cart-${claimedSourceA}`;
+
+function createCartRuntime(targetPool: PgTransactionalPool) {
+  const eventStore = createPostgresEventStore({ pool: targetPool });
+  return {
+    eventStore,
+    runtime: createCheckoutCartRuntime({ eventStore, checkpointStore: {} as never, db: targetPool }),
+  };
+}
+
+function createClaimAggregate(targetPool: PgTransactionalPool) {
+  return createAggregateCommandHandler({
+    eventStore: createPostgresEventStore({ pool: targetPool }),
+    codec: createPassthroughDomainEventCodec<CheckoutCartEvent>(),
+    initialState: () => initialCheckoutCartState,
+    evolve: evolveCheckoutCart,
+    decide: decideCheckoutCart,
+  });
+}
+
+async function readClaims(db: PgQueryable = pool) {
+  const result = await db.query<{ source_owner_key: string; account_id: string }>(
+    "SELECT source_owner_key, account_id FROM checkout_cart_claims ORDER BY source_owner_key",
+  );
+  return result.rows;
+}
+
+async function readStreamEventTypes(streamId: string) {
+  const result = await pool.query<{ event_type: string }>(
+    "SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+    [streamId],
+  );
+  return result.rows.map((row) => row.event_type);
+}
+
+async function readAllStoredEvents() {
+  const result = await pool.query<{ stream_id: string; event_type: string; payload: unknown }>(
+    "SELECT stream_id, event_type, payload FROM event_store_events ORDER BY global_position",
+  );
+  return result.rows;
+}
+
+async function readClaimsTableFacts() {
+  const columns = await pool.query<{ column_name: string; is_nullable: string; data_type: string }>(
+    `SELECT column_name, is_nullable, data_type
+     FROM information_schema.columns
+     WHERE table_name = 'checkout_cart_claims'
+     ORDER BY ordinal_position`,
+  );
+  const indexes = await pool.query<{ indexname: string; indexdef: string }>(
+    "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'checkout_cart_claims' ORDER BY indexname",
+  );
+  const constraints = await pool.query<{ conname: string; definition: string }>(
+    `SELECT conname, pg_get_constraintdef(oid) AS definition
+     FROM pg_constraint
+     WHERE conrelid = 'checkout_cart_claims'::regclass AND contype = 'c'
+     ORDER BY conname`,
+  );
+  const persistence = await pool.query<{ relpersistence: string }>(
+    "SELECT relpersistence FROM pg_class WHERE relname = 'checkout_cart_claims'",
+  );
+  const ledger = await pool.query<{ migration_id: string }>(
+    "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1",
+    ["20260903_checkout_cart_claims"],
+  );
+
+  return {
+    columns: columns.rows,
+    indexNames: indexes.rows.map((row) => row.indexname),
+    accountIndexDefinition: indexes.rows.find((row) => row.indexname === "checkout_cart_claims_account_idx")?.indexdef,
+    constraintNames: constraints.rows.map((row) => row.conname),
+    persistence: persistence.rows[0]?.relpersistence,
+    ledgerRows: ledger.rows.length,
+  };
+}
+
+async function tableExists(tableName: string) {
+  const result = await pool.query<{ exists: boolean }>("SELECT to_regclass($1) IS NOT NULL AS exists", [tableName]);
+  return result.rows[0]?.exists === true;
+}
+
+function claimedLine(overrides: Partial<SeededCartLine> = {}): SeededCartLine {
+  return seededLine({ buyer_account_id: claimedSourceA, line_id: "cli_source", ...overrides });
+}
+
+describeDb("cart claim against the checkout read model", () => {
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), contextNames, "cart_claim");
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    // Composes event-core schema, the Checkout boot SQL and every registered
+    // migration -- including the Cart Claim ledger entry -- exactly as boot does.
+    await bootstrapContextDatabase(checkoutModule, pool);
+  });
+
+  afterAll(async () => {
+    if (pools) {
+      await closeMultiContextTestPools(pools);
+    }
+    pools = undefined;
+  });
+
+  it("claims a source stream with one event, zero copied lines, and read-your-claim through production SQL", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [seededOption({ listing_id: "lst_cheap", price_amount: "24.00" }), seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+
+    const before = await listCartLines(pool, claimAccount);
+    const result = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+    const after = await listCartLines(pool, claimAccount);
+
+    expect(before.map((line) => line.line_id)).toEqual(["cli_own"]);
+    expect(result).toEqual({ version: 1 });
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(["checkout.cart.claimed-by-account"]);
+    expect(await readStreamEventTypes(`checkout.cart-${claimAccount}`)).toEqual([]);
+    // No line was copied: the two seeded rows are still the only two rows.
+    expect(
+      (await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM checkout_cart_line_pages")).rows[0],
+    ).toEqual({ count: "2" });
+    expect(after.map((line) => line.line_id)).toEqual(["cli_source", "cli_own"]);
+    expect(after.map((line) => line.buyer_account_id)).toEqual([claimedSourceA, claimAccount]);
+    // The claimed row keeps the full seller-option enrichment.
+    expect(after[0]?.seller_options.map((option) => option.listing_id)).toEqual(["lst_cheap", "lst_dear"]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+  });
+
+  it("claims a valid empty source and a cleared source without inventing lines", async () => {
+    const { runtime } = createCartRuntime(pool);
+
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    expect(await listCartLines(pool, claimAccount)).toEqual([]);
+
+    await seedReadModel([claimedLine({ buyer_account_id: claimedSourceB, line_id: "cli_b" })], [seededOption()]);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceB, accountId: claimAccount as never }, context);
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE buyer_account_id = $1", [claimedSourceB]);
+
+    // A cleared claimed cart resolves to no lines and stays claimed.
+    expect(await listCartLines(pool, claimAccount)).toEqual([]);
+    expect(await readClaims()).toEqual([
+      { source_owner_key: claimedSourceA, account_id: claimAccount },
+      { source_owner_key: claimedSourceB, account_id: claimAccount },
+    ]);
+  });
+
+  it("repairs a committed claim whose alias is missing, without appending a second event", async () => {
+    const { runtime } = createCartRuntime(pool);
+
+    const first = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+    await pool.query("DELETE FROM checkout_cart_claims WHERE source_owner_key = $1", [claimedSourceA]);
+    expect(await readClaims()).toEqual([]);
+
+    const retry = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+    const steady = await runtime.claimCart(
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount as never },
+      context,
+    );
+
+    expect(retry.version).toBe(first.version);
+    expect(steady.version).toBe(first.version);
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(["checkout.cart.claimed-by-account"]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+  });
+
+  it("serializes two Accounts on the source stream's loaded version, not on alias uniqueness", async () => {
+    const contenderPool = createPgPool(checkoutDatabaseUrl);
+
+    try {
+      const incumbent = createClaimAggregate(pool);
+      const rival = createClaimAggregate(contenderPool);
+
+      // Both contenders load the SAME source stream at the same version, on two
+      // separate connections, before either decides.
+      const loadedByIncumbent = await incumbent.repository.load(claimedStreamA);
+      const loadedByRival = await rival.repository.load(claimedStreamA);
+      expect(loadedByIncumbent.version).toBe(0);
+      expect(loadedByRival.version).toBe(loadedByIncumbent.version);
+      expect(loadedByIncumbent.state.claimedByAccountId).toBeNull();
+      expect(loadedByRival.state.claimedByAccountId).toBeNull();
+
+      const incumbentEvents = decideCheckoutCart(loadedByIncumbent.state, {
+        type: "ClaimCart",
+        sourceOwnerKey: claimedSourceA,
+        accountId: claimAccount as never,
+      });
+      const rivalEvents = decideCheckoutCart(loadedByRival.state, {
+        type: "ClaimCart",
+        sourceOwnerKey: claimedSourceA,
+        accountId: otherAccount as never,
+      });
+      expect(incumbentEvents).toHaveLength(1);
+      expect(rivalEvents).toHaveLength(1);
+
+      const stored = await incumbent.repository.append({
+        streamId: claimedStreamA,
+        expectedVersion: loadedByIncumbent.version,
+        context,
+        events: incumbentEvents,
+      });
+      expect(stored.map((event) => event.streamVersion)).toEqual([1]);
+
+      // The loser appends at its own stale loaded version and is rejected by the
+      // event store, not by the alias table.
+      await expect(
+        rival.repository.append({
+          streamId: claimedStreamA,
+          expectedVersion: loadedByRival.version,
+          context,
+          events: rivalEvents,
+        }),
+      ).rejects.toThrow();
+
+      const { runtime: winnerRuntime } = createCartRuntime(pool);
+      const { runtime: loserRuntime } = createCartRuntime(contenderPool);
+      await winnerRuntime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+      // Retrying the loser reloads and observes the winning claimant.
+      await expect(
+        loserRuntime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: otherAccount as never }, context),
+      ).rejects.toThrow("Cart is already claimed by a different account.");
+
+      expect(await readStreamEventTypes(claimedStreamA)).toEqual(["checkout.cart.claimed-by-account"]);
+      expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+    } finally {
+      await (contenderPool as unknown as { end: () => Promise<void> }).end();
+    }
+  });
+
+  it("never accepts a contradictory alias as a successful claim", async () => {
+    await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+    const { runtime } = createCartRuntime(pool);
+
+    await expect(
+      runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context),
+    ).rejects.toThrow("Cart claim alias is held by a different account.");
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: otherAccount }]);
+  });
+
+  it("excludes invalid alias rows at the table, independently of the command", async () => {
+    const invalidRows: Array<readonly [string, string]> = [
+      ["acc_buyer", claimAccount],
+      ["anon_", claimAccount],
+      [" anon_cart_a", claimAccount],
+      ["anon_cart_a ", claimAccount],
+      ["anon_cart a", claimAccount],
+      ["", claimAccount],
+      [claimedSourceA, "anon_cart_b"],
+      [claimedSourceA, "acc_"],
+      [claimedSourceA, " acc_buyer"],
+      [claimedSourceA, ""],
+    ];
+
+    for (const [sourceOwnerKey, accountId] of invalidRows) {
+      await expect(
+        pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+          sourceOwnerKey,
+          accountId,
+        ]),
+      ).rejects.toMatchObject({ code: "23514" });
+      expect(await readClaims()).toEqual([]);
+    }
+
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it.each(["fresh boot", "standalone populated-parent migration"] as const)(
+    "matches the command's complete whitespace rule on %s",
+    async (schemaPath) => {
+      await resetMultiContextTestSchemas({ checkout: pool });
+      if (schemaPath === "fresh boot") {
+        await pool.query(checkoutCartSchemaSql);
+      } else {
+        await pool.query(parentCartSchemaSql);
+        expect(await tableExists("checkout_cart_claims")).toBe(false);
+        await pool.query(
+          `INSERT INTO checkout_cart_line_pages
+             (buyer_account_id, line_id, catalog_catalog_item_id, product_id, item_title, quantity)
+           VALUES ('acc_synthetic_parent', 'cli_synthetic_parent', 'cat_synthetic', 'prd_synthetic', 'Parent row', 3)`,
+        );
+        const before = await pool.query("SELECT * FROM checkout_cart_line_pages");
+        const migration = checkoutCartSchemaMigrations.find(
+          (candidate) => candidate.migrationId === "20260903_checkout_cart_claims",
+        );
+        if (!migration) throw new Error("Cart Claim migration is missing.");
+        for (let application = 0; application < 2; application += 1) {
+          for (const statement of migration.statements) await pool.query(statement);
+          expect((await pool.query("SELECT * FROM checkout_cart_line_pages")).rows).toEqual(before.rows);
+        }
+      }
+
+      // ECMAScript WhiteSpace + LineTerminator, including all Unicode Zs code points.
+      const whitespace = [
+        0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x0020, 0x00a0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005,
+        0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+      ];
+      for (const field of ["sourceOwnerKey", "accountId"] as const) {
+        for (const codePoint of whitespace) {
+          const pair = {
+            sourceOwnerKey: `anon_synthetic_${field}_${codePoint}`,
+            accountId: `acc_synthetic_${field}_${codePoint}`,
+          };
+          const character = String.fromCodePoint(codePoint);
+          // The embedded values retain the independently observed SQL regressions.
+          for (const value of [character + pair[field], pair[field] + "x" + character + "x", pair[field] + character]) {
+            const invalid = { ...pair, [field]: value };
+            expect(() => requireCheckoutCartClaimIdentity(invalid)).toThrow(/Cart claim (source|account) must be/);
+            await expect(
+              pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+                invalid.sourceOwnerKey,
+                invalid.accountId,
+              ]),
+            ).rejects.toMatchObject({
+              code: "23514",
+              constraint:
+                field === "sourceOwnerKey"
+                  ? "checkout_cart_claims_source_owner_key_check"
+                  : "checkout_cart_claims_account_id_check",
+            });
+            expect(await readClaims()).toEqual([]);
+          }
+        }
+      }
+
+      const validPairs = [
+        { sourceOwnerKey: "anon_cart_a", accountId: "acc_buyer" },
+        { sourceOwnerKey: createId("anon"), accountId: createId("acc") },
+        // These are not ECMAScript whitespace; do not silently impose a stricter rule.
+        ...[0x0085, 0x180e, 0x200b, 0x2060].map((codePoint) => ({
+          sourceOwnerKey: `anon_x${String.fromCodePoint(codePoint)}x`,
+          accountId: `acc_x${String.fromCodePoint(codePoint)}x`,
+        })),
+      ];
+      for (const pair of validPairs) {
+        expect(requireCheckoutCartClaimIdentity(pair)).toEqual(pair);
+        await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+          pair.sourceOwnerKey,
+          pair.accountId,
+        ]);
+        expect(
+          (await pool.query("SELECT * FROM checkout_cart_claims WHERE source_owner_key = $1", [pair.sourceOwnerKey]))
+            .rows,
+        ).toEqual([{ source_owner_key: pair.sourceOwnerKey, account_id: pair.accountId }]);
+      }
+    },
+  );
+
+  it("refuses malformed identities before writing any event or alias", async () => {
+    const { runtime } = createCartRuntime(pool);
+
+    for (const candidate of [
+      { sourceOwnerKey: "acc_buyer", accountId: claimAccount },
+      { sourceOwnerKey: "anon_", accountId: claimAccount },
+      { sourceOwnerKey: " anon_cart_a", accountId: claimAccount },
+      { sourceOwnerKey: claimedSourceA, accountId: "anon_cart_b" },
+      { sourceOwnerKey: claimedSourceA, accountId: "acc_ " },
+    ]) {
+      await expect(
+        runtime.claimCart(
+          { sourceOwnerKey: candidate.sourceOwnerKey, accountId: candidate.accountId as never },
+          context,
+        ),
+      ).rejects.toThrow(/Cart claim (source|account) must be an exact/);
+    }
+
+    expect(await readAllStoredEvents()).toEqual([]);
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it("selects deterministic whole-row winners across own, claimed and presented owners", async () => {
+    await seedReadModel(
+      [
+        // Account/claim duplicate: the Account's own row must win despite being older.
+        seededLine({
+          buyer_account_id: claimAccount,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_dear",
+          seller_preference_id: "lst_dear",
+          updated_at: "2026-06-01T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: claimedSourceA,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_cheap",
+          seller_preference_id: "lst_cheap",
+          updated_at: "2026-06-25T00:00:00.000Z",
+        }),
+        // Divergent claimed duplicate: the newest claimed row wins.
+        seededLine({
+          buyer_account_id: claimedSourceA,
+          line_id: "cli_divergent",
+          quantity: 1,
+          updated_at: "2026-06-10T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: claimedSourceB,
+          line_id: "cli_divergent",
+          quantity: 7,
+          updated_at: "2026-06-20T00:00:00.000Z",
+        }),
+        // Timestamp tie: the byte-smallest source owner wins.
+        seededLine({
+          buyer_account_id: claimedSourceB,
+          line_id: "cli_tied",
+          quantity: 2,
+          updated_at: "2026-06-15T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: claimedSourceA,
+          line_id: "cli_tied",
+          quantity: 3,
+          updated_at: "2026-06-15T00:00:00.000Z",
+        }),
+        // Presented-only source, plus a duplicate the Account union already owns.
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_presented",
+          updated_at: "2026-06-30T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_cheap",
+          updated_at: "2026-06-29T00:00:00.000Z",
+        }),
+        // A cart belonging to nobody in this read.
+        seededLine({ buyer_account_id: "anon_unrelated", line_id: "cli_unrelated" }),
+      ],
+      [seededOption({ listing_id: "lst_cheap", price_amount: "24.00" }), seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceB, accountId: claimAccount as never }, context);
+
+    const rows = await listCartLines(pool, claimAccount, presentedSource);
+    const byLineId = new Map(rows.map((row) => [row.line_id, row]));
+
+    // Account union first, then presented-only, each updated_at DESC / line_id ASC.
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_divergent", "cli_tied", "cli_shared", "cli_presented"]);
+    expect(byLineId.get("cli_shared")).toMatchObject({
+      buyer_account_id: claimAccount,
+      locked_listing_id: "lst_dear",
+      seller_preference_id: "lst_dear",
+    });
+    expect(byLineId.get("cli_divergent")).toMatchObject({ buyer_account_id: claimedSourceB, quantity: 7 });
+    expect(byLineId.get("cli_tied")).toMatchObject({ buyer_account_id: claimedSourceA, quantity: 3 });
+    expect(byLineId.get("cli_presented")).toMatchObject({ buyer_account_id: presentedSource });
+    expect(rows.filter((row) => row.line_id === "cli_shared")).toHaveLength(1);
+    // Seller-option enrichment is unchanged for every winning row.
+    for (const row of rows) {
+      expect(row.seller_options.map((option) => option.listing_id)).toEqual(["lst_cheap", "lst_dear"]);
+      expect(row.seller_options[0]).toMatchObject({ price_amount: "24.00", available_quantity: 3 });
+    }
+    // An unrelated Account sees nothing from these claims.
+    expect(await listCartLines(pool, "acc_unrelated")).toEqual([]);
+  });
+
+  it("counts a claimed key that is also presented exactly once, inside the Account union", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-05T00:00:00.000Z" }),
+        claimedLine({ line_id: "cli_overlap", updated_at: "2026-06-06T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    const rows = await listCartLines(pool, claimAccount, claimedSourceA);
+
+    expect(rows.map((row) => row.line_id)).toEqual(["cli_overlap", "cli_own"]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("keeps zero-claim Account, Account-plus-presented and anonymous reads exactly as shipped", async () => {
+    await seedReadModel(
+      [
+        seededLine({
+          buyer_account_id: claimAccount,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_dear",
+          updated_at: "2026-06-10T00:00:00.000Z",
+        }),
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_shared",
+          locked_listing_id: "lst_cheap",
+          updated_at: "2026-06-20T00:00:00.000Z",
+        }),
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_account", updated_at: "2026-06-11T00:00:00.000Z" }),
+        seededLine({
+          buyer_account_id: presentedSource,
+          line_id: "cli_anonymous",
+          updated_at: "2026-06-30T00:00:00.000Z",
+        }),
+        // Claimed by a DIFFERENT account: it must not leak into this read.
+        seededLine({ buyer_account_id: claimedSourceA, line_id: "cli_rival", updated_at: "2026-07-01T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+
+    expect((await listCartLines(pool, claimAccount, presentedSource)).map((row) => row.line_id)).toEqual([
+      "cli_account",
+      "cli_shared",
+      "cli_anonymous",
+    ]);
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_account", "cli_shared"]);
+    // An anonymous primary owner reads only its own key, and never expands aliases.
+    expect((await listCartLines(pool, presentedSource)).map((row) => row.line_id)).toEqual([
+      "cli_anonymous",
+      "cli_shared",
+    ]);
+    expect((await listCartLines(pool, claimedSourceA)).map((row) => row.line_id)).toEqual(["cli_rival"]);
+  });
+
+  it("resolves only own-key lines for the addLine probe while the union sees the claimed stream", async () => {
+    await seedReadModel(
+      [seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }), claimedLine({ line_id: "cli_claimed" })],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    expect((await listOwnCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_own"]);
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id).sort()).toEqual([
+      "cli_claimed",
+      "cli_own",
+    ]);
+    expect((await listOwnCartLines(pool, claimedSourceA)).map((row) => row.line_id)).toEqual(["cli_claimed"]);
+  });
+
+  it("creates the logged claims table, index and constraints on a fresh boot", async () => {
+    const facts = await readClaimsTableFacts();
+
+    expect(facts.columns).toEqual([
+      expect.objectContaining({ column_name: "source_owner_key", is_nullable: "NO" }),
+      expect.objectContaining({ column_name: "account_id", is_nullable: "NO" }),
+    ]);
+    expect(facts.indexNames).toEqual(["checkout_cart_claims_account_idx", "checkout_cart_claims_pkey"]);
+    expect(facts.accountIndexDefinition).toContain("(account_id, source_owner_key)");
+    expect(facts.constraintNames).toEqual([
+      "checkout_cart_claims_account_id_check",
+      "checkout_cart_claims_source_owner_key_check",
+    ]);
+    // 'p' is permanent (logged); the replayable line pages are 'u' (unlogged).
+    expect(facts.persistence).toBe("p");
+    expect(facts.ledgerRows).toBe(1);
+  });
+
+  it("converges a populated database created before Cart Claim and tolerates repeated migration", async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    // The exact shipped boot SQL minus every claims statement: the shape a
+    // long-lived database created before this change actually has.
+    const preClaimSchemaSql = checkoutModule.schemaSql
+      .split(";")
+      .filter((statement) => !statement.includes("checkout_cart_claims"))
+      .join(";");
+    await pool.query(preClaimSchemaSql);
+    expect(await tableExists("checkout_cart_claims")).toBe(false);
+
+    await seedReadModel([seededLine({ buyer_account_id: claimAccount, line_id: "cli_existing" })], [seededOption()]);
+
+    await bootstrapContextDatabase(checkoutModule, pool);
+    const afterFirst = await readClaimsTableFacts();
+    await bootstrapContextDatabase(checkoutModule, pool);
+    const afterSecond = await readClaimsTableFacts();
+
+    expect(afterFirst.indexNames).toEqual(["checkout_cart_claims_account_idx", "checkout_cart_claims_pkey"]);
+    expect(afterFirst.constraintNames).toEqual([
+      "checkout_cart_claims_account_id_check",
+      "checkout_cart_claims_source_owner_key_check",
+    ]);
+    expect(afterFirst.persistence).toBe("p");
+    expect(afterFirst.ledgerRows).toBe(1);
+    expect(afterSecond).toEqual(afterFirst);
+    // Existing line pages survived both applications.
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_existing"]);
+  });
+
+  it("does not commit the claim alias when its outer projection transaction fails", async () => {
+    const handlers = buildCheckoutCartProjectionHandlers(pool);
+    const claimTransportEvent = buildTransportEvent(
+      "checkout.cart.claimed-by-account",
+      { sourceOwnerKey: claimedSourceA, accountId: claimAccount },
+      {
+        id: "evt_claim",
+        streamId: claimedStreamA,
+        tenantId: "tnt_test" as never,
+        audit: { performedByUserId: "usr_buyer" as never, forAccountId: claimAccount as never },
+        timing: { occurredAt: "2026-09-03T00:00:00.000Z", recordedAt: "2026-09-03T00:00:00.000Z" },
+      },
+    );
+
+    await expect(
+      withPgTransaction(pool, async (client) => {
+        await handlers["checkout.cart.claimed-by-account"]!(claimTransportEvent, { db: client });
+        // The alias is visible inside the supplied transaction ...
+        expect(await readClaims(client)).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+        throw new Error("outer projection transaction failed");
+      }),
+    ).rejects.toThrow("outer projection transaction failed");
+
+    // ... and is gone once that transaction rolls back: the helper committed nothing of its own.
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it("rebuilds the same Account union after a registered reset and ordered replay", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const before = await listCartLines(pool, claimAccount);
+    const recordedEvents = await readAllStoredEvents();
+
+    // The registered reset strategy truncates the projector's owned tables.
+    const ownedTables = checkoutModule.projectionGroups?.find(
+      (group) => group.projectionName === "checkout.cart-projection",
+    )?.ownedTables;
+    expect(ownedTables).toEqual(["checkout_cart_line_pages", "checkout_cart_claims"]);
+    await pool.query(`TRUNCATE ${ownedTables!.join(", ")}`);
+    expect(await readClaims()).toEqual([]);
+
+    // Ordered replay of the recorded history through the real handlers, inside
+    // one supplied projection transaction.
+    const handlers = buildCheckoutCartProjectionHandlers(pool);
+    await withPgTransaction(pool, async (client) => {
+      for (const stored of recordedEvents) {
+        const handler = handlers[stored.event_type];
+        if (!handler) {
+          continue;
+        }
+        await handler(
+          buildTransportEvent(stored.event_type, stored.payload as Record<string, unknown>, {
+            id: "evt_replay",
+            streamId: stored.stream_id,
+            tenantId: "tnt_test" as never,
+            audit: { performedByUserId: "usr_buyer" as never, forAccountId: claimAccount as never },
+            timing: { occurredAt: "2026-09-03T00:00:00.000Z", recordedAt: "2026-09-03T00:00:00.000Z" },
+          }),
+          { db: client },
+        );
+      }
+    });
+
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+    // Replay is idempotent: running it a second time changes nothing.
+    await withPgTransaction(pool, async (client) => {
+      await handlers["checkout.cart.claimed-by-account"]!(
+        buildTransportEvent(
+          "checkout.cart.claimed-by-account",
+          { sourceOwnerKey: claimedSourceA, accountId: claimAccount },
+          {
+            id: "evt_replay_2",
+            streamId: claimedStreamA,
+            tenantId: "tnt_test" as never,
+            audit: { performedByUserId: "usr_buyer" as never, forAccountId: claimAccount as never },
+            timing: { occurredAt: "2026-09-03T00:00:00.000Z", recordedAt: "2026-09-03T00:00:00.000Z" },
+          },
+        ),
+        { db: client },
+      );
+    });
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: claimAccount }]);
+
+    // Re-seed the line pages the truncate removed and prove the same union.
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [],
+    );
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(
+      before.map((row) => row.line_id),
+    );
+  });
+});
+
+/**
+ * Claimed-stream mutations against real PostgreSQL: the union resolver picks the
+ * source stream, the event store enforces per-stream optimistic concurrency, and
+ * a second pool supplies a genuinely separate connection.
+ */
+describeDb("claimed cart mutations against real PostgreSQL", () => {
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), contextNames, "claimed_mutation");
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    await bootstrapContextDatabase(checkoutModule, pool);
+  });
+
+  afterAll(async () => {
+    if (pools) {
+      await closeMultiContextTestPools(pools);
+    }
+    pools = undefined;
+  });
+
+  async function addAggregateLine(
+    handler: ReturnType<typeof createCartRuntime>["runtime"]["commandHandler"],
+    ownerKey: string,
+    lineId: string,
+  ) {
+    await handler({
+      streamId: `checkout.cart-${ownerKey}`,
+      command: {
+        type: "AddCartLine",
+        buyerAccountId: ownerKey as never,
+        lineId: lineId as never,
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::form:raw",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        productSummary: null,
+        quantity: 1,
+      },
+      context,
+    });
+  }
+
+  async function readLinePages(ownerKey: string) {
+    const result = await pool.query<Record<string, unknown>>(
+      "SELECT * FROM checkout_cart_line_pages WHERE buyer_account_id = $1 ORDER BY line_id",
+      [ownerKey],
+    );
+    return result.rows;
+  }
+
+  it("routes quantity and fulfillment to the claimed source stream and keeps the seller-options join", async () => {
+    await seedReadModel([claimedLine({ line_id: "cli_claimed" })], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_claimed");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const before = await listCartLines(pool, claimAccount);
+
+    await runtime.setLineQuantity(
+      { accountId: claimAccount as never, lineId: "cli_claimed" as never, quantity: 4 },
+      context,
+    );
+    await runtime.setLineFulfillment(
+      {
+        accountId: claimAccount as never,
+        lineId: "cli_claimed" as never,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_dear",
+        selectedListingSnapshot: { listingId: "lst_dear", sellerAccountId: otherAccount, source: "cart-fulfillment" },
+      },
+      context,
+    );
+
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.claimed-by-account",
+      "checkout.cart.line-quantity-set",
+      "checkout.cart.line-fulfillment-set",
+    ]);
+    // Nothing reached the Account stream.
+    expect(await readStreamEventTypes(`checkout.cart-${claimAccount}`)).toEqual([]);
+    const after = await listCartLines(pool, claimAccount);
+    expect(after.map((row) => row.buyer_account_id)).toEqual([claimedSourceA]);
+    expect(after[0]?.seller_options).toEqual(before[0]?.seller_options);
+  });
+
+  it("refuses the claimant's own listing on a claimed stream and appends nothing", async () => {
+    await seedReadModel([claimedLine({ line_id: "cli_claimed" })], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_claimed");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const before = await readStreamEventTypes(claimedStreamA);
+
+    // The retained anonymous key is not the buyer; the claiming Account is.
+    await expect(
+      runtime.setLineFulfillment(
+        {
+          accountId: claimAccount as never,
+          lineId: "cli_claimed" as never,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: "lst_dear",
+          selectedListingSnapshot: { listingId: "lst_dear", sellerAccountId: claimAccount, source: "cart-fulfillment" },
+        },
+        context,
+      ),
+    ).rejects.toThrow("Accounts cannot add their own listings to cart.");
+
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(before);
+  });
+
+  it("mutates only the account-first winner and leaves the hidden duplicate row and stream identical", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_dup", updated_at: "2026-06-16T00:00:00.000Z" }),
+        claimedLine({ line_id: "cli_dup", updated_at: "2026-06-18T00:00:00.000Z" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_dup");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await addAggregateLine(runtime.commandHandler, claimAccount, "cli_dup");
+    const claimedRowsBefore = await readLinePages(claimedSourceA);
+    const claimedStreamBefore = await readStreamEventTypes(claimedStreamA);
+
+    await runtime.setLineQuantity(
+      { accountId: claimAccount as never, lineId: "cli_dup" as never, quantity: 9 },
+      context,
+    );
+
+    expect(await readStreamEventTypes(`checkout.cart-${claimAccount}`)).toEqual([
+      "checkout.cart.line-added",
+      "checkout.cart.line-quantity-set",
+    ]);
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual(claimedStreamBefore);
+    expect(await readLinePages(claimedSourceA)).toEqual(claimedRowsBefore);
+    // The duplicate stays hidden behind the Account's own winning row.
+    const resolved = await listCartLines(pool, claimAccount);
+    expect(resolved.map((row) => [row.line_id, row.buyer_account_id])).toEqual([["cli_dup", claimAccount]]);
+  });
+
+  it("clears an explicitly removed line id from the Account and every claimed key", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_dup" }),
+        claimedLine({ line_id: "cli_dup" }),
+        claimedLine({ buyer_account_id: claimedSourceB, line_id: "cli_dup" }),
+        claimedLine({ buyer_account_id: claimedSourceB, line_id: "cli_keep" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    for (const [owner, lineId] of [
+      [claimedSourceA, "cli_dup"],
+      [claimedSourceB, "cli_dup"],
+      [claimedSourceB, "cli_keep"],
+      [claimAccount, "cli_dup"],
+    ] as const) {
+      await addAggregateLine(runtime.commandHandler, owner, lineId);
+    }
+    for (const source of [claimedSourceA, claimedSourceB]) {
+      await runtime.claimCart({ sourceOwnerKey: source, accountId: claimAccount as never }, context);
+    }
+
+    await runtime.removeLine({ accountId: claimAccount as never, lineId: "cli_dup" as never }, context);
+
+    for (const owner of [claimAccount, claimedSourceA, claimedSourceB]) {
+      expect(
+        (await readStreamEventTypes(`checkout.cart-${owner}`)).filter((type) => type === "checkout.cart.line-removed"),
+      ).toHaveLength(1);
+    }
+    // The line the sweep never planned survives on its claimed key.
+    await pool.query("DELETE FROM checkout_cart_line_pages WHERE line_id = $1", ["cli_dup"]);
+    expect((await listCartLines(pool, claimAccount)).map((row) => row.line_id)).toEqual(["cli_keep"]);
+
+    // A second identical call appends nothing anywhere.
+    const streamsBefore = await Promise.all(
+      [claimAccount, claimedSourceA, claimedSourceB].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+    );
+    expect(await runtime.removeLine({ accountId: claimAccount as never, lineId: "cli_dup" as never }, context)).toEqual(
+      {
+        lineId: "cli_dup",
+        version: 0,
+      },
+    );
+    expect(
+      await Promise.all(
+        [claimAccount, claimedSourceA, claimedSourceB].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+      ),
+    ).toEqual(streamsBefore);
+  });
+
+  it("serializes two connections on one claimed stream with a real loser, and refuses the retained key", async () => {
+    await seedReadModel(
+      [claimedLine({ line_id: "cli_race_a" }), claimedLine({ line_id: "cli_race_b" })],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_race_a");
+    await addAggregateLine(runtime.commandHandler, claimedSourceA, "cli_race_b");
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    const contenderPool = createPgPool(checkoutDatabaseUrl);
+
+    try {
+      const rival = createClaimAggregate(contenderPool);
+      const rivalRuntime = createCartRuntime(contenderPool).runtime;
+
+      // Both connections load the same claimed stream at the same version,
+      // before either decides. They target different lines of that one stream.
+      const loadedByRival = await rival.repository.load(claimedStreamA);
+      const rivalEvents = decideCheckoutCart(loadedByRival.state, {
+        type: "SetCartLineQuantity",
+        actingOwnerKey: claimAccount,
+        lineId: "cli_race_b" as never,
+        quantity: 7,
+      });
+      const winner = await runtime.setLineQuantity(
+        { accountId: claimAccount as never, lineId: "cli_race_a" as never, quantity: 4 },
+        context,
+      );
+
+      const loser = await rival.repository
+        .append({
+          streamId: claimedStreamA,
+          expectedVersion: loadedByRival.version,
+          context,
+          events: rivalEvents,
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+
+      expect(winner.version).toBe(loadedByRival.version + 1);
+      // A real rejection from PostgreSQL, recorded rather than swallowed.
+      expect(loser).toMatchObject({
+        code: "concurrency_conflict",
+        message: "Expected stream version does not match current version.",
+      });
+
+      // One retry reloads and converges; both lines end up set.
+      const retried = await rivalRuntime.setLineQuantity(
+        { accountId: claimAccount as never, lineId: "cli_race_b" as never, quantity: 7 },
+        context,
+      );
+      expect(retried.version).toBe(loadedByRival.version + 2);
+      expect(await readStreamEventTypes(claimedStreamA)).toEqual([
+        "checkout.cart.line-added",
+        "checkout.cart.line-added",
+        "checkout.cart.claimed-by-account",
+        "checkout.cart.line-quantity-set",
+        "checkout.cart.line-quantity-set",
+      ]);
+
+      // The retained anonymous key is refused on the same stream, before append.
+      const settled = await readStreamEventTypes(claimedStreamA);
+      await expect(
+        rivalRuntime.setLineQuantity(
+          { accountId: claimedSourceA as never, lineId: "cli_race_a" as never, quantity: 99 },
+          context,
+        ),
+      ).rejects.toThrow("Cart is owned by a different account.");
+      expect(await readStreamEventTypes(claimedStreamA)).toEqual(settled);
+    } finally {
+      await (contenderPool as unknown as { end: () => Promise<void> }).end();
+    }
+  });
+});
+
+describeDb("post-claim read authority against the claim alias in Postgres", () => {
+  beforeAll(async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(
+      requireDatabaseBaseUrl(),
+      contextNames,
+      "cart_read_authority",
+    );
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
+    pools = createMultiContextTestPools(databaseUrls);
+    pool = pools.checkout;
+    checkoutDatabaseUrl = databaseUrls.checkout;
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas({ checkout: pool });
+    await bootstrapContextDatabase(checkoutModule, pool);
+  });
+
+  afterAll(async () => {
+    if (pools) {
+      await closeMultiContextTestPools(pools);
+    }
+    pools = undefined;
+  });
+
+  const authorityFor = async (runtime: ReturnType<typeof createCartRuntime>["runtime"], actingOwnerKey: string) =>
+    runtime.resolveCartSourceAuthority({ actingOwnerKey, presentedAnonymousCartId: claimedSourceA });
+
+  it("admits the claimant and refuses a stranger while the claim alias is absent", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // The event-first, alias-second window #5731 leaves open: the claim event is
+    // durable and the routing row is gone.
+    await pool.query("DELETE FROM checkout_cart_claims WHERE source_owner_key = $1", [claimedSourceA]);
+    expect(await readClaims()).toEqual([]);
+
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    await expect(authorityFor(runtime, claimedSourceA)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    // The authorized read agrees: with no alias row, the claimant still sees the
+    // claimed line and the retained key sees nothing.
+    expect(
+      (
+        await runtime.listAuthorizedCartLines({ accountId: claimAccount, presentedAnonymousCartId: claimedSourceA })
+      ).map((line) => line.line_id),
+    ).toEqual(["cli_source"]);
+    expect(await runtime.listAuthorizedCartLines({ accountId: claimedSourceA })).toEqual([]);
+  });
+
+  it("ignores a stale alias row that names a different Account", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // A stale routing row that contradicts the events outright.
+    await pool.query("UPDATE checkout_cart_claims SET account_id = $2 WHERE source_owner_key = $1", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: otherAccount }]);
+
+    // The alias cannot hand authority to the Account it names, and cannot take
+    // it away from the Account the events name.
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+  });
+
+  it("cannot invent authority from a partial alias row on an unclaimed source", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+
+    // No claim event was ever appended; only a routing row exists.
+    await pool.query("INSERT INTO checkout_cart_claims (source_owner_key, account_id) VALUES ($1, $2)", [
+      claimedSourceA,
+      claimAccount,
+    ]);
+
+    expect(await readStreamEventTypes(claimedStreamA)).toEqual([]);
+    // Presence of a row is not claim completeness: the source is still
+    // unclaimed, so possession still authorizes it and no Account is elevated.
+    await expect(authorityFor(runtime, claimedSourceA)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "possession",
+    });
+  });
+
+  it("decides identically after a runtime restart rebuilds state from the durable stream", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const first = createCartRuntime(pool);
+    await first.runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await pool.query("DELETE FROM checkout_cart_claims");
+
+    // A brand new runtime and event store instance: nothing in memory carries
+    // over, so this answer comes from replaying the durable stream.
+    const restarted = createCartRuntime(pool);
+
+    await expect(authorityFor(restarted.runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+    await expect(authorityFor(restarted.runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+    expect(await readClaims()).toEqual([]);
+  });
+
+  it("keeps the alias out of the authority read entirely", async () => {
+    await seedReadModel([claimedLine()], [seededOption()]);
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // Dropping the routing table outright would break any read that consulted
+    // it. Authority is unaffected, which is the strongest available proof that
+    // the alias is not in this decision path.
+    await pool.query("DROP TABLE checkout_cart_claims");
+
+    await expect(authorityFor(runtime, claimAccount)).resolves.toEqual({
+      status: "accepted",
+      acceptedVia: "account",
+    });
+    await expect(authorityFor(runtime, otherAccount)).resolves.toEqual({
+      status: "refused",
+      clearRetainedAnonymousCartCookie: true,
+    });
+  });
+
+  /**
+   * The alias row is candidate discovery, so a rewritten row is the one input
+   * that can put a foreign source in front of an Account that presents no key
+   * at all. Every read below is taken with no `presentedAnonymousCartId`.
+   */
+  const mcpActorFor = (accountId: string) =>
+    ({
+      sessionId: "sess_synthetic",
+      tenantId: "tnt_synthetic",
+      userId: "usr_synthetic",
+      accountId,
+      membershipId: "mem_synthetic",
+      roleKey: "manager",
+      permissions: ["orders.view"],
+    }) satisfies ResolvedActor;
+
+  const readCartOverMcp = async (
+    runtime: ReturnType<typeof createCartRuntime>["runtime"],
+    sessions: ReturnType<typeof createCheckoutSessionRuntime>,
+    accountId: string,
+  ) => {
+    const handlers = createCheckoutCartMcpHandlers({
+      cart: runtime,
+      sessions,
+      listSavedShippingAddresses: async () => [],
+    });
+    return handlers.toolHandlers["checkout.get-cart"]?.({
+      actor: mcpActorFor(accountId),
+      tool: null as never,
+      arguments: { accountId },
+      request: new Request("https://api.test/mcp"),
+      protocol: {
+        protocolVersion: "2025-06-18",
+        stateless: false,
+        clientInfo: null,
+        clientCapabilities: null,
+      },
+    });
+  };
+
+  it("keeps a stale alias-derived source out of every read taken with no presented key", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: otherAccount, line_id: "cli_rival" }),
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }),
+        claimedLine(),
+      ],
+      [seededOption()],
+    );
+    const { eventStore, runtime } = createCartRuntime(pool);
+    const sessions = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: {} as never,
+      db: pool,
+      cart: runtime,
+    });
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    // The events say the claimant owns this source. The routing row is then
+    // rewritten to name a different Account -- exactly the state that let the
+    // old in-SQL alias expansion widen that Account's read set with no
+    // aggregate decision behind it.
+    await pool.query("UPDATE checkout_cart_claims SET account_id = $2 WHERE source_owner_key = $1", [
+      claimedSourceA,
+      otherAccount,
+    ]);
+    expect(await readClaims()).toEqual([{ source_owner_key: claimedSourceA, account_id: otherAccount }]);
+    const streamsBefore = await Promise.all(
+      [claimAccount, otherAccount, claimedSourceA].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+    );
+
+    const foreignLines = await runtime.listAuthorizedCartLines({ accountId: otherAccount });
+    const foreignReadiness = await runtime.createReadinessSnapshot({ accountId: otherAccount });
+    const foreignMcp = await readCartOverMcp(runtime, sessions, otherAccount);
+
+    // No foreign row anywhere the alias could have carried it.
+    expect(foreignLines.map((line) => line.line_id)).toEqual(["cli_rival"]);
+    expect(foreignLines.map((line) => line.buyer_account_id)).toEqual([otherAccount]);
+    expect(foreignReadiness.includedLineIds).toEqual(["cli_rival"]);
+    expect(JSON.stringify({ foreignLines, foreignReadiness, foreignMcp })).not.toContain(claimedSourceA);
+
+    // A ready snapshot is required for the session arm below to exercise
+    // line resolution rather than stop at a readiness refusal.
+    expect(foreignReadiness.status).toBe("ready");
+
+    // Nor can a Checkout Session be sourced from it: start succeeds against
+    // the Account's own cart and appends nothing to the claimed stream.
+    const started = await sessions.createFromCart(
+      {
+        accountId: otherAccount as never,
+        readinessSnapshotId: foreignReadiness.snapshotId,
+        readinessSourceRevision: foreignReadiness.sourceRevision,
+      },
+      { ...context, audit: { ...context.audit, forAccountId: otherAccount } } as never,
+    );
+    const startedEvent = (await readAllStoredEvents()).find((event) => event.event_type === "checkout.session.started");
+
+    expect(
+      (startedEvent?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId),
+    ).toEqual(["cli_rival"]);
+    expect(JSON.stringify(startedEvent?.payload)).not.toContain(claimedSourceA);
+    expect(started.sessionId).toEqual(expect.any(String));
+    expect(
+      await Promise.all(
+        [claimAccount, otherAccount, claimedSourceA].map((owner) => readStreamEventTypes(`checkout.cart-${owner}`)),
+      ),
+    ).toEqual(streamsBefore);
+
+    // Controls, with every other fact frozen. A rewritten alias can only
+    // narrow the true claimant's discovery, never widen anyone's; presenting
+    // the key still admits the claimant by Account authority; and an
+    // unclaimed source is still admitted by possession.
+    expect((await runtime.listAuthorizedCartLines({ accountId: claimAccount })).map((line) => line.line_id)).toEqual([
+      "cli_own",
+    ]);
+    expect(
+      (
+        await runtime.listAuthorizedCartLines({
+          accountId: claimAccount,
+          presentedAnonymousCartId: claimedSourceA,
+        })
+      )
+        .map((line) => line.line_id)
+        .sort(),
+    ).toEqual(["cli_own", "cli_source"]);
+    await expect(
+      runtime.resolveCartSourceAuthority({
+        actingOwnerKey: otherAccount,
+        presentedAnonymousCartId: "anon_cart_never_claimed",
+      }),
+    ).resolves.toEqual({ status: "accepted", acceptedVia: "possession" });
+  });
+
+  it("decides each of several claimed sources separately when one alias row is stale-foreign", async () => {
+    await seedReadModel(
+      [
+        seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }),
+        claimedLine(),
+        seededLine({ buyer_account_id: claimedSourceB, line_id: "cli_source_b" }),
+        seededLine({ buyer_account_id: presentedSource, line_id: "cli_source_foreign" }),
+      ],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceB, accountId: claimAccount as never }, context);
+    // A third source genuinely claimed by the rival, with a routing row that
+    // wrongly names the claimant.
+    await runtime.claimCart({ sourceOwnerKey: presentedSource, accountId: otherAccount as never }, context);
+    await pool.query("UPDATE checkout_cart_claims SET account_id = $2 WHERE source_owner_key = $1", [
+      presentedSource,
+      claimAccount,
+    ]);
+
+    const candidates = await runtime.listClaimedOwnerKeys(claimAccount);
+    const lines = await runtime.listAuthorizedCartLines({ accountId: claimAccount });
+
+    // Routing breadth carries all three; the aggregate accepts two.
+    expect(candidates).toEqual([claimedSourceA, claimedSourceB, presentedSource]);
+    expect(lines.map((line) => line.line_id).sort()).toEqual(["cli_own", "cli_source", "cli_source_b"]);
+    expect(lines.map((line) => line.buyer_account_id)).not.toContain(presentedSource);
+  });
+
+  it("refuses the retained key through the real readiness path while the claimant still reads the source", async () => {
+    await seedReadModel(
+      [seededLine({ buyer_account_id: claimAccount, line_id: "cli_own" }), claimedLine()],
+      [seededOption()],
+    );
+    const { runtime } = createCartRuntime(pool);
+    await runtime.claimCart({ sourceOwnerKey: claimedSourceA, accountId: claimAccount as never }, context);
+
+    const retained = await runtime.createReadinessSnapshot({ accountId: claimedSourceA });
+    const absent = await runtime.createReadinessSnapshot({ accountId: "anon_cart_never_seeded" });
+    const claimant = await runtime.createReadinessSnapshot({
+      accountId: claimAccount,
+      presentedAnonymousCartId: claimedSourceA,
+    });
+
+    // Non-enumerating: the refused key produces exactly the snapshot an
+    // unclaimed empty key produces.
+    expect(retained).toEqual(absent);
+    expect(retained.status).toBe("blocked");
+    // And the claimant still reads both its own and the claimed source's lines.
+    expect(claimant.lineOutcomes.map((outcome) => outcome.lineId).sort()).toEqual(["cli_own", "cli_source"]);
+  });
+});
+
+describeDb("seller-options revision rebuild from source history", () => {
+  const projectionName = "checkout-marketplace-listing-options-projection";
+  const sourceNames = ["marketplace", "catalog", "ordering"] as const;
+  const names = ["checkout", ...sourceNames] as const;
+  const callers = ["bootstrap", "worker", "operator"] as const;
+  type Caller = (typeof callers)[number];
+  let databases: Readonly<Record<(typeof names)[number], PgTransactionalPool>>;
+  const declared = checkoutModule.projectionGroups!.find((group) => group.projectionName === projectionName)!;
+  const sourceModules = sourceNames.map((contextName) =>
+    defineBoundedContextModule({
+      manifest: { contextName, apiBasePath: `/${contextName}`, streamPrefix: `${contextName}.` },
+      schemaSql: "",
+      createServices: () => ({}),
+      buildApis: () => [],
+    }),
+  );
+
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), names, "seller_options_rebuild");
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), urls);
+    databases = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(databases);
+    await bootstrapContextDatabase(checkoutModule, databases.checkout);
+    for (const module of sourceModules) {
+      await bootstrapContextDatabase(module, databases[module.contextName as (typeof sourceNames)[number]]);
+    }
+    await seedHistory();
+    await seedUnrelatedRows();
+  });
+  afterAll(async () => closeMultiContextTestPools(databases));
+
+  function createGroup(definition = declared): ContextProjectionGroup {
+    const runtime = createMountedContextTestRuntime([
+      ...sourceModules.map((module) => ({
+        contextName: module.contextName,
+        mountRole: "source-only" as const,
+        module,
+        pool: databases[module.contextName as (typeof sourceNames)[number]],
+        ports: {},
+      })),
+      {
+        contextName: "checkout",
+        module: {
+          ...checkoutModule,
+          eventSubscriptions: checkoutModule.eventSubscriptions!.filter(
+            (entry) => entry.projectionName === projectionName,
+          ),
+          projectionGroups: [definition],
+          buildProjectionGroups: () => [withCheckoutProductMeasurePublicationReset(definition)],
+          projectionHandlerSets: () => [],
+          buildSubscriptions: (services: Parameters<NonNullable<typeof checkoutModule.buildSubscriptions>>[0]) =>
+            checkoutModule.buildSubscriptions!(services).filter((entry) => entry.projectionName === projectionName),
+        },
+        pool: databases.checkout,
+        ports: {},
+      },
+    ]);
+    return runtime.projectionGroups.find((group) => group.projectionName === projectionName)!;
+  }
+
+  async function run(caller: Caller, group = createGroup()) {
+    if (caller === "bootstrap") return syncProjectionGroup(group);
+    if (caller === "operator") return rebuildProjectionGroup(group);
+    const worker = createProjectionGroupWorkerRunner(group);
+    for (let pass = 0; pass < 20; pass += 1) {
+      const result = await worker.runOnce();
+      if (result.blockedStreams) throw new Error("seller-options replay blocked");
+      if (result.processed === 0) return;
+    }
+    throw new Error("seller-options worker did not catch up");
+  }
+
+  async function ownedRows() {
+    // JSON preserves every column, numeric value, JSON field and timestamp,
+    // independently of driver parsers and physical column order after migration.
+    const options = await databases.checkout.query(
+      "SELECT to_jsonb(option) AS row FROM checkout_marketplace_seller_options AS option ORDER BY listing_id",
+    );
+    const availability = await databases.checkout.query(
+      "SELECT to_jsonb(availability) AS row FROM checkout_marketplace_seller_availability AS availability ORDER BY account_id",
+    );
+    return { options: options.rows, availability: availability.rows };
+  }
+
+  async function unrelatedRows() {
+    const tables = [
+      "checkout_cart_line_pages",
+      "checkout_supply_items",
+      "checkout_supply_holds",
+      "checkout_seller_accounts",
+    ];
+    return Promise.all(
+      tables.map(async (table) => (await databases.checkout.query(`SELECT to_jsonb(t) FROM ${table} t`)).rows),
+    );
+  }
+
+  async function persistedState() {
+    const checkpoints = await databases.checkout.query(
+      "SELECT checkpoint_key, last_global_position::text FROM event_subscription_checkpoints ORDER BY checkpoint_key",
+    );
+    const revisions = await databases.checkout.query(
+      "SELECT projection_revision FROM event_projection_group_revisions WHERE target_context_name = 'checkout' AND projection_name = $1",
+      [projectionName],
+    );
+    const generation = await loadProjectionGroupGeneration(databases.checkout, {
+      targetContextName: "checkout",
+      projectionName,
+    });
+    return { rows: await ownedRows(), checkpoints: checkpoints.rows, revisions: revisions.rows, generation };
+  }
+
+  async function retainOldRevision(shape: "populated" | "empty" | "partial" = "populated") {
+    await databases.checkout.query(
+      "UPDATE event_projection_group_revisions SET projection_revision = 2 WHERE projection_name = $1",
+      [projectionName],
+    );
+    if (shape === "empty") {
+      await databases.checkout.query("DELETE FROM checkout_marketplace_seller_options");
+      await databases.checkout.query("DELETE FROM checkout_marketplace_seller_availability");
+      return;
+    }
+    await databases.checkout.query(`UPDATE checkout_marketplace_seller_options
+      SET product_summary = 'obsolete creation value', product_measure_snapshot = NULL,
+          price_currency_code = NULL, inventory_item_id = NULL, supply_total_quantity = 999,
+          active_held_quantity = 999, evidence = '[]'::jsonb`);
+    await databases.checkout.query(`INSERT INTO checkout_marketplace_seller_options
+      (listing_id, seller_account_id, product_id, catalog_catalog_item_id, price_amount,
+       listing_quantity_cap, status, updated_at)
+      VALUES ('lst_obsolete', 'acc_obsolete', 'prd_obsolete', 'cat_obsolete', 999, 1, 'active', now())`);
+    await databases.checkout.query(`UPDATE checkout_marketplace_seller_availability SET available = true`);
+    await databases.checkout.query(`INSERT INTO checkout_marketplace_seller_availability
+      VALUES ('acc_obsolete', false, 99, now())`);
+    if (shape === "partial") {
+      await databases.checkout.query(
+        "DELETE FROM checkout_marketplace_seller_options WHERE listing_id = 'lst_published'",
+      );
+      await databases.checkout.query(
+        "DELETE FROM checkout_marketplace_seller_availability WHERE account_id = 'acc_seller'",
+      );
+    }
+  }
+
+  it.each(
+    callers.flatMap((caller) => (["populated", "empty", "partial"] as const).map((shape) => ({ caller, shape }))),
+  )(
+    "$caller rebuilds $shape revision-2 rows to the normalized full clean replay and retains the steady state",
+    async ({ caller, shape }) => {
+      await run("bootstrap");
+      const clean = await ownedRows();
+      const sentinels = await unrelatedRows();
+      expect(clean.options).toHaveLength(2);
+      expect(clean.availability).toHaveLength(1);
+      expect(clean.options).toContainEqual({
+        row: expect.objectContaining({
+          listing_id: "lst_created",
+          listing_stream_version: 1,
+          product_summary: "Historical creation",
+          price_currency_code: "USD",
+          supply_total_quantity: 12,
+          active_held_quantity: 3,
+        }),
+      });
+      const checkpoints = (await persistedState()).checkpoints;
+      await retainOldRevision(shape);
+      expect(await ownedRows()).not.toEqual(clean);
+      await run(caller);
+      expect(await ownedRows()).toEqual(clean);
+      expect(await unrelatedRows()).toEqual(sentinels);
+      expect((await persistedState()).checkpoints).toEqual(checkpoints);
+      expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+      await run("operator");
+      expect(await ownedRows()).toEqual(clean);
+      const steady = await persistedState();
+      await run(caller === "operator" ? "bootstrap" : caller);
+      expect(await persistedState()).toEqual(steady);
+      expect(await unrelatedRows()).toEqual(sentinels);
+    },
+  );
+
+  it("detects the prior replay-only policy mutant through a normalized full-row mismatch", async () => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    await run("bootstrap", createGroup({ ...declared, resetStrategy: "replay-only" }));
+    const retained = await ownedRows();
+    expect(retained).not.toEqual(clean);
+    expect(retained.options).toContainEqual({
+      row: expect.objectContaining({
+        listing_id: "lst_created",
+        product_summary: "obsolete creation value",
+        listing_stream_version: 1,
+      }),
+    });
+    expect(retained.options).toContainEqual({ row: expect.objectContaining({ listing_id: "lst_obsolete" }) });
+    expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+    await run("operator");
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  it("detects a foreign-table reset mutant through the unrelated sentinels", async () => {
+    await run("bootstrap");
+    const sentinels = await unrelatedRows();
+    await run(
+      "operator",
+      createGroup({
+        ...declared,
+        ownedTables: [...declared.ownedTables, "checkout_cart_line_pages"],
+      }),
+    );
+    expect(await unrelatedRows()).not.toEqual(sentinels);
+    expect((await databases.checkout.query("SELECT * FROM checkout_cart_line_pages")).rows).toEqual([]);
+  });
+
+  it("detects an inner-commit reset mutant that changes serving rows before reporting failure", async () => {
+    await run("bootstrap");
+    await retainOldRevision();
+    const before = await persistedState();
+    const group = createGroup();
+    const lastRunner = group.subscriptionRunners.at(-1)!;
+    await expect(
+      run("bootstrap", {
+        ...group,
+        reset: (context) => withPgTransaction(databases.checkout, (db) => group.reset(context, { db })),
+        subscriptionRunners: group.subscriptionRunners.map((runner) =>
+          runner !== lastRunner
+            ? runner
+            : {
+                ...runner,
+                reset: async (context, options) => {
+                  await runner.reset(context, options);
+                  throw new Error("injected failure after inner commit");
+                },
+              },
+        ),
+      }),
+    ).rejects.toThrow("injected failure after inner commit");
+    const after = await persistedState();
+    expect(after.rows).toEqual({ options: [], availability: [] });
+    expect(after.rows).not.toEqual(before.rows);
+    expect(after.checkpoints).toEqual(before.checkpoints);
+    expect(after.revisions).toEqual(before.revisions);
+    expect(after.generation).toEqual(before.generation);
+  });
+
+  it.each(callers)("%s rolls back a failure after table and checkpoint reset, then retries", async (caller) => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    const before = await persistedState();
+    const sentinels = await unrelatedRows();
+    const group = createGroup();
+    const lastRunner = group.subscriptionRunners.at(-1)!;
+    let sawEmptyRows = false;
+    const failing: ContextProjectionGroup = {
+      ...group,
+      subscriptionRunners: group.subscriptionRunners.map((runner) =>
+        runner !== lastRunner
+          ? runner
+          : {
+              ...runner,
+              reset: async (context, options) => {
+                await runner.reset(context, options);
+                const rows = await options!.db!.query(
+                  "SELECT 1 FROM checkout_marketplace_seller_options UNION ALL SELECT 1 FROM checkout_marketplace_seller_availability",
+                );
+                sawEmptyRows = rows.rows.length === 0;
+                throw new Error("injected failure after checkpoint reset");
+              },
+            },
+      ),
+    };
+    await expect(run(caller, failing)).rejects.toThrow("injected failure after checkpoint reset");
+    expect(sawEmptyRows).toBe(true);
+    expect(await persistedState()).toEqual(before);
+    expect(group.getStatus().storedProjectionRevision).not.toBe(3);
+    await run(caller);
+    expect(await ownedRows()).toEqual(clean);
+    expect(await unrelatedRows()).toEqual(sentinels);
+  });
+
+  it.each(callers)("%s leaves a committed reset rebuilding after a crash and recovers on restart", async (caller) => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    const group = createGroup();
+    const failing: ContextProjectionGroup = {
+      ...group,
+      subscriptionRunners: group.subscriptionRunners.map((runner) => ({
+        ...runner,
+        runOnce: async () => {
+          throw new Error("injected crash before replay");
+        },
+      })),
+    };
+    await expect(run(caller, failing)).rejects.toThrow("injected crash before replay");
+    const failed = await persistedState();
+    expect(failed.rows).toEqual({ options: [], availability: [] });
+    expect(failed.checkpoints).toEqual([]);
+    expect(failed.revisions).toEqual([{ projection_revision: 2 }]);
+    expect(failed.generation).toMatchObject({ state: "rebuilding" });
+    await run(caller);
+    expect(await ownedRows()).toEqual(clean);
+    expect((await persistedState()).generation).toMatchObject({ state: "active", rebuildingGeneration: null });
+  });
+
+  it.each(callers)("%s refuses a poisoned stream without syncing the revision and retries", async (caller) => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    await databases.checkout.query(`CREATE FUNCTION reject_seller_option() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'injected seller-options poison'; END; $$`);
+    await databases.checkout
+      .query(`CREATE TRIGGER reject_seller_option BEFORE INSERT ON checkout_marketplace_seller_options
+      FOR EACH ROW EXECUTE FUNCTION reject_seller_option()`);
+    try {
+      await expect(run(caller)).rejects.toThrow();
+      const failed = await persistedState();
+      expect(failed.rows.options).toEqual([]);
+      expect(failed.revisions).toEqual([{ projection_revision: 2 }]);
+      expect(failed.generation).toMatchObject({ state: "rebuilding" });
+      const group = createGroup();
+      await group.refreshStatus();
+      for (const runner of group.subscriptionRunners) await runner.refreshStatus();
+      expect(group.getStatus()).toMatchObject({ revisionStale: true });
+      expect(group.getStatus().blockedStreamCount).toBeGreaterThan(0);
+    } finally {
+      await databases.checkout.query("DROP TRIGGER reject_seller_option ON checkout_marketplace_seller_options");
+      await databases.checkout.query("DROP FUNCTION reject_seller_option()");
+    }
+    await run(caller);
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  it.each(callers)(
+    "%s keeps replayed rows and checkpoints consistent when revision completion fails",
+    async (caller) => {
+      await run("bootstrap");
+      const clean = await ownedRows();
+      const checkpoints = (await persistedState()).checkpoints;
+      await retainOldRevision();
+      const group = createGroup();
+      await databases.checkout
+        .query(`CREATE FUNCTION reject_seller_options_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'injected revision completion failure'; END; $$`);
+      await databases.checkout.query(`CREATE TRIGGER reject_seller_options_revision BEFORE INSERT OR UPDATE
+      ON event_projection_group_revisions FOR EACH ROW EXECUTE FUNCTION reject_seller_options_revision()`);
+      try {
+        await expect(run(caller, group)).rejects.toThrow("injected revision completion failure");
+        const failed = await persistedState();
+        expect(failed.rows).toEqual(clean);
+        expect(failed.checkpoints).toEqual(checkpoints);
+        expect(failed.revisions).toEqual([{ projection_revision: 2 }]);
+        expect(failed.generation).toMatchObject({
+          activeGeneration: "1",
+          rebuildingGeneration: "2",
+          state: "rebuilding",
+        });
+        expect(group.getStatus().storedProjectionRevision).not.toBe(3);
+      } finally {
+        await databases.checkout.query(
+          "DROP TRIGGER reject_seller_options_revision ON event_projection_group_revisions",
+        );
+        await databases.checkout.query("DROP FUNCTION reject_seller_options_revision()");
+      }
+      await run(caller);
+      expect(await ownedRows()).toEqual(clean);
+      expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+    },
+  );
+
+  it("rebuilds obsolete rows to an empty source history through every caller", async () => {
+    for (const source of sourceModules) {
+      const sourcePool = databases[source.contextName as (typeof sourceNames)[number]];
+      await resetMultiContextTestSchemas({ [source.contextName]: sourcePool });
+      await bootstrapContextDatabase(source, sourcePool);
+    }
+    await run("bootstrap");
+    const clean = await ownedRows();
+    expect(clean).toEqual({ options: [], availability: [] });
+    const sentinels = await unrelatedRows();
+    for (const caller of callers) {
+      await retainOldRevision();
+      await run(caller);
+      expect(await ownedRows()).toEqual(clean);
+      expect(await unrelatedRows()).toEqual(sentinels);
+      expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+    }
+  });
+
+  it("agrees on fresh and ledger-upgraded schema and refuses a foreign-owned FK without cascading", async () => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    const columns = () =>
+      databases.checkout.query(`SELECT table_name, column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns WHERE table_name IN
+      ('checkout_marketplace_seller_options', 'checkout_marketplace_seller_availability') ORDER BY table_name, column_name`);
+    const freshColumns = (await columns()).rows;
+    await databases.checkout.query(`ALTER TABLE checkout_marketplace_seller_options
+      DROP COLUMN price_currency_code, DROP COLUMN listing_stream_version`);
+    await databases.checkout.query(`DELETE FROM bounded_context_schema_migrations
+      WHERE migration_id = '20260907_checkout_marketplace_listing_price_currency'`);
+    await bootstrapContextDatabase(checkoutModule, databases.checkout);
+    expect((await columns()).rows).toEqual(freshColumns);
+    await retainOldRevision();
+    await run("bootstrap");
+    expect(await ownedRows()).toEqual(clean);
+    const incoming = await databases.checkout.query(`SELECT conname FROM pg_constraint
+      WHERE contype = 'f' AND confrelid IN ('checkout_marketplace_seller_options'::regclass,
+      'checkout_marketplace_seller_availability'::regclass)`);
+    expect(incoming.rows).toEqual([]);
+    await databases.checkout.query(`CREATE UNLOGGED TABLE foreign_owned_reference (
+      listing_id text PRIMARY KEY REFERENCES checkout_marketplace_seller_options(listing_id))`);
+    await databases.checkout.query("INSERT INTO foreign_owned_reference VALUES ('lst_created')");
+    const before = await persistedState();
+    await expect(run("operator")).rejects.toThrow(/foreign key constraint/);
+    expect(await persistedState()).toEqual(before);
+    expect((await databases.checkout.query("SELECT * FROM foreign_owned_reference")).rows).toEqual([
+      { listing_id: "lst_created" },
+    ]);
+    await databases.checkout.query("DROP TABLE foreign_owned_reference");
+    await run("operator");
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  it("keeps created, price and availability equal-version redeliveries from overwriting current rows", async () => {
+    await run("bootstrap");
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(databases.checkout);
+    const clean = await ownedRows();
+    const deliver = async (type: string, streamId: string, data: Record<string, unknown>, version: number) =>
+      handlers[type]!(buildTransportEvent(type, data, { streamId, streamVersion: version }));
+    await deliver(
+      "marketplace.listing.created",
+      "marketplace.listing-lst_created",
+      {
+        ...listingData("lst_created"),
+        productSummary: "must not replace",
+        priceAmount: "999.00",
+      },
+      1,
+    );
+    await deliver(
+      "marketplace.listing.price-updated",
+      "marketplace.listing-lst_published",
+      { priceAmount: "999.00" },
+      2,
+    );
+    await deliver(
+      "marketplace.seller-listing-availability.enabled",
+      "marketplace.seller-listing-availability-acc_seller",
+      { accountId: "acc_seller" },
+      1,
+    );
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  function listingData(listingId: string) {
+    return {
+      listingId,
+      accountId: "acc_seller",
+      inventoryItemId: "inv_history",
+      catalogItemId: "cat_history",
+      productId: "prd_history",
+      productSummary: "Historical creation",
+      priceAmount: "12.50",
+      priceCurrencyCode: "USD",
+      quantityCap: 8,
+      productMeasureSnapshot: { productId: "prd_history", measureVersion: "historical-v1" },
+      evidenceRequirements: { policyVersion: 1 },
+      evidence: [{ photoId: "photo_history", status: "active" }],
+    };
+  }
+
+  async function seedHistory() {
+    const marketplace = createPostgresEventStore({ pool: databases.marketplace });
+    for (const listingId of ["lst_created", "lst_published"]) {
+      await marketplace.appendToStream({
+        streamId: `marketplace.listing-${listingId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          { eventType: "marketplace.listing.created", payload: listingData(listingId) },
+          ...(listingId === "lst_published"
+            ? [
+                {
+                  eventType: "marketplace.listing.price-updated",
+                  payload: { priceAmount: "15.75", priceCurrencyCode: "USD" },
+                },
+                { eventType: "marketplace.listing.published", payload: {} },
+              ]
+            : []),
+        ],
+      });
+    }
+    await marketplace.appendToStream({
+      streamId: "marketplace.seller-listing-availability-acc_seller",
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "marketplace.seller-listing-availability.disabled", payload: { accountId: "acc_seller" } }],
+    });
+    await createPostgresEventStore({ pool: databases.catalog }).appendToStream({
+      streamId: "catalog.catalog-item-cat_history",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "catalog.catalog-item.product-measures-resolved",
+          payload: { catalogItemId: "cat_history", products: [] },
+        },
+      ],
+    });
+    await createPostgresEventStore({ pool: databases.ordering }).appendToStream({
+      streamId: "ordering.seller-capacity-acc_seller",
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "ordering.seller-capacity.reached", payload: { accountId: "acc_seller" } }],
+    });
+  }
+
+  async function seedUnrelatedRows() {
+    await databases.checkout.query(`INSERT INTO checkout_supply_items (item_id, total_quantity, last_stream_version)
+      VALUES ('inv_history', 12, 7)`);
+    await databases.checkout
+      .query(`INSERT INTO checkout_supply_holds (hold_id, item_id, quantity, status, last_stream_version)
+      VALUES ('hold_history', 'inv_history', 3, 'active', 1)`);
+    await databases.checkout.query(`INSERT INTO checkout_seller_accounts (account_id, display_name, slug)
+      VALUES ('acc_sentinel', 'Preserved seller', 'preserved-seller')`);
+    await databases.checkout.query(`INSERT INTO checkout_cart_line_pages
+      (buyer_account_id, line_id, catalog_catalog_item_id, product_id, item_title, quantity, fulfillment_mode, availability_state, updated_at)
+      VALUES ('acc_buyer', 'cli_sentinel', 'cat_history', 'prd_history', 'Preserved cart', 1, 'optimize', 'available', now())`);
+  }
+});

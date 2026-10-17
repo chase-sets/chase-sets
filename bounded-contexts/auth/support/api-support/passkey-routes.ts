@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { insertCreatedAuthIdentityAccountMirror } from "../auth-support/identity-projection";
 import {
   consumeChallenge,
   getPasskeyCredentialByExternalId,
@@ -139,6 +140,13 @@ export function registerPasskeyRoutes(app: AuthApiApp, services: AuthServices) {
       userId = identity.userId;
       accountId = identity.accountId;
       membershipId = identity.membershipId;
+      await insertCreatedAuthIdentityAccountMirror(services.db, {
+        accountId: identity.accountId,
+        displayName:
+          typeof body.displayName === "string" && body.displayName.trim()
+            ? body.displayName.trim()
+            : createOwnedUserDisplayName(challenge.email),
+      });
     }
 
     if (!userId) {

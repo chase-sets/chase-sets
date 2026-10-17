@@ -9,14 +9,26 @@ import {
 import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogSeedIds, representativeProductContentsScenario } from "@chase-sets/catalog-seed";
 import { module as identityModule } from "@chase-sets/identity";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import {
   productionLikeDataProfiles,
+  nonProductionDataProfiles,
   representativeCommerceStateDataProfiles,
   seedApiHostIfEmpty,
 } from "@chase-sets/platform-runtime/api";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
+import { settlementPayoutFeePolicy, type SettlementServices } from "@chase-sets/settlement/server";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
+import {
+  assembleProductMeasurePublication,
+  parseProductMeasurePublicationPart,
+  productMeasurePublicationCompleted,
+  productMeasurePublicationPartRecorded,
+  type ProductMeasureSnapshot,
+} from "@chase-sets/product-measures";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
@@ -29,6 +41,24 @@ import {
   listingPhotoStorage,
 } from "./bootstrap-db-test-support";
 import type { PlatformApiTestPools } from "./bootstrap-db-test-support";
+
+const measureAppendTrace = vi.hoisted(() => ({ inputs: null as AppendToStreamInput[] | null }));
+vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
+  return {
+    ...original,
+    createPostgresEventStore: (...args: Parameters<typeof original.createPostgresEventStore>) => {
+      const store = original.createPostgresEventStore(...args);
+      return {
+        ...store,
+        appendToStream: async (input: AppendToStreamInput) => {
+          measureAppendTrace.inputs?.push(input);
+          return store.appendToStream(input);
+        },
+      };
+    },
+  };
+});
 
 const identityApiContextRegistry = apiContextRegistry.filter((context) => context.contextName === "identity");
 const retainedRepresentativeAccount = {
@@ -62,6 +92,7 @@ function createIdentitySeedHost(pools: PlatformApiTestPools) {
     runtimeProfile: "public",
     pools,
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       listingPhotoStorage,
     },
@@ -202,7 +233,7 @@ async function runRepresentativeIdentitySeed(runtime: ReturnType<typeof createId
 }
 
 describe("platform api bootstrap production reconciliation", () => {
-  it("bootstraps and reconciles every whitelisted public policy value in the production landing profile", async () => {
+  it("payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile", async () => {
     const landingPools = createPlatformApiPools({
       runtimeProfile: "landing",
       sharedDatabaseUrl: null,
@@ -215,6 +246,7 @@ describe("platform api bootstrap production reconciliation", () => {
         runtimeProfile: "landing",
         pools: landingPools,
         hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
           processorGateway: createFakePaymentProcessorGateway(),
           listingPhotoStorage,
         },
@@ -224,6 +256,55 @@ describe("platform api bootstrap production reconciliation", () => {
         environmentName: "production",
         runtimeProfile: "landing",
       } as const;
+      const settlementContext = runtime.mountedContexts.find((context) => context.contextName === "settlement");
+      if (!settlementContext) throw new Error("Expected Settlement to be mounted in the landing profile.");
+      await bootstrapContextDatabase(settlementContext.module, settlementContext.pool);
+
+      const platformAdmin: ResolvedActor = {
+        sessionId: "ses_payout_fee_policy_admin",
+        tenantId: "tnt_platform",
+        userId: "usr_payout_fee_policy_admin",
+        accountId: "acc_payout_fee_policy_admin",
+        membershipId: "mem_payout_fee_policy_admin",
+        roleKey: "platform-admin",
+        permissions: ["platform-policy.view", "platform-policy.manage"],
+      };
+      const app = buildPlatformApiApp(runtime, {
+        runtimeProfile: "landing",
+        resolveActor: async () => platformAdmin,
+      });
+      const settlementServices = runtime.services.settlement as SettlementServices;
+
+      await expect(
+        settlementServices.policies.resolvePolicy(settlementPayoutFeePolicy, { at: "2026-09-10T12:00:00.000Z" }),
+      ).resolves.toMatchObject({
+        source: "fallback",
+        documentId: null,
+        value: settlementPayoutFeePolicy.defaultValue,
+      });
+
+      const fallbackDetailResponse = await app.request("/api/platform/policy-console/settlement.payout-fee");
+      expect(fallbackDetailResponse.status).toBe(200);
+      await expect(fallbackDetailResponse.json()).resolves.toMatchObject({
+        policyKey: "settlement.payout-fee",
+        current: { source: "fallback", documentId: null, value: settlementPayoutFeePolicy.defaultValue },
+      });
+
+      const invalidRevision = await app.request("/api/platform/policy-console/settlement.payout-fee/revisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: {
+            label: "Invalid payout fee",
+            percentageBps: 1001,
+            fixedAmount: "0.30",
+            firstPayoutOfMonthFixedAmount: "0.50",
+          },
+          status: "active",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+        }),
+      });
+      expect(invalidRevision.status).toBe(400);
 
       expect(runtime.mountedContexts.map(({ contextName, mountRole }) => [contextName, mountRole])).toEqual(
         expect.arrayContaining([
@@ -238,19 +319,23 @@ describe("platform api bootstrap production reconciliation", () => {
         enabledDataProfiles: ["critical-bootstrap"],
       });
 
-      const app = buildPlatformApiApp(runtime, { runtimeProfile: "landing" });
       const response = await app.request("/api/public-presence/policy-values");
       const body = (await response.json()) as { values: Readonly<Record<string, unknown>> };
 
       expect(response.status).toBe(200);
       expect(Object.keys(body.values).sort()).toEqual([...publicPolicyValueKeys].sort());
+      expect(body.values).toMatchObject({
+        "settlement.payout-fee.bps": { value: 25 },
+        "settlement.payout-fee.fixed": { value: "0.25", currency: "USD" },
+        "settlement.payout-fee.monthly": { value: "0.00", currency: "USD" },
+      });
 
       for (const [contextName, policyKeys] of [
         [
           "commercial-terms",
           ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
         ],
-        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds", "settlement.payout-fee"]],
       ] as const) {
         const result = await landingPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
           `SELECT policy_key, COUNT(*) AS count
@@ -265,6 +350,75 @@ describe("platform api bootstrap production reconciliation", () => {
           [...policyKeys].sort().map((policyKey) => [policyKey, 1]),
         );
       }
+
+      const seededPayoutFee = await landingPools.settlement.query<Readonly<{ value: unknown }>>(
+        `SELECT value
+           FROM platform_policy_documents
+          WHERE policy_key = 'settlement.payout-fee'
+            AND status = 'active'`,
+      );
+      expect(seededPayoutFee.rows).toEqual([{ value: settlementPayoutFeePolicy.defaultValue }]);
+
+      const listResponse = await app.request("/api/platform/policy-console");
+      expect(listResponse.status).toBe(200);
+      const listBody = (await listResponse.json()) as {
+        items: readonly { policyKey: string; status: string; value: unknown }[];
+      };
+      expect(listBody.items).toContainEqual(
+        expect.objectContaining({
+          policyKey: "settlement.payout-fee",
+          status: "active",
+          value: settlementPayoutFeePolicy.defaultValue,
+        }),
+      );
+
+      const revisedValue = {
+        label: "Revised payout fee",
+        percentageBps: 30,
+        fixedAmount: "0.30",
+        firstPayoutOfMonthFixedAmount: "0.50",
+      };
+      const revisionResponse = await app.request("/api/platform/policy-console/settlement.payout-fee/revisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          value: revisedValue,
+          status: "active",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+        }),
+      });
+      expect(revisionResponse.status).toBe(201);
+      await expect(revisionResponse.json()).resolves.toMatchObject({ version: 2, scheduled: false });
+
+      await drainLocalProjectionHandlerSets(
+        "settlement",
+        landingPools.settlement,
+        settlementServices.policies.projectors,
+      );
+      await expect(
+        settlementServices.policies.resolvePolicy(settlementPayoutFeePolicy, { at: "2026-09-10T12:00:00.000Z" }),
+      ).resolves.toMatchObject({
+        source: "policy",
+        documentId: expect.stringMatching(/^pol_/),
+        value: revisedValue,
+      });
+
+      const detailResponse = await app.request("/api/platform/policy-console/settlement.payout-fee");
+      expect(detailResponse.status).toBe(200);
+      await expect(detailResponse.json()).resolves.toMatchObject({
+        policyKey: "settlement.payout-fee",
+        current: { source: "policy", value: revisedValue },
+      });
+
+      const revisedPublicResponse = await app.request("/api/public-presence/policy-values");
+      expect(revisedPublicResponse.status).toBe(200);
+      await expect(revisedPublicResponse.json()).resolves.toMatchObject({
+        values: {
+          "settlement.payout-fee.bps": { value: 30 },
+          "settlement.payout-fee.fixed": { value: "0.30", currency: "USD" },
+          "settlement.payout-fee.monthly": { value: "0.50", currency: "USD" },
+        },
+      });
     } finally {
       await closePlatformApiPools(landingPools);
     }
@@ -281,6 +435,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -289,6 +444,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools: queuedPools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -382,7 +538,7 @@ describe("platform api bootstrap production reconciliation", () => {
           "commercial-terms",
           ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"],
         ],
-        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds"]],
+        ["settlement", ["settlement.clearance-window", "settlement.payout-bounds", "settlement.payout-fee"]],
       ] as const) {
         const result = await queuedPools[contextName].query<Readonly<{ policy_key: string; count: string }>>(
           `SELECT policy_key, COUNT(*) AS count
@@ -440,6 +596,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -448,6 +605,7 @@ describe("platform api bootstrap production reconciliation", () => {
       runtimeProfile: "public",
       pools: secondPools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -495,6 +653,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -637,6 +796,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -887,7 +1047,7 @@ describe("platform api bootstrap production reconciliation", () => {
       "identity.account.created": 5,
       "identity.user.created": 5,
       "identity.membership.granted": 5,
-      "identity.consent.recorded": 5,
+      "identity.consent.recorded": 0,
       "identity.shipping-address.added": 5,
     });
     const projectedUser = await pools.identity.query("SELECT user_id FROM identity_users WHERE user_id = $1", [
@@ -938,7 +1098,7 @@ describe("platform api bootstrap production reconciliation", () => {
 
     await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
     const firstRunCounts = await countRepresentativeIdentityCreationEvents(pools.identity);
-    expect(Object.values(firstRunCounts)).toEqual([5, 5, 5, 5, 5]);
+    expect(Object.values(firstRunCounts)).toEqual([5, 5, 5, 0, 5]);
 
     await drainLocalProjectionHandlerSets(
       identityContext.contextName,
@@ -1077,11 +1237,121 @@ describe("platform api bootstrap production reconciliation", () => {
     expect(await countRepresentativeIdentityCreationEvents(pools.identity)).toEqual(beforeCounts);
   }, 120_000);
 
+  it("publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables", async () => {
+    const runtime = createPlatformApiHost({
+      runtimeProfile: "public",
+      pools,
+      hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
+        processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
+      },
+    });
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: "test",
+    });
+    await drainContextRuntime(runtime);
+    await ensureRepresentativeProductContentsTestMeasureProfile(runtime);
+    const catalogServices = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
+    const catalogItemId = catalogSeedIds.items.pikachuPrismaticEvolutions;
+    const streamId = `catalog.product-measures-${catalogItemId}`;
+    const store = createPostgresEventStore({ pool: pools.catalog });
+    const before = await store.readStream({ streamId });
+    const version = before.at(-1)?.streamVersion ?? 0;
+    measureAppendTrace.inputs = [];
+    try {
+      await catalogServices.productMeasures.resolveCatalogItemMeasures(catalogItemId, {
+        tenantId: "tnt_identity" as never,
+        audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
+      });
+      const authored = measureAppendTrace.inputs.filter((input) => input.streamId === streamId);
+      expect(authored).toHaveLength(1);
+      expect(authored[0]!.expectedVersion).toBe(version);
+      expect(authored[0]!.events.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      measureAppendTrace.inputs = null;
+    }
+    const publication = await store.readStream({ streamId, fromVersion: version + 1 });
+    const completion = publication.at(-1)!;
+    const parts = publication.slice(0, -1);
+    expect(completion.eventType).toBe(productMeasurePublicationCompleted);
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+    expect(parts.every((event) => event.eventType === productMeasurePublicationPartRecorded)).toBe(true);
+    expect(parts.map(({ streamVersion }) => streamVersion)).toEqual(
+      parts.map((_, index) => completion.streamVersion - parts.length + index),
+    );
+    expect(completion.streamVersion).toBe(version + parts.length + 1);
+    const ledger = publication.map((event) => ({
+      version: event.streamVersion,
+      bytes: Buffer.byteLength(JSON.stringify(event.payload), "utf8"),
+      productIds:
+        event.eventType === productMeasurePublicationPartRecorded
+          ? parseProductMeasurePublicationPart(event.payload).products.map(({ productId }) => productId)
+          : [],
+    }));
+    expect(
+      ledger.every(({ bytes }) => bytes <= 64_512),
+      JSON.stringify(ledger),
+    ).toBe(true);
+    const products = await assembleProductMeasurePublication(
+      { ...completion, data: completion.payload },
+      parts.map((event) => ({ ...event, data: event.payload })),
+    );
+    expect(products).toHaveLength(85);
+    console.info("[8396-publication-ledger]", JSON.stringify(ledger));
+    expect(Buffer.byteLength(JSON.stringify({ catalogItemId, products }), "utf8")).toBeGreaterThan(65_536);
+    await drainContextRuntime(runtime);
+    const catalog = await pools.catalog.query<{ measure_snapshot: ProductMeasureSnapshot }>(
+      "SELECT measure_snapshot FROM catalog_resolved_product_measures WHERE catalog_item_id = $1 ORDER BY product_id",
+      [catalogItemId],
+    );
+    const discovery = await pools.discovery.query<{ measure_snapshot: ProductMeasureSnapshot }>(
+      "SELECT measure_snapshot FROM discovery_market_product_measures WHERE catalog_item_id = $1 ORDER BY product_id",
+      [catalogItemId],
+    );
+    const supply = await pools.marketplace.query<{ product_measure_snapshots: ProductMeasureSnapshot[] }>(
+      "SELECT product_measure_snapshots FROM marketplace_catalog_items WHERE catalog_item_id = $1",
+      [catalogItemId],
+    );
+    const ordered = [...products].sort((left, right) => left.productId.localeCompare(right.productId));
+    expect(catalog.rows.map(({ measure_snapshot }) => measure_snapshot)).toEqual(ordered);
+    expect(discovery.rows.map(({ measure_snapshot }) => measure_snapshot)).toEqual(ordered);
+    expect(supply.rows).toHaveLength(1);
+    expect(supply.rows[0]!.product_measure_snapshots).toEqual(products);
+    const measures = new Map(products.map((product) => [product.productId, product]));
+    for (const [pool, table] of [
+      [pools.checkout, "checkout_marketplace_seller_options"],
+      [pools.marketplace, "marketplace_listing_pages"],
+      [pools.ordering, "ordering_market_listing_inputs"],
+    ] as const) {
+      const snapshots = await pool.query<{
+        product_id: string;
+        product_measure_snapshot: ProductMeasureSnapshot | null;
+      }>(`SELECT product_id, product_measure_snapshot FROM ${table} WHERE catalog_catalog_item_id = $1`, [
+        catalogItemId,
+      ]);
+      expect(snapshots.rows.length, table).toBeGreaterThan(0);
+      for (const row of snapshots.rows)
+        expect(row.product_measure_snapshot, `${table}:${row.product_id}`).toEqual(
+          measures.get(row.product_id) ?? null,
+        );
+    }
+    for (const pool of [pools.catalog, pools.discovery, pools.marketplace, pools.checkout, pools.ordering]) {
+      const staged = await pool.query<{ count: string }>(
+        "SELECT count(*) AS count FROM event_projection_measure_publication_parts WHERE stream_id = $1",
+        [streamId],
+      );
+      expect(Number(staged.rows[0]!.count)).toBe(0);
+    }
+  }, 300_000);
+
   it("resumes the real representative commerce command after offer acceptance without duplicate creation events", async () => {
     const runtime = createPlatformApiHost({
       runtimeProfile: "public",
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
         listingPhotoStorage,
       },
@@ -1150,7 +1420,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const retainedListings = await countCreationEvents(pools.marketplace, "marketplace.listing.created");
     const retainedOffers = await countCreationEvents(pools.marketplace, "marketplace.offer.submitted");
     const retainedParticipants = await representativeParticipantIdentities(pools);
-    expect(Object.values(retainedIdentityEvents)).toEqual([5, 5, 5, 5, 5]);
+    expect(Object.values(retainedIdentityEvents)).toEqual([5, 5, 5, 0, 5]);
     expect(retainedListings.eventCount).toBeGreaterThan(0);
     expect(retainedListings.eventCount).toBe(retainedListings.streamCount);
     expect(retainedOffers.eventCount).toBeGreaterThan(0);

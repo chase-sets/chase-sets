@@ -371,6 +371,15 @@ describe("seed-pack workflow binding contract", () => {
   const planJob = workflow.slice(workflow.indexOf("  plan:"), workflow.indexOf("  apply:"));
   const applyJob = workflow.slice(workflow.indexOf("  apply:"));
 
+  it("preserves the checked-in provider lock bytes during both initialization phases", () => {
+    for (const job of [planJob, applyJob]) {
+      const initializationCommands = job.match(/terraform .* init [^\n]+/g) ?? [];
+      expect(initializationCommands).toHaveLength(1);
+      expect(initializationCommands[0]).toContain("-lockfile=readonly");
+      expect(initializationCommands[0]).not.toContain("-upgrade");
+    }
+  });
+
   it("keeps planning plan-only and puts the sole mutation in the separately approved apply job", () => {
     expect(planJob).toContain("environment: production");
     expect(planJob).toMatch(/terraform .* plan /);

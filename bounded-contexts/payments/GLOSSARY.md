@@ -6,6 +6,26 @@ This glossary defines the canonical terminology for the Payments bounded context
 
 A **Payment** is the external charge workflow associated with one or more orders.
 
+## Wallet Funding
+
+**Wallet Funding** is the card-to-prepaid funding capability, separate from order Payments and Settlement's internal balance accounting.
+
+## Wallet Funding Payment
+
+A **Wallet Funding Payment** is a platform-held card charge with no orders. Its gross charge is the requested prepaid amount plus its Wallet Funding Fee. Payments owns the charge; Settlement owns the resulting Prepaid Balance.
+
+## Wallet Funding Fee
+
+The **Wallet Funding Fee** is the non-refundable processing fee quoted from the checkout card fee policy and charged on top of the requested prepaid amount.
+
+## Wallet Funding Refund
+
+A **Wallet Funding Refund** returns an exact reserved amount of unspent prepaid money to the original card, subject to processor acceptance. Pending or unknown provider outcomes retain their reservation and require reconciliation, not expiry or another refund attempt.
+
+## Refund Reservation
+
+A **Refund Reservation** is Settlement's durable authorization of one account, funding, refund, currency and amount. Payments persists the identity before provider submission, commits it after one successful refund fact, and releases it only after definitive terminal non-execution evidence. It is not a refundable-balance snapshot or a Payments wallet write.
+
 ## Payment Intent
 
 A **Payment Intent** is the buyer-facing authorization attempt created before capture.
@@ -111,7 +131,7 @@ A **Shared Payment Token** is a provider-scoped payment credential grant from an
 
 Notes:
 
-- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff and require AP2 verification before headless UCP completion.
+- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff; UCP checkout completion does not submit them headlessly.
 - Payments stores the resulting processor payment reference and metadata, not the token as durable customer payment data.
 
 ## Saved Checkout Instrument
@@ -153,11 +173,67 @@ Readiness states:
 - `setup-required`: The provider method exists in history but needs buyer action, mandate repair, or provider reconciliation before reuse.
 - `removed`: The buyer or provider detached the credential; Checkout must not offer it, but historical Payments keep their Saved Checkout Instrument reference.
 
-## AP2 Mandate
+## Evidence Window Registration
 
-An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.
+An **Evidence Window Registration** is a bounded, self-expiring control-plane statement that one governed evidence window is current. It records neither ownership nor liveness.
+
+## Window Correlation
+
+**Window Correlation** is the read-only association a deployed provider writer may observe immediately before a provider call.
+
+## Provider Object Class
+
+A **Provider Object Class** is one of the six governed categories of Stripe test-mode object that an Ink & Foil evidence window may create, fixed by Decision #6728: captured PaymentIntent, uncaptured PaymentIntent, SetupIntent, Stripe Checkout Session, Stripe Customer, and Stripe Account Session.
 
 Notes:
 
-- AP2 Mandates are accepted for headless UCP checkout completion only when a production verifier is configured and a supported payment handler is present.
-- Without a verified AP2 Mandate, UCP checkout completion must use Trusted Checkout Handoff.
+- The class list, per-class Residue Budget, and per-class Disposition Terminal are immutable under `provider-object-disposition/v1` (issue #6733); no caller input may override them.
+
+## Provider Object Disposition
+
+A **Provider Object Disposition** is the bounded outcome recorded for one Provider Object Class in a single evidence window: whether disposition was not attempted, ambiguous, or reached its class-specific Disposition Terminal, and how many objects were observed.
+
+Notes:
+
+- Recorded only in the `provider-object-disposition/v1` receipt; it never carries a provider identifier, raw provider response, or free-text diagnostic.
+- An unattempted or ambiguous disposition never counts as satisfying a Residue Budget.
+
+## Residue Budget
+
+A **Residue Budget** is the maximum known count of a Provider Object Class permitted to remain in a non-terminal provider state at the end of one evidence window, fixed per class and scope by Decision #6728.
+
+Notes:
+
+- Every Residue Budget is a stated number, never a range; class 5 (Stripe Customer) is measured per e2e identity and persists across windows, every other class is measured per window.
+- An unknown or not-attempted disposition never satisfies a Residue Budget, even at zero.
+
+## Disposition Terminal
+
+A **Disposition Terminal** is the class-specific final state a `provider-object-disposition/v1` receipt may represent for one Provider Object Class, fixed by Decision #6728's Option B (for example `not-created` for a Stripe Checkout Session or `retained-reused` for a Stripe Customer).
+
+## Stripe Checkout Session
+
+A **Stripe Checkout Session** (`cs_`) is the Stripe-hosted, non-embedded payment or setup session object created at `/v1/checkout/sessions`.
+
+Notes:
+
+- Distinct from the product checkout session, which is Chase Sets' own buyer-facing checkout flow and is not a Stripe object; the two must never be conflated in Payments terminology or evidence.
+- Option B's evidence windows use the embedded setup path only, so no Stripe Checkout Session is created; its Disposition Terminal is `not-created`.
+
+## Payment Provider Mode
+
+A **Payment Provider Mode** is the boot-time effective classification of the platform payment provider configuration, one of `unconfigured`, `test` or `live`.
+
+Notes:
+
+- The classification is decided solely by the shared platform Stripe key classification; Payments transports the result and never re-derives it from a key, a prefix or an environment variable.
+- The mode reports locally configured authority, never the payment provider's own opinion about the account.
+
+## Provider Mode Observation
+
+A **Provider Mode Observation** is the immutable configuration-time record of the Payment Provider Mode together with the payment-processor gateway kind, the money-movement gateway kind and the deployment environment.
+
+Notes:
+
+- The record is loaded once per process by the API host; the observation endpoint reports it with one request-time `observedAt` instant.
+- `observedAt` carries no uniqueness guarantee: two requests served while the clock has not advanced legitimately report the same instant.

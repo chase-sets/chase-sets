@@ -32,6 +32,7 @@ import {
   decideCheckoutSession,
   evolveCheckoutSession,
   initialCheckoutSessionState,
+  retainedOrderCartCleanup,
   type CheckoutSessionCommand,
   type CheckoutSessionEvent,
   type CheckoutSessionLine,
@@ -78,6 +79,13 @@ export type CheckoutSessionMutationResult = Readonly<{
   }[];
 }>;
 
+/** Safe at HTTP/UCP boundaries: never retain a key-bearing lower-layer cause. */
+export class OrderCartCleanupError extends CheckoutDomainError {
+  constructor(readonly commitMetadata: Omit<CheckoutSessionMutationResult, "sessionId" | "session"> = {}) {
+    super("Cart cleanup could not finish. Retry checkout.");
+  }
+}
+
 export type CheckoutSessionCreateResult = Readonly<{
   sessionId: CheckoutSessionId;
   commitPosition?: string;
@@ -108,6 +116,7 @@ export type CheckoutSessionServices = Readonly<{
       readinessSnapshotId: string;
       readinessSourceRevision: string;
       readinessDecisions?: CartReadinessDecisionInput | null;
+      presentedAnonymousCartId?: string | null;
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
@@ -144,6 +153,7 @@ export type CheckoutSessionServices = Readonly<{
       selectedOptions: readonly { dimensionId: string; optionId: string }[];
       productSummary: string | null;
       offerPriceAmount: string;
+      offerPriceCurrencyCode: string;
       quantity: number;
       optimizationGoal?: CheckoutOptimizationGoal;
       shippingOption?: string;
@@ -206,6 +216,10 @@ export type CheckoutSessionServices = Readonly<{
       fulfilledLineKeys?: readonly string[];
       orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
     }>,
+    context: EventStoreContext,
+  ) => Promise<CheckoutSessionMutationResult>;
+  resumeOrderCartCleanup: (
+    params: Readonly<{ sessionId: string; accountId: AccountId }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
   recordCheckoutReservations: (
@@ -408,6 +422,31 @@ function assertSessionNotCancelled(state: Pick<CheckoutSessionState, "cancelledA
   }
 }
 
+/**
+ * The one place Checkout Session asks Cart whether a presented anonymous source
+ * may still be sourced, and the only shape in which the answer is used.
+ *
+ * Cart owns the decision; Checkout Session only obeys it. An unaccepted key is
+ * dropped rather than argued with, so a foreign claimant and a store failure
+ * both leave the acting Account's own Cart as the sole source.
+ */
+async function acceptedPresentedAnonymousCartId(
+  cart: Pick<CheckoutCartServices, "resolveCartSourceAuthority">,
+  actingOwnerKey: string,
+  presentedAnonymousCartId: string | null | undefined,
+) {
+  const presented = presentedAnonymousCartId ?? null;
+  if (!presented) {
+    return null;
+  }
+
+  const authority = await cart.resolveCartSourceAuthority({
+    actingOwnerKey,
+    presentedAnonymousCartId: presented,
+  });
+  return authority.status === "accepted" ? presented : null;
+}
+
 async function assertCurrentCartReadinessForUncommittedSession(
   state: Readonly<{
     sourceType: "cart" | "buy-now" | "offer-intent" | null;
@@ -416,6 +455,7 @@ async function assertCurrentCartReadinessForUncommittedSession(
     submittedOfferId: string | null;
     cancelledAt?: string | null;
     cartReadinessSnapshot: CartReadinessSnapshot | null | undefined;
+    presentedAnonymousCartId: string | null | undefined;
     splitGroupHandoff: CheckoutSplitGroupHandoff | null | undefined;
   }>,
   accountId: AccountId | string,
@@ -437,12 +477,38 @@ async function assertCurrentCartReadinessForUncommittedSession(
     throw readinessStaleError();
   }
 
-  const cartLines = await cart.listCartLines(accountId as AccountId);
-  const readiness = validateCartReadinessSnapshot(cartLines, {
-    snapshotId: storedReadiness.snapshotId,
-    sourceRevision: storedReadiness.sourceRevision,
-    decisions: cartReadinessDecisionsFromSnapshot(storedReadiness),
-  });
+  // Stored provenance is re-evaluated on every pass, never trusted because an
+  // earlier request accepted it. A key claimed by someone else after the
+  // session started, or one whose authority cannot be read right now, refuses
+  // here -- before any cart line is read and before any command is applied, so
+  // the session appends no reservation, order, or cart side effect and the
+  // refusal names no owner.
+  const presentedAnonymousCartId = await acceptedPresentedAnonymousCartId(
+    cart,
+    String(accountId),
+    state.presentedAnonymousCartId,
+  );
+  if (state.presentedAnonymousCartId && !presentedAnonymousCartId) {
+    throw readinessStaleError();
+  }
+
+  // The authorized read, not the raw union: it re-decides every alias-derived
+  // candidate against its own Cart aggregate on this pass too, so a source the
+  // session never presented cannot be revalidated by the claim alias alone.
+  const cartLines = await cart.listAuthorizedCartLines(
+    presentedAnonymousCartId
+      ? { accountId: String(accountId), presentedAnonymousCartId }
+      : { accountId: String(accountId) },
+  );
+  const readiness = validateCartReadinessSnapshot(
+    cartLines,
+    {
+      snapshotId: storedReadiness.snapshotId,
+      sourceRevision: storedReadiness.sourceRevision,
+      decisions: cartReadinessDecisionsFromSnapshot(storedReadiness),
+    },
+    presentedAnonymousCartId ? { accountId: String(accountId), presentedAnonymousCartId } : undefined,
+  );
   if (!readiness.valid) {
     throw readinessStaleError();
   }
@@ -566,19 +632,21 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       throw new CheckoutDomainError("Checkout session not found.");
     }
 
+    retainedOrderCartCleanup(loaded.state);
     return loaded.state;
   }
 
-  async function loadSessionRowForBuyerFromAggregate(
+  async function loadSessionStateForBuyerOrNull(
     sessionId: string,
     accountId: AccountId | string,
-  ): Promise<CheckoutSessionRow | null> {
+  ): Promise<CheckoutSessionState | null> {
     const loaded = await repository.load(`checkout.session-${sessionId}`);
     if (loaded.state.sessionId !== sessionId || loaded.state.buyerAccountId !== accountId) {
       return null;
     }
 
-    return stateToCheckoutSessionRow(loaded.state);
+    retainedOrderCartCleanup(loaded.state);
+    return loaded.state;
   }
 
   function assertBuyNowHandoffReady(
@@ -620,6 +688,68 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     };
   }
 
+  function assertCleanupContext(accountId: AccountId, context: EventStoreContext) {
+    if (!context?.tenantId || !context.audit?.performedByUserId || context.audit.forAccountId !== accountId) {
+      throw new CheckoutDomainError("Checkout buyer context is required.");
+    }
+  }
+
+  async function cleanupCommitMetadata(sessionId: string, state: CheckoutSessionState) {
+    const events = await readCompleteStream(deps.eventStore, { streamId: `checkout.session-${sessionId}` });
+    const metadata = commitMetadataFromStoredEvents(events);
+    return { ...metadata, commitPositions: [...metadata.commitPositions, ...state.orderWriteCommitPositions] };
+  }
+
+  const resumeOrderCartCleanup: CheckoutSessionServices["resumeOrderCartCleanup"] = async (params, context) => {
+    assertCleanupContext(params.accountId, context);
+    let metadata: OrderCartCleanupError["commitMetadata"] = {};
+    try {
+      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      const cleanup = retainedOrderCartCleanup(state);
+      metadata = await cleanupCommitMetadata(params.sessionId, state);
+      if (!cleanup || cleanup.status === "complete") {
+        return { sessionId: params.sessionId, session: stateToCheckoutSessionRow(state), ...metadata };
+      }
+      // The retained plan is unchanged: the same durable Account and anonymous
+      // sources, the same line ids, one lifecycle. What the sweep adds is reach.
+      // Removing as the buyer Account is already line-id-total across every key
+      // that Account has claimed, so a retained source it now owns is covered by
+      // that pass -- and must be dropped from this loop, because acting as a
+      // claimed anonymous key is exactly what the claimed stream refuses.
+      // A source claimed by some other Account stays in the loop and its
+      // refusal propagates, rather than being skipped as if it were clean.
+      const claimedOwnerKeys = new Set(await deps.cart.listClaimedOwnerKeys(cleanup.plan.buyerAccountId));
+      for (const ownerKey of cleanup.plan.sourceOwnerKeys) {
+        if (claimedOwnerKeys.has(ownerKey)) continue;
+        for (const lineId of cleanup.plan.lineIds) {
+          try {
+            await deps.cart.removeLine({ accountId: ownerKey as AccountId, lineId: lineId as CartLineId }, context);
+          } catch (error) {
+            if (!(error instanceof CheckoutDomainError && error.message === "Cart line not found.")) throw error;
+          }
+        }
+      }
+      const completed = await applySessionCommandForBuyer(
+        {
+          ...params,
+          command: { type: "CompleteOrderCartCleanup", completedAt: new Date().toISOString() },
+        },
+        context,
+      );
+      const current = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      return { ...completed, ...(await cleanupCommitMetadata(params.sessionId, current)) };
+    } catch {
+      // Completion may have committed before its acknowledgement was lost.
+      try {
+        const current = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+        metadata = await cleanupCommitMetadata(params.sessionId, current);
+      } catch {
+        /* Preserve the last known committed metadata while the store remains unavailable. */
+      }
+      throw new OrderCartCleanupError(metadata);
+    }
+  };
+
   async function startSession(
     params: Readonly<{
       accountId: AccountId;
@@ -628,6 +758,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       fulfillmentPreviewRevision?: string | null;
       fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
       cartReadinessSnapshot?: CartReadinessSnapshot | null;
+      presentedAnonymousCartId?: string | null;
       shippingOption: ShippingOption;
       lines: readonly CheckoutSessionLine[];
       sessionIdOverride?: CheckoutSessionId;
@@ -697,6 +828,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
           fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
           cartReadinessSnapshot: params.cartReadinessSnapshot,
+          presentedAnonymousCartId: params.presentedAnonymousCartId,
           shippingOption: params.shippingOption,
           lines: params.lines,
           createdAt: new Date().toISOString(),
@@ -732,15 +864,35 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
   return {
     commandHandler,
     createFromCart: async (params, context) => {
-      const cartLines = await deps.cart.listCartLines(params.accountId);
+      // Exclusion happens before line resolution, so a refused key contributes
+      // no line, no readiness snapshot binding, and no `presentedAnonymousCartId`
+      // on the started event. The request continues against the acting
+      // Account's own Cart.
+      const presentedAnonymousCartId = await acceptedPresentedAnonymousCartId(
+        deps.cart,
+        params.accountId,
+        params.presentedAnonymousCartId,
+      );
+      // Line resolution runs through the authorized read, so the accepted
+      // presented key above and every alias-derived candidate are both decided
+      // from aggregate state before a single line reaches the session.
+      const cartLines = await deps.cart.listAuthorizedCartLines(
+        presentedAnonymousCartId
+          ? { accountId: params.accountId, presentedAnonymousCartId }
+          : { accountId: params.accountId },
+      );
       if (cartLines.length === 0) {
         throw new CheckoutDomainError("Cart must contain at least one line.", "cart_empty");
       }
-      const readiness = validateCartReadinessSnapshot(cartLines, {
-        snapshotId: params.readinessSnapshotId,
-        sourceRevision: params.readinessSourceRevision,
-        decisions: params.readinessDecisions ?? undefined,
-      });
+      const readiness = validateCartReadinessSnapshot(
+        cartLines,
+        {
+          snapshotId: params.readinessSnapshotId,
+          sourceRevision: params.readinessSourceRevision,
+          decisions: params.readinessDecisions ?? undefined,
+        },
+        presentedAnonymousCartId ? { accountId: params.accountId, presentedAnonymousCartId } : undefined,
+      );
       if (!readiness.valid) {
         throw new CheckoutDomainError(
           "Cart readiness changed. Review your cart before checkout.",
@@ -759,6 +911,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
           optimizationGoal: params.optimizationGoal,
           cartReadinessSnapshot: readiness.current,
+          presentedAnonymousCartId,
           lines: checkoutLines.map(cartLineToSessionLine),
           sessionIdOverride: params.sessionIdOverride,
         },
@@ -829,6 +982,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
               selectedOptions: descriptor.selection,
               productSummary: params.productSummary,
               offerPriceAmount: params.offerPriceAmount,
+              offerPriceCurrencyCode: params.offerPriceCurrencyCode,
               quantity: params.quantity,
               fulfillmentMode: "optimize",
               lockedListingId: null,
@@ -941,53 +1095,52 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
       return stateToCheckoutSessionRow(state);
     },
+    resumeOrderCartCleanup,
     recordOrdersCreated: async (params, context) => {
+      assertCleanupContext(params.accountId, context);
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      if (state.orderIds.length > 0) return resumeOrderCartCleanup(params, context);
       assertSessionNotCancelled(state);
       await assertCurrentCartReadinessForUncommittedSession(state, params.accountId, deps.cart);
       assertOrderableSessionFulfillmentAssigned(state);
       assertBuyerDeliveryAddressServiceable(state.shippingAddress);
-      const result = await applySessionCommandForBuyer(
-        {
-          sessionId: params.sessionId,
-          accountId: params.accountId,
-          command: {
-            type: "RecordOrdersCreated",
-            orderIds: params.orderIds as OrderId[],
-            orderWriteCommitPositions: params.orderWriteCommitPositions,
-            recordedAt: new Date().toISOString(),
+      let result: CheckoutSessionMutationResult;
+      try {
+        result = await applySessionCommandForBuyer(
+          {
+            sessionId: params.sessionId,
+            accountId: params.accountId,
+            command: {
+              type: "RecordOrdersCreated",
+              orderIds: params.orderIds as OrderId[],
+              fulfilledLineKeys: params.fulfilledLineKeys,
+              orderWriteCommitPositions: params.orderWriteCommitPositions,
+              recordedAt: new Date().toISOString(),
+            },
           },
-        },
-        context,
-      );
-      const session = result.session;
-
-      if (session.source_type === "cart") {
-        const fulfilledLineKeys = new Set(params.fulfilledLineKeys ?? []);
-        const sessionCartLineIds = session.lines
-          .map((line) => line.cartLineId)
-          .filter((lineId): lineId is string => Boolean(lineId));
-        const fulfilledCartLineIds =
-          fulfilledLineKeys.size > 0
-            ? sessionCartLineIds.filter((lineId) => fulfilledLineKeys.has(lineId))
-            : sessionCartLineIds;
-
-        if (fulfilledCartLineIds.length > 0) {
-          for (const lineId of fulfilledCartLineIds) {
-            await deps.cart.removeLine(
-              {
-                accountId: params.accountId,
-                lineId: lineId as CartLineId,
-              },
-              context,
-            );
-          }
-        } else if (fulfilledLineKeys.size === 0) {
-          await deps.cart.checkout(params.accountId, context);
+          context,
+        );
+      } catch {
+        // An append can commit and lose its acknowledgement. Recover only actual stored metadata.
+        let metadata: OrderCartCleanupError["commitMetadata"] = {};
+        try {
+          const current = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+          metadata = await cleanupCommitMetadata(params.sessionId, current);
+        } catch {
+          /* The next authorized retry reloads durable intent if the store is unavailable. */
         }
+        throw new OrderCartCleanupError(metadata);
       }
-
-      return result;
+      if (
+        result.session.source_type === "cart" &&
+        !result.session.lines.some((line) => line.cartLineId) &&
+        (params.fulfilledLineKeys?.length ?? 0) === 0 &&
+        result.commitEventIds?.length
+      ) {
+        await deps.cart.checkout(state.buyerAccountId!, context);
+        return result;
+      }
+      return resumeOrderCartCleanup(params, context);
     },
     recordCheckoutReservations: async (params, context) => {
       const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
@@ -1049,10 +1202,17 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     },
     getSession: async (sessionId, accountId) => {
       const projectedSession = await getCheckoutSession(deps.db, sessionId, accountId);
-      const aggregateSession =
-        !projectedSession || !hasCommittedSessionSideEffects(projectedSession)
-          ? await loadSessionRowForBuyerFromAggregate(sessionId, accountId)
+      const aggregateState =
+        !projectedSession ||
+        !hasCommittedSessionSideEffects(projectedSession) ||
+        (projectedSession.source_type === "cart" &&
+          Boolean(projectedSession.cancelled_at) &&
+          !projectedSession.payment_id &&
+          !projectedSession.submitted_offer_id &&
+          projectedSession.order_ids.length === 0)
+          ? await loadSessionStateForBuyerOrNull(sessionId, accountId)
           : null;
+      const aggregateSession = aggregateState ? stateToCheckoutSessionRow(aggregateState) : null;
       const session =
         projectedSession && !sessionPageIsBehindCommittedAggregate(projectedSession, aggregateSession)
           ? projectedSession
@@ -1072,6 +1232,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           paymentId: session.payment_id,
           submittedOfferId: session.submitted_offer_id,
           cartReadinessSnapshot: session.cart_readiness_snapshot ?? null,
+          presentedAnonymousCartId: aggregateState?.presentedAnonymousCartId ?? null,
           splitGroupHandoff: session.split_group_handoff ?? null,
         },
         accountId,

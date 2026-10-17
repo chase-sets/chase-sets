@@ -33,7 +33,7 @@ describe("Seller Desk surfaces", () => {
       }
       expect(surface.routePath).not.toBeNull();
       const routePath = surface.routePath as string;
-      expect(routePath.startsWith("/account/desk")).toBe(true);
+      expect(routePath.startsWith("/account/desk") || routePath === "/account/channels/:connectionId").toBe(true);
       expect(routes.has(routePath)).toBe(false);
       routes.add(routePath);
     }
@@ -61,6 +61,14 @@ describe("Seller entities", () => {
 });
 
 describe("Action vocabulary", () => {
+  it("retires the buyer-mute analytics action and both form intents", () => {
+    expect(SELLER_DESK_ACTIONS.map((action) => action.id)).not.toContain("offer.mute-buyer");
+    const intents = SELLER_DESK_ACTIONS.flatMap((action) => action.replaces);
+    expect(intents).not.toContain("mute-offer-buyer");
+    expect(intents).not.toContain("unmute-offer-buyer");
+    expect(intents).toContain("decline-offer");
+    expect(intents).toContain("add-selected-offer");
+  });
   it("has a unique id, a known entity, and a non-empty replaces list per action", () => {
     const ids = new Set<string>();
     for (const action of SELLER_DESK_ACTIONS) {
@@ -82,6 +90,7 @@ describe("Action vocabulary", () => {
     const currentSellerIntents = [
       "create-item",
       "adjust-item",
+      "record-offline-sale",
       "restock",
       "create-hold",
       "release-hold",
@@ -117,8 +126,6 @@ describe("Action vocabulary", () => {
       "upload-bulk-reprice",
       "cancel-bulk-reprice",
       "decline-offer",
-      "mute-offer-buyer",
-      "unmute-offer-buyer",
       "add-selected-offer",
       "remove-sell-list-line",
       "request",
@@ -137,6 +144,12 @@ describe("Action vocabulary", () => {
       "run-reconciliation",
       "write-off",
       "reverse",
+      "open-manual-sync",
+      "pause-repricing-policy",
+      "resume-repricing-policy",
+      "delete-repricing-policy",
+      "engage-repricing-halt",
+      "release-repricing-halt",
     ];
     for (const intent of currentSellerIntents) {
       const owners = intentOwners.get(intent) ?? [];
@@ -217,6 +230,31 @@ describe("Attention-queue ordering policy", () => {
     expect(SELLER_ATTENTION_SOURCE_PRIORITY["settlement-blocked-payout"]).toBeGreaterThan(
       SELLER_ATTENTION_SOURCE_PRIORITY["offer-response"],
     );
+    expect(SELLER_ATTENTION_SOURCE_PRIORITY).toEqual({
+      "fulfillment-ship-by": 8,
+      "settlement-blocked-payout": 7,
+      "dispute-response": 6,
+      "inventory-resolution": 5,
+      "channel-action": 4,
+      "offer-response": 3,
+      "pricing-repricing": 2,
+      "listing-action": 1,
+    });
+  });
+
+  it("registers the repricing surfaces, entity, and attention source", () => {
+    expect(sellerSurfaceById("repricing-policies")?.routePath).toBe("/account/desk/repricing");
+    expect(sellerSurfaceById("repricing-policy")?.routePath).toBe("/account/desk/repricing/:policyId");
+    expect(SELLER_ENTITIES.find((entity) => entity.id === "repricing-policy")?.homeSurface).toBe("repricing-policy");
+    expect(findSellerRouteRedirect("/account/repricing")).toBe("/account/desk/repricing");
+    expect(SELLER_ATTENTION_SOURCES.find((source) => source.id === "pricing-repricing")).toEqual({
+      id: "pricing-repricing",
+      ownerContext: "pricing",
+      entity: "repricing-policy",
+      target: "repricing-policies",
+      peakSeverity: "warning",
+      availability: "live",
+    });
   });
 
   it("points every source at a real deep-link surface and a known entity", () => {

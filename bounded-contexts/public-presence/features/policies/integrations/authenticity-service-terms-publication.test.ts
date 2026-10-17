@@ -25,7 +25,7 @@ const SIBLINGS_AND_INDEX = [
 ] as const;
 
 function runCompilerCheck() {
-  return spawnSync(process.execPath, ["--experimental-strip-types", compilerScript, "--check"], {
+  return spawnSync(process.execPath, [compilerScript, "--check"], {
     cwd: packageRoot,
     encoding: "utf8",
   });

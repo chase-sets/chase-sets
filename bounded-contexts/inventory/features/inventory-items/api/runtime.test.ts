@@ -41,6 +41,109 @@ const shipFromAddress = {
 } as const;
 
 describe("inventory item runtime", () => {
+  it.each(["load->history", "history->append"] as const)(
+    "issue-9598 fences listing-stock top-up across %s and a repeat converges without adjustment",
+    async (window) => {
+      const { eventStore } = createInMemoryEventStore();
+      const itemId = "inv_listing_stock_race";
+      const streamId = `inventory.item-${itemId}`;
+      const location = {
+        storage_location_id: "loc_listing_stock",
+        account_id: "acc_seller",
+        name: "Listing stock",
+        description: null,
+        ship_from_code: "LISTING-STOCK",
+        ship_from_address: shipFromAddress,
+        is_archived: false,
+      };
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM inventory_storage_locations")) return { rows: [location] };
+          if (sql.includes("FROM inventory_items AS item")) {
+            return { rows: [{ item_id: itemId, account_id: "acc_seller", total_quantity: 2, available_quantity: 2 }] };
+          }
+          if (sql.includes("WITH candidates AS")) return { rows: [] };
+          throw new Error(`Unexpected query: ${sql}`);
+        }),
+      };
+      let itemReads = 0;
+      const concurrentIntake = async () =>
+        eventStore.appendToStream({
+          streamId,
+          expectedVersion: 1,
+          context,
+          events: [
+            {
+              eventType: "inventory.item.adjusted",
+              payload: { itemId, quantityDelta: 3, reason: "Concurrent intake" },
+            },
+          ],
+        });
+      const topUps: AppendToStreamInput[] = [];
+      const interleavedStore: EventStore = {
+        ...eventStore,
+        readStream: async (input) => {
+          if (input.streamId !== streamId || ++itemReads !== 2) return eventStore.readStream(input);
+          if (window === "load->history") await concurrentIntake();
+          const events = await eventStore.readStream(input);
+          expect(events.at(-1)?.streamVersion).toBe(window === "load->history" ? 2 : 1);
+          if (window === "history->append") await concurrentIntake();
+          return events;
+        },
+        appendToStream: async (input) => {
+          if (input.events.some((event) => event.payload.reason === "Automatic listing stock")) topUps.push(input);
+          return eventStore.appendToStream(input);
+        },
+      };
+      const services = createInventoryItemRuntime(
+        { eventStore: interleavedStore, db: db as never, checkpointStore: createCheckpointStore() },
+        {
+          getCatalogItem: vi.fn(async () => ({ catalog_item_id: "cat_1", status: "active", product_schema: null })),
+        } as never,
+        { listStorageLocations: vi.fn(async () => [location]) } as never,
+      );
+      await services.commandHandler({
+        streamId,
+        command: {
+          type: "CreateInventoryItem",
+          itemId: itemId as never,
+          accountId: "acc_seller" as never,
+          catalogItemId: "cat_1" as never,
+          productId: "cat_1::",
+          selectedOptions: [],
+          storageLocationId: location.storage_location_id,
+          totalQuantity: 2,
+          acquisitionOccurrence: { kind: "unknown" },
+          commandOccurredAt: "2026-09-07T06:00:00Z",
+        },
+        context,
+      });
+      itemReads = 0;
+      const request = { accountId: "acc_seller" as never, catalogItemId: "cat_1", selectedOptions: [], quantity: 5 };
+      const outcome = await services.ensureListingStock(request, context).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      const events = await eventStore.readStream({ streamId });
+      const total = events.reduce(
+        (quantity, event) =>
+          event.eventType === "inventory.item.created"
+            ? Number(event.payload.totalQuantity)
+            : quantity + Number(event.payload.quantityDelta ?? 0),
+        0,
+      );
+      expect({ version: events.at(-1)?.streamVersion, total }).toEqual({ version: 2, total: 5 });
+      expect(outcome).toMatchObject({ error: { code: "concurrency_conflict" } });
+      expect(topUps).toHaveLength(1);
+      expect(topUps[0].expectedVersion).toBe(1);
+      expect(events.filter((event) => event.payload.reason === "Automatic listing stock")).toHaveLength(0);
+      const repeat = await services.ensureListingStock(request, context);
+      expect(repeat).toMatchObject({ adjustedQuantityBy: 0, snapshot: { totalQuantity: 5, availableQuantity: 5 } });
+      expect(await eventStore.readStream({ streamId })).toEqual(events);
+      expect(topUps).toHaveLength(1);
+    },
+  );
+
   it("issue-6299-acceptance-control recovers beyond 500 events and issue-7054-F1 recovers note-only crash-window retries", async () => {
     const { eventStore, streams } = createInMemoryEventStore();
     const ledger = new Map<
@@ -48,9 +151,11 @@ describe("inventory item runtime", () => {
       {
         inserted: boolean;
         command_fingerprint: string;
+        claim_generation: string;
         status: "in_progress" | "completed";
         result_item_id: string | null;
         result_version: number | null;
+        result_collision: unknown;
         created_at: string;
       }
     >();
@@ -69,6 +174,7 @@ describe("inventory item runtime", () => {
       held_quantity: 0,
       available_quantity: 10,
       acquisition_cost_amount: null,
+      acquisition_cost_currency_code: null,
       created_at: "2026-05-28T00:00:00.000Z",
       updated_at: "2026-05-28T00:00:00.000Z",
     };
@@ -83,9 +189,11 @@ describe("inventory item runtime", () => {
           const row = {
             inserted: true,
             command_fingerprint: String(values[3]),
+            claim_generation: String(values[4]),
             status: "in_progress" as const,
             result_item_id: null,
             result_version: null,
+            result_collision: null,
             created_at: new Date().toISOString(),
           };
           ledger.set(key, row);
@@ -98,25 +206,38 @@ describe("inventory item runtime", () => {
             failNextIdempotencyComplete = false;
             throw new Error("ledger complete failed");
           }
-          if (existing) {
+          const owned =
+            existing?.status === "in_progress" &&
+            existing.command_fingerprint === String(values[1]) &&
+            existing.claim_generation === String(values[2]);
+          if (owned) {
             ledger.set(key, {
               ...existing,
               inserted: false,
               status: "completed",
-              result_item_id: String(values[1]),
-              result_version: Number(values[2]),
+              result_item_id: String(values[3]),
+              result_version: Number(values[4]),
+              result_collision: JSON.parse(String(values[5])),
             });
           }
-          return { rows: [], rowCount: existing ? 1 : 0 };
+          return {
+            rows: [],
+            rowCount: owned ? 1 : 0,
+          };
         }
         if (sql.includes("DELETE FROM inventory_item_adjustment_idempotency")) {
-          ledger.delete(String(values[0]));
-          return { rows: [], rowCount: 1 };
+          const existing = ledger.get(String(values[0]));
+          const owned =
+            existing?.status === "in_progress" &&
+            existing.command_fingerprint === String(values[1]) &&
+            existing.claim_generation === String(values[2]);
+          if (owned) ledger.delete(String(values[0]));
+          return { rows: [], rowCount: owned ? 1 : 0 };
         }
         if (sql.includes("FROM inventory_items AS item")) {
           return { rows: [inventoryRow] };
         }
-        if (sql.includes("FROM inventory_holds")) {
+        if (sql.includes("WITH candidates AS") || sql.includes("FROM inventory_holds")) {
           return { rows: [] };
         }
         if (sql.includes("to_regclass")) {
@@ -144,6 +265,8 @@ describe("inventory item runtime", () => {
       streamId: "inventory.item-inv_1",
       command: {
         type: "CreateInventoryItem",
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: "2026-09-07T06:00:00Z",
         itemId: "inv_1" as never,
         accountId: "acc_seller" as never,
         catalogItemId: "cat_1",
@@ -329,6 +452,32 @@ describe("inventory item runtime", () => {
 
   it("uses aggregate held quantity to enforce the adjustment floor when projections lag", async () => {
     const { eventStore } = createInMemoryEventStore();
+    for (const [holdId, quantity] of [
+      ["hld_1", 1],
+      ["hld_2", 2],
+    ] as const) {
+      await eventStore.appendToStream({
+        streamId: `inventory.hold-${holdId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "inventory.hold.placed",
+            payload: {
+              holdId,
+              accountId: "acc_seller",
+              itemId: "inv_1",
+              quantity,
+              reason: "Existing manual hold",
+              notes: null,
+              purpose: "manual",
+              sourceRef: null,
+              expiresAt: null,
+            },
+          },
+        ],
+      });
+    }
     const db = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM inventory_items AS item")) {
@@ -338,18 +487,14 @@ describe("inventory item runtime", () => {
           return {
             rows: [
               {
-                hold_id: "hld_1",
-                account_id: "acc_seller",
-                item_id: "inv_1",
-                quantity: 1,
-                active: true,
+                stream_id: "inventory.hold-hld_1",
+                total: "2",
+                current_version: "1",
               },
               {
-                hold_id: "hld_2",
-                account_id: "acc_seller",
-                item_id: "inv_1",
-                quantity: 2,
-                active: true,
+                stream_id: "inventory.hold-hld_2",
+                total: "2",
+                current_version: "1",
               },
             ],
           };
@@ -376,6 +521,8 @@ describe("inventory item runtime", () => {
       streamId: "inventory.item-inv_1",
       command: {
         type: "CreateInventoryItem",
+        acquisitionOccurrence: { kind: "unknown" },
+        commandOccurredAt: "2026-09-07T06:00:00Z",
         itemId: "inv_1" as never,
         accountId: "acc_seller" as never,
         catalogItemId: "cat_1",
@@ -448,6 +595,7 @@ describe("inventory item runtime", () => {
         if (sql.includes("FROM inventory_items AS item")) {
           return { rows: existingItem ? [existingItem] : [] };
         }
+        if (sql.includes("WITH candidates AS")) return { rows: [] };
 
         throw new Error(`Unexpected query: ${sql}`);
       }),
@@ -516,6 +664,7 @@ describe("inventory item runtime", () => {
       held_quantity: 0,
       available_quantity: 2,
       acquisition_cost_amount: null,
+      acquisition_cost_currency_code: null,
     };
     const toppedUp = await services.ensureListingStock(
       {

@@ -1,0 +1,6 @@
+{
+  "revision": "d0abeb97b46e8aafc16628e24e0cf6e56b41b01b",
+  "path": "bounded-contexts/channels/index.ts",
+  "blobSha": "4d4cb0a0f2453fc64804d9bee1de9487dc7f65ce",
+  "exports": ["contextManifest", "module"]
+}

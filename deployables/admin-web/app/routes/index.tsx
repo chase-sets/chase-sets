@@ -76,7 +76,7 @@ export default function AdminIndexRoute() {
         />
         <Grid columns={{ base: 1, md: 2, xl: 3 }} gap={4}>
           {sections.map((section) => (
-            <Card key={section.key} interactive>
+            <Card key={section.key} elevation="elevated" interactive>
               <Stack gap={3}>
                 <Heading level={4}>{section.label}</Heading>
                 <LinkButton href={section.href ?? "/"} tone="primary">

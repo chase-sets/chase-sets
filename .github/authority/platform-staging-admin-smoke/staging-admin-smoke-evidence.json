@@ -1,0 +1,46 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-admin-smoke.yml",
+      "jobId": "staging-admin-smoke-evidence",
+      "stepAnchor": "job",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-admin-smoke.yml",
+      "jobId": "staging-admin-smoke-evidence",
+      "stepAnchor": "job",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-admin-smoke.yml",
+      "jobId": "staging-admin-smoke-evidence",
+      "stepAnchor": "name:Resolve staging smoke domains#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-admin-smoke.yml",
+      "jobId": "staging-admin-smoke-evidence",
+      "stepAnchor": "name:Resolve staging smoke domains#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-admin-smoke.yml",
+      "jobId": "staging-admin-smoke-evidence",
+      "stepAnchor": "name:Terraform init staging platform state#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-admin-smoke.yml",
+      "jobId": "staging-admin-smoke-evidence",
+      "stepAnchor": "name:Terraform init staging platform state#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

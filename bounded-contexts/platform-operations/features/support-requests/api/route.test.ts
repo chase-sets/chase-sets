@@ -1,8 +1,355 @@
+// @vitest-environment node
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { SupportApiEnv } from "./http";
 import { createAccountSupportRequestRoutes } from "./route";
 import type { SupportRequestServices } from "./runtime";
+import { evidenceActor } from "../domain/evidence-access-policy.test-support";
+import { createSupportAttachmentReferenceLifecycle, createSupportRequestRuntime } from "./runtime";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { File as NodeFile } from "node:buffer";
+import { decideSupportRequest, initialSupportRequestState } from "../domain/domain";
+import { guestCheckoutActorThroughAuth, mintEvidenceActorThroughIdentity } from "../tests/evidence-access-identity";
+import {
+  multipartRequest,
+  nativeFormData,
+  openingPhotoForm,
+  streamedIntakeRequest,
+} from "../tests/attachment-intake.test-support";
+import { SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES, SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS } from "./attachment-intake";
+import { canonicalParticipantRequest } from "../domain/participant-attempt";
+import {
+  canonicalizeSupportEvidenceImage,
+  createSupportEvidenceCanonicalizationQueue,
+} from "./evidence-canonicalization";
+import {
+  attachmentManifestReferences,
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+} from "../domain/attachment-operation";
+import { createSupportEvidenceSeedContext } from "../domain/common";
+import { parseSupportEvidenceCleanupBinding } from "./attachment-cleanup";
+
+function evidenceActorContext(actor: ResolvedActor): EventStoreContext {
+  return {
+    tenantId: parseTypedId(actor.tenantId, "tnt"),
+    audit: { performedByUserId: parseTypedId(actor.userId, "usr"), forAccountId: parseTypedId(actor.accountId, "acc") },
+  };
+}
+
+describe("Support evidence submissions use one reference boundary", () => {
+  const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const context = {
+    tenantId: "tnt_identity",
+    audit: { performedByUserId: "usr_buyer", forAccountId: "acc_buyer" },
+  } as never;
+  async function batch(fixture: Awaited<ReturnType<typeof attachmentRouteFixture>>, scenario = "complete") {
+    const owner = {
+      tenantId: "tnt_identity",
+      accountId: scenario === "foreign" ? "acc_other" : "acc_buyer",
+      supportRequestId: scenario === "other-case" ? "sup_other" : "sup_case",
+      operationId,
+    };
+    const manifest = createAttachmentManifest({
+      owner,
+      profile: "support-evidence-raster/v1",
+      encoderFingerprint: {
+        profile: "support-evidence-raster/v1",
+        sharp: "test",
+        libvips: "test",
+        platform: "test",
+        arch: "test",
+        libc: "test",
+      },
+      images: ["a", "b"].map((hash) => ({ canonicalSha256: hash.repeat(64), contentType: "image/jpeg", byteSize: 10 })),
+    });
+    await fixture.eventStore.appendToStream({
+      streamId: attachmentOperationStreamId(owner),
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        { eventType: "support.attachment-operation.staged", payload: manifest },
+        ...(scenario === "unstored"
+          ? []
+          : manifest.items.map((item) => ({
+              eventType: "support.attachment-operation.stored",
+              payload: { index: item.index },
+            }))),
+      ],
+    });
+    return attachmentManifestReferences(manifest).slice(0, scenario === "partial-batch" ? 1 : 2);
+  }
+  for (const operations of [false, true]) {
+    for (const scenario of [
+      "foreign",
+      "other-case",
+      "partial-batch",
+      "unstored",
+      "arbitrary",
+      "non-seed-placeholder",
+      "bare-reference",
+    ] as const) {
+      it(`rejects ${scenario} on ${operations ? "operations" : "participant"} route with zero product appends (mutant: skip claimed complete batch grammar)`, async () => {
+        const fixture = await attachmentRouteFixture();
+        const attachments =
+          scenario === "arbitrary"
+            ? ["https://example.test/photo"]
+            : scenario === "non-seed-placeholder"
+              ? ["seed://support/photo"]
+              : await batch(fixture, scenario);
+        const before = fixture.allEvents.filter(
+          (event) => !event.streamId.startsWith("support.evidence-access-"),
+        ).length;
+        const actor = evidenceActor("owner", ["support.manage"], operations, "acc_buyer");
+        const response = await attachmentApp(fixture.runtime, actor).request(
+          `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              evidenceType: "photo",
+              summary: "Evidence",
+              attachments,
+              ...(scenario === "bare-reference" || scenario === "arbitrary" || scenario === "non-seed-placeholder"
+                ? {}
+                : { attachmentOperationId: operationId }),
+            }),
+          },
+        );
+        expect(response.status, await response.clone().text()).toBe(400);
+        expect((await response.json()).error.code).toBe("attachment_reference_unknown");
+        if (!operations) {
+          const body = {
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+            ...(scenario === "bare-reference" || scenario === "arbitrary" || scenario === "non-seed-placeholder"
+              ? {}
+              : { attachmentOperationId: operationId }),
+          };
+          let requestHash = "a".repeat(64);
+          try {
+            requestHash = createHash("sha256")
+              .update(canonicalParticipantRequest("submit-evidence", body))
+              .digest("hex");
+          } catch {
+            /* invalid reference grammar must also reject direct runtime dispatch */
+          }
+          await expect(
+            fixture.runtime.executeParticipantAttempt(
+              {
+                actionKind: "submit-evidence",
+                targetId: "sup_case",
+                accountId: actor.accountId,
+                actor,
+                body,
+                attempt: { attemptId: "9391_direct_boundary_0123456789", requestHash },
+              },
+              evidenceActorContext(actor),
+            ),
+          ).rejects.toThrow("attachment_reference_unknown");
+        }
+        expect(
+          fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-")),
+        ).toHaveLength(before);
+      });
+    }
+  }
+  it("runtime and direct command reject bare or forged references; seed placeholders require actual seed context (mutant: sibling runtime or seed bypass)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
+    const actorContext = evidenceActorContext(actor);
+    for (const attachments of [["arbitrary"], ["seed://support/photo"], await batch(fixture)]) {
+      const before = fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-")).length;
+      await expect(
+        fixture.runtime.submitEvidence(
+          {
+            supportRequestId: "sup_case",
+            accountId: "acc_buyer",
+            submittedByRole: "buyer",
+            actor,
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+          },
+          actorContext,
+        ),
+      ).rejects.toThrow("attachment_reference_unknown");
+      await expect(
+        fixture.runtime.commandHandler({
+          streamId: "support.support-request-sup_case",
+          context: actorContext,
+          command: {
+            type: "SubmitSupportEvidence",
+            evidenceId: "sev_direct",
+            submittedByRole: "buyer",
+            evidenceType: "photo",
+            summary: "Evidence",
+            submittedAt: "2026-10-13T00:00:00.000Z",
+            attachments,
+          },
+        }),
+      ).rejects.toThrow("attachment_reference_unknown");
+      expect(fixture.allEvents.filter((event) => !event.streamId.startsWith("support.evidence-access-"))).toHaveLength(
+        before,
+      );
+    }
+    await fixture.runtime.commandHandler({
+      streamId: "support.support-request-sup_case",
+      context: createSupportEvidenceSeedContext(actorContext),
+      command: {
+        type: "SubmitSupportEvidence",
+        evidenceId: "sev_seed",
+        submittedByRole: "buyer",
+        evidenceType: "photo",
+        summary: "Seed evidence",
+        submittedAt: "2026-10-13T00:00:00.000Z",
+        attachments: ["seed://support/photo"],
+      },
+    });
+  });
+  it("complete claimed batches pass and retry recovers confirmation without duplicate evidence; history references need no operation", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
+    const app = attachmentApp(fixture.runtime, actor);
+    const body = { evidenceType: "photo", summary: "Evidence", attachments, attachmentOperationId: operationId };
+    for (let retry = 0; retry < 2; retry++) {
+      const response = await app.request("/support-requests/sup_case/evidence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+    }
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.reference-claimed"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+    ).toHaveLength(1);
+    const response = await app.request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "9391_history_reference_0123456789" },
+      body: JSON.stringify({ ...body, attachmentOperationId: undefined }),
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+  });
+  it.each([false, true])(
+    "preserves authorized %s operations evidence on a case with legacy seed audit tenants (mutant: treat case audit tenant as access authority)",
+    async (operations) => {
+      for (const freshBatch of [false, true]) {
+        const fixture = await attachmentRouteFixture(true, "acc_buyer", "tnt_seed_development");
+        const attachments = freshBatch ? await batch(fixture) : [fixture.reference];
+        const response = await attachmentApp(
+          fixture.runtime,
+          evidenceActor("owner", ["support.manage"], operations, "acc_buyer"),
+        ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+          method: "POST",
+          body: JSON.stringify({
+            evidenceType: "photo",
+            summary: "Evidence",
+            attachments,
+            ...(freshBatch ? { attachmentOperationId: operationId } : {}),
+          }),
+        });
+        expect(response.status, await response.clone().text()).toBe(200);
+        if (freshBatch)
+          expect(
+            fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+          ).toHaveLength(1);
+      }
+    },
+  );
+  it("participant delayed reference is rejected with no evidence or receipt append (mutant: omit empty operation guard or serial fallback)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const append = fixture.eventStore.appendToStreams!.bind(fixture.eventStore);
+    vi.spyOn(fixture.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "support.support-request.evidence-submitted"),
+        )
+      )
+        await createSupportAttachmentReferenceLifecycle(fixture.eventStore).release(
+          {
+            owner: { tenantId: "tnt_identity", accountId: "acc_buyer", supportRequestId: "sup_case", operationId },
+            expectedVersion: 4,
+          },
+          context,
+        );
+      return append(inputs);
+    });
+    const response = await attachmentApp(
+      fixture.runtime,
+      evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+    ).request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      body: JSON.stringify({
+        evidenceType: "photo",
+        summary: "Evidence",
+        attachments,
+        attachmentOperationId: operationId,
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(fixture.allEvents.filter((event) => event.streamId === "support.support-request-sup_case")).toHaveLength(2);
+    expect(
+      fixture.allEvents.some((event) => event.eventType === "support.support-request.participant-attempt-recorded"),
+    ).toBe(false);
+  });
+  it("participant replay after restart confirms the committed batch once (mutant: receipt replay bypasses confirmation)", async () => {
+    const fixture = await attachmentRouteFixture();
+    const attachments = await batch(fixture);
+    const body = { evidenceType: "photo", summary: "Evidence", attachments, attachmentOperationId: operationId };
+    const actor = evidenceActor("owner", ["support.manage"], false, "acc_buyer");
+    const append = fixture.eventStore.appendToStreams!.bind(fixture.eventStore);
+    const interruption = vi.spyOn(fixture.eventStore, "appendToStreams").mockImplementation(async (inputs) => {
+      if (
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "support.attachment-operation.referenced"),
+        )
+      )
+        throw new Error("confirmation interrupted");
+      return append(inputs);
+    });
+    const first = await attachmentApp(fixture.runtime, actor).request("/support-requests/sup_case/evidence", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    expect(first.status).toBe(503);
+    interruption.mockRestore();
+    const restarted = createSupportRequestRuntime({
+      eventStore: fixture.eventStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+    });
+    for (let retry = 0; retry < 2; retry++) {
+      const response = await attachmentApp(restarted, actor).request("/support-requests/sup_case/evidence", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+    }
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.attachment-operation.referenced"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.support-request.participant-attempt-recorded"),
+    ).toHaveLength(1);
+    expect(
+      fixture.allEvents.filter((event) => event.eventType === "support.support-request.evidence-submitted"),
+    ).toHaveLength(2);
+  });
+});
+
+const participantReference = `support-attachment:v1:sea_photo:${"a".repeat(64)}:jpg`;
 
 function buildApp(
   services: SupportRequestServices,
@@ -19,17 +366,9 @@ function buildApp(
   const app = new Hono<SupportApiEnv>();
 
   app.use("*", async (c, next) => {
-    c.set("actor", {
-      sessionId: "ses_operator",
-      tenantId: "tnt_chase_sets",
-      userId: "usr_operator",
-      accountId: "acc_operator",
-      membershipId: "mem_operator",
-      roleKey: "platform-admin",
-      permissions: [...permissions],
-    });
+    c.set("actor", evidenceActor("platform-admin", permissions, false, "acc_operator"));
     c.set("context", {
-      tenantId: "tnt_chase_sets",
+      tenantId: "tnt_identity",
       audit: { performedByUserId: "usr_operator", forAccountId: "acc_operator" },
     } as never);
     await next();
@@ -38,6 +377,671 @@ function buildApp(
   app.route("/support-requests", createAccountSupportRequestRoutes(services));
 
   return app;
+}
+
+describe("support attachment capability x role x participation", () => {
+  it("accepts five real file parts and ordinary hidden/text fields with a valid operation header", async () => {
+    const fixture = await attachmentRouteFixture();
+    const form = await openingPhotoForm(0);
+    // A text field that looks like file metadata is still not a file part.
+    form.append('note; filename="not-a-file"', "ordinary text");
+    const photo = readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg");
+    for (let index = 0; index < 5; index++)
+      form.append("attachments", new NodeFile([photo], `${index}.jpg`, { type: "image/jpeg" }) as File);
+    const request = await multipartRequest("http://localhost/support-requests/sup_case/attachments", form, {
+      "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    });
+    const response = await attachmentApp(
+      fixture.runtime,
+      evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+    ).request(request);
+    expect(response.status, await response.clone().text()).toBe(201);
+    expect((await response.json()).attachments).toHaveLength(5);
+    expect(fixture.storage.putPrivate).toHaveBeenCalledTimes(5);
+  });
+  for (const scenario of ["declared-over", "stream-over", "cap", "stalled"] as const) {
+    it(`bounds API intake ${scenario} with zero storage calls`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const cap = SUPPORT_ATTACHMENT_INTAKE_MAX_BYTES;
+      const request = streamedIntakeRequest(
+        "http://localhost/support-requests/sup_case/attachments",
+        scenario === "stream-over" ? cap + 1 : cap,
+        scenario === "declared-over" ? cap + 1 : cap,
+        scenario === "stalled",
+      );
+      request.headers.set("x-support-attachment-operation-id", "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV");
+      const parse = vi.spyOn(Response.prototype, "formData");
+      if (scenario === "stalled") vi.useFakeTimers();
+      try {
+        const pending = attachmentApp(
+          fixture.runtime,
+          evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+        ).request(request);
+        if (scenario === "stalled") await vi.advanceTimersByTimeAsync(SUPPORT_ATTACHMENT_INTAKE_DEADLINE_MS);
+        const response = await pending;
+        expect(response.status).toBe(scenario === "stalled" ? 408 : scenario === "cap" ? 400 : 413);
+        expect(parse).toHaveBeenCalledTimes(scenario === "cap" ? 1 : 0);
+        expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+        expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      } finally {
+        parse.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+  }
+
+  it("rejects file six at its streamed part headers, without reading its body", async () => {
+    const fixture = await attachmentRouteFixture();
+    const encoded = await multipartRequest(
+      "http://localhost/support-requests/sup_case/attachments",
+      await openingPhotoForm(6),
+      { "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+    );
+    const bytes = new Uint8Array(await encoded.arrayBuffer());
+    const text = new TextDecoder().decode(bytes);
+    const end = text.indexOf("\r\n\r\n", text.indexOf('filename="5.jpg"')) + 4;
+    let cancelled = false;
+    const request = new Request(encoded.url, {
+      method: "POST",
+      headers: encoded.headers,
+      duplex: "half",
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(bytes.slice(0, end));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+    } as RequestInit);
+    const parse = vi.spyOn(Response.prototype, "formData");
+    const decode = vi.spyOn(File.prototype, "arrayBuffer");
+    try {
+      const response = await attachmentApp(
+        fixture.runtime,
+        evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+      ).request(request);
+      expect(response.status).toBe(413);
+      expect(cancelled).toBe(true);
+      expect(parse).not.toHaveBeenCalled();
+      expect(decode).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+      decode.mockRestore();
+    }
+  });
+
+  for (const header of [
+    undefined,
+    "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "sao_bad",
+    "sao_81ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "",
+  ] as const) {
+    it(`requires operation header ${String(header)} after authorization, before parsing or operation staging`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const request = await multipartRequest(
+        "http://localhost/support-requests/sup_case/attachments",
+        await openingPhotoForm(0),
+        header === undefined ? {} : { "x-support-attachment-operation-id": header },
+      );
+      const parse = vi.spyOn(Response.prototype, "formData");
+      try {
+        const response = await attachmentApp(
+          fixture.runtime,
+          evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+        ).request(request);
+        expect(response.status).toBe(400);
+        expect(parse).toHaveBeenCalledTimes(header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" ? 1 : 0);
+        expect((await response.json()).error.code).toBe(
+          header === "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" ? "invalid-content" : "invalid-operation-id",
+        );
+        expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+        expect(fixture.storage.verifyPrivate).not.toHaveBeenCalled();
+        expect(fixture.allEvents.filter((e) => e.streamId.startsWith("support.attachment-operation-"))).toHaveLength(0);
+      } finally {
+        parse.mockRestore();
+      }
+    });
+  }
+  it("rejects missing Content-Length before parsing or storage; kills after-parser bound mutant", async () => {
+    const fixture = await attachmentRouteFixture();
+    const request = new Request("http://localhost/support-requests/sup_case/attachments", {
+      method: "POST",
+      body: new URLSearchParams({ attachments: "photo" }),
+      headers: { "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+    });
+    const parse = vi.spyOn(request, "formData");
+    const response = await attachmentApp(
+      fixture.runtime,
+      evidenceActor("owner", ["support.manage"], false, "acc_buyer"),
+    ).request(request);
+    expect(response.status).toBe(411);
+    expect(parse).not.toHaveBeenCalled();
+    expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+  });
+  for (const role of ["owner", "manager", "fulfillment", "viewer", "platform-admin"]) {
+    for (const permitted of [false, true]) {
+      for (const granted of [false, true]) {
+        for (const participation of ["participant", "unrelated", "missing"] as const) {
+          for (const action of ["upload", "download", "audit-read"] as const) {
+            const mutant = !permitted
+              ? "base-permission-bypass"
+              : participation === "missing"
+                ? "missing-case-bypass"
+                : action === "audit-read" && !granted && participation === "participant"
+                  ? "audit-participant-bypass"
+                  : participation === "unrelated" && !granted
+                    ? "participation-bypass"
+                    : "grant-or-participant-refusal";
+            it(`${action}: ${role}, base=${permitted}, grant=${granted}, ${participation}; kills ${mutant} mutant`, async () => {
+              const fixture = await attachmentRouteFixture(participation !== "missing");
+              const permission = action === "upload" ? "support.manage" : "support.view";
+              const actor = evidenceActor(
+                role,
+                permitted ? [permission] : [],
+                granted,
+                participation === "participant" ? "acc_buyer" : "acc_unrelated",
+              );
+              const app = attachmentApp(fixture.runtime, actor);
+              const request = new Request(
+                `http://localhost/support-requests/${action === "audit-read" ? "ops/" : ""}sup_case/attachments${action === "download" ? "/sea_photo" : action === "audit-read" ? "/access-audit" : ""}`,
+                {
+                  method: action === "upload" ? "POST" : "GET",
+                  ...(action === "upload"
+                    ? { body: "invalid multipart marker", headers: { "content-type": "multipart/form-data" } }
+                    : {}),
+                },
+              );
+              const form = await nativeFormData();
+              form.append(
+                "attachments",
+                new NodeFile(
+                  [readFileSync("features/support-requests/api/__fixtures__/evidence/photo-orientation-6-p3-xmp.jpg")],
+                  "photo.jpg",
+                  { type: "image/jpeg" },
+                ) as File,
+              );
+              const intakeRequest =
+                action === "upload"
+                  ? await multipartRequest(request.url, form, {
+                      "x-support-attachment-operation-id": "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    })
+                  : request;
+              const parse = vi.spyOn(intakeRequest, "formData");
+              const response = await app.request(intakeRequest);
+              const status = !permitted
+                ? 403
+                : participation === "missing"
+                  ? 404
+                  : action === "audit-read"
+                    ? granted
+                      ? 200
+                      : participation === "participant"
+                        ? 403
+                        : 404
+                    : granted || participation === "participant"
+                      ? action === "upload"
+                        ? 201
+                        : 200
+                      : 404;
+              expect(response.status).toBe(status);
+              if (status >= 400) {
+                expect(parse).not.toHaveBeenCalled();
+                expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+                expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+              }
+              expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(
+                1,
+              );
+              expect(
+                fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case").at(-1)?.payload,
+              ).toMatchObject({
+                decision: status >= 400 ? "denied" : "allowed",
+                action,
+              });
+            });
+          }
+        }
+      }
+    }
+  }
+
+  it.each(["upload", "download", "audit-read"])(
+    "%s signed out kills unauthenticated unrecorded-denial mutant",
+    async (action) => {
+      const fixture = await attachmentRouteFixture();
+      const request = new Request(
+        `http://localhost/support-requests/${action === "audit-read" ? "ops/" : ""}sup_case/attachments${action === "download" ? "/sea_photo" : action === "audit-read" ? "/access-audit" : ""}`,
+        {
+          method: action === "upload" ? "POST" : "GET",
+          ...(action === "upload" ? { body: "unparsed" } : {}),
+        },
+      );
+      const parse = vi.spyOn(request, "formData");
+      expect((await attachmentApp(fixture.runtime, null).request(request)).status).toBe(401);
+      expect(parse).not.toHaveBeenCalled();
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+      expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
+      expect(fixture.allEvents.at(-1)).toMatchObject({
+        tenantId: "tnt_identity",
+        payload: { tenantId: null, userId: null, accountId: null, membershipId: null },
+      });
+    },
+  );
+
+  it.each(["download", "upload", "audit-read"])(
+    "%s guest checkout records one denied attempt without storage I/O or body parsing",
+    async (action) => {
+      const fixture = await attachmentRouteFixture();
+      const actor = guestCheckoutActorThroughAuth("acc_buyer");
+      const request = new Request(
+        `http://localhost/support-requests/${action === "audit-read" ? "ops/" : ""}sup_case/attachments${action === "download" ? "/sea_photo" : action === "audit-read" ? "/access-audit" : ""}`,
+        {
+          method: action === "upload" ? "POST" : "GET",
+          ...(action === "upload" ? { body: "unparsed" } : {}),
+        },
+      );
+      const parse = vi.spyOn(request, "formData");
+      const response = await attachmentApp(fixture.runtime, actor).request(request);
+      const attempts = fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
+      expect.soft(response.status).toBe(403);
+      expect.soft(attempts).toHaveLength(1);
+      expect(await response.json()).toMatchObject({ error: { code: "authorization_forbidden" } });
+      expect(attempts[0]?.payload).toMatchObject({
+        decision: "denied",
+        reason: "base-permission-required",
+        membershipId: null,
+        accountId: "acc_buyer",
+        userId: "usr_guest_checkout",
+      });
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+      expect(parse).not.toHaveBeenCalled();
+    },
+  );
+
+  it("downloads for principals minted and persisted by the real Identity API with one allowed attempt", async () => {
+    const actor = await mintEvidenceActorThroughIdentity();
+    const fixture = await attachmentRouteFixture(true, actor.accountId);
+    const response = await attachmentApp(fixture.runtime, actor).request(
+      "/support-requests/sup_case/attachments/sea_photo",
+    );
+    expect(response.status).toBe(200);
+    const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].payload).toMatchObject({
+      decision: "allowed",
+      membershipId: actor.membershipId,
+      userId: actor.userId,
+      accountId: actor.accountId,
+    });
+    expect(fixture.storage.readPrivate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])(
+    "nonempty %s operations submission preserves domain validation as 400 after one allowed attempt",
+    async (operations) => {
+      const fixture = await attachmentRouteFixture();
+      const actor = evidenceActor("owner", ["support.manage"], operations);
+      const response = await attachmentApp(fixture.runtime, actor).request(
+        `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            submittedByRole: "buyer",
+            evidenceType: "support-note",
+            summary: "",
+            attachments: [fixture.reference],
+          }),
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "validation_failed" } });
+      const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    "nonempty %s operations submission bounds unexpected failures as 503 after one allowed attempt",
+    async (operations) => {
+      const fixture = await attachmentRouteFixture();
+      const append = fixture.eventStore.appendToStream.bind(fixture.eventStore);
+      vi.spyOn(fixture.eventStore, "appendToStream").mockImplementation(async (input) => {
+        if (input.streamId === "support.evidence-access-sup_case") return append(input);
+        throw new Error("PLANTED_SUBMISSION_INFRASTRUCTURE_SECRET");
+      });
+      const response = await attachmentApp(
+        fixture.runtime,
+        evidenceActor("owner", ["support.manage"], operations),
+      ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          submittedByRole: "buyer",
+          evidenceType: "support-note",
+          summary: "Case evidence",
+          attachments: [fixture.reference],
+        }),
+      });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error: { code: "evidence_unavailable", message: "Support evidence is unavailable." },
+      });
+      const attempts = fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case");
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].payload).toMatchObject({ decision: "allowed" });
+      expect(JSON.stringify(fixture.allEvents)).not.toContain("PLANTED_SUBMISSION_INFRASTRUCTURE_SECRET");
+      expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+      expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+    },
+  );
+
+  for (const operations of [false, true]) {
+    for (const permitted of [false, true])
+      for (const granted of [false, true]) {
+        for (const participant of [false, true]) {
+          it(`nonempty references ${operations ? "operations" : "participant"}: base=${permitted}, grant=${granted}, participant=${participant}; kills submission-authority-bypass mutant`, async () => {
+            const fixture = await attachmentRouteFixture();
+            const actor = evidenceActor(
+              "platform-admin",
+              permitted ? ["support.manage"] : [],
+              granted,
+              participant ? "acc_buyer" : "acc_unrelated",
+            );
+            const response = await attachmentApp(fixture.runtime, actor).request(
+              `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  evidenceType: "support-note",
+                  summary: "Case evidence",
+                  attachments: [fixture.reference],
+                }),
+              },
+            );
+            expect(response.status).toBe(
+              !permitted ? 403 : operations ? (granted ? 200 : participant ? 403 : 404) : participant ? 200 : 404,
+            );
+            expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
+            expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+            expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+          });
+        }
+      }
+    it(`empty references preserve ${operations ? "operations" : "participant"} authorization without a grant or attempt`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const response = await attachmentApp(
+        fixture.runtime,
+        evidenceActor("owner", ["support.manage"], false, operations ? "acc_unrelated" : "acc_buyer"),
+      ).request(`/support-requests/${operations ? "ops/" : ""}sup_case/evidence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ evidenceType: "support-note", summary: "Case note", attachments: [] }),
+      });
+      expect(response.status).toBe(200);
+      expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(0);
+    });
+    it(`signed-out nonempty ${operations ? "operations" : "participant"} submission is durably denied`, async () => {
+      const fixture = await attachmentRouteFixture();
+      const response = await attachmentApp(fixture.runtime, null).request(
+        `/support-requests/${operations ? "ops/" : ""}sup_case/evidence`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ attachments: ["att_1"] }),
+        },
+      );
+      expect(response.status).toBe(401);
+      expect(fixture.allEvents.filter((e) => e.streamId === "support.evidence-access-sup_case")).toHaveLength(1);
+    });
+  }
+
+  it("grant revoke on next resolution returns to participant rules, never role fallback", async () => {
+    const fixture = await attachmentRouteFixture();
+    const granted = evidenceActor("platform-admin", ["support.view"], true, "acc_unrelated");
+    expect(
+      (await attachmentApp(fixture.runtime, granted).request("/support-requests/sup_case/attachments/sea_photo"))
+        .status,
+    ).toBe(200);
+    const revoked = { ...granted, capabilityAssignments: [] };
+    expect(
+      (await attachmentApp(fixture.runtime, revoked).request("/support-requests/sup_case/attachments/sea_photo"))
+        .status,
+    ).toBe(404);
+    expect(fixture.storage.readPrivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("seller participation authorizes downloads but not audit reads without an assignment", async () => {
+    const fixture = await attachmentRouteFixture();
+    const app = attachmentApp(fixture.runtime, evidenceActor("viewer", ["support.view"], false, "acc_seller"));
+    expect((await app.request("/support-requests/sup_case/attachments/sea_photo")).status).toBe(200);
+    expect(fixture.allEvents.at(-1)?.payload).toMatchObject({ participation: "seller", reason: "participant" });
+    expect((await app.request("/support-requests/ops/sup_case/attachments/access-audit")).status).toBe(403);
+    expect(fixture.storage.readPrivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("audit append failure kills unaudited-read and multipart-before-audit mutants", async () => {
+    const fixture = await attachmentRouteFixture();
+    vi.spyOn(fixture.eventStore, "appendToStream").mockRejectedValue(new Error("PLANTED_AUDIT_SECRET"));
+    const actor = evidenceActor("owner", ["support.manage", "support.view"]);
+    const request = new Request("http://localhost/support-requests/sup_case/attachments", {
+      method: "POST",
+      body: "unparsed",
+    });
+    const parse = vi.spyOn(request, "formData");
+    expect((await attachmentApp(fixture.runtime, actor).request(request)).status).toBe(503);
+    expect(parse).not.toHaveBeenCalled();
+    const response = await attachmentApp(fixture.runtime, actor).request(
+      "/support-requests/sup_case/attachments/sea_photo",
+    );
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain("PLANTED_AUDIT_SECRET");
+    expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+    expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+  });
+
+  it("provider GET observes committed authorization; later failure cannot claim delivery or expose markers", async () => {
+    const fixture = await attachmentRouteFixture();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      fixture.storage.readPrivate.mockImplementationOnce(async () => {
+        const attempts = fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0].payload).toMatchObject({ decision: "allowed", action: "download" });
+        throw new Error("PLANTED_PROVIDER_SECRET");
+      });
+      const response = await attachmentApp(fixture.runtime, evidenceActor("viewer", ["support.view"], true)).request(
+        "/support-requests/sup_case/attachments/sea_photo",
+      );
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain("PLANTED_PROVIDER_SECRET");
+      expect(JSON.stringify(fixture.allEvents)).not.toContain("PLANTED_PROVIDER_SECRET");
+      expect(JSON.stringify([...errorLog.mock.calls, ...warnLog.mock.calls])).not.toContain("PLANTED_PROVIDER_SECRET");
+      expect(fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case")).toHaveLength(
+        1,
+      );
+    } finally {
+      errorLog.mockRestore();
+      warnLog.mockRestore();
+    }
+  });
+
+  it("audit read records one nonrecursive attempt and cursor pages do not silently truncate", async () => {
+    const fixture = await attachmentRouteFixture();
+    const app = attachmentApp(fixture.runtime, evidenceActor("viewer", ["support.view"], true));
+    for (let index = 0; index < 51; index++)
+      expect((await app.request("/support-requests/sup_case/attachments/sea_photo")).status).toBe(200);
+    const first = await app.request("/support-requests/ops/sup_case/attachments/access-audit");
+    expect(first.headers.get("cache-control")).toBe("private, no-store");
+    const page = await first.json();
+    expect(page.items).toHaveLength(50);
+    expect(page.nextCursor).toBe("51");
+    expect(fixture.allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case")).toHaveLength(52);
+    const tail = await (
+      await app.request(`/support-requests/ops/sup_case/attachments/access-audit?cursor=${page.nextCursor}`)
+    ).json();
+    expect(tail.items).toHaveLength(3);
+    expect(tail.nextCursor).toBeNull();
+    expect(fixture.allEvents.filter((event) => event.payload.action === "audit-read")).toHaveLength(2);
+  });
+
+  it("complete authoritative state includes the decisive evidence beyond the 500-event page", async () => {
+    const fixture = await attachmentRouteFixture();
+    const lateReference = `support-attachment:v1:sea_late:${createHash("sha256")
+      .update(new Uint8Array([0xff, 0xd8, 0xff]))
+      .digest("hex")}:jpg`;
+    await fixture.eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "any",
+      context: {
+        tenantId: "tnt_identity",
+        audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
+      } as never,
+      events: [
+        ...Array.from({ length: 498 }, () => ({
+          eventType: "support.support-request.affected-line-items-recorded",
+          payload: { affectedLineItems: [] },
+        })),
+        {
+          eventType: "support.support-request.evidence-submitted",
+          payload: { evidence: { attachments: [lateReference] }, updatedChecklist: [] },
+        },
+      ],
+    });
+    const read = vi.spyOn(fixture.eventStore, "readStream");
+    const response = await attachmentApp(fixture.runtime, evidenceActor("owner", ["support.view"])).request(
+      "/support-requests/sup_case/attachments/sea_late",
+    );
+    expect(response.status).toBe(200);
+    expect(read).toHaveBeenCalledWith({ streamId: "support.support-request-sup_case", fromVersion: 501, limit: 500 });
+  });
+
+  it("authoritative stream gap is bounded unavailable, recorded, and never authorizes storage", async () => {
+    const fixture = await attachmentRouteFixture();
+    const original = fixture.eventStore.readStream;
+    vi.spyOn(fixture.eventStore, "readStream").mockImplementation(async (input) =>
+      (await original(input)).map((event) => ({ ...event, streamVersion: event.streamVersion + 1 })),
+    );
+    const response = await attachmentApp(fixture.runtime, evidenceActor("owner", ["support.view"])).request(
+      "/support-requests/sup_case/attachments/sea_photo",
+    );
+    expect(response.status).toBe(503);
+    expect(fixture.storage.readPrivate).not.toHaveBeenCalled();
+    expect(fixture.allEvents.at(-1)?.payload).toMatchObject({ decision: "denied", reason: "authority-unavailable" });
+  });
+
+  it("malformed case ids return the same 404 unaudited with an unparsed upload", async () => {
+    const fixture = await attachmentRouteFixture();
+    const request = new Request("http://localhost/support-requests/not-a-case/attachments", {
+      method: "POST",
+      body: "PLANTED_SECRET",
+    });
+    const parse = vi.spyOn(request, "formData");
+    expect((await attachmentApp(fixture.runtime, null).request(request)).status).toBe(404);
+    expect(parse).not.toHaveBeenCalled();
+    expect(fixture.storage.putPrivate).not.toHaveBeenCalled();
+    expect(fixture.allEvents.filter((event) => event.streamId.startsWith("support.evidence-access-"))).toHaveLength(0);
+  });
+});
+
+export function attachmentApp(runtime: SupportRequestServices, actor: ResolvedActor | null) {
+  const app = new Hono<SupportApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", actor);
+    if (actor)
+      c.set("context", {
+        tenantId: actor.tenantId,
+        audit: { performedByUserId: actor.userId, forAccountId: actor.accountId },
+      } as never);
+    if (c.req.method === "POST" && /\/support-requests\/[^/]+\/evidence$/.test(new URL(c.req.url).pathname)) {
+      const body = await c.req.raw.clone().json();
+      if (!c.req.header("Idempotency-Key")) c.req.raw.headers.set("Idempotency-Key", "7163_attachment_test_0123456789");
+      let hash = "a".repeat(64);
+      try {
+        hash = createHash("sha256").update(canonicalParticipantRequest("submit-evidence", body)).digest("hex");
+      } catch {
+        /* invalid input still exercises authorization first */
+      }
+      c.req.raw.headers.set("X-Support-Request-Hash", hash);
+    }
+    await next();
+  });
+  app.route("/support-requests", createAccountSupportRequestRoutes(runtime));
+  return app;
+}
+
+async function attachmentRouteFixture(exists = true, buyerAccountId = "acc_buyer", caseAuditTenant = "tnt_identity") {
+  const { eventStore, allEvents } = createInMemoryEventStore();
+  const body = new Uint8Array([0xff, 0xd8, 0xff]);
+  const reference = `support-attachment:v1:sea_photo:${createHash("sha256").update(body).digest("hex")}:jpg`;
+  if (exists)
+    await eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "any",
+      context: {
+        tenantId: caseAuditTenant,
+        audit: { performedByUserId: "usr_operator", forAccountId: "acc_buyer" },
+      } as never,
+      events: [
+        ...decideSupportRequest(initialSupportRequestState, {
+          type: "OpenSupportRequest",
+          supportRequestId: "sup_case",
+          orderId: "ord_case",
+          buyerAccountId,
+          sellerAccountId: "acc_seller",
+          openedByAccountId: "acc_buyer",
+          openedByRole: "buyer",
+          flowType: "product-damaged",
+          openedAt: "2026-10-12T00:00:00.000Z",
+          orderTotalAmount: "10.00",
+          orderReturnContext: [],
+        } as never).map((event) => ({ eventType: event.type, payload: event.data })),
+        {
+          eventType: "support.support-request.evidence-submitted",
+          payload: {
+            supportRequestId: "sup_case",
+            evidence: { attachments: [reference], submittedAt: "2026-10-12T00:00:00.000Z" },
+            updatedChecklist: [],
+          },
+        },
+      ],
+    });
+  const storedKeys = new Set<string>();
+  const storage = {
+    putPrivate: vi.fn(async (input: { key: string }) => {
+      storedKeys.add(input.key);
+      return { status: "completed" as const, key: input.key };
+    }),
+    readPrivate: vi.fn(async () => ({
+      status: "found" as const,
+      body,
+      byteSize: body.length,
+      providerContentType: "image/jpeg",
+    })),
+    verifyPrivate: vi.fn(async (key: string) => ({
+      status: storedKeys.has(key) ? ("match" as const) : ("absent" as const),
+    })),
+  };
+  const runtime = createSupportRequestRuntime({
+    eventStore,
+    db: { query: vi.fn(async () => ({ rows: [supportRequestDetail()] })) } as never,
+    checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+    attachmentStorage: storage,
+    attachmentCanonicalizer: createSupportEvidenceCanonicalizationQueue({
+      canonicalize: canonicalizeSupportEvidenceImage,
+    }),
+  });
+  return { runtime, eventStore, allEvents, storage, reference };
 }
 
 function supportRequestDetail() {
@@ -75,12 +1079,15 @@ function supportRequestDetail() {
 
 function createServices(overrides: Partial<SupportRequestServices> = {}): SupportRequestServices {
   return {
+    executeParticipantAttempt: vi.fn(),
+    getParticipantAttempt: vi.fn(),
     commandHandler: vi.fn(),
     listFlowDefinitions: vi.fn(async () => []),
     getSupportOrderContext: vi.fn(),
     openSupportRequest: vi.fn(),
     uploadAttachments: vi.fn(),
     getAttachment: vi.fn(),
+    getEvidenceAccessAudit: vi.fn(),
     submitEvidence: vi.fn(),
     recordResponse: vi.fn(),
     acceptOffer: vi.fn(),
@@ -311,20 +1318,32 @@ describe("support request routes", () => {
       { id: "sup_1", version: 7, status: "cancelled" },
     ],
   ] as const)("returns a command-owned snapshot for %s", async (methodName, path, body, expected) => {
-    const command = vi.fn(async () => ({
+    const participant = methodName !== "resolveSupportRequest";
+    const executeParticipantAttempt = vi.fn<SupportRequestServices["executeParticipantAttempt"]>(async () => {
+      if (expected.status === "resolved") throw new Error("Adjudication is not a participant command");
+      return { ...expected, evidenceId: null, responseId: null, offerId: null };
+    });
+    const resolveSupportRequest = vi.fn<SupportRequestServices["resolveSupportRequest"]>(async () => ({
       supportRequestId: expected.id,
       version: expected.version,
     }));
-    const services = createServices({ [methodName]: command } as Partial<SupportRequestServices>);
+    const command = participant ? executeParticipantAttempt : resolveSupportRequest;
+    const services = createServices({ executeParticipantAttempt, resolveSupportRequest });
 
     const response = await buildApp(services).request(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "7163_snapshot_test_0123456789",
+        "X-Support-Request-Hash": "a".repeat(64),
+      },
       body: JSON.stringify(body),
     });
 
     expect(response.status).toBe(methodName === "openSupportRequest" ? 201 : 200);
-    await expect(response.json()).resolves.toEqual(expected);
+    await expect(response.json()).resolves.toEqual(
+      participant ? { ...expected, evidenceId: null, responseId: null, offerId: null } : expected,
+    );
     expect(command).toHaveBeenCalledTimes(1);
   });
 
@@ -380,6 +1399,22 @@ describe("support request routes", () => {
       priority: undefined,
       search: undefined,
     });
+  });
+
+  it("AC5 forwards unresolved and its page window unchanged", async () => {
+    const listSupportOperationsQueue = vi.fn(async () => ({ items: [], total: 5 }));
+    const response = await buildApp(createServices({ listSupportOperationsQueue })).request(
+      "/support-requests/ops?status=unresolved&limit=2&offset=2",
+    );
+    expect(response.status).toBe(200);
+    expect(listSupportOperationsQueue).toHaveBeenCalledWith({
+      status: "unresolved",
+      limit: 2,
+      offset: 2,
+      priority: undefined,
+      search: undefined,
+    });
+    await expect(response.json()).resolves.toEqual({ items: [], total: 5, count: 0 });
   });
 
   it.each([
@@ -561,9 +1596,11 @@ describe("support request routes", () => {
     expect(uploadAttachments).toHaveBeenCalledWith(
       expect.objectContaining({
         supportRequestId: "sup_1",
-        accountId: "acc_operator",
-        roleKey: "platform-admin",
-        uploads: [],
+        actor: expect.objectContaining({
+          accountId: "acc_operator",
+          permissions: expect.arrayContaining(["support.manage"]),
+        }),
+        uploads: expect.any(Function),
       }),
     );
   });
@@ -590,5 +1627,164 @@ describe("support request routes", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe("human Support evidence cleanup requests (AC-E5)", () => {
+  const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const operationStream = attachmentOperationStreamId({ supportRequestId: "sup_case", operationId });
+  const cleanupPath = `/support-requests/ops/sup_case/attachment-operations/${operationId}/cleanup`;
+  async function cleanupFixture(referenced = false) {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "no_stream",
+      context: evidenceActorContext(evidenceActor("owner", [], false, "acc_buyer")),
+      events: decideSupportRequest(initialSupportRequestState, {
+        type: "OpenSupportRequest",
+        supportRequestId: "sup_case",
+        orderId: "ord_case",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        openedByAccountId: "acc_buyer",
+        openedByRole: "buyer",
+        flowType: "product-damaged",
+        openedAt: "2026-10-12T00:00:00.000Z",
+        orderTotalAmount: "10.00",
+        orderReturnContext: [],
+      } as never).map((event) => ({ eventType: event.type, payload: event.data })),
+    });
+    const owner = { tenantId: "tnt_identity", accountId: "acc_buyer", supportRequestId: "sup_case", operationId };
+    const manifest = createAttachmentManifest({
+      owner,
+      profile: "support-evidence-raster/v1",
+      encoderFingerprint: {
+        profile: "support-evidence-raster/v1",
+        sharp: "t",
+        libvips: "t",
+        platform: "t",
+        arch: "t",
+        libc: "t",
+      },
+      images: [{ canonicalSha256: "c".repeat(64), contentType: "image/jpeg", byteSize: 3 }],
+    });
+    await eventStore.appendToStream({
+      streamId: operationStream,
+      expectedVersion: "no_stream",
+      context: evidenceActorContext(evidenceActor("owner", [], false, "acc_buyer")),
+      events: [
+        { eventType: "support.attachment-operation.staged", payload: manifest },
+        { eventType: "support.attachment-operation.stored", payload: { index: 0 } },
+        ...(referenced
+          ? [
+              {
+                eventType: "support.attachment-operation.reference-claimed",
+                payload: {
+                  evidenceId: "sev_case",
+                  attachments: attachmentManifestReferences(manifest),
+                  submittedAt: "2026-10-12T00:00:00.000Z",
+                },
+              },
+              { eventType: "support.attachment-operation.referenced", payload: { evidenceId: "sev_case" } },
+            ]
+          : []),
+      ],
+    });
+    const storage = {
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(),
+      verifyPrivate: vi.fn(),
+      deleteKeys: vi.fn(),
+    };
+    const binding = parseSupportEvidenceCleanupBinding(
+      JSON.stringify({
+        version: 1,
+        environment: "test",
+        deploymentInstance: '["support-deployment-instance/v1","test","release-a"]',
+        bindingId: "cleanup-a",
+        revision: 1,
+        active: true,
+      }),
+      {
+        environment: "test",
+        deploymentInstance: '["support-deployment-instance/v1","test","release-a"]',
+        implementationSha: "a".repeat(40),
+      },
+    );
+    if (binding.kind !== "configured") throw new Error("test binding must be configured");
+    const runtime = createSupportRequestRuntime({
+      eventStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
+      attachmentStorage: storage,
+      // Even with the worker capability mounted in-process, the human route only records a requirement.
+      attachmentCleanup: { kind: "available", binding, storage },
+    });
+    const operationEvents = () => allEvents.filter((event) => event.streamId === operationStream);
+    const auditEvents = () => allEvents.filter((event) => event.streamId === "support.evidence-access-sup_case");
+    return { runtime, storage, operationEvents, auditEvents };
+  }
+  const post = (fixture: Awaited<ReturnType<typeof cleanupFixture>>, actor: ResolvedActor | null, path = cleanupPath) =>
+    attachmentApp(fixture.runtime, actor).request(path, { method: "POST" });
+  const expectNoStorage = (fixture: Awaited<ReturnType<typeof cleanupFixture>>) => {
+    for (const method of Object.values(fixture.storage)) expect(method).not.toHaveBeenCalled();
+  };
+
+  it("any-case with support.manage records CleanupRequired once and never deletes", async () => {
+    const fixture = await cleanupFixture();
+    const operator = evidenceActor("platform-admin", ["support.manage"], true, "acc_operator");
+    const first = await post(fixture, operator);
+    expect(first.status).toBe(202);
+    expect(await first.json()).toEqual({ operationId, status: "cleanup-required" });
+    expect((await post(fixture, operator)).status).toBe(202);
+    const required = fixture.operationEvents().filter((event) => event.eventType.endsWith(".cleanup-required"));
+    expect(required).toHaveLength(1);
+    expect(required[0]).toMatchObject({
+      payload: { reason: "human-request" },
+      performedByUserId: "usr_operator",
+      forAccountId: "acc_buyer",
+    });
+    expect(fixture.operationEvents()).toHaveLength(3);
+    expect(fixture.auditEvents().map((event) => event.payload.action)).toEqual(["cleanup-request", "cleanup-request"]);
+    expectNoStorage(fixture);
+  });
+
+  it.each([
+    ["participant buyer", evidenceActor("owner", ["support.manage"], false, "acc_buyer"), 403],
+    ["participant seller", evidenceActor("owner", ["support.manage"], false, "acc_seller"), 403],
+    ["unrelated", evidenceActor("platform-admin", ["support.manage"], false, "acc_unrelated"), 404],
+    [
+      "revoked",
+      { ...evidenceActor("platform-admin", ["support.manage"], true, "acc_unrelated"), capabilityAssignments: [] },
+      404,
+    ],
+    ["any-case without support.manage", evidenceActor("viewer", ["support.view"], true, "acc_unrelated"), 403],
+    ["anonymous", null, 401],
+  ] as const)("%s denies with zero storage calls and no cleanup fact", async (_label, actor, status) => {
+    const fixture = await cleanupFixture();
+    expect((await post(fixture, actor)).status).toBe(status);
+    expect(fixture.operationEvents()).toHaveLength(2);
+    expect(fixture.auditEvents()).toHaveLength(1);
+    expect(fixture.auditEvents()[0]!.payload).toMatchObject({ action: "cleanup-request", decision: "denied" });
+    expectNoStorage(fixture);
+  });
+
+  it("refuses referenced, unknown and malformed operations without storage calls", async () => {
+    const operator = evidenceActor("platform-admin", ["support.manage"], true, "acc_operator");
+    const referenced = await cleanupFixture(true);
+    const conflict = await post(referenced, operator);
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error.code).toBe("attachment_operation_referenced");
+    expect(referenced.operationEvents()).toHaveLength(4);
+    expectNoStorage(referenced);
+    const fixture = await cleanupFixture();
+    for (const path of [
+      "/support-requests/ops/sup_case/attachment-operations/sao_01ARZ3NDEKTSV4RRFFQ69G5FAW/cleanup",
+      "/support-requests/ops/sup_case/attachment-operations/sao_bad/cleanup",
+      `/support-requests/ops/sup_other/attachment-operations/${operationId}/cleanup`,
+    ])
+      expect((await post(fixture, operator, path)).status).toBe(404);
+    expect(fixture.operationEvents()).toHaveLength(2);
+    expectNoStorage(fixture);
   });
 });

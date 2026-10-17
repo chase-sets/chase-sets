@@ -620,10 +620,18 @@ function formatViolation(module, call) {
 export function classifySqlExecutionSurface({ repoRoot, files }) {
   assertContractSurface(repoRoot);
   const analyzer = new Analyzer(repoRoot);
-  const modules = [...new Set(files.map(normalizeRepoPath))]
-    .sort()
-    .map((file) => analyzer.analyzeModule(file))
-    .filter(Boolean);
+  const normalizedFiles = files.map(normalizeRepoPath);
+  if (new Set(normalizedFiles).size !== normalizedFiles.length) {
+    throw new SqlExecutionGuardError("SQL_INVENTORY_DUPLICATE", "tracked SQL module inventory contains duplicates");
+  }
+  const modules = normalizedFiles.sort().map((file) => {
+    const module = analyzer.analyzeModule(file);
+    if (!module) throw new SqlExecutionGuardError("SQL_INVENTORY_MISSING", `tracked SQL module missing: ${file}`);
+    if (module.file !== file || !["sql-executing", "unprovable-form", "not-sql"].includes(module.outcome)) {
+      throw new SqlExecutionGuardError("SQL_INVENTORY_UNKNOWN", `unclassified tracked SQL module: ${file}`);
+    }
+    return module;
+  });
   const violations = modules.flatMap((module) =>
     module.outcome === "unprovable-form"
       ? module.calls.filter((call) => call.outcome === "unprovable-form").map((call) => formatViolation(module, call))
@@ -636,7 +644,40 @@ export function classifySqlExecutionSurface({ repoRoot, files }) {
     unresolvedMemberRoots: {
       count: unresolvedFiles.reduce((total, file) => total + analyzer.unresolvedMemberRoots.get(file), 0),
       fileList: unresolvedFiles,
+      fileCounts: Object.fromEntries(unresolvedFiles.map((file) => [file, analyzer.unresolvedMemberRoots.get(file)])),
     },
+  };
+}
+
+export function exceptionalSqlPartition(files, result) {
+  const expected = files.map(normalizeRepoPath).sort();
+  const actual = result.modules.map((module) => module.file);
+  if (
+    new Set(expected).size !== expected.length ||
+    new Set(actual).size !== actual.length ||
+    actual.length !== expected.length ||
+    actual.some((file, index) => file !== expected[index]) ||
+    result.modules.some((module) => !["sql-executing", "unprovable-form", "not-sql"].includes(module.outcome))
+  ) {
+    throw new SqlExecutionGuardError(
+      "SQL_PARTITION_INCOMPLETE",
+      "tracked SQL module classification is not a closed partition",
+    );
+  }
+  const { count, fileList, fileCounts } = result.unresolvedMemberRoots;
+  if (
+    fileList.some((file) => !expected.includes(file) || !Number.isInteger(fileCounts[file]) || fileCounts[file] < 1) ||
+    Object.keys(fileCounts).length !== fileList.length ||
+    fileList.reduce((sum, file) => sum + fileCounts[file], 0) !== count
+  ) {
+    throw new SqlExecutionGuardError("SQL_PARTITION_UNRESOLVED", "unresolved member-root counts are incomplete");
+  }
+  return {
+    sqlExecuting: result.modules.filter((module) => module.outcome === "sql-executing").map((module) => module.file),
+    unprovableForm: result.modules
+      .filter((module) => module.outcome === "unprovable-form")
+      .map((module) => module.file),
+    unresolvedMemberRoots: { count, fileCounts },
   };
 }
 
@@ -704,6 +745,9 @@ export function listNonTestTypeScriptModules(repoRoot, { execGit = (args) => def
 }
 
 export function runSqlExecutionSurfaceGuard({ repoRoot, changedFilesJson, execGit } = {}) {
-  const files = deriveChangedSqlExecutionFiles({ repoRoot, changedFilesJson, execGit });
+  // Deleted paths and rename sources have no working-tree module to classify.
+  const files = [...new Set(deriveChangedSqlExecutionFiles({ repoRoot, changedFilesJson, execGit }))].filter((file) =>
+    existsSync(path.join(repoRoot, ...file.split("/"))),
+  );
   return classifySqlExecutionSurface({ repoRoot, files });
 }

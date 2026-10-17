@@ -1,0 +1,69 @@
+import { describe, expect, it } from "vitest";
+import { outboundSyncSchemaMigrations, outboundSyncSchemaSql } from "../read-model/schema";
+
+describe("outbound-bootstrap-and-manifest", () => {
+  it("channels-bootstrap-and-migrations: every live-export boot statement is ledgered verbatim", () => {
+    const migration = outboundSyncSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261010_channels_live_export_producer",
+    )!;
+    expect(migration.statements).toHaveLength(6);
+    for (const statement of migration.statements) expect(outboundSyncSchemaSql.split(`${statement};`)).toHaveLength(2);
+  });
+  it("expands the retained origin column before boot indexes using the ledgered statement", () => {
+    const expansion = outboundSyncSchemaMigrations[2]!.statements[1]!;
+    expect(expansion).toContain("ADD COLUMN IF NOT EXISTS operation_origin text NOT NULL DEFAULT 'desired-state'");
+    const expansionPosition = outboundSyncSchemaSql.indexOf(`${expansion};`);
+    expect(expansionPosition).toBeGreaterThan(
+      outboundSyncSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS channel_outbound_operations"),
+    );
+    expect(expansionPosition).toBeLessThan(outboundSyncSchemaSql.indexOf("CREATE UNIQUE INDEX"));
+    expect(outboundSyncSchemaSql.split(`${expansion};`)).toHaveLength(2);
+  });
+
+  it("keeps producer tables and lane uniqueness fences in boot and migration SQL", () => {
+    const migrationSql = outboundSyncSchemaMigrations.flatMap((migration) => migration.statements).join("\n");
+    for (const expected of [
+      "channel_outbound_operations",
+      "channel_outbound_reservation_settlements",
+      "channel_provider_rate_state",
+      "channel_outbound_lanes",
+      "channel_outbound_operations_one_pending_per_lane_uidx",
+      "channel_outbound_operations_one_inflight_per_lane_uidx",
+      "channel_outbound_operations_connection_claim_idx",
+      "channel_outbound_operations_inline_expiry_idx",
+      "channel_outbound_operations_pending_lane_order_idx",
+      "source_desired_state_sequence",
+      "source_desired_state_hash",
+      "payload_digest",
+      "operation_origin",
+      "channel_order_pull_operations",
+      "channel_order_pull_schedules",
+      "channel_order_pull_chunks",
+      "channel_order_pull_operations_one_live_uidx",
+      "channel_order_pull_schedules_due_idx",
+      "channel_live_export_operations",
+      "channel_live_export_schedules",
+      "channel_live_export_operations_one_live_uidx",
+      "channel_live_export_schedules_due_idx",
+    ]) {
+      expect(outboundSyncSchemaSql).toContain(expected);
+      expect(migrationSql).toContain(expected);
+    }
+    expect(outboundSyncSchemaMigrations.map((migration) => migration.migrationId)).toEqual([
+      "20260907_channels_outbound_sync",
+      "20260910_channels_outbound_reservation_settlements",
+      "20260912_channels_reconciliation_repair_origin",
+      "20260912_channels_outbound_pending_lane_order",
+      "20261008_channels_order_pull_producer",
+      "20261009_channels_order_pull_progress",
+      "20261010_channels_live_export_producer",
+    ]);
+    expect(outboundSyncSchemaMigrations[0]?.statements.join("\n")).not.toContain(
+      "channel_outbound_reservation_settlements",
+    );
+    expect(outboundSyncSchemaMigrations[1]?.statements.join("\n")).toContain(
+      "channel_outbound_reservation_settlements",
+    );
+    expect(outboundSyncSchemaMigrations[2]?.statements.join("\n")).toContain("operation_origin = 'desired-state'");
+  });
+});

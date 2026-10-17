@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { syntheticReferenceRecordEvents } from "../../source-observations/api/seeding/synthetic-display-identity-queryable";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
@@ -215,6 +216,7 @@ class DiscoverySearchProjectionDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("discovery_search_item_identity_terms")) return { rows: [], rowCount: 1 };
     if (sql.includes("SELECT slug FROM discovery_search_catalog_items")) {
       const row = this.searchCatalogItems.get(String(values[0]));
       return { rows: (row ? [{ slug: row.slug }] : []) as Row[], rowCount: row ? 1 : 0 };
@@ -446,7 +448,7 @@ function recomputeDb(options: {
         };
       }
 
-      if (sql.includes("FROM catalog_reference_records")) {
+      if (sql.includes("AS reference_event")) {
         return {
           rows: [
             {
@@ -458,7 +460,7 @@ function recomputeDb(options: {
               relationships: [],
               status: "active",
             },
-          ] as T[],
+          ].flatMap(syntheticReferenceRecordEvents) as T[],
           rowCount: 1,
         };
       }

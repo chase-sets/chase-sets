@@ -3,6 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
+import type { CatalogScopeProductDomain } from "../../scope-registry/domain/contract";
 import {
   decideProviderScopeMapping,
   evolveProviderScopeMapping,
@@ -40,7 +41,10 @@ export type ProviderScopeMappingServices = Readonly<{
   ) => ReturnType<typeof listAcceptedProviderScopeMappingsByProviderUnit>;
   getMapping: (mappingId: string) => ReturnType<typeof getProviderScopeMapping>;
   /** The unmapped-scope inbox: every `proposed` mapping, grouped by canonical scope record. */
-  getUnmappedScopeInbox: (input?: { limit?: number }) => Promise<UnmappedScopeInboxReadModel>;
+  getUnmappedScopeInbox: (input?: {
+    limit?: number;
+    productDomain?: CatalogScopeProductDomain;
+  }) => Promise<UnmappedScopeInboxReadModel>;
   /** The per-provider coverage ladder for one canonical scope record; null if the scope record does not exist. */
   getScopeCoverageMatrix: (scopeRecordId: string) => Promise<ScopeCoverageMatrix | null>;
   projectors: readonly ProjectionHandlerSet[];
@@ -62,7 +66,10 @@ export function createProviderScopeMappingRuntime(deps: CatalogRuntimeDeps): Pro
     listAcceptedMappingsByProviderUnit: (input) => listAcceptedProviderScopeMappingsByProviderUnit(deps.db, input),
     getMapping: (mappingId) => getProviderScopeMapping(deps.db, mappingId),
     getUnmappedScopeInbox: async (input) => {
-      const rows = await listUnmappedScopeInboxRows(deps.db, { limit: input?.limit });
+      const rows = await listUnmappedScopeInboxRows(deps.db, {
+        limit: input?.limit,
+        productDomain: input?.productDomain,
+      });
       return buildUnmappedScopeInboxReadModel({ generatedAt: new Date().toISOString(), rows });
     },
     getScopeCoverageMatrix: async (scopeRecordId) => {

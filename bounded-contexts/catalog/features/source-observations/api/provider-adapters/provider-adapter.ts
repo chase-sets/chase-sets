@@ -28,6 +28,8 @@ export type ProviderOptionQueryInput = Readonly<{
   unitKey: CatalogIntegrationUnitKey;
   optionKind: string;
   parentValues?: Readonly<Record<string, string>>;
+  /** False when the caller owns persistence of the completed option observation. */
+  cacheObservation?: boolean;
 }>;
 
 /**
@@ -70,6 +72,7 @@ export type ProviderOptionItem = Readonly<{
 export type ProviderOptionQueryResult = Readonly<{
   items: readonly ProviderOptionItem[];
   nextCursor?: string;
+  validatedPagination?: Readonly<{ totalCount: number; pageSize: number }> | null;
 }>;
 
 export type ProviderImportScope = Readonly<{
@@ -79,6 +82,12 @@ export type ProviderImportScope = Readonly<{
 }>;
 
 export type ProviderUsageEstimate = Readonly<{
+  countSource?: import("../../../scope-sync-batches/domain/count-acquisition").ScrydexCountSource | null;
+  enforcedAdmissionMaximum?: Readonly<{
+    label: "enforced-admission-maximum";
+    requestCount: 256;
+    windowId: string;
+  }> | null;
   requestStrategy: "bulk-first" | "single-record" | "unknown";
   estimateState: "estimated" | "estimate-unavailable";
   estimatedRequestCount: number | null;
@@ -89,6 +98,30 @@ export type ProviderUsageEstimate = Readonly<{
   usageCheckState: "checked" | "not-supported" | "not-configured" | "unavailable" | "unknown";
   creditDiagnostic: string | null;
   degradedDiagnostic: string | null;
+}>;
+
+// A redacted, cached account-usage observation. Only balance counts, states, and
+// timestamps cross this boundary; credentials, account identifiers, endpoint URLs,
+// pricing, and raw provider responses stay inside the adapter. Null means the
+// provider did not report the value and never means zero.
+export type ProviderUsageSnapshot = Readonly<{
+  providerKey: string;
+  creditUnit: string;
+  creditState: "available" | "low" | "exhausted" | "unknown";
+  totalCredits: number | null;
+  remainingCredits: number | null;
+  usedCredits: number | null;
+  /** Last successful usage read; null when usage was never observed. */
+  observedAt: string | null;
+  /** Latest usage read attempt; null when no read was attempted. */
+  attemptedAt: string | null;
+  attemptState: "checked" | "unavailable" | "not-configured";
+  providerUpdatedAt: string | null;
+  lagCategory: "within-provider-window" | "beyond-provider-window" | "documented-window" | "unobserved";
+  diagnosticCode: string | null;
+  diagnostic: string | null;
+  freshWithinSeconds: number;
+  unavailableAfterSeconds: number;
 }>;
 
 export type ProviderImportPlan = Readonly<{
@@ -146,4 +179,6 @@ export type ProviderAdapter<TPayload = unknown> = Readonly<{
   ): AsyncIterable<ProviderPayloadEnvelope<TPayload>>;
   getCredentialReadiness(): Promise<readonly CatalogProviderCredentialReadiness[]>;
   getTransportDiagnostics(): Promise<readonly ProviderTransportDiagnostic[]>;
+  /** Absent for providers that do not report account usage. */
+  getUsageSnapshot?(): Promise<ProviderUsageSnapshot>;
 }>;

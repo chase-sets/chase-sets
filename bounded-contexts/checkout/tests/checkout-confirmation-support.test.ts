@@ -92,6 +92,7 @@ describe("checkout confirmation support", () => {
         selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
         productSummary: "Raw",
         offerPriceAmount: "350.00",
+        offerPriceCurrencyCode: "USD",
         quantity: 2,
       },
     ],
@@ -241,6 +242,7 @@ describe("checkout confirmation support", () => {
       productSummary: "Raw",
       shippingDestinationSnapshot: offerIntentSession.shipping_address,
       priceAmount: "350.00",
+      priceCurrencyCode: "USD",
       quantityRequested: 2,
     });
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
@@ -266,7 +268,7 @@ describe("checkout confirmation support", () => {
         ...offerIntentSession,
         lines: [{ ...offerIntentSession.lines[0], offerPriceAmount: "   " }],
       } as never),
-    ).rejects.toThrow("Purchase intent requires an offer price.");
+    ).rejects.toThrow("Purchase intent requires a complete Offer amount and currency.");
 
     expect(mockCreateSubmittedOffer).not.toHaveBeenCalled();
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();

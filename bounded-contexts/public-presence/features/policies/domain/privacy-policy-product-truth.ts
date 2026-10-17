@@ -305,18 +305,43 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["chase-sets:review-draft:"] }],
   },
   {
+    factId: "web-storage-agent-grant-revocation",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "agent-grant-revocation:*",
+    evidenceRefs: [
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:269",
+      "bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx:273",
+    ],
+    factualSummary:
+      "The connected-agent page reads and writes an Account-and-Grant-scoped sessionStorage entry holding only a revocation attempt UUID, so a reload can retain the same attempt without storing receipts or credentials.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["agent-grant-revocation:"] }],
+  },
+  {
+    factId: "web-storage-inventory-recovery",
+    classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
+    inventorySubject: "inventory-mutation/v1:*",
+    evidenceRefs: [
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:81",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:85",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:90",
+    ],
+    factualSummary:
+      "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
+    disclosures: [{ sectionId: cookiesSection, requiredTokens: ["inventory-mutation/v1:"] }],
+  },
+  {
     factId: "web-storage-search-restoration",
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.restoration.v2",
     evidenceRefs: [
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:104",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:107",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:151",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:56",
-      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:63",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:109",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:112",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:156",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:61",
+      "bounded-contexts/discovery/features/search/ui/search-scroll-restoration.ts:68",
     ],
     factualSummary:
-      "Search restoration reads, writes, and removes a browser storage entry named discovery.search.restoration.v2 through an injected Pick<Storage, ...> seam. The stored value holds the result-set identity (search text, category, tag, language, market activity, price bounds, in-stock flag, sort, and dynamic filters), the scroll position, and a bounded number of already-fetched result pages.",
+      "Search restoration reads, writes, and removes a browser storage entry named discovery.search.restoration.v2 through an injected Pick<Storage, ...> seam. The stored value holds the result-set identity (search text, category, tag, language, market activity, price bounds, in-stock flag, sort, dynamic filters, and whether the search carries the Search Interpretation marker), the scroll position, and a bounded number of already-fetched result pages.",
     disclosures: [{ sectionId: cookiesSection, requiredTokens: ["discovery.search.restoration.v2"] }],
   },
   {
@@ -354,11 +379,11 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx:172",
-      "bounded-contexts/payments/package.json:42",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx:173",
+      "bounded-contexts/payments/package.json:46",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "deployables/marketplace/package.json:34",
+      "deployables/marketplace/package.json:35",
     ],
     factualSummary:
       "The payment confirmation card calls the Stripe.js loader, so Stripe's own browser script loads on /checkout/buy/session/:sessionId, /account/payments/:paymentId, and /checkout/payments/:paymentId. Payments and the Marketplace deployable declare @stripe/stripe-js@9.9.0, and the committed embedded-component CSP permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on those surfaces and may use provider-controlled client-side storage.",
@@ -379,11 +404,11 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:67",
-      "bounded-contexts/payments/package.json:42",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:68",
+      "bounded-contexts/payments/package.json:46",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "deployables/marketplace/package.json:34",
+      "deployables/marketplace/package.json:35",
     ],
     factualSummary:
       "The payment-method setup card calls the Stripe.js loader, so Stripe's own browser script loads on /account/payment-methods. Payments and the Marketplace deployable declare @stripe/stripe-js@9.9.0, and the committed embedded-component CSP permits https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -395,10 +420,10 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
     evidenceRefs: [
-      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:62-67",
+      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:63-68",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/package.json:44",
+      "bounded-contexts/settlement/package.json:48",
     ],
     factualSummary:
       "The payout setup page calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -412,8 +437,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:89-101",
-      "bounded-contexts/settlement/package.json:44",
+      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:90-102",
+      "bounded-contexts/settlement/package.json:48",
     ],
     factualSummary:
       "The Stripe Connect notification banner calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -443,7 +468,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "deployables/admin-web/app/pwa/service-worker-source.ts:41",
       "deployables/admin-web/app/pwa/service-worker-source.ts:8-31",
-      "deployables/admin-web/app/root.tsx:40",
+      "deployables/admin-web/app/root.tsx:41",
       "deployables/admin-web/app/routes/service-worker.ts:4",
     ],
     factualSummary:
@@ -457,7 +482,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "google",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:165-174",
-      "deployables/platform-api/src/main.ts:193-196",
+      "deployables/platform-api/src/main.ts:213-216",
     ],
     factualSummary:
       "A registered social-login provider named google maps a provider profile containing providerName, providerSubject, email, emailVerified, hostedDomain, displayName, givenName, and familyName. The platform API registers the provider executably.",
@@ -472,7 +497,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "facebook",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:197-205",
-      "deployables/platform-api/src/main.ts:201-204",
+      "deployables/platform-api/src/main.ts:221-224",
     ],
     factualSummary:
       "A registered social-login provider named facebook maps a provider profile containing providerName, providerSubject, email, emailVerified, displayName, givenName, and familyName. The platform API registers the provider executably.",

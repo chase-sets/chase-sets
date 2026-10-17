@@ -1,10 +1,25 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { createTransientProjectionError, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type {
   InventoryHoldPurpose,
   InventoryHoldReleaseReason,
   InventoryHoldSourceRef,
 } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+export async function resetInventoryHoldProjection(db: PgQueryable): Promise<void> {
+  const missing = await db.query<{ parent_id: string }>(
+    `SELECT event.payload->>'itemId' AS parent_id FROM event_store_events event
+     WHERE event.event_type = 'inventory.hold.placed'
+       AND NOT EXISTS (SELECT 1 FROM inventory_items item WHERE item.item_id = event.payload->>'itemId')
+     ORDER BY event.global_position LIMIT 1`,
+  );
+  if (missing.rows[0]) {
+    throw new Error(
+      `Cannot reset Inventory holds: missing item '${missing.rows[0].parent_id}'; rebuild inventory-item-projection first.`,
+    );
+  }
+  await db.query("DELETE FROM inventory_holds");
+}
 
 export function buildInventoryHoldProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -19,8 +34,9 @@ export function buildInventoryHoldProjectionHandlers(db: PgQueryable): Projector
       };
       const anatomy = holdAnatomyFromPlacedPayload(data);
 
-      await db.query(
-        `INSERT INTO inventory_holds (
+      await db
+        .query(
+          `INSERT INTO inventory_holds (
            hold_id,
            account_id,
            item_id,
@@ -59,20 +75,36 @@ export function buildInventoryHoldProjectionHandlers(db: PgQueryable): Projector
              extension_count = 0,
              last_stream_version = $11
          WHERE inventory_holds.last_stream_version < $11`,
-        [
-          data.holdId,
-          data.accountId,
-          data.itemId,
-          data.quantity,
-          data.reason,
-          anatomy.notes,
-          anatomy.purpose,
-          anatomy.sourceRef ? JSON.stringify(anatomy.sourceRef) : null,
-          anatomy.expiresAt,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
-      );
+          [
+            data.holdId,
+            data.accountId,
+            data.itemId,
+            data.quantity,
+            data.reason,
+            anatomy.notes,
+            anatomy.purpose,
+            anatomy.sourceRef ? JSON.stringify(anatomy.sourceRef) : null,
+            anatomy.expiresAt,
+            event.timing.recordedAt,
+            event.streamVersion,
+          ],
+        )
+        .catch((error: unknown) => {
+          if (
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "23503" &&
+            "constraint" in error &&
+            error.constraint === "inventory_holds_item_id_fkey"
+          ) {
+            throw createTransientProjectionError(
+              `Inventory hold '${data.holdId}' is missing item '${data.itemId}'; rebuild inventory-item-projection first.`,
+              { cause: error },
+            );
+          }
+          throw error;
+        });
     },
     "inventory.hold.released": async (event) => {
       const { holdId, releasedAt, releaseReason } = event.data as {

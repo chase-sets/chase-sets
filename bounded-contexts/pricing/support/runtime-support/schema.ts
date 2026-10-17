@@ -2,7 +2,14 @@ import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { pricingPriceSignalSchemaSql } from "../../features/price-signals/read-model/schema";
-import { pricingRecommendationSchemaSql } from "../../features/recommendations/read-model/schema";
+import {
+  pricingProviderObservationsSchemaMigrations,
+  pricingProviderObservationsSchemaSql,
+} from "../../features/price-signals/read-model/provider-observations-schema";
+import {
+  pricingRecommendationSchemaMigrations,
+  pricingRecommendationSchemaSql,
+} from "../../features/recommendations/read-model/schema";
 import {
   pricingRecommendationSourceSchemaMigrations,
   pricingRecommendationSourceSchemaSql,
@@ -16,18 +23,43 @@ import {
   pricingMarketRollupsSchemaSql,
 } from "../../features/market-rollups/read-model/schema";
 import { pricingMarketEstimatesSchemaSql } from "../../features/market-estimates/read-model/schema";
+import {
+  pricingDemandCurveSchemaMigrations,
+  pricingDemandCurveSchemaSql,
+} from "../../features/market-estimates/read-model/demand-curve-schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
-import { pricingRepricingEngineSchemaSql } from "../../features/repricing-engine/read-model/schema";
+import { pricingRepricingPolicySchemaMigrations } from "../../features/repricing-policies/read-model/migrations";
+import {
+  pricingRepricingDryRunSchemaSql,
+  pricingRepricingDryRunSchemaMigrations,
+} from "../../features/repricing-engine/read-model/migrations";
+import {
+  pricingRepricingEngineSchemaSql,
+  pricingRepricingEngineSchemaMigrations,
+} from "../../features/repricing-engine/read-model/schema";
 import {
   pricingBulkRepriceIngestionSchemaMigrations,
   pricingBulkRepriceIngestionSchemaSql,
 } from "../../features/bulk-reprice-ingestion/read-model/schema";
+import { pricingOwnSaleObservationsSchemaSql } from "../../features/own-sale-observations/read-model/schema";
+import { pricingForecastLedgerSchemaSql } from "../../features/forecast-ledger/read-model/schema";
+import {
+  pricingEconomicsSchemaMigrations,
+  pricingEconomicsSchemaSql,
+} from "../../features/economics/read-model/schema";
 
 export const pricingFeatureSchemaMigrations = [
+  ...pricingRepricingPolicySchemaMigrations,
+  ...pricingRepricingDryRunSchemaMigrations,
+  ...pricingRepricingEngineSchemaMigrations,
+  ...pricingProviderObservationsSchemaMigrations,
   ...pricingMarketTradesSchemaMigrations,
   ...pricingRecommendationSourceSchemaMigrations,
+  ...pricingRecommendationSchemaMigrations,
   ...pricingMarketRollupsSchemaMigrations,
+  ...pricingDemandCurveSchemaMigrations,
   ...pricingBulkRepriceIngestionSchemaMigrations,
+  ...pricingEconomicsSchemaMigrations,
 ];
 
 export const pricingSchemaSql = [
@@ -37,15 +69,22 @@ export const pricingSchemaSql = [
   // for bulk reprice ingestion's dials -- see ../../features/bulk-reprice-ingestion/domain/policy.
   platformPolicySchemaSql,
   pricingRecommendationSourceSchemaSql,
+  // Resolves item/product identity from the Inventory input projection at sale-event replay time.
+  pricingOwnSaleObservationsSchemaSql,
   pricingPriceSignalSchemaSql,
+  pricingProviderObservationsSchemaSql,
   pricingRecommendationSchemaSql,
   pricingMarketTradesSchemaSql,
+  pricingEconomicsSchemaSql,
   pricingMarketRollupsSchemaSql,
   pricingMarketEstimatesSchemaSql,
+  pricingDemandCurveSchemaSql,
   // Must run after pricingRecommendationSourceSchemaSql: the assignment view joins
   // pricing_market_listing_inputs and pricing_catalog_item_inputs.
   pricingRepricingPolicySchemaSql,
   pricingRepricingEngineSchemaSql,
+  pricingRepricingDryRunSchemaSql,
+  pricingForecastLedgerSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the market-stat-hygiene and market-analytics-display policies -- see
   // ../../features/market-trades/domain/stat-hygiene-policy and

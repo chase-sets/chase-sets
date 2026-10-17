@@ -8,7 +8,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
-import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -353,7 +353,7 @@ const seedOrderInventory = [
 export async function inspectOrderingSeedState(
   pool: PgTransactionalPool,
 ): Promise<readonly BcSeedAggregateStateReport[]> {
-  const ordering = createOrderingServices(pool);
+  const ordering = createOrderingServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } });
   const context = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
   const policyReports = await reconcileSeedAggregates([buildSeedPostagePolicyReconciler(ordering, context)], false);
 
@@ -400,7 +400,7 @@ export async function inspectOrderingSeedState(
 
 export async function seedOrderingDatabase(
   pool: PgTransactionalPool,
-  ordering: OrderingServices = createOrderingServices(pool),
+  ordering: OrderingServices = createOrderingServices(pool, { inventoryCleanupAuthority: { kind: "not-mounted" } }),
 ) {
   const buyerAccountId = identitySeedIds.collector.accountId;
 

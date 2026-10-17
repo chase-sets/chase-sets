@@ -211,14 +211,16 @@ export function ItemDetailMarketBook({
                           key={listing.listing_id}
                           selected={isSelected}
                           aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.listing.row.label", {
-                            price: formatMoney(listing.price_amount),
+                            price: formatMoney(listing.price_amount, listing.price_currency_code!),
                             seller: sellerName,
                           })}
                         >
                           <ComparisonListRowGrid>
                             <ComparisonListCell>
                               <Inline gap={2}>
-                                <ComparisonListPrice>{formatMoney(listing.price_amount)}</ComparisonListPrice>
+                                <ComparisonListPrice>
+                                  {formatMoney(listing.price_amount, listing.price_currency_code!)}
+                                </ComparisonListPrice>
                                 {isLowestPrice ? (
                                   <Badge tone="success">
                                     {t("discovery.features.itemDetail.ui.itemDetailPage.lowest.price")}
@@ -253,7 +255,10 @@ export function ItemDetailMarketBook({
                                   isSelected
                                     ? "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.action"
                                     : "discovery.features.itemDetail.ui.itemDetailPage.select.listing.action",
-                                  { seller: sellerName, price: formatMoney(listing.price_amount) },
+                                  {
+                                    seller: sellerName,
+                                    price: formatMoney(listing.price_amount, listing.price_currency_code!),
+                                  },
                                 )}
                                 leadingIcon={isSelected ? "check" : undefined}
                                 onClick={() => onSelectListing(listing)}
@@ -350,14 +355,16 @@ export function ItemDetailMarketBook({
                           key={offer.offer_id}
                           selected={isSelected}
                           aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.offer.row.label", {
-                            price: formatMoney(offer.price_amount),
+                            price: formatMoney(offer.price_amount, offer.price_currency_code!),
                             buyer: buyerName,
                           })}
                         >
                           <ComparisonListRowGrid>
                             <ComparisonListCell>
                               <Inline gap={2}>
-                                <ComparisonListPrice>{formatMoney(offer.price_amount)}</ComparisonListPrice>
+                                <ComparisonListPrice>
+                                  {formatMoney(offer.price_amount, offer.price_currency_code!)}
+                                </ComparisonListPrice>
                                 {isBestOfferPrice ? (
                                   <Badge tone="success">
                                     {t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")}
@@ -402,7 +409,10 @@ export function ItemDetailMarketBook({
                                   isSelected
                                     ? "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.action"
                                     : "discovery.features.itemDetail.ui.itemDetailPage.select.offer.action",
-                                  { buyer: buyerName, price: formatMoney(offer.price_amount) },
+                                  {
+                                    buyer: buyerName,
+                                    price: formatMoney(offer.price_amount, offer.price_currency_code!),
+                                  },
                                 )}
                                 leadingIcon={isSelected ? "check" : undefined}
                                 onClick={() => onSelectOffer(offer)}

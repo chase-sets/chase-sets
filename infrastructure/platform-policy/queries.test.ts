@@ -30,6 +30,31 @@ describe("listActivePolicyDocuments", () => {
     expect(calls[0]?.params).toEqual(["settlement.clearance-window"]);
     expect(rows).toEqual([{ document_id: "pol_1" }]);
   });
+
+  it("normalizes PostgreSQL Date timestamps to the public ISO-string contract", async () => {
+    const { db } = fakeDb(() => ({
+      rows: [
+        {
+          document_id: "pol_1",
+          effective_from: new Date("2026-04-30T00:00:00.000Z"),
+          effective_until: new Date("2026-05-31T00:00:00.000Z"),
+          created_at: new Date("2026-04-29T12:00:00.000Z"),
+          updated_at: new Date("2026-04-30T12:00:00.000Z"),
+        },
+      ],
+    }));
+
+    const rows = await listActivePolicyDocuments(db, "settlement.clearance-window");
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        effective_from: "2026-04-30T00:00:00.000Z",
+        effective_until: "2026-05-31T00:00:00.000Z",
+        created_at: "2026-04-29T12:00:00.000Z",
+        updated_at: "2026-04-30T12:00:00.000Z",
+      }),
+    ]);
+  });
 });
 
 describe("getPolicyDocument", () => {

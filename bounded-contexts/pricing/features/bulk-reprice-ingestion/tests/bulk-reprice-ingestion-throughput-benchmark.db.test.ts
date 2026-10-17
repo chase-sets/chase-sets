@@ -74,7 +74,7 @@ describeBenchmark("pricing bulk reprice ingestion throughput benchmark (#4328)",
       const seedStart = Date.now();
       await pool.query(
         `INSERT INTO pricing_market_listing_inputs
-           (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at)
+           (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code, quantity_cap, status, updated_at)
          SELECT
            'lst_bench_' || generate_series,
            $1,
@@ -82,6 +82,7 @@ describeBenchmark("pricing bulk reprice ingestion throughput benchmark (#4328)",
            'cat_bench',
            'cat_bench::',
            (10 + (generate_series % 500))::numeric(12,2),
+           'USD',
            1,
            'active',
            now()

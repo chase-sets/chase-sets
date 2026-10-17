@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { catalogProviderIntegrationProfileVersions } from "../../source-observations/api/provider-integration-profiles";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "../../source-observations/api/provider-integration-profiles";
+import {
+  catalogScopeProductDomainContracts,
+  normalizeCatalogScopeProductDomain,
+} from "../../scope-registry/domain/contract";
 import { listProviderScopeDiscoveryTargets } from "./discovery-targets";
+import { classifyProviderScopeDiscoveryTarget } from "./scope-observation-matcher";
 
 describe("provider scope discovery targets", () => {
-  const targets = listProviderScopeDiscoveryTargets(catalogProviderIntegrationProfileVersions);
+  const targets = listProviderScopeDiscoveryTargets(
+    catalogProviderIntegrationProfileVersions,
+    classifyProviderScopeDiscoveryTarget,
+  );
 
   it("derives scope-level option queries from active provider profiles", () => {
     const tcgdexTargets = targets.filter((target) => target.providerKey === "tcgdex");
@@ -12,13 +23,35 @@ describe("provider scope discovery targets", () => {
     expect(tcgdexTargets.every((target) => target.productDomain === "pokemon")).toBe(true);
   });
 
-  it("never emits parent-required queries the registry cannot answer yet", () => {
-    // TCGplayer set-names require a product-line parent; only the parentless
-    // product-line listing is a discovery target.
+  it("derives all nine active TCGplayer set-name cascades from normalized product-domain contracts", () => {
+    const activeVersions = catalogProviderIntegrationProfileVersions.filter(
+      (version) => version.providerKey === "tcgplayer" && version.active && version.lifecycle === "active",
+    );
     const tcgplayerTargets = targets.filter((target) => target.providerKey === "tcgplayer");
+    const setNameTargets = tcgplayerTargets.filter((target) => target.queryKind === "set-names");
 
-    expect(tcgplayerTargets.length).toBeGreaterThan(0);
-    expect(tcgplayerTargets.every((target) => target.queryKind === "product-lines")).toBe(true);
+    expect(activeVersions).toHaveLength(9);
+    expect(setNameTargets).toHaveLength(activeVersions.length);
+    for (const version of activeVersions) {
+      const unitKey = catalogProviderProfileVersionIngestionUnitKey(version);
+      const productDomain = normalizeCatalogScopeProductDomain(version.ingestionUnitIdentity?.productDomain);
+      expect(productDomain).not.toBeNull();
+      expect(setNameTargets.find((target) => target.ingestionUnitKey === unitKey)).toMatchObject({
+        productDomain,
+        providerScope: "set-name",
+        parentScope: "product-line/category",
+        parentRequired: true,
+        scopeKind: catalogScopeProductDomainContracts[productDomain!].leafReferenceTypeKey,
+      });
+    }
+
+    expect(setNameTargets.filter((target) => target.productDomain === "pokemon")).toHaveLength(2);
+    expect(setNameTargets.filter((target) => target.productDomain === "magic")).toHaveLength(2);
+    expect(setNameTargets.filter((target) => target.productDomain === "yugioh")).toHaveLength(1);
+    expect(setNameTargets.filter((target) => target.productDomain === "one-piece")).toHaveLength(2);
+    expect(setNameTargets.filter((target) => target.productDomain === "lorcana")).toHaveLength(2);
+    expect(setNameTargets.filter((target) => target.scopeKind === "expansion")).toHaveLength(2);
+    expect(setNameTargets.filter((target) => target.scopeKind === "set")).toHaveLength(7);
   });
 
   it("never emits card, product, or SKU level queries", () => {
@@ -43,6 +76,6 @@ describe("provider scope discovery targets", () => {
       active: false,
     }));
 
-    expect(listProviderScopeDiscoveryTargets(inactiveOnly)).toHaveLength(0);
+    expect(listProviderScopeDiscoveryTargets(inactiveOnly, classifyProviderScopeDiscoveryTarget)).toHaveLength(0);
   });
 });

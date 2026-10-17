@@ -4,7 +4,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
-import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
+import type { DiscoverySearchResponse } from "../support/request-support/api-client";
 import { buildSearchResultSetKey, persistSearchRestoration } from "../features/search/ui/search-scroll-restoration";
 
 const {
@@ -36,8 +36,11 @@ vi.mock("react-router", async () => {
     useNavigation: mockUseNavigation,
     useRevalidator: mockUseRevalidator,
     useSearchParams: mockUseSearchParams,
+    useFetcher: () => ({ state: "idle", data: undefined, reset: mockResetBulkFetcher, submit: vi.fn() }),
   };
 });
+
+const mockResetBulkFetcher = vi.fn();
 
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   createRealtimeRouteSubscriptionPreset: vi.fn((id, topics) => ({ id, topics })),
@@ -110,6 +113,7 @@ function searchDataWithResults(search = "", language = "") {
           image_urls: [],
           market_summary: {
             lowest_price_amount: "12.00",
+            lowest_price_currency_code: "USD",
             active_listing_count: 2,
             total_visible_quantity: 3,
           },
@@ -148,6 +152,7 @@ function searchDataWithMarketOnlyResult(search = "") {
         ...item,
         market_summary: {
           lowest_price_amount: null,
+          lowest_price_currency_code: null,
           active_listing_count: 0,
           total_visible_quantity: 0,
         },
@@ -179,7 +184,7 @@ describe("marketplace search route", () => {
 
     const html = renderToString(<SearchRoute />);
 
-    expect(html).toContain("Search Pikachu, Spider-Man, Jordan, vintage packs...");
+    expect(html).toContain("Search Charizard, Black Lotus, Dark Magician, Luffy...");
   });
 
   it("debounces search URL updates and commits the latest value", () => {
@@ -415,6 +420,300 @@ describe("marketplace search route", () => {
     expect(next.get("language")).toBe("ja");
     expect(next.has("page")).toBe(false);
     expect(options).toMatchObject({ preventScrollReset: true, replace: false });
+  });
+
+  describe("search interpretation", () => {
+    const company = "dimension.dim_seed_grading_company";
+    const grade = "dimension.dim_seed_grade";
+    const interpretation = {
+      remainingQuery: "charizard",
+      applied: [
+        { param: company, optionId: "psa", label: "PSA" },
+        { param: grade, optionId: "gm10", label: "Gem Mint 10" },
+        { param: grade, optionId: "test10", label: "Test Ten" },
+        { param: "language", language: "ja", label: "Japanese" },
+      ],
+    };
+    function stubSearchApi(response: Record<string, unknown>) {
+      const requests: URL[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/categories")) return Response.json({ items: [], total: 0, count: 0 });
+          requests.push(url);
+          return Response.json({
+            items: [],
+            facets: [],
+            total: 0,
+            count: 0,
+            nextCursor: null,
+            retrievalMode: "lexical",
+            lexicalCount: 0,
+            ...response,
+          });
+        }),
+      );
+      return requests;
+    }
+    const load = (url: string, params: Record<string, string> = {}) =>
+      loader({ request: new Request(url), params, context: {} } as unknown as Parameters<typeof loader>[0]);
+
+    it("redirects once to the canonical URL with newly applied keys and every other param", async () => {
+      const requests = stubSearchApi({ interpretation });
+      const thrown = await load(
+        "http://localhost/search?q=charzard+psa+10+japanese&sort=newest&dimension.dim_finish=foil",
+      ).catch((error: unknown) => error);
+      expect(thrown).toBeInstanceOf(Response);
+      const response = thrown as Response;
+      expect(response.status).toBe(302);
+      const location = new URL(response.headers.get("Location") ?? "", "http://localhost");
+      expect(location.pathname).toBe("/search");
+      expect(location.searchParams.get("q")).toBe("charizard");
+      expect(location.searchParams.get("sort")).toBe("newest");
+      expect(location.searchParams.getAll("dimension.dim_finish")).toEqual(["foil"]);
+      expect(location.searchParams.getAll(company)).toEqual(["psa"]);
+      expect(location.searchParams.getAll(grade)).toEqual(["gm10", "test10"]);
+      expect(location.searchParams.get("language")).toBe("ja");
+      expect(location.searchParams.get("interpreted")).toBe(`${company},${grade},language`);
+      expect(requests.filter((url) => url.pathname.endsWith("/items"))).toHaveLength(1);
+      expect(requests[0]?.searchParams.has("interpreted")).toBe(false);
+    });
+
+    it("forwards the marker to the dispatcher and never redirects a marked URL", async () => {
+      const requests = stubSearchApi({ interpretation });
+      const result = await load(`http://localhost/search?q=charizard&${company}=psa&interpreted=${company}`);
+      expect(result).toMatchObject({ search: "charizard", interpreted: company, interpretedFilters: [company] });
+      expect(requests[0]?.searchParams.get("interpreted")).toBe(company);
+    });
+
+    it.each([
+      ["a marked page loads more under its marker", `${grade},language`, `${grade},language`],
+      ["an empty marker still loads more under its marker", "", ""],
+      ["an unmarked page loads more without a marker", null, null],
+    ])("%s", async (_name, marker, expected) => {
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+        Response.json({ items: [], facets: [], total: null, count: 0, nextCursor: null, retrievalMode: "lexical" }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      mockUseLoaderData.mockReturnValue({
+        ...searchDataWithCursor("charizard"),
+        interpreted: marker,
+        interpretedFilters: marker?.split(",") ?? [],
+      });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([new URLSearchParams("q=charizard"), vi.fn()]);
+
+      render(<SearchRoute />);
+      fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      const requested = new URL(String(fetchMock.mock.calls[0]?.[0]), "http://localhost");
+      expect(requested.searchParams.get("cursor")).toBe("cursor_2");
+      expect(requested.searchParams.get("interpreted")).toBe(expected);
+    });
+
+    it("an uninterpreted response renders without a redirect or notice keys", async () => {
+      stubSearchApi({});
+      await expect(load("http://localhost/search?q=charizard")).resolves.toMatchObject({ interpretedFilters: [] });
+    });
+
+    it.each([
+      ["removing a marked chip keeps the marker", "Remove Grade: Gem Mint 10", true],
+      ["removing the marked language keeps the marker", "Remove Language: Japanese", true],
+    ])("%s", (_name, button, kept) => {
+      const setSearchParams = vi.fn();
+      const current = new URLSearchParams(`q=charizard&language=ja&${grade}=gm10&interpreted=${grade},language`);
+      mockUseLoaderData.mockReturnValue({
+        ...searchDataWithResults("charizard", "ja"),
+        dynamicFilters: [{ kind: "dimension", id: "dim_seed_grade", value: "gm10" }],
+        interpretedFilters: [grade, "language"],
+        data: {
+          ...searchDataWithResults("charizard", "ja").data,
+          facets: [
+            {
+              id: "dim_seed_grade",
+              kind: "dimension",
+              label: "Grade",
+              values: [{ id: "gm10", label: "Gem Mint 10", count: 1, selected: true }],
+            },
+          ],
+        },
+      });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([current, setSearchParams]);
+
+      render(<SearchRoute />);
+      expect(screen.getByText("Filters applied from your search: Grade: Gem Mint 10, Japanese")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: button }));
+      const next = setSearchParams.mock.calls[0][0](new URLSearchParams(current));
+      expect(next.get("interpreted")).toBe(kept ? `${grade},language` : null);
+    });
+
+    it.each(["a new query", "an added filter"] as const)("%s drops the marker", (change) => {
+      const setSearchParams = vi.fn();
+      const current = new URLSearchParams(`q=charizard&${grade}=gm10&interpreted=${grade}`);
+      mockUseLoaderData.mockReturnValue({ ...searchDataWithResults("charizard"), interpretedFilters: [grade] });
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([current, setSearchParams]);
+
+      render(<SearchRoute />);
+      if (change === "a new query") {
+        fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blastoise" } });
+        fireEvent.submit(screen.getByRole("search"));
+      } else {
+        fireEvent.click(
+          within(screen.getByRole("complementary", { name: "Desktop search filters" })).getByRole("button", {
+            name: "Language",
+          }),
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Japanese" }));
+      }
+      const next = setSearchParams.mock.calls[0][0](new URLSearchParams(current));
+      expect(next.has("interpreted")).toBe(false);
+      expect(next.getAll(grade)).toEqual(["gm10"]);
+    });
+
+    describe("marked and unmarked Result Sets", () => {
+      // The same words and filters under each retrieval policy; only the marker differs.
+      const lexical = ["cat_lexical", "lexical-charizard", "Lexical Charizard"] as const;
+      const lexicalNext = ["cat_lexical_next", "lexical-charizard-2", "Lexical Charizard 2"] as const;
+      const semanticOnly = ["cat_semantic", "semantic-only-charizard", "Semantic-only Charizard"] as const;
+      let routeData: ReturnType<typeof policyData>;
+
+      function policyData(
+        interpreted: string | null,
+        rows: ReadonlyArray<readonly [string, string, string]>,
+        nextCursor: string | null,
+      ) {
+        return {
+          ...searchData("charizard"),
+          dynamicFilters: [{ kind: "dimension" as const, id: "dim_seed_grade", value: "gm10" }],
+          interpreted,
+          interpretedFilters: (interpreted ?? "").split(",").filter(Boolean),
+          data: resultPage(rows, nextCursor),
+        };
+      }
+
+      function show(data: ReturnType<typeof policyData>) {
+        routeData = data;
+        mockUseLoaderData.mockImplementation(() => routeData);
+        mockUseNavigate.mockReturnValue(vi.fn());
+        mockUseNavigation.mockReturnValue({ state: "idle" });
+        mockUseSearchParams.mockReturnValue([new URLSearchParams(`q=charizard&${grade}=gm10`), vi.fn()]);
+        return render(<SearchRoute />);
+      }
+
+      function revisit(
+        view: ReturnType<typeof render>,
+        mode: "mounted" | "remounted",
+        data: ReturnType<typeof policyData>,
+      ) {
+        routeData = data;
+        if (mode === "mounted") {
+          view.rerender(<SearchRoute />);
+        } else {
+          view.unmount();
+          render(<SearchRoute />);
+        }
+      }
+
+      function stubPages(pages: Record<string, DiscoverySearchResponse>) {
+        const requests: URL[] = [];
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (input: RequestInfo | URL) => {
+            const url = new URL(String(input), "http://localhost");
+            requests.push(url);
+            const page = pages[url.searchParams.get("cursor") ?? ""];
+            if (!page) {
+              throw new Error(`Unexpected search request ${url.search}`);
+            }
+            return jsonResponse(page);
+          }),
+        );
+        return requests;
+      }
+
+      async function loadMore(expected: readonly string[]) {
+        fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+        await waitFor(() => expect(renderedItemSlugs()).toEqual(expected));
+      }
+
+      it.each([
+        ["mounted", "a marked page", grade, [lexical], ["lexical-charizard"]],
+        ["remounted", "a marked page", grade, [lexical], ["lexical-charizard"]],
+        ["mounted", "a final-empty marked page", grade, [], []],
+        ["remounted", "a final-empty marked page", grade, [], []],
+        ["mounted", "an empty-marker page", "", [lexical], ["lexical-charizard"]],
+        ["remounted", "an empty-marker page", "", [lexical], ["lexical-charizard"]],
+      ] as const)(
+        "a %s route shows %s without the unmarked pages it loaded",
+        async (mode, _name, marker, rows, expected) => {
+          const requests = stubPages({ "hybrid-2": resultPage([semanticOnly], null) });
+          const view = show(policyData(null, [lexical], "hybrid-2"));
+          await loadMore(["lexical-charizard", "semantic-only-charizard"]);
+          expect(requests[0]?.searchParams.has("interpreted")).toBe(false);
+
+          revisit(view, mode, policyData(marker, rows, null));
+
+          expect(renderedItemSlugs()).toEqual(expected);
+        },
+      );
+
+      it.each(["mounted", "remounted"] as const)(
+        "a %s route drops the marked pages it loaded when the marker is dropped",
+        async (mode) => {
+          const requests = stubPages({ "lexical-2": resultPage([lexicalNext], null) });
+          const view = show(policyData(grade, [lexical], "lexical-2"));
+          await loadMore(["lexical-charizard", "lexical-charizard-2"]);
+          expect(requests[0]?.searchParams.get("interpreted")).toBe(grade);
+
+          revisit(view, mode, policyData(null, [lexical, semanticOnly], null));
+
+          expect(renderedItemSlugs()).toEqual(["lexical-charizard", "semantic-only-charizard"]);
+        },
+      );
+
+      it("discards an unmarked load-more that answers after a marker-only navigation", async () => {
+        let answer: (page: DiscoverySearchResponse) => void = () => undefined;
+        const fetchMock = vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              answer = (page) => resolve(jsonResponse(page));
+            }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        const view = show(policyData(null, [lexical], "hybrid-2"));
+        fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+        revisit(view, "mounted", policyData(grade, [lexical], null));
+        await act(async () => {
+          answer(resultPage([semanticOnly], null));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard"]);
+        revisit(view, "remounted", routeData);
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard"]);
+      });
+
+      it("restores a marked Result Set's own pages under any marker it is listed with", async () => {
+        const requests = stubPages({ "lexical-2": resultPage([lexicalNext], null) });
+        const view = show(policyData(grade, [lexical], "lexical-2"));
+        await loadMore(["lexical-charizard", "lexical-charizard-2"]);
+        expect(requests[0]?.searchParams.get("interpreted")).toBe(grade);
+
+        // The retrieval policy, not the listed keys, identifies the Result Set, as it does for the API.
+        revisit(view, "remounted", policyData("", [lexical], "lexical-2"));
+
+        expect(renderedItemSlugs()).toEqual(["lexical-charizard", "lexical-charizard-2"]);
+      });
+    });
   });
 
   it("round-trips price and in-stock loader state to the Discovery API", async () => {
@@ -762,6 +1061,7 @@ describe("marketplace search route", () => {
           id: "cat_raichu",
           value: {
             lowest_price_amount: "7.00",
+            lowest_price_currency_code: "USD",
             active_listing_count: 4,
             total_visible_quantity: 4,
           },
@@ -771,7 +1071,11 @@ describe("marketplace search route", () => {
 
     act(() => subscriptionOptions?.onPatch(patch));
 
-    await waitFor(() => expect(screen.getByText("From $7.00")).toBeTruthy());
+    await waitFor(() => {
+      const priceValue = screen.getByText("$7.00");
+      expect(priceValue.parentElement).toBeTruthy();
+      expect(priceValue.parentElement?.textContent).toBe("From $7.00");
+    });
   });
 
   it("revalidates the current route when the realtime stream requires a full sync", () => {
@@ -797,72 +1101,36 @@ describe("marketplace search route", () => {
 
     expect(revalidate).toHaveBeenCalledOnce();
   });
-
-  it("suppresses stale bulk add snapshots after the result set changes", async () => {
-    let resolvePreview: (response: Response) => void = () => undefined;
-    const fetchMock = vi.fn(
-      async () =>
-        new Promise<Response>((resolve) => {
-          resolvePreview = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    let loaderData = searchDataWithResults("pikachu");
-    mockUseLoaderData.mockImplementation(() => loaderData);
-    mockUseNavigate.mockReturnValue(vi.fn());
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
-
-    const { rerender } = render(<SearchRoute />);
-    fireEvent.click(screen.getByRole("button", { name: "Add matching products to Buy Cart" }));
-
-    loaderData = searchDataWithResults("raichu");
-    rerender(<SearchRoute />);
-
-    await act(async () => {
-      resolvePreview(
-        new Response(
-          JSON.stringify({
-            status: "bulk-preview",
-            preview: bulkPreview(),
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
-      );
-      await Promise.resolve();
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("Add eligible products")).toBeNull();
-  });
-
-  it("renders a visible bulk add failure when the POST fails", async () => {
-    const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify({ error: "Route action missing." }), { status: 405 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
-    mockUseNavigate.mockReturnValue(vi.fn());
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
-
-    render(<SearchRoute />);
-    fireEvent.click(screen.getByRole("button", { name: "Add matching products to Buy Cart" }));
-
-    await waitFor(() => expect(screen.getByText("Could not add matching products")).toBeTruthy());
-    expect(
-      screen.getByText(
-        "We could not add matching products to Buy Cart. Try again, or open a product to add it individually.",
-      ),
-    ).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("marketplace search back-navigation restoration", () => {
+  it("restores corrected first-page metadata and notice through the actual client loader", async () => {
+    const path = "/search?q=pikachu";
+    const cached = {
+      ...searchDataWithResults("pikachu"),
+      data: {
+        ...searchDataWithResults("pikachu").data,
+        retrievalMode: "corrected" as const,
+        lexicalCount: 0,
+        nextCursor: null,
+      },
+    };
+    cacheSearchLoaderData(window.sessionStorage, searchLoaderCacheKey(path), cached);
+    const serverLoader = vi.fn();
+    const restored = await clientLoader({
+      request: new Request(`http://localhost${path}`),
+      serverLoader,
+    } as unknown as Parameters<typeof clientLoader>[0]);
+    mockUseLoaderData.mockReturnValue(restored);
+    mockUseNavigate.mockReturnValue(vi.fn());
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
+    render(<SearchRoute />);
+    expect(screen.getByText("No exact matches for pikachu. Showing close spellings.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
+    expect(serverLoader).not.toHaveBeenCalled();
+    expect(readCachedSearchLoaderData(window.sessionStorage, searchLoaderCacheKey(path))).toEqual(cached);
+  });
   beforeEach(() => {
     mockUseLocation.mockReturnValue({ pathname: "/search", search: "?q=pikachu", hash: "", state: null, key: "test" });
     mockUseRevalidator.mockReturnValue({ revalidate: vi.fn(), state: "idle" });
@@ -873,7 +1141,118 @@ describe("marketplace search back-navigation restoration", () => {
     cleanup();
     window.sessionStorage.clear();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
+
+  it.each([
+    "q=charizard+ex",
+    "q=charizard+ex&sort=price_asc&dimension.finish=foil",
+    "q=charizard+ex&sort=price_desc&dimension.finish=foil",
+  ])(
+    "replaces a restored old-order page and metadata when a cursor restarts; stored copies cannot revive it (%s)",
+    async (query) => {
+      mockUseLocation.mockReturnValue({
+        pathname: "/search",
+        search: `?${query}`,
+        hash: "",
+        state: null,
+        key: "restart",
+      });
+      const loaderCacheKey = searchLoaderCacheKey(`/search?${query}`);
+      const staleFacet = {
+        id: "condition",
+        kind: "dimension" as const,
+        label: "Stale condition",
+        values: [{ id: "mint", label: "Stale mint", count: 40, selected: false }],
+      };
+      // Restored pre-deploy state: non-exact first, stale facets/total, rescue mode and notice.
+      const oldLoaderData = {
+        ...searchData("charizard ex"),
+        data: {
+          ...resultPage([["cat_box", "charizard-ex-box", "Charizard ex Box"]], "legacy-cursor-1"),
+          facets: [staleFacet],
+          category_counts: [{ slug: "cards", count: 40 }],
+          total: 40,
+          retrievalMode: "rescue" as const,
+          lexicalCount: 1,
+        },
+      };
+      cacheSearchLoaderData(window.sessionStorage, loaderCacheKey, oldLoaderData);
+      persistSearchRestoration(
+        window.sessionStorage,
+        resultSetKey(oldLoaderData),
+        [resultPage([["cat_old", "old-lizardon", "Old Lizardon"]], "legacy-cursor-2")],
+        0,
+      );
+      const restarted = {
+        ...resultPage(
+          [
+            ["cat_exact", "charizard-ex", "Charizard ex"],
+            ["cat_box", "charizard-ex-box", "Charizard ex Box"],
+          ],
+          "v2-cursor",
+        ),
+        facets: [{ ...staleFacet, label: "Fresh condition" }],
+        category_counts: [{ slug: "cards", count: 3 }],
+        total: 3,
+        cursorRestarted: true as const,
+      };
+      const continuation = resultPage([["cat_vmax", "charizard-vmax", "Charizard VMAX"]], null);
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+        jsonResponse(String(input).includes("cursor=v2-cursor") ? continuation : restarted),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const navigateBack = () =>
+        clientLoader({
+          request: new Request(`http://localhost/search?${query}`),
+          params: {},
+          context: {},
+          serverLoader: vi.fn(async () => {
+            throw new Error("A fresh cached Result Set must not refetch.");
+          }),
+        } as unknown as Parameters<typeof clientLoader>[0]);
+      mockUseLoaderData.mockReturnValue(await navigateBack());
+      mockUseNavigate.mockReturnValue(vi.fn());
+      mockUseNavigation.mockReturnValue({ state: "idle" });
+      mockUseSearchParams.mockReturnValue([new URLSearchParams(query), vi.fn()]);
+
+      const restoredVisit = render(<SearchRoute />);
+      expect(renderedItemSlugs()).toEqual(["charizard-ex-box", "old-lizardon"]);
+      expect(screen.getByText("Closest matches")).toBeTruthy();
+      expect(screen.getAllByText("Stale condition").length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+
+      await waitFor(() => expect(renderedItemSlugs()).toEqual(["charizard-ex", "charizard-ex-box"]));
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain("cursor=legacy-cursor-2");
+      expect(screen.queryByText("Closest matches")).toBeNull();
+      expect(screen.queryAllByText("Stale condition")).toHaveLength(0);
+      expect(screen.getAllByText("Fresh condition").length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/of 3 results/).length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/40 results/)).toHaveLength(0);
+
+      // Valid v2 pages append after the replacement.
+      fireEvent.click(screen.getByRole("button", { name: "Load more results" }));
+      await waitFor(() => expect(renderedItemSlugs()).toEqual(["charizard-ex", "charizard-ex-box", "charizard-vmax"]));
+      expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cursor=v2-cursor");
+      expect(readCachedSearchLoaderData(window.sessionStorage, loaderCacheKey)).toMatchObject({
+        data: { total: 3, retrievalMode: "lexical", nextCursor: "v2-cursor" },
+      });
+      expect(readCachedSearchLoaderData(window.sessionStorage, loaderCacheKey)).not.toMatchObject({
+        data: { cursorRestarted: true },
+      });
+
+      // Back navigation replays both stored copies: neither revives the old page, metadata, or notice.
+      restoredVisit.unmount();
+      mockUseLoaderData.mockReturnValue(await navigateBack());
+      render(<SearchRoute />);
+
+      expect(renderedItemSlugs()).toEqual(["charizard-ex", "charizard-ex-box", "charizard-vmax"]);
+      expect(screen.queryByText("Closest matches")).toBeNull();
+      expect(screen.queryAllByText("Stale condition")).toHaveLength(0);
+      expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
+    },
+  );
 
   it("serves a cached Result Set on back navigation without a server refetch", async () => {
     const cached = searchDataWithResults("pikachu");
@@ -925,34 +1304,6 @@ describe("marketplace search back-navigation restoration", () => {
   });
 });
 
-function bulkPreview(): DiscoveryBulkCartPreview {
-  return {
-    totalMatches: 1,
-    eligibleCount: 1,
-    skippedCount: 0,
-    overLimit: false,
-    limit: 24,
-    lines: [
-      {
-        catalog_item_id: "cat_pikachu",
-        slug: "pikachu",
-        product_id: "cat_pikachu::form:raw",
-        title: "Pikachu",
-        subtitle: "Jungle 60/64 Common",
-        image_url: null,
-        image_srcset: null,
-        image_loading_url: null,
-        image_loading_alt: null,
-        image_loading_srcset: null,
-        selected_options: [],
-        product_summary: "Raw",
-        quantity: 1,
-      },
-    ],
-    skippedItems: [],
-  };
-}
-
 function resultSetKey(data: {
   search: string;
   category: string;
@@ -975,7 +1326,43 @@ function resultSetKey(data: {
     inStock: data.inStock,
     sort: data.sort,
     dynamicFilters: [],
+    interpreted: false,
   });
+}
+
+function resultPage(
+  items: ReadonlyArray<readonly [catalogItemId: string, slug: string, title: string]>,
+  nextCursor: string | null,
+): DiscoverySearchResponse {
+  const template = persistedSearchPage("template", "template", "Template");
+  const [item] = template.items;
+  if (!item) {
+    throw new Error("Expected a search result fixture.");
+  }
+
+  return {
+    ...template,
+    items: items.map(([catalogItemId, slug, title]) => ({
+      ...item,
+      catalog_item_id: catalogItemId,
+      slug,
+      title,
+      subtitle: null,
+    })),
+    count: items.length,
+    nextCursor,
+  };
+}
+
+function renderedItemSlugs(): string[] {
+  const slugs = [...document.querySelectorAll<HTMLAnchorElement>('a[href^="/items/"]')].map(
+    (anchor) => new URL(anchor.getAttribute("href") ?? "", "http://localhost").pathname.split("/")[2] ?? "",
+  );
+  return [...new Set(slugs)];
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
 
 function persistedSearchPage(catalogItemId: string, slug: string, title: string): DiscoverySearchResponse {

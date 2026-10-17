@@ -85,7 +85,7 @@ export function HelpHubPage() {
               {categories.map((category) => {
                 const articles = listHelpArticlesByCategory(category);
                 return (
-                  <Surface key={category} elevated>
+                  <Surface key={category} elevation="elevated">
                     <Stack gap={3}>
                       <Heading level={3}>{helpCategoryLabel(category)}</Heading>
                       <Text tone="secondary">{helpCategoryDescription(category)}</Text>
@@ -144,7 +144,7 @@ export function HelpCategoryPage({
 
 function ArticleCard({ article }: { article: HelpArticleCard }) {
   return (
-    <Surface element="article" elevated>
+    <Surface element="article" elevation="elevated">
       <Stack gap={3}>
         <Text size="sm" tone="tertiary">
           {helpAudienceLabel(article.audience)}
@@ -163,9 +163,17 @@ function ArticleCard({ article }: { article: HelpArticleCard }) {
   );
 }
 
-export function HelpArticlePage({ article, related }: { article: HelpArticle; related: readonly HelpArticle[] }) {
+export function HelpArticlePage({
+  article,
+  related,
+  marketplaceOrigin,
+}: {
+  article: HelpArticle;
+  related: readonly HelpArticle[];
+  marketplaceOrigin?: string;
+}) {
   const hasTableOfContents = article.headings.length >= 3;
-  const articleBody = <CompiledArticleBody article={article} />;
+  const articleBody = <CompiledArticleBody article={article} marketplaceOrigin={marketplaceOrigin} />;
 
   return (
     <PublicPresencePageShell>
@@ -222,12 +230,18 @@ export function HelpArticlePage({ article, related }: { article: HelpArticle; re
   );
 }
 
-export function CompiledArticleBody({ article }: { article: HelpArticle }) {
+export function CompiledArticleBody({
+  article,
+  marketplaceOrigin,
+}: {
+  article: HelpArticle;
+  marketplaceOrigin?: string;
+}) {
   const unresolvedPolicyValueKeys = collectUnresolvedPolicyValueKeys(article.blocks);
   return (
     <Surface
       element="article"
-      elevated
+      elevation="flush"
       {...(unresolvedPolicyValueKeys.length > 0
         ? {
             [POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE]: POLICY_VALUES_DEGRADED_STATE,
@@ -240,7 +254,7 @@ export function CompiledArticleBody({ article }: { article: HelpArticle }) {
           if (block.type === "heading") {
             return (
               <Heading key={block.id} id={block.id} level={block.level} visualSize={block.level}>
-                <InlineContent content={block.content} />
+                <InlineContent content={block.content} marketplaceOrigin={marketplaceOrigin} />
               </Heading>
             );
           }
@@ -250,14 +264,14 @@ export function CompiledArticleBody({ article }: { article: HelpArticle }) {
                 key={`list-${index}`}
                 ordered={block.ordered}
                 items={block.items.map((item, itemIndex) => (
-                  <InlineContent key={itemIndex} content={item} />
+                  <InlineContent key={itemIndex} content={item} marketplaceOrigin={marketplaceOrigin} />
                 ))}
               />
             );
           }
           return (
             <Text key={`paragraph-${index}`} tone="secondary">
-              <InlineContent content={block.content} />
+              <InlineContent content={block.content} marketplaceOrigin={marketplaceOrigin} />
             </Text>
           );
         })}
@@ -268,7 +282,7 @@ export function CompiledArticleBody({ article }: { article: HelpArticle }) {
 
 export function ArticleTableOfContents({ article }: { article: HelpArticle }) {
   return (
-    <Surface element="nav" tone="subtle" aria-label={t("publicPresence.help.toc.title")}>
+    <Surface element="nav" tone="subtle" elevation="tinted" aria-label={t("publicPresence.help.toc.title")}>
       <Stack gap={3}>
         <Heading level={2} visualSize={4}>
           {t("publicPresence.help.toc.title")}
@@ -285,15 +299,28 @@ export function ArticleTableOfContents({ article }: { article: HelpArticle }) {
   );
 }
 
-function InlineContent({ content }: { content: readonly HelpArticleInline[] }) {
+function InlineContent({
+  content,
+  marketplaceOrigin,
+}: {
+  content: readonly HelpArticleInline[];
+  marketplaceOrigin?: string;
+}) {
+  const origin = marketplaceOrigin?.trim();
   return content.map((inline, index): ReactNode => {
     const key = `${inline.type}-${index}`;
-    if (inline.type === "link")
+    if (inline.type === "link") {
+      const pathname = inline.href.startsWith("/") ? new URL(inline.href, "https://help.invalid").pathname : undefined;
+      const isMarketplaceLink =
+        !inline.href.startsWith("//") && (pathname === "/account" || pathname?.startsWith("/account/"));
+      if (isMarketplaceLink && !origin) return inline.label;
+      const href = isMarketplaceLink ? new URL(inline.href, origin).href : inline.href;
       return (
-        <LinkText key={key} href={inline.href}>
+        <LinkText key={key} href={href}>
           {inline.label}
         </LinkText>
       );
+    }
     if (inline.type === "strong") return <strong key={key}>{inline.value}</strong>;
     if (inline.type === "emphasis") return <em key={key}>{inline.value}</em>;
     if (inline.type === "code") return <code key={key}>{inline.value}</code>;

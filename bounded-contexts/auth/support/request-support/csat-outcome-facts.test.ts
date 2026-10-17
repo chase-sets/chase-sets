@@ -13,7 +13,11 @@ const streamReadContractSiteId = "bounded-contexts/auth/support/request-support/
 describe("auth CSAT outcome facts", () => {
   it(`${streamReadContractSiteId} returns the first matching fact unchanged`, async () => {
     const { allEvents, eventStore, streams } = createInMemoryEventStore();
-    const input = { subjectAccountId: "acc_buyer", sessionId: "ses_1" };
+    const input = {
+      subjectAccountId: "acc_buyer",
+      sessionId: "ses_1",
+      outcomeOccurredAt: "2026-01-01T00:00:00.000Z",
+    };
 
     const firstFact = await publishAuthenticationCsatOutcomeFact(eventStore, context, input);
     expect(firstFact).toMatchObject({
@@ -36,7 +40,12 @@ describe("auth CSAT outcome facts", () => {
     });
 
     const readStream = vi.spyOn(eventStore, "readStream");
-    await expect(publishAuthenticationCsatOutcomeFact(eventStore, context, input)).resolves.toEqual(firstFact);
+    await expect(
+      publishAuthenticationCsatOutcomeFact(eventStore, context, {
+        ...input,
+        outcomeOccurredAt: "2026-01-03T00:00:00.000Z",
+      }),
+    ).resolves.toEqual(firstFact);
 
     assertBoundedStreamReadContract({
       streamId: firstEvent.streamId,

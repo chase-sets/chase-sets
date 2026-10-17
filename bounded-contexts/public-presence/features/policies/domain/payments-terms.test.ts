@@ -6,6 +6,8 @@ import {
   type PublicPolicyArtifact,
 } from "./policy-artifact";
 import { paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds } from "./payments-terms";
+import { publicPolicyRegistry } from "./policy-registry";
+import { canonicalClaimRegistry } from "./canonical-claims";
 
 function approvedPaymentsTermsArtifact(): PublicPolicyArtifact {
   return {
@@ -55,6 +57,65 @@ function collectRenderedSurfaces(artifact: PublicPolicyArtifact) {
 }
 
 describe("payments terms artifact", () => {
+  it("reconciles the platform-held fund flow across all four draft subjects", () => {
+    const subjects = [
+      ["payments-terms", "processor-pass-through-and-collection-agent-role"],
+      ["terms-of-service", "wallet-nature-custody-interest"],
+      ["terms-of-service", "marketplace-role-and-limited-payments-agent"],
+      ["seller-agreement", "payouts-holds-and-reserves"],
+    ];
+    for (const [policyKey, sectionId] of subjects) {
+      const section = publicPolicyRegistry
+        .find((entry) => entry.artifact.metadata.policyKey === policyKey)!
+        .artifact.sections.find((candidate) => candidate.id === sectionId)!;
+      expect(section.draftText).toMatch(/platform account/);
+      expect(section.draftText).toMatch(/transfer/);
+      expect(section.draftText).toMatch(/requests?.*payout|payout.*requests?/);
+      expect(section.draftText).not.toMatch(/does not itself hold|does not hold|does not.*custody, or transmit/);
+      expect(section.reviewManifest.productTruthRefs).toEqual(
+        expect.arrayContaining([
+          "infrastructure/stripe-payments/index.ts:1669-1693",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
+        ]),
+      );
+    }
+    const processor = paymentsTermsPolicyArtifact.sections[0]!;
+    expect(processor.reviewManifest.openQuestions.join(" ")).toMatch(/collection.agent.*counsel/i);
+  });
+
+  it("leaves ordinary payment-activity interest unresolved with the canonical disclosure", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "no-interest")!;
+    expect(section.reviewManifest.productTruthRefs).toEqual([]);
+    expect(section.reviewManifest.canonicalClaims).toEqual([{ claimId: "wallet-no-interest", productTruthRefs: [] }]);
+    expect(section.claimDisclosures).toEqual([{ claimId: "wallet-no-interest" }]);
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/ordinary.*pending payout.*counsel/i);
+    expect(section.draftText).not.toMatch(/does not pay|Stripe's own terms.*interest/i);
+    expect(canonicalClaimRegistry["wallet-no-interest"].status).toBe("unresolved");
+    expect(canonicalClaimRegistry["wallet-no-interest"].productTruthRefs).toEqual([]);
+  });
+
+  it("grounds funding-dispute recovery in the Prepaid Balance ruling, not seller Chargeback Clawback", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+    expect(section.reviewManifest.canonicalClaims ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ claimId: "payment-chargeback-recovery-mechanism" })]),
+    );
+    expect(section.draftText).not.toContain("consistent with the chargeback and dispute terms above");
+    expect(section.reviewManifest.assumptions).toContainEqual({
+      assertion:
+        "The #7807 product ruling requires recovery of the disputed funding amount plus the processor dispute fee after a lost funding dispute; this is not the seller-exposure Chargeback Clawback mechanism.",
+      evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+    });
+  });
+
+  it("separates Settlement release from Stripe post-request processing", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "payout-timing-and-clearance")!;
+    expect(section.draftText).toContain("Settlement's Payout Release Hold");
+    expect(section.draftText).toContain("Settlement owns the release decision");
+    expect(section.draftText).toContain("after a payout is requested");
+    expect(section.draftText).not.toContain("timing depends on the connected-account configuration");
+    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/settlement/GLOSSARY.md:117-125");
+  });
+
   it("is structurally valid and registered under the canonical /payments-terms route", () => {
     expect(paymentsTermsPolicyArtifact.metadata.policyKey).toBe("payments-terms");
     expect(paymentsTermsPolicyArtifact.metadata.href).toBe("/payments-terms");
@@ -158,14 +219,40 @@ describe("payments terms artifact", () => {
       (candidate) => candidate.id === "charge-timing-and-statement-descriptor",
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
-    expect(refs).not.toContain("runtime.ts:491-509");
-    expect(refs).toContain("runtime.ts:1890-1943");
+    expect(refs).not.toContain("runtime.ts:493-511");
+    expect(refs).toContain("runtime.ts:2051-2071");
+  });
+
+  it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(
+      (candidate) => candidate.id === "charge-timing-and-statement-descriptor",
+    )!;
+    expect(section.draftText).toContain("creates your Orders before requesting payment");
+    expect(section.draftText).toContain("does not itself establish that funds have been captured");
+    expect(section.draftText).toContain("authorization is distinct from capture");
+    expect(section.draftText).toContain("webhook or reconciliation");
+    expect(section.draftText).toContain("sends a statement descriptor suffix to Stripe");
+    const allClaims = [
+      section.draftText,
+      section.reviewManifest.scopeNote,
+      ...section.reviewManifest.assumptions.map(({ assertion }) => assertion),
+    ].join(" ");
+    expect(allClaims).not.toMatch(
+      /charges your selected payment method when you complete|immediately confirming|before the purchase is recorded|no repository evidence shows|statement will carry|Chase Sets does not control/i,
+    );
+    expect(section.reviewManifest.productTruthRefs).toContain(
+      "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+    );
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/statement.*display/i);
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/network.*control/i);
+    expect(section.reviewStatus).toBe("counsel-required");
   });
 
   it("does not assert Wallet-balance no-interest as settled while the sibling Terms artifact leaves it unresolved (#6052 finding 2)", () => {
     const section = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "no-interest");
     expect(section?.draftText).not.toContain("reflected in your Wallet balance under the Terms of Service");
-    expect(section?.reviewManifest.canonicalClaims ?? []).toEqual([]);
+    expect(section?.reviewManifest.canonicalClaims).toEqual([{ claimId: "wallet-no-interest", productTruthRefs: [] }]);
+    expect(section?.claimDisclosures).toEqual([{ claimId: "wallet-no-interest" }]);
   });
 
   it("would pass readiness once every section is counsel-approved and the artifact is published", () => {
@@ -174,5 +261,226 @@ describe("payments terms artifact", () => {
     expect(readiness.ready).toBe(true);
     expect(readiness.errors).toEqual([]);
     expect(isConsentActivatable(approved, requiredPaymentsTermsSubjectIds)).toBe(true);
+  });
+
+  it("payments-terms-v2-registry", () => {
+    expect(paymentsTermsPolicyArtifact.metadata.version).toBe("v2");
+    expect(requiredPaymentsTermsSubjectIds).toContain("prepaid-balance");
+
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
+    expect(prepaidBalance).toBeDefined();
+    expect(prepaidBalance?.title).toBe("Prepaid Balance");
+    expect(prepaidBalance?.draftText.trim().length ?? 0).toBeGreaterThan(0);
+    expect(prepaidBalance?.reviewStatus).toBe("counsel-required");
+
+    // The revision stays an in-place edit of the existing seven-document
+    // corpus: no new registry entry, key, or artifact for Prepaid Balance.
+    expect(publicPolicyRegistry).toHaveLength(7);
+    expect(new Set(publicPolicyRegistry.map((entry) => entry.artifact.metadata.policyKey)).size).toBe(7);
+  });
+
+  it("payments-terms-v2-subject-citations", () => {
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
+    expect(prepaidBalance).toBeDefined();
+
+    // Every material assertion in the section cites the ruled decisions it
+    // states, not an invented Stripe or counsel position.
+    expect(prepaidBalance?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7807, 7808]));
+    expect(prepaidBalance?.reviewManifest.productTruthRefs.length ?? 0).toBeGreaterThan(0);
+    for (const assumption of prepaidBalance?.reviewManifest.assumptions ?? []) {
+      expect(assumption.evidenceRef.length).toBeGreaterThan(0);
+    }
+
+    // No invented refund-window duration or fabricated processing-fee rate:
+    // the draft defers to the processor's own rules and the live fee policy.
+    expect(prepaidBalance?.draftText).not.toMatch(/\d+\s*(?:day|month|year)s?\b.{0,20}(refund|window)/i);
+    expect(prepaidBalance?.draftText).not.toMatch(/\d+(\.\d+)?\s*%|\bbps\b/i);
+
+    // Prepaid Balance is drafted as distinct from the pre-existing,
+    // promotional Marketplace Credit concept, never as a kind of it.
+    expect(prepaidBalance?.draftText).toContain("is not Marketplace Credit");
+
+    // The section does not restate Marketplace Credit's own (contested)
+    // definition.
+    expect(prepaidBalance?.draftText).not.toContain("Marketplace Credit stays promotional");
+
+    // Scope item 3's fee-disclosure counsel question sits alongside the
+    // existing bank-permission and refund-window questions.
+    const openQuestions = prepaidBalance?.reviewManifest.openQuestions ?? [];
+    expect(openQuestions.some((question) => /fee/i.test(question) && /disclos/i.test(question))).toBe(true);
+  });
+
+  it("prepaid-balance-us-rollout-not-geographic-eligibility", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+    expect(section.draftText).toBe(
+      "You can add funds to your Wallet by card to create a Prepaid Balance. Adding funds charges your card " +
+        "the amount you request plus the processing fee that applies to a card payment under the Marketplace's " +
+        "checkout processing-fee terms; your account is credited the amount you requested, and the fee is not " +
+        "refundable. A Prepaid Balance is spent before any other available Wallet balance, so sale proceeds you " +
+        "are owed stay available for payout. You can spend a Prepaid Balance at checkout, on channel labels, " +
+        "and on other features that draw on your Wallet balance. You may request a refund of the unspent " +
+        "portion of your Prepaid Balance back to the card used to add it at any time within the refund window " +
+        "Stripe's processor rules allow; the processing fee charged when you added the funds is not part of " +
+        "that refund. Withdrawing older unspent Prepaid Balance to a bank account is not available in this " +
+        "version; Chase Sets may enable a bank-withdrawal option in the future, subject to conditions Chase " +
+        "Sets discloses when that option becomes available, and an amount that remains past the refund-to-card " +
+        "window stays spendable in the meantime. If a card charge that added funds is later disputed and the " +
+        "dispute is resolved against your account, Chase Sets recovers the disputed amount and the processor's " +
+        "dispute fee from your account; if a bank-withdrawal option is enabled, a withdrawal carries the " +
+        "processor's payout cost as a fee. Chase Sets does not pay interest on a Prepaid Balance, and a Prepaid " +
+        "Balance does not expire in this version. Chase Sets offers adding funds as part of its United States " +
+        "marketplace rollout, covering all 50 states and the District of Columbia. For each funding, Chase Sets " +
+        "requests 3D Secure authentication and requires your account to be in good standing and to have " +
+        "accepted the current Payments Terms. Chase Sets may set and change the minimum, per-funding, and " +
+        "rolling-period maximum amounts for adding funds; the amounts in effect when the funding feature " +
+        "launches are a minimum of $5.00 and a maximum of $500.00 per funding, and a maximum of $2,000.00 within " +
+        "any rolling thirty-day period. A Prepaid Balance is not Marketplace Credit: it is value you added " +
+        "with your own card, and Marketplace Credit, if offered, is governed by its own terms.",
+    );
+
+    const rolloutStatement =
+      "US-only describes the #5678 marketplace rollout, interpreted by #9039 within #7808. It is not an " +
+      "application-enforced eligibility predicate based on account-holder residence, card issuing country, " +
+      "shipping address or access location. The funding eligibility resolver supplies only good standing " +
+      "and Payments Terms status; the separate funding limits and production controls remain in force. " +
+      "Counsel must assess at GA whether this rollout and the absence of geographic eligibility verification " +
+      "require jurisdictional restrictions, licensing, disclosures or an enforced predicate; this " +
+      "interpretation is not counsel approval.";
+    const productRulingStatement =
+      "The ruled Prepaid Balance decision and the ruled terms/consent-key decision together establish " +
+      "that prepaid funding is drafted in place into Payments Terms v2, staying counsel-review-required: " +
+      "spent before available balance, refunded to source for the unspent portion with the funding fee " +
+      "non-refundable, bank withdrawal parked, no interest, no expiry in v1, US marketplace rollout (all " +
+      "50 states plus DC) without geographic eligibility checks, a minimum of $5.00 and maximum of " +
+      "$500.00 per funding and $2,000.00 per rolling thirty-day period, 3D Secure requested, good standing " +
+      "and current Payments Terms acceptance required.";
+    expect(section.reviewManifest.scopeNote).toBe(
+      "State that Prepaid Balance is funded by card, spends before available balance, refunds unspent " +
+        "value to the source card within the processor refund window with the funding fee non-refundable, " +
+        "parks bank withdrawal behind a future disclosure, and states the ruled limits, nongeographic " +
+        "eligibility gates and US marketplace rollout including the ruled no-interest, no-expiry-in-v1 " +
+        "product terms, without inventing a refund-window duration, a bank-withdrawal launch date, or a " +
+        "Stripe/counsel position, without describing Prepaid Balance as Marketplace Credit, and without " +
+        "resolving the sibling Wallet's separate, still-unresolved corpus-wide wallet-no-interest claim, " +
+        "which governs the general Wallet ledger balance (terms-of-service.ts), not the ruled Prepaid " +
+        "Balance product term stated here.",
+    );
+    expect(section.reviewManifest.decisionRefs).toEqual([7807, 7808, 5678, 9039]);
+    expect(section.reviewManifest.productTruthRefs).toEqual([
+      "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
+      "bounded-contexts/identity/features/accounts/api/wallet-funding-eligibility.ts:6-23",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:39-43",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:99-128",
+    ]);
+    expect(section.reviewManifest.assumptions).toContainEqual({
+      assertion: rolloutStatement,
+      evidenceRef: "https://github.com/chase-sets/chase-sets/issues/9039",
+    });
+    expect(
+      section.reviewManifest.assumptions
+        .map(({ assertion }) => assertion)
+        .filter((assertion) =>
+          /US-only|US marketplace|geograph|residen|issuing|shipping|access location/i.test(assertion),
+        ),
+    ).toEqual([productRulingStatement, rolloutStatement]);
+    expect(paymentsTermsPolicyArtifact.metadata).toEqual({
+      policyKey: "payments-terms",
+      version: "v2",
+      locale: "en",
+      href: "/payments-terms",
+      publicationStatus: "counsel-review-required",
+      effectiveAt: null,
+      counselApprovalReference: null,
+      rolloutJurisdictionsOrProductLimits: [],
+      launchRequired: true,
+    });
+    expect(paymentsTermsPolicyArtifact.sections.every(({ reviewStatus }) => reviewStatus === "counsel-required")).toBe(
+      true,
+    );
+    expect(isConsentActivatable(paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds)).toBe(false);
+  });
+
+  it("states the ruled no-interest product term for Prepaid Balance in the rendered draft, distinct from the sibling Wallet's unresolved wallet-no-interest claim, while staying non-operative pending counsel approval", () => {
+    const prepaidBalance = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "prepaid-balance");
+    expect(prepaidBalance).toBeDefined();
+
+    // Todd's #7807/#7808 ruling states no-interest as a settled Prepaid
+    // Balance product term, not an open question: the rendered public
+    // draftText must say so directly, not defer to a structural disclosure.
+    expect(prepaidBalance?.draftText).toMatch(/does not pay interest on a prepaid balance/i);
+
+    // This is a distinct claim from the sibling Terms artifact's still-open,
+    // corpus-wide wallet-no-interest claim (terms-of-service.ts), which
+    // covers the general Wallet ledger balance, not the Prepaid Balance
+    // product type: this section must not borrow that claim's unresolved
+    // structural disclosure or manifest entry to render its own settled,
+    // already-ruled term.
+    expect(prepaidBalance?.claimDisclosures ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ claimId: "wallet-no-interest" })]),
+    );
+    expect(prepaidBalance?.reviewManifest.canonicalClaims ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ claimId: "wallet-no-interest" })]),
+    );
+
+    // Stating the ruled product term does not make the section, or the
+    // artifact, operative: it stays gated behind qualified counsel approval.
+    expect(prepaidBalance?.reviewStatus).toBe("counsel-required");
+    const readiness = evaluatePublicPolicyPublicationReadiness(
+      paymentsTermsPolicyArtifact,
+      requiredPaymentsTermsSubjectIds,
+    );
+    expect(readiness.ready).toBe(false);
+    expect(isConsentActivatable(paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds)).toBe(false);
+  });
+
+  it("payments-terms-payout-fee-subject", () => {
+    expect(requiredPaymentsTermsSubjectIds).toContain("payout-fee");
+
+    const payoutFee = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "payout-fee");
+    expect(payoutFee).toBeDefined();
+    expect(payoutFee?.title).toBe("Payout fee");
+    expect(payoutFee?.reviewStatus).toBe("counsel-required");
+    expect(payoutFee?.draftText.trim().length ?? 0).toBeGreaterThan(0);
+
+    // Names the policy document and the deduction/monthly mechanics, never a
+    // number: the rate, fixed amount, and monthly default stay in the policy
+    // document, not in operative disclosure prose.
+    expect(payoutFee?.draftText).toMatch(/payout fee/i);
+    expect(payoutFee?.draftText).toMatch(/payout fee policy document/i);
+    expect(payoutFee?.draftText).toMatch(/deducted from the requested amount/i);
+    expect(payoutFee?.draftText).toMatch(/shows you the fee before you confirm a payout request/i);
+    expect(payoutFee?.draftText).toMatch(
+      /if the payout fee policy document also sets a separate monthly active-account amount/i,
+    );
+    expect(payoutFee?.draftText).toMatch(/applies only once/i);
+    expect(payoutFee?.draftText).toMatch(/first payout .* calendar month/i);
+    expect(payoutFee?.draftText).toMatch(/does not apply again to a later payout in that same month/i);
+    expect(payoutFee?.draftText).not.toMatch(/\d/);
+
+    expect(payoutFee?.reviewManifest.decisionRefs).toEqual(expect.arrayContaining([7818, 7819]));
+    expect(payoutFee?.reviewManifest.productTruthRefs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "bounded-contexts/settlement/features/payouts/domain/payout-policy.ts (settlement.payout-fee",
+        ),
+        expect.stringMatching(/^bounded-contexts\/settlement\/features\/payouts\/api\/runtime\.ts:.*posting/),
+        expect.stringContaining("bounded-contexts/settlement/features/payouts/ui/payout-request-panel.tsx"),
+      ]),
+    );
+    expect(
+      payoutFee?.reviewManifest.openQuestions.some(
+        (question) => /deducted from the requested amount/i.test(question) && /sufficient disclosure/i.test(question),
+      ),
+    ).toBe(true);
+    for (const assumption of payoutFee?.reviewManifest.assumptions ?? []) {
+      expect(assumption.evidenceRef.length).toBeGreaterThan(0);
+    }
+
+    // Stays non-operative like every other subject.
+    const readiness = evaluatePublicPolicyPublicationReadiness(
+      paymentsTermsPolicyArtifact,
+      requiredPaymentsTermsSubjectIds,
+    );
+    expect(readiness.ready).toBe(false);
   });
 });

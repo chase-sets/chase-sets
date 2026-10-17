@@ -9,6 +9,7 @@ import {
   Grid,
   HiddenInput,
   KeyValueList,
+  LinkButton,
   NativeSelect,
   Page,
   PageHeader,
@@ -51,6 +52,10 @@ export function PolicyConsoleDetailPage({
         title={overview.policyKey}
         description={overview.schemaSummary}
       />
+
+      <LinkButton href="https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/legal-corpus-publication.md">
+        {t(`${routeKey}.publicationRunbook`)}
+      </LinkButton>
 
       <Grid columns={2} gap={4}>
         <DetailPanel title={t(`${routeKey}.currentTitle`)}>

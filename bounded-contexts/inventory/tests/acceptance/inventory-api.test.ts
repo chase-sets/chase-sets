@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { withInventoryMutationAttempt } from "../../support/runtime-support/mutation-attempt";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import type { BcApiEntry, BcApiModule } from "@chase-sets/bounded-context-module";
@@ -22,11 +24,16 @@ import { createPostgresEventStore, escapeLikePattern, type PgTransactionalPool }
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import { demoIdentitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
 import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { type InventoryApiEnv, buildInventoryApi } from "../../api";
 import { InventoryDomainError } from "../../support/runtime-support/common";
+import {
+  claimInventoryAdjustmentIdempotency,
+  completeInventoryAdjustmentIdempotency,
+  releaseInventoryAdjustmentIdempotency,
+} from "../../support/runtime-support/inventory-adjustment-idempotency";
 import { createInventoryServices } from "../../support/runtime-support/services";
 import { reserveOrderInventoryRequest } from "../../features/reservations/api/order-reservation-workflow";
 import { buildInventoryItemLedgerProjectionHandlers } from "../../features/inventory-items/read-model/ledger-projection";
@@ -207,7 +214,7 @@ describe("inventory api", () => {
   it("creates inventory items, places holds, releases holds, and projects availability", async () => {
     const locationResponse = await app.request("/api/inventory/storage-locations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "North shelf",
         description: "Singles",
@@ -220,7 +227,7 @@ describe("inventory api", () => {
 
     const itemResponse = await app.request("/api/inventory/items", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         catalogItemId: catalogSeedIds.items.charizardBaseSet,
         selectedOptions: [
@@ -236,6 +243,7 @@ describe("inventory api", () => {
         storageLocationId: locationBody.id,
         totalQuantity: 10,
         acquisitionCostAmount: "4.50",
+        acquisitionCostCurrencyCode: "USD",
       }),
     });
     expect(itemResponse.status).toBe(201);
@@ -243,7 +251,7 @@ describe("inventory api", () => {
 
     const adjustmentResponse = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantityDelta: 2,
         reason: "Found in back stock",
@@ -264,7 +272,7 @@ describe("inventory api", () => {
 
     const holdResponse = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 3,
         reason: "Checkout hold",
@@ -296,7 +304,7 @@ describe("inventory api", () => {
 
     const releaseResponse = await app.request(`/api/inventory/holds/${holdBody.id}/release`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
     expect(releaseResponse.status).toBe(200);
@@ -353,7 +361,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-LEGACY",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -373,7 +381,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 5,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     await services.items.adjustItem(
@@ -383,7 +391,7 @@ describe("inventory api", () => {
         quantityDelta: 1,
         reason: "Legacy shelf correction",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     const hold = await services.holds.createHold(
       {
@@ -394,12 +402,12 @@ describe("inventory api", () => {
         purpose: "manual",
         sourceRef: null,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     await services.holds.releaseHold(
       { accountId: "acc_inventory", holdId: hold.holdId, releaseReason: "manual" },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     const pending = await services.restockDecisions.markPending(
       {
@@ -414,8 +422,13 @@ describe("inventory api", () => {
       inventoryContext,
     );
     await services.restockDecisions.recordDecision(
-      { accountId: "acc_inventory", decisionId: pending.decisionId, outcome: "written-off" },
-      inventoryContext,
+      {
+        accountId: "acc_inventory",
+        decisionId: pending.decisionId,
+        expectedVersion: pending.version,
+        outcome: "written-off",
+      },
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -490,7 +503,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-ATOMIC",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,
@@ -513,7 +526,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,
@@ -583,7 +596,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-CONVERT",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -604,7 +617,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -624,7 +637,7 @@ describe("inventory api", () => {
         },
         expiresAt: "2099-01-01T00:00:00.000Z",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -659,7 +672,7 @@ describe("inventory api", () => {
         },
         expiresAt: null,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     const [conversionResult, competingPlacementResult] = await Promise.allSettled([conversion, competingPlacement]);
 
@@ -716,7 +729,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-EXPIRE",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -737,7 +750,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -757,7 +770,7 @@ describe("inventory api", () => {
         },
         expiresAt: "2026-07-07T00:00:00.000Z",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -807,7 +820,7 @@ describe("inventory api", () => {
   it("prevents over-holds and defaults colliding reductions to protect orders with a partial fill", async () => {
     const location = await app.request("/api/inventory/storage-locations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "Overflow",
         shipFromCode: "DFW-2",
@@ -818,7 +831,7 @@ describe("inventory api", () => {
 
     const itemResponse = await app.request("/api/inventory/items", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         catalogItemId: catalogSeedIds.items.pikachuPrismaticEvolutions,
         selectedOptions: [
@@ -839,7 +852,7 @@ describe("inventory api", () => {
 
     const hold = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 2,
         reason: "Packing",
@@ -849,7 +862,7 @@ describe("inventory api", () => {
 
     const overHold = await app.request(`/api/inventory/items/${itemBody.id}/holds`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantity: 4,
         reason: "Too much",
@@ -859,7 +872,7 @@ describe("inventory api", () => {
 
     const protectedAdjustment = await app.request(`/api/inventory/items/${itemBody.id}/adjustments`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         quantityDelta: -4,
         reason: "Bad cycle count",
@@ -884,6 +897,179 @@ describe("inventory api", () => {
     });
   });
 
+  it("records partial and refused offline sales without creating a second quantity source", async () => {
+    const createItem = async (name: string) => {
+      const location = await services.storageLocations.createStorageLocation(
+        {
+          accountId: "acc_inventory" as never,
+          name,
+          shipFromCode: name.toUpperCase().replaceAll(" ", "-").slice(0, 20),
+          shipFromAddress,
+        },
+        withInventoryMutationAttempt(inventoryContext, randomUUID()),
+      );
+      await drainContextProcesses({ subscriptionRunners });
+      const item = await services.items.createItem(
+        {
+          accountId: "acc_inventory" as never,
+          catalogItemId: catalogSeedIds.items.charizardBaseSet,
+          selectedOptions: [
+            {
+              dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+              optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+            },
+            {
+              dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+              optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+            },
+          ],
+          storageLocationId: location.storageLocationId,
+          totalQuantity: 3,
+          acquisitionCostAmount: "75.00",
+          acquisitionCostCurrencyCode: "USD",
+        },
+        withInventoryMutationAttempt(inventoryContext, randomUUID()),
+      );
+      await drainContextProcesses({ subscriptionRunners });
+      return item;
+    };
+
+    const partialItem = await createItem("Partial sale shelf");
+    await services.holds.createHold(
+      {
+        accountId: "acc_inventory" as never,
+        itemId: partialItem.itemId,
+        quantity: 1,
+        reason: "Protected unit",
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
+      },
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
+    );
+    await drainContextProcesses({ subscriptionRunners });
+
+    const partial = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        salePriceAmount: "125.00",
+        channel: "card-show",
+        idempotencyKey: "acceptance-partial-sale",
+      }),
+    });
+    expect(partial.status).toBe(200);
+    await expect(partial.json()).resolves.toMatchObject({
+      itemId: partialItem.itemId,
+      requestedQuantity: 3,
+      appliedQuantity: 2,
+      refusedQuantity: 1,
+      collision: { mode: "protect-orders", appliedQuantity: 2, refusedQuantity: 1 },
+    });
+    const partialEvents = await pools.inventory.query<{ event_type: string; payload: Record<string, unknown> }>(
+      `SELECT event_type, payload
+       FROM event_store_events
+       WHERE stream_id = $1
+       ORDER BY stream_version`,
+      [`inventory.item-${partialItem.itemId}`],
+    );
+    expect(partialEvents.rows.slice(-2)).toEqual([
+      expect.objectContaining({
+        event_type: "inventory.item.adjusted",
+        payload: expect.objectContaining({ quantityDelta: -2, reasonCode: "sold-offline" }),
+      }),
+      expect.objectContaining({
+        event_type: "inventory.item.offline-sale-recorded",
+        payload: expect.objectContaining({
+          quantity: 2,
+          salePriceAmount: "125.00",
+          acquisitionCostAmount: "75.00",
+          channel: "card-show",
+        }),
+      }),
+    ]);
+    const partialLedger = await pools.inventory.query<{
+      kind: string;
+      quantity_delta: number;
+      sale_price_amount: string | null;
+      channel: string | null;
+    }>(
+      `SELECT kind, quantity_delta, sale_price_amount, channel
+       FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale')
+       ORDER BY stream_version`,
+      [partialItem.itemId],
+    );
+    expect(partialLedger.rows).toEqual([
+      { kind: "adjusted", quantity_delta: -2, sale_price_amount: null, channel: null },
+      { kind: "offline-sale", quantity_delta: -2, sale_price_amount: "125.00", channel: "card-show" },
+    ]);
+    const partialEventCount = partialEvents.rows.length;
+    const replay = await app.request(`/api/inventory/items/${partialItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        salePriceAmount: "125.00",
+        channel: "card-show",
+        collisionMode: "protect-orders",
+        idempotencyKey: "acceptance-partial-sale",
+      }),
+    });
+    expect(replay.status).toBe(200);
+    await expect(countStreamEvents(pools.inventory, `inventory.item-${partialItem.itemId}`)).resolves.toBe(
+      partialEventCount,
+    );
+
+    const refusedItem = await createItem("Refused sale shelf");
+    await services.holds.createHold(
+      {
+        accountId: "acc_inventory" as never,
+        itemId: refusedItem.itemId,
+        quantity: 3,
+        reason: "All units protected",
+        purpose: "manual",
+        sourceRef: null,
+        expiresAt: null,
+      },
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
+    );
+    await drainContextProcesses({ subscriptionRunners });
+    const refused = await app.request(`/api/inventory/items/${refusedItem.itemId}/offline-sales`, {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quantity: 3,
+        channel: "in-store",
+        idempotencyKey: "acceptance-refused-sale",
+      }),
+    });
+    expect(refused.status).toBe(200);
+    await expect(refused.json()).resolves.toMatchObject({
+      requestedQuantity: 3,
+      appliedQuantity: 0,
+      refusedQuantity: 3,
+    });
+    await expect(
+      countStreamEventsByType(
+        pools.inventory,
+        `inventory.item-${refusedItem.itemId}`,
+        "inventory.item.offline-sale-recorded",
+      ),
+    ).resolves.toBe(0);
+    await expect(
+      countStreamEventsByType(pools.inventory, `inventory.item-${refusedItem.itemId}`, "inventory.item.adjusted"),
+    ).resolves.toBe(0);
+    const refusedLedger = await pools.inventory.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale')`,
+      [refusedItem.itemId],
+    );
+    expect(Number(refusedLedger.rows[0]?.count ?? 0)).toBe(0);
+  });
+
   it("honors an explicit manager override by atomically releasing affected order commitments", async () => {
     const location = await services.storageLocations.createStorageLocation(
       {
@@ -892,7 +1078,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-COUNTER",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -912,7 +1098,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 5,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -928,14 +1114,16 @@ describe("inventory api", () => {
     });
     await drainContextProcesses({ subscriptionRunners });
 
-    const response = await app.request(`/api/inventory/items/${item.itemId}/adjustments`, {
+    const response = await app.request(`/api/inventory/items/${item.itemId}/offline-sales`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
-        quantityDelta: -4,
-        reason: "Counter sale",
+        quantity: 4,
+        salePriceAmount: "125.00",
+        channel: "in-store",
         collisionMode: "honor-offline",
         confirmSellerCannotFulfill: true,
+        idempotencyKey: "acceptance-honor-sale",
       }),
     });
     expect(response.status).toBe(200);
@@ -984,6 +1172,14 @@ describe("inventory api", () => {
         affected_orders: [expect.objectContaining({ orderId: "ord_collision_1" })],
       }),
     ]);
+    const saleLedger = await pools.inventory.query<{ kind: string; reason_code: string | null }>(
+      "SELECT kind, reason_code FROM inventory_item_ledger WHERE item_id = $1 AND kind IN ('adjusted', 'offline-sale') ORDER BY stream_version",
+      [item.itemId],
+    );
+    expect(saleLedger.rows).toEqual([
+      { kind: "adjusted", reason_code: "sold-offline" },
+      { kind: "offline-sale", reason_code: null },
+    ]);
   });
 
   it("treats checkout conversion as the order commitment time when releasing the newest order", async () => {
@@ -994,7 +1190,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-CONVERT",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -1014,7 +1210,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 2,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1030,7 +1226,7 @@ describe("inventory api", () => {
         sourceRef: { checkoutSessionId: "chk_older" as never, lineKey: "line_1" },
         expiresAt: "2099-07-17T12:00:00.000Z",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1068,7 +1264,7 @@ describe("inventory api", () => {
         mode: "honor-offline",
         actorRole: "owner",
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1100,7 +1296,7 @@ describe("inventory api", () => {
         shipFromCode: "CHI-RACE",
         shipFromAddress,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
     const item = await services.items.createItem(
@@ -1120,7 +1316,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 1,
       },
-      inventoryContext,
+      withInventoryMutationAttempt(inventoryContext, randomUUID()),
     );
     await drainContextProcesses({ subscriptionRunners });
 
@@ -1143,7 +1339,7 @@ describe("inventory api", () => {
           requestedQuantity: 1,
           reason: "Concurrent counter sale",
         },
-        inventoryContext,
+        withInventoryMutationAttempt(inventoryContext, randomUUID()),
       ),
     ]);
     if (reservationAttempt.status === "rejected") {
@@ -1200,7 +1396,7 @@ describe("inventory api", () => {
 
     const writeResponse = await unauthorizedApp.request("/api/inventory/storage-locations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
       body: JSON.stringify({
         name: "Blocked",
         shipFromCode: "MSP-1",
@@ -1208,6 +1404,65 @@ describe("inventory api", () => {
       }),
     });
     expect(writeResponse.status).toBe(403);
+    const offlineSaleResponse = await unauthorizedApp.request("/api/inventory/items/inv_1/offline-sales", {
+      method: "POST",
+      headers: { "Inventory-Mutation-Attempt": randomUUID(), "Content-Type": "application/json" },
+      body: JSON.stringify({ quantity: 1, channel: "in-store", idempotencyKey: "forbidden-sale" }),
+    });
+    expect(offlineSaleResponse.status).toBe(403);
+  });
+
+  it("does not let a released claim owner complete a reclaimed idempotency row", async () => {
+    await claimInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      accountId: "acc_inventory",
+      itemId: "inv_a",
+      commandFingerprint: "fingerprint-a",
+      claimGeneration: "generation-a",
+    });
+    await releaseInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      commandFingerprint: "fingerprint-a",
+      claimGeneration: "generation-a",
+    });
+    await claimInventoryAdjustmentIdempotency(pools.inventory, {
+      idempotencyKey: "stale-completion",
+      accountId: "acc_inventory",
+      itemId: "inv_b",
+      commandFingerprint: "fingerprint-a",
+      claimGeneration: "generation-b",
+    });
+
+    await expect(
+      completeInventoryAdjustmentIdempotency(pools.inventory, {
+        idempotencyKey: "stale-completion",
+        commandFingerprint: "fingerprint-a",
+        claimGeneration: "generation-a",
+        resultItemId: "inv_a",
+        resultVersion: 2,
+        resultCollision: null,
+      }),
+    ).resolves.toBe(false);
+    const row = await pools.inventory.query<{
+      status: string;
+      command_fingerprint: string;
+      claim_generation: string;
+      result_version: string | null;
+      result_collision: unknown;
+    }>(
+      `SELECT status, command_fingerprint, claim_generation, result_version, result_collision
+       FROM inventory_item_adjustment_idempotency
+       WHERE idempotency_key = 'stale-completion'`,
+    );
+    expect(row.rows).toEqual([
+      {
+        status: "in_progress",
+        command_fingerprint: "fingerprint-a",
+        claim_generation: "generation-b",
+        result_version: null,
+        result_collision: null,
+      },
+    ]);
   });
 
   it("hides cross-account inventory items", async () => {
@@ -1226,7 +1481,7 @@ describe("inventory api", () => {
         shipFromCode: "NYC-1",
         shipFromAddress,
       },
-      otherContext,
+      withInventoryMutationAttempt(otherContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,
@@ -1249,7 +1504,7 @@ describe("inventory api", () => {
         storageLocationId: location.storageLocationId,
         totalQuantity: 2,
       },
-      otherContext,
+      withInventoryMutationAttempt(otherContext, randomUUID()),
     );
     await drainContextProcesses({
       subscriptionRunners,

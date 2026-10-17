@@ -7,14 +7,65 @@ import {
   defineEventReactionHandlers,
   defineEventSubscriptionHandlers,
   defineBoundedContextModule,
+  normalizeContextManifest,
   type BcApiEntry,
   type BcContextManifest,
+  type BcShellContribution,
+  type BcShellContributionItem,
   type BcEventReactionHandlerRegistrations,
   type BcEventSubscriptionHandler,
   type BcEventSubscriptionHandlerRegistrations,
 } from "./index";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
+
+describe("shell contribution contract", () => {
+  const base = {
+    key: "account",
+    label: "Account",
+    icon: "user",
+    order: 1,
+    visibility: "always",
+    requiredPermissions: [],
+  } as const;
+  it("accepts legacy href/groups and additive route/action declarations", () => {
+    const legacy = [
+      { ...base, href: "/account" },
+      { ...base, children: [{ ...base, href: "/account" }] },
+    ] satisfies BcShellContributionItem[];
+    const action = {
+      ...base,
+      activation: "action",
+      deployable: "marketplace-web",
+      slot: "account-menu",
+      parentKey: "menu",
+      placement: "utility",
+      packingPriority: 20,
+      excludedRoleKeys: ["suspended"],
+      badge: { valueKey: "unread", max: 99, hideWhenEmptyForSignedOut: true },
+    } satisfies BcShellContribution;
+    const route = {
+      ...base,
+      activation: "route",
+      href: "/account",
+      activePathPatterns: ["/profile"],
+    } satisfies BcShellContributionItem;
+    expect(legacy).toHaveLength(2);
+    expect(action.activation).toBe("action");
+    expect(route.activePathPatterns).toEqual(["/profile"]);
+  });
+  it("makes explicit actions and routes disjoint at compile time", () => {
+    // @ts-expect-error An action has no href.
+    const hrefAction: BcShellContributionItem = { ...base, activation: "action", href: "/account" };
+    // @ts-expect-error Even empty action children are prohibited.
+    const childAction: BcShellContributionItem = { ...base, activation: "action", children: [] };
+    // @ts-expect-error Actions do not participate in path matching.
+    const activeAction: BcShellContributionItem = { ...base, activation: "action", activePathPatterns: ["/account"] };
+    // @ts-expect-error Explicit routes must be href leaves.
+    const routeGroup: BcShellContributionItem = { ...base, activation: "route", href: "/account", children: [] };
+    expect([hrefAction, childAction, activeAction, routeGroup]).toHaveLength(4);
+  });
+});
 
 const manifest: BcContextManifest = {
   contextName: "inventory",
@@ -420,6 +471,140 @@ describe("event handler registration types", () => {
 });
 
 describe("defineBoundedContextModule", () => {
+  it("normalizes all three account capability kinds from untrusted manifest JSON", () => {
+    const accountCapabilities: readonly unknown[] = [
+      {
+        key: "authenticity.seller-included",
+        description: "Seller-included authenticity evidence",
+        kind: "boolean",
+        defaultValue: false,
+      },
+      {
+        key: "inventory.locations",
+        description: "Inventory location limit",
+        kind: "limit",
+        defaultValue: 0,
+      },
+      {
+        key: "mcp.rate-tier",
+        description: "MCP rate tier",
+        kind: "tier",
+        allowedValues: ["standard", "priority"],
+        defaultValue: "standard",
+      },
+    ];
+
+    expect(
+      normalizeContextManifest({
+        contextName: "identity",
+        apiBasePath: "/api/identity",
+        streamPrefix: "identity.",
+        accountCapabilities,
+      }).accountCapabilities,
+    ).toEqual(accountCapabilities);
+  });
+
+  it("rejects kind/default mismatches during manifest normalization", () => {
+    const invalidDeclarations: readonly unknown[] = [
+      {
+        key: "account.boolean-test",
+        description: "Boolean test",
+        kind: "boolean",
+        defaultValue: 1,
+      },
+      {
+        key: "account.limit-test",
+        description: "Limit test",
+        kind: "limit",
+        defaultValue: false,
+      },
+      {
+        key: "account.tier-test",
+        description: "Tier test",
+        kind: "tier",
+        allowedValues: ["standard"],
+        defaultValue: false,
+      },
+    ];
+
+    for (const declaration of invalidDeclarations) {
+      expect(() =>
+        normalizeContextManifest({
+          contextName: "identity",
+          apiBasePath: "/api/identity",
+          streamPrefix: "identity.",
+          accountCapabilities: [declaration],
+        }),
+      ).toThrow(/defaultValue/);
+    }
+  });
+
+  it("rejects invalid account capability keys and kinds during manifest normalization", () => {
+    for (const key of ["Rate Tier", "mcp.", ".rate-tier", "mcp..rate-tier", "mcp.rate_tier"]) {
+      expect(() =>
+        normalizeContextManifest({
+          contextName: "platform-operations",
+          apiBasePath: "/api/platform",
+          streamPrefix: "platform-operations.",
+          accountCapabilities: [
+            {
+              key,
+              description: "Invalid key",
+              kind: "boolean",
+              defaultValue: false,
+            },
+          ],
+        }),
+      ).toThrow(new RegExp(`platform-operations.*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*invalid key`));
+    }
+
+    expect(() =>
+      normalizeContextManifest({
+        contextName: "platform-operations",
+        apiBasePath: "/api/platform",
+        streamPrefix: "platform-operations.",
+        accountCapabilities: [
+          {
+            key: "mcp.rate-tier",
+            description: "Invalid kind",
+            kind: "meter",
+            defaultValue: 0,
+          },
+        ],
+      }),
+    ).toThrow(/mcp\.rate-tier.*unsupported kind 'meter'/);
+  });
+
+  it("preserves absence while forwarding normalized declarations", () => {
+    const absentManifest = normalizeContextManifest({
+      contextName: "inventory",
+      apiBasePath: "/api/inventory",
+      streamPrefix: "inventory.",
+    });
+    const accountCapabilities: readonly unknown[] = [
+      {
+        key: "inventory.locations",
+        description: "Inventory location limit",
+        kind: "limit",
+        defaultValue: 0,
+      },
+    ];
+    const module = defineBoundedContextModule({
+      manifest: {
+        contextName: "inventory",
+        apiBasePath: "/api/inventory",
+        streamPrefix: "inventory.",
+        accountCapabilities,
+      },
+      schemaSql: "",
+      createServices: () => ({}),
+      buildApis: () => [],
+    });
+
+    expect(absentManifest).not.toHaveProperty("accountCapabilities");
+    expect(module.accountCapabilities).toEqual(accountCapabilities);
+  });
+
   it("normalizes JSON-imported projection group gates and runtime profiles", () => {
     const sourceContextMount = "when-all-sources-mounted" as string;
     const resetStrategy = "append-only-no-reset" as string;
@@ -454,6 +639,29 @@ describe("defineBoundedContextModule", () => {
     ]);
     expect(normalizedManifest.apiRuntimeProfiles).toEqual(["landing"]);
     expect(normalizedManifest.workerRuntimeProfiles).toEqual(["public"]);
+  });
+
+  it("keeps Agent Coverage declarations as declared and preserves their absence", () => {
+    const agentCoverage = {
+      "offer-economics": { tools: ["platform-operations.get-offer-economics-summary"] },
+      "sign-in": { exempt: "sign-in-flow", note: "Interactive sign-in.", tools: [] },
+      "support-requests": { pending: "#9238" },
+    } as const;
+
+    const declared = defineBoundedContextManifest({
+      contextName: "platform-operations",
+      apiBasePath: "/api/platform-operations",
+      streamPrefix: "platform-operations.",
+      agentCoverage,
+    });
+    const absent = normalizeContextManifest({
+      contextName: "platform-operations",
+      apiBasePath: "/api/platform-operations",
+      streamPrefix: "platform-operations.",
+    });
+
+    expect(declared.agentCoverage).toEqual(agentCoverage);
+    expect(absent).not.toHaveProperty("agentCoverage");
   });
 
   it("derives manifest-owned module fields and keeps supplied wiring", async () => {

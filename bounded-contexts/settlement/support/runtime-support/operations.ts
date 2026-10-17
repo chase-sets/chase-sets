@@ -53,6 +53,9 @@ export type SettlementOperationEvent = Readonly<{
   accountId?: AccountId | string;
   payoutId?: PayoutId | string;
   amount?: string;
+  requestedAmount?: string;
+  feeAmount?: string;
+  netAmount?: string;
   currencyCode?: CurrencyCode | string;
   providerName?: string;
   providerEventId?: string;

@@ -8,6 +8,8 @@ import {
 import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import type { BulkLifecycleRow } from "../../../support/runtime-support/bulk-lifecycle";
 import { catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
+import { resolveLocalizedTextMap, type LocalizedTextMap } from "../../../support/runtime-support/common";
+import type { DisplayIdentityItem } from "./display-identity";
 
 export type CatalogItemGtinLookupRow = Readonly<{
   gtin: string;
@@ -66,7 +68,10 @@ export type CatalogItemDetailRow = Readonly<{
 
 export type BulkPublishCatalogItemRow = Readonly<{
   catalog_item_id: string;
+  language_code: string;
+  title_i18n: unknown;
   title: string;
+  subtitle_i18n: unknown;
   subtitle: string | null;
   blueprint_id: string | null;
   blueprint_name: string | null;
@@ -74,8 +79,35 @@ export type BulkPublishCatalogItemRow = Readonly<{
   blueprint_field_rules: unknown;
   status: string;
   field_values: unknown;
+  category_ids: unknown;
   source_providers: unknown;
   updated_at: string;
+}>;
+
+export type CatalogItemDisplayIdentityFactRow = Readonly<{
+  catalog_item_id: string;
+  language_code: string;
+  title: string;
+  subtitle: string | null;
+  display_template_key: string | null;
+  display_template_target_kind: string | null;
+  display_template_target_id: string | null;
+  display_identity_hash: string;
+  resolver_version: number;
+  resolved_at: string;
+  resolution_status: unknown;
+  missing_tokens: unknown;
+}>;
+
+export type CatalogItemPublicationIdentityRow = Readonly<{
+  item: DisplayIdentityItem &
+    Readonly<{
+      title_i18n: unknown;
+      subtitle_i18n: unknown;
+      projected_title: string;
+      projected_subtitle: string | null;
+    }>;
+  fact: CatalogItemDisplayIdentityFactRow | null;
 }>;
 
 export type BulkEditCatalogItemRow = Readonly<{
@@ -255,7 +287,10 @@ export async function listCatalogItemsForBulkPublish(
 
   const result = await db.query<BulkPublishCatalogItemRow>(
     `SELECT item.catalog_item_id,
+       item.language_code,
+       item.title_i18n,
        item.title,
+       item.subtitle_i18n,
        item.subtitle,
        item.blueprint_id,
        blueprint.name AS blueprint_name,
@@ -263,6 +298,7 @@ export async function listCatalogItemsForBulkPublish(
        blueprint.field_rules AS blueprint_field_rules,
        item.status,
        item.field_values,
+       item.category_ids,
        COALESCE(source_refs.source_providers, '[]'::jsonb) AS source_providers,
        ${catalogIsoUtcTimestamp("item.updated_at", "updated_at")}
      FROM catalog_items AS item
@@ -282,6 +318,120 @@ export async function listCatalogItemsForBulkPublish(
   );
 
   return result.rows;
+}
+
+export async function loadCatalogItemPublicationIdentityRows(
+  db: PgQueryable,
+  itemIds: readonly string[],
+): Promise<Map<string, CatalogItemPublicationIdentityRow>> {
+  const uniqueIds = [...new Set(itemIds.filter(Boolean))];
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const result = await db.query<{
+    catalog_item_id: string;
+    language_code: string;
+    title_i18n: unknown;
+    title: string;
+    subtitle_i18n: unknown;
+    subtitle: string | null;
+    blueprint_id: string | null;
+    field_values: unknown;
+    category_ids: unknown;
+    identity_catalog_item_id: string | null;
+    identity_language_code: string | null;
+    identity_title: string | null;
+    identity_subtitle: string | null;
+    display_template_key: string | null;
+    display_template_target_kind: string | null;
+    display_template_target_id: string | null;
+    display_identity_hash: string | null;
+    resolver_version: number | null;
+    resolved_at: string | null;
+    resolution_status: unknown;
+    missing_tokens: unknown;
+  }>(
+    `SELECT item.catalog_item_id,
+       item.language_code,
+       item.title_i18n,
+       item.title,
+       item.subtitle_i18n,
+       item.subtitle,
+       item.blueprint_id,
+       item.field_values,
+       item.category_ids,
+       identity.catalog_item_id AS identity_catalog_item_id,
+       identity.language_code AS identity_language_code,
+       identity.title AS identity_title,
+       identity.subtitle AS identity_subtitle,
+       identity.display_template_key,
+       identity.display_template_target_kind,
+       identity.display_template_target_id,
+       identity.display_identity_hash,
+       identity.resolver_version,
+       ${catalogIsoUtcTimestamp("identity.resolved_at", "resolved_at")},
+       identity.resolution_status,
+       identity.missing_tokens
+     FROM catalog_items AS item
+     LEFT JOIN catalog_item_display_identities AS identity
+       ON identity.catalog_item_id = item.catalog_item_id
+      AND identity.language_code = item.language_code
+     WHERE item.catalog_item_id = ANY($1::text[])
+     ORDER BY array_position($1::text[], item.catalog_item_id)`,
+    [uniqueIds],
+  );
+
+  return new Map(
+    result.rows.map((row) => {
+      const title = resolveLocalizedInput(row.title_i18n, row.title);
+      const subtitle = row.subtitle_i18n === null ? null : resolveLocalizedInput(row.subtitle_i18n, row.subtitle ?? "");
+      const item = {
+        catalog_item_id: row.catalog_item_id,
+        language_code: row.language_code,
+        title_i18n: row.title_i18n,
+        title,
+        projected_title: row.title,
+        subtitle_i18n: row.subtitle_i18n,
+        subtitle,
+        projected_subtitle: row.subtitle,
+        blueprint_id: row.blueprint_id,
+        field_values: row.field_values,
+        category_ids: row.category_ids,
+      };
+      const fact =
+        row.identity_catalog_item_id !== null &&
+        row.identity_language_code !== null &&
+        row.identity_title !== null &&
+        row.display_identity_hash !== null &&
+        row.resolver_version !== null &&
+        row.resolved_at !== null
+          ? {
+              catalog_item_id: row.identity_catalog_item_id,
+              language_code: row.identity_language_code,
+              title: row.identity_title,
+              subtitle: row.identity_subtitle,
+              display_template_key: row.display_template_key,
+              display_template_target_kind: row.display_template_target_kind,
+              display_template_target_id: row.display_template_target_id,
+              display_identity_hash: row.display_identity_hash,
+              resolver_version: row.resolver_version,
+              resolved_at: row.resolved_at,
+              resolution_status: row.resolution_status,
+              missing_tokens: row.missing_tokens,
+            }
+          : null;
+      return [row.catalog_item_id, { item, fact }] as const;
+    }),
+  );
+}
+
+function resolveLocalizedInput(value: unknown, fallback: string): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  return resolveLocalizedTextMap(value as LocalizedTextMap);
 }
 
 export async function listCatalogItemsForBulkEdit(

@@ -12,6 +12,7 @@ import type {
   CatalogMergeCandidateWarning,
 } from "../domain/catalog-merge-candidate";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type { CatalogIntegrationProviderUsageBudget } from "../api/admin/admin-control-plane-overview";
 import type { CatalogAdminProfileVersionPointer } from "../api/admin-control-plane-read-model-contracts";
 import type {
   CatalogProviderProfileBasicsUpdateCommand,
@@ -330,17 +331,11 @@ export interface CatalogIntegrationProviderReadiness {
   rateLimitStatus: CatalogIntegrationProviderCapabilityStatus;
   payloadAcquisition: CatalogIntegrationProviderCapabilityStatus;
   usageBudget: CatalogIntegrationProviderUsageBudget | null;
+  countSpend?: import("../api/admin/admin-control-plane-overview").CatalogIntegrationProviderReadiness["countSpend"];
   diagnostics: CatalogIntegrationControlPlaneDiagnostic[];
 }
 
-export interface CatalogIntegrationProviderUsageBudget {
-  creditBalance: number | null;
-  creditUnit: string | null;
-  readiness: "ready" | "degraded" | "blocked" | "unknown";
-  estimatedCalls: number | null;
-  estimatedScope: string | null;
-  refreshedAt: string | null;
-}
+export type { CatalogIntegrationProviderUsageBudget };
 
 export interface CatalogIntegrationProviderCapabilityStatus {
   status: "ready" | "blocked" | "degraded" | "unknown";
@@ -687,6 +682,42 @@ export interface SourceObservationPromotionPreview {
    * self-invalidates instead of relying on aggregate counts alone.
    */
   fingerprint: string;
+  /**
+   * Read-only per-observation validation over a bounded page. Counts above are
+   * never validation: only `coveredObservationIds` were validated.
+   */
+  validation: SourceObservationPromotionValidation;
+}
+
+export type SourceObservationPromotionDisplayIdentityTemplateReason =
+  | "unresolved-title-tokens"
+  | "no-targeted-template"
+  | "missing-required-fields";
+
+export interface SourceObservationPromotionDisplayIdentityEvidence {
+  missingTokens: readonly string[];
+  templateKey: string | null;
+  templateTargetKind: string | null;
+  templateTargetId: string | null;
+  templateReason: SourceObservationPromotionDisplayIdentityTemplateReason;
+}
+
+export interface SourceObservationPromotionPreviewDiagnostic {
+  observationId: string;
+  code: string;
+  path: string;
+  diagnosticText: string;
+  blocking: boolean;
+  displayIdentity?: SourceObservationPromotionDisplayIdentityEvidence;
+}
+
+export interface SourceObservationPromotionValidation {
+  promoteAsDraft: boolean;
+  pageLimit: number;
+  coveredObservationIds: readonly string[];
+  coverage: "complete" | "partial";
+  continuation: string | null;
+  diagnostics: readonly SourceObservationPromotionPreviewDiagnostic[];
 }
 
 export interface SourceObservationReapplyPreview {

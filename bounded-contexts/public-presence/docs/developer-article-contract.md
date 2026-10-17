@@ -10,7 +10,7 @@ The compiler imports the canonical platform-runtime MCP registry and emits every
 
 ## Agent-readable surfaces
 
-When the portal readiness gate is enabled, `/developers/manifest.json` serves article metadata, supported MCP protocol versions, the MCP endpoint, and the generated tool catalog. `/llms.txt` serves a compact text index that links to the portal, its articles, and the JSON manifest.
+When the portal readiness gate is enabled, `/developers/manifest.json` serves article metadata, a `policies` array, supported MCP protocol versions, the MCP endpoint, and the generated tool catalog. Its Agent Connector Terms projection is exactly `{ "policyKey": "agent-connector-terms", "title": "Agent Connector Terms", "url": "<normalized-origin>/agent-terms" }`. `/llms.txt` serves a compact text index that links to the portal and its articles, then the Agent Connector Terms policy entry with label `Agent Connector Terms` and URL `<normalized-origin>/agent-terms`, then the machine-readable developer manifest.
 
 The `CHASE_SETS_M86_DEVELOPER_PORTAL_READY` flag defaults to false in deployment configuration. Every HTML route emits `noindex,nofollow`; text and JSON responses emit the equivalent `X-Robots-Tag`; no developer path is added to a sitemap. Enabling indexing is intentionally outside this contract and requires a separate change after certification.
 

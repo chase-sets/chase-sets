@@ -1,3 +1,13 @@
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
+import { ZERO_GLOBAL_POSITION, type GlobalPosition } from "@chase-sets/event-core/storage";
+import { createCheckoutCartRuntime, type CheckoutCartServices } from "../../cart/api/runtime";
+import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
+import { evolveCheckoutCart, initialCheckoutCartState, type CheckoutCartEvent } from "../../cart/domain/domain";
+import { CHECKOUT_ANONYMOUS_CART_COOKIE_NAME } from "../../../support/request-support/guest-checkout";
+import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
+import { evolveCheckoutSession, initialCheckoutSessionState, type CheckoutSessionEvent } from "../domain/domain";
+import { createCheckoutSessionRuntime } from "../api/runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
@@ -31,6 +41,8 @@ vi.mock("../../../support/request-support/checkout-confirmation", () => ({
 }));
 
 import { createAccountCheckoutSessionRoutes } from "./route";
+import { createAccountCartRoutes } from "../../cart/api/route";
+import { action as checkoutStartAction } from "../../../support/route-support/buy-checkout-readiness/checkout-start-action";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
 import type { CheckoutObservabilityTelemetry } from "./checkout-observability-telemetry";
@@ -248,7 +260,17 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     selectAuthenticityCheckOptIn: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     assertReadyForOrderCreation: vi.fn(async ({ sessionId }) => createSession({ session_id: sessionId })),
     recordCheckoutReservations: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
-    recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordOrdersCreated: vi.fn<CheckoutSessionServices["recordOrdersCreated"]>(async ({ sessionId, orderIds }) => ({
+      sessionId,
+      session: createSession({ session_id: sessionId, order_ids: [...orderIds] }),
+    })),
+    resumeOrderCartCleanup: vi.fn<CheckoutSessionServices["resumeOrderCartCleanup"]>(
+      async ({ sessionId, accountId }) => ({
+        sessionId,
+        session:
+          (await (overrides.getSession ?? (async () => createSession()))(sessionId, accountId)) ?? createSession(),
+      }),
+    ),
     recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     cancelSession: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
@@ -553,6 +575,149 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("passes only the actor-bound Account and normalized anonymous source without exposing the key", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-account-id": "acc_attacker",
+          "x-checkout-anonymous-cart-id": "  anon_raw_marker  ",
+        },
+        body: JSON.stringify({
+          accountId: "acc_attacker",
+          source: {
+            type: "cart",
+            readinessSnapshotId: "cr_union",
+            readinessSourceRevision: "cr_union_source",
+          },
+        }),
+      }),
+    );
+    const responseText = await response.text();
+
+    expect(response.status).toBe(201);
+    expect(services.createFromCart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        presentedAnonymousCartId: "anon_raw_marker",
+        readinessSnapshotId: "cr_union",
+        readinessSourceRevision: "cr_union_source",
+      }),
+      expect.any(Object),
+    );
+    expect(responseText).not.toContain("anon_raw_marker");
+  });
+
+  it.each(["   ", "cart_not_anonymous"])(
+    "does not treat malformed anonymous header %j as cart authority",
+    async (headerValue) => {
+      const services = createServices();
+      const app = buildApp(services);
+
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/checkout-sessions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": headerValue,
+          },
+          body: JSON.stringify({
+            source: {
+              type: "cart",
+              readinessSnapshotId: "cr_ready",
+              readinessSourceRevision: "cr_source",
+            },
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(201);
+      expect(services.createFromCart).toHaveBeenCalledWith(
+        expect.not.objectContaining({ presentedAnonymousCartId: expect.anything() }),
+        expect.any(Object),
+      );
+    },
+  );
+
+  it("redacts an adversarial anonymous key from generic stale errors and telemetry", async () => {
+    const consoleSpies = (["log", "info", "warn", "error"] as const).map((method) => vi.spyOn(console, method));
+    try {
+      const telemetry = { recordCheckoutEvent: vi.fn() };
+      const services = createServices({
+        createFromCart: vi.fn(async () => {
+          throw new CheckoutDomainError(
+            "Cart readiness changed. Review your cart before checkout.",
+            "readiness_snapshot_stale",
+          );
+        }),
+      });
+      const app = buildApp(services, createBuyerActor(), telemetry);
+
+      const response = await app.fetch(
+        new Request("http://checkout.test/account/checkout-sessions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-checkout-anonymous-cart-id": "anon_raw_marker",
+          },
+          body: JSON.stringify({
+            source: {
+              type: "cart",
+              readinessSnapshotId: "cr_union",
+              readinessSourceRevision: "cr_union_source",
+            },
+          }),
+        }),
+      );
+      const responseText = await response.text();
+
+      expect(response.status).toBe(400);
+      expect(responseText).toContain("readiness_snapshot_stale");
+      expect(responseText).not.toContain("anon_raw_marker");
+      expect(JSON.stringify(telemetry.recordCheckoutEvent.mock.calls)).not.toContain("anon_raw_marker");
+      expect(services.createFromCart).toHaveBeenCalledWith(
+        expect.objectContaining({ presentedAnonymousCartId: "anon_raw_marker" }),
+        expect.any(Object),
+      );
+      expect(JSON.stringify(consoleSpies.map((spy) => spy.mock.calls))).not.toContain("anon_raw_marker");
+    } finally {
+      for (const spy of consoleSpies) spy.mockRestore();
+    }
+  });
+
+  it("does not create cart sessions without an actor or request context", async () => {
+    const request = () =>
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_raw_marker",
+        },
+        body: JSON.stringify({
+          source: { type: "cart", readinessSnapshotId: "cr_union", readinessSourceRevision: "cr_union_source" },
+        }),
+      });
+    const unauthenticatedServices = createServices();
+    expect((await buildApp(unauthenticatedServices, null).fetch(request())).status).toBe(401);
+    expect(unauthenticatedServices.createFromCart).not.toHaveBeenCalled();
+
+    const missingContextServices = createServices();
+    const missingContextApp = new Hono<CheckoutApiEnv>();
+    missingContextApp.use("*", async (c, next) => {
+      c.set("actor", createBuyerActor());
+      c.set("context", null);
+      await next();
+    });
+    missingContextApp.route("/account", createAccountCheckoutSessionRoutes(missingContextServices));
+
+    expect((await missingContextApp.fetch(request())).status).toBe(401);
+    expect(missingContextServices.createFromCart).not.toHaveBeenCalled();
+  });
+
   it("sets verified shipping addresses silently", async () => {
     const verifiedAddress = {
       ...shippingAddress,
@@ -691,6 +856,47 @@ describe("checkout session routes", () => {
       createFromCart.mock.calls[1]?.[0].sessionIdOverride,
     );
     expect(String(firstBody.session_id)).not.toContain("entry_attempt_1");
+  });
+
+  it("binds cart entry idempotency to the normalized presented anonymous source", async () => {
+    const createFromCart = vi.fn(async (params: Parameters<CheckoutSessionServices["createFromCart"]>[0]) => ({
+      sessionId: params.sessionIdOverride ?? ("chk_missing_override" as never),
+    }));
+    const app = buildApp(createServices({ createFromCart }));
+    const body = JSON.stringify({
+      entryAttemptKey: "entry_attempt_union",
+      source: { type: "cart", readinessSnapshotId: "cr_ready", readinessSourceRevision: "cr_source" },
+    });
+    const send = (anonymousCartId?: string) =>
+      app.fetch(
+        new Request("http://checkout.test/account/checkout-sessions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(anonymousCartId === undefined ? {} : { "x-checkout-anonymous-cart-id": anonymousCartId }),
+          },
+          body,
+        }),
+      );
+
+    expect((await send("anon_cart_a")).status).toBe(201);
+    expect((await send("anon_cart_b")).status).toBe(201);
+    expect((await send("  anon_cart_a  ")).status).toBe(201);
+    expect((await send()).status).toBe(201);
+    expect((await send("   ")).status).toBe(201);
+    expect((await send("acc_attacker")).status).toBe(201);
+    expect(createFromCart.mock.calls[0]?.[0].sessionIdOverride).not.toBe(
+      createFromCart.mock.calls[1]?.[0].sessionIdOverride,
+    );
+    expect(createFromCart.mock.calls[2]?.[0].sessionIdOverride).toBe(
+      createFromCart.mock.calls[0]?.[0].sessionIdOverride,
+    );
+    for (const [params] of createFromCart.mock.calls.slice(3)) {
+      // Fixed legacy digest: including an explicit undefined source key instead
+      // produces chk_3f16ec6142debd548dcaa84bff3812c9.
+      expect(params.sessionIdOverride).toBe("chk_a98dcec9800de0f45d95eaf358974dc0");
+      expect(params).not.toHaveProperty("presentedAnonymousCartId");
+    }
   });
 
   it("rejects old-shaped cart readiness payloads without adapting them into checkout facts", async () => {
@@ -1331,6 +1537,151 @@ describe("checkout session routes", () => {
     );
   });
 
+  describe("reviewed fulfillment preview revision", () => {
+    const reviewedShippingAddress = {
+      name: "Buyer",
+      line1: "123 Test Street",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+    };
+    const callerSnapshot = {
+      ...readyBuyNowSupplyPreview(),
+      optimizationGoal: "lowest-total",
+      revision: "caller_snapshot_rev",
+    };
+
+    function postFulfillmentPreview(services: CheckoutSessionServices, body: Record<string, unknown>) {
+      return buildApp(services).fetch(
+        new Request("http://checkout.test/account/checkout-sessions/chk_1/fulfillment-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+
+    it.each([
+      { revisionInput: "omitted", body: {} },
+      { revisionInput: "blank", body: { fulfillmentPreviewRevision: "   " } },
+    ])(
+      "records the calculated Ordering revision when review input has an $revisionInput revision",
+      async ({ body }) => {
+        const calculatedPreview = { ...readyBuyNowSupplyPreview(), revision: "ordering_rev_calculated" };
+        mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+        const services = createServices();
+
+        const response = await postFulfillmentPreview(services, {
+          ...body,
+          shippingOption: "expedited",
+          shippingAddress: reviewedShippingAddress,
+        });
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({
+          session_id: "chk_1",
+          status: "fulfillment-preview-recorded",
+        });
+        expect(mockPreviewCheckoutFulfillmentThroughOrdering).toHaveBeenCalledWith(
+          expect.any(Request),
+          expect.objectContaining({ session_id: "chk_1" }),
+          expect.objectContaining({
+            shippingOption: "expedited",
+            shippingAddress: expect.objectContaining({ line1: "123 Test Street" }),
+          }),
+        );
+        expect(services.recordFulfillmentPreview).toHaveBeenCalledWith(
+          {
+            sessionId: "chk_1",
+            accountId: "acc_buyer",
+            fulfillmentPreviewRevision: "ordering_rev_calculated",
+            fulfillmentPreviewSnapshot: calculatedPreview,
+          },
+          expect.any(Object),
+        );
+      },
+    );
+
+    it("keeps a non-blank caller revision ahead of the calculated revision", async () => {
+      const calculatedPreview = { ...readyBuyNowSupplyPreview(), revision: "ordering_rev_calculated" };
+      mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+      const services = createServices();
+
+      const response = await postFulfillmentPreview(services, {
+        fulfillmentPreviewRevision: "caller_rev",
+        shippingOption: "standard",
+      });
+
+      expect(response.status).toBe(200);
+      expect(services.recordFulfillmentPreview).toHaveBeenCalledWith(
+        {
+          sessionId: "chk_1",
+          accountId: "acc_buyer",
+          fulfillmentPreviewRevision: "caller_rev",
+          fulfillmentPreviewSnapshot: calculatedPreview,
+        },
+        expect.any(Object),
+      );
+    });
+
+    it.each([
+      {
+        rejection: "a null Ordering preview",
+        calculatedPreview: null,
+        body: { shippingOption: "standard" },
+      },
+      {
+        rejection: "a blank calculated revision",
+        calculatedPreview: { ...readyBuyNowSupplyPreview(), revision: "  " },
+        body: { shippingOption: "standard" },
+      },
+      {
+        rejection: "no review input or revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: {},
+      },
+      {
+        rejection: "a blank revision without review input",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewRevision: "   " },
+      },
+      {
+        rejection: "a supplied snapshot without a revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewSnapshot: callerSnapshot },
+      },
+      {
+        rejection: "a supplied snapshot with review input and no revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewSnapshot: callerSnapshot, shippingOption: "standard" },
+      },
+    ])("rejects $rejection without recording a preview", async ({ calculatedPreview, body }) => {
+      mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+      const services = createServices();
+
+      const response = await postFulfillmentPreview(services, body);
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "fulfillment_preview_required",
+          message: "Fulfillment preview must include a revision.",
+        },
+      });
+      expect(services.recordFulfillmentPreview).not.toHaveBeenCalled();
+    });
+
+    it("does not calculate a preview from stored session inputs when no review input or revision is posted", async () => {
+      const services = createServices();
+
+      await postFulfillmentPreview(services, {});
+
+      expect(mockPreviewCheckoutFulfillmentThroughOrdering).not.toHaveBeenCalled();
+    });
+  });
+
   it("confirms a new checkout session by recording orders and payment", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
@@ -1373,12 +1724,17 @@ describe("checkout session routes", () => {
     });
     expect(body).toMatchObject({
       commitPosition: "91",
-      commitEventIds: ["evt_pay_1", "evt_checkout_payment_started"],
+      commitEventIds: ["evt_order_created", "evt_pay_1", "evt_checkout_payment_started"],
       commitPositions: [
         {
           sourceContextName: "checkout",
           maxGlobalPosition: "91",
           eventIds: ["evt_checkout_payment_started"],
+        },
+        {
+          sourceContextName: "ordering",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_order_created"],
         },
         {
           sourceContextName: "payments",
@@ -3045,5 +3401,812 @@ describe("checkout session routes", () => {
         tenantId: "tnt_identity",
       }),
     );
+  });
+});
+
+const unionCleanupContext = {
+  tenantId: "tnt_identity" as never,
+  audit: { performedByUserId: "usr_buyer" as never, forAccountId: "acc_buyer" as never },
+};
+const productMeasureSnapshot = {
+  catalogItemId: "cat_1",
+  productId: "cat_1::",
+  selectedOptions: [],
+  measureVersion: "pm_test_raw_v1",
+  unitLengthInches: 3.5,
+  unitWidthInches: 2.5,
+  unitHeightInches: 0.02,
+  unitWeightOunces: 0.08,
+  physicalFlags: ["raw-card"],
+  stackBehavior: "stackable-thickness",
+  source: "profile",
+  confidence: "measured",
+};
+
+function createCheckpointStore(): ProjectionCheckpointStore {
+  const checkpoints = new Map<string, GlobalPosition>();
+
+  return {
+    loadCheckpoint: async (projectorName) => checkpoints.get(projectorName) ?? ZERO_GLOBAL_POSITION,
+    saveCheckpoint: async (projectorName, checkpoint) => {
+      checkpoints.set(projectorName, checkpoint);
+    },
+  };
+}
+
+const readyCartLine: CheckoutCartLineRow = {
+  buyer_account_id: "acc_buyer",
+  line_id: "cli_1",
+  catalog_catalog_item_id: "cat_1",
+  product_id: "cat_1::",
+  item_language_code: "en",
+  item_title: "Charizard",
+  item_subtitle: null,
+  item_image_url: null,
+  item_image_srcset: null,
+  item_image_loading_url: null,
+  item_image_loading_alt: null,
+  item_image_loading_srcset: null,
+  selected_options: [],
+  product_summary: null,
+  quantity: 1,
+  fulfillment_mode: "locked-listing",
+  locked_listing_id: "lst_1",
+  selected_listing_id: null,
+  selected_listing_seller_account_id: null,
+  selected_listing_seller_display_name: null,
+  selected_listing_seller_slug: null,
+  selected_listing_price_amount: null,
+  selected_listing_price_currency_code: null,
+  selected_listing_stream_version: null,
+  selected_listing_snapshot_source: null,
+  selected_listing_snapshot_captured_at: null,
+  seller_preference_id: null,
+  availability_state: "available",
+  seller_options: [
+    {
+      listing_id: "lst_1",
+      seller_account_id: "acc_seller",
+      seller_slug: "seller",
+      seller_display_name: "Card Vault",
+      seller_average_rating: null,
+      seller_review_count: 0,
+      price_amount: "25.00",
+      price_currency_code: "USD",
+      listing_stream_version: 7,
+      available_quantity: 1,
+      product_summary: null,
+      product_measure_snapshot: productMeasureSnapshot,
+    },
+  ],
+  created_at: "2026-06-09T00:00:00.000Z",
+  updated_at: "2026-06-09T00:00:00.000Z",
+};
+
+async function unionCleanupHarness() {
+  const { eventStore } = createInMemoryEventStore();
+  let projected: CheckoutSessionRow | null = null;
+  const db = {
+    query: vi.fn(async (sql: string) => ({
+      rows: sql.includes("checkout_catalog_items")
+        ? [{ catalog_item_id: "cat_1", status: "active", product_schema: null, language_code: "en" }]
+        : sql.includes("checkout_session_pages") && projected
+          ? [projected]
+          : [],
+    })),
+  };
+  const checkpointStore = createCheckpointStore();
+  const anonymous = "anon_raw_cleanup_marker";
+  const buyer = unionCleanupContext.audit.forAccountId;
+  const events = (streamId: string) => eventStore.readStream({ streamId });
+  const cartState = async (owner: string) =>
+    (await events(`checkout.cart-${owner}`)).reduce(
+      (state, event) => evolveCheckoutCart(state, { type: event.eventType, data: event.payload } as CheckoutCartEvent),
+      initialCheckoutCartState,
+    );
+  const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
+  let listingSequence = 0;
+  const add = async (owner: string) =>
+    cart.addLine(
+      {
+        accountId: owner as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        itemImageUrl: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: `lst_${++listingSequence}`,
+      },
+      unionCleanupContext,
+    );
+  const first = await add(anonymous);
+  const second = await add(anonymous);
+  const copy = async (lineId: string, owner = String(buyer), quantity = 1) => {
+    const line = (await cartState(anonymous)).lines.find((entry) => entry.lineId === lineId)!;
+    await cart.commandHandler({
+      streamId: `checkout.cart-${owner}`,
+      context: unionCleanupContext,
+      command: { ...line, type: "AddCartLine", buyerAccountId: owner as never, quantity },
+    });
+  };
+  const listCartLines: CheckoutCartServices["listCartLines"] = async (accountId, presented) => {
+    const lines = [...(await cartState(accountId)).lines, ...(presented ? (await cartState(presented)).lines : [])];
+    return [
+      ...new Map(
+        lines.reverse().map((line) => [
+          line.lineId,
+          {
+            ...readyCartLine,
+            buyer_account_id: String(accountId),
+            line_id: line.lineId,
+            quantity: line.quantity,
+            locked_listing_id: line.lockedListingId,
+            seller_options: [
+              { ...readyCartLine.seller_options[0]!, listing_id: line.lockedListingId!, available_quantity: 20 },
+            ],
+          },
+        ]),
+      ).values(),
+    ];
+  };
+  // Checkout Session start and every active-session revalidation resolve lines
+  // through `listAuthorizedCartLines`. Overriding only `listCartLines` would stop
+  // intercepting the moment the runtime moved members, so the harness would run
+  // the real member against the stub `db` above and silently resolve nothing.
+  // The double substitutes line resolution only; source authority still comes
+  // from the real Cart aggregate through the production guards.
+  const listAuthorizedCartLines: CheckoutCartServices["listAuthorizedCartLines"] = async (params) =>
+    listCartLines(params.accountId, params.presentedAnonymousCartId);
+  const realCart = { ...cart, listCartLines, listAuthorizedCartLines };
+  const runtime = () => createCheckoutSessionRuntime({ eventStore, checkpointStore, db, cart: realCart });
+  const sessions = runtime();
+  const readiness = createCartReadinessSnapshot(await listCartLines(buyer, anonymous), undefined, {
+    accountId: buyer,
+    presentedAnonymousCartId: anonymous,
+  });
+  const created = await sessions.createFromCart(
+    {
+      accountId: buyer,
+      presentedAnonymousCartId: anonymous,
+      readinessSnapshotId: readiness.snapshotId,
+      readinessSourceRevision: readiness.sourceRevision,
+    },
+    unionCleanupContext,
+  );
+  const params = { sessionId: created.sessionId, accountId: buyer };
+  await sessions.commandHandler({
+    streamId: `checkout.session-${params.sessionId}`,
+    context: unionCleanupContext,
+    command: {
+      type: "SetShippingAddress",
+      shippingAddress: {
+        name: "Buyer",
+        line1: "100 Market Street",
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      selectedAt: new Date().toISOString(),
+    },
+  });
+  const sessionEvents = () => events(`checkout.session-${params.sessionId}`);
+  const state = async () =>
+    (await sessionEvents()).reduce(
+      (current, event) =>
+        evolveCheckoutSession(current, { type: event.eventType, data: event.payload } as CheckoutSessionEvent),
+      initialCheckoutSessionState,
+    );
+  return {
+    eventStore,
+    cart,
+    realCart,
+    runtime,
+    params,
+    setProjected: (row: CheckoutSessionRow | null) => {
+      projected = row;
+    },
+    anonymous,
+    buyer,
+    add,
+    copy,
+    cartState,
+    sessionEvents,
+    state,
+    ids: [first.lineId, second.lineId],
+    record: {
+      ...params,
+      orderIds: ["ord_union"],
+      orderWriteCommitPositions: [
+        { sourceContextName: "ordering", maxGlobalPosition: "800", eventIds: ["evt_ordering"] },
+      ],
+    },
+  };
+}
+
+describe("HTTP union cleanup caller closure", () => {
+  const requestFor = (sessionId: string, extra = {}) =>
+    new Request(`http://checkout.test/account/checkout-sessions/${sessionId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Anonymous-Cart-Id": "anon_foreign" },
+      body: JSON.stringify({
+        shippingAddress,
+        marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        paymentMethodCategory: "card",
+        accountId: "acc_foreign",
+        presentedAnonymousCartId: "anon_foreign",
+        ...extra,
+      }),
+    });
+  beforeEach(() => {
+    mockCreateCheckoutInventoryReservations.mockReset().mockResolvedValue({ reservations: [], unavailableLines: [] });
+    mockCreateCheckoutOrdersThroughOrdering.mockReset();
+    mockCreateCheckoutPaymentThroughPayments.mockReset().mockResolvedValue({ payment_id: "pay_union" });
+  });
+
+  it.each([0, 1])("union cleanup caller closure zero/partial-copy %s through real HTTP confirm", async (copies) => {
+    const h = await unionCleanupHarness();
+    if (copies) await h.copy(h.ids[0]!);
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: h.record.orderIds,
+      readyLineKeys: h.ids,
+      writeResult: { commitPositions: h.record.orderWriteCommitPositions },
+    });
+    const response = await buildApp(h.runtime()).fetch(requestFor(h.params.sessionId));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.order_ids).toEqual(h.record.orderIds);
+    expect(JSON.stringify(body)).not.toContain(h.anonymous);
+    expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+    expect((await h.cartState(h.buyer)).lines).toEqual([]);
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["absent", "stale", "orders"] as const)(
+    "union cleanup crash resume with %s projection across every partial-copy commit",
+    async (projection) => {
+      for (const boundary of ["orders", "remove-1", "remove-2", "remove-3", "complete", "complete-ack"]) {
+        const h = await unionCleanupHarness();
+        await h.copy(h.ids[0]!);
+        const initialPage = await h.runtime().getSession(h.params.sessionId, h.buyer);
+        mockCreateCheckoutOrdersThroughOrdering.mockClear().mockResolvedValue({
+          orderIds: h.record.orderIds,
+          readyLineKeys: h.ids,
+          writeResult: { commitPositions: h.record.orderWriteCommitPositions },
+        });
+        mockCreateCheckoutInventoryReservations.mockClear();
+        const original = h.eventStore.appendToStream.bind(h.eventStore);
+        let removals = 0;
+        const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+          const type = input.events[0]?.eventType;
+          const at =
+            type === "checkout.session.orders-created"
+              ? "orders"
+              : type === "checkout.cart.line-removed"
+                ? `remove-${++removals}`
+                : type === "checkout.session.cart-cleanup-completed"
+                  ? "complete"
+                  : "other";
+          if (at === boundary || (boundary === "complete-ack" && at === "complete")) {
+            if (boundary !== "complete") await original(input);
+            throw new CheckoutDomainError(`stream ${h.anonymous} unavailable`);
+          }
+          return original(input);
+        });
+        const failed = await buildApp(h.runtime()).fetch(requestFor(h.params.sessionId));
+        const failedBody = await failed.json();
+        expect(failed.status, boundary).toBe(400);
+        expect(failedBody.error.message).toBe("Cart cleanup could not finish. Retry checkout.");
+        expect(JSON.stringify(failedBody)).not.toContain(h.anonymous);
+        expect(failedBody.commitPositions).toContainEqual(h.record.orderWriteCommitPositions[0]);
+        fault.mockRestore();
+        h.setProjected(
+          projection === "absent"
+            ? null
+            : projection === "stale"
+              ? initialPage
+              : await h.runtime().getSession(h.params.sessionId, h.buyer),
+        );
+        const resumed = await buildApp(h.runtime()).fetch(requestFor(h.params.sessionId));
+        expect(resumed.status, boundary).toBe(200);
+        expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+        expect(mockCreateCheckoutInventoryReservations).toHaveBeenCalledTimes(1);
+        expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+        expect((await h.cartState(h.buyer)).lines).toEqual([]);
+        expect(
+          (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.orders-created"),
+        ).toHaveLength(1);
+        expect(
+          (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.cart-cleanup-completed"),
+        ).toHaveLength(1);
+        const before = await h.sessionEvents();
+        expect((await buildApp(h.runtime()).fetch(requestFor(h.params.sessionId))).status).toBe(200);
+        expect(await h.sessionEvents()).toEqual(before);
+      }
+    },
+  );
+
+  it("union cleanup authority and redaction resumes before payment return and rejects missing/wrong actor", async () => {
+    const h = await unionCleanupHarness();
+    const telemetry = { recordCheckoutEvent: vi.fn<CheckoutObservabilityTelemetry["recordCheckoutEvent"]>() };
+    await h.runtime().commandHandler({
+      streamId: `checkout.session-${h.params.sessionId}`,
+      context: unionCleanupContext,
+      command: { type: "RecordOrdersCreated", orderIds: ["ord_union" as never], recordedAt: "2026-09-01T00:00:00Z" },
+    });
+    await h.runtime().recordPaymentStarted({ ...h.params, paymentId: "pay_union" }, unionCleanupContext);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const fault = vi.spyOn(h.realCart, "removeLine").mockRejectedValue(new Error(`store ${h.anonymous}`));
+      const denied = await buildApp(h.runtime(), createBuyerActor({ accountId: "acc_foreign" as never })).fetch(
+        requestFor(h.params.sessionId),
+      );
+      expect(denied.status).toBe(404);
+      const missing = await buildApp(h.runtime(), null).fetch(requestFor(h.params.sessionId));
+      expect(missing.status).toBe(401);
+      expect(fault).not.toHaveBeenCalled();
+      const response = await buildApp(h.runtime(), createBuyerActor(), telemetry).fetch(requestFor(h.params.sessionId));
+      expect(response.status).toBe(400);
+      expect(await response.text()).not.toContain(h.anonymous);
+      expect((await h.state()).orderCartCleanup?.status).toBe("pending");
+      fault.mockRestore();
+      expect(
+        (await buildApp(h.runtime(), createBuyerActor(), telemetry).fetch(requestFor(h.params.sessionId))).status,
+      ).toBe(200);
+      expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+      expect(JSON.stringify([log.mock.calls, warn.mock.calls, telemetry.recordCheckoutEvent.mock.calls])).not.toContain(
+        h.anonymous,
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("union cleanup caller closure rechecks committed orders before reservation preparation", async () => {
+    const h = await unionCleanupHarness();
+    const services = h.runtime();
+    const ready = services.assertReadyForOrderCreation;
+    vi.spyOn(services, "assertReadyForOrderCreation").mockImplementation(async (params) => {
+      await services.commandHandler({
+        streamId: `checkout.session-${params.sessionId}`,
+        context: unionCleanupContext,
+        command: {
+          type: "RecordOrdersCreated",
+          orderIds: ["ord_concurrent" as never],
+          recordedAt: "2026-09-01T00:00:00Z",
+        },
+      });
+      return ready(params);
+    });
+    const response = await buildApp(services).fetch(requestFor(h.params.sessionId));
+    expect(response.status).toBe(200);
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutInventoryReservations).not.toHaveBeenCalled();
+    expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+  });
+});
+
+describe("direct-header post-claim source authority through the real HTTP path", () => {
+  const SOURCE = "anon_raw_marker";
+  const OWNER = "acc_synthetic_owner";
+  const OTHER = "acc_synthetic_other";
+
+  const sourceLine: CheckoutCartLineRow = { ...readyCartLine, buyer_account_id: SOURCE, line_id: "cli_source" };
+  const otherLine: CheckoutCartLineRow = {
+    ...readyCartLine,
+    buyer_account_id: OTHER,
+    line_id: "cli_other_account",
+    locked_listing_id: "lst_other",
+    seller_options: [{ ...readyCartLine.seller_options[0]!, listing_id: "lst_other" }],
+  };
+
+  /**
+   * Real Cart runtime, real Checkout Session runtime, real HTTP route.
+   *
+   * The line double keeps returning the claimed source's line whenever the key
+   * is passed down, so a route that forwarded an unauthorized key would visibly
+   * put a foreign line into the session.
+   */
+  function harness() {
+    const cartMemory = createInMemoryEventStore();
+    const checkpointStore: ProjectionCheckpointStore = {
+      loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+      saveCheckpoint: async () => {},
+    };
+    const cartRuntime = createCheckoutCartRuntime({
+      eventStore: cartMemory.eventStore,
+      checkpointStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+    });
+    const resolveLines = (accountId: string, presented?: string | null) => [
+      ...(accountId === OTHER ? [otherLine] : []),
+      ...(presented === SOURCE ? [sourceLine] : []),
+    ];
+    const cart = {
+      ...cartRuntime,
+      listAuthorizedCartLines: vi.fn<CheckoutCartServices["listAuthorizedCartLines"]>(async (params) =>
+        resolveLines(params.accountId, params.presentedAnonymousCartId),
+      ),
+      listCartLines: vi.fn<CheckoutCartServices["listCartLines"]>(async (accountId, presented) =>
+        resolveLines(String(accountId), presented),
+      ),
+    } satisfies CheckoutCartServices;
+    const sessionMemory = createInMemoryEventStore();
+    const sessions = createCheckoutSessionRuntime({
+      eventStore: sessionMemory.eventStore,
+      checkpointStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+
+    return {
+      cart,
+      cartMemory,
+      cartRuntime,
+      sessionMemory,
+      resolveLines,
+      app: buildApp(sessions, createBuyerActor({ accountId: OTHER })),
+      claimSourceFor: (accountId: string) =>
+        cartRuntime.commandHandler({
+          streamId: `checkout.cart-${SOURCE}`,
+          context: {
+            tenantId: "tnt_synthetic" as never,
+            audit: { performedByUserId: "usr_synthetic" as never, forAccountId: accountId as never },
+          },
+          command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: accountId as never },
+        }),
+    };
+  }
+
+  const startRequest = (readiness: ReturnType<typeof createCartReadinessSnapshot>, headers: Record<string, string>) =>
+    new Request("http://checkout.test/account/checkout-sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({
+        source: {
+          type: "cart",
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+        },
+      }),
+    });
+
+  it("reveals no claimed line and appends no event when another Account presents the key directly", async () => {
+    const test = harness();
+    await test.claimSourceFor(OWNER);
+    const accountOnlyReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER));
+
+    const response = await test.app.fetch(
+      startRequest(accountOnlyReadiness, { "x-checkout-anonymous-cart-id": SOURCE }),
+    );
+    const responseText = await response.text();
+    const started = test.sessionMemory.allEvents.find((event) => event.eventType === "checkout.session.started");
+
+    expect(response.status).toBe(201);
+    expect(responseText).not.toContain(SOURCE);
+    expect(responseText).not.toContain("cli_source");
+    // The route forwarded the key exactly as before; Cart authority is what
+    // removed it, so the session was sourced from the acting Account alone.
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({ accountId: OTHER });
+    expect(test.cart.listAuthorizedCartLines).not.toHaveBeenCalledWith({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    expect((started?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId)).toEqual([
+      "cli_other_account",
+    ]);
+    expect(started?.payload).toMatchObject({ presentedAnonymousCartId: null });
+    // No Cart event was appended to the claimed source stream by this request.
+    expect((test.cartMemory.streams.get(`checkout.cart-${SOURCE}`) ?? []).map((event) => event.eventType)).toEqual([
+      "checkout.cart.claimed-by-account",
+    ]);
+  });
+
+  it("still sources the presented key for the claimant Account through the same route", async () => {
+    const test = harness();
+    await test.claimSourceFor(OTHER);
+    const unionReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER, SOURCE), undefined, {
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+
+    const response = await test.app.fetch(startRequest(unionReadiness, { "x-checkout-anonymous-cart-id": SOURCE }));
+    const started = test.sessionMemory.allEvents.find((event) => event.eventType === "checkout.session.started");
+
+    expect(response.status).toBe(201);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    expect(
+      (started?.payload as { lines: readonly { cartLineId: string }[] }).lines.map((l) => l.cartLineId).sort(),
+    ).toEqual(["cli_other_account", "cli_source"]);
+    // Even on the accepted path the key never reaches the client payload.
+    expect(await response.text()).not.toContain(SOURCE);
+  });
+
+  it("keeps an unclaimed presented key acceptable, so the refusal is not a blanket header rejection", async () => {
+    const test = harness();
+    const unionReadiness = createCartReadinessSnapshot(test.resolveLines(OTHER, SOURCE), undefined, {
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+
+    const response = await test.app.fetch(startRequest(unionReadiness, { "x-checkout-anonymous-cart-id": SOURCE }));
+
+    expect(response.status).toBe(201);
+    expect(test.cart.listAuthorizedCartLines).toHaveBeenCalledWith({
+      accountId: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+  });
+});
+
+describe("retained-cookie post-claim source authority through the production checkout-start adapter", () => {
+  const SOURCE = "anon_raw_marker";
+  const OWNER = "acc_synthetic_owner";
+  const OTHER = "acc_synthetic_other";
+  const API_BASE_PATH = "/api/marketplace";
+
+  const sourceLine: CheckoutCartLineRow = { ...readyCartLine, buyer_account_id: SOURCE, line_id: "cli_source" };
+  const otherLine: CheckoutCartLineRow = {
+    ...readyCartLine,
+    buyer_account_id: OTHER,
+    line_id: "cli_other_account",
+    locked_listing_id: "lst_other",
+    seller_options: [{ ...readyCartLine.seller_options[0]!, listing_id: "lst_other" }],
+  };
+
+  /**
+   * Real Cart runtime, real Cart and Checkout Session HTTP routes, and the real
+   * checkout-start action composed over them.
+   *
+   * The retained cookie is the only place this test writes the anonymous key.
+   * Everything after it -- reading the cookie, turning it into
+   * `x-checkout-anonymous-cart-id`, and attaching that header to the API client
+   * the readiness and session requests travel on -- is production code, so a
+   * regression in that adapter reaches these assertions instead of being
+   * reproduced by them.
+   */
+  function composedHarness() {
+    const cartMemory = createInMemoryEventStore();
+    const sessionMemory = createInMemoryEventStore();
+    const checkpointStore: ProjectionCheckpointStore = {
+      loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+      saveCheckpoint: async () => {},
+    };
+    // The real union statement, answered from the owner keys the resolver
+    // actually asked for: the claimed source's line stays visible to any read
+    // set that still contains it, so an unauthorized key would surface as a
+    // foreign session line rather than as nothing at all.
+    const cartDb = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("WHERE claim.account_id = $1")) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes("WITH requested_owners")) {
+          const requested = [values[0], values[1], ...(Array.isArray(values[3]) ? values[3] : [])].filter(
+            (value): value is string => typeof value === "string",
+          );
+          const rows = [
+            ...(requested.includes(OTHER) ? [otherLine] : []),
+            ...(requested.includes(SOURCE) ? [sourceLine] : []),
+          ];
+          return { rows, rowCount: rows.length };
+        }
+        throw new Error(`unexpected SQL: ${sql}`);
+      }),
+    };
+    const cartRuntime = createCheckoutCartRuntime({
+      eventStore: cartMemory.eventStore,
+      checkpointStore,
+      db: cartDb,
+    });
+    const cart = {
+      ...cartRuntime,
+      createReadinessSnapshot: vi.fn<CheckoutCartServices["createReadinessSnapshot"]>(
+        cartRuntime.createReadinessSnapshot,
+      ),
+      resolveCartSourceAuthority: vi.fn<CheckoutCartServices["resolveCartSourceAuthority"]>(
+        cartRuntime.resolveCartSourceAuthority,
+      ),
+    } satisfies CheckoutCartServices;
+    const sessions = createCheckoutSessionRuntime({
+      eventStore: sessionMemory.eventStore,
+      checkpointStore,
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart,
+    });
+    const app = createTestApp<CheckoutApiEnv>({
+      actor: createBuyerActor({ accountId: OTHER }),
+      routes: (application) => {
+        application.route("/account", createAccountCartRoutes(cart));
+        application.route("/account", createAccountCheckoutSessionRoutes(sessions));
+      },
+    });
+    const outbound: { path: string; anonymousCartId: string | null }[] = [];
+
+    /**
+     * The transport the action's own API client runs on. Auth answers with the
+     * acting Account, everything under the marketplace API base path is served
+     * by the real Cart and Checkout Session routes above, and the public
+     * copy-merge route is deliberately absent: it belongs to #5737 rather than
+     * to this slice, and the action already treats its failure as best-effort.
+     */
+    const dispatch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input as never, init as never);
+      const url = new URL(request.url);
+      outbound.push({ path: url.pathname, anonymousCartId: request.headers.get("x-checkout-anonymous-cart-id") });
+
+      if (url.pathname === "/api/auth/session") {
+        return new Response(JSON.stringify({ actor: createBuyerActor({ accountId: OTHER }) }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (!url.pathname.startsWith(API_BASE_PATH)) {
+        return new Response(null, { status: 404 });
+      }
+
+      const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
+      return app.fetch(
+        new Request(new URL(`${url.pathname.slice(API_BASE_PATH.length)}${url.search}`, url.origin), {
+          method: request.method,
+          headers: request.headers,
+          ...(body === undefined ? {} : { body }),
+        }),
+      );
+    };
+
+    return {
+      app,
+      cart,
+      cartMemory,
+      sessionMemory,
+      dispatch,
+      accountApiCalls: () => outbound.filter((call) => call.path.startsWith(`${API_BASE_PATH}/account`)),
+      claimSourceFor: (accountId: string) =>
+        cartRuntime.commandHandler({
+          streamId: `checkout.cart-${SOURCE}`,
+          context: {
+            tenantId: "tnt_synthetic" as never,
+            audit: { performedByUserId: "usr_synthetic" as never, forAccountId: accountId as never },
+          },
+          command: { type: "ClaimCart", sourceOwnerKey: SOURCE, accountId: accountId as never },
+        }),
+    };
+  }
+
+  async function runCheckoutStart(harness: ReturnType<typeof composedHarness>, cookie: string) {
+    const form = new URLSearchParams();
+    form.set("source", "cart");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(harness.dispatch as typeof globalThis.fetch);
+    try {
+      return (await checkoutStartAction({
+        request: new Request("http://localhost/checkout/buy/readiness", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", cookie },
+          body: form.toString(),
+        }),
+        params: {},
+        context: undefined,
+      } as never)) as Response;
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  }
+
+  async function startThroughDirectHeader(harness: ReturnType<typeof composedHarness>) {
+    const readinessResponse = await harness.app.fetch(
+      new Request("http://localhost/account/cart/readiness", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-checkout-anonymous-cart-id": SOURCE },
+        body: "{}",
+      }),
+    );
+    const readiness = (await readinessResponse.json()) as { readiness: { snapshotId: string; sourceRevision: string } };
+
+    return harness.app.fetch(
+      new Request("http://localhost/account/checkout-sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-checkout-anonymous-cart-id": SOURCE },
+        body: JSON.stringify({
+          source: {
+            type: "cart",
+            readinessSnapshotId: readiness.readiness.snapshotId,
+            readinessSourceRevision: readiness.readiness.sourceRevision,
+            readinessDecisions: null,
+          },
+        }),
+      }),
+    );
+  }
+
+  function startedSourcing(memory: ReturnType<typeof createInMemoryEventStore>) {
+    const started = memory.allEvents.find((event) => event.eventType === "checkout.session.started")?.payload as
+      | { lines: readonly { cartLineId: string }[]; presentedAnonymousCartId: string | null }
+      | undefined;
+    return {
+      lines: [...(started?.lines ?? [])].map((line) => line.cartLineId).sort(),
+      presentedAnonymousCartId: started?.presentedAnonymousCartId,
+    };
+  }
+
+  it("refuses the retained cookie the production adapter presented, exactly as it refuses a typed header", async () => {
+    const composed = composedHarness();
+    const control = composedHarness();
+    await composed.claimSourceFor(OWNER);
+    await control.claimSourceFor(OWNER);
+
+    const redirect = await runCheckoutStart(composed, `${CHECKOUT_ANONYMOUS_CART_COOKIE_NAME}=${SOURCE}`);
+    const controlResponse = await startThroughDirectHeader(control);
+
+    expect(redirect.status).toBe(302);
+    expect(controlResponse.status).toBe(201);
+    // Ingress: the adapter, not this test, turned the cookie into the presented
+    // key, and every real outbound Cart and Checkout Session request carried it.
+    expect(composed.accountApiCalls()).toEqual([
+      { path: `${API_BASE_PATH}/account/cart/readiness`, anonymousCartId: SOURCE },
+      { path: `${API_BASE_PATH}/account/checkout-sessions`, anonymousCartId: SOURCE },
+    ]);
+    // Arrival: the real Cart runtime received the normalized key on both
+    // ingresses and decided it against the claimed stream's own aggregate.
+    expect(composed.cart.createReadinessSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: OTHER, presentedAnonymousCartId: SOURCE }),
+    );
+    expect(composed.cart.resolveCartSourceAuthority).toHaveBeenCalledWith({
+      actingOwnerKey: OTHER,
+      presentedAnonymousCartId: SOURCE,
+    });
+    // Outcome: refused, identically to the typed-header control.
+    expect(startedSourcing(composed.sessionMemory)).toEqual({
+      lines: ["cli_other_account"],
+      presentedAnonymousCartId: null,
+    });
+    expect(startedSourcing(composed.sessionMemory)).toEqual(startedSourcing(control.sessionMemory));
+    // No foreign Cart event, and no Checkout Session event bound to the claimed
+    // source, on either arm.
+    expect((composed.cartMemory.streams.get(`checkout.cart-${SOURCE}`) ?? []).map((event) => event.eventType)).toEqual([
+      "checkout.cart.claimed-by-account",
+    ]);
+    expect(JSON.stringify(composed.sessionMemory.allEvents)).not.toContain(SOURCE);
+    expect(JSON.stringify(control.sessionMemory.allEvents)).not.toContain(SOURCE);
+    // The key never reaches a response surface on either arm.
+    const redirectSurface = JSON.stringify([redirect.headers.get("location"), redirect.headers.getSetCookie()]);
+    const controlBody = await controlResponse.text();
+    expect(redirectSurface).not.toContain(SOURCE);
+    expect(redirectSurface).not.toContain("cli_source");
+    expect(controlBody).not.toContain(SOURCE);
+    expect(controlBody).not.toContain("cli_source");
+  });
+
+  it("presents no key at all when the retained cookie does not hold an anonymous cart id", async () => {
+    const composed = composedHarness();
+    await composed.claimSourceFor(OWNER);
+
+    const redirect = await runCheckoutStart(
+      composed,
+      `${CHECKOUT_ANONYMOUS_CART_COOKIE_NAME}=cart_synthetic_not_anonymous`,
+    );
+
+    // The adapter is a real gate, so the arm above is not this same request
+    // wearing a different label: a cookie the adapter rejects presents no key
+    // to the API at all, and nothing asks Cart to decide one.
+    expect(redirect.status).toBe(302);
+    expect(composed.accountApiCalls()).toEqual([
+      { path: `${API_BASE_PATH}/account/cart/readiness`, anonymousCartId: null },
+      { path: `${API_BASE_PATH}/account/checkout-sessions`, anonymousCartId: null },
+    ]);
+    expect(composed.cart.resolveCartSourceAuthority).not.toHaveBeenCalled();
+    expect(startedSourcing(composed.sessionMemory)).toEqual({
+      lines: ["cli_other_account"],
+      presentedAnonymousCartId: null,
+    });
   });
 });

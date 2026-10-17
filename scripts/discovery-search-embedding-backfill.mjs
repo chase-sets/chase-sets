@@ -114,7 +114,7 @@ async function main() {
   }
 
   const { register } = await import("node:module");
-  register("./typescript-source-loader.mjs", import.meta.url);
+  register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
   const [{ Pool }, enrichmentModule, providerModule] = await Promise.all([
     import("pg"),
     import("../bounded-contexts/discovery/features/search/read-model/embedding-enrichment.ts"),

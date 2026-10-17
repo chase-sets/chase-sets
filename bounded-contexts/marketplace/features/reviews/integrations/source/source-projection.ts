@@ -1,6 +1,7 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import { normalizeSupportRequestRemedyAuthorizedV1 } from "@chase-sets/event-core/platform-coverage-facts";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { syncReviewEligibilityForOrder, type ReviewEligibilityNotify } from "./eligibility-sync";
@@ -230,15 +231,17 @@ export function buildReviewShipmentSourceProjectionHandlers(
   }> = {},
 ): ProjectorHandlerMap {
   return {
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<
+        ChaseSetsEventPayloads,
+        "fulfillment.shipment.created" | "fulfillment.shipment.dispatched" | "fulfillment.shipment.delivered"
+      >
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO marketplace_review_shipment_sources (
+        await db.query(
+          `INSERT INTO marketplace_review_shipment_sources (
            shipment_id,
            order_id,
            status,
@@ -252,41 +255,36 @@ export function buildReviewShipmentSourceProjectionHandlers(
          ON CONFLICT (shipment_id) DO UPDATE SET
            order_id = EXCLUDED.order_id,
            updated_at = EXCLUDED.updated_at`,
-        [data.shipmentId, data.orderId, data.createdAt],
-      );
-    },
-    "fulfillment.shipment.dispatched": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        dispatchedAt: string;
-      };
+          [data.shipmentId, data.orderId, data.createdAt],
+        );
+      },
+      "fulfillment.shipment.dispatched": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE marketplace_review_shipment_sources
+        await db.query(
+          `UPDATE marketplace_review_shipment_sources
          SET status = 'dispatched',
              dispatched_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.dispatchedAt],
-      );
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        deliveredAt: string;
-      };
+          [data.shipmentId, data.dispatchedAt],
+        );
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE marketplace_review_shipment_sources
+        await db.query(
+          `UPDATE marketplace_review_shipment_sources
          SET status = 'delivered',
              delivered_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.deliveredAt],
-      );
+          [data.shipmentId, data.deliveredAt],
+        );
 
-      await options.onDeliveredShipment?.(data);
-    },
+        await options.onDeliveredShipment?.(data);
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;

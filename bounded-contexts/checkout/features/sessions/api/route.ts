@@ -9,8 +9,9 @@ import {
 import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
+import { normalizePresentedAnonymousCartId } from "../../cart/api/contracts";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
-import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./runtime";
+import { OrderCartCleanupError, type CheckoutSessionCreateResult, type CheckoutSessionServices } from "./runtime";
 import type { CheckoutSessionRow } from "../read-model/queries";
 import {
   createCheckoutOrdersThroughOrdering,
@@ -410,6 +411,10 @@ function sessionHasCommittedCheckoutSideEffects(session: CheckoutSessionRow) {
   );
 }
 
+function fulfillmentPreviewRevisionRequired() {
+  return new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
+}
+
 async function recordCheckoutFulfillmentPreviewSnapshot(
   request: Request,
   services: CheckoutSessionServices,
@@ -430,12 +435,13 @@ async function recordCheckoutFulfillmentPreviewSnapshot(
       shippingOption: options.shippingOption,
       shippingAddress: options.shippingAddress,
     }));
-  const fulfillmentPreviewRevision = String(
-    options.fulfillmentPreviewRevision ?? calculatedSnapshot?.revision ?? "",
-  ).trim();
+  // A blank caller revision falls back to the server-calculated revision, never to a caller-supplied snapshot's.
+  const fulfillmentPreviewRevision =
+    options.fulfillmentPreviewRevision?.trim() ||
+    (suppliedSnapshot ? "" : String(calculatedSnapshot?.revision ?? "").trim());
 
   if (!fulfillmentPreviewRevision) {
-    throw new CheckoutDomainError("Fulfillment preview must include a revision.", "fulfillment_preview_required");
+    throw fulfillmentPreviewRevisionRequired();
   }
 
   return services.recordFulfillmentPreview(
@@ -459,6 +465,7 @@ type CheckoutEntryIdempotencySource =
       readinessSnapshotId: string;
       readinessSourceRevision: string;
       readinessDecisions: ReturnType<typeof parseCartReadinessDecisionInput>;
+      presentedAnonymousCartId?: string;
     }>
   | Readonly<{
       type: "buy-now";
@@ -477,6 +484,7 @@ type CheckoutEntryIdempotencySource =
       productId: string;
       selectedOptions: ReturnType<typeof parseSelectedOptions>;
       offerPriceAmount: string;
+      offerPriceCurrencyCode: string;
       quantity: number;
     }>;
 
@@ -605,11 +613,22 @@ export function createAccountCheckoutSessionRoutes(
         const readinessSnapshotId = String(body.source.readinessSnapshotId ?? "");
         const readinessSourceRevision = String(body.source.readinessSourceRevision ?? "");
         const readinessDecisions = parseCartReadinessDecisionInput(body.source.readinessDecisions);
+        const presentedAnonymousCartId = normalizePresentedAnonymousCartId(
+          c.req.header("x-checkout-anonymous-cart-id"),
+        );
         const shippingOption = String(body.shippingOption ?? "standard");
         const optimizationGoal = parseOptimizationGoal(body.optimizationGoal);
+        const idempotencySource: CheckoutEntryIdempotencySource = {
+          type: "cart",
+          readinessSnapshotId,
+          readinessSourceRevision,
+          readinessDecisions,
+          ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
+        };
         const result = await services.createFromCart(
           {
             accountId: access.actor.accountId as AccountId,
+            ...(presentedAnonymousCartId ? { presentedAnonymousCartId } : {}),
             shippingOption,
             optimizationGoal,
             readinessSnapshotId,
@@ -618,12 +637,7 @@ export function createAccountCheckoutSessionRoutes(
             sessionIdOverride: checkoutEntrySessionId({
               accountId: access.actor.accountId as AccountId,
               entryAttemptKey,
-              source: {
-                type: "cart",
-                readinessSnapshotId,
-                readinessSourceRevision,
-                readinessDecisions,
-              },
+              source: idempotencySource,
               shippingOption,
               optimizationGoal,
             }),
@@ -678,6 +692,7 @@ export function createAccountCheckoutSessionRoutes(
         const catalogItemId = String(source.catalogItemId ?? "");
         const productId = String(source.productId ?? "");
         const offerPriceAmount = String(source.offerPriceAmount ?? source.priceAmount ?? "");
+        const offerPriceCurrencyCode = String(source.offerPriceCurrencyCode ?? source.priceCurrencyCode ?? "");
         const quantity = Number(source.quantity ?? source.quantityRequested ?? 0);
         const result = await services.createOfferIntent(
           {
@@ -693,6 +708,7 @@ export function createAccountCheckoutSessionRoutes(
                 ? null
                 : String(source.productSummary),
             offerPriceAmount,
+            offerPriceCurrencyCode,
             quantity,
             optimizationGoal,
             shippingOption,
@@ -705,6 +721,7 @@ export function createAccountCheckoutSessionRoutes(
                 productId,
                 selectedOptions,
                 offerPriceAmount,
+                offerPriceCurrencyCode,
                 quantity,
               },
               shippingOption,
@@ -1075,7 +1092,7 @@ export function createAccountCheckoutSessionRoutes(
     const parsedBody = await c.req.json().catch(() => ({}));
     const body = parsedBody && typeof parsedBody === "object" ? (parsedBody as Record<string, unknown>) : {};
     const fulfillmentPreviewRevision =
-      typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : "";
+      typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision.trim() : "";
 
     try {
       const session = await services.getSession(sessionId, access.actor.accountId);
@@ -1093,6 +1110,9 @@ export function createAccountCheckoutSessionRoutes(
 
       const suppliedPreview = body.fulfillmentPreviewSnapshot ?? body.fulfillmentPreview;
       const hasReviewInput = "shippingOption" in body || "shippingAddress" in body;
+      if (!fulfillmentPreviewRevision && !hasReviewInput) {
+        throw fulfillmentPreviewRevisionRequired();
+      }
       const result =
         fulfillmentPreviewRevision && !suppliedPreview && !hasReviewInput
           ? await services.recordFulfillmentPreview(
@@ -1223,6 +1243,15 @@ export function createAccountCheckoutSessionRoutes(
         );
       }
 
+      if (session.order_ids.length > 0) {
+        const cleanupResult = await services.resumeOrderCartCleanup(
+          { sessionId, accountId: access.actor.accountId as AccountId },
+          context,
+        );
+        writeSources.push(cleanupResult);
+        session = cleanupResult.session;
+      }
+
       if (session.payment_id) {
         recordConfirmationPendingHandoff(
           checkoutObservabilityTelemetry,
@@ -1234,6 +1263,7 @@ export function createAccountCheckoutSessionRoutes(
           payment_id: session.payment_id,
           order_ids: session.order_ids,
           status: "confirmed",
+          ...checkoutCommitMetadataFromSources(writeSources),
         });
       }
 
@@ -1326,52 +1356,65 @@ export function createAccountCheckoutSessionRoutes(
           sessionId,
           accountId: access.actor.accountId as AccountId,
         });
-        const reservationAttempt = await createCheckoutInventoryReservations(c.req.raw, readySession);
-        const checkoutReservations = [...reservationAttempt.reservations];
-        if (checkoutReservations.length > 0) {
-          const reservationResult = await services.recordCheckoutReservations(
+        session = readySession;
+        orderIds = [...readySession.order_ids];
+        if (orderIds.length > 0) {
+          const cleanupResult = await services.resumeOrderCartCleanup(
+            { sessionId, accountId: access.actor.accountId as AccountId },
+            context,
+          );
+          writeSources.push(cleanupResult);
+          session = cleanupResult.session;
+          orderIds = [...session.order_ids];
+        } else {
+          const reservationAttempt = await createCheckoutInventoryReservations(c.req.raw, readySession);
+          const checkoutReservations = [...reservationAttempt.reservations];
+          if (checkoutReservations.length > 0) {
+            const reservationResult = await services.recordCheckoutReservations(
+              {
+                sessionId,
+                accountId: access.actor.accountId as AccountId,
+                reservations: checkoutReservations,
+              },
+              context,
+            );
+            writeSources.push(reservationResult);
+          }
+          if (reservationAttempt.unavailableLines.length > 0) {
+            return c.json(
+              {
+                error: {
+                  code: "checkout_reservation_unavailable",
+                  message: t("checkout.features.sessions.api.route.checkout.reservation.unavailable"),
+                },
+                unavailableLines: reservationAttempt.unavailableLines,
+                ...checkoutCommitMetadataFromSources(writeSources),
+              },
+              409,
+            );
+          }
+          const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, readySession, {
+            fulfillmentPreviewRevision,
+            acknowledgedMaterialChanges,
+            checkoutReservations,
+          });
+          orderIds = checkoutOrders.orderIds;
+          orderCreationWriteResult = checkoutOrders.writeResult;
+          writeSources.push(orderCreationWriteResult);
+          const ordersResult = await services.recordOrdersCreated(
             {
               sessionId,
               accountId: access.actor.accountId as AccountId,
-              reservations: checkoutReservations,
+              orderIds,
+              fulfilledLineKeys: checkoutOrders.readyLineKeys,
+              orderWriteCommitPositions: orderingCommitPositionsFromSource(orderCreationWriteResult),
             },
             context,
           );
-          writeSources.push(reservationResult);
+          writeSources.push(ordersResult);
+          session = ordersResult.session;
+          orderIds = [...session.order_ids];
         }
-        if (reservationAttempt.unavailableLines.length > 0) {
-          return c.json(
-            {
-              error: {
-                code: "checkout_reservation_unavailable",
-                message: t("checkout.features.sessions.api.route.checkout.reservation.unavailable"),
-              },
-              unavailableLines: reservationAttempt.unavailableLines,
-              ...checkoutCommitMetadataFromSources(writeSources),
-            },
-            409,
-          );
-        }
-        const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, readySession, {
-          fulfillmentPreviewRevision,
-          acknowledgedMaterialChanges,
-          checkoutReservations,
-        });
-        orderIds = checkoutOrders.orderIds;
-        orderCreationWriteResult = checkoutOrders.writeResult;
-        writeSources.push(orderCreationWriteResult);
-        const ordersResult = await services.recordOrdersCreated(
-          {
-            sessionId,
-            accountId: access.actor.accountId as AccountId,
-            orderIds,
-            fulfilledLineKeys: checkoutOrders.readyLineKeys,
-            orderWriteCommitPositions: orderingCommitPositionsFromSource(orderCreationWriteResult),
-          },
-          context,
-        );
-        writeSources.push(ordersResult);
-        session = ordersResult.session;
       }
 
       const orderInputFreshnessSource = paymentOrderInputFreshnessSource(session, orderCreationWriteResult);
@@ -1409,9 +1452,18 @@ export function createAccountCheckoutSessionRoutes(
         order_ids: orderIds,
         status: "confirmed",
         session,
-        ...checkoutCommitMetadataFromSources([payment, paymentResult]),
+        ...checkoutCommitMetadataFromSources([...writeSources, payment, paymentResult]),
       });
     } catch (error) {
+      if (error instanceof OrderCartCleanupError) {
+        return c.json(
+          {
+            error: { code: error.code, message: error.message },
+            ...checkoutCommitMetadataFromSources([...writeSources, error.commitMetadata]),
+          },
+          400,
+        );
+      }
       const stalePaymentQuote = paymentQuoteRequiredFromStaleFeeQuote(error, writeSources);
       if (stalePaymentQuote) {
         return c.json(stalePaymentQuote, 409);

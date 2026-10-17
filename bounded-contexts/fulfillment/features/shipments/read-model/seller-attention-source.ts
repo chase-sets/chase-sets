@@ -103,7 +103,8 @@ export function createShipByAttentionSourceFromReadModel(db: PgQueryable): Selle
            COALESCE(line_stats.line_count, 0)::integer AS line_count,
            COALESCE(line_stats.total_quantity, 0)::integer AS total_quantity,
            page.created_at,
-           page.updated_at
+           page.updated_at,
+           COALESCE(conflict_stats.conflicts, '[]'::jsonb) AS conflicts
          FROM fulfillment_shipment_pages AS page
          LEFT JOIN fulfillment_account_pages AS buyer
            ON buyer.account_id = page.buyer_account_id
@@ -113,8 +114,29 @@ export function createShipByAttentionSourceFromReadModel(db: PgQueryable): Selle
            GROUP BY shipment_id
          ) AS line_stats
            ON line_stats.shipment_id = page.shipment_id
+         LEFT JOIN (
+           SELECT
+             conflict.shipment_id,
+             jsonb_agg(
+               jsonb_build_object(
+                 'order_id', conflict.order_id,
+                 'conflict_kind', conflict.conflict_kind,
+                 'origin', conflict.origin,
+                 'reason', conflict.reason,
+                 'shipment_status', conflict.shipment_status,
+                 'detected_at', conflict.detected_at
+               ) ORDER BY conflict.conflict_kind, conflict.origin
+             ) AS conflicts
+           FROM fulfillment_shipment_conflict_pages AS conflict
+           GROUP BY conflict.shipment_id
+         ) AS conflict_stats
+           ON conflict_stats.shipment_id = page.shipment_id
          WHERE page.seller_account_id = $1
-           AND page.status IN ('awaiting-package', 'packing', 'awaiting-label', 'label-attached', 'exception')
+           AND page.status <> 'cancelled'
+           AND (
+             page.status IN ('awaiting-package', 'packing', 'awaiting-label', 'label-attached', 'exception')
+             OR conflict_stats.shipment_id IS NOT NULL
+           )
          ORDER BY page.created_at ASC, page.shipment_id ASC`,
         [context.accountId],
       );

@@ -3,6 +3,8 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildWalletProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    // The receipt is read from the Wallet stream; this fact must not change any balance or lifecycle projection.
+    "settlement.wallet.staging-proof-credit-posted": async () => {},
     "settlement.wallet.opened": async (event, context) => {
       const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {

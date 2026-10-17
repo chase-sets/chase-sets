@@ -11,11 +11,16 @@ function variable(name, value) {
 
 const completeVariables = [
   variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "false"),
+  variable("PRODUCTION_MARKETPLACE_SERVED", "false"),
   variable("PRODUCTION_MARKETPLACE_PROOF_ENABLED", "false"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_APPROVED", "true"),
   variable("PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE", "LAUNCH-REVIEW-2026-05-30"),
   variable("PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED", "true"),
   variable("PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE", "PAYMENTS-FEE-2026-05-30"),
+  variable("PRODUCTION_PAYOUT_FEE_APPROVED", "true"),
+  variable("PRODUCTION_PAYOUT_FEE_REFERENCE", "SETTLEMENT-PAYOUT-FEE-2026-09-11"),
+  variable("PRODUCTION_WALLET_FUNDING_APPROVED", "true"),
+  variable("PRODUCTION_WALLET_FUNDING_REFERENCE", "SYNTHETIC-WALLET-FUNDING-APPROVAL-2026-09-27"),
   variable("PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED", "true"),
   variable("PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE", "CHECKOUT-LAUNCH-2026-05-30"),
   variable("PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED", "true"),
@@ -141,6 +146,25 @@ describe("marketplace production environment snapshot", () => {
     expect(snapshot.passesProductionEnvSnapshotGate).toBe(false);
     expect(snapshot.errors).toContain(
       "PRODUCTION_MARKETPLACE_PROOF_ENABLED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.",
+    );
+  });
+
+  it("rejects serving and public launch being enabled together", () => {
+    const snapshot = buildProductionEnvSnapshot({
+      variables: [
+        ...completeVariables.filter(
+          (row) => row.name !== "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED" && row.name !== "PRODUCTION_MARKETPLACE_SERVED",
+        ),
+        variable("PRODUCTION_MARKETPLACE_PUBLIC_ENABLED", "true"),
+        variable("PRODUCTION_MARKETPLACE_SERVED", "true"),
+      ],
+      environmentName: "production",
+      checkedAt: "2026-05-30T12:00:00.000Z",
+    });
+
+    expect(snapshot.passesProductionEnvSnapshotGate).toBe(false);
+    expect(snapshot.errors).toContain(
+      "PRODUCTION_MARKETPLACE_SERVED must be false when PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true.",
     );
   });
 

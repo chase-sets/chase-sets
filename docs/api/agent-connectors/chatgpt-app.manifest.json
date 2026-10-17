@@ -33,7 +33,7 @@
           "Public OAuth clients only; token_endpoint_auth_method must be none.",
           "No client_secret, jwks, or jwks_uri is accepted, stored, or returned.",
           "redirect_uris and platform_profile_url/client_uri must be HTTPS URLs or localhost HTTP URLs.",
-          "Registered scopes are limited to the advertised UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
+          "Registered scopes must be recognized UCP OAuth scopes; authorization requests cannot exceed registered scopes.",
           "Authorization Code with PKCE S256 is required."
         ],
         "confidential_credential_policy": "not-used"
@@ -52,6 +52,7 @@
     "inventory.get-import-batch",
     "inventory.commit-import-batch",
     "inventory.adjust-item",
+    "inventory.get-mutation-attempt",
     "marketplace.get-seller-attention-queue",
     "marketplace.list-listings",
     "marketplace.get-seller-insights",
@@ -60,6 +61,7 @@
     "marketplace.list-reviews",
     "marketplace.submit-offer",
     "marketplace.counter-offer",
+    "marketplace.update-offer-price",
     "marketplace.create-listing",
     "marketplace.update-listing-price",
     "marketplace.publish-listing",
@@ -84,6 +86,7 @@
     "fulfillment.get-tracking",
     "fulfillment.purchase-label",
     "fulfillment.advance-shipment",
+    "fulfillment.cancel-shipment",
     "fulfillment.dispatch-shipment",
     "fulfillment.raise-shipment-exception",
     "fulfillment.void-label",
@@ -96,8 +99,7 @@
     "settlement.create-payout-onboarding-link",
     "platform-operations.get-seller-insight-summary",
     "platform-operations.list-support-requests",
-    "platform-operations.get-support-request",
-    "platform-operations.get-offer-economics-summary"
+    "platform-operations.get-support-request"
   ],
   "resource_uri_templates": [
     "chase-sets://authenticity/cases/{caseId}",
@@ -117,8 +119,7 @@
     "chase-sets://settlement/{accountId}/wallet",
     "chase-sets://settlement/{accountId}/payouts/{payoutId}",
     "chase-sets://platform-operations/{accountId}/insights/summary",
-    "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}",
-    "chase-sets://platform-operations/offer-economics/summary"
+    "chase-sets://platform-operations/{accountId}/support-requests/{supportRequestId}"
   ],
   "platform_notes": [
     "Register as a ChatGPT app backed by the native remote MCP endpoint.",

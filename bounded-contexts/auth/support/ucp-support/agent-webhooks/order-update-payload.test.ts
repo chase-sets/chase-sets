@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import { mapOrderLifecycleEventToOrderUpdate } from "./order-update-payload";
+import { classifyShipmentDispatchedPayload, mapOrderLifecycleEventToOrderUpdate } from "./order-update-payload";
 
 function event(type: string, data: Record<string, unknown>, id = "evt_1"): TransportEvent {
   return buildTransportEvent(type, data, {
@@ -38,6 +38,48 @@ describe("order lifecycle → UCP order-update mapping", () => {
     expect(mapped?.orderIds).toEqual(["ord_9"]);
     expect(mapped?.recipientAccountId).toBeNull();
     expect(mapped?.buildPayload("ord_9").data.shipmentId).toBe("shp_1");
+  });
+
+  it("maps a completely enriched shipment.dispatched event from its own routing facts", () => {
+    const mapped = mapOrderLifecycleEventToOrderUpdate(
+      event("fulfillment.shipment.dispatched", {
+        shipmentId: "shp_1",
+        orderId: "ord_1",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        trackingIdentifier: "1Z999",
+        dispatchedAt: "2026-07-08T00:00:00.000Z",
+      }),
+    );
+
+    expect(mapped?.status).toBe("shipped");
+    expect(mapped?.orderIds).toEqual(["ord_1"]);
+    expect(mapped?.recipientAccountId).toBe("acc_buyer");
+    expect(mapped?.buildPayload("ord_1").data).toEqual({
+      shipmentId: "shp_1",
+      dispatchedAt: "2026-07-08T00:00:00.000Z",
+    });
+  });
+
+  it("rejects partial and malformed shipment.dispatched routing sets", () => {
+    expect(
+      classifyShipmentDispatchedPayload({
+        orderId: "ord_1",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+      }),
+    ).toEqual({ kind: "rejected" });
+    expect(
+      mapOrderLifecycleEventToOrderUpdate(
+        event("fulfillment.shipment.dispatched", {
+          shipmentId: "shp_1",
+          orderId: "ord_1",
+          buyerAccountId: "acc_buyer",
+          sellerAccountId: 42,
+          trackingIdentifier: "1Z999",
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("maps shipment.delivered with its buyer account", () => {

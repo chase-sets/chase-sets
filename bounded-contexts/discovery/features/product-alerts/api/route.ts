@@ -134,6 +134,10 @@ export function createProductAlertRoutes(services: ProductAlertServices) {
             body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
           thresholdAmount:
             body.thresholdAmount === null || body.thresholdAmount === undefined ? null : String(body.thresholdAmount),
+          thresholdCurrencyCode:
+            body.thresholdCurrencyCode === null || body.thresholdCurrencyCode === undefined
+              ? null
+              : String(body.thresholdCurrencyCode),
         },
         context,
       );
@@ -262,6 +266,10 @@ export function createGuestProductAlertRoutes(
             body.productSummary === null || body.productSummary === undefined ? null : String(body.productSummary),
           thresholdAmount:
             body.thresholdAmount === null || body.thresholdAmount === undefined ? null : String(body.thresholdAmount),
+          thresholdCurrencyCode:
+            body.thresholdCurrencyCode === null || body.thresholdCurrencyCode === undefined
+              ? null
+              : String(body.thresholdCurrencyCode),
         }),
         201,
       );

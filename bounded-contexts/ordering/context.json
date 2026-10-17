@@ -7,7 +7,7 @@
   "apiBasePath": "/api/marketplace",
   "slices": ["orders", "postage-policies", "tax-quotes", "tax-nexus"],
   "allowedSupportDirectories": ["account-support", "request-support", "runtime-support", "seed-support", "ucp-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
   "seedRequirements": ["catalog", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
@@ -29,7 +29,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "ordering-marketplace-supply-input-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "filterToEventTypes": true,
       "eventTypes": [
         "marketplace.listing.created",
@@ -52,7 +52,11 @@
       "projectionName": "ordering-marketplace-supply-input-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 31,
       "projectionHandlerSetNames": ["ordering-marketplace-supply-input-projection"]
     },
@@ -90,16 +94,16 @@
     {
       "sourceContextName": "ordering",
       "projectionName": "ordering-order-review-opportunity-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
-      "eventTypes": ["ordering.order.created"],
+      "eventTypes": ["ordering.order.created", "ordering.order.cancelled"],
       "order": 69,
       "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
     },
     {
       "sourceContextName": "fulfillment",
       "projectionName": "ordering-order-review-opportunity-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": ["fulfillment.shipment.created", "fulfillment.shipment.delivered"],
       "order": 71,
@@ -108,12 +112,13 @@
     {
       "sourceContextName": "platform-operations",
       "projectionName": "ordering-order-review-opportunity-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "support.support-request.opened",
         "support.support-request.resolved",
-        "support.support-request.cancelled"
+        "support.support-request.cancelled",
+        "support.support-request.remedy-authorized.v1"
       ],
       "order": 72,
       "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
@@ -121,9 +126,21 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "ordering-order-review-opportunity-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
-      "eventTypes": ["marketplace.review.submitted", "marketplace.review.updated", "marketplace.review.withdrawn"],
+      "eventTypes": [
+        "marketplace.review.submitted",
+        "marketplace.review.updated",
+        "marketplace.review.withdrawn",
+        "marketplace.review.revealed",
+        "marketplace.review-hold.placed",
+        "marketplace.review-hold.extended",
+        "marketplace.review-hold.reduced",
+        "marketplace.review-hold.released",
+        "marketplace.review-hold.terminal-recorded",
+        "marketplace.review-scoring.disposition-projected.v1",
+        "marketplace.review-opportunity.changed.v1"
+      ],
       "order": 73,
       "projectionHandlerSetNames": ["ordering-order-review-opportunity-projection"]
     },
@@ -184,7 +201,7 @@
     {
       "sourceContextName": "marketplace",
       "reactionName": "ordering-marketplace-offer-acceptance",
-      "subscriptionVersion": 3,
+      "subscriptionVersion": 4,
       "filterToEventTypes": true,
       "eventTypes": ["marketplace.offer.accepted"],
       "order": 50,
@@ -293,11 +310,14 @@
     {
       "projectionName": "ordering-order-review-opportunity-projection",
       "sourceContextNames": ["ordering", "fulfillment", "platform-operations", "marketplace"],
+      "projectionRevision": 2,
       "ownedTables": [
         "ordering_order_review_shipment_sources",
         "ordering_order_review_support_request_sources",
         "ordering_order_review_eligibility_pages",
-        "ordering_order_review_pages"
+        "ordering_order_review_pages",
+        "ordering_order_review_opportunity_pages",
+        "ordering_order_review_opportunity_sources"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
@@ -337,6 +357,11 @@
       "portName": "authenticityFeePolicyResolver",
       "providedBy": "commercial-terms",
       "purpose": "Resolves the authenticity-check fee policy (m109 #4275) so Ordering can offer and freeze the buyer opt-in fee at checkout preview and order-creation time."
+    },
+    {
+      "portName": "inventoryCleanupAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Required available|not-mounted capability supplying Inventory's read-only reservation and Hold cleanup authority (#7222) so Ordering can decide cleanup from complete Inventory source streams without importing Inventory or reading a projection."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -348,7 +373,7 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
-          "routePath": "/purchases/:id",
+          "routePath": "/account/purchases/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -361,7 +386,7 @@
               "readModelTable": "ordering_order_hold_pages"
             },
             {
-              "readModelTable": "ordering_order_review_eligibility_pages"
+              "readModelTable": "ordering_order_review_opportunity_pages"
             },
             {
               "readModelTable": "ordering_order_review_pages"
@@ -369,7 +394,7 @@
           ]
         },
         {
-          "routePath": "/sales/:id",
+          "routePath": "/account/sales/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -382,7 +407,7 @@
               "readModelTable": "ordering_order_hold_pages"
             },
             {
-              "readModelTable": "ordering_order_review_eligibility_pages"
+              "readModelTable": "ordering_order_review_opportunity_pages"
             },
             {
               "readModelTable": "ordering_order_review_pages"
@@ -390,7 +415,7 @@
           ]
         },
         {
-          "routePath": "/sales",
+          "routePath": "/account/sales",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             {
@@ -453,7 +478,7 @@
       "destination": {
         "routeId": "account-sales",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales",
+        "apiRoutePath": "/account/sales",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages"],
         "projectionDependencies": ["ordering-marketplace-offer-acceptance"],
         "freshnessDependencyReason": "The sales list must wait for the Marketplace accepted-offer process that creates the Ordering order, then wait on the Ordering-owned sale list read models when an Ordering receipt is present. Account and fulfillment joins are display/cancellation adornments and must not gate the accepted-offer handoff.",
@@ -482,7 +507,7 @@
       "destination": {
         "routeId": "account-purchase",
         "apiContextName": "ordering",
-        "apiRoutePath": "/purchases/:id",
+        "apiRoutePath": "/account/purchases/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -509,7 +534,7 @@
       "destination": {
         "routeId": "account-sale",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales/:id",
+        "apiRoutePath": "/account/sales/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
@@ -625,7 +650,7 @@
       "visibleDestination": {
         "routeId": "account-purchase",
         "apiContextName": "ordering",
-        "apiRoutePath": "/purchases/:id",
+        "apiRoutePath": "/account/purchases/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -648,7 +673,7 @@
       "visibleDestination": {
         "routeId": "account-sale",
         "apiContextName": "ordering",
-        "apiRoutePath": "/sales/:id",
+        "apiRoutePath": "/account/sales/:id",
         "readModelTables": ["ordering_order_pages", "ordering_order_line_pages", "ordering_order_hold_pages"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
@@ -715,8 +740,27 @@
       "proof": {
         "tests": ["bounded-contexts/ordering/tests/postage-policy-routes.test.ts"]
       }
+    },
+    {
+      "id": "ordering.purchase-cleanup-authority-observation",
+      "owner": "ordering",
+      "risk": "internal",
+      "strategy": "read-model-neutral",
+      "surfaces": [
+        "api-route:bounded-contexts/ordering/features/orders/api/route.ts:POST /purchases/:id/cleanup-authority"
+      ],
+      "exception": {
+        "owner": "ordering",
+        "reason": "observeOrderCleanupAuthority performs no write: it folds the complete ordering.order-* stream and reads Inventory reservation/Hold authority through a read-only host capability, so there is no post-write read and no read model to go stale. The POST verb carries the durable window instant as request state, not a mutation.",
+        "reviewBy": "2027-02-22",
+        "issue": "#7222"
+      }
     }
   ],
+  "agentCoverage": {
+    "ordering-postage-policies": { "pending": "#9238" },
+    "ordering-postage-policies-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -747,28 +791,108 @@
           "routePath": "account/purchases/:purchaseId",
           "fileExport": "./routes/account-purchase",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-purchases",
           "routePath": "account/purchases",
           "fileExport": "./routes/account-purchases",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-sale",
           "routePath": "account/sales/:orderId",
           "fileExport": "./routes/account-sale",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-sales",
           "routePath": "account/sales",
           "fileExport": "./routes/account-sales",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "ordering",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }
@@ -793,20 +917,24 @@
       "label": "Purchases",
       "icon": "bag",
       "href": "/account/purchases",
-      "order": 170,
+      "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view"]
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "key": "sales",
       "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
       "icon": "dollar",
       "href": "/account/sales",
+      "parentKey": "selling-workspace",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view", "listings.view"]
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
@@ -815,20 +943,26 @@
       "label": "Purchases",
       "icon": "bag",
       "href": "/account/purchases",
-      "order": 170,
+      "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view"]
+      "requiredPermissions": ["orders.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 400
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "sales",
       "label": "Sales",
+      "labelKey": "ordering.shell.sales.label",
       "icon": "dollar",
       "href": "/account/sales",
+      "parentKey": "selling-workspace",
       "order": 190,
       "visibility": "signed-in",
-      "requiredPermissions": ["orders.view", "listings.view"]
+      "requiredPermissions": ["orders.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {

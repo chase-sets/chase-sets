@@ -1,12 +1,56 @@
 import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useLocation } from "react-router";
+import { getMutationResultCommandReceipt, navigateAfterWrite } from "@chase-sets/http/responses";
+import { useActionData, useLoaderData, useLocation, useNavigate } from "react-router";
+import { useEffect, useRef, useState } from "react";
 import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import contextManifest from "../../context.json";
 import { createInventoryRequestApiClient, type InventoryItemDetail } from "../../support/request-support/api-client";
 import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
 import { InventoryItemDetailPage } from "../../features/inventory-items/ui/inventory-item-detail-page";
+import { createOfflineSaleFormToken, submitOfflineSaleForm } from "../../features/inventory-items/ui/offline-sale-form";
+import type { InventoryOfflineSaleResult } from "../../client";
+import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
+
+type OfflineSaleActionData = Readonly<{
+  offlineSale: InventoryOfflineSaleResult;
+  commandReceipt: ReturnType<typeof getMutationResultCommandReceipt>;
+}>;
+
+type InventoryItemActionIntent = "adjust-item" | "record-offline-sale" | "create-hold" | "release-hold";
+
+export type InventoryItemActionErrorData = Readonly<{
+  error: string;
+  intent: InventoryItemActionIntent;
+}>;
+
+function isOfflineSaleActionData(value: unknown): value is OfflineSaleActionData {
+  return typeof value === "object" && value !== null && "offlineSale" in value && "commandReceipt" in value;
+}
+
+function isInventoryItemActionErrorData(value: unknown): value is InventoryItemActionErrorData {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    "intent" in value &&
+    ["adjust-item", "record-offline-sale", "create-hold", "release-hold"].includes(String(value.intent))
+  );
+}
+
+export function inventoryItemActionFeedback(actionData: unknown) {
+  const actionError = isInventoryItemActionErrorData(actionData) ? actionData : null;
+  const message =
+    typeof actionData === "object" && actionData !== null && "message" in actionData
+      ? String(actionData.message ?? "")
+      : null;
+
+  return {
+    offlineSaleErrorMessage: actionError?.intent === "record-offline-sale" ? actionError.error : null,
+    pageErrorMessage: actionError?.intent !== "record-offline-sale" ? (actionError?.error ?? message) : null,
+  };
+}
 
 export const loader = defineResourceRoute({
   manifest: contextManifest,
@@ -14,7 +58,13 @@ export const loader = defineResourceRoute({
   authorization: { permission: "inventory.view" },
   errorAdapter: inventoryApiErrorAdapter,
   load: ({ request, params }) => createInventoryRequestApiClient(request).getItem(params.itemId!),
-  map: (item) => ({ item }),
+  map: (item, { actor }) => ({
+    recoveryAuthority: { accountId: actor!.accountId, actorUserId: actor!.userId },
+    item,
+    canRecordOfflineSale: actor?.permissions.includes("inventory.manage") ?? false,
+    canHonorOffline: actor?.roleKey === "owner" || actor?.roleKey === "manager",
+    offlineSaleFormToken: createOfflineSaleFormToken(),
+  }),
   messages: {
     pending: "Inventory item is still updating. Reload this page in a moment.",
     unverified: "Inventory item update could not be verified. Reload this page and try again.",
@@ -25,9 +75,15 @@ export const loader = defineResourceRoute({
 export const action = defineFormAction({
   authorization: { permission: "inventory.manage" },
   errorAdapter: inventoryApiErrorAdapter,
+  onApiError: (error, { intent }) => ({
+    error: inventoryApiErrorAdapter.getMessage(error),
+    intent: intent as InventoryItemActionIntent,
+  }),
   intents: {
     "adjust-item": async ({ request, params, formData }) => {
-      const result = await createInventoryRequestApiClient(request).adjustItem(params.itemId!, {
+      const result = await createInventoryRequestApiClient(request, {
+        mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+      }).adjustItem(params.itemId!, {
         quantityDelta: Number(formData.get("quantityDelta") ?? 0),
         reason: formData.get("reason"),
         reasonCode: formData.get("reasonCode"),
@@ -38,9 +94,20 @@ export const action = defineFormAction({
       }
       return formActionRedirect(result, new URL(request.url).pathname);
     },
+    "record-offline-sale": async ({ request, params, formData }) => {
+      const offlineSale = await submitOfflineSaleForm(
+        createInventoryRequestApiClient(request),
+        params.itemId!,
+        formData,
+      );
+      const commandReceipt = getMutationResultCommandReceipt(offlineSale);
+      return { offlineSale, commandReceipt };
+    },
     "create-hold": async ({ request, params, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).createHold(params.itemId!, {
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).createHold(params.itemId!, {
           quantity: Number(formData.get("quantity") ?? 0),
           reason: formData.get("reason"),
           notes: String(formData.get("notes") ?? "").trim() || null,
@@ -49,7 +116,9 @@ export const action = defineFormAction({
       ),
     "release-hold": async ({ request, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).releaseHold(String(formData.get("holdId") ?? "")),
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).releaseHold(String(formData.get("holdId") ?? "")),
         new URL(request.url).pathname,
       ),
   },
@@ -65,14 +134,86 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceInventoryItemRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { error?: string; message?: string } | undefined;
+  const actionData = useActionData<typeof action>() as
+    | InventoryItemActionErrorData
+    | { message?: string }
+    | OfflineSaleActionData
+    | undefined;
   const location = useLocation();
+  const navigate = useNavigate();
+  const handledReceipt = useRef<string | null>(null);
+  const offlineSaleAction = isOfflineSaleActionData(actionData) ? actionData : null;
+  const [preservedOfflineSaleFormToken, setPreservedOfflineSaleFormToken] = useState(data.offlineSaleFormToken);
+  const [retainedReceiptlessOfflineSaleResult, setRetainedReceiptlessOfflineSaleResult] =
+    useState<InventoryOfflineSaleResult | null>(null);
+  const currentPath = `${location.pathname}${location.search}`;
+  const stateResult = (location.state as { offlineSaleResult?: InventoryOfflineSaleResult } | null)?.offlineSaleResult;
+  const actionFeedback = inventoryItemActionFeedback(actionData);
+  const hasOfflineSaleError = actionFeedback.offlineSaleErrorMessage !== null;
+
+  const currentReceiptlessResult = hasOfflineSaleError ? retainedReceiptlessOfflineSaleResult : null;
+  const visibleOfflineSaleResult =
+    offlineSaleAction?.offlineSale ?? currentReceiptlessResult ?? (hasOfflineSaleError ? null : stateResult) ?? null;
+  const offlineSaleVerificationState = offlineSaleAction
+    ? offlineSaleAction.commandReceipt
+      ? "pending"
+      : "unverified"
+    : currentReceiptlessResult
+      ? "unverified"
+      : stateResult && !hasOfflineSaleError
+        ? "fresh"
+        : undefined;
+  const visibleOfflineSaleFormToken =
+    offlineSaleAction || currentReceiptlessResult ? preservedOfflineSaleFormToken : data.offlineSaleFormToken;
+
+  useEffect(() => {
+    if (!offlineSaleAction && !hasOfflineSaleError) {
+      setPreservedOfflineSaleFormToken(data.offlineSaleFormToken);
+    }
+  }, [data.offlineSaleFormToken, hasOfflineSaleError, offlineSaleAction]);
+
+  useEffect(() => {
+    setRetainedReceiptlessOfflineSaleResult(null);
+  }, [stateResult]);
+
+  useEffect(() => {
+    if (offlineSaleAction && !offlineSaleAction.commandReceipt) {
+      setRetainedReceiptlessOfflineSaleResult(offlineSaleAction.offlineSale);
+    }
+  }, [offlineSaleAction]);
+
+  useEffect(() => {
+    if (!offlineSaleAction?.commandReceipt) {
+      return;
+    }
+
+    const receiptKey = JSON.stringify(offlineSaleAction.commandReceipt);
+    if (handledReceipt.current === receiptKey) {
+      return;
+    }
+    handledReceipt.current = receiptKey;
+    navigate(navigateAfterWrite(offlineSaleAction, currentPath), {
+      replace: true,
+      state: { offlineSaleResult: offlineSaleAction.offlineSale },
+    });
+  }, [currentPath, navigate, offlineSaleAction]);
 
   return (
-    <InventoryItemDetailPage
-      item={data.item as InventoryItemDetail}
-      currentPath={`${location.pathname}${location.search}`}
-      errorMessage={actionData?.error ?? actionData?.message ?? null}
-    />
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority}
+      key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
+    >
+      <InventoryItemDetailPage
+        item={data.item as InventoryItemDetail}
+        currentPath={currentPath}
+        canRecordOfflineSale={data.canRecordOfflineSale}
+        canHonorOffline={data.canHonorOffline}
+        offlineSaleFormToken={visibleOfflineSaleFormToken}
+        offlineSaleResult={visibleOfflineSaleResult}
+        offlineSaleVerificationState={offlineSaleVerificationState}
+        errorMessage={actionFeedback.pageErrorMessage}
+        offlineSaleErrorMessage={actionFeedback.offlineSaleErrorMessage}
+      />
+    </InventoryMutationProvider>
   );
 }

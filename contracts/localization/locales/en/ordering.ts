@@ -155,9 +155,13 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.api.route.authentication.context.missing": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.context.missing.2": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.context.missing.3": "Authentication context missing.",
+  "ordering.features.orders.api.route.authentication.context.missing.4": "Authentication context missing.",
   "ordering.features.orders.api.route.authentication.required": "Authentication required.",
   "ordering.features.orders.api.route.authenticity.fee.quote.stale":
     "The authenticity check fee changed. Review the updated fee before continuing.",
+  "ordering.features.orders.api.route.cleanup.authority.incomplete": "Cleanup authority is incomplete.",
+  "ordering.features.orders.api.route.cleanup.authority.invalid": "Cleanup authority request is invalid.",
+  "ordering.features.orders.api.route.cleanup.authority.not.found": "Cleanup authority is unavailable.",
   "ordering.features.orders.api.route.forbidden": "Forbidden.",
   "ordering.features.orders.api.route.purchase.not.found": "Purchase not found.",
   "ordering.features.orders.api.route.request.failed": "Request failed.",
@@ -182,6 +186,15 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.protection.included.description":
     "Included in the Shipping amount; never added as a separate buyer fee.",
   "ordering.features.orders.ui.orderDetailPage.cancel": "Cancel ",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.cancel": "Keep sale",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.confirm": "Cancel sale",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.description":
+    "The buyer will receive a full refund, and this cancellation will be recorded in your seller cancellation rate.",
+  "ordering.features.orders.ui.orderDetailPage.cancel.sale.confirm.title": "Cancel this sale?",
+  "ordering.features.orders.ui.orderDetailPage.cancellation.window.fulfillment.started":
+    "The seller has started packing. Contact support for help with this {projectionLabel}.",
+  "ordering.features.orders.ui.orderDetailPage.cancellation.window.open":
+    "You can cancel this {projectionLabel} until the seller starts packing.",
   "ordering.features.orders.ui.orderDetailPage.counterparty": "Counterparty",
   "ordering.features.orders.ui.orderDetailPage.inventory.holds": "Inventory Holds",
   "ordering.features.orders.ui.orderDetailPage.inventory.item": "Inventory item ",
@@ -216,6 +229,7 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.seller.protection": "Seller Protection",
   "ordering.features.orders.ui.orderDetailPage.secure.payment": "Secure payment",
   "ordering.features.orders.ui.orderDetailPage.shipping": "Shipping",
+  "ordering.features.orders.ui.orderDetailPage.shipping.destination": "Shipping destination",
   "ordering.features.orders.ui.orderDetailPage.shipping.allowance": "Shipping allowance",
   "ordering.features.orders.ui.orderDetailPage.order.protection": "Order protection",
   "ordering.features.orders.ui.orderDetailPage.shipping.overage": "Shipping overage",
@@ -223,6 +237,8 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.source": "Source",
   "ordering.features.orders.ui.orderDetailPage.standard": "Standard",
   "ordering.features.orders.ui.orderDetailPage.status": "Status",
+  "ordering.features.orders.ui.orderDetailPage.delivered": "Delivered",
+  "ordering.features.orders.ui.orderDetailPage.delivered.at": "Delivered at",
   "ordering.features.orders.ui.orderDetailPage.status.2": "Status",
   "ordering.features.orders.ui.orderDetailPage.support.reference": "Support reference",
   "ordering.features.orders.ui.orderDetailPage.tax": "Tax",
@@ -263,13 +279,9 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderListPage.seller.payout": "Seller payout",
   "ordering.features.orders.ui.orderListPage.total": "Total",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.leave.account.review": "Leave account review",
-  "ordering.features.orders.ui.orderReviewOpportunityCallout.account.response": "Account response",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.awaiting.reveal": "Awaiting publication",
-  "ordering.features.orders.ui.orderReviewOpportunityCallout.context.only": "Published, context only",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.revealed": "Published",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.open.your.review": "Open your review",
-  "ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies":
-    "Reviews open only after delivery verifies both accounts in the transaction.",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.your.account.review.is.already.active":
     "Your account review is already active.",
   "ordering.features.orders.ui.orderOutcome.title": "Order outcome",
@@ -280,7 +292,7 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderOutcome.review.held": "Review paused",
   "ordering.features.orders.ui.orderOutcome.review.held.description":
     "Issue is being resolved before feedback continues.",
-  "ordering.features.orders.ui.orderOutcome.review.expired": "Review window expired",
+  "ordering.features.orders.ui.orderOutcome.review.expired": "Review window closed",
   "ordering.features.orders.ui.orderOutcome.review.expired.description":
     "The feedback window for this order has closed.",
   "ordering.features.orders.ui.orderOutcome.review.ineligible": "Review unavailable for this order",
@@ -334,4 +346,5 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.summary.title": "{projectionLabel} Summary",
   "ordering.features.orders.ui.orderReviewOpportunityCallout.ready.for.counterparty.review":
     "This verified {transactionLabel} is ready for your {counterpartyRole} counterparty review.",
+  "ordering.shell.sales.label": "Sales",
 } as const;

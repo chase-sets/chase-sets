@@ -1,12 +1,39 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
 import { TERMS_OF_SERVICE_CONSENT_POLICY_KEY } from "../domain/terms-of-service";
-import { resolveConsentPolicyAcceptanceStatus, type ConsentPolicyAcceptanceStatus } from "./consent-bundle-acceptance";
-
+import * as acceptance from "./consent-bundle-acceptance";
+import { decodeConsentActivationAuthoritySnapshot } from "@chase-sets/platform-policy/consent-activation-authority";
+import { identityConsentActiveVersionPolicyFor } from "../domain/terms-of-service-policy";
+type ConsentPolicyAcceptanceStatus = acceptance.ConsentPolicyAcceptanceStatus;
 /** The host/Settlement-facing acceptance shape. Unchanged field set and names. */
 export type TermsAcceptanceStatus = ConsentPolicyAcceptanceStatus;
 
 export type { ConsentActivationAuthorityReader };
+
+export type PaymentsTermsAcceptanceStatus = Readonly<{
+  evaluation: "not-active" | "active";
+  acceptance: TermsAcceptanceStatus | null;
+}>;
+
+export async function resolvePaymentsTermsAcceptanceStatus(
+  db: PgQueryable,
+  authority: ConsentActivationAuthorityReader,
+  subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
+): Promise<PaymentsTermsAcceptanceStatus> {
+  const authorityKey = identityConsentActiveVersionPolicyFor("payments-terms").policyKey;
+  const snapshot = decodeConsentActivationAuthoritySnapshot(authorityKey, await authority.read(authorityKey));
+  if (!snapshot.isActive) return { evaluation: "not-active", acceptance: null };
+  // Both decisions derive from the same validated authority read. Empty requiredVersion
+  // from an invalid publication never becomes permission to bypass active terms.
+  const pinnedAuthority: ConsentActivationAuthorityReader = { read: async () => snapshot };
+  return {
+    evaluation: "active",
+    acceptance: await acceptance.resolveConsentPolicyAcceptanceStatus(db, pinnedAuthority, {
+      policyKey: "payments-terms",
+      subject,
+    }),
+  };
+}
 
 /**
  * Resolves whether a subject (user and/or account) has accepted the currently
@@ -33,9 +60,9 @@ export async function resolveTermsAcceptanceStatus(
   db: PgQueryable,
   authority: ConsentActivationAuthorityReader,
   subject: Readonly<{ userId?: string | null; accountId?: string | null }>,
+  publication?: Parameters<typeof acceptance.resolveConsentPolicyAcceptanceStatusAgainstPublication>[2]["publication"],
 ): Promise<TermsAcceptanceStatus> {
-  return resolveConsentPolicyAcceptanceStatus(db, authority, {
-    policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY,
-    subject,
-  });
+  const params = { policyKey: TERMS_OF_SERVICE_CONSENT_POLICY_KEY, subject } as const;
+  if (publication === undefined) return acceptance.resolveConsentPolicyAcceptanceStatus(db, authority, params);
+  return acceptance.resolveConsentPolicyAcceptanceStatusAgainstPublication(db, authority, { ...params, publication });
 }

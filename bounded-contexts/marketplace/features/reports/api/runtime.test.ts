@@ -178,6 +178,62 @@ describe("Marketplace report runtime", () => {
     expect(allEvents.map((event) => event.eventType)).toContain("marketplace.listing.auto-unlisted");
   });
 
+  it("mints one listing enforcement identity per automatic removal and keeps the threshold payload", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    await seedActiveListing(eventStore);
+    const reports = createMarketplaceReportRuntime({ eventStore, db: createReviewModerationTargetDbStub({}) });
+    const report = (index: number) =>
+      reports.reportListing(
+        {
+          listingId: "lst_reported",
+          reporterKind: "visitor",
+          reporterKey: `anon_enforcement_${index}`,
+          reporterAccountId: null,
+          reporterUserId: null,
+          reason: "counterfeit-concern",
+          details: null,
+          sourceRoutePath: "/listings/reported-listing",
+        },
+        context,
+      );
+    const { createId, parseStrictTypedUlid } = await import("@chase-sets/primitives/typed-ids");
+    const { parseIsoUtcTimestamp } = await import("@chase-sets/primitives/iso-utc-timestamp");
+    vi.mocked(createId).mockClear();
+
+    const results = [];
+    for (let index = 1; index <= LISTING_REPORT_AUTO_UNLIST_THRESHOLD + 1; index += 1) {
+      results.push(await report(index));
+    }
+
+    expect(results.map((result) => result.autoUnlisted)).toEqual([false, false, true, false]);
+    const { calls, results: minted } = vi.mocked(createId).mock;
+    const leaMints = calls.flatMap(([prefix], index) => (prefix === "lea" ? [minted[index]!.value] : []));
+    const removals = allEvents.filter((event) => event.eventType === "marketplace.listing.auto-unlisted");
+    expect(removals).toHaveLength(1);
+    const thresholdReport = results[LISTING_REPORT_AUTO_UNLIST_THRESHOLD - 1]!;
+    const payload = removals[0]!.payload as Readonly<Record<string, unknown>> & {
+      autoUnlistedAt: string;
+      listingEnforcement: Readonly<{ listingEnforcementActionId: string }>;
+    };
+    expect(payload).toEqual({
+      reportId: thresholdReport.reportId,
+      reportCount: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
+      autoUnlistedAt: payload.autoUnlistedAt,
+      listingEnforcement: {
+        version: 1,
+        listingEnforcementActionId: payload.listingEnforcement.listingEnforcementActionId,
+        accountId: "acc_seller",
+        source: "automatic-report-threshold",
+        sourceActionId: thresholdReport.reportId,
+        occurredAt: payload.autoUnlistedAt,
+      },
+    });
+    expect(leaMints).toEqual([payload.listingEnforcement.listingEnforcementActionId]);
+    expect(parseStrictTypedUlid(payload.listingEnforcement.listingEnforcementActionId, "lea")).toBeTruthy();
+    expect(parseIsoUtcTimestamp(payload.autoUnlistedAt)).toBe(payload.autoUnlistedAt);
+  });
+
   it("rejects duplicate reports from the same reporter for the same listing", async () => {
     const { eventStore } = createInMemoryEventStore();
     await seedActiveListing(eventStore);
@@ -196,6 +252,12 @@ describe("Marketplace report runtime", () => {
     await reports.reportListing(input, context);
     await expect(reports.reportListing(input, context)).rejects.toThrow("already reported");
   });
+});
+
+// Hoisted by Vitest; observes how many listing enforcement identities the dispatcher mints.
+vi.mock("@chase-sets/primitives/typed-ids", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/primitives/typed-ids")>();
+  return { ...actual, createId: vi.fn(actual.createId) };
 });
 
 describe("Marketplace review report", () => {

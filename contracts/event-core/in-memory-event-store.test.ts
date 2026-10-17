@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "./event-store";
-import { EVENT_STORE_READ_PAGE_SIZE_MAX } from "./storage";
+import { EVENT_STORE_READ_PAGE_SIZE_MAX, type ReadAllInput } from "./storage";
 import {
   assertBoundedStreamReadContract,
   createInMemoryEventStore,
@@ -182,6 +182,73 @@ describe("shared in-memory event store", () => {
 
     await expect(assertPageLimit(fakeUncheckedSliceMutant)).rejects.toThrow();
     await expect(assertPageLimit(createInMemoryEventStore().eventStore.readAll)).resolves.toBeUndefined();
+  });
+
+  it("keeps the optional readAll horizon absent-by-default with the existing ordered result", async () => {
+    const typeLevelOptionalInput: ReadAllInput = { limit: 10 };
+    const optionalHorizon: ReadAllInput["atOrBeforeGlobalPosition"] = undefined;
+    const { eventStore } = createInMemoryEventStore();
+
+    await eventStore.appendToStream({
+      streamId: "test.horizon-absent",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.first"), event("test.second"), event("test.third")],
+    });
+
+    expect(optionalHorizon).toBeUndefined();
+    await expect(eventStore.readAll(typeLevelOptionalInput)).resolves.toEqual([
+      expect.objectContaining({ globalPosition: "1", eventType: "test.first" }),
+      expect.objectContaining({ globalPosition: "2", eventType: "test.second" }),
+      expect.objectContaining({ globalPosition: "3", eventType: "test.third" }),
+    ]);
+  });
+
+  it("honors an inclusive readAll horizon and refuses one above the assigned head", async () => {
+    const { eventStore } = createInMemoryEventStore();
+
+    await eventStore.appendToStream({
+      streamId: "test.horizon",
+      expectedVersion: "no_stream",
+      context,
+      events: [event("test.first"), event("test.second"), event("test.third")],
+    });
+
+    await expect(eventStore.readAll({ atOrBeforeGlobalPosition: "2" as never, limit: 10 })).resolves.toMatchObject([
+      { globalPosition: "1", eventType: "test.first" },
+      { globalPosition: "2", eventType: "test.second" },
+    ]);
+    await expect(eventStore.readAll({ atOrBeforeGlobalPosition: "4" as never, limit: 10 })).rejects.toThrow(
+      "Event store read horizon 4 exceeds available global position 3.",
+    );
+  });
+
+  it.each(["", "007", "-1", "1.0", "not-a-position"])(
+    "refuses malformed readAll horizon %j before scanning any event",
+    async (malformedHorizon) => {
+      const { eventStore, allEvents } = createInMemoryEventStore();
+      await eventStore.appendToStream({
+        streamId: "test.malformed-horizon",
+        expectedVersion: "no_stream",
+        context,
+        events: [event("test.created")],
+      });
+      const filterSpy = vi.spyOn(allEvents, "filter");
+
+      await expect(
+        eventStore.readAll({ atOrBeforeGlobalPosition: malformedHorizon as never, limit: 10 }),
+      ).rejects.toThrow("GlobalPosition must be a canonical unsigned base-10 string.");
+      expect(filterSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("honors zero and refuses above zero on an empty in-memory event store", async () => {
+    const { eventStore } = createInMemoryEventStore();
+
+    await expect(eventStore.readAll({ atOrBeforeGlobalPosition: "0" as never, limit: 10 })).resolves.toEqual([]);
+    await expect(eventStore.readAll({ atOrBeforeGlobalPosition: "1" as never, limit: 10 })).rejects.toThrow(
+      "Event store read horizon 1 exceeds available global position 0.",
+    );
   });
 
   it("is idempotent for a repeated event id and rejects changed event data", async () => {

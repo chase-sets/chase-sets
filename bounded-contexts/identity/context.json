@@ -5,11 +5,14 @@
   "ownedNouns": [
     "user",
     "account",
+    "account-capability",
     "membership",
     "invitation",
     "api-key",
     "consent",
     "registration-operation",
+    "agent-grant-revocation-operation",
+    "account-management-mutation-attempt",
     "founders-cohort",
     "shipping-address",
     "user-preference"
@@ -17,8 +20,11 @@
   "streamPrefix": "identity.",
   "apiBasePath": "/api/identity",
   "slices": [
+    "agent-grants",
     "access-hub",
     "accounts",
+    "account-capabilities",
+    "account-management",
     "users",
     "memberships",
     "invitations",
@@ -147,6 +153,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "capabilityAdministrationAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Admits support.evidence.any-case grant and revoke from a release-scoped deployment allow-list; worker and bootstrap explicitly deny all."
+    },
     {
       "portName": "addressVerificationProvider",
       "providedBy": "platform-api",
@@ -320,6 +331,25 @@
   },
   "readAfterWriteRouteInventory": [
     {
+      "id": "identity.account-management-attempt-owner-history",
+      "owner": "identity",
+      "risk": "critical",
+      "source": {
+        "routeIds": ["account", "account-shipping-addresses", "account-consents", "account-security", "account-team"],
+        "actions": ["Confirm interrupted account mutation"],
+        "command": "Read Account Management Mutation Attempt"
+      },
+      "destination": { "routeId": "account" },
+      "exception": {
+        "status": "not-read-model-backed",
+        "owner": "identity",
+        "reviewBy": "2026-10-31",
+        "reason": "GET /account-management/attempts proves the private receipt against complete owner histories and current authorization. The shared runtime derives canonical navigation from validated owner positions for the existing account-route fresh reads. Lookup never derives commitment from projections, writes, retries a command, or recovers plaintext.",
+        "files": ["bounded-contexts/identity/features/account-management/api/runtime.ts"],
+        "helperUses": ["navigateAfterWrite"]
+      }
+    },
+    {
       "id": "identity.invitation-email-auth-projection-fresh-read",
       "owner": "identity",
       "risk": "important",
@@ -413,7 +443,8 @@
         "routeId": "account",
         "actions": ["Update account profile"],
         "command": "UpdateAccountProfile",
-        "helperUses": ["navigateAfterWrite"]
+        "helperUses": ["navigateAfterWrite"],
+        "files": ["bounded-contexts/identity/features/accounts/ui/portable-route.ts"]
       },
       "destination": {
         "routeId": "account",
@@ -527,7 +558,7 @@
         "readModelTables": ["identity_users"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account security profile redirects carry the Identity user command receipt so the security loader reads after the user projection catches up."
+          "behavior": "Account security profile responses carry the Identity user command receipt destination for one controller GET after the user projection catches up."
         }
       },
       "proof": {
@@ -761,7 +792,7 @@
         "readModelTables": ["identity_invitations"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account team invitation redirects carry the Identity invitation command receipt so the team loader reads after the invitation projection catches up."
+          "behavior": "Account team invitation responses carry the Identity invitation command receipt destination for one controller GET after the invitation projection catches up."
         }
       },
       "proof": {
@@ -819,7 +850,7 @@
         "readModelTables": ["identity_memberships"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account team membership redirects carry the Identity membership command receipt so the team loader reads after the membership projection catches up."
+          "behavior": "Account team membership responses carry the Identity membership command receipt destination for one controller GET after the membership projection catches up."
         }
       },
       "proof": {
@@ -854,7 +885,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Shipping-address redirects carry the Identity shipping-address command receipt so the address-book loader reads after the shipping-address projection catches up."
+          "behavior": "Shipping-address responses carry the Identity command receipt destination for one controller GET after the address-book projection catches up."
         }
       },
       "proof": {
@@ -884,7 +915,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Consent-withdrawal redirects carry the Identity command receipt so both the retained consent history and current policy state catch up before the history page reloads."
+          "behavior": "Consent-withdrawal responses carry the Identity command receipt destination for one controller GET after consent history and current policy state catch up."
         }
       },
       "proof": {
@@ -896,6 +927,42 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "identity.invitation-acceptance-authority-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/api.ts:POST /internal/auth/invitations/:id/acceptance-authority"
+      ],
+      "visibleDestination": {
+        "description": "Auth receives the complete bounded Invitation, Account, User and Membership authority snapshot. Receipt replay version-guards all participants atomically; this read grants no Session authority."
+      },
+      "proof": {
+        "authoritativeResponse": "readInvitationAcceptanceAuthority folds the complete histories and returns only exact bound current authority after validating receipt and participant versions.",
+        "tests": [
+          "bounded-contexts/identity/features/invitations/api/acceptance-operation.test.ts",
+          "bounded-contexts/identity/features/invitations/api/acceptance-operation.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "identity.consent-activation-authority-snapshot",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/consents/api/consent-activation-route.ts:POST /:policyKey/activate",
+        "api-route:bounded-contexts/identity/features/consents/api/consent-activation-route.ts:POST /:policyKey/deactivate"
+      ],
+      "visibleDestination": {
+        "description": "Authenticated operators receive the canonical authority snapshot directly from the event stream after activation or deactivation, independently of policy document projections."
+      },
+      "proof": {
+        "authoritativeResponse": "consentActivationRoutes returns the validated Consent Activation Authority snapshot after the guarded activation append or deactivation command.",
+        "tests": ["bounded-contexts/identity/features/consents/api/consent-activation-route.db.test.ts"]
+      }
+    },
     {
       "id": "identity.account-browser-fresh-read",
       "owner": "identity",
@@ -911,6 +978,9 @@
         "post-form:bounded-contexts/identity/features/accounts/ui/account-profile-page.tsx:H2df726441e2a#1",
         "route-action:bounded-contexts/identity/routes/marketplace/account.tsx"
       ],
+      "portableSurfaces": [
+        "bounded-contexts/identity/features/accounts/ui/portable-route.ts#mutatePortableAccountRoute"
+      ],
       "visibleDestination": {
         "routeId": "accounts-detail",
         "apiContextName": "identity",
@@ -922,7 +992,10 @@
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+        "tests": [
+          "bounded-contexts/identity/features/accounts/tests/portable-route.test.ts",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"
+        ]
       }
     },
     {
@@ -1109,14 +1182,16 @@
       ],
       "visibleDestination": {
         "routeId": "account-security",
-        "description": "Marketplace account security create and rotate API-key actions return the plaintext secret as same-page action data exactly once, with API-key id and prefix, instead of redirecting or re-fetching the secret."
+        "description": "Marketplace account security create and rotate return plaintext only in the enhanced first mutation response and controller memory until acknowledgement or unmount, never router action data or lookup."
       },
       "proof": {
-        "authoritativeResponse": "The Identity API-key create and rotate API routes generate the plaintext once, store only the hash, and return the plaintext only in the mutation response; the marketplace account-security route passes that response through as transient action data.",
+        "authoritativeResponse": "The keyed Identity owner atom stores private verifier, business events and receipt together; the existing marketplace .data action transports the first secret to controller memory. Replay and read-only lookup return committed-secret-unrecoverable.",
         "tests": [
           "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts",
           "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts",
-          "bounded-contexts/identity/tests/account-security-page.test.tsx"
+          "bounded-contexts/identity/tests/account-security-page.test.tsx",
+          "bounded-contexts/identity/features/account-management/api/account-management.db.test.ts",
+          "deployables/marketplace/e2e/account-management-interruption.spec.ts"
         ]
       }
     },
@@ -1136,7 +1211,7 @@
         "readModelTables": ["identity_api_keys"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account security API-key revoke forms redirect with Identity command receipts and reload the security page through the API-key projection freshness route."
+          "behavior": "Account security API-key revoke forms return the Identity command receipt destination for one controller GET through the unchanged API-key projection freshness route."
         }
       },
       "proof": {
@@ -1258,7 +1333,7 @@
         "readModelTables": ["identity_memberships"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Account team membership forms redirect with Identity command receipts and reload team memberships through the membership projection freshness route."
+          "behavior": "Account team membership forms return Identity receipt destinations for one controller GET through the unchanged membership projection freshness route."
         }
       },
       "proof": {
@@ -1356,12 +1431,15 @@
       "strategy": "snapshot-return",
       "surfaces": ["api-route:bounded-contexts/identity/features/preferences/api/route.ts:PUT /"],
       "visibleDestination": {
-        "description": "User Preferences API writes return the authenticated User id, aggregate version, update status, and resolved preferences directly from the command result, so shell callers can render the committed setting without waiting on the preferences projection."
+        "description": "User Preferences writes atomically commit a hashed User-scoped attempt receipt with the preference version guard. The immutable first receipt is returned separately from the current authoritative preferences; replay never re-applies an earlier choice or waits on the projection."
       },
       "proof": {
-        "authoritativeResponse": "userPreferencesRoutes returns services.commandHandler result.version plus userPreferencesFor(actor.userId, result.state) after SetUserPreferences.",
+        "authoritativeResponse": "userPreferencesRoutes calls services.writeUserPreferences with the authenticated User and Idempotency-Key; it returns the validated first receipt, replay flag, current aggregate version and current authoritative preferences. The account menu confirms uncertain delivery with one GET and no automatic PUT.",
         "tests": [
-          "bounded-contexts/identity/features/preferences/api/route.test.ts proves preference updates return committed version/status/preferences and reject invalid or cross-user writes."
+          "bounded-contexts/identity/features/preferences/api/route.test.ts proves closed request validation and authenticated User isolation.",
+          "bounded-contexts/identity/features/preferences/api/runtime.db.test.ts proves atomic receipt/business writes, complete-history replay and bounded concurrency.",
+          "deployables/marketplace/app/routes/layout.test.tsx proves the real preference recovery states; bounded-contexts/identity/support/shell-support/ui/user-preferences-account-menu.test.tsx proves User generation isolation.",
+          "bounded-contexts/identity/support/shell-support/api/client.test.ts proves identity-preference-write-caller-inventory over tracked and unignored production callers, separately from the shipped app.put census."
         ]
       }
     },
@@ -1529,6 +1607,18 @@
       }
     }
   ],
+  "agentCoverage": {
+    "accounts": { "pending": "#9238" },
+    "accounts-detail": { "pending": "#9238" },
+    "api-keys": { "pending": "#9238" },
+    "api-keys-detail": { "pending": "#9238" },
+    "invitations": { "pending": "#9238" },
+    "invitations-detail": { "pending": "#9238" },
+    "memberships": { "pending": "#9238" },
+    "memberships-detail": { "pending": "#9238" },
+    "users": { "pending": "#9238" },
+    "users-detail": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -1623,35 +1713,129 @@
           "routePath": "account",
           "fileExport": "./routes/marketplace/account",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "portable",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["accounts.view"]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Authenticated account pages are not canonical public documents."
+          },
+          "availability": {
+            "web": true,
+            "mobile": true
+          },
+          "pageComponentExport": "AccountProfilePage",
+          "portableDataOperations": {
+            "load": true,
+            "mutation": true
+          }
         },
         {
           "routeId": "account-consents",
           "routePath": "account/consents",
           "fileExport": "./routes/marketplace/account-consents",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-shipping-addresses",
           "routePath": "account/shipping-addresses",
           "fileExport": "./routes/marketplace/account-shipping-addresses",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-security",
           "routePath": "account/security",
           "fileExport": "./routes/marketplace/account-security",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-team",
           "routePath": "account/team",
           "fileExport": "./routes/marketplace/account-team",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "identity",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }
@@ -1719,18 +1903,81 @@
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
+      "slot": "account-menu",
       "key": "account",
       "label": "Account",
       "icon": "user",
       "href": "/account",
       "order": 200,
       "visibility": "signed-in",
-      "requiredPermissions": ["accounts.view"]
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "account-menu",
+      "label": "Account",
+      "icon": "user",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility",
+      "packingPriority": 450,
+      "children": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "account",
+      "label": "Account",
+      "icon": "user",
+      "href": "/account",
+      "parentKey": "account-menu",
+      "order": 200,
+      "visibility": "signed-in",
+      "requiredPermissions": ["accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "placement": "utility",
+      "packingPriority": 0
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "account-menu",
+      "key": "security",
+      "label": "Security",
+      "icon": "settings",
+      "href": "/account/security",
+      "order": 220,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "account-menu",
+      "key": "consents",
+      "label": "Consent History",
+      "icon": "clock",
+      "href": "/account/consents",
+      "order": 230,
+      "visibility": "signed-in",
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"]
     }
   ],
   "directoryIntent": {
+    "agent-grants": {
+      "classification": "slice",
+      "purpose": "Own retained Agent Grant terminal authority, revocation operations and the active Grant fence.",
+      "expectedConsumers": ["Identity services", "Auth revocation coordination", "Platform worker composition"]
+    },
+    "account-management": {
+      "classification": "slice",
+      "purpose": "Own private interruption-safe mutation receipts, read-only owner-history lookup, eligibility fences, and the five marketplace form controllers; business facts remain with their existing owners.",
+      "expectedConsumers": ["Identity owner APIs", "Identity marketplace account routes"]
+    },
     "access-hub": {
       "classification": "slice",
       "purpose": "Own the account-centric Access home, account hub read model, route behavior, and UI composition across Identity aggregates.",
@@ -1739,6 +1986,11 @@
     "accounts": {
       "classification": "slice",
       "purpose": "Own accounts feature behavior, read models, and UI contracts for the identity context.",
+      "expectedConsumers": ["Internal identity module composition"]
+    },
+    "account-capabilities": {
+      "classification": "slice",
+      "purpose": "Own the Capability Grant stream: grant and revoke facts for the one assignable Account Capability, with admission supplied by the Capability Administration Authority.",
       "expectedConsumers": ["Internal identity module composition"]
     },
     "users": {
@@ -1784,7 +2036,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["consents", "shipping-addresses"],
+      "expectedConsumers": ["account-management", "consents", "shipping-addresses"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
@@ -1797,6 +2049,8 @@
       "purpose": "Provide reusable runtime-support assets shared by identity-owned features and composition seams.",
       "expectedConsumers": [
         "access-hub",
+        "account-capabilities",
+        "account-management",
         "accounts",
         "api-keys",
         "consents",
@@ -1827,7 +2081,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Provide reusable ui-support assets shared by identity-owned features and composition seams.",
-      "expectedConsumers": ["consents", "memberships"]
+      "expectedConsumers": ["access-hub", "accounts", "api-keys", "consents", "invitations", "memberships", "users"]
     },
     "routes": {
       "classification": "routes",

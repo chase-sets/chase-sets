@@ -1,0 +1,1376 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "OBSERVABILITY_OTLP_HEADERS",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "PLATFORM_INTERNAL_AUTH_SECRET",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "SCRYDEX_API_KEY",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "SCRYDEX_TEAM_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "SES_AWS_ACCESS_KEY_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "SES_AWS_SECRET_ACCESS_KEY",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "SES_SOURCE_ARN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_CONNECT_WEBHOOK_SECRET",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_PUBLISHABLE_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_WEBHOOK_SECRET",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_WEBHOOK_SECRET",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "job",
+      "secretName": "VOYAGE_API_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Check out release commit#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Check out release commit#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Check out release commit#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Configure Git defaults#2",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Configure Git defaults#2",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Configure Git defaults#2",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Confirm destructive reset#1",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Confirm destructive reset#1",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Confirm destructive reset#1",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Fail closed unless staging is absent for resume#22",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Fail closed unless staging is absent for resume#22",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Fail closed unless staging is absent for resume#22",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Fail closed unless staging is absent for resume#22",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Fail closed unless staging is absent for resume#22",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Fail closed unless staging is absent for resume#22",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "SCRYDEX_API_KEY",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "SCRYDEX_TEAM_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "STRIPE_PUBLISHABLE_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "STRIPE_WEBHOOK_SECRET",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Gate staging refresh provider and set-matrix preflight#8",
+      "secretName": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Install dependencies#11",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Install dependencies#11",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Install dependencies#11",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Queue DOKS redeploy after database recreation#34",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Queue DOKS redeploy after database recreation#34",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Queue DOKS redeploy after database recreation#34",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Re-check staging refresh overlap before destroy#23",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Re-check staging refresh overlap before destroy#23",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Re-check staging refresh overlap before destroy#23",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Reconcile missing staging catalog CDN state#27",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Reconcile missing staging catalog CDN state#27",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Reconcile missing staging catalog CDN state#27",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Reconcile missing staging catalog CDN state#27",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Reconcile missing staging catalog CDN state#27",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Reconcile missing staging catalog CDN state#27",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Resolve release commit#4",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Resolve release commit#4",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Resolve release commit#4",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging catalog assets recreate#30",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging catalog assets recreate#30",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging catalog assets recreate#30",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging catalog assets recreate#30",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging catalog assets recreate#30",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging environment DNS#17",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging environment DNS#17",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging environment DNS#17",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging environment DNS#17",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging environment DNS#17",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging recreate#33",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging recreate#33",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging recreate#33",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging recreate#33",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform apply staging recreate#33",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging catalog assets#28",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging catalog assets#28",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging catalog assets#28",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging catalog assets#28",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging catalog assets#28",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "OBSERVABILITY_OTLP_HEADERS",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "PLATFORM_INTERNAL_AUTH_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SCRYDEX_API_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SCRYDEX_TEAM_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SES_AWS_ACCESS_KEY_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SES_AWS_SECRET_ACCESS_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SES_SOURCE_ARN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "STRIPE_CONNECT_WEBHOOK_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "STRIPE_PUBLISHABLE_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "STRIPE_WEBHOOK_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "STRIPE_WEBHOOK_SECRET",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform destroy staging platform#24",
+      "secretName": "VOYAGE_API_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format catalog assets#26",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format catalog assets#26",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format catalog assets#26",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format catalog assets#26",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format catalog assets#26",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format staging environment DNS#15",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format staging environment DNS#15",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format staging environment DNS#15",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format staging environment DNS#15",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format staging environment DNS#15",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format#21",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format#21",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format#21",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format#21",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform format#21",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init catalog assets#25",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init catalog assets#25",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init catalog assets#25",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init catalog assets#25",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init catalog assets#25",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init staging environment DNS#14",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init staging environment DNS#14",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init staging environment DNS#14",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init staging environment DNS#14",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init staging environment DNS#14",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init#20",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init#20",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init#20",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init#20",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform init#20",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging catalog assets recreate#29",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging catalog assets recreate#29",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging catalog assets recreate#29",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging catalog assets recreate#29",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging catalog assets recreate#29",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging recreate#32",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging recreate#32",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging recreate#32",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging recreate#32",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform plan staging recreate#32",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform validate staging environment DNS#16",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform validate staging environment DNS#16",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform validate staging environment DNS#16",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform validate staging environment DNS#16",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Terraform validate staging environment DNS#16",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate release checks#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate release checks#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate release checks#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate staging configuration#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate staging configuration#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate staging configuration#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate staging configuration#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate staging configuration#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Validate staging configuration#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Verify staging catalog asset CDN#31",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Verify staging catalog asset CDN#31",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Verify staging catalog asset CDN#31",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Verify staging catalog asset CDN#31",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Verify staging catalog asset CDN#31",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "name:Verify staging catalog asset CDN#31",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:./.github/actions/setup-pnpm-workspace",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:./.github/actions/setup-pnpm-workspace",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:./.github/actions/setup-pnpm-workspace",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5#2",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5#2",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5#2",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-reset.yml",
+      "jobId": "reset-staging",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

@@ -77,7 +77,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:41-52",
           "bounded-contexts/commercial-terms/features/authenticity-fee/domain/policy.ts:124-131",
-          "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+          "bounded-contexts/checkout/features/sessions/domain/domain.ts:777-799",
           "bounded-contexts/ordering/features/orders/domain/authenticity-check-fee.ts:92-118",
         ],
         openQuestions: [
@@ -92,7 +92,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "The buyer opt-in offer is unavailable for purchase-intent checkout, cannot change once orders are created or purchase intent is submitted, and requires a current fee quote fingerprint when selected.",
-            evidenceRef: "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+            evidenceRef: "bounded-contexts/checkout/features/sessions/domain/domain.ts:777-799",
           },
           {
             assertion:
@@ -220,7 +220,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
         decisionRefs: [5681],
         productTruthRefs: [
           "bounded-contexts/authenticity/features/cases/domain/domain.ts:282-303,431-436",
-          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:544-569",
+          "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:576-602",
         ],
         openQuestions: [
           "Whether Authenticity Case inspection notes and evidence photos are surfaced inside the Support Request dispute evidence flow described in #4282 is not yet shipped; this document states the uniform Support Request dispute avenue only and does not claim that specific evidence integration exists.",
@@ -244,7 +244,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
         scopeNote:
           "State that Authenticity Check liability limitation is scoped consistently with the Terms of Service's authenticity-check carve-out, without inventing a separate numeric cap.",
         decisionRefs: [],
-        productTruthRefs: ["bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:521"],
+        productTruthRefs: ["bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:552"],
         openQuestions: [
           "Any numeric liability cap specific to the Authenticity Check service is an unresolved counsel and business decision, consistent with the Terms of Service's own '[LIABILITY-CAP-FLOOR-AMOUNT]' placeholder convention for the same undecided fact; no number is stated here.",
         ],
@@ -252,7 +252,7 @@ export const authenticityServiceTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "The Terms of Service already names the Authenticity Check as the sole exception to its general no-warranty-over-Listings posture, scoped to the Authenticity Service Terms.",
-            evidenceRef: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:521",
+            evidenceRef: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:552",
           },
         ],
       },

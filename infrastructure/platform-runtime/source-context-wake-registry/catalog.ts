@@ -21,6 +21,8 @@ export const catalogWakeRegistryEntry = registryEntry({
     "catalog:catalog-provider-scope-mapping-projection",
     "catalog:catalog-scope-registry-projection",
     "catalog:catalog-source-observation-projection",
+    "channels:channel-catalog-publication-facts",
+    "channels:channel-listing-desired-state-reaction",
     "checkout:checkout-catalog-item-projection",
     "checkout:checkout-marketplace-listing-options-projection",
     "collections:collections-catalog-product-projection",

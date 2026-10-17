@@ -103,6 +103,7 @@ export function toSourceObservationBulkJob(
     reason: job.payload.reason,
     profileSnapshot: job.payload.profileSnapshot ?? null,
     reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
+    promoteAsDraft: job.payload.promoteAsDraft === true,
     status: job.status,
     progress: job.progress,
     result: job.result,

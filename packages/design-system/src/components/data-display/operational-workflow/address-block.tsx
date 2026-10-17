@@ -19,7 +19,7 @@ export function AddressBlock({ title, lines, copyValue, copyLabel = "Copy", ...r
   const visibleLines = lines.filter(Boolean);
 
   return (
-    <Surface {...rest} element="section" tone="subtle" gap={3}>
+    <Surface {...rest} element="section" tone="subtle" gap={3} elevation="tinted">
       <Cluster align="start" justify="between" gap={3}>
         <Subheading level={2}>{title}</Subheading>
         {copyValue ? <CopyButton value={copyValue} label={copyLabel} size="sm" tone="secondary" /> : null}

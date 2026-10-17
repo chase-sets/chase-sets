@@ -1,6 +1,20 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
+const repricingProductListingIndexSql = `CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_product_status_idx
+  ON pricing_market_listing_inputs (catalog_catalog_item_id, product_id, status)`;
+
+const pricingCatalogCategorySchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_catalog_category_inputs (
+  category_id text PRIMARY KEY,
+  name text NOT NULL,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL
+);
+`;
+
 export const pricingRecommendationSourceSchemaSql = `
+${pricingCatalogCategorySchemaSql}
 CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   catalog_item_id text PRIMARY KEY,
   language_code text NOT NULL DEFAULT 'en',
@@ -32,12 +46,16 @@ CREATE TABLE IF NOT EXISTS pricing_inventory_item_inputs (
   product_id text NOT NULL,
   total_quantity integer NOT NULL CHECK (total_quantity >= 0),
   acquisition_cost_amount numeric(12, 2) NULL,
+  acquisition_cost_currency_code text NULL,
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
 
 ALTER TABLE pricing_inventory_item_inputs
   ADD COLUMN IF NOT EXISTS acquisition_cost_amount numeric(12, 2) NULL;
+
+ALTER TABLE pricing_inventory_item_inputs
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL;
 
 CREATE TABLE IF NOT EXISTS pricing_inventory_hold_inputs (
   hold_id text PRIMARY KEY,
@@ -63,6 +81,7 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
   quantity_cap integer NOT NULL CHECK (quantity_cap >= 0),
   status text NOT NULL,
   grading text NULL CHECK (grading IS NULL OR grading IN ('graded', 'raw')),
@@ -72,8 +91,13 @@ CREATE TABLE IF NOT EXISTS pricing_market_listing_inputs (
   last_stream_version integer NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0)
 );
 
+ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL;
+
 CREATE INDEX IF NOT EXISTS pricing_market_listing_inputs_lookup_idx
   ON pricing_market_listing_inputs (seller_account_id, catalog_catalog_item_id, product_id, status);
+
+${repricingProductListingIndexSql};
 
 ALTER TABLE pricing_market_listing_inputs
   ADD COLUMN IF NOT EXISTS inventory_item_id text NULL;
@@ -103,12 +127,16 @@ CREATE TABLE IF NOT EXISTS pricing_buyer_offer_inputs (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   price_amount numeric(12, 2) NOT NULL,
+  price_currency_code text NULL,
   quantity_requested integer NOT NULL CHECK (quantity_requested > 0),
   status text NOT NULL,
   accepted_at timestamptz NULL,
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL DEFAULT 0 CHECK (last_stream_version >= 0)
 );
+
+ALTER TABLE pricing_buyer_offer_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL;
 
 CREATE INDEX IF NOT EXISTS pricing_buyer_offer_inputs_lookup_idx
   ON pricing_buyer_offer_inputs (catalog_catalog_item_id, product_id, status);
@@ -157,6 +185,39 @@ CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
 `;
 
 export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260914_pricing_catalog_category_inputs",
+    description: "Replay Catalog category names and lifecycle for account policy controls.",
+    statements: [pricingCatalogCategorySchemaSql],
+  },
+  {
+    migrationId: "20260914_pricing_repricing_product_listing_index",
+    description: "Support set-based repricing asks by product and listing status.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_market_listing_inputs_product_status_idx
+       ON pricing_market_listing_inputs (catalog_catalog_item_id, product_id, status)`,
+    ],
+  },
+  {
+    migrationId: "20260907_pricing_recommendation_source_money_currencies",
+    description:
+      "Carry nullable acquisition-cost and Offer currencies so legacy amount-only facts remain ineligible for repricing arithmetic.",
+    statements: [
+      `ALTER TABLE pricing_inventory_item_inputs
+  ADD COLUMN IF NOT EXISTS acquisition_cost_currency_code text NULL`,
+      `ALTER TABLE pricing_buyer_offer_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL`,
+    ],
+  },
+  {
+    migrationId: "20260907_pricing_market_listing_input_price_currency",
+    description:
+      "Project nullable Marketplace listing price currency without defaulting historical amount-only listing events.",
+    statements: [
+      `ALTER TABLE pricing_market_listing_inputs
+  ADD COLUMN IF NOT EXISTS price_currency_code text NULL`,
+    ],
+  },
   {
     migrationId: "20260720_pricing_market_listing_inputs_grading",
     description: "Add grading to projected listing inputs for repricing rule evaluation.",

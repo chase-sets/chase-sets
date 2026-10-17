@@ -1,12 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   describeGoogleMerchantConfigForLogs,
   getPlatformWorkerContextsForRuntimeProfile,
   loadConfig,
 } from "../src/config";
 import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
+import { selectSettlementBootstrapDatabaseUrl } from "../src/database-pools";
+import { createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
 
 const envNames = [
+  "PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT",
   "DATABASE_URL",
   "DEPLOYMENT_ENVIRONMENT",
   "PLATFORM_CONTROL_DATABASE_URL",
@@ -22,6 +25,7 @@ const envNames = [
   "STRIPE_CONNECT_WEBHOOK_SECRET_PREVIOUS",
   "STRIPE_CONNECT_ACCOUNTS_API",
   "STRIPE_API_BASE_URL",
+  "EVIDENCE_WINDOW_ADMISSION_SECRET",
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
@@ -35,6 +39,7 @@ const envNames = [
   "VOYAGE_EMBEDDING_MODEL",
   "VOYAGE_EMBEDDING_BATCH_SIZE",
   "VOYAGE_EMBEDDING_TIMEOUT_MS",
+  "DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS",
   "VOYAGE_EMBEDDING_MAX_ATTEMPTS",
   "VOYAGE_EMBEDDING_RETRY_BACKOFF_BASE_MS",
   "VOYAGE_EMBEDDING_RETRY_BACKOFF_MAX_MS",
@@ -81,6 +86,7 @@ const envNames = [
   "DATABASE_POOL_CONNECTION_TIMEOUT_MS",
   "PAYMENT_RECONCILIATION_INTERVAL_MS",
   "PAYMENT_DEADLINE_SWEEP_INTERVAL_MS",
+  "CHANNELS_CONNECTOR_LIVENESS_SWEEP_INTERVAL_MS",
   "SELLER_AVAILABILITY_RESTORE_SWEEP_INTERVAL_MS",
   "SELLER_AWAY_WINDOW_START_SWEEP_INTERVAL_MS",
   "SELLER_FUNDS_RELEASE_INTERVAL_MS",
@@ -109,6 +115,7 @@ const envNames = [
   "WORKER_WAKE_STATEMENT_TIMEOUT_MS",
   "WORKER_WAKE_DISABLED_PROJECTIONS",
   "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT",
+  "CHANNELS_OUTBOUND_OPERATION_LANE_COUNT",
   "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
   "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
   "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT",
@@ -153,6 +160,20 @@ const envNames = [
   "DATABASE_URL_PRICING",
   "DATABASE_URL_PUBLIC_PRESENCE",
   "DATABASE_URL_SETTLEMENT",
+  "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+  "SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON",
+  "SUPPORT_EVIDENCE_CLEANUP_INTERVAL_MS",
+  "CHASE_SETS_DEPLOYMENT_INSTANCE",
+  "CHASE_SETS_IMPLEMENTATION_SHA",
+  "MARKETPLACE_LISTING_PHOTO_STORAGE_KIND",
+  "MARKETPLACE_LISTING_PHOTO_LOCAL_ROOT",
+  "MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL",
+  "MARKETPLACE_LISTING_PHOTO_S3_BUCKET",
+  "MARKETPLACE_LISTING_PHOTO_S3_REGION",
+  "MARKETPLACE_LISTING_PHOTO_S3_ENDPOINT",
+  "MARKETPLACE_LISTING_PHOTO_S3_ACCESS_KEY_ID",
+  "MARKETPLACE_LISTING_PHOTO_S3_SECRET_ACCESS_KEY",
+  "MARKETPLACE_LISTING_PHOTO_S3_FORCE_PATH_STYLE",
 ];
 
 function clearConfigEnv() {
@@ -170,6 +191,86 @@ afterEach(() => {
 });
 
 describe("platform worker config", () => {
+  it.each([
+    [undefined, 60_000],
+    ["120000", 120_000],
+    ["0", null],
+    ["-1", null],
+  ])("configures connector liveness interval %s as %s", (value, expected) => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    if (value !== undefined) process.env.CHANNELS_CONNECTOR_LIVENESS_SWEEP_INTERVAL_MS = value;
+    expect(loadConfig().channelsConnectorLivenessSweepIntervalMs).toBe(expected);
+  });
+
+  it("carries the normalized deployment environment into Settlement bootstrap selection", () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/local";
+    process.env.DEPLOYMENT_ENVIRONMENT = "Staging";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_synthetic_staging";
+
+    const config = loadConfig();
+    expect(config.deploymentEnvironment).toBe("staging");
+    expect(() =>
+      selectSettlementBootstrapDatabaseUrl(config, {
+        BOOTSTRAP_DATABASE_URL_SETTLEMENT: "postgresql://localhost:5432/direct",
+      }),
+    ).toThrow("WORKER_SETTLEMENT_DIRECT_DATABASE_URL_REQUIRED");
+  });
+
+  it("loads the shared Channels keyring and fails malformed startup", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    const previous = process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+    try {
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = "";
+      expect(loadConfig().channelCredentialKeyring).toBeNull();
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = JSON.stringify({
+        activeKeyId: "synthetic",
+        keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
+      });
+      expect(loadConfig().channelCredentialKeyring?.activeKeyId).toBe("synthetic");
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = "malformed-synthetic-marker";
+      expect(() => loadConfig()).toThrow("invalid-keyring");
+    } finally {
+      if (previous === undefined) delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+      else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
+    }
+  });
+  it("loads the optional Catalog operator-session keyring and fails malformed startup", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = "";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    const keyBase64 = Buffer.alloc(32, 7).toString("base64");
+    const logs = ["log", "error", "warn", "info", "debug"] as const;
+    const spies = logs.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
+    try {
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+        activeKeyId: "synthetic",
+        keys: [{ keyId: "synthetic", keyBase64 }],
+      });
+      expect(loadConfig().catalogOperatorSessionKeyring?.activeKeyId).toBe("synthetic");
+      expect(loadConfig().tcgplayerAutomation).toMatchObject({ auth: { tcgAuthCookie: null } });
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = `malformed-synthetic-marker${keyBase64}`;
+      let message = "";
+      try {
+        loadConfig();
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toBe("invalid-keyring");
+      const output = JSON.stringify({ message, logs: spies.map((spy) => spy.mock.calls) });
+      expect(output).not.toContain("malformed-synthetic-marker");
+      expect(output).not.toContain(keyBase64);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+  });
+  it("defaults the repricing dry-run lane to one and reads its configured count", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().pricingRepricingDryRunJobLaneCount).toBe(1);
+    process.env.PRICING_REPRICING_DRY_RUN_JOB_LANE_COUNT = "3";
+    expect(loadConfig().pricingRepricingDryRunJobLaneCount).toBe(3);
+  });
   it("falls back to fake provider adapters outside production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
 
@@ -178,6 +279,8 @@ describe("platform worker config", () => {
     expect(config.runtimeProfile).toBe("public");
     expect(config.paymentProcessor).toEqual({ kind: "fake" });
     expect(config.moneyMovement).toEqual({ kind: "fake" });
+    expect(config.stripeEffectiveMode).toBe("unconfigured");
+    expect(config.evidenceWindowAdmissionSecret).toBeUndefined();
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
     expect(config.tcgplayerAutomation).toBeNull();
@@ -196,12 +299,27 @@ describe("platform worker config", () => {
       rescueValue: null,
       queryCacheMaxEntries: 1_000,
       queryCacheTtlMs: 900_000,
+      queryTimeoutMs: 800,
     });
     expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
     });
+  });
+
+  it("loads the dedicated evidence-window secret with the immutable constructed-gateway mode", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.EVIDENCE_WINDOW_ADMISSION_SECRET = "  dedicated-worker-window-secret  ";
+    process.env.STRIPE_SECRET_KEY = "sk_test_asymmetric";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_asymmetric";
+
+    const config = loadConfig();
+
+    expect(config.evidenceWindowAdmissionSecret).toBe("dedicated-worker-window-secret");
+    expect(config.paymentProcessor).toEqual({ kind: "fake" });
+    expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
+    expect(config.stripeEffectiveMode).toBe("test");
   });
 
   it("loads optional Voyage enrichment config without requiring a live key", () => {
@@ -217,6 +335,23 @@ describe("platform worker config", () => {
       batchSize: 64,
       rolloutValue: "off",
     });
+  });
+
+  it("keeps the online query embedding deadline separate from batch policy", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.VOYAGE_EMBEDDING_TIMEOUT_MS = "60000";
+    process.env.VOYAGE_EMBEDDING_MAX_ATTEMPTS = "8";
+    expect(loadConfig().discoverySearchEmbeddings).toMatchObject({
+      timeoutMs: 60_000,
+      maxAttempts: 8,
+      queryTimeoutMs: 800,
+    });
+    process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = "250";
+    expect(loadConfig().discoverySearchEmbeddings.queryTimeoutMs).toBe(250);
+    for (const invalid of ["0", "-1", "NaN", "Infinity", "2147483648"]) {
+      process.env.DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS = invalid;
+      expect(() => loadConfig()).toThrow("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS");
+    }
   });
 
   it("maps the landing runtime profile to the landing worker context set", () => {
@@ -386,11 +521,11 @@ describe("platform worker config", () => {
       domainConfigs: {
         mpSearchApi: expect.objectContaining({
           requestDelayMs: 500,
-          rateLimitCooldownMs: 30_000,
+          rateLimitCooldownMs: 100_000,
           maxConcurrentRequests: 1,
         }),
         mpApi: expect.objectContaining({
-          requestDelayMs: 250,
+          requestDelayMs: 10_000,
           maxConcurrentRequests: 2,
         }),
       },
@@ -412,6 +547,31 @@ describe("platform worker config", () => {
       },
     });
     expect(JSON.stringify(description)).not.toMatch(/fixture-cookie-value|TCGAuthTicket|fixture-cookie-value/i);
+  });
+
+  it("raises unsafe TCGplayer overrides to the shared-budget floors", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
+      mpApi: {
+        requestDelayMs: 1,
+        rateLimitCooldownMs: 1,
+        maxConcurrentRequests: 99,
+        minRequestDelayMs: 1,
+        learnedMinDelayMs: 1,
+      },
+      mpSearchApi: { rateLimitCooldownMs: 1 },
+    });
+
+    const config = loadConfig().tcgplayerAutomation!;
+    expect(config.domainConfigs.mpApi).toMatchObject({
+      requestDelayMs: 10_000,
+      rateLimitCooldownMs: 30_000,
+      maxConcurrentRequests: 2,
+      minRequestDelayMs: 10_000,
+      learnedMinDelayMs: 10_000,
+    });
+    expect(config.domainConfigs.mpSearchApi.rateLimitCooldownMs).toBe(100_000);
   });
 
   it("rejects malformed TCGplayer domain config instead of silently weakening provider budgets", () => {
@@ -569,6 +729,7 @@ describe("platform worker config", () => {
       jobMaxConcurrentRunners: 1,
       dispatchMaxConcurrentRunners: 1,
       scheduledMaxConcurrentRunners: 1,
+      channelsOutboundOperationLaneCount: 1,
       sourceObservationBulkJobLaneCount: 1,
       sourceObservationBulkJobWorkflowMaxActiveClaims: 1,
       sourceObservationBulkJobMaxActiveClaimsPerJob: 1,
@@ -605,6 +766,7 @@ describe("platform worker config", () => {
     process.env.WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS = "2";
     process.env.WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS = "2";
     process.env.SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT = "4";
+    process.env.CHANNELS_OUTBOUND_OPERATION_LANE_COUNT = "3";
     process.env.SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
     process.env.SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
     process.env.CATALOG_AUTHORING_BULK_JOB_LANE_COUNT = "3";
@@ -636,6 +798,7 @@ describe("platform worker config", () => {
       dispatchMaxConcurrentRunners: 2,
       scheduledMaxConcurrentRunners: 2,
       sourceObservationBulkJobLaneCount: 4,
+      channelsOutboundOperationLaneCount: 3,
       sourceObservationBulkJobWorkflowMaxActiveClaims: 4,
       sourceObservationBulkJobMaxActiveClaimsPerJob: 2,
       catalogAuthoringBulkJobLaneCount: 3,
@@ -1010,5 +1173,143 @@ describe("platform worker config", () => {
     process.env.NOTIFICATION_EMAIL_PROVIDER = "local-capture";
 
     expect(() => loadConfig()).toThrow("NOTIFICATION_EMAIL_PROVIDER=local-capture is only allowed outside production.");
+  });
+});
+
+describe("Support Evidence Cleanup Binding configuration (AC-E4)", () => {
+  const instance = '["support-deployment-instance/v1","preview-9392","release-a"]';
+  const declaration = {
+    version: 1,
+    environment: "preview",
+    deploymentInstance: instance,
+    bindingId: "cleanup-preview",
+    revision: 3,
+    active: true,
+  };
+  function previewEnv(binding: unknown, overrides: Readonly<Record<string, string | undefined>> = {}) {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.DEPLOYMENT_ENVIRONMENT = "preview";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_synthetic_preview";
+    process.env.CHASE_SETS_DEPLOYMENT_INSTANCE = instance;
+    process.env.CHASE_SETS_IMPLEMENTATION_SHA = "a".repeat(40);
+    process.env.MARKETPLACE_LISTING_PHOTO_STORAGE_KIND = "s3";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_BUCKET = "support-evidence-preview";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_REGION = "nyc3";
+    process.env.MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL = "https://photos.preview.invalid";
+    if (binding !== undefined)
+      process.env.SUPPORT_EVIDENCE_CLEANUP_BINDING_JSON =
+        typeof binding === "string" ? binding : JSON.stringify(binding);
+    for (const [name, value] of Object.entries(overrides)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    return loadConfig();
+  }
+  function hostPort(config: ReturnType<typeof loadConfig>) {
+    const info = vi.fn();
+    const store = {
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(),
+      verifyPrivate: vi.fn(async () => ({ status: "absent" as const })),
+      listPrivate: vi.fn(),
+      deleteKeys: vi.fn(async () => []),
+    };
+    const createStore = vi.fn(() => store);
+    return { port: createSupportEvidenceCleanupHostPort(config, { info }, createStore), info, store, createStore };
+  }
+
+  it("mounts a valid active binding scoped to the release tuple with a digest over effective values", () => {
+    const config = previewEnv(declaration);
+    expect(config.supportEvidenceCleanupBinding).toMatchObject({
+      kind: "configured",
+      environment: "preview",
+      deploymentInstance: instance,
+      bindingId: "cleanup-preview",
+      revision: 3,
+      active: true,
+      implementationSha: "a".repeat(40),
+    });
+    const digest = (config.supportEvidenceCleanupBinding as { configDigest: string }).configDigest;
+    expect(digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    const reordered = Object.fromEntries(Object.entries(declaration).reverse());
+    expect((previewEnv(reordered).supportEvidenceCleanupBinding as { configDigest: string }).configDigest).toBe(digest);
+    expect(
+      (previewEnv({ ...declaration, revision: 4 }).supportEvidenceCleanupBinding as { configDigest: string })
+        .configDigest,
+    ).not.toBe(digest);
+    const { port, info, store, createStore } = hostPort(previewEnv(declaration));
+    expect(port.supportEvidenceCleanup.kind).toBe("available");
+    expect(createStore).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "s3", bucket: "support-evidence-preview" }),
+    );
+    // The binding audits and cleans only: no upload, download, listing or administration reaches the runner.
+    const storage = (port.supportEvidenceCleanup as { storage: Record<string, unknown> }).storage;
+    expect(Object.keys(storage).sort()).toEqual(["deleteKeys", "verifyPrivate"]);
+    expect(info).not.toHaveBeenCalled();
+    expect(store.putPrivate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["absent", undefined, {}, "binding_absent"],
+    ["malformed", "{PLANTED_SECRET", {}, "binding_invalid"],
+    ["inactive", { ...declaration, active: false }, {}, "binding_inactive"],
+    ["wrong environment", { ...declaration, environment: "staging" }, {}, "binding_invalid"],
+    [
+      "wrong instance",
+      { ...declaration, deploymentInstance: '["support-deployment-instance/v1","preview-9392","release-b"]' },
+      {},
+      "binding_invalid",
+    ],
+    ["missing trusted instance", declaration, { CHASE_SETS_DEPLOYMENT_INSTANCE: undefined }, "binding_invalid"],
+    ["missing implementation sha", declaration, { CHASE_SETS_IMPLEMENTATION_SHA: undefined }, "binding_invalid"],
+    ["an extra field", { ...declaration, grants: "upload" }, {}, "binding_invalid"],
+    ["a string active flag", { ...declaration, active: "true" }, {}, "binding_invalid"],
+    ["revision zero", { ...declaration, revision: 0 }, {}, "binding_invalid"],
+    ["an invalid binding id", { ...declaration, bindingId: "Cleanup_Preview" }, {}, "binding_invalid"],
+    ["an oversized declaration", JSON.stringify(declaration) + " ".repeat(1024), {}, "binding_invalid"],
+  ] as const)("%s binding leaves the runner not mounted with one bounded denial", (_label, binding, env, reason) => {
+    const config = previewEnv(binding, env);
+    expect(config.supportEvidenceCleanupBinding).toEqual({ kind: "denied", diagnostic: reason });
+    const { port, info, createStore } = hostPort(config);
+    expect(port).toEqual({ supportEvidenceCleanup: { kind: "not-mounted" } });
+    expect(createStore).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info.mock.calls[0]![1]).toEqual({ type: "platform-operations.support-evidence-cleanup-binding", reason });
+    expect(JSON.stringify(info.mock.calls)).not.toContain("PLANTED_SECRET");
+  });
+
+  it("refuses a deployed filesystem store that platform-api cannot share, but mounts local filesystem stores", () => {
+    const deployed = previewEnv(declaration, { MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: "filesystem" });
+    expect(deployed.supportEvidenceStorage.kind).toBe("filesystem");
+    const refused = hostPort(deployed);
+    expect(refused.port.supportEvidenceCleanup).toEqual({ kind: "not-mounted" });
+    expect(refused.info.mock.calls[0]![1]).toEqual({
+      type: "platform-operations.support-evidence-cleanup-binding",
+      reason: "binding_storage_unshared",
+    });
+    const local = previewEnv(
+      { ...declaration, environment: "local" },
+      { DEPLOYMENT_ENVIRONMENT: "local", MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: undefined },
+    );
+    expect(local.supportEvidenceStorage).toMatchObject({
+      kind: "filesystem",
+      rootDir: "artifacts/marketplace-listing-photos",
+    });
+    expect(hostPort(local).port.supportEvidenceCleanup.kind).toBe("available");
+  });
+
+  it("selects the API's effective Support evidence store: production falls back to the Catalog asset store", () => {
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.NODE_ENV = "production";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-production";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+    const config = loadConfig();
+    expect(config.supportEvidenceStorage).toEqual(config.catalogAssetStorage);
+    expect(config.supportEvidenceCleanupBinding).toEqual({ kind: "denied", diagnostic: "binding_absent" });
+    expect(config.supportEvidenceCleanupIntervalMs).toBe(300_000);
   });
 });

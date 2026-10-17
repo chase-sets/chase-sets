@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { t } from "@chase-sets/localization";
 import {
   aggregateSellerAttentionQueue,
   buildSellerAttentionItem,
@@ -91,11 +92,61 @@ async function fullQueue(): Promise<SellerAttentionQueue> {
 
 afterEach(cleanup);
 
+function expectJumpToSales() {
+  const section = screen
+    .getByRole("heading", { name: t("marketplace.features.sellerDesk.surfaces.title") })
+    .closest("section");
+  expect(section).not.toBeNull();
+  const row = within(section as HTMLElement);
+  const destinations = [
+    [t("marketplace.features.sellerDesk.surfaces.listings"), "/account/listings"],
+    [t("marketplace.features.sellerDesk.surfaces.offers"), "/account/offers/matches"],
+    [t("marketplace.features.sellerDesk.surfaces.sales"), "/account/sales"],
+    [t("marketplace.features.sellerDesk.surfaces.shipments"), "/account/sales/shipments"],
+    [t("marketplace.features.sellerDesk.surfaces.payouts"), "/account/payouts"],
+    [t("marketplace.features.sellerDesk.surfaces.inventory"), "/account/inventory"],
+  ] as const;
+  expect(row.getAllByRole("link")).toEqual(destinations.map(([name]) => row.getByRole("link", { name })));
+  for (const [name, href] of destinations) {
+    expect(row.getByRole("link", { name }).getAttribute("href")).toBe(href);
+  }
+  const sales = row.getByRole("link", { name: "Sales" });
+  expect(t("marketplace.features.sellerDesk.surfaces.sales")).toBe("Sales");
+  for (let ancestor = sales.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    expect(ancestor.matches("details, [hidden], [aria-expanded]")).toBe(false);
+  }
+}
+
 describe("SellerDeskHomePage", () => {
+  it("shows one mixed channel-action row, both summaries, and the shared connection destination", async () => {
+    const item = buildSellerAttentionItem({
+      source: "channel-action",
+      entityId: "synthetic-connection",
+      severity: "critical",
+      summary: {
+        code: "channel-action-open",
+        params: {
+          reasonCount: 1,
+          topReason: "polling",
+          manualReason: "recovery",
+          connectionId: "synthetic-connection",
+        },
+      },
+      observedAt: "2026-09-13T00:00:00Z",
+    });
+    const queue = await aggregateSellerAttentionQueue([staticSource("channel-action", [item])], CONTEXT);
+    render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
+    expect(document.querySelectorAll('[data-seller-desk-item="channel-action:synthetic-connection"]')).toHaveLength(1);
+    expect(screen.getByText(/Health reasons needing attention: 1.*Inbound clamp recovery needs review/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open manual sync" }).getAttribute("href")).toBe(
+      "/account/channels/synthetic-connection",
+    );
+  });
   it("renders the three needs-you items a seller expects, critical first, each one click away", async () => {
     const queue = await fullQueue();
     render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
 
+    expectJumpToSales();
     // All three headline signals are present.
     expect(screen.getByText("Import IMP-1 has 3 rows to resolve")).toBeTruthy();
     expect(screen.getByText("Shipment SHP-1 is past its ship-by deadline")).toBeTruthy();
@@ -158,6 +209,7 @@ describe("SellerDeskHomePage", () => {
     render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
 
     expect(screen.getByText("Nothing needs you")).toBeTruthy();
+    expectJumpToSales();
     expect(screen.getByRole("link", { name: "Create a listing" }).getAttribute("href")).toBe("/account/listings/new");
     expect(document.querySelector("[data-seller-desk-queue]")).toBeNull();
   });
@@ -182,6 +234,7 @@ describe("SellerDeskHomePage", () => {
     render(<SellerDeskHomePage queue={queue} kpis={KPIS} />);
 
     const banner = document.querySelector("[data-seller-desk-degraded]");
+    expectJumpToSales();
     expect(banner).not.toBeNull();
     expect(within(banner as HTMLElement).getByText(/Blocked payouts/)).toBeTruthy();
     // The healthy listing signal still renders.

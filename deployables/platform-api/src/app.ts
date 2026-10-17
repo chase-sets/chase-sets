@@ -1,12 +1,20 @@
 import { Hono, type Context, type Next } from "hono";
+import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
+import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
+import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  createPostgresAgentWebhookOutbox,
+  fenceAgentGrantActor,
+  fenceAgentGrantSpendPolicy,
+  createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
 import {
   createCheckoutUcpHandlers,
+  createCheckoutInventoryReservationAuthority,
   lookupCheckoutSupportReference,
   type CheckoutSupportLookupResult,
 } from "@chase-sets/checkout/server";
@@ -20,6 +28,7 @@ import {
   createCommercialTermsResolver,
   createStandardScheduleResolver,
   type CommercialTermsAccountSource,
+  type CommercialTermsResolver,
 } from "@chase-sets/commercial-terms/server";
 import {
   createDiscoveryUcpHandlers,
@@ -28,22 +37,44 @@ import {
 } from "@chase-sets/discovery/server";
 import {
   catalogRealtimeManifest,
+  createCatalogProviderConnectionsReadSource,
+  type CatalogServices,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
-import { pricingRealtimeManifest } from "@chase-sets/pricing/server";
-import { module as identityModule } from "@chase-sets/identity";
-import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
 import {
+  pricingRealtimeManifest,
+  createBuyerOfferPricing,
+  type ChannelConnectionIdentityReader,
+  type PricingHostPorts,
+} from "@chase-sets/pricing/server";
+import { isChannelsServices, connectorAuditMiddleware, type ChannelsServices } from "@chase-sets/channels/server";
+import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
+import { module as identityModule } from "@chase-sets/identity";
+import {
+  createIdentityOperatorAuthority,
+  createIdentityTermsAcceptanceResolver,
+  createIdentityWalletFundingEligibilityResolver,
+  identityTermsOfServicePolicy,
+} from "@chase-sets/identity/server";
+import type { WalletFundingEligibilityResolver } from "@chase-sets/payments/server";
+import { walletFundingLimitsPolicy } from "@chase-sets/payments/server";
+import {
+  createInventoryExternalChannelSaleRecorderForPool,
+  createStorageLocationAuthority,
   createImportResolutionAttentionSourceFromReadModel,
+  createInventoryHoldCleanupAuthorityForPool,
+  type RecordExternalChannelSale,
   type InventoryDraftListingCreator,
   type InventorySavedListImportBatchCreator,
 } from "@chase-sets/inventory/server";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createOrderingUcpHandlers,
   lookupOrderBySupportId,
   lookupOrderBySupportReference,
+  type OrderingInventoryCleanupAuthorityCapability,
   type OrderingSupportLookupRow,
 } from "@chase-sets/ordering/server";
 import {
@@ -52,11 +83,7 @@ import {
   lookupShipmentBySupportReference,
   type FulfillmentSupportLookupRow,
 } from "@chase-sets/fulfillment/server";
-import {
-  createPaymentsUcpHandoff,
-  type PaymentsServices,
-  type UcpAp2MandateVerifier,
-} from "@chase-sets/payments/server";
+import { createPaymentsUcpHandoff, type PaymentsServices } from "@chase-sets/payments/server";
 import {
   getLockedFeeListingCohortSummary,
   marketplaceListingGatePolicy,
@@ -89,8 +116,16 @@ import {
   getTopCatalogItemsByGmv,
   marketAnalyticsDisplayPolicy,
   marketEstimatePolicy,
+  demandCurvePolicy,
+  forecastLedgerPolicy,
   marketStatHygienePolicy,
+  economicsPolicy,
+  priceSignalPolicy,
+  providerObservationPolicy,
   repricingEnginePolicy,
+  repricingManagementPolicy,
+  createRepricingAttentionSourceFromReadModel,
+  type PricingServices,
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
@@ -102,7 +137,10 @@ import {
   lookupWalletAdjustmentBySupportId,
   lookupWalletAdjustmentBySupportReference,
   settlementClearancePolicy,
+  stagingProofCreditPolicy,
+  type SettlementServices,
   settlementPayoutBoundsPolicy,
+  settlementPayoutFeePolicy,
   type SettlementSupportLookupRow,
   type SettlementWalletAdjustmentSupportLookupRow,
 } from "@chase-sets/settlement/server";
@@ -117,8 +155,13 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import {
   createHonoObservabilityMiddleware,
+  createLogger,
+  recordSavedListAnalytics,
   recordProjectionFreshnessAudit,
   recordProjectionInlineApplyOutcome,
+  savedListAnalyticsAttributes,
+  type Logger,
+  type SavedListAnalyticsSignal,
 } from "@chase-sets/observability";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -127,7 +170,14 @@ import {
   type ReadinessCheck,
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
-import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import {
+  createEvidenceWindowRegistrationRoutes,
+  createEvidenceWindowSourceAdmissionMiddleware,
+  createEvidenceWindowSourceRecoveryRoutes,
+  type EvidenceWindowRoutesOptions,
+  type EvidenceWindowSourceRecoveryRoutesOptions,
+  type PlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
 import {
   buildMcpHandlersFromModules,
   createMcpOAuthProtectedResourceMetadataRoutes,
@@ -142,7 +192,6 @@ import {
   createUcpMcpRoutes,
   createUcpProfileRoutes,
   createUcpRestRoutes,
-  addUcpAp2MerchantAuthorization,
   type CreateUcpRoutesOptions,
 } from "@chase-sets/platform-runtime/ucp";
 import type { AgentGrantConsentDirectory, AgentGrantSpendPolicy } from "@chase-sets/platform-runtime/agent-guardrails";
@@ -171,11 +220,64 @@ import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
+import {
+  createChannelActionAttentionSourceFromReadModel,
+  createChannelConnectionsOperatorReadSourceFromReadModel,
+} from "@chase-sets/channels/server";
+import type { ProviderConnectionsCrossContextPort } from "@chase-sets/platform-operations/server";
+import {
+  createMarketplaceChannelInboundClampCapability,
+  type MarketplaceChannelInboundClampCapability,
+  type MarketplaceChannelInboundClampPort,
+  type MarketplaceServices,
+} from "@chase-sets/marketplace/server";
 
 export type PlatformIdentityServices = Readonly<{
   auth: ReturnType<typeof authModule.createServices>;
   identity: ReturnType<typeof identityModule.createServices>;
 }>;
+
+export function createPlatformApiMarketplaceChannelInboundClampBinding(
+  mounted: boolean,
+  getServices: () => Readonly<{ channelInboundClamp: MarketplaceChannelInboundClampPort }> | undefined,
+): MarketplaceChannelInboundClampCapability {
+  return createMarketplaceChannelInboundClampCapability(mounted, getServices);
+}
+
+export function createSavedListAnalyticsRecorder(
+  logger: Pick<Logger, "info" | "warn"> = createLogger(),
+  recordMetric: typeof recordSavedListAnalytics = recordSavedListAnalytics,
+) {
+  return {
+    record(event: SavedListAnalyticsSignal) {
+      try {
+        const attributes = savedListAnalyticsAttributes(event);
+        try {
+          recordMetric(event);
+        } catch {
+          try {
+            logger.warn("Collections Saved List analytics recorder failed.", {
+              failure: "counter",
+              type: "collections.saved_list.analytics_recorder_failure",
+            });
+          } catch {
+            // Failure reporting is best-effort and must not affect the Saved List response.
+          }
+        }
+        try {
+          logger.info("Collections Saved List analytics event captured.", {
+            ...attributes,
+            type: "collections.saved_list.analytics_event",
+          });
+        } catch {
+          // Structured logging is best-effort and must not affect the Saved List response.
+        }
+      } catch {
+        // Invalid event objects are ignored without exposing input or exception text.
+      }
+    },
+  };
+}
 
 export type BuildPlatformApiOptions = Readonly<{
   runtimeProfile?: PlatformApiRuntimeProfile;
@@ -196,10 +298,12 @@ export type BuildPlatformApiOptions = Readonly<{
   agentGrantSpendPolicy?: AgentGrantSpendPolicy;
   agentGrantConsent?: AgentGrantConsentDirectory;
   agentGrantActivity?: AgentGrantActivityDirectory;
-  ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
+  checkoutClosed?: boolean;
   controlPlane?: PlatformControlPlane;
+  evidenceWindowRegistration?: EvidenceWindowRoutesOptions;
+  evidenceWindowSourceRecovery?: Omit<EvidenceWindowSourceRecoveryRoutesOptions, "sources">;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
@@ -221,6 +325,7 @@ export function createPlatformApiHost(
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
+  const paymentsPool = getPlatformApiPool(options.pools.payments);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const marketplacePool = getPlatformApiPool(options.pools.marketplace);
@@ -231,11 +336,30 @@ export function createPlatformApiHost(
   const fulfillmentPool = getPlatformApiPool(options.pools.fulfillment);
   const pricingPool = getPlatformApiPool(options.pools.pricing);
   const publicPresencePool = getPlatformApiPool(options.pools["public-presence"]);
+  const channelsPool = getPlatformApiPool(options.pools.channels);
   const sellerAttentionSources = [
     ...(fulfillmentPool ? [createShipByAttentionSourceFromReadModel(fulfillmentPool)] : []),
     ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
     ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
+    ...(channelsPool ? [createChannelActionAttentionSourceFromReadModel(channelsPool)] : []),
+    ...(pricingPool
+      ? [
+          // The halt item reads the same Repricing Halt aggregate as the Desk
+          // halt switch. Desk requests arrive only after the host is created.
+          createRepricingAttentionSourceFromReadModel(pricingPool, {
+            getHalt: (accountId) => {
+              const pricing = runtime?.services.pricing as PricingServices | undefined;
+              if (!pricing) throw new Error("Pricing services are not composed on this host.");
+              return pricing.repricingPolicies.getHalt(accountId);
+            },
+          }),
+        ]
+      : []),
   ];
+  const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
+    Boolean(marketplacePool),
+    () => runtime?.services.marketplace as MarketplaceServices | undefined,
+  );
   const opsMarketAnalyticsCrossContext: OpsMarketAnalyticsCrossContextPort | undefined = pricingPool
     ? {
         getPlatformGmvSeries: (params) => getPlatformGmvSeries(pricingPool, params),
@@ -274,7 +398,19 @@ export function createPlatformApiHost(
           getProtectionReserveSummary: (params) => getProtectionReserveSummary(settlementPool, params),
         }
       : undefined;
+  // Reads the Membership aggregate through the Identity services this host composes; Auth carries it on its
+  // identity port and native MCP consumes it from there.
+  const operatorAuthority = createIdentityOperatorAuthority({
+    getMembershipState: (membershipId) => {
+      const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
+      if (!identity) throw new Error("Identity services are not composed on this host.");
+      return identity.memberships.getMembershipState(membershipId);
+    },
+  });
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
+  const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
+    ? createIdentityWalletFundingEligibilityResolver(identityPool)
+    : undefined;
   const balanceCreditResolver = settlementPool
     ? createSettlementBalanceCreditResolver(settlementPool, {
         termsAcceptanceResolver,
@@ -321,6 +457,14 @@ export function createPlatformApiHost(
       : {}),
   };
   const policyConsoleCrossContextSources: PolicyConsoleCrossContextPort["sources"][number][] = [];
+  if (paymentsPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "payments",
+      db: paymentsPool,
+      definitions: [walletFundingLimitsPolicy],
+      write: lazyPolicyConsoleWritePort(() => runtime?.services.payments as PaymentsServices | undefined),
+    });
+  }
   if (identityPool) {
     policyConsoleCrossContextSources.push({
       contextName: "identity",
@@ -337,11 +481,11 @@ export function createPlatformApiHost(
       db: settlementPool,
       definitions: [
         settlementClearancePolicy,
+        stagingProofCreditPolicy,
         settlementPayoutBoundsPolicy,
+        settlementPayoutFeePolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
-      write: lazyPolicyConsoleWritePort(
-        () => runtime?.services.settlement as { policies?: PolicyConsoleWritePort } | undefined,
-      ),
+      write: lazyPolicyConsoleWritePort(() => runtime?.services.settlement as SettlementServices | undefined),
     });
   }
   if (commercialTermsPool) {
@@ -379,7 +523,13 @@ export function createPlatformApiHost(
         marketStatHygienePolicy,
         marketAnalyticsDisplayPolicy,
         marketEstimatePolicy,
+        demandCurvePolicy,
+        economicsPolicy,
+        priceSignalPolicy,
+        providerObservationPolicy,
         repricingEnginePolicy,
+        repricingManagementPolicy,
+        forecastLedgerPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,
@@ -409,6 +559,7 @@ export function createPlatformApiHost(
     publicPolicySources.push(
       createPublicPolicySource(settlementPool, settlementClearancePolicy),
       createPublicPolicySource(settlementPool, settlementPayoutBoundsPolicy),
+      createPublicPolicySource(settlementPool, settlementPayoutFeePolicy),
     );
   }
   if (platformOperationsPool) {
@@ -482,6 +633,30 @@ export function createPlatformApiHost(
 
     return createDraft(params, context);
   };
+  /**
+   * Ordering's required cleanup-authority capability.
+   *
+   * Inventory's own implementation is bound to Ordering's own port type with
+   * no cast and no placeholder, so a drift in either payload becomes a
+   * typecheck error. Both variants are explicit: profiles that mount
+   * Inventory get `available`; the source-only `landing` profile, where
+   * Ordering's services are still constructed but Inventory has no pool,
+   * states `not-mounted` rather than fabricating a stub.
+   */
+  const inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability = inventoryPool
+    ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
+    : { kind: "not-mounted" };
+  const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const admissionAuthority = (): ShipmentGroupAdmissionAuthority => {
+    const services = runtime?.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices> | undefined;
+    if (!services) throw new Error("Shipment Group admission authority is unavailable.");
+    return services.shipments.shipmentGroupAdmissionAuthority;
+  };
+  const shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority = {
+    reserve: (input, context) => admissionAuthority().reserve(input, context),
+    commit: (input, context) => admissionAuthority().commit(input, context),
+    abort: (input, context) => admissionAuthority().abort(input, context),
+  };
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
     const inventoryServices = runtime?.services.inventory as
       | {
@@ -497,27 +672,71 @@ export function createPlatformApiHost(
 
     return createBatch(params, context);
   };
+  const pricingHostPorts: PricingHostPorts | undefined = pricingPool
+    ? {
+        tcgplayerMarketTransport: { kind: "not-mounted" },
+        tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
+        commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
+        channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
+          const services = runtime?.services.channels;
+          return isChannelsServices(services) ? services : undefined;
+        }),
+      }
+    : undefined;
+
+  const providerConnectionsCrossContext: ProviderConnectionsCrossContextPort = {
+    catalog: createCatalogProviderConnectionsReadSource(
+      () => (runtime?.services.catalog as CatalogServices | undefined)?.sourceObservations,
+    ),
+    ...(channelsPool ? { channels: createChannelConnectionsOperatorReadSourceFromReadModel(channelsPool) } : {}),
+  };
 
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
     runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
+      ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+      ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
       ...(savedListProductCatalog ? { savedListProductCatalog } : {}),
+      savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
+      operatorAuthority,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
+      providerConnectionsCrossContext,
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
       draftListingCreator,
+      ...(checkoutPool
+        ? { checkoutReservationAuthority: createCheckoutInventoryReservationAuthority(checkoutPool) }
+        : {}),
+      inventoryCleanupAuthority,
+      shipmentGroupAdmissionAuthority,
+      ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
+      storageLocationAuthority: {
+        resolve: inventoryPool
+          ? createStorageLocationAuthority(inventoryPool).resolveStorageLocationAuthority
+          : async () => null,
+      },
       inventorySavedListImportBatchCreator,
+      marketplaceChannelInboundClamp,
+      connectorOAuth: createConnectorOAuthService(
+        () => {
+          const auth = runtime?.services.auth as ReturnType<typeof authModule.createServices> | undefined;
+          if (!auth) throw new Error("Connector authentication is unavailable.");
+          return auth;
+        },
+        { connectorRedirectUris: [TCGPLAYER_CONNECTOR_REDIRECT_URI] },
+      ),
+      ...(pricingHostPorts ?? {}),
     },
   });
   return runtime;
@@ -552,6 +771,19 @@ function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
 }
 
+function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): RecordExternalChannelSale {
+  return async (command) => {
+    const context: EventStoreContext = {
+      tenantId: "tnt_channels_api" as never,
+      audit: {
+        performedByUserId: "usr_channels_api" as never,
+        forAccountId: command.accountId as never,
+      },
+    };
+    return createInventoryExternalChannelSaleRecorderForPool(pool, context)(command);
+  };
+}
+
 /**
  * Lazily proxies to a cross-context policy console write port that only
  * exists once `createApiHost` has returned and `runtime.services` is
@@ -578,6 +810,30 @@ function lazyPolicyConsoleWritePort(
       requirePolicies().revisePolicyDocument(definition, documentId, params, context),
     resolvePolicy: (definition, params) => requirePolicies().resolvePolicy(definition, params),
   };
+}
+
+function createChannelConnectionIdentityReader(
+  getServices: () => ChannelsServices | undefined,
+): ChannelConnectionIdentityReader {
+  return {
+    resolve: async (input) => {
+      const connection = await getServices()?.connections.getConnection(input);
+      return connection
+        ? {
+            connectionId: connection.connectionId,
+            providerKey: connection.providerKey,
+            environment: connection.environment,
+          }
+        : null;
+    },
+  };
+}
+
+function requirePricingCommercialTermsResolver(resolver: CommercialTermsResolver | undefined): CommercialTermsResolver {
+  if (!resolver) {
+    throw new Error("Pricing cannot be mounted without the Commercial Terms resolver host port.");
+  }
+  return resolver;
 }
 
 /**
@@ -731,30 +987,35 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   const checkoutServices = runtime.services.checkout as Parameters<typeof createCheckoutUcpHandlers>[0] | undefined;
   const paymentsServices = runtime.services.payments as PaymentsServices | undefined;
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
-    ? createPaymentsUcpHandoff(paymentsServices.publicConfig, {
-        ap2Verifier: options.ucpAp2MandateVerifier,
-        merchantAuthorizationEnabled: Boolean(options.ucp?.businessSigningKeys),
-      })
+    ? createPaymentsUcpHandoff(paymentsServices.publicConfig)
     : undefined;
   const checkoutUcpHandlers = checkoutServices?.sessions
     ? createCheckoutUcpHandlers(checkoutServices, {
+        checkoutClosed: options.checkoutClosed,
         paymentHandoff,
-        agentGrantSpendPolicy: options.agentGrantSpendPolicy,
-        signCheckout: options.ucp?.businessSigningKeys
-          ? (checkout) => addUcpAp2MerchantAuthorization(checkout, options.ucp?.businessSigningKeys)
-          : undefined,
+        agentGrantSpendPolicy: fenceAgentGrantSpendPolicy(
+          options.agentGrantSpendPolicy,
+          identityServices.identity?.agentGrantRevocations,
+        ),
       })
     : undefined;
   const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
   const moduleMcpHandlers = buildMcpHandlersFromModules(runtime.mountedModules);
+  const toolHandlers = {
+    ...moduleMcpHandlers.toolHandlers,
+    ...options.mcp?.toolHandlers,
+  };
+  if (options.checkoutClosed && toolHandlers["checkout.select-saved-address"]) {
+    toolHandlers["checkout.select-saved-address"] = async () => {
+      throw new Error("checkout_closed");
+    };
+  }
   const mcpOptions = {
     ...options.mcp,
+    operatorAuthority: options.mcp?.operatorAuthority ?? identityServices.auth?.identity?.operatorAuthority,
     agentGrantRateLimiter: options.mcp?.agentGrantRateLimiter ?? options.ucp?.agentGrantRateLimiter,
-    toolHandlers: {
-      ...moduleMcpHandlers.toolHandlers,
-      ...options.mcp?.toolHandlers,
-    },
+    toolHandlers,
     resourceHandlers: {
       ...moduleMcpHandlers.resourceHandlers,
       ...options.mcp?.resourceHandlers,
@@ -764,13 +1025,6 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     discoveryUcpHandlers || checkoutUcpHandlers || orderingUcpHandlers
       ? {
           ...options.ucp,
-          ap2Readiness: paymentHandoff
-            ? {
-                mandateVerification: paymentHandoff.payment.ap2.mandate_verification,
-                sharedPaymentToken: paymentHandoff.payment.ap2.shared_payment_token,
-                headlessCompletionEnabled: paymentHandoff.payment.ap2.headless_completion_enabled,
-              }
-            : undefined,
           restHandlers: {
             ...discoveryUcpHandlers?.restHandlers,
             ...checkoutUcpHandlers?.restHandlers,
@@ -785,11 +1039,17 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           },
         }
       : options.ucp;
-  const resolveActor = options.resolveActor ?? (async () => null);
+  const resolveActor = fenceAgentGrantActor(
+    options.resolveActor ?? (async () => null),
+    identityServices.identity?.agentGrantRevocations,
+  );
   const anonymousRoutes = resolveAuthIdentityAnonymousRoutes(runtime);
+  const platformActorAnonymousRoutes = resolvePlatformActorAnonymousRoutes(runtime);
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
+  const connectorChannels = runtime.services.channels;
+  if (isChannelsServices(connectorChannels)) app.use("/api/channels/*", connectorAuditMiddleware(connectorChannels.db));
   app.route(
     "/health",
     createHealthRoutes({
@@ -806,6 +1066,18 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       isDraining: options.isDraining,
     }),
   );
+  if (options.evidenceWindowRegistration) {
+    app.route("/internal/evidence-windows", createEvidenceWindowRegistrationRoutes(options.evidenceWindowRegistration));
+  }
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    app.route(
+      "/internal/evidence-windows",
+      createEvidenceWindowSourceRecoveryRoutes({
+        ...options.evidenceWindowSourceRecovery,
+        sources: orderingServices.orders.evidenceWindowSources,
+      }),
+    );
+  }
   if (marketplacePlatformRoutesEnabled) {
     app.get("/internal/realtime/status", async (c) =>
       c.json(
@@ -820,7 +1092,9 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     );
   }
 
-  const platformActorMiddleware = createPlatformActorMiddleware(resolveActor);
+  const platformActorMiddleware = createPlatformActorMiddleware(resolveActor, {
+    anonymousRoutes: platformActorAnonymousRoutes,
+  });
   app.use("/api/platform/projections", platformActorMiddleware);
   app.use("/api/platform/projections/*", platformActorMiddleware);
   app.route(
@@ -846,10 +1120,14 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       createUcpOAuthRoutes({
         auth: identityServices.auth,
         linkedPlatformAuthorizations: identityServices.identity.linkedPlatformAuthorizations,
+        agentGrantRevocations: identityServices.identity.agentGrantRevocations,
         resolveActor,
         agentGrantConsent: options.agentGrantConsent,
         agentGrantActivity: options.agentGrantActivity,
-        agentWebhookOutbox: identityServices.auth.agentWebhookOutbox,
+        agentWebhookOutbox: createPostgresAgentWebhookOutbox({
+          db: identityServices.auth.db,
+          withActiveGrants: identityServices.identity.agentGrantRevocations?.withActiveGrants,
+        }),
         revokeStoredPaymentMethodsForAgentGrant:
           paymentsServices?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant,
       }),
@@ -894,6 +1172,12 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     );
   }
 
+  for (const path of ["/api/catalog/operator-session", "/api/catalog/operator-session/*"]) {
+    app.use(path, async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      await next();
+    });
+  }
   attachApiMountMiddleware(
     app,
     apiMounts
@@ -913,11 +1197,20 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       .map((mount) => mount.mountPath),
     platformActorMiddleware,
   );
+  attachApiMountMiddleware(app, ["/api/marketplace"], createCheckoutClosedMiddleware(options.checkoutClosed ?? false));
   attachApiMountMiddleware(
     app,
     apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),
     catalogApiPermissionMiddleware,
   );
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    const evidenceWindowSourceAdmission = createEvidenceWindowSourceAdmissionMiddleware(
+      options.evidenceWindowSourceRecovery,
+    );
+    for (const mount of apiMounts.filter((entry) => entry.contextName === "ordering")) {
+      app.use(`${mount.mountPath}/account/purchases/checkout`, evidenceWindowSourceAdmission);
+    }
+  }
 
   attachWriteConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
     enabled: options.projectionInlineApplyEnabled ?? false,
@@ -938,6 +1231,50 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   assertApiRouteTableHasNoCollisions(apiMounts);
 
   return app;
+}
+
+const PLATFORM_ACTOR_ANONYMOUS_METHODS = ["GET", "HEAD"];
+
+/**
+ * A module outside the auth composition may only exempt a safe method on one exact absolute API path.
+ * A widened declaration is refused when the host is composed rather than at request time, so a module
+ * cannot quietly open a prefix, a parameterised path or a mutating method on the platform actor path.
+ * Auth and identity declarations are governed by the identity composition and are untouched here.
+ */
+function assertPlatformActorAnonymousRoute(contextName: string, route: AnonymousRouteDeclaration): void {
+  const declaration = `${contextName} anonymous route ${route.routePath}`;
+
+  if (route.match === "prefix") {
+    throw new Error(`${declaration} must match exactly; prefix matching is not permitted on the platform actor path.`);
+  }
+
+  if (
+    !route.routePath.startsWith("/api/") ||
+    route.routePath.endsWith("/") ||
+    route.routePath.includes(":") ||
+    route.routePath.includes("*")
+  ) {
+    throw new Error(`${declaration} must be an exact absolute path beginning /api/ with no parameter or wildcard.`);
+  }
+
+  for (const method of route.methods) {
+    if (!PLATFORM_ACTOR_ANONYMOUS_METHODS.includes(method.toUpperCase())) {
+      throw new Error(`${declaration} must declare only safe methods on the platform actor path.`);
+    }
+  }
+}
+
+function resolvePlatformActorAnonymousRoutes(runtime: ApiHostRuntime): readonly AnonymousRouteDeclaration[] {
+  return runtime.mountedContexts
+    .filter((entry) => entry.contextName !== "auth" && entry.contextName !== "identity")
+    .flatMap((entry) => {
+      const module = entry.module as Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }>;
+      const declarations = module.anonymousRoutes ?? [];
+      for (const declaration of declarations) {
+        assertPlatformActorAnonymousRoute(entry.contextName, declaration);
+      }
+      return declarations;
+    });
 }
 
 function resolveAuthIdentityAnonymousRoutes(runtime: ApiHostRuntime): readonly AnonymousRouteDeclaration[] {
@@ -973,3 +1310,5 @@ function isPaymentProcessorPublicConfig(value: unknown): value is Parameters<typ
     (value as { confirmationExperience?: unknown }).confirmationExperience === "processor-managed-form"
   );
 }
+
+export { createOfferLifecycleAdmission } from "./offer-lifecycle-admission";

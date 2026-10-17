@@ -195,7 +195,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "opt-in-and-fee",
-    ref: "bounded-contexts/checkout/features/sessions/domain/domain.ts:696-716",
+    ref: "bounded-contexts/checkout/features/sessions/domain/domain.ts:777-799",
     keyword: "SelectAuthenticityCheckOptIn",
   },
   {
@@ -230,7 +230,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "liability-limits",
-    ref: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:521",
+    ref: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts:552",
     keyword: "Authenticity Service Terms",
   },
   {

@@ -615,8 +615,8 @@ export function createReturnShipmentLabelPurchaseService(
     let purchased: PurchasedPostageLabel;
     try {
       purchased = await provider.purchaseUspsLabel({
-        shipmentId: returnShipmentId,
-        orderId: directive.orderId,
+        subjectKind: "return-shipment",
+        subjectId: returnShipmentId,
         idempotencyKey: operationKey,
         serviceLevel: directive.serviceLevel,
         sender,

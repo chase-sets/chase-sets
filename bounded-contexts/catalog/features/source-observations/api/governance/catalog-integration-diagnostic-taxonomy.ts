@@ -471,6 +471,15 @@ export const catalogIntegrationDiagnosticTaxonomy = [
     "summary",
     "Resolve runtime preflight failures before promotion.",
   ),
+  entry(
+    "display-identity-unresolvable",
+    "engine",
+    "blocked",
+    "promotion-blocking",
+    "detail",
+    "Repair the referenced field or mapping data and re-plan, or explicitly promote as draft.",
+    "safe-catalog-evidence",
+  ),
 
   entry(
     "external-key-change",

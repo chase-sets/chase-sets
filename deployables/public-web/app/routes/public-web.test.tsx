@@ -53,6 +53,7 @@ describe("public web deployable", () => {
 
   it("installs a bounded waitlist analytics bridge script", () => {
     expect(waitlistAnalyticsBridgeScript).toContain("chase-sets:waitlist-analytics");
+    expect(waitlistAnalyticsBridgeScript).toContain("disclosure_opened");
     expect(waitlistAnalyticsBridgeScript).toContain("/api/public-presence/analytics/waitlist");
     expect(waitlistAnalyticsBridgeScript).toContain("page_path");
     expect(waitlistAnalyticsBridgeScript).toContain("utm_source");
@@ -122,6 +123,7 @@ describe("public web deployable", () => {
       context: undefined,
     } as never);
     const body = (await manifest.json()) as { name: string; icons: unknown[] };
+    expect(body).toMatchObject({ theme_color: "#4845c6", background_color: "#f7f5f1" });
 
     expect(manifest.headers.get("Content-Type")).toContain("application/manifest+json");
     expect(body.name).toBe("Chase Sets");

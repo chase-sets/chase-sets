@@ -1,5 +1,9 @@
 {
   "schemaVersion": "issue-readiness-fixtures/v1",
+  "explicitNone": {
+    "glossary": "none — no new or renamed public names.",
+    "externalAuthority": "none — no acceptance criterion depends on an external authority."
+  },
   "recordedFrom": {
     "repository": "chase-sets/chase-sets",
     "issue": 6253,
@@ -99,6 +103,14 @@
       },
       "expectedStatus": "not-ready",
       "expectedRule": "ready-07-terms-declared"
+    },
+    {
+      "id": "glossary-terms-none",
+      "replaceField": {
+        "label": "Glossary impact",
+        "value": "Terms: none."
+      },
+      "expectedStatus": "ready"
     },
     {
       "id": "authority-probe-without-timing",

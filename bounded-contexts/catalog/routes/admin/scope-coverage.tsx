@@ -6,9 +6,12 @@ import { UnmappedScopeInboxPage } from "../../features/provider-scope-mapping/ui
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  const productDomain = new URL(request.url).searchParams.get("productDomain")?.trim() || null;
   const api = createCatalogRequestApiClient(request);
-  const data = await api.getUnmappedScopeInbox<UnmappedScopeInboxReadModel>();
-  return { data };
+  const data = await api.getUnmappedScopeInbox<UnmappedScopeInboxReadModel>({
+    productDomain: productDomain ?? undefined,
+  });
+  return { data, productDomain };
 }
 
 export const meta: MetaFunction<typeof loader> = () => [
@@ -16,6 +19,6 @@ export const meta: MetaFunction<typeof loader> = () => [
 ];
 
 export default function ScopeCoverageRoute() {
-  const { data } = useLoaderData<typeof loader>();
-  return <UnmappedScopeInboxPage initialData={data} />;
+  const { data, productDomain } = useLoaderData<typeof loader>();
+  return <UnmappedScopeInboxPage initialData={data} productDomain={productDomain} />;
 }

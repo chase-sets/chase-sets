@@ -15,6 +15,7 @@ import {
   type ObservationPackObjectStorage,
 } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts";
 import { captureObservationPack as captureObservationPackFromAdapter } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack-capture.ts";
+import { resolveTcgdexImageReference } from "../bounded-contexts/catalog/features/source-observations/api/providers/tcgdex/image-reference.ts";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -72,18 +73,18 @@ export const observationPackCapturePresets: Readonly<
     scope: {
       unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       scopeKey: "expansion",
-      values: { languageCode: "en", seriesId: "sv", setId: "sv8.5" },
+      values: { languageCode: "en", seriesId: "sv", setId: "sv08.5" },
     },
     identity: {
       productLineKey: "pokemon-tcg",
       productLineDisplayName: "Pokemon TCG",
       setKind: "expansion",
-      setExternalId: "sv8.5",
+      setExternalId: "sv08.5",
       setDisplayName: "Prismatic Evolutions",
       providerKey: "tcgdex",
       language: "en",
       scopeKey: "expansion",
-      scopeCoordinates: { languageCode: "en", seriesId: "sv", setId: "sv8.5" },
+      scopeCoordinates: { languageCode: "en", seriesId: "sv", setId: "sv08.5" },
     },
   },
   "mtg-time-spiral": {
@@ -118,18 +119,18 @@ export const observationPackCapturePresets: Readonly<
     scope: {
       unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       scopeKey: "expansion",
-      values: { languageCode: "en", expansionId: "op-01" },
+      values: { languageCode: "en", expansionId: "OP01" },
     },
     identity: {
       productLineKey: "one-piece-card-game",
       productLineDisplayName: "One Piece Card Game",
       setKind: "set",
-      setExternalId: "op-01",
+      setExternalId: "OP01",
       setDisplayName: "Romance Dawn",
       providerKey: "scrydex",
       language: "en",
       scopeKey: "expansion",
-      scopeCoordinates: { languageCode: "en", expansionId: "op-01" },
+      scopeCoordinates: { languageCode: "en", expansionId: "OP01" },
     },
   },
   "lorcana-the-first-chapter": {
@@ -172,7 +173,7 @@ export async function captureObservationPack(input: {
     adapter: input.adapter,
     packVersion: input.packVersion,
     capturedAt: input.capturedAt,
-    ...(input.fetch ? { fetch: input.fetch } : {}),
+    fetch: createConfiguredAssetFetch(input.preset, input.profileVersion, input.fetch),
     credentialValues: input.credentialValues,
   });
 }
@@ -196,6 +197,7 @@ export async function runCatalogObservationPackCli(
         adapter,
         packVersion: options.packVersion,
         capturedAt: options.capturedAt,
+        fetch: createConfiguredAssetFetch(preset, profileVersion),
         credentialValues: credentialValues(env),
       });
       const prefix =
@@ -281,6 +283,31 @@ export async function runCatalogObservationPackCli(
     });
     return 1;
   }
+}
+
+function createConfiguredAssetFetch(
+  preset: ObservationPackCapturePreset,
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  fetch: typeof globalThis.fetch = globalThis.fetch,
+): typeof globalThis.fetch {
+  if (preset.providerKey === "scrydex") {
+    return (resource, options) => {
+      const headers = new Headers(options?.headers);
+      headers.set("Accept", "image/webp,image/jpeg,image/png");
+      return fetch(resource, { ...options, headers });
+    };
+  }
+  if (preset.providerKey !== "tcgdex") {
+    return fetch;
+  }
+  const connector = profileVersion.profile.connector;
+  if (connector.kind !== "tcgdex-json") {
+    throw new Error("TCGdex capture requires its configured image variant.");
+  }
+  return (resource, options) => {
+    const source = typeof resource === "string" ? resource : resource instanceof URL ? resource.href : resource.url;
+    return fetch(resolveTcgdexImageReference(source, connector.highQualityAssetVariant), options);
+  };
 }
 
 function requireActiveProfileVersion(

@@ -15,7 +15,7 @@
     "liability-reconciliation"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
   "seedRequirements": ["identity", "payments"],
   "eventSubscriptions": [
@@ -102,9 +102,12 @@
     {
       "sourceContextName": "fulfillment",
       "projectionName": "settlement-fulfillment-source-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "fulfillment.shipment.created",
+        "fulfillment.shipment.label-attached",
+        "fulfillment.shipment.label-voided",
+        "fulfillment.shipment.label-refund-status-recorded",
         "fulfillment.shipment.dispatched",
         "fulfillment.shipment.delivered",
         "fulfillment.shipment.returned",
@@ -141,7 +144,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "settlement-account-risk-source-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "subscriptionName": "settlement.marketplace-review-account-risk-source-projection",
       "eventTypes": [
         "marketplace.listing.created",
@@ -225,13 +228,13 @@
     {
       "projectionName": "settlement-fulfillment-source-projection",
       "sourceContextNames": ["fulfillment"],
-      "ownedTables": ["settlement_order_fulfillment_sources"],
+      "ownedTables": ["settlement_order_fulfillment_sources", "settlement_marketplace_label_postage"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "settlement-account-risk-source-projection",
-      "projectionRevision": 2,
+      "projectionRevision": 3,
       "sourceContextNames": ["identity", "marketplace", "payments"],
       "ownedTables": [
         "settlement_account_risk_sources",
@@ -278,6 +281,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "deploymentEnvironment",
+      "providedBy": "platform-api",
+      "purpose": "Trusted deployment environment for the staging-only proof credit; missing binding refuses all proof writes."
+    },
+    {
       "portName": "moneyMovementGateway",
       "providedBy": "platform-api",
       "purpose": "Provider-neutral money movement adapter for payout setup, platform-balance transfers, connected-account payouts, and payout webhooks."
@@ -293,9 +301,24 @@
       "purpose": "Durable outbound notification outbox consumed only by event projectors."
     },
     {
+      "portName": "marketplaceLabelPostageActivation",
+      "providedBy": "platform-worker",
+      "purpose": "Validated Settlement database activation provenance supplied before the marketplace label postage subscription runner is constructed."
+    },
+    {
       "portName": "termsAcceptanceResolver",
       "providedBy": "identity",
       "purpose": "Resolve whether a buyer has accepted the active Terms of Service version so wallet balance credit can be applied at checkout without Settlement querying Identity storage."
+    },
+    {
+      "portName": "evidenceWindowProviderWrite",
+      "providedBy": "platform-runtime",
+      "purpose": "Journal admitted provider writes before send and resolve immutable operations through guarded recovery."
+    },
+    {
+      "portName": "evidenceWindowCorrelation",
+      "providedBy": "platform-runtime",
+      "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -407,6 +430,11 @@
       }
     }
   ],
+  "agentCoverage": {
+    "settlement-money-health": { "pending": "#9238" },
+    "settlement-payout-operations": { "pending": "#9238" },
+    "settlement-wallet-workbench": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -445,56 +473,214 @@
           "routePath": "account/desk/money",
           "fileExport": "./routes/marketplace/account-desk-money",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-desk-payout",
           "routePath": "account/desk/payouts/:payoutId",
           "fileExport": "./routes/marketplace/account-desk-payout",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-desk-settings",
           "routePath": "account/desk/settings",
           "fileExport": "./routes/marketplace/account-payout-setup",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-payout-setup",
           "routePath": "account/payouts/setup",
           "fileExport": "./routes/marketplace/account-desk-settings",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-payout",
           "routePath": "account/payouts/:payoutId",
           "fileExport": "./routes/marketplace/account-payout",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-payouts",
           "routePath": "account/payouts",
           "fileExport": "./routes/marketplace/account-payouts",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-settlement",
           "routePath": "account/settlement",
           "fileExport": "./routes/marketplace/account-settlement",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-wallet-adjustment",
           "routePath": "account/wallet/adjustments/:reference",
           "fileExport": "./routes/marketplace/account-wallet-adjustment",
           "routeType": "route",
-          "sourceContext": "settlement"
+          "sourceContext": "settlement",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "settlement",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         }
       ]
     }
@@ -510,7 +696,8 @@
       "section": "commerce",
       "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.reconcile"]
+      "requiredPermissions": ["payouts.reconcile", "payouts.platform.view"],
+      "requiredPermissionsMatch": "any"
     },
     {
       "deployable": "admin-web",
@@ -522,19 +709,23 @@
       "section": "commerce",
       "order": 85,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.reconcile"]
+      "requiredPermissions": ["payouts.reconcile", "payouts.platform.view"],
+      "requiredPermissionsMatch": "any"
     },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
       "placements": ["top-nav", "bottom-nav"],
       "key": "money",
-      "label": "Money",
+      "label": "Seller money",
+      "labelKey": "settlement.shell.money.label",
       "icon": "wallet",
       "href": "/account/desk/money",
       "order": 180,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.view"]
+      "requiredPermissions": ["payouts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 500
     }
   ],
   "directoryIntent": {
@@ -598,6 +789,25 @@
   },
   "mutationConsistencyInventory": [
     {
+      "id": "settlement.staging-proof-credit-receipt",
+      "owner": "settlement",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/settlement/features/wallets/api/staging-proof-credit-runtime.ts:POST /wallet/staging-proof-credits"
+      ],
+      "visibleDestination": {
+        "description": "The staging operator receives the Wallet-stream proof receipt directly; no projection or UI is required."
+      },
+      "proof": {
+        "authoritativeResponse": "The runtime returns the complete atomic credit/audit receipt from committed Wallet state; replay and GET rehydrate the same stream, independent of projection lag.",
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/api/staging-proof-credit-route.test.ts",
+          "bounded-contexts/settlement/features/wallets/api/staging-proof-credit.db.test.ts"
+        ]
+      }
+    },
+    {
       "id": "settlement.payout-readiness-api-session-snapshots",
       "owner": "settlement",
       "risk": "critical",
@@ -644,26 +854,19 @@
       }
     },
     {
-      "id": "settlement.wallet-operator-ledger-entry-snapshots",
+      "id": "settlement.wallet-negative-balance-collections-snapshots",
       "owner": "settlement",
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-holds",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/dispute-releases",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/negative-balances/evaluate-collections",
-        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/refund-debits"
+        "api-route:bounded-contexts/settlement/features/wallets/api/route.ts:POST /wallet/negative-balances/evaluate-collections"
       ],
       "visibleDestination": {
-        "description": "Operator wallet mutations return the committed ledger-entry snapshot or negative-balance collections counts without waiting for the wallet ledger read model."
+        "description": "Negative-balance collection evaluation returns the service-owned escalated and skipped count snapshot without waiting for a read model."
       },
       "proof": {
-        "authoritativeResponse": "WalletServices.postEntry builds the response from the settlement.wallet.ledger-entry-posted event that was just committed, duplicate idempotency-key retries return an explicit idempotent duplicate response instead of asking the operator to repeat the input, and evaluateNegativeBalanceCollections returns command-owned escalated/skipped counts.",
-        "tests": [
-          "bounded-contexts/settlement/features/wallets/api/route.test.ts",
-          "bounded-contexts/settlement/features/wallets/domain/domain.test.ts",
-          "bounded-contexts/settlement/features/wallets/read-model/queries.test.ts"
-        ]
+        "authoritativeResponse": "evaluateNegativeBalanceCollections returns the command-owned escalated and skipped count snapshot.",
+        "tests": ["bounded-contexts/settlement/features/wallets/api/route.test.ts"]
       }
     },
     {

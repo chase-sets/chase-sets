@@ -1,0 +1,11 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-rollback-readiness.yml",
+      "jobId": "readiness",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}

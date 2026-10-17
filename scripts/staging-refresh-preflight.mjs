@@ -15,6 +15,7 @@ import {
   stagingRefreshRequiredSecrets,
   stagingRefreshSetMatrix,
 } from "./staging-refresh-preflight-config.mjs";
+import { isStripePublishableKeyForMode, isUnrestrictedStripeSecretKeyForMode } from "./stripe-key-mode.mjs";
 
 const execFile = promisify(execFileCallback);
 const SESSION_COOKIE_NAME = "chase_sets_session";
@@ -88,15 +89,15 @@ export function parseStagingRefreshPreflightArgs(argv, env = process.env) {
   };
 }
 
-function validatesSecretValue(valueKind, value) {
+export function validatesSecretValue(valueKind, value) {
   if (!value) {
     return false;
   }
   if (valueKind === "stripe-secret-test") {
-    return value.startsWith("sk_test_");
+    return isUnrestrictedStripeSecretKeyForMode(value, "test");
   }
   if (valueKind === "stripe-publishable-test") {
-    return value.startsWith("pk_test_");
+    return isStripePublishableKeyForMode(value, "test");
   }
   if (valueKind === "stripe-webhook") {
     return value.startsWith("whsec_");

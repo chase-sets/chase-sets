@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   applyAllowedNormalizedDeltas,
@@ -43,6 +43,11 @@ const goldenProvenance = "dae5e288572b52a559654343ec229f3a988c4b07";
 const historicalNonexistentProvenance = "93172b2173e40bdd0089c63a28b58cd86466a6b9";
 const committedGoldens = readCommittedGoldens(repositoryRoot);
 const movingMainRef = "refs/remotes/fixture/moving-main";
+
+function isOutsideSourceCheckout(root) {
+  const pathFromSource = relative(repositoryRoot, root);
+  return isAbsolute(pathFromSource) || pathFromSource === ".." || pathFromSource.startsWith(`..${sep}`);
+}
 
 describe("doks cluster addons planner", () => {
   it("reads the local chart version through the shared parser", () => {
@@ -280,9 +285,11 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
   let syntheticSuiteRoot;
   let captureFixture;
   let movingMainFixture;
+  let sourceStatusBeforeSetup;
 
   beforeAll(() => {
-    syntheticSuiteRoot = realpathSync(mkdtempSync(join(repositoryRoot, ".doks-golden-suite-")));
+    sourceStatusBeforeSetup = runGit(["status", "--porcelain"], repositoryRoot);
+    syntheticSuiteRoot = realpathSync(mkdtempSync(join(tmpdir(), ".doks-golden-suite-")));
     try {
       const fixtureRoot = join(syntheticSuiteRoot, "planner");
       const fixture = initializePlannerFixtureRepository({
@@ -316,6 +323,43 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
   afterAll(() => {
     rmSync(syntheticSuiteRoot, { recursive: true, force: true });
     expect(existsSync(syntheticSuiteRoot)).toBe(false);
+  });
+
+  it("keeps the source checkout clean while the golden suite fixture is alive", () => {
+    expect(sourceStatusBeforeSetup).toBe("");
+    expect(existsSync(captureFixture.root)).toBe(true);
+    expect(runGit(["status", "--porcelain"], repositoryRoot)).toBe("");
+    expect(isOutsideSourceCheckout(syntheticSuiteRoot)).toBe(true);
+  });
+
+  it("keeps helper fixtures outside the source checkout during use", () => {
+    const observations = [];
+    const observeRoot = (root) => {
+      writeFileSync(join(root, "fixture-lifetime-control.txt"), "live fixture\n", "utf8");
+      observations.push({
+        root,
+        alive: existsSync(root),
+        outside: isOutsideSourceCheckout(root),
+        status: runGit(["status", "--porcelain"], repositoryRoot),
+      });
+    };
+    assertGoldenProvenance({
+      gitRoot: repositoryRoot,
+      provenanceSha: goldenProvenance,
+      goldens: committedGoldens,
+      baseRef: originMainRef,
+      onReconstructionRoot: observeRoot,
+    });
+    withTemporaryDirectory("doks-golden-non-git-", observeRoot);
+
+    expect(observations).toHaveLength(2);
+    for (const { root, alive, outside, status } of observations) {
+      expect(alive).toBe(true);
+      expect(status).toBe("");
+      expect(outside).toBe(true);
+      expect(existsSync(root)).toBe(false);
+    }
+    expect(runGit(["status", "--porcelain"], repositoryRoot)).toBe("");
   });
 
   it("matches the staging and production immutable goldens through the real CLI", () => {

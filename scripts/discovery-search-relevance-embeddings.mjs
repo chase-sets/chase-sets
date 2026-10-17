@@ -130,7 +130,7 @@ async function main() {
     readJson(path.join(fixtureDirectory, "golden-queries.json")),
   ]);
   const { register } = await import("node:module");
-  register("./typescript-source-loader.mjs", import.meta.url);
+  register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
   const { buildDiscoveryEmbeddingDocument } =
     await import("../bounded-contexts/discovery/features/search/domain/embedding-document.ts");
   const fixture = await buildRelevanceEmbeddingFixture({

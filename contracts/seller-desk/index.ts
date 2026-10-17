@@ -31,6 +31,9 @@ export type SellerDeskSurfaceId =
   | "payout"
   | "sell-list"
   | "seller-settings"
+  | "channel-connection"
+  | "repricing-policies"
+  | "repricing-policy"
   | "resolution-drawer"
   | "activity-drawer";
 
@@ -109,6 +112,27 @@ export const SELLER_DESK_SURFACES: readonly SellerDeskSurface[] = [
     job: "Govern the rarely-touched seller controls — payout account setup, storage locations, and seller policies.",
   },
   {
+    id: "channel-connection",
+    kind: "page",
+    routePath: "/account/channels/:connectionId",
+    title: "Channel connection",
+    job: "Run a manual channel sync, inspect its exact state, and resolve dark-inbound attention.",
+  },
+  {
+    id: "repricing-policies",
+    kind: "page",
+    routePath: "/account/desk/repricing",
+    title: "Repricing policies",
+    job: "See every repricing policy with its status and today's change budget, engage or release the account halt, and review recent dry runs.",
+  },
+  {
+    id: "repricing-policy",
+    kind: "page",
+    routePath: "/account/desk/repricing/:policyId",
+    title: "Repricing policy",
+    job: "Read one policy's rules, pause, resume, or delete it, and trace what it did to each listing and why.",
+  },
+  {
     id: "resolution-drawer",
     kind: "drawer",
     routePath: null,
@@ -136,7 +160,9 @@ export type SellerEntityId =
   | "shipment"
   | "offer"
   | "payout"
-  | "wallet-adjustment";
+  | "wallet-adjustment"
+  | "channel-connection"
+  | "repricing-policy";
 
 export type SellerEntity = Readonly<{
   id: SellerEntityId;
@@ -153,6 +179,8 @@ export const SELLER_ENTITIES: readonly SellerEntity[] = [
   { id: "offer", label: "Offer", homeSurface: "sell-list" },
   { id: "payout", label: "Payout", homeSurface: "payout" },
   { id: "wallet-adjustment", label: "Wallet adjustment", homeSurface: "settlement-dashboard" },
+  { id: "channel-connection", label: "Channel connection", homeSurface: "channel-connection" },
+  { id: "repricing-policy", label: "Repricing policy", homeSurface: "repricing-policy" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -178,7 +206,9 @@ export type SellerPermission =
   | "orders.view"
   | "orders.manage"
   | "pricing.view"
-  | "pricing.manage";
+  | "pricing.manage"
+  | "channels.view"
+  | "channels.manage";
 
 // ---------------------------------------------------------------------------
 // Action vocabulary. Every current seller form intent maps to exactly one
@@ -215,6 +245,15 @@ export type SellerDeskAction = Readonly<{
 }>;
 
 export const SELLER_DESK_ACTIONS: readonly SellerDeskAction[] = [
+  // Channel connection
+  {
+    id: "channel-connection.open-manual-sync",
+    entity: "channel-connection",
+    permission: "channels.manage",
+    feedback: "status-banner",
+    disclosure: "page",
+    replaces: ["open-manual-sync"],
+  },
   // Inventory item
   {
     id: "inventory-item.create",
@@ -231,6 +270,14 @@ export const SELLER_DESK_ACTIONS: readonly SellerDeskAction[] = [
     feedback: "row-transition",
     disclosure: "inline",
     replaces: ["adjust-item"],
+  },
+  {
+    id: "inventory-item.record-offline-sale",
+    entity: "inventory-item",
+    permission: "inventory.manage",
+    feedback: "row-transition",
+    disclosure: "inline",
+    replaces: ["record-offline-sale"],
   },
   {
     id: "inventory-item.restock",
@@ -370,6 +417,31 @@ export const SELLER_DESK_ACTIONS: readonly SellerDeskAction[] = [
     disclosure: "drawer",
     replaces: ["upload-bulk-reprice", "cancel-bulk-reprice"],
   },
+  // Repricing policy
+  {
+    id: "repricing-policy.lifecycle",
+    entity: "repricing-policy",
+    permission: "pricing.manage",
+    feedback: "row-transition",
+    disclosure: "inline",
+    replaces: ["pause-repricing-policy", "resume-repricing-policy"],
+  },
+  {
+    id: "repricing-policy.delete",
+    entity: "repricing-policy",
+    permission: "pricing.manage",
+    feedback: "confirmation-gate",
+    disclosure: "inline",
+    replaces: ["delete-repricing-policy"],
+  },
+  {
+    id: "repricing-policy.halt",
+    entity: "repricing-policy",
+    permission: "pricing.manage",
+    feedback: "confirmation-gate",
+    disclosure: "inline",
+    replaces: ["engage-repricing-halt", "release-repricing-halt"],
+  },
   // Offer / sell list
   {
     id: "offer.decline",
@@ -378,14 +450,6 @@ export const SELLER_DESK_ACTIONS: readonly SellerDeskAction[] = [
     feedback: "row-transition",
     disclosure: "inline",
     replaces: ["decline-offer"],
-  },
-  {
-    id: "offer.mute-buyer",
-    entity: "offer",
-    permission: "offers.manage",
-    feedback: "row-transition",
-    disclosure: "inline",
-    replaces: ["mute-offer-buyer", "unmute-offer-buyer"],
   },
   {
     id: "offer.manage-sell-list",
@@ -761,11 +825,11 @@ export const SELLER_ROUTE_MAP: readonly SellerRouteMapping[] = [
     currentPath: "/account/repricing",
     sourceContext: "pricing",
     scope: "seller",
-    disposition: "drawer",
-    newHome: "listing",
-    redirectTo: "/account/desk",
+    disposition: "kept",
+    newHome: "repricing-policies",
+    redirectTo: "/account/desk/repricing",
     capability: "Repricing controls.",
-    note: "Repricing becomes a drawer on the listing and a bulk action on the Desk listings view.",
+    note: "Repricing policies, the account halt, and policy activity re-home to the Desk repricing pages; navigation stays on /account/repricing until the Desk shell cutover (#7263).",
   },
   {
     routeId: "account-bulk-reprice",
@@ -1015,17 +1079,21 @@ export type SellerAttentionSourceId =
   | "settlement-blocked-payout"
   | "dispute-response"
   | "inventory-resolution"
+  | "channel-action"
   | "offer-response"
+  | "pricing-repricing"
   | "listing-action";
 
 // Tiebreak priority for items of equal severity and deadline. Ship-by deadlines and
 // blocked money outrank stale listings — the policy the blueprint mandates.
 export const SELLER_ATTENTION_SOURCE_PRIORITY: Readonly<Record<SellerAttentionSourceId, number>> = {
-  "fulfillment-ship-by": 6,
-  "settlement-blocked-payout": 5,
-  "dispute-response": 4,
-  "inventory-resolution": 3,
-  "offer-response": 2,
+  "fulfillment-ship-by": 8,
+  "settlement-blocked-payout": 7,
+  "dispute-response": 6,
+  "inventory-resolution": 5,
+  "channel-action": 4,
+  "offer-response": 3,
+  "pricing-repricing": 2,
   "listing-action": 1,
 };
 
@@ -1069,10 +1137,26 @@ export const SELLER_ATTENTION_SOURCES: readonly SellerAttentionSource[] = [
     availability: "live",
   },
   {
+    id: "channel-action",
+    ownerContext: "channels",
+    entity: "channel-connection",
+    target: "channel-connection",
+    peakSeverity: "critical",
+    availability: "live",
+  },
+  {
     id: "offer-response",
     ownerContext: "marketplace",
     entity: "offer",
     target: "sell-list",
+    peakSeverity: "warning",
+    availability: "live",
+  },
+  {
+    id: "pricing-repricing",
+    ownerContext: "pricing",
+    entity: "repricing-policy",
+    target: "repricing-policies",
     peakSeverity: "warning",
     availability: "live",
   },

@@ -4,6 +4,8 @@ import { parseCheckoutOrderingSourceType } from "@chase-sets/checkout-order-sour
 import { normalizeShippingOption } from "../domain/common";
 import type { OrderingApiEnv } from "../../../api";
 import type { OrderingOrderServices } from "./runtime";
+import type { OrderingOrderReviewOutcome } from "../integrations/reputation/reputation-queries";
+import type { OrderCleanupAuthorityReport } from "./cleanup-authority";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 
 function requireOrderAccess(
@@ -79,6 +81,23 @@ function requireCheckoutAccess(c: { get(key: "actor"): OrderingApiEnv["Variables
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("ordering.features.orders.api.route.request.failed");
+}
+
+async function readOrderReviewOutcome(
+  services: OrderingOrderServices,
+  orderId: string,
+  actor: OrderingApiEnv["Variables"]["actor"],
+): Promise<OrderingOrderReviewOutcome> {
+  if (!actor || !canViewReviewOpportunity(actor)) return { status: "unavailable", opportunity: null };
+  try {
+    return await services.getOrderReviewOpportunity(orderId, actor.accountId);
+  } catch {
+    return { status: "unavailable", opportunity: null };
+  }
+}
+
+function refuseEvidenceWindowSourceAdmission(): never {
+  throw new Error("Evidence window source admission refused.");
 }
 
 function errorCode(error: unknown) {
@@ -157,6 +176,71 @@ function parseCheckoutReservations(value: unknown) {
     : [];
 }
 
+/**
+ * Reads a request body without letting a malformed payload throw. An
+ * unparseable body is indistinguishable from an invalid one: both are 400.
+ */
+async function readJsonBody(c: { req: { json: () => Promise<unknown> } }): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The N8 request body is exactly `{ windowOpenedAt }`. No buyer, Order, or
+ * source identity may travel in the body, so any additional property is
+ * rejected rather than ignored.
+ */
+function parseCleanupAuthorityWindow(body: unknown): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return null;
+  }
+  const keys = Object.keys(body as Record<string, unknown>);
+  if (keys.length !== 1 || keys[0] !== "windowOpenedAt") {
+    return null;
+  }
+  const windowOpenedAt = (body as Record<string, unknown>).windowOpenedAt;
+  return typeof windowOpenedAt === "string" ? windowOpenedAt : null;
+}
+
+function cleanupAuthorityValidationResponse(c: { json: (body: unknown, status?: number) => Response }) {
+  return c.json(
+    {
+      error: {
+        code: "ordering_cleanup_authority_input_invalid",
+        message: t("ordering.features.orders.api.route.cleanup.authority.invalid"),
+      },
+    },
+    400,
+  );
+}
+
+/**
+ * The wire body is built field by field from the report so no raw event,
+ * Hold, source, provider, credential, email, or exception is representable,
+ * and the supplied Order id is never echoed back.
+ */
+function cleanupAuthorityResponseBody(report: OrderCleanupAuthorityReport) {
+  return {
+    schemaVersion: report.schemaVersion,
+    state: report.state,
+    retryable: report.retryable,
+    orderStatus: report.orderStatus,
+    cancellationStatusBefore: report.cancellationStatusBefore,
+    holdCounts: {
+      total: report.holdCounts.total,
+      active: report.holdCounts.active,
+      released: report.holdCounts.released,
+      consumed: report.holdCounts.consumed,
+      expired: report.holdCounts.expired,
+    },
+    orderStreamVersion: report.orderStreamVersion,
+    holdStreamVersions: [...report.holdStreamVersions],
+  };
+}
+
 export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices) {
   const app = new Hono<OrderingApiEnv>();
 
@@ -231,11 +315,32 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
       );
     }
 
+    const windowId = c.req.header("x-evidence-window-id");
+    const subInvocation = c.req.header("x-evidence-window-sub-invocation");
+    if (
+      Boolean(windowId) !== Boolean(subInvocation) ||
+      (windowId !== undefined && !/^[0-9a-f]{32}$/.test(windowId)) ||
+      (subInvocation !== undefined && subInvocation !== "2a" && subInvocation !== "2b")
+    ) {
+      return c.json({ error: { code: "evidence-window-source-admission-refused" } }, 400);
+    }
+
     const body = await c.req.json();
+    // Stamped only by the host's evidence-window admission; absent when the
+    // host did not mount it, and never read from the request body.
+    const admission = c.get("evidenceWindowSourceAdmission");
 
     try {
+      const evidenceWindowSource =
+        windowId && subInvocation
+          ? admission?.source?.windowId === windowId && admission.source.subInvocation === subInvocation
+            ? admission.source
+            : refuseEvidenceWindowSourceAdmission()
+          : null;
       const result = await services.createOrdersFromCheckout(
         {
+          ...(evidenceWindowSource ? { evidenceWindowSource } : {}),
+          ...(admission ? { evidenceWindowSourceAdmissionConfigured: true } : {}),
           buyerAccountId: access.actor.accountId as AccountId,
           checkoutSessionId: String(body.checkoutSessionId ?? ""),
           sourceType: parseCheckoutOrderingSourceType(body.sourceType),
@@ -282,6 +387,12 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
       return c.json({ ...result, status: "created" }, 201);
     } catch (error) {
+      if (windowId || subInvocation) {
+        return (
+          staleAuthenticityFeeQuoteResponse(c, error) ??
+          c.json({ error: { code: "evidence-window-source-failed" } }, 409)
+        );
+      }
       return (
         staleAuthenticityFeeQuoteResponse(c, error) ??
         c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400)
@@ -332,12 +443,84 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
       );
     }
 
-    const reviewOpportunity = canViewReviewOpportunity(access.actor)
-      ? await services.getOrderReviewOpportunity(order.order_id, access.actor.accountId)
-      : null;
-
-    return c.json({ ...order, reviewOpportunity });
+    const reviewOutcome = await readOrderReviewOutcome(services, order.order_id, access.actor);
+    return c.json({ ...order, reviewOutcome });
   });
+
+  /**
+   * The eighth UAT client operation on the authenticated account router.
+   *
+   * A read-only `POST`: the window instant is request state that does not
+   * belong in a URL, and the operation observes complete Order, reservation,
+   * and Hold histories without writing anything. It is classified
+   * `read-model-neutral` in Ordering's `mutationConsistencyInventory` so
+   * `check:structure` does not read it as an unclassified mutating surface.
+   *
+   * The handler exists only while the Inventory cleanup authority is mounted:
+   * a host that reports `not-mounted` registers no route at all.
+   */
+  if (services.cleanupAuthority.kind === "available") {
+    const cleanupAuthority = services.cleanupAuthority;
+
+    app.post("/purchases/:id/cleanup-authority", async (c) => {
+      const access = requireOrderAccess(c, "orders.view");
+      if (access.response) {
+        return access.response;
+      }
+
+      const context = c.get("context");
+      if (!context) {
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: t("ordering.features.orders.api.route.authentication.context.missing.4"),
+            },
+          },
+          401,
+        );
+      }
+
+      const windowOpenedAt = parseCleanupAuthorityWindow(await readJsonBody(c));
+      if (windowOpenedAt === null) {
+        return cleanupAuthorityValidationResponse(c);
+      }
+
+      const observation = await cleanupAuthority.observeBuyerOrderCleanupAuthority({
+        orderId: c.req.param("id"),
+        windowOpenedAt,
+        buyerAccountId: access.actor.accountId,
+        tenantId: String(context.tenantId),
+      });
+
+      switch (observation.outcome) {
+        case "observed":
+          return c.json(cleanupAuthorityResponseBody(observation.report));
+        case "invalid-request":
+          return cleanupAuthorityValidationResponse(c);
+        case "not-found":
+          return c.json(
+            {
+              error: {
+                code: "ordering_cleanup_authority_not_found",
+                message: t("ordering.features.orders.api.route.cleanup.authority.not.found"),
+              },
+            },
+            404,
+          );
+        default:
+          return c.json(
+            {
+              error: {
+                code: "ordering_cleanup_authority_incomplete",
+                message: t("ordering.features.orders.api.route.cleanup.authority.incomplete"),
+              },
+            },
+            409,
+          );
+      }
+    });
+  }
 
   app.post("/purchases/:id/cancel", async (c) => {
     const access = requireOrderAccess(c, "orders.manage");
@@ -435,11 +618,8 @@ export function createAccountSaleOrderRoutes(services: OrderingOrderServices) {
       );
     }
 
-    const reviewOpportunity = canViewReviewOpportunity(access.actor)
-      ? await services.getOrderReviewOpportunity(order.order_id, access.actor.accountId)
-      : null;
-
-    return c.json({ ...order, reviewOpportunity });
+    const reviewOutcome = await readOrderReviewOutcome(services, order.order_id, access.actor);
+    return c.json({ ...order, reviewOutcome });
   });
 
   app.post("/sales/:id/cancel", async (c) => {

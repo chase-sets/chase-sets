@@ -24,6 +24,10 @@ spec:
     metadata:
       labels:
 {{ include "chase-sets-platform.selectorLabels" (dict "root" $ "name" $name) | nindent 8 }}
+{{- if and $component.managedPostgresCa $.Values.global.managedPostgresCaSha256 }}
+      annotations:
+        chase-sets.com/managed-postgres-ca-sha256: {{ required "global.managedPostgresCaSha256 is required for database-bearing workloads" $.Values.global.managedPostgresCaSha256 | quote }}
+{{- end }}
     spec:
       restartPolicy: Never
 {{ include "chase-sets-platform.podSpec" (dict "root" $ "name" $name "component" $component) | nindent 6 }}

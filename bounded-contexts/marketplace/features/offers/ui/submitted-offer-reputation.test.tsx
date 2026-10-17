@@ -14,6 +14,8 @@ const acceptedOffer: SubmittedOfferDetail = {
   selected_options: [{ dimensionId: "condition", optionId: "raw" }],
   product_summary: "Raw / Near Mint",
   price_amount: "20.00",
+  price_currency_code: "USD",
+  last_stream_version: 3,
   quantity_requested: 1,
   status: "accepted",
   accepted_seller_account_id: "acc_seller",

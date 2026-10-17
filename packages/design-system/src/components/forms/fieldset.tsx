@@ -10,7 +10,7 @@ export interface FieldsetProps extends Omit<HTMLAttributes<HTMLFieldSetElement>,
 
 export function Fieldset({ legend, description, children, ...rest }: FieldsetProps) {
   return (
-    <Surface as={BaseFieldset.Root} tone="subtle" {...rest}>
+    <Surface as={BaseFieldset.Root} tone="subtle" {...rest} elevation="flush">
       <Stack gap={4}>
         <Stack gap={1}>
           <BaseFieldset.Legend className="text-sm font-semibold text-foreground">{legend}</BaseFieldset.Legend>
@@ -30,7 +30,7 @@ export interface FormSectionProps extends Omit<HTMLAttributes<HTMLElement>, "cla
 
 export function FormSection({ title, description, children, ...rest }: FormSectionProps) {
   return (
-    <Surface as="section" {...rest}>
+    <Surface as="section" {...rest} elevation="flush">
       <Stack gap={4}>
         <Stack gap={1}>
           <h3 className="font-heading text-lg font-semibold text-foreground">{title}</h3>

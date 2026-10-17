@@ -3,6 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createId } from "@chase-sets/primitives/typed-ids";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { DiscoveryRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -78,7 +79,15 @@ function normalizeOptionalMoney(value: string | null | undefined) {
   }
 
   assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Price threshold must be a valid decimal.");
-  return Number.parseFloat(normalized).toFixed(2);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Price threshold must be a valid decimal.");
+  return centsToMoneyAmount(cents);
+}
+
+function normalizeOptionalCurrencyCode(value: string | null | undefined) {
+  const normalized = normalizeOptionalText(value)?.toUpperCase() ?? null;
+  assert(normalized === null || /^[A-Z]{3}$/.test(normalized), "Price threshold currency is invalid.");
+  return normalized;
 }
 
 function normalizeSelectedOptions(selectedOptions: readonly ProductAlertSelectedOption[]) {
@@ -108,6 +117,7 @@ function normalizeAnonymousProductAlertIntentRow(row: AnonymousProductAlertInten
       : [],
     product_summary: row.product_summary,
     threshold_amount: row.threshold_amount === null ? null : Number(row.threshold_amount).toFixed(2),
+    threshold_currency_code: row.threshold_currency_code,
     status: row.status,
     claimed_account_id: row.claimed_account_id,
     claimed_alert_id: row.claimed_alert_id,
@@ -221,6 +231,7 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
         selectedOptions: input.selectedOptions ?? [],
         productSummary: input.productSummary ?? null,
         thresholdAmount: input.thresholdAmount ?? null,
+        thresholdCurrencyCode: input.thresholdCurrencyCode ?? null,
       },
     });
 
@@ -290,6 +301,11 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
       const selectedOptions = normalizeSelectedOptions(input.selectedOptions ?? []);
       const productSummary = normalizeOptionalText(input.productSummary);
       const thresholdAmount = normalizeOptionalMoney(input.thresholdAmount);
+      const thresholdCurrencyCode = normalizeOptionalCurrencyCode(input.thresholdCurrencyCode);
+      assert(
+        (thresholdAmount === null) === (thresholdCurrencyCode === null),
+        "Price threshold must include both amount and currency.",
+      );
 
       await expireAnonymousProductAlertIntents(anonymousOwnerId);
 
@@ -304,9 +320,18 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
            AND product_id = $4
            AND selected_options = $5::jsonb
            AND threshold_amount IS NOT DISTINCT FROM $6::numeric
+           AND threshold_currency_code IS NOT DISTINCT FROM $7
          ORDER BY updated_at DESC
          LIMIT 1`,
-        [anonymousOwnerId, marketSide, catalogItemId, productId, JSON.stringify(selectedOptions), thresholdAmount],
+        [
+          anonymousOwnerId,
+          marketSide,
+          catalogItemId,
+          productId,
+          JSON.stringify(selectedOptions),
+          thresholdAmount,
+          thresholdCurrencyCode,
+        ],
       );
 
       const expiresAt = new Date(Date.now() + ANONYMOUS_PRODUCT_ALERT_TTL_MS).toISOString();
@@ -350,8 +375,9 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
            selected_options,
            product_summary,
            threshold_amount,
+           threshold_currency_code,
            expires_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::numeric, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::numeric, $10, $11)
          RETURNING *`,
         [
           createId("pai"),
@@ -363,6 +389,7 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
           JSON.stringify(selectedOptions),
           productSummary,
           thresholdAmount,
+          thresholdCurrencyCode,
           expiresAt,
         ],
       );
@@ -418,6 +445,7 @@ export function createProductAlertRuntime(deps: DiscoveryRuntimeDeps): ProductAl
             selectedOptions: claimed.selected_options,
             productSummary: claimed.product_summary,
             thresholdAmount: claimed.threshold_amount,
+            thresholdCurrencyCode: claimed.threshold_currency_code,
           },
           context,
         );

@@ -1,0 +1,240 @@
+name: Platform Production Stale Helm Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "recover issue 7504 stale pending upgrade" to confirm the exact bounded recovery.
+        required: true
+        type: string
+      incident_reference:
+        description: Must be the canonical issue #7504 URL.
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+# This is the same whole-workflow lane used by Platform Deploy. A queued or
+# active release therefore cannot reach production while this recovery proves
+# and consumes the exact stale Helm frontier.
+concurrency:
+  group: platform-registry-mutation
+  cancel-in-progress: false
+
+jobs:
+  refuse-unconfirmed:
+    name: Refuse Unconfirmed Production Stale Helm Recovery
+    runs-on: ubuntu-latest
+    if: >-
+      inputs.confirm != 'recover issue 7504 stale pending upgrade' ||
+      inputs.incident_reference != 'https://github.com/chase-sets/chase-sets/issues/7504' ||
+      github.ref != 'refs/heads/main'
+    steps:
+      - name: Refuse unconfirmed or non-main recovery
+        run: |
+          echo 'Recovery requires the exact #7504 confirmation, canonical incident URL, and main ref.' >&2
+          exit 1
+
+  recover-production-stale-helm-upgrade:
+    name: Recover Production Stale Helm Upgrade
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped'
+    env:
+      CHASE_SETS_HELM_RELEASE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_NAMESPACE: chase-sets-platform
+      CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: 15m
+      PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
+      RECOVERY_ISSUE_NUMBER: "7504"
+      RECOVERY_SOURCE_REVISION: "308"
+      RECOVERY_PENDING_REVISION: "309"
+      RECOVERY_SOURCE_DESCRIPTION: Upgrade complete
+      RECOVERY_PENDING_DESCRIPTION: Preparing upgrade
+      RECOVERY_MARKER_COMMIT: bf75277ae1f199ae8e99c41c672502471ea896a4
+      RECOVERY_RELEASE_TAG: release-20260824153550-bf75277a
+      RECOVERY_OCI_INDEX_DIGEST: sha256:075e96444a9b9bea19a8fdc5bdf99acc26dbbd5c11c99928df9ffa2b25ad949d
+      RECOVERY_PLATFORM_DIGEST: sha256:f6f36cc6313c7a2cacf990fe240d489b331937b7e774e25028320481e3f8e13a
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Authenticate immutable recovery identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/production-stale-helm-recovery
+
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$GITHUB_SHA" != "$current_main" ]; then
+            echo "Recovery workflow SHA ${GITHUB_SHA} is not current main ${current_main}." >&2
+            exit 1
+          fi
+
+          git fetch origin production --tags
+          marker_commit="$(git rev-parse origin/production)"
+          if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ]; then
+            echo "Production marker moved from the exact #7504 baseline." >&2
+            exit 1
+          fi
+          tag_commit="$(git rev-list -n 1 "$RECOVERY_RELEASE_TAG")"
+          if [ "$tag_commit" != "$RECOVERY_MARKER_COMMIT" ]; then
+            echo "Recovery release tag does not peel to the exact production marker." >&2
+            exit 1
+          fi
+          {
+            echo "main=${current_main}"
+            echo "production_marker=${marker_commit}"
+            echo "release_tag=${RECOVERY_RELEASE_TAG}"
+            echo "release_tag_commit=${tag_commit}"
+          } > artifacts/production-stale-helm-recovery/immutable-identities-before.txt
+
+      - name: Configure production Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/production.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-production-recovery.kubeconfig"
+          cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+          cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+          if [ -n "$cluster_id" ]; then
+            doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+          elif [ -n "$cluster_name" ]; then
+            doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+          else
+            echo "Production DOKS state exposes neither cluster_id nor cluster_name." >&2
+            exit 1
+          fi
+          chmod 600 "$kubeconfig"
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Production recovery kubeconfig has no current context." >&2
+            exit 1
+          fi
+          KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "Configured production recovery context: ${current_context}"
+
+      - name: Authenticate production OCI identity
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          registry_name="$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]')"
+          if [ "$registry_name" != "chase-sets" ]; then
+            echo "Production registry moved from the exact #7504 baseline." >&2
+            exit 1
+          fi
+          doctl registry login --expiry-seconds 3600
+          image_ref="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${RECOVERY_RELEASE_TAG}"
+          index_digest="$(docker buildx imagetools inspect "$image_ref" --format '{{.Manifest.Digest}}')"
+          if [ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ]; then
+            echo "Production release tag OCI index moved from the exact #7504 baseline." >&2
+            exit 1
+          fi
+          index_path="${RUNNER_TEMP}/production-stale-recovery-index.json"
+          docker buildx imagetools inspect \
+            "registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}@${index_digest}" \
+            --raw > "$index_path"
+          echo "RECOVERY_REGISTRY_NAME=${registry_name}" >> "$GITHUB_ENV"
+          echo "RECOVERY_INDEX_PATH=${index_path}" >> "$GITHUB_ENV"
+
+      - name: Recover exact stable stale pending-upgrade frontier
+        id: recover
+        run: |
+          set -euo pipefail
+          evidence_dir="artifacts/production-stale-helm-recovery"
+          mkdir -p "$evidence_dir"
+          pnpm run platform:kubernetes-deployment -- recover-stale-pending-upgrade \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT" \
+            --revision "$RECOVERY_SOURCE_REVISION" \
+            --pending-revision "$RECOVERY_PENDING_REVISION" \
+            --source-description "$RECOVERY_SOURCE_DESCRIPTION" \
+            --pending-description "$RECOVERY_PENDING_DESCRIPTION" \
+            --issue-number "$RECOVERY_ISSUE_NUMBER" \
+            --registry-name "$RECOVERY_REGISTRY_NAME" \
+            --repository "$PLATFORM_IMAGE_REPOSITORY" \
+            --tag "$RECOVERY_MARKER_COMMIT" \
+            --digest "$RECOVERY_OCI_INDEX_DIGEST" \
+            --index-manifest "$RECOVERY_INDEX_PATH" \
+            --platform linux/amd64 \
+            --last-known-good-commit "$RECOVERY_MARKER_COMMIT" \
+            --release-tag "$RECOVERY_RELEASE_TAG" \
+            --runtime-env DEPLOYMENT_ENVIRONMENT=production \
+            --admission-out "$evidence_dir/admission.json" \
+            --out "$evidence_dir/recovery.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify immutable identities after recovery
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch origin production --tags
+          marker_commit="$(git rev-parse origin/production)"
+          tag_commit="$(git rev-list -n 1 "$RECOVERY_RELEASE_TAG")"
+          image_ref="registry.digitalocean.com/${RECOVERY_REGISTRY_NAME}/${PLATFORM_IMAGE_REPOSITORY}:${RECOVERY_RELEASE_TAG}"
+          index_digest="$(docker buildx imagetools inspect "$image_ref" --format '{{.Manifest.Digest}}')"
+          if [ "$marker_commit" != "$RECOVERY_MARKER_COMMIT" ] || \
+             [ "$tag_commit" != "$RECOVERY_MARKER_COMMIT" ] || \
+             [ "$index_digest" != "$RECOVERY_OCI_INDEX_DIGEST" ] || \
+             [ "${{ steps.recover.outputs.recovery_observed_digest }}" != "$RECOVERY_PLATFORM_DIGEST" ]; then
+            echo "A production marker, release tag, OCI index, or recovered platform digest moved." >&2
+            exit 1
+          fi
+          {
+            echo "production_marker=${marker_commit}"
+            echo "release_tag=${RECOVERY_RELEASE_TAG}"
+            echo "release_tag_commit=${tag_commit}"
+            echo "oci_index_digest=${index_digest}"
+            echo "platform_digest=${{ steps.recover.outputs.recovery_observed_digest }}"
+            echo "resulting_revision=${{ steps.recover.outputs.recovery_resulting_revision }}"
+          } > artifacts/production-stale-helm-recovery/immutable-identities-after.txt
+
+      - name: Upload production stale Helm recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-production-stale-helm-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/production-stale-helm-recovery
+          if-no-files-found: error
+          retention-days: 30

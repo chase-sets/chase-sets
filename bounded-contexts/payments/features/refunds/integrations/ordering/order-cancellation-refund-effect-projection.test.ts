@@ -258,6 +258,83 @@ describe("payments order cancellation refund effect projection", () => {
     );
   });
 
+  it.each([
+    ["buyer-cancelled", "fully-refunded", "10.33", null],
+    ["seller-cancelled", "fully-refunded", "10.33", null],
+    ["buyer-cancelled", "partially-refunded", "4.00", "6.33"],
+    ["seller-cancelled", "partially-refunded", "4.00", "6.33"],
+  ] as const)(
+    "keeps %s refund effects at parity for a %s order",
+    async (reason, _refundState, refundedAmount, expectedRequestAmount) => {
+      const issueRefund = vi.fn(async (params: { refundId: string; amount: string }) => ({
+        outcome: "requested" as const,
+        refundId: params.refundId,
+        version: 2,
+        amount: params.amount,
+      }));
+      let effect: { status: string; refundId: string | null } | null = null;
+      const db = {
+        query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
+          if (sql.includes("FROM payments_payment_pages")) {
+            return {
+              rows: [
+                {
+                  ...paymentRow,
+                  order_ids: ["ord_1"],
+                  marketplace_checkout_fee_amount: "0.33",
+                  order_refund_caps: [{ orderId: "ord_1", amount: "10.33" }],
+                  order_refunded_amounts: [{ orderId: "ord_1", amount: refundedAmount }],
+                },
+              ],
+            };
+          }
+          if (sql.includes("FROM payments_order_inputs")) {
+            return { rows: [{ order_id: "ord_1", total_amount: "10.00", status: "cancelled" }] };
+          }
+          if (sql.includes("INSERT INTO payments_order_cancellation_refund_effects")) {
+            const incomingStatus = String(params[4]);
+            if (!effect) {
+              effect = { status: incomingStatus, refundId: params[2] === null ? null : String(params[2]) };
+              return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: effect.refundId }] };
+            }
+            if (["skipped", "failed"].includes(effect.status) && incomingStatus === "processing") {
+              effect = { status: incomingStatus, refundId: effect.refundId ?? String(params[2]) };
+              return { rowCount: 1, rows: [{ order_id: "ord_1", refund_id: effect.refundId }] };
+            }
+            return { rowCount: 0, rows: [] };
+          }
+          if (sql.includes("status = 'refund-requested'")) {
+            effect = effect ? { ...effect, status: "refund-requested" } : effect;
+            return { rowCount: effect ? 1 : 0, rows: [] };
+          }
+          return { rows: [] };
+        }),
+      };
+      const handlers = buildPaymentsOrderCancellationRefundEffectHandlers(db as never, { issueRefund } as never);
+      const event = cancellationEvent({ orderId: "ord_1", reason });
+
+      await handlers["ordering.order.cancelled"]?.(event);
+      await handlers["ordering.order.cancelled"]?.(event);
+
+      expect(effect).not.toBeNull();
+      if (expectedRequestAmount === null) {
+        expect(effect).toMatchObject({ status: "skipped", refundId: null });
+        expect(issueRefund).not.toHaveBeenCalled();
+      } else {
+        expect(effect).toMatchObject({ status: "refund-requested" });
+        expect(issueRefund).toHaveBeenCalledTimes(1);
+        expect(issueRefund).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderIds: ["ord_1"],
+            amount: expectedRequestAmount,
+            capToRemainingRefundable: true,
+          }),
+          expect.objectContaining({ tenantId: "tnt_test" }),
+        );
+      }
+    },
+  );
+
   it("reuses a claimed refund id when a failed cancellation effect is retried", async () => {
     const issueRefund = vi.fn(async () => ({
       outcome: "requested",

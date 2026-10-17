@@ -32,6 +32,16 @@ export function createMarketRollupsRoutes(services: MarketRollupsServices) {
     const from = c.req.query("from");
     const to = c.req.query("to");
     const granularity = c.req.query("granularity");
+    const currencyCode = c.req.query("currencyCode");
+
+    if (!currencyCode || !/^[A-Z]{3}$/.test(currencyCode)) {
+      return c.json(
+        {
+          error: { code: "invalid_request", message: t("pricing.features.marketRollups.api.route.currency.required") },
+        },
+        400,
+      );
+    }
 
     if (!isIsoCalendarDate(from) || !isIsoCalendarDate(to)) {
       return c.json(
@@ -60,6 +70,7 @@ export function createMarketRollupsRoutes(services: MarketRollupsServices) {
     const series = await services.getProductRollupSeries({
       catalogItemId: c.req.param("catalogItemId"),
       productId: c.req.param("productId"),
+      currencyCode,
       from,
       to,
       granularity,

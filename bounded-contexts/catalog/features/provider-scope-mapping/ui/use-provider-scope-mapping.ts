@@ -2,8 +2,12 @@ import { api } from "../../../support/shell-support/api/client";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
 import type { ScopeCoverageMatrix, UnmappedScopeInboxReadModel } from "./contracts";
 
-export function useUnmappedScopeInbox(initialData?: UnmappedScopeInboxReadModel | null) {
-  return useFetch(() => api.getUnmappedScopeInbox<UnmappedScopeInboxReadModel>(), [], initialData);
+export function useUnmappedScopeInbox(initialData?: UnmappedScopeInboxReadModel | null, productDomain?: string | null) {
+  return useFetch(
+    () => api.getUnmappedScopeInbox<UnmappedScopeInboxReadModel>({ productDomain: productDomain ?? undefined }),
+    [productDomain],
+    initialData,
+  );
 }
 
 export function useScopeCoverageMatrix(scopeRecordId: string, initialData?: ScopeCoverageMatrix | null) {

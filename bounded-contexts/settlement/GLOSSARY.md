@@ -74,7 +74,7 @@ Notes:
 
 ## Payout
 
-A **Payout** is the transfer of eligible marketplace funds to an account.
+A **Payout** is a request to transfer eligible marketplace funds to an account. Its requested amount is split into the Payout Fee and the net amount delivered to the connected payout account.
 
 ## Connected Payout Account
 
@@ -134,6 +134,12 @@ Notes:
 - Active chargeback holds keep pending sale proceeds and shipping allowances from becoming available while the processor dispute remains open or lost.
 - A won chargeback releases the active hold with a matching Wallet credit; payout-reversal mechanics remain owned by Payout.
 
+## Staging Proof Credit
+
+A **Staging Proof Credit** is the one audited, staging-only credit of USD 0.01 through USD 25.00 to the immutable named Wallet for proof `7806-ac6`. It uses ordinary available balance and an `adjustment`-kind Ledger Entry, not a new balance type or the ordinary Wallet Adjustment approval lifecycle. The dedicated receipt identifies this proof path; the account statement retains the generic "Wallet adjustment" label without a lifecycle action.
+
+The fixed policy document retains the account pin through disable, expiry and re-enable. Spending, refunds, retries and operator changes never renew the allowance. Production has no exception. See [ADR 0020](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md#staging-only-operator-proof-credit-exception) and [Money Operations](../../docs/runbooks/money-operations.md#staging-proof-credit).
+
 ## Wallet Adjustment
 
 A **Wallet Adjustment** is a Settlement-owned, cash-equivalent correction to an account's Wallet balance, requested by one authorized platform operator, approved by a different authorized platform operator, and posted as exactly one immutable `adjustment`-kind Wallet Ledger Entry. It is a governed path onto the existing available/pending balance, not a second balance type.
@@ -148,6 +154,16 @@ Notes:
 - Reason codes are a closed taxonomy: `transaction-correction`, `refund-correction`, `fee-correction`, `dispute-resolution`, `fraud-recovery`, `support-resolution`, `legal-obligation`, `goodwill-cash-credit`, `operational-error`, and `other-with-required-detail` (the only code requiring mandatory free-text explanation).
 - Creating or increasing a Negative Balance, a high-value credit or debit, a reversal after the original entry's funds were already spent or paid out, and any self-benefiting target all require elevated, separation-of-duties approval; a self-benefiting target is blocked outright rather than merely elevated.
 - The full lifecycle, approval matrix, policy schema, and legacy `workflow`-string retirement decision are recorded in [ADR 0020: Wallet Adjustment Authority And Balance Types](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md). The lifecycle, permissions, and typed API are implemented by #4998, #4999, and #5000; this term records the ratified vocabulary ahead of that implementation.
+
+## Label Postage Debit
+
+A **Label Postage Debit** is the Settlement-owned `platform-purchase` Wallet Ledger Entry that charges a seller the provider-reported cost of one marketplace shipment label. It is linked to the shipment and its order, may create a Negative Balance so that the order's later proceeds offset the charge, and is posted at most once for each shipment and provider label identity.
+
+Notes:
+
+- A successful provider refund creates one linked, opposite-direction `platform-purchase` entry; a void request or non-successful refund status never moves Wallet funds.
+- Facts without an amount are typed skips. Facts whose currency differs from the Wallet currency are typed refusals recorded for operator review; Settlement never converts label postage.
+- The Settlement-owned, policy-versioned activation is one immutable database-authored worker-start record. Facts recorded before it remain historical; equality and later are eligible, so replay never chooses a boundary from a worker or deployment clock.
 
 ## Negative Balance
 
@@ -176,3 +192,17 @@ A **Payout Batch** is a grouped payout execution run.
 ## Statement
 
 A **Statement** is the financial summary published for an account over a period of time.
+
+## Payout Fee
+
+A **Payout Fee** is the Settlement-owned percentage-plus-fixed policy amount associated with a requested Payout. Its policy also carries a separate fixed amount for an account's first Payout of a calendar month; that monthly component is absorbed when the configured amount is zero.
+
+Notes:
+
+- The policy is published from `settlement.payout-fee`; numeric values are resolved from the current policy document rather than repeated in prose.
+- Settlement owns the policy and quote. Applying it to a Payout, posting its Ledger Entry, and reversing it on failure are separate payout-lifecycle behavior.
+- This term is distinct from the Marketplace Sales Fee that Settlement's payment-source projection audits when crediting sale proceeds.
+
+## Payout Fee Ledger Entry
+
+A **Payout Fee Ledger Entry** is the deterministic `fee` debit that records a non-zero Payout Fee separately from the net `payout` debit. If payout execution fails, Settlement reverses each debit independently and exactly once using its own deterministic reversal identity. A zero Payout Fee creates no fee debit or fee reversal.

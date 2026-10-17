@@ -121,6 +121,8 @@ export type MoneyMovementGateway = Readonly<{
   ) => Promise<ProviderPayoutReadiness>;
   createPayoutSetupSession: (
     input: Readonly<{
+      evidenceWindow?: import("@chase-sets/evidence-window-provider-write").ProviderWriteWindow;
+      evidenceWindowSlot?: 1;
       accountId: AccountId;
       providerReference: string;
       contactEmail?: string | null;
@@ -129,6 +131,8 @@ export type MoneyMovementGateway = Readonly<{
   ) => Promise<CreatedPayoutSetupSession>;
   createPayoutAccountManagementSession: (
     input: Readonly<{
+      evidenceWindow?: import("@chase-sets/evidence-window-provider-write").ProviderWriteWindow;
+      evidenceWindowSlot?: 2;
       accountId: AccountId;
       providerReference: string;
       idempotencyKey: string;
@@ -136,6 +140,8 @@ export type MoneyMovementGateway = Readonly<{
   ) => Promise<CreatedPayoutAccountManagementSession>;
   createPayoutNotificationBannerSession: (
     input: Readonly<{
+      evidenceWindow?: import("@chase-sets/evidence-window-provider-write").ProviderWriteWindow;
+      evidenceWindowSlot?: 3;
       accountId: AccountId;
       providerReference: string;
       idempotencyKey: string;

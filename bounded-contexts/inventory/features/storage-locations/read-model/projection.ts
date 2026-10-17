@@ -1,6 +1,16 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
+export async function resetStorageLocationProjection(db: PgQueryable): Promise<void> {
+  const children = await db.query("SELECT item_id FROM inventory_items LIMIT 1");
+  if (children.rows.length > 0) {
+    throw new Error(
+      "Cannot reset Inventory storage locations while items exist; reset dependent items first, then rebuild locations, items and holds/restock decisions in order.",
+    );
+  }
+  await db.query("DELETE FROM inventory_storage_locations");
+}
+
 export function buildStorageLocationProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "inventory.storage-location.created": async (event) => {

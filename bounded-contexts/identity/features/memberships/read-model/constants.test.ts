@@ -1,8 +1,44 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ROLE_PERMISSIONS } from "./constants";
+import { PERMISSION_PRESETS, ROLE_PERMISSIONS } from "./constants";
 import { ROLE_KEYS } from "../../../support/runtime-support/common";
 
 describe("identity role permissions", () => {
+  it("grants reported-content operator authority to platform-admin only", () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "reported-content.view")).toEqual(
+        role === "platform-admin" ? ["reported-content.view"] : [],
+      );
+    }
+    for (const permissions of Object.values(PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("reported-content.view");
+    }
+  });
+  it("grants platform payout reads once to platform-admin and never through a preset", () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
+        role === "platform-admin" ? ["payouts.platform.view"] : [],
+      );
+      const grants = new Set<string>(permissions);
+      expect(grants.has("payouts.platform.view") && grants.has("payouts.reconcile")).toBe(false);
+    }
+    for (const permissions of Object.values(PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("payouts.platform.view");
+    }
+  });
+  it("grants commercial agreement management only to platform admins", () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "commercial-terms.agreements.manage")).toEqual(
+        role === "platform-admin" ? ["commercial-terms.agreements.manage"] : [],
+      );
+    }
+  });
+
+  it("grants provider connections only to platform admins", () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect((permissions as readonly string[]).includes("provider-connections.view")).toBe(role === "platform-admin");
+    }
+  });
   it("keeps feedback operator authority on platform staff roles only", () => {
     for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
       expect(ROLE_PERMISSIONS[roleKey]).not.toEqual(
@@ -13,6 +49,16 @@ describe("identity role permissions", () => {
       expect.arrayContaining(["platform-feedback.view", "platform-feedback.manage", "platform-feedback.export"]),
     );
   });
+  it("grants projection operations to platform-admin, as Auth's role table does", () => {
+    expect(ROLE_PERMISSIONS["platform-admin"]).toEqual(
+      expect.arrayContaining([
+        "projection-operations.operate",
+        "projection-operations.rebuild",
+        "projection-operations.view",
+      ]),
+    );
+  });
+
   it("has permissions for every runtime role key", () => {
     expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual([...ROLE_KEYS].sort());
   });
@@ -179,5 +225,47 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.reconcile");
     expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.request");
     expect(ROLE_PERMISSIONS.viewer).not.toContain("payouts.setup");
+  });
+
+  it("grants account-scoped Channel Connection authority without granting platform-admin", () => {
+    expect(ROLE_PERMISSIONS.owner).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(ROLE_PERMISSIONS.manager).toEqual(expect.arrayContaining(["channels.view", "channels.manage"]));
+    expect(ROLE_PERMISSIONS.fulfillment).toContain("channels.view");
+    expect(ROLE_PERMISSIONS.viewer).toContain("channels.view");
+    expect(ROLE_PERMISSIONS.fulfillment).not.toContain("channels.manage");
+    expect(ROLE_PERMISSIONS.viewer).not.toContain("channels.manage");
+    expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.view");
+    expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.manage");
+  });
+});
+
+describe("pricing preset contract", () => {
+  const expected: Record<string, readonly string[]> = {
+    owner: ["pricing.manage", "pricing.view"],
+    manager: ["pricing.manage", "pricing.view"],
+    fulfillment: ["pricing.view"],
+    viewer: ["pricing.view"],
+    "platform-admin": [],
+  };
+  // Sorted non-pricing sets, including the platform-admin-only reported-content and projection-operations grants.
+  const predecessor = {
+    "platform-admin": "209c0bd015d367f005d7ea75f15101c0273c9bf0266e7b42005d8326aad3310c",
+    owner: "8dbce908e11a530780c622e5d633794d41c23357d51ed3054c586c505f2fdd55",
+    manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
+    fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",
+    viewer: "9b653b5afb093be2612860fcb672d437fc50eac3b929b20cb902c0fbe93a9caa",
+  };
+  it("grants pricing permissions to the intended account roles", () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      const pricing = permissions.filter((key) => key.startsWith("pricing.")).sort();
+      expect(pricing).toEqual(expected[role as keyof typeof expected]);
+      for (const key of ["pricing.view", "pricing.manage"]) {
+        expect(new Set<string>(permissions).has(key), role + ":" + key).toBe(expected[role]!.includes(key));
+      }
+      const other = [...new Set(permissions.filter((key) => !key.startsWith("pricing.")))].sort();
+      expect(createHash("sha256").update(JSON.stringify(other)).digest("hex")).toBe(
+        predecessor[role as keyof typeof predecessor],
+      );
+    }
   });
 });

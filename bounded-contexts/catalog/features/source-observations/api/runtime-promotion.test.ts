@@ -21,6 +21,7 @@ import {
   onePieceSetReferenceObservation,
   pokemonObservation,
 } from "./seeding/runtime-test-harness";
+import { syntheticCurrentCatalogItem } from "./seeding/synthetic-display-identity-queryable";
 
 describe("source observation runtime: promotion and reapply", () => {
   it("resolves exactly one YGOJSON boxed Set Reference Record and blocks missing or ambiguous evidence", async () => {
@@ -131,6 +132,162 @@ describe("source observation runtime: promotion and reapply", () => {
         }),
       ]),
     );
+  });
+
+  describe("display identity validation before any Catalog write", () => {
+    const degradedIdentity = { templates: [] };
+
+    it("fails a degraded promotion with a bounded reason and writes nothing, then promotes normally after repair", async () => {
+      const degraded = createChangedObservationRefreshHarness({ displayIdentity: degradedIdentity });
+      const degradedServices = createSourceObservationRuntime(degraded.deps, degraded.items, degraded.referenceData);
+
+      const blocked = await degradedServices.promoteObservations({ observationIds: ["obs_changed"], context });
+
+      expect(blocked.outcomes).toEqual([
+        {
+          observationId: "obs_changed",
+          status: "failed",
+          catalogItemId: null,
+          reason: "No display template targets this item.",
+        },
+      ]);
+      // No partial writes: neither the Catalog Item stream nor the observation stream moved.
+      expect(degraded.itemCommands).toEqual([]);
+      expect(degraded.appendedSourceEvents).toEqual([]);
+
+      // Repaired data: a fresh re-plan against the repaired read model resolves
+      // and takes the normal path with the resolver outcome bound in.
+      const repaired = createChangedObservationRefreshHarness();
+      const repairedServices = createSourceObservationRuntime(repaired.deps, repaired.items, repaired.referenceData);
+      const promoted = await repairedServices.promoteObservations({ observationIds: ["obs_changed"], context });
+
+      expect(promoted.outcomes).toEqual([
+        { observationId: "obs_changed", status: "promoted", catalogItemId: "cat_existing", reason: null },
+      ]);
+      expect(repaired.itemCommands[0]?.command.type).toBe("ReviseCatalogItemMetadata");
+      expect(repaired.appendedSourceEvents).toContainEqual(
+        expect.objectContaining({
+          eventType: "catalog.source-observation.promoted",
+          payload: expect.objectContaining({ promotionPlanFingerprint: expect.any(String) }),
+        }),
+      );
+    });
+
+    it("promotes a degraded identity as draft only by explicit choice and never onto a published item", async () => {
+      const draft = createChangedObservationRefreshHarness({ displayIdentity: degradedIdentity });
+      const draftServices = createSourceObservationRuntime(draft.deps, draft.items, draft.referenceData);
+      const explicitFalse = await draftServices.promoteObservations({
+        observationIds: ["obs_changed"],
+        context,
+        promoteAsDraft: false,
+      });
+      expect(explicitFalse.outcomes[0]).toMatchObject({ status: "failed" });
+      expect(draft.itemCommands).toEqual([]);
+
+      const promoted = await draftServices.promoteObservations({
+        observationIds: ["obs_changed"],
+        context,
+        promoteAsDraft: true,
+      });
+      expect(promoted.outcomes).toEqual([
+        { observationId: "obs_changed", status: "promoted", catalogItemId: "cat_existing", reason: null },
+      ]);
+      expect(draft.itemCommands.map((entry) => entry.command.type)).toContain("ReviseCatalogItemMetadata");
+      expect(draft.itemCommands.map((entry) => entry.command.type)).not.toContain("PublishCatalogItem");
+
+      const published = createChangedObservationRefreshHarness({
+        displayIdentity: {
+          ...degradedIdentity,
+          currentItems: [syntheticCurrentCatalogItem({ catalog_item_id: "cat_existing", status: "active" })],
+        },
+      });
+      const publishedServices = createSourceObservationRuntime(
+        published.deps,
+        published.items,
+        published.referenceData,
+      );
+      const refused = await publishedServices.promoteObservations({
+        observationIds: ["obs_changed"],
+        context,
+        promoteAsDraft: true,
+      });
+      expect(refused.outcomes[0]).toMatchObject({
+        status: "failed",
+        reason: "No display template targets this item.",
+      });
+      expect(published.itemCommands).toEqual([]);
+    });
+
+    it("previews per-observation identity diagnostics read-only, with no reference creation or command execution", async () => {
+      const harness = createChangedObservationRefreshHarness({ displayIdentity: degradedIdentity });
+      const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+      const preview = await services.previewPromoteObservations({ observationIds: ["obs_changed"] });
+      const draftPreview = await services.previewPromoteObservations({
+        observationIds: ["obs_changed"],
+        promoteAsDraft: true,
+      });
+
+      expect(preview.validation).toEqual({
+        promoteAsDraft: false,
+        pageLimit: 100,
+        coveredObservationIds: ["obs_changed"],
+        coverage: "complete",
+        continuation: null,
+        diagnostics: [
+          {
+            observationId: "obs_changed",
+            code: "display-identity-unresolvable",
+            path: "displayIdentity",
+            diagnosticText: "No display template targets this item.",
+            blocking: true,
+            displayIdentity: {
+              missingTokens: ["template"],
+              templateKey: null,
+              templateTargetKind: null,
+              templateTargetId: null,
+              templateReason: "no-targeted-template",
+            },
+          },
+        ],
+      });
+      expect(draftPreview.validation.diagnostics[0]).toMatchObject({
+        code: "display-identity-unresolvable",
+        blocking: false,
+      });
+      expect(harness.itemCommands).toEqual([]);
+      expect(harness.appendedSourceEvents).toEqual([]);
+      expect(harness.referenceRecordCreateCommands).toEqual([]);
+    });
+
+    it("reports a preview preflight failure as a bounded class without copying the exception text", async () => {
+      // A provider without Catalog Item promotion support throws inside the
+      // preview; the preview must surface only the bounded diagnostic class.
+      const harness = createChangedObservationRefreshHarness({
+        providerKey: "scryfall",
+        status: "observed",
+        promotedCatalogItemId: null,
+        normalized: {
+          ...pokemonObservation({ expansionName: "Prismatic Evolutions", seriesName: "Scarlet & Violet" }),
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+        },
+      });
+      const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+      const preview = await services.previewPromoteObservations({ observationIds: ["obs_changed"] });
+
+      expect(preview.validation.diagnostics).toEqual([
+        {
+          observationId: "obs_changed",
+          code: "runtime-preflight-failed",
+          path: "observation",
+          diagnosticText: "Promotion preflight could not validate this observation.",
+          blocking: true,
+        },
+      ]);
+      expect(JSON.stringify(preview)).not.toContain("does not support");
+      expect(harness.itemCommands).toEqual([]);
+    });
   });
 
   it("promotes changed observations by refreshing the linked Catalog Item", async () => {
@@ -620,6 +777,56 @@ describe("source observation runtime: promotion and reapply", () => {
         }),
       }),
     );
+  });
+
+  it("refuses set-reference promotion on a poisoned Reference Record history before any receipt", async () => {
+    // SYNTHETIC poison: the discovered Set history carries a second published
+    // event. The fold would still end active; the transition is illegal.
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "lorcanajson",
+      externalKey: "set:TFC",
+      sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.TFC.json",
+      sourceProfileKey: "lorcana-set-reference-data",
+      sourceProfileVersion: "2026.06.23",
+      sourceMappingFingerprint: "fingerprint:lorcanajson:lorcana-set:2026.06.23",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: lorcanaSetReferenceObservation(),
+      referenceHistoryPoison: "repeated-publish",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    // The product-line record is provisioned ahead of the Set and is the first
+    // poisoned history the hierarchy reads.
+    await expect(services.promoteObservation({ observationId: "obs_changed", context })).rejects.toThrow(
+      "promotion-reference-history-invalid:catalog.reference-record-ref_disney-lorcana",
+    );
+    expect(harness.appendedSourceEvents).toEqual([]);
+    expect(harness.referenceRecordCreateCommands).toEqual([]);
+    expect(harness.itemCommands).toEqual([]);
+  });
+
+  it("refuses Catalog Item promotion on a poisoned Reference Record history before any Catalog write", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      referenceHistoryPoison: "repeated-publish",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservations({ observationIds: ["obs_changed"], context });
+
+    expect(result.outcomes).toEqual([
+      {
+        observationId: "obs_changed",
+        status: "failed",
+        catalogItemId: null,
+        reason: expect.stringContaining("promotion-reference-history-invalid:catalog.reference-record-ref_"),
+      },
+    ]);
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+    expect(harness.referenceRecordCreateCommands).toEqual([]);
   });
 
   it("fails image-backed promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {

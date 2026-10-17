@@ -12,10 +12,13 @@ export const PERMISSION_PRESETS = {
 
 export const ROLE_PERMISSIONS = {
   "platform-admin": [
+    "payouts.platform.view",
+    "provider-connections.view",
     "accounts.manage",
     "accounts.view",
     "catalog.manage",
     "catalog.view",
+    "commercial-terms.agreements.manage",
     "commercial-terms.manage",
     "commercial-terms.view",
     "google-shopping.manage",
@@ -31,6 +34,9 @@ export const ROLE_PERMISSIONS = {
     "postage-policies.view",
     "return-intake.manage",
     "return-intake.view",
+    "projection-operations.operate",
+    "projection-operations.rebuild",
+    "projection-operations.view",
     // Customer feedback operator capabilities: platform-staff only.
     // Export is a distinct grant from view/manage so the sensitive free-text
     // comment download can be withheld independently.
@@ -44,6 +50,7 @@ export const ROLE_PERMISSIONS = {
     "recovered-inventory.evidence",
     "recovered-inventory.manage",
     "recovered-inventory.view",
+    "reported-content.view",
     "security.manage",
     "support.manage",
     "support.remedies.approve",
@@ -68,6 +75,8 @@ export const ROLE_PERMISSIONS = {
     "accounts.view",
     "catalog.manage",
     "catalog.view",
+    "channels.manage",
+    "channels.view",
     "commercial-terms.manage",
     "commercial-terms.view",
     "fulfillment.manage",
@@ -89,6 +98,8 @@ export const ROLE_PERMISSIONS = {
     "postage-policies.manage",
     "postage-policies.view",
     ...PERMISSION_PRESETS.payoutsOperator,
+    "pricing.manage",
+    "pricing.view",
     // Customer feedback operator capabilities are platform-staff only;
     // an account owner does not enumerate/export/mutate platform feedback.
     "platform-policy.view",
@@ -102,6 +113,8 @@ export const ROLE_PERMISSIONS = {
   ],
   manager: [
     "accounts.view",
+    "channels.manage",
+    "channels.view",
     "catalog.manage",
     "catalog.view",
     "commercial-terms.manage",
@@ -125,6 +138,8 @@ export const ROLE_PERMISSIONS = {
     "postage-policies.manage",
     "postage-policies.view",
     ...PERMISSION_PRESETS.payoutsOperator,
+    "pricing.manage",
+    "pricing.view",
     // Customer feedback operator capabilities are platform-staff only.
     "platform-policy.view",
     "public-presence.manage",
@@ -136,6 +151,7 @@ export const ROLE_PERMISSIONS = {
   ],
   fulfillment: [
     "accounts.view",
+    "channels.view",
     "fulfillment.manage",
     "fulfillment.view",
     "memberships.view",
@@ -146,6 +162,7 @@ export const ROLE_PERMISSIONS = {
     "return-intake.manage",
     "return-intake.view",
     // No platform-feedback.* -- operator feedback is platform-staff only.
+    "pricing.view",
     "public-presence.view",
     "reputation.view",
     "support.manage",
@@ -153,6 +170,7 @@ export const ROLE_PERMISSIONS = {
   ],
   viewer: [
     "accounts.view",
+    "channels.view",
     "fulfillment.view",
     "memberships.view",
     "inventory.view",
@@ -160,6 +178,7 @@ export const ROLE_PERMISSIONS = {
     "offers.view",
     "orders.view",
     ...PERMISSION_PRESETS.payoutsViewer,
+    "pricing.view",
     // No platform-feedback.* -- operator feedback is platform-staff only.
     "public-presence.view",
     "reputation.view",

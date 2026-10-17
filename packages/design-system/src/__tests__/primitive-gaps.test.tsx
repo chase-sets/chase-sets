@@ -12,6 +12,7 @@ import {
   CheckoutNoticeStack,
   CheckoutStickyActionBar,
   CheckoutSummaryLineItem,
+  CheckoutSummaryPanel,
   CheckoutTotals,
   DestructiveAction,
   MarketplaceNotice,
@@ -351,6 +352,27 @@ describe("MediaFrame primitive", () => {
 });
 
 describe("EmbeddedProviderSurface primitive", () => {
+  it("preserves the EmbeddedProviderSurface provider-tag selectors", () => {
+    const tags = ["stripe-connect-account-management", "stripe-connect-account-onboarding"] as const;
+    for (const [size, base, responsive] of [
+      ["md", 36, 44],
+      ["lg", 44, 52],
+    ] as const) {
+      const { getByTestId, unmount } = render(
+        <EmbeddedProviderSurface minHeight={size} data-testid="provider-tags">
+          Content
+        </EmbeddedProviderSurface>,
+      );
+      const classes = getByTestId("provider-tags").className;
+      for (const tag of tags) {
+        expect(classes).toContain(`[&>${tag}]:min-h-[${base}rem]`);
+        expect(classes).toContain(`md:[&>${tag}]:min-h-[${responsive}rem]`);
+        expect(classes).toContain(`[&>${tag}]:block`);
+      }
+      unmount();
+    }
+  });
+
   it("keeps provider iframes at a usable minimum height", () => {
     const { container } = render(
       <EmbeddedProviderSurface data-testid="provider-surface">
@@ -833,6 +855,63 @@ describe("CheckoutSummaryLineItem indicative pricing (#1853)", () => {
   });
 });
 
+describe("CheckoutSummaryLineItem money-only mono value (#7183)", () => {
+  it("renders an exact price value alone in font-mono tabular-nums, never on the shared wrapper", () => {
+    const { container } = render(<CheckoutSummaryLineItem item={{ id: "6", title: "Exact card", price: "$120.00" }} />);
+
+    const monoElements = container.querySelectorAll(".font-mono");
+    expect(monoElements).toHaveLength(1);
+    const [valueElement] = monoElements;
+    expect(valueElement.tagName).toBe("SPAN");
+    expect(valueElement.textContent).toBe("$120.00");
+    expect(valueElement.className).toContain("tabular-nums");
+  });
+
+  it("keeps the `from` prefix out of the mono value element for an indicative price", () => {
+    const { container } = render(
+      <CheckoutSummaryLineItem
+        item={{ id: "7", title: "Indicative card", price: "$45.00", priceState: "indicative" }}
+      />,
+    );
+
+    const monoElements = container.querySelectorAll(".font-mono");
+    expect(monoElements).toHaveLength(1);
+    const [valueElement] = monoElements;
+    expect(valueElement.textContent).toBe("$45.00");
+    expect(valueElement.textContent).not.toContain("from");
+    expect(screen.getByText("from").className).not.toContain("font-mono");
+  });
+
+  it("renders no mono value element for a deferred price", () => {
+    const { container } = render(
+      <CheckoutSummaryLineItem item={{ id: "8", title: "Deferred card", price: "$1.00", priceState: "deferred" }} />,
+    );
+
+    expect(container.querySelectorAll(".font-mono")).toHaveLength(0);
+    expect(screen.getByText("Priced at checkout").className).not.toContain("font-mono");
+  });
+
+  it("does not let the mono value treatment leak into the panel status badge, line title, or facts", () => {
+    const { container } = render(
+      <CheckoutSummaryPanel
+        title="Order summary"
+        status="Handoff recorded"
+        items={[{ id: "9", title: "Line title", facts: ["Fact one"], price: "$10.00" }]}
+        totals={[]}
+        totalLabel="Total"
+        total="$25.00"
+      />,
+    );
+
+    const monoElements = container.querySelectorAll(".font-mono");
+    expect(monoElements).toHaveLength(1);
+    expect(monoElements[0].textContent).toBe("$10.00");
+    expect(screen.getByText("Handoff recorded").className).not.toContain("font-mono");
+    expect(screen.getByText("Line title").className).not.toContain("font-mono");
+    expect(screen.getByText("Fact one").className).not.toContain("font-mono");
+  });
+});
+
 describe("Unified sticky CTA bar + reassurance (#1853)", () => {
   it("accepts the totalLabel/total/context triple and stamps a single primary action", () => {
     const markup = renderToString(
@@ -853,9 +932,9 @@ describe("Unified sticky CTA bar + reassurance (#1853)", () => {
     expect(markup).toContain("Not charged yet");
   });
 
-  it("keeps the deprecated price alias working for existing consumers", () => {
+  it("renders the headline total without optional labels or context", () => {
     const markup = renderToString(
-      <StickyCtaBar price="$472.19" primaryAction={<button type="submit">Continue</button>} />,
+      <StickyCtaBar total="$472.19" primaryAction={<button type="submit">Continue</button>} />,
     );
 
     expect(markup).toContain("$472.19");

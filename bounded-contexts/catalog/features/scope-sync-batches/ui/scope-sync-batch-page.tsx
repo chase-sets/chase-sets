@@ -18,18 +18,31 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
+import type { FormEventHandler } from "react";
 import { catalogScopeProductDomains } from "../../scope-registry/domain/contract";
 import type { ScopeSyncBatchPreview } from "../domain/batch";
+import type { HeldSetResolution } from "../domain/held-set-export";
 import type { ScopeSyncBatchSnapshot, ScopeSyncBatchUnitSnapshot } from "../read-model/store";
+import type { CountQuote } from "../domain/count-acquisition";
 
 export function ScopeSyncBatchPage({
   preview,
+  heldSetResolution,
   batch,
   error,
+  heldSetSubmitting = false,
+  onHeldSetSubmit,
+  countQuote = null,
+  countSubmitting = false,
 }: Readonly<{
   preview: ScopeSyncBatchPreview | null;
+  heldSetResolution: HeldSetResolution | null;
   batch: ScopeSyncBatchSnapshot | null;
   error: string | null;
+  heldSetSubmitting?: boolean;
+  onHeldSetSubmit?: FormEventHandler<HTMLFormElement>;
+  countQuote?: CountQuote | null;
+  countSubmitting?: boolean;
 }>) {
   return (
     <Page>
@@ -48,6 +61,7 @@ export function ScopeSyncBatchPage({
           description={error}
         />
       ) : null}
+      <HeldSetExportSection resolution={heldSetResolution} submitting={heldSetSubmitting} onSubmit={onHeldSetSubmit} />
       <PageSection title={t("catalog.features.scopeSyncBatches.ui.page.new.batch")}>
         <WorkbenchForm variant="surface" method="post" action="/catalog/scopes/sync-batches">
           <Stack gap={4}>
@@ -132,13 +146,294 @@ export function ScopeSyncBatchPage({
               <Button type="submit" name="intent" value="preview">
                 {t("catalog.features.scopeSyncBatches.ui.page.preview.batch")}
               </Button>
+              <TextInput
+                name="countCap"
+                type="number"
+                min={0}
+                max={10000}
+                label={t("catalog.features.scopeSyncBatches.count.cap")}
+                defaultValue="0"
+              />
+              <Button type="submit" name="intent" value="count-quote">
+                {t("catalog.features.scopeSyncBatches.count.quote")}
+              </Button>
             </Inline>
           </Stack>
         </WorkbenchForm>
       </PageSection>
       {preview ? <PreviewSection preview={preview} /> : null}
+      {countQuote ? <CountQuoteSection quote={countQuote} submitting={countSubmitting} /> : null}
       {batch ? <BatchSection batch={batch} /> : null}
     </Page>
+  );
+}
+
+function CountQuoteSection({ quote, submitting }: { quote: CountQuote; submitting: boolean }) {
+  return (
+    <PageSection title={t("catalog.features.scopeSyncBatches.count.title")}>
+      <Stack gap={3}>
+        <Banner
+          tone={
+            quote.state === "complete"
+              ? "success"
+              : quote.state === "uncertain" || quote.state === "failed"
+                ? "danger"
+                : "info"
+          }
+          title={t("catalog.features.scopeSyncBatches.count.separate")}
+          description={t("catalog.features.scopeSyncBatches.count.no.batch")}
+        />
+        <LinkText href={`/catalog/scopes/sync-batches?quoteId=${encodeURIComponent(quote.quoteId)}`}>
+          {t("catalog.features.scopeSyncBatches.count.retained")}
+        </LinkText>
+        <KeyValueList
+          items={[
+            { key: t("catalog.features.scopeSyncBatches.count.planned"), value: String(quote.plannedCredits) },
+            { key: t("catalog.features.scopeSyncBatches.count.cap"), value: String(quote.cap) },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.cards"),
+              value: String(quote.targets.filter((target) => target.query.kind === "cards" && !target.source).length),
+            },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.sealed"),
+              value: String(quote.targets.filter((target) => target.query.kind === "sealed" && !target.source).length),
+            },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.reused"),
+              value: String(quote.targets.filter((target) => target.source).length),
+            },
+            { key: t("catalog.features.scopeSyncBatches.count.expires"), value: quote.expiresAt },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.state"),
+              value: <StatusPill tone={quote.state === "complete" ? "success" : "neutral"}>{quote.state}</StatusPill>,
+            },
+          ]}
+        />
+        {quote.targets.map((target) => (
+          <KeyValueList
+            key={`${target.scopeRecordId}:${target.query.kind}`}
+            items={[
+              {
+                key: t("catalog.features.scopeSyncBatches.count.kind"),
+                value: `${target.scopeRecordId} / ${target.query.kind}`,
+              },
+              { key: t("catalog.features.scopeSyncBatches.count.cost"), value: String(target.source ? 0 : 1) },
+              {
+                key: t("catalog.features.scopeSyncBatches.count.observed"),
+                value: target.source?.observedAt ?? t("catalog.features.scopeSyncBatches.count.unobserved"),
+              },
+            ]}
+          />
+        ))}
+        {quote.state === "quoted" && quote.plannedCredits > 0 ? (
+          <WorkbenchForm variant="button" method="post" action="/catalog/scopes/sync-batches">
+            <HiddenInput name="intent" value="count-acquire" />
+            <HiddenInput name="quoteId" value={quote.quoteId} />
+            <HiddenInput name="countFingerprint" value={quote.fingerprint} />
+            <Button
+              type="submit"
+              disabled={
+                submitting ||
+                !quote.authority.allowed ||
+                quote.targets.some((target) => target.blocked) ||
+                quote.cap === 0
+              }
+            >
+              {t(
+                submitting
+                  ? "catalog.features.scopeSyncBatches.count.acquiring"
+                  : "catalog.features.scopeSyncBatches.count.approve",
+              )}
+            </Button>
+          </WorkbenchForm>
+        ) : null}
+      </Stack>
+    </PageSection>
+  );
+}
+
+function HeldSetExportSection({
+  resolution,
+  submitting,
+  onSubmit,
+}: {
+  resolution: HeldSetResolution | null;
+  submitting: boolean;
+  onSubmit?: FormEventHandler<HTMLFormElement>;
+}) {
+  const resolvedColumns: DataColumn<HeldSetResolution["resolved"][number]>[] = [
+    {
+      key: "pair",
+      header: t("catalog.features.scopeSyncBatches.ui.heldSet.pair"),
+      cell: (row) => (
+        <Text>
+          {t("catalog.features.scopeSyncBatches.ui.heldSet.pair.value", {
+            productLine: row.productLine,
+            setName: row.setName,
+          })}
+        </Text>
+      ),
+    },
+    {
+      key: "scope",
+      header: t("catalog.features.scopeSyncBatches.ui.page.scope.record"),
+      cell: (row) => <Text>{row.scopeRecordId}</Text>,
+    },
+    {
+      key: "domain",
+      header: t("catalog.features.scopeSyncBatches.ui.page.product.domain"),
+      cell: (row) => (
+        <Text>
+          {t("catalog.features.scopeSyncBatches.ui.heldSet.domain.value", {
+            productDomain: row.productDomain,
+            scopeKind: row.scopeKind,
+          })}
+        </Text>
+      ),
+    },
+    {
+      key: "rows",
+      header: t("catalog.features.scopeSyncBatches.ui.heldSet.rows"),
+      cell: (row) => <Text>{row.rowCount}</Text>,
+    },
+  ];
+  const unresolvedColumns: DataColumn<HeldSetResolution["unresolved"][number]>[] = [
+    {
+      key: "pair",
+      header: t("catalog.features.scopeSyncBatches.ui.heldSet.pair"),
+      cell: (row) => (
+        <Text>
+          {t("catalog.features.scopeSyncBatches.ui.heldSet.pair.value", {
+            productLine: row.productLine,
+            setName: row.setName,
+          })}
+        </Text>
+      ),
+    },
+    {
+      key: "reason",
+      header: t("catalog.features.scopeSyncBatches.ui.heldSet.reason"),
+      cell: (row) => <StatusPill tone="warning">{row.reason}</StatusPill>,
+    },
+    {
+      key: "rows",
+      header: t("catalog.features.scopeSyncBatches.ui.heldSet.rows"),
+      cell: (row) => <Text>{row.rowCount}</Text>,
+    },
+    {
+      key: "inbox",
+      header: "",
+      cell: (row) => (
+        <LinkText
+          href={
+            row.productDomain
+              ? `/catalog/scope-coverage?productDomain=${encodeURIComponent(row.productDomain)}`
+              : "/catalog/scope-coverage"
+          }
+        >
+          {t("catalog.features.scopeSyncBatches.ui.heldSet.open.inbox")}
+        </LinkText>
+      ),
+    },
+  ];
+
+  return (
+    <PageSection title={t("catalog.features.scopeSyncBatches.ui.heldSet.title")}>
+      <Stack gap={4}>
+        <Text>{t("catalog.features.scopeSyncBatches.ui.heldSet.description")}</Text>
+        <WorkbenchForm
+          variant="surface"
+          method="post"
+          action="/catalog/scopes/sync-batches"
+          encType="multipart/form-data"
+          submitting={submitting}
+          onSubmit={onSubmit}
+        >
+          <Stack gap={3}>
+            <TextInput
+              name="file"
+              type="file"
+              required
+              label={t("catalog.features.scopeSyncBatches.ui.heldSet.file")}
+              description={t("catalog.features.scopeSyncBatches.ui.heldSet.file.description")}
+            />
+            <Inline>
+              <Button type="submit" name="intent" value="resolve-held-sets" loading={submitting}>
+                {t("catalog.features.scopeSyncBatches.ui.heldSet.resolve")}
+              </Button>
+            </Inline>
+          </Stack>
+        </WorkbenchForm>
+        {resolution ? (
+          <Stack gap={3}>
+            <Banner
+              tone={resolution.unresolved.length === 0 ? "success" : "warning"}
+              title={t("catalog.features.scopeSyncBatches.ui.heldSet.summary.title")}
+              description={t("catalog.features.scopeSyncBatches.ui.heldSet.summary", {
+                resolved: resolution.totals.resolvedPairs,
+                unresolved: resolution.totals.unresolvedPairs,
+                rows: resolution.totals.rows,
+              })}
+            />
+            {resolution.resolved.length > 0 ? (
+              <DataTable
+                rows={[...resolution.resolved]}
+                columns={resolvedColumns}
+                caption={t("catalog.features.scopeSyncBatches.ui.heldSet.resolved.caption")}
+                getRowId={(row) => `${row.productDomain}:${row.scopeRecordId}`}
+                density="compact"
+              />
+            ) : (
+              <Stack gap={2}>
+                <Text>{t("catalog.features.scopeSyncBatches.ui.heldSet.none.resolved")}</Text>
+                <LinkText href="/catalog/scope-coverage">
+                  {t("catalog.features.scopeSyncBatches.ui.heldSet.open.inbox")}
+                </LinkText>
+              </Stack>
+            )}
+            {resolution.unresolved.length > 0 ? (
+              <DataTable
+                rows={[...resolution.unresolved]}
+                columns={unresolvedColumns}
+                caption={t("catalog.features.scopeSyncBatches.ui.heldSet.unresolved.caption")}
+                getRowId={(row) => `${row.productLine}:${row.setName}`}
+                density="compact"
+              />
+            ) : null}
+            {resolution.resolved.length > 0 ? (
+              <WorkbenchForm variant="button" method="post" action="/catalog/scopes/sync-batches">
+                <HiddenInput name="selectionMode" value="ids" />
+                <HiddenInput
+                  name="scopeRecordIds"
+                  value={resolution.resolved.map((row) => row.scopeRecordId).join(",")}
+                />
+                <HiddenInput name="maxScopesPerTurn" value="1" />
+                <HiddenInput name="defaultProviderConcurrency" value="1" />
+                <HiddenInput name="scrydexConcurrency" value="1" />
+                <HiddenInput name="tcgdexRequestLimit" value="1000" />
+                <HiddenInput name="scrydexRateRequestLimit" value="1000" />
+                <HiddenInput name="scrydexRequestLimit" value="0" />
+                <HiddenInput name="providerFailureThreshold" value="3" />
+                <Button type="submit" name="intent" value="preview">
+                  {t("catalog.features.scopeSyncBatches.ui.heldSet.preview")}
+                </Button>
+                <TextInput
+                  name="countCap"
+                  type="number"
+                  min={0}
+                  max={10000}
+                  label={t("catalog.features.scopeSyncBatches.count.cap")}
+                  defaultValue="0"
+                />
+                <Button type="submit" name="intent" value="count-quote">
+                  {t("catalog.features.scopeSyncBatches.count.quote")}
+                </Button>
+              </WorkbenchForm>
+            ) : null}
+          </Stack>
+        ) : null}
+      </Stack>
+    </PageSection>
   );
 }
 

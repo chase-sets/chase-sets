@@ -6,7 +6,7 @@ This proof exercises the rebuilt Catalog control plane's primary path with the l
 2. pull provider data through the TCGdex ProviderAdapter;
 3. review redacted Source Observation evidence with profile metadata;
 4. capture promotion-preview counts before any Catalog Item write;
-5. link the [security/privacy launch gate](./catalog-integration-security-privacy-launch-gate.md), provider transport budget, and rollout approval evidence.
+5. link the [security/privacy launch gate](./catalog-integration-security-privacy-launch-gate.md), its `scripts/check-structure/catalog-integration-security-privacy-launch-gate.test.mjs` proof, provider transport budget, and rollout approval evidence.
 
 The proof is not a migration or reskin of retired admin structure. Health, profile authoring, validation, lifecycle, RBAC, observability, audit, and rollout controls remain supporting workflows. They explain or unblock import-to-promotion; they must not bury it.
 

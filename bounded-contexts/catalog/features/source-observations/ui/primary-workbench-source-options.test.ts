@@ -23,6 +23,142 @@ const requestUrl =
   "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
 
 describe("Catalog primary workbench source options", () => {
+  it("pins Card parents to the route expansionId and fails closed for name-only routes", () => {
+    const profile = profileReview({
+      providerKey: "scrydex",
+      profileKey: "scrydex-lorcana-card",
+      profileVersion: "2026.06.23",
+      ingestionUnitKey: "scrydex:lorcana:single-card:source-observation-import",
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["set-name", "product/card"],
+      sourceOptionKinds: [
+        {
+          queryKind: "sets",
+          queryKeySynonyms: ["set"],
+          displayName: "Set",
+          scope: "set-name",
+          parentScope: null,
+          parentRequired: false,
+          parentValueKind: null,
+          parentDiagnosticText: null,
+        },
+        {
+          queryKind: "cards",
+          queryKeySynonyms: ["card"],
+          displayName: "Card",
+          scope: "product/card",
+          parentScope: "set-name",
+          parentRequired: true,
+          parentValueKind: "set-id",
+          parentDiagnosticText: "Select a set before loading Card.",
+        },
+      ],
+    });
+    const scope = sourceObservationScope({
+      provider_key: "scrydex",
+      language_code: "en",
+      expansion_id: "TFC",
+      expansion_name: "The First Chapter",
+    });
+    const walkUrl =
+      "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex%3Alorcana%3Asingle-card%3Asource-observation-import&expansionId=TFC&expansionName=The+First+Chapter&profileVersion=2026.06.23";
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl: walkUrl,
+      scopes: [scope],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+    const card = requests.find((request) => request.queryKind === "cards");
+
+    expect(card).toMatchObject({
+      parentScope: "set-name",
+      parentValue: "TFC",
+      selectedParentValue: "TFC",
+      selectedParentLabel: "The First Chapter",
+    });
+    expect(new URL(card!.queryHref, walkUrl).searchParams.get("parentValue")).toBe("TFC");
+    const cardRefresh = new URL(card!.refreshHref!, walkUrl);
+    expect(cardRefresh.searchParams.get("parentValue")).toBe("TFC");
+    expect(cardRefresh.searchParams.get("forceRefresh")).toBe("true");
+    expect(cardRefresh.searchParams.has("cacheOnly")).toBe(false);
+
+    const nameOnly = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl: walkUrl.replace("&expansionId=TFC", ""),
+      scopes: [scope],
+      profiles: [profile],
+      cacheOnly: true,
+    }).find((request) => request.queryKind === "cards");
+    expect(nameOnly).toMatchObject({ parentValue: null, selectedParentValue: null });
+  });
+
+  it("keeps Card pages row-local and out of status and refresh-all rollups", () => {
+    const profile = profileReview({
+      active: true,
+      lifecycle: "active",
+      supportedScopes: ["set-name", "product/card"],
+      sourceOptionKinds: [
+        {
+          queryKind: "sets",
+          queryKeySynonyms: ["set"],
+          displayName: "Set",
+          scope: "set-name",
+          parentScope: null,
+          parentRequired: false,
+          parentValueKind: null,
+          parentDiagnosticText: null,
+        },
+        {
+          queryKind: "cards",
+          queryKeySynonyms: ["card"],
+          displayName: "Card",
+          scope: "product/card",
+          parentScope: "set-name",
+          parentRequired: true,
+          parentValueKind: "set-id",
+          parentDiagnosticText: "Select a set before loading Card.",
+        },
+      ],
+    });
+    const scope = sourceObservationScope({ expansion_id: "TFC", expansion_name: "The First Chapter" });
+    const requestUrl = "https://admin.example/catalog/integrations?providerKey=tcgdex&expansionId=TFC";
+    const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+      requestUrl,
+      scopes: [scope],
+      profiles: [profile],
+      cacheOnly: true,
+    });
+    const pages = requests.map((request) =>
+      request.queryKind === "cards"
+        ? { request }
+        : {
+            request,
+            response: optionResponse(request, "fresh", "live", [
+              { value: "TFC", label: "The First Chapter", parentValue: null, metadata: {} },
+            ]),
+          },
+    );
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes: { items: [scope], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      sourceOptionPages: pages,
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceOptions.pages.map((page) => page.queryKind)).toEqual(["sets", "cards"]);
+    expect(readModel.sourceOptions.summary).toMatchObject({
+      declaredKinds: 2,
+      loadedPages: 1,
+      availableOptions: 1,
+      unavailablePages: 0,
+      degradedPages: 0,
+    });
+    expect(readModel.sourceOptions.refresh.refreshAllHref).toContain("queryKind=sets");
+    expect(readModel.sourceOptions.status).toBe("ready");
+  });
+
   it("uses typed route importScope segments when no observed scope row exists yet", () => {
     const profile = profileReview({ active: true, lifecycle: "active" });
     const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({

@@ -12,6 +12,7 @@ import type { AccountId, ShippingAddressId } from "@chase-sets/primitives/typed-
 import type { CartLineId } from "../../../support/runtime-support/common";
 import type { CheckoutSelectedListingSnapshotInput } from "../domain/domain";
 import type { CheckoutShipFromAddressRow } from "../integrations/identity/identity-queries";
+import { toPublicCheckoutCartLines } from "./contracts";
 import type { CheckoutCartServices } from "./runtime";
 import type { CheckoutSessionServices } from "../../sessions/api/runtime";
 import { releaseCheckoutInventoryReservations } from "../../../support/request-support/checkout-confirmation";
@@ -24,7 +25,7 @@ export type CheckoutCartMcpHandlers = Readonly<{
 export type CheckoutCartMcpServices = Readonly<{
   cart: Pick<
     CheckoutCartServices,
-    "addLine" | "listCartLines" | "removeLine" | "setLineFulfillment" | "setLineQuantity"
+    "addLine" | "listAuthorizedCartLines" | "removeLine" | "setLineFulfillment" | "setLineQuantity"
   >;
   sessions: Pick<CheckoutSessionServices, "cancelSession" | "getSession" | "setShippingAddress">;
   listSavedShippingAddresses: (accountId: string) => Promise<readonly CheckoutShipFromAddressRow[]>;
@@ -145,6 +146,14 @@ function readSelectedListingSnapshot(
         : String(source.sellerDisplayName),
     sellerSlug: source.sellerSlug === null || source.sellerSlug === undefined ? null : String(source.sellerSlug),
     priceAmount: source.priceAmount === null || source.priceAmount === undefined ? null : String(source.priceAmount),
+    priceCurrencyCode:
+      source.priceCurrencyCode === null || source.priceCurrencyCode === undefined
+        ? null
+        : String(source.priceCurrencyCode),
+    listingStreamVersion:
+      source.listingStreamVersion === null || source.listingStreamVersion === undefined
+        ? null
+        : Number(source.listingStreamVersion),
     source: source.source === null || source.source === undefined ? null : String(source.source),
   };
 }
@@ -195,12 +204,17 @@ function cartUriParts(uri: string): Readonly<{ accountId: string }> | null {
 
 export function createCheckoutCartMcpHandlers(services: CheckoutCartMcpServices): CheckoutCartMcpHandlers {
   const readCart = async (actor: Parameters<typeof ensureMcpActorAccount>[0], accountId: string | null) => {
+    // Account-scoped by construction: the only owner key that reaches Cart is
+    // the one `ensureMcpActorAccount` resolved from the actor, so no MCP
+    // argument or header can present an anonymous source here. Rows are mapped
+    // to the public contract before they leave, so no internal owner
+    // provenance is published to an agent.
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const items = await services.cart.listCartLines(scopedActor.accountId);
+    const items = await services.cart.listAuthorizedCartLines({ accountId: scopedActor.accountId });
 
     return {
       accountId: scopedActor.accountId,
-      items,
+      items: toPublicCheckoutCartLines(items),
       total: items.length,
     };
   };

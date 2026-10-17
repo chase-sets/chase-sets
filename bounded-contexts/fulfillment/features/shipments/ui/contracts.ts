@@ -55,6 +55,15 @@ export interface FulfillmentPostageProviderEventDiagnostic {
   received_at: string;
 }
 
+export interface FulfillmentShipmentConflict {
+  order_id: string;
+  conflict_kind: "cancellation" | "destination-correction";
+  origin: string;
+  reason: string | null;
+  shipment_status: string;
+  detected_at: string;
+}
+
 export interface FulfillmentShipmentListItem {
   shipment_id: string;
   order_id: string;
@@ -103,6 +112,7 @@ export interface FulfillmentShipmentListItem {
   exception_raised_at: string | null;
   line_count: number;
   total_quantity: number;
+  conflicts: readonly FulfillmentShipmentConflict[];
 }
 
 export interface FulfillmentShipmentLine {

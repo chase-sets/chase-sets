@@ -2,6 +2,7 @@ import type {
   RegistrationConsentSubmission,
   SignedRegistrationConsentResolution,
 } from "../../features/consents/domain/registration-consent";
+import type { InvitationAcceptanceOperation } from "../../features/invitations/api/acceptance-operation";
 
 /**
  * The Auth-to-Identity mutation contract.
@@ -45,6 +46,7 @@ export type IdentityAuthMutationClient = Readonly<{
       /** Required, non-optional, non-nullable -- omitting it is a typecheck failure. */
       registrationConsent: RegistrationConsentSubmission;
       foundersBetaAccessStartedAt?: string;
+      reservedUserId?: string;
     }>,
   ) => Promise<
     Readonly<{
@@ -91,8 +93,33 @@ export type IdentityAuthMutationClient = Readonly<{
       invitationId: string;
       userId: string;
       acceptanceTokenHash: string;
+      operation?: InvitationAcceptanceOperation;
     }>,
   ) => Promise<Readonly<{ membershipId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
+  readInvitationAcceptanceAuthority: (
+    params: Readonly<{
+      invitationId: string;
+      acceptanceTokenHash: string;
+      operation?: InvitationAcceptanceOperation;
+    }>,
+  ) => Promise<
+    Readonly<{
+      invitationId: string;
+      accountId: string;
+      email: string;
+      roleKey: string;
+      expiresAt: string;
+      accepted: boolean;
+      tokenExpired: boolean;
+      user: Readonly<{
+        userId: string;
+        passwordCredentialId: string | null;
+        passkeyCredentialIds: readonly string[];
+        authMethods: readonly string[];
+        emailVerified: boolean;
+      }> | null;
+    }>
+  >;
   issueInvitationAcceptanceToken: (
     params: Readonly<{
       invitationId: string;

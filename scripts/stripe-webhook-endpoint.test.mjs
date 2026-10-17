@@ -30,6 +30,21 @@ function endpoint(overrides = {}) {
 }
 
 describe("Stripe shared Payments webhook endpoint", () => {
+  it("retains row 4 exact-mode unrestricted-key admission and restricted refusal", async () => {
+    const fetch = async () => response({ data: [], has_more: false });
+    await expect(
+      verifyStripePaymentsWebhookEndpoint({ environment: "staging", stripeApiKey: "sk_test_fixture" }, { fetch }),
+    ).resolves.toMatchObject({ ok: false });
+    await expect(
+      verifyStripePaymentsWebhookEndpoint({ environment: "production", stripeApiKey: "sk_live_fixture" }, { fetch }),
+    ).resolves.toMatchObject({ ok: false });
+    for (const stripeApiKey of ["rk_test_fixture", "rk_live_fixture", "sk_testfixture", "sk_livefixture"]) {
+      await expect(
+        verifyStripePaymentsWebhookEndpoint({ environment: "staging", stripeApiKey }, { fetch }),
+      ).rejects.toThrow("received unknown");
+    }
+  });
+
   it("verifies the canonical staging endpoint with the complete required event set", async () => {
     const result = await verifyStripePaymentsWebhookEndpoint(
       { environment: "staging", stripeApiKey: "sk_test_fixture" },

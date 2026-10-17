@@ -21,6 +21,122 @@ const fixtureCredentials = { apiKey: "api-key-fixture", teamId: "team-id-fixture
 const fixtureNow = new Date("2026-06-22T00:00:00.000Z");
 
 describe("Scrydex One Piece provider adapter", () => {
+  it.each([
+    { page_size: 2147483648, total_count: 0 },
+    { page_size: 100, total_count: 0, totalCount: 1 },
+  ])(
+    "preserves full-pagination numeric bounds and snake-case precedence outside count acquisition",
+    async (metadata) => {
+      const adapter = createScrydexOnePieceProviderAdapter({
+        credentials: fixtureCredentials,
+        baseUrl: fixtureBaseUrl,
+        now: () => fixtureNow,
+        fetch: async (input) =>
+          Response.json(
+            new URL(String(input)).pathname.endsWith("/usage")
+              ? scrydexUsageResponse
+              : { data: [], page: 1, count: 0, ...metadata },
+          ),
+      });
+      const plan = await adapter.planImport({
+        unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        scopeKey: "expansion",
+        values: { expansionId: "OP01" },
+      });
+      expect(await collectPayloads(adapter.fetchPayloads(plan))).toEqual([]);
+    },
+  );
+  it.each([
+    ["snake", 121],
+    ["camel", 121],
+    ["snake", 100],
+    ["snake", 0],
+  ])("reconciles %s count pagination for %i cards despite a provider page-size clamp", async (spelling, total) => {
+    const cardRequests: number[] = [];
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: fixtureCredentials,
+      baseUrl: fixtureBaseUrl,
+      now: () => fixtureNow,
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/usage")) return Response.json(scrydexUsageResponse);
+        expect(url.searchParams.get("page_size")).toBe("250");
+        expect(url.searchParams.get("q")).toBe("printings:OP01");
+        const page = Number(url.searchParams.get("page"));
+        cardRequests.push(page);
+        expect(page).toBeLessThanOrEqual(2);
+        const count = Math.min(100, total - (page - 1) * 100);
+        const data = Array.from({ length: count }, (_, index) => ({
+          ...scrydexCards[0],
+          id: `synthetic-${(page - 1) * 100 + index + 1}`,
+        }));
+        return Response.json({
+          data,
+          page,
+          count,
+          ...(spelling === "snake" ? { page_size: 100, total_count: total } : { pageSize: 100, totalCount: total }),
+        });
+      },
+    });
+    const plan = await adapter.planImport({
+      unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "expansion",
+      values: { expansionId: "OP01" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+    expect(payloads).toHaveLength(total);
+    if (total > 0) expect(payloads.at(-1)?.externalKey).toBe(`card:synthetic-${total}`);
+    expect(cardRequests).toEqual(total > 100 ? [1, 2] : [1]);
+  });
+
+  it.each(["short", "empty", "changed-total", "wrong-page", "bad-size", "bad-total", "missing-total", "wrong-count"])(
+    "refuses %s pagination without yielding a truncated import",
+    async (failure) => {
+      const cardRequests: number[] = [];
+      const adapter = createScrydexOnePieceProviderAdapter({
+        credentials: fixtureCredentials,
+        baseUrl: fixtureBaseUrl,
+        now: () => fixtureNow,
+        fetch: async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/usage")) return Response.json(scrydexUsageResponse);
+          const page = Number(url.searchParams.get("page"));
+          cardRequests.push(page);
+          expect(page).toBeLessThanOrEqual(2);
+          const body: Record<string, unknown> = {
+            data: Array.from({ length: page === 1 ? 100 : 21 }, (_, index) => ({
+              ...scrydexCards[0],
+              id: `synthetic-${page}-${index}`,
+            })),
+            page,
+            page_size: 100,
+            count: page === 1 ? 100 : 21,
+            total_count: 121,
+          };
+          if (page === 2) {
+            if (failure === "short") body.data = [scrydexCards[0]];
+            if (failure === "empty") body.data = [];
+            if (failure === "changed-total") body.total_count = 122;
+            if (failure === "wrong-page") body.page = 1;
+            if (failure === "bad-size") body.page_size = 0;
+            if (failure === "bad-total") body.total_count = "121";
+            if (failure === "missing-total") delete body.total_count;
+            if (failure === "wrong-count") body.count = 20;
+          }
+          return Response.json(body);
+        },
+      });
+      const plan = await adapter.planImport({
+        unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        scopeKey: "expansion",
+        values: { expansionId: "OP01" },
+      });
+      const iterator = adapter.fetchPayloads(plan)[Symbol.asyncIterator]();
+      await expect(iterator.next()).rejects.toThrow("pagination metadata is inconsistent or incomplete");
+      expect(cardRequests).toEqual([1, 2]);
+    },
+  );
+
   it("exposes the expected One Piece provider-adapter units", async () => {
     const adapter = createScrydexOnePieceProviderAdapter({
       credentials: fixtureCredentials,
@@ -344,7 +460,7 @@ describe("Scrydex One Piece provider adapter", () => {
         estimateState: "estimate-unavailable",
         estimatedRequestCount: null,
         estimateReason:
-          "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
+          "Card page count requires fresh exact-query Scrydex count evidence; set imports use q=printings:<set> to include reprints.",
         pageSize: 250,
         selectedFields: [
           "id",
@@ -376,7 +492,7 @@ describe("Scrydex One Piece provider adapter", () => {
         requestStrategy: "bulk-first",
         estimateState: "estimate-unavailable",
         estimatedRequestCount: null,
-        estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+        estimateReason: "Sealed-product page count requires fresh exact-query Scrydex count evidence.",
         pageSize: 100,
         selectedFields: ["id", "name", "type", "images", "language", "language_code", "expansion"],
         perRecordFallbackReason: null,
@@ -943,12 +1059,16 @@ function scrydexResponseFixtureFetch(responses: Readonly<Record<string, unknown>
   };
 }
 
+// Synthetic values in the real Scrydex usage envelope; the period covers fixtureNow.
 const scrydexUsageResponse = {
-  total_credits: 1000,
-  remaining_credits: 875,
-  used_credits: 125,
-  overage_credit_rate: "0.01",
-  updated_at: "2026-06-22T00:00:00.000Z",
+  data: {
+    total_credits_consumed: 125,
+    overage_credits_consumed: 0,
+    credits_remaining: 875,
+    period_start: "2026-06-01T00:00:00.000Z",
+    period_end: "2026-07-01T00:00:00.000Z",
+    daily_usage: [{ date: "2026-06-21", credits_consumed: 125 }],
+  },
 };
 
 function endpoint(url: string): string {

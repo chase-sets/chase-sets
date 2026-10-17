@@ -57,52 +57,20 @@ describe("ordering transactional email projector", () => {
     expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 
-  it("enqueues buyer notification for payment-deadline cancellation", async () => {
+  it("cancelled events have no Ordering email handler", async () => {
     const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
-    await projectOrderingEventToTransactionalEmail(outbox, {
-      id: "evt_deadline_cancelled",
-      type: "ordering.order.cancelled",
-      globalPosition: "4",
-      trace: { traceId: "req_deadline" },
-      timing: {
-        occurredAt: "2026-04-02T00:00:00.000Z",
-        recordedAt: "2026-04-02T00:00:01.000Z",
-      },
-      data: {
-        orderId: "ord_01ARZ3NDEKTSV4RRFFQ69G5FAV",
-        reason: "payment-deadline",
-        buyerEmail: " buyer@example.com ",
-      },
-    } as never);
-
-    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
-    expect((outbox.enqueueNotification.mock.calls[0]?.[0] as { message: unknown } | undefined)?.message).toMatchObject({
-      messageType: "ordering.order.cancelled.payment-deadline",
-      templateData: {
-        orderReference: "ORD-Q69G5FAV",
-        reorderHref: "/marketplace?reorderFrom=ord_01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      },
-    });
-  });
-
-  it("does not enqueue cancellation notification for non-deadline cancellations", async () => {
-    const outbox = { enqueueNotification: vi.fn(async (_input: unknown) => undefined) };
-    await projectOrderingEventToTransactionalEmail(outbox, {
-      id: "evt_buyer_cancelled",
-      type: "ordering.order.cancelled",
-      globalPosition: "5",
-      trace: { traceId: "req_buyer_cancelled" },
-      timing: {
-        occurredAt: "2026-04-02T00:00:00.000Z",
-        recordedAt: "2026-04-02T00:00:01.000Z",
-      },
-      data: {
-        orderId: "ord_buyer_cancelled",
-        reason: "buyer-cancelled",
-        buyerEmail: "buyer@example.com",
-      },
-    } as never);
-
+    const handlers = buildOrderingTransactionalEmailProjectionHandlers(outbox);
+    expect(Object.keys(handlers)).toEqual(["ordering.order.created"]);
+    for (const reason of ["payment-deadline", "buyer-cancelled", "seller-cancelled", undefined, null]) {
+      await projectOrderingEventToTransactionalEmail(outbox, {
+        id: "synthetic_cancelled",
+        type: "ordering.order.cancelled",
+        globalPosition: "4",
+        trace: { traceId: "synthetic_trace" },
+        timing: { occurredAt: "2026-09-02T00:00:00.000Z", recordedAt: "2026-09-02T00:00:00.000Z" },
+        data: { orderId: "ord_synthetic", reason, buyerEmail: "buyer@example.test" },
+      } as never);
+    }
     expect(outbox.enqueueNotification).not.toHaveBeenCalled();
   });
 });

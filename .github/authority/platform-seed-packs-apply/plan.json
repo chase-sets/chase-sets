@@ -1,0 +1,88 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform format seed packs#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform format seed packs#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform init seed packs for plan#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform init seed packs for plan#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform plan and seal seed packs#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform plan and seal seed packs#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform plan and seal seed packs#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform plan and seal seed packs#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform plan and seal seed packs#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform plan and seal seed packs#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform validate seed packs#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "plan",
+      "stepAnchor": "name:Terraform validate seed packs#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

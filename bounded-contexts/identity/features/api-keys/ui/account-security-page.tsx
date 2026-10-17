@@ -3,8 +3,9 @@ import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import {
   HiddenInput,
-  Form,
+  LinkButton,
   Button,
+  Banner,
   MarketplaceDashboardPanel,
   ModalDialog,
   NativeSelect,
@@ -18,22 +19,30 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
+import {
+  apiKeyStatusLabel,
+  identityAuthenticationMethodLabel,
+  identityDateUnavailable,
+} from "../../../support/ui-support/value-labels";
 
 export function SecurityPage({
   user,
   apiKeys,
   oneTimeSecret,
+  errorMessage,
 }: {
   user: User;
   apiKeys: readonly ApiKey[];
   oneTimeSecret?: OneTimeApiKeySecret | null;
+  errorMessage?: string;
 }) {
   const enabledMethods = user.auth_methods.length
-    ? user.auth_methods.join(", ")
+    ? user.auth_methods.map((method) => identityAuthenticationMethodLabel(method)).join(", ")
     : t("identity.features.apiKeys.ui.accountSecurityPage.no.interactive.methods.enabled");
   const activeApiKeys = apiKeys.filter((key) => key.status === "active").length;
   const lastUpdated = user.updated_at
-    ? formatDate(user.updated_at)
+    ? formatDate(user.updated_at, { fallback: identityDateUnavailable() })
     : t("identity.features.apiKeys.ui.accountSecurityPage.not.available");
 
   return (
@@ -97,6 +106,7 @@ export function SecurityPage({
           </Stack>
         }
       />
+      {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
       <ApiKeySecretReveal secret={oneTimeSecret} />
       <MarketplaceDashboardPanel
         title={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection")}
@@ -126,6 +136,11 @@ export function SecurityPage({
       <PageSection
         title={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals")}
         description={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals.description")}
+        actions={
+          <LinkButton href="/account/sessions" tone="secondary">
+            {t("identity.features.apiKeys.ui.accountSecurityPage.manage.sessions")}
+          </LinkButton>
+        }
       >
         <Stack>
           <SecurePaymentCue label={t("identity.features.apiKeys.ui.accountSecurityPage.sign.in.methods.verified")} />
@@ -139,7 +154,7 @@ export function SecurityPage({
                 label: t("identity.features.apiKeys.ui.accountSecurityPage.api.keys"),
                 value:
                   apiKeys.length > 0
-                    ? apiKeys.map((key) => `${key.name} (${key.status})`).join(", ")
+                    ? apiKeys.map((key) => `${key.name} (${apiKeyStatusLabel(key.status)})`).join(", ")
                     : t("identity.features.apiKeys.ui.accountSecurityPage.no.api.keys.yet"),
               },
             ]}
@@ -150,7 +165,10 @@ export function SecurityPage({
                 <SpecificationList
                   specs={[
                     { label: t("identity.features.apiKeys.ui.accountSecurityPage.api.key"), value: apiKey.name },
-                    { label: t("identity.features.apiKeys.ui.accountSecurityPage.status"), value: apiKey.status },
+                    {
+                      label: t("identity.features.apiKeys.ui.accountSecurityPage.status"),
+                      value: apiKeyStatusLabel(apiKey.status),
+                    },
                   ]}
                 />
                 {apiKey.status === "active" ? (

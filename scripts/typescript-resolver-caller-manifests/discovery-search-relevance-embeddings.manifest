@@ -1,0 +1,6 @@
+["caller","scripts/discovery-search-relevance-embeddings.mjs"]
+["candidate","edges",{"from":"scripts/discovery-search-relevance-embeddings.mjs","specifier":"../bounded-contexts/discovery/features/search/domain/embedding-document.ts","resolved":"repo:/bounded-contexts/discovery/features/search/domain/embedding-document.ts"}]
+["candidate","modules","bounded-contexts/discovery/features/search/domain/embedding-document.ts"]
+["candidate","modules","scripts/discovery-search-relevance-embeddings.mjs"]
+["check","byte-identical"]
+["predecessor","source"]

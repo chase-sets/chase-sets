@@ -159,6 +159,8 @@ describe("marketplace listing create page", () => {
     expect(markup).toContain('name="selectedOptions"');
     expect(markup).toContain('name="catalogItemId"');
     expect(markup).toContain('name="priceAmount"');
+    expect(markup).toContain('name="priceCurrencyCode"');
+    expect(markup).not.toContain('name="priceCurrencyCode" value="USD"');
     expect(markup).toContain('name="quantityCap"');
     expect(markup).toContain('name="evidence"');
     expect(markup).toContain('accept="image/jpeg,image/png,image/webp"');
@@ -283,6 +285,7 @@ describe("marketplace listing create page", () => {
             { dimensionId: "condition", optionId: "damaged" },
           ],
           priceAmount: "21.74",
+          priceCurrencyCode: "EUR",
           quantityCap: "1",
         }}
       />,
@@ -300,6 +303,7 @@ describe("marketplace listing create page", () => {
     );
     expect(screen.getByLabelText("Form")).toBeTruthy();
     expect(screen.getByLabelText("Condition")).toBeTruthy();
+    expect((screen.getByLabelText("Price currency code") as HTMLInputElement).value).toBe("EUR");
     expect(screen.queryByLabelText("Grading Company")).toBeNull();
     expect(screen.queryByLabelText("Grade")).toBeNull();
   });

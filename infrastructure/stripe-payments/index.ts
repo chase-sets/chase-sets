@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { parseProcessorSetupSessionCancellationResult } from "@chase-sets/payment-processing";
 import type {
   CreatedProcessorPayment,
   CreatedProcessorRefund,
@@ -18,7 +19,9 @@ import type {
   ProcessorLiabilityShiftOutcome,
   ProcessorThreeDSecureRequest,
   ProcessorSavedPaymentMethod,
+  ProcessorSetupSessionCancellationResult,
   ProcessorSetupSessionResult,
+  ProcessorRefundResult,
 } from "@chase-sets/payment-processing";
 import {
   ProviderAdapterError,
@@ -26,22 +29,35 @@ import {
   providerFailureCategoryFromText,
   ProviderWebhookError,
 } from "@chase-sets/http/provider-errors";
-import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
+import {
+  executeGovernedProviderWrite,
+  type GovernedProviderWriteOptions,
+} from "@chase-sets/platform-runtime/evidence-window-provider-write-executor";
+import {
+  ProviderWriteRefused,
+  GOVERNED_RETURN_ORIGIN,
+  GOVERNED_SETUP_PATH,
+  type ProviderWriteBinding,
+  type ProviderWriteWindow,
+  type ProviderCancelGovernance,
+} from "@chase-sets/evidence-window-provider-write";
 
 const STRIPE_METADATA_VALUE_MAX_LENGTH = 500;
 export const DEFAULT_STRIPE_STATEMENT_DESCRIPTOR_SUFFIX = "CHASESETS";
 const STRIPE_STATEMENT_DESCRIPTOR_SUFFIX_PATTERN = /^[A-Za-z0-9 ._-]{1,10}$/;
 
-export type StripePaymentProcessorGatewayOptions = Readonly<{
-  secretKey: string;
-  publishableKey: string;
-  webhookSecret: string;
-  previousWebhookSecrets?: readonly string[];
-  apiBaseUrl?: string;
-  webhookToleranceSeconds?: number;
-  statementDescriptorSuffix?: string;
-}>;
+export type StripePaymentProcessorGatewayOptions = GovernedProviderWriteOptions &
+  Readonly<{
+    secretKey: string;
+    publishableKey: string;
+    webhookSecret: string;
+    previousWebhookSecrets?: readonly string[];
+    apiBaseUrl?: string;
+    webhookToleranceSeconds?: number;
+    statementDescriptorSuffix?: string;
+  }>;
 
 type StripeCheckoutSessionResponse = Readonly<{
   id: string;
@@ -133,6 +149,10 @@ type StripePaymentMethodResponse = Readonly<{
 type StripeRefundResponse = Readonly<{
   id: string;
   status?: string | null;
+  payment_intent?: string | null;
+  amount?: number;
+  currency?: string;
+  metadata?: Readonly<Record<string, string>>;
 }>;
 
 type StripeDisputeResponse = Readonly<{
@@ -154,6 +174,7 @@ type StripeEventEnvelope = Readonly<{
       setup_intent?: string | null;
       amount?: number | null;
       amount_refunded?: number | null;
+      balance_transactions?: readonly Readonly<{ fee?: number; currency?: string }>[];
       currency?: string | null;
       mode?: string | null;
       customer?: string | null;
@@ -241,7 +262,7 @@ function normalizeMoneyAmount(value: string, fieldName: string) {
 }
 
 function moneyToMinorUnits(amount: string) {
-  return Math.round(Number.parseFloat(amount) * 100);
+  return Number(moneyToCents(amount));
 }
 
 function normalizeOptionalText(value?: string | null) {
@@ -296,13 +317,17 @@ function boundedOrderIdsMetadataValue(orderIds: readonly string[]) {
 }
 
 function paymentMetadataEntries(
-  input: Pick<CreateProcessorPaymentInput, "paymentId" | "buyerAccountId" | "orderIds" | "paymentMethodCategory">,
+  input: Pick<
+    CreateProcessorPaymentInput,
+    "paymentId" | "buyerAccountId" | "orderIds" | "paymentMethodCategory" | "purpose"
+  >,
   extra: Readonly<Record<string, string | null | undefined>> = {},
   prefix = "metadata",
 ) {
   const orderIdsMetadata = boundedOrderIdsMetadataValue(input.orderIds);
   return {
     [`${prefix}[payment_id]`]: input.paymentId,
+    ...(input.purpose ? { [`${prefix}[purpose]`]: input.purpose } : {}),
     [`${prefix}[buyer_account_id]`]: input.buyerAccountId,
     [`${prefix}[order_ids]`]: orderIdsMetadata.orderIds,
     [`${prefix}[order_count]`]: String(input.orderIds.length),
@@ -536,14 +561,14 @@ function liabilityShiftOutcomeFromFailure(object: StripeWebhookObject): Processo
   };
 }
 
-function cardAuthenticationEntries(input: Pick<CreateProcessorPaymentInput, "cardAuthentication">, prefix = "") {
+function cardAuthenticationEntries(
+  input: Pick<CreateProcessorPaymentInput, "cardAuthentication">,
+): Record<string, string> {
   if (input.cardAuthentication?.requestThreeDSecure !== "any") {
     return {};
   }
-  const fieldPrefix = prefix ? `${prefix}[` : "";
-  const fieldSuffix = prefix ? "]" : "";
   return {
-    [`${fieldPrefix}payment_method_options${fieldSuffix}[card][request_three_d_secure]`]: "any",
+    "payment_method_options[card][request_three_d_secure]": "any",
   };
 }
 
@@ -1138,7 +1163,10 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
       return null;
     case "refund.created":
     case "refund.updated": {
-      if (processorStatus === "failed" || processorStatus === "canceled" || processorStatus === "cancelled") {
+      if (
+        (processorStatus === "failed" || processorStatus === "canceled" || processorStatus === "cancelled") &&
+        !internalPaymentId?.startsWith("wfp_")
+      ) {
         return null;
       }
       const refundPaymentReference =
@@ -1191,6 +1219,14 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         disputeLifecycleState: disputeLifecycleState(event.type, disputeStatus),
         disputeStatus,
         disputeReason,
+        ...(Array.isArray(paymentObject.balance_transactions) &&
+        paymentObject.balance_transactions.every((t) => Number.isSafeInteger(t.fee) && t.currency === "usd")
+          ? {
+              disputeFeeAmount: centsToMoneyAmount(
+                BigInt(paymentObject.balance_transactions.reduce((sum, t) => sum + t.fee!, 0)),
+              ),
+            }
+          : {}),
         disputeEvidenceDueAt: stripeTimestampToIso(paymentObject.evidence_details?.due_by),
         occurredAt,
       };
@@ -1220,13 +1256,12 @@ export function createStripePaymentProcessorGateway(
         id: "stripe-shared-payment-token",
         provider: "stripe",
         type: "shared_payment_token",
-        requiresAp2Mandate: true,
         confirmationExperience: "server-confirmed-payment-intent",
       },
     ],
   };
 
-  async function stripeRequest<T>(
+  async function rawStripeRequest<T>(
     path: string,
     init: RequestInit,
     options: Readonly<{ idempotencyKey?: string | null }> = {},
@@ -1244,6 +1279,106 @@ export function createStripePaymentProcessorGateway(
       headers,
     });
     return parseStripeResponse<T>(response);
+  }
+
+  async function stripeRequest<T>(
+    path: string,
+    init: RequestInit,
+    requestOptions: Readonly<{
+      idempotencyKey?: string | null;
+      write?: Readonly<{
+        binding: ProviderWriteBinding;
+        window?: ProviderWriteWindow | null;
+        governance?: ProviderCancelGovernance;
+      }>;
+    }> = {},
+  ): Promise<T> {
+    const covered =
+      init.method === "POST" &&
+      /^\/v1\/(customers|payment_intents|setup_intents|checkout\/sessions|(?:payment_intents|setup_intents)\/[A-Za-z0-9_]+\/cancel)$/.test(
+        path,
+      );
+    if (!covered) return rawStripeRequest<T>(path, init, requestOptions);
+    const window = await resolveWriteWindow(requestOptions.write?.window);
+    if (!window) return rawStripeRequest<T>(path, init, requestOptions);
+    if (!requestOptions.write) throw new ProviderWriteRefused("invalid-identity");
+    const target = path.endsWith("/cancel") ? path.split("/").at(-2)! : null;
+    return executeGovernedProviderWrite(options, {
+      window,
+      binding: requestOptions.write.binding,
+      governance: requestOptions.write.governance,
+      envelope: {
+        bodyKind: init.body === undefined ? "absent" : "form",
+        bodyText: init.body === undefined ? null : String(init.body),
+        method: "POST",
+        endpoint: path,
+        target,
+        accountScope: "platform",
+        connectedAccountReference: null,
+        apiVersion: STRIPE_API_VERSION,
+      },
+      send: (envelope, idempotencyKey) =>
+        rawStripeRequest<T>(
+          envelope.endpoint,
+          {
+            method: envelope.method,
+            ...(envelope.bodyKind === "form" ? { body: envelope.bodyText! } : {}),
+          },
+          { idempotencyKey },
+        ),
+      retrieve: (reference) =>
+        rawStripeRequest<T>(
+          `${target ? path.slice(0, path.lastIndexOf("/", path.lastIndexOf("/") - 1)) : path}/${encodeURIComponent(reference)}`,
+          { method: "GET" },
+        ),
+      response: (body) => ({
+        reference:
+          typeof body === "object" && body !== null && "id" in body && typeof body.id === "string" ? body.id : null,
+        captured:
+          path === "/v1/payment_intents" &&
+          typeof body === "object" &&
+          body !== null &&
+          "status" in body &&
+          body.status === "succeeded",
+      }),
+      definitiveFailure: (error) =>
+        error instanceof ProviderAdapterError &&
+        error.providerStatus !== undefined &&
+        error.providerStatus >= 400 &&
+        error.providerStatus < 500 &&
+        error.providerStatus !== 409 &&
+        error.providerStatus !== 429,
+    });
+  }
+
+  async function cancellationBinding(
+    governance: ProviderCancelGovernance,
+    writerKind: "cancel-payment" | "cancel-setup",
+  ) {
+    if (governance.kind === "ungoverned") return undefined;
+    const rows = await options.evidenceWindowProviderWrite?.readWindow(governance.rowKey.windowId);
+    const original = rows?.find(
+      (row) =>
+        row.key.objectClass === governance.rowKey.objectClass &&
+        row.key.creationOrdinal === governance.rowKey.creationOrdinal &&
+        row.key.operation === "create",
+    );
+    if (!original) throw new ProviderWriteRefused("invalid-identity");
+    return {
+      window: { windowId: original.key.windowId, expiresAt: original.replayDeadline },
+      governance,
+      binding: {
+        writerKind,
+        ownerAccountId: original.binding.ownerAccountId,
+        logicalOperationId: `evidence-window/v1:${original.key.windowId}:${original.key.objectClass}:${original.key.creationOrdinal}:create`,
+      },
+    };
+  }
+
+  async function resolveWriteWindow(expected?: ProviderWriteWindow | null) {
+    const current = await options.evidenceWindowCorrelation?.currentOpenWindow();
+    if (expected === null && current) throw new ProviderWriteRefused("window-ineligible");
+    return expected === null ? null : (expected ?? current ?? null);
   }
 
   async function retrievePaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null> {
@@ -1329,6 +1464,10 @@ export function createStripePaymentProcessorGateway(
         },
         {
           idempotencyKey: input.idempotencyKey ?? `payments:account:${input.accountId}:stripe-customer`,
+          write: {
+            window: input.evidenceWindow,
+            binding: { writerKind: "customer", logicalOperationId: input.accountId, ownerAccountId: input.accountId },
+          },
         },
       );
 
@@ -1342,6 +1481,24 @@ export function createStripePaymentProcessorGateway(
       };
     },
     async createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession> {
+      const window = await resolveWriteWindow(input.evidenceWindow);
+      if (
+        window &&
+        (!input.setupReferenceId ||
+          (input.uiMode !== "embedded" &&
+            input.returnUrl !==
+              `${GOVERNED_RETURN_ORIGIN}${GOVERNED_SETUP_PATH}?setupReferenceId=${encodeURIComponent(input.setupReferenceId)}`))
+      ) {
+        throw new ProviderWriteRefused("unsafe-material");
+      }
+      const setupBinding = {
+        window,
+        binding: {
+          writerKind: input.uiMode === "embedded" ? ("setup-embedded" as const) : ("setup-hosted" as const),
+          logicalOperationId: input.setupReferenceId ?? input.consentId,
+          ownerAccountId: input.accountId,
+        },
+      };
       if (input.uiMode === "embedded") {
         const body = await stripeRequest<StripeSetupIntentResponse>(
           "/v1/setup_intents",
@@ -1359,6 +1516,7 @@ export function createStripePaymentProcessorGateway(
           },
           {
             idempotencyKey: input.idempotencyKey ?? `payments:account:${input.accountId}:setup:${input.consentId}`,
+            write: setupBinding,
           },
         );
 
@@ -1397,6 +1555,7 @@ export function createStripePaymentProcessorGateway(
         },
         {
           idempotencyKey: input.idempotencyKey ?? `payments:account:${input.accountId}:setup:${input.consentId}`,
+          write: setupBinding,
         },
       );
 
@@ -1462,7 +1621,51 @@ export function createStripePaymentProcessorGateway(
       return mapSavedPaymentMethod(method);
     },
     async createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment> {
+      const window = await resolveWriteWindow(input.evidenceWindow);
+      if (
+        window &&
+        !input.savedCheckoutInstrument?.providerReference &&
+        !["account", "checkout"].some(
+          (root) =>
+            input.returnUrl === `${GOVERNED_RETURN_ORIGIN}/${root}/payments/${encodeURIComponent(input.paymentId)}`,
+        )
+      ) {
+        throw new ProviderWriteRefused("unsafe-material");
+      }
       const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Payment amount"));
+      if (input.purpose === "wallet-funding") {
+        const body = await stripeRequest<StripePaymentIntentResponse>(
+          "/v1/payment_intents",
+          {
+            method: "POST",
+            body: toFormBody({
+              amount: String(amount),
+              currency: input.currencyCode,
+              "payment_method_types[0]": "card",
+              description: input.description,
+              ...stripeCustomerEntry(
+                input.savedCheckoutInstrument?.providerCustomerReference ?? input.providerCustomerReference,
+              ),
+              ...(input.savedCheckoutInstrument
+                ? { payment_method: input.savedCheckoutInstrument.providerReference }
+                : {}),
+              ...paymentMetadataEntries(input),
+              ...cardAuthenticationEntries(input),
+              ...marketplaceRiskMetadataEntries(input),
+            }),
+          },
+          { idempotencyKey: input.idempotencyKey ?? `payments:wallet-funding:${input.paymentId}:create` },
+        );
+        if (!body.id?.trim()) throw new Error("wallet_funding_provider_identity_missing");
+        return {
+          processorName: "stripe",
+          processorPaymentKind: "payment-intent",
+          processorPaymentReference: body.id,
+          processorClientSecret: body.client_secret?.trim() ?? null,
+          processorRedirectUrl: null,
+          processorStatus: body.status?.trim() ?? "unknown",
+        };
+      }
       if (input.savedCheckoutInstrument?.providerReference) {
         const body = await stripeRequest<StripePaymentIntentResponse>(
           "/v1/payment_intents",
@@ -1494,6 +1697,14 @@ export function createStripePaymentProcessorGateway(
           },
           {
             idempotencyKey: input.idempotencyKey ?? `payments:payment:${input.paymentId}:saved-method:create`,
+            write: {
+              window,
+              binding: {
+                writerKind: "payment-saved",
+                logicalOperationId: input.paymentId,
+                ownerAccountId: input.buyerAccountId,
+              },
+            },
           },
         );
 
@@ -1538,7 +1749,7 @@ export function createStripePaymentProcessorGateway(
             ...stripeCustomerEntry(
               input.providerCustomerReference ?? input.savePaymentMethod?.providerCustomerReference,
             ),
-            ...cardAuthenticationEntries(input, "payment_intent_data"),
+            ...cardAuthenticationEntries(input),
             ...paymentMetadataEntries(input, {}, "payment_intent_data[metadata]"),
             ...cardAuthenticationMetadataEntries(input, "payment_intent_data[metadata]"),
             ...(input.savedCheckoutInstrument
@@ -1577,6 +1788,14 @@ export function createStripePaymentProcessorGateway(
         },
         {
           idempotencyKey: input.idempotencyKey ?? `payments:payment:${input.paymentId}:create`,
+          write: {
+            window,
+            binding: {
+              writerKind: "payment-checkout",
+              logicalOperationId: input.paymentId,
+              ownerAccountId: input.buyerAccountId,
+            },
+          },
         },
       );
 
@@ -1593,7 +1812,29 @@ export function createStripePaymentProcessorGateway(
         processorStatus: body.payment_status?.trim() ?? body.status?.trim() ?? "open",
       };
     },
+    async retrieveWalletFundingConfirmation(fundingId, processorPaymentReference) {
+      const intent = await stripeRequest<StripePaymentIntentResponse>(
+        `/v1/payment_intents/${encodeURIComponent(processorPaymentReference)}`,
+        { method: "GET" },
+      );
+      if (
+        intent.id !== processorPaymentReference ||
+        intent.metadata?.payment_id !== fundingId ||
+        intent.metadata?.purpose !== "wallet-funding"
+      )
+        return null;
+      return {
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        processorClientSecret: intent.client_secret?.trim() ?? null,
+        processorRedirectUrl: null,
+        processorStatus: intent.status ?? "unknown",
+      };
+    },
     async createAgenticPaymentSession(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment> {
+      if (input.evidenceWindow || (await options.evidenceWindowCorrelation?.currentOpenWindow()))
+        throw new ProviderWriteRefused("unsafe-material");
       const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Payment amount"));
       const body = await stripeRequest<StripePaymentIntentResponse>(
         "/v1/payment_intents",
@@ -1613,8 +1854,6 @@ export function createStripePaymentProcessorGateway(
               funds_strategy: "platform-held",
               transfer_group: `payment:${input.paymentId}`,
               ucp_payment_handler: "stripe-shared-payment-token",
-              ap2_checkout_mandate_id: input.agenticPayment.ap2CheckoutMandateId,
-              ap2_payment_mandate_id: input.agenticPayment.ap2PaymentMandateId,
             }),
             ...cardAuthenticationMetadataEntries(input),
             ...marketplaceRiskMetadataEntries(input),
@@ -1677,7 +1916,7 @@ export function createStripePaymentProcessorGateway(
           }
         : null;
     },
-    async cancelPayment(processorPaymentReference: string) {
+    async cancelPayment(processorPaymentReference: string, governance: ProviderCancelGovernance) {
       const reference = normalizeOptionalText(processorPaymentReference);
       if (!reference || !reference.startsWith("pi_")) {
         throw new Error("Only direct payment intents can be cancelled through the payment processor gateway.");
@@ -1685,12 +1924,113 @@ export function createStripePaymentProcessorGateway(
       const intent = await stripeRequest<StripePaymentIntentResponse>(
         `/v1/payment_intents/${encodeURIComponent(reference)}/cancel`,
         { method: "POST" },
+        { write: await cancellationBinding(governance, "cancel-payment") },
       );
       const result = mapPaymentIntentReconciliationResult(intent);
       if (!result) {
         throw new Error("Stripe payment intent cancellation did not return a payment result.");
       }
       return result;
+    },
+    async cancelSetupSession(
+      processorSetupReference: string,
+      governance: ProviderCancelGovernance,
+    ): Promise<ProcessorSetupSessionCancellationResult> {
+      const reference = normalizeOptionalText(processorSetupReference);
+      if (!reference || !reference.startsWith("seti_")) {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "invalid-reference",
+          httpStatus: null,
+        });
+      }
+
+      let initial: StripeSetupIntentResponse;
+      try {
+        initial = await stripeRequest<StripeSetupIntentResponse>(`/v1/setup_intents/${encodeURIComponent(reference)}`, {
+          method: "GET",
+        });
+      } catch (error) {
+        return setupCancellationFailure(error);
+      }
+
+      const initialStatus = normalizeOptionalText(initial?.status ?? null);
+      if (initialStatus === "canceled" || initialStatus === "succeeded") {
+        return closedSetupCancellationResult({
+          outcome: "already-terminal",
+          processorStatus: initialStatus,
+        });
+      }
+      if (!isSetupCancellationEligibleStatus(initialStatus)) {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "unexpected-status",
+          httpStatus: 200,
+        });
+      }
+
+      let writeObservation: SetupCancellationWriteObservation;
+      try {
+        const canceled = await stripeRequest<StripeSetupIntentResponse>(
+          `/v1/setup_intents/${encodeURIComponent(reference)}/cancel`,
+          { method: "POST", body: toFormBody({}) },
+          {
+            idempotencyKey: setupCancellationIdempotencyKey(reference),
+            write: await cancellationBinding(governance, "cancel-setup"),
+          },
+        );
+        if (normalizeOptionalText(canceled?.status ?? null) === "canceled") {
+          return closedSetupCancellationResult({ outcome: "cancelled", processorStatus: "canceled" });
+        }
+        writeObservation = { kind: "successful-non-canceled" };
+      } catch (error) {
+        writeObservation = setupCancellationWriteObservation(error);
+      }
+
+      let reconciled: StripeSetupIntentResponse;
+      try {
+        reconciled = await stripeRequest<StripeSetupIntentResponse>(
+          `/v1/setup_intents/${encodeURIComponent(reference)}`,
+          { method: "GET" },
+        );
+      } catch (error) {
+        return setupCancellationFailure(error);
+      }
+
+      const reconciledStatus = normalizeOptionalText(reconciled?.status ?? null);
+      if (reconciledStatus === "canceled" || reconciledStatus === "succeeded") {
+        return closedSetupCancellationResult({
+          outcome: "already-terminal",
+          processorStatus: reconciledStatus,
+        });
+      }
+      if (!isSetupCancellationEligibleStatus(reconciledStatus)) {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "unexpected-status",
+          httpStatus: 200,
+        });
+      }
+
+      if (writeObservation.kind === "provider-rejected") {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "provider-rejected",
+          httpStatus: writeObservation.httpStatus,
+        });
+      }
+      if (writeObservation.kind === "transport-failure") {
+        return closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "transport-failure",
+          httpStatus: null,
+        });
+      }
+      return closedSetupCancellationResult({
+        outcome: "refused",
+        reason: "unexpected-status",
+        httpStatus: 200,
+      });
     },
     async retrievePaymentResultByPaymentId(paymentId) {
       const normalizedPaymentId = normalizeOptionalText(paymentId);
@@ -1740,10 +2080,11 @@ export function createStripePaymentProcessorGateway(
             "metadata[refund_id]": input.refundId,
             "metadata[order_ids]": input.orderIds.join(","),
             "metadata[refund_reason]": input.reason,
+            ...(input.purpose ? { "metadata[purpose]": input.purpose } : {}),
           }),
         },
         {
-          idempotencyKey: `payments:refund:${input.refundId}`,
+          idempotencyKey: input.idempotencyKey ?? `payments:refund:${input.refundId}`,
         },
       );
 
@@ -1755,6 +2096,60 @@ export function createStripePaymentProcessorGateway(
         processorName: "stripe",
         processorRefundReference: body.id,
         processorStatus: body.status?.trim() ?? "pending",
+      };
+    },
+    async retrieveWalletFundingRefund(input) {
+      const matches: StripeRefundResponse[] = [];
+      if (input.processorRefundReference) {
+        matches.push(
+          await stripeRequest<StripeRefundResponse>(
+            `/v1/refunds/${encodeURIComponent(input.processorRefundReference)}`,
+            { method: "GET" },
+          ),
+        );
+      } else {
+        let cursor: string | undefined;
+        for (let page = 0; page < 10; page += 1) {
+          const query = new URLSearchParams({ payment_intent: input.processorPaymentReference, limit: "100" });
+          if (cursor) query.set("starting_after", cursor);
+          const result = await stripeRequest<Readonly<{ data: readonly StripeRefundResponse[]; has_more: boolean }>>(
+            `/v1/refunds?${query}`,
+            { method: "GET" },
+          );
+          if (!Array.isArray(result.data) || typeof result.has_more !== "boolean") return null;
+          matches.push(...result.data.filter((r) => r.metadata?.refund_id === input.refundId));
+          if (matches.length > 1) return null;
+          if (!result.has_more) break;
+          const last = result.data.at(-1)?.id;
+          if (!last || last === cursor || page === 9) return null;
+          cursor = last;
+        }
+      }
+      if (matches.length !== 1) return null;
+      const refund = matches[0];
+      if (
+        refund.metadata?.payment_id !== input.fundingId ||
+        refund.metadata?.refund_id !== input.refundId ||
+        refund.metadata?.purpose !== "wallet-funding" ||
+        refund.payment_intent !== input.processorPaymentReference ||
+        refund.currency !== "usd" ||
+        !Number.isSafeInteger(refund.amount) ||
+        refund.amount! <= 0 ||
+        !refund.id
+      )
+        return null;
+      const status: ProcessorRefundResult["status"] =
+        refund.status === "succeeded" || refund.status === "failed" || refund.status === "pending"
+          ? refund.status
+          : refund.status === "canceled" || refund.status === "cancelled"
+            ? "cancelled"
+            : "unknown";
+      return {
+        ...input,
+        processorRefundReference: refund.id,
+        amount: centsToMoneyAmount(BigInt(refund.amount!)),
+        currencyCode: "usd",
+        status,
       };
     },
     async submitDisputeEvidence(input) {
@@ -1955,4 +2350,59 @@ export function createStripePaymentProcessorGateway(
       return mapped;
     },
   };
+}
+
+type SetupCancellationWriteObservation =
+  | Readonly<{ kind: "successful-non-canceled" }>
+  | Readonly<{ kind: "provider-rejected"; httpStatus: number }>
+  | Readonly<{ kind: "transport-failure" }>;
+
+function isSetupCancellationEligibleStatus(status: string | null): boolean {
+  return status === "requires_payment_method" || status === "requires_confirmation" || status === "requires_action";
+}
+
+function setupCancellationIdempotencyKey(reference: string): string {
+  const digest = createHash("sha256").update(reference, "utf8").digest("hex");
+  return `payments:setup-intent-cancel:v1:${digest}`;
+}
+
+function closedSetupCancellationResult(value: unknown): ProcessorSetupSessionCancellationResult {
+  const parsed = parseProcessorSetupSessionCancellationResult(value);
+  if (!parsed) {
+    throw new Error("Stripe produced an invalid setup-session cancellation result.");
+  }
+  return parsed;
+}
+
+function setupCancellationFailure(error: unknown): ProcessorSetupSessionCancellationResult {
+  if (
+    error instanceof ProviderAdapterError &&
+    typeof error.providerStatus === "number" &&
+    Number.isInteger(error.providerStatus) &&
+    error.providerStatus >= 100 &&
+    error.providerStatus <= 599
+  ) {
+    return error.providerStatus === 404
+      ? closedSetupCancellationResult({ outcome: "not-found" })
+      : closedSetupCancellationResult({
+          outcome: "refused",
+          reason: "provider-rejected",
+          httpStatus: error.providerStatus,
+        });
+  }
+  return closedSetupCancellationResult({
+    outcome: "refused",
+    reason: "transport-failure",
+    httpStatus: null,
+  });
+}
+
+function setupCancellationWriteObservation(error: unknown): SetupCancellationWriteObservation {
+  return error instanceof ProviderAdapterError &&
+    typeof error.providerStatus === "number" &&
+    Number.isInteger(error.providerStatus) &&
+    error.providerStatus >= 100 &&
+    error.providerStatus <= 599
+    ? { kind: "provider-rejected", httpStatus: error.providerStatus }
+    : { kind: "transport-failure" };
 }

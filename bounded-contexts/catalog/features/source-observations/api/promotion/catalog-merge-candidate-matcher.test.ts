@@ -293,6 +293,58 @@ describe("Catalog Merge Candidate matcher", () => {
     ]);
   });
 
+  it("joins TCGdex languages through a language-neutral expansion mapping while preserving merge identity", () => {
+    const english = observationRow("obs_tcgdex_en", "tcgdex", "sv2-en-054");
+    const traditionalChinese = observationRow("obs_tcgdex_zh_tw", "tcgdex", "sv2-zh-tw-054", {
+      languageCode: "zh-tw",
+      setName: "帕底亞進化",
+      expansionName: "帕底亞進化",
+      mergeIdentity: {
+        tcg: "pokemon",
+        productLineName: "寶可夢集換式卡牌遊戲",
+        setName: "帕底亞進化",
+        printedProductName: "噴火龍ex",
+        collectorNumber: "54",
+        languageCode: "zh-tw",
+        productForm: "pokemon-card",
+      },
+    });
+    const languageNeutralMapping = mappingRow({
+      provider_key: "tcgdex",
+      set_id: "sv2",
+      set_name: null,
+      language_coordinates: {
+        languageCode: null,
+        providerLanguageCode: null,
+        providerLanguageId: null,
+        providerLocale: null,
+        providerLanguageName: null,
+      },
+    });
+
+    const candidate = match([english, traditionalChinese], [languageNeutralMapping]);
+    const languageStampedMutant = match(
+      [traditionalChinese],
+      [mappingRow({ ...languageNeutralMapping, language_coordinates: { languageCode: "en" } })],
+    );
+    const combinedExpansionMutant = match(
+      [traditionalChinese],
+      [mappingRow({ ...languageNeutralMapping, set_name: "Paldea Evolved" })],
+    );
+
+    expect(candidate.exclusions).toEqual([]);
+    expect(candidate.candidates).toHaveLength(2);
+    expect(candidate.candidates.map((entry) => entry.snapshot.identity.languageCode).sort()).toEqual(["en", "zh-tw"]);
+    expect(languageStampedMutant.candidates).toEqual([]);
+    expect(languageStampedMutant.exclusions).toEqual([
+      expect.objectContaining({ observationId: "obs_tcgdex_zh_tw", code: "unmapped-provider-scope" }),
+    ]);
+    expect(combinedExpansionMutant.candidates).toEqual([]);
+    expect(combinedExpansionMutant.exclusions).toEqual([
+      expect.objectContaining({ observationId: "obs_tcgdex_zh_tw", code: "unmapped-provider-scope" }),
+    ]);
+  });
+
   it("is deterministic and idempotent across observation and mapping order", () => {
     const observations = [
       observationRow("obs_tcgdex_054", "tcgdex", "sv2-054"),
@@ -406,7 +458,7 @@ function observationRow(
     provider_key: providerKey,
     external_key: externalKey,
     source_url: `https://provider.example/${externalKey}`,
-    language_code: "en",
+    language_code: normalized.languageCode,
     source_record_hash: `${observationId}-hash`,
     source_updated_at: null,
     observed_at: "2026-06-24T11:59:00.000Z",

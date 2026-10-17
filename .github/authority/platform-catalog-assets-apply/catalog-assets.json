@@ -1,0 +1,424 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Confirm catalog-assets operation#1",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Confirm catalog-assets operation#1",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Confirm catalog-assets operation#1",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Confirm catalog-assets operation#1",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Confirm catalog-assets operation#1",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Summarize catalog-assets operation#12",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Summarize catalog-assets operation#12",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Summarize catalog-assets operation#12",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Summarize catalog-assets operation#12",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Summarize catalog-assets operation#12",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform apply catalog assets#9",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform apply catalog assets#9",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform apply catalog assets#9",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform apply catalog assets#9",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform apply catalog assets#9",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform format catalog assets#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform format catalog assets#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform format catalog assets#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform format catalog assets#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform format catalog assets#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform init catalog assets#4",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform init catalog assets#4",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform init catalog assets#4",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform init catalog assets#4",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform init catalog assets#4",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform plan catalog assets#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform plan catalog assets#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform plan catalog assets#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform plan catalog assets#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform plan catalog assets#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform validate catalog assets#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform validate catalog assets#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform validate catalog assets#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform validate catalog assets#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Terraform validate catalog assets#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify bucket root privacy#10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify bucket root privacy#10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify bucket root privacy#10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify bucket root privacy#10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify bucket root privacy#10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify CDN object delivery#11",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify CDN object delivery#11",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify CDN object delivery#11",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify CDN object delivery#11",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "name:Verify CDN object delivery#11",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-catalog-assets-apply.yml",
+      "jobId": "catalog-assets",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

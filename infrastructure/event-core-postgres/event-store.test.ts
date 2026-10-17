@@ -19,6 +19,24 @@ import { withPgTransaction, type PgTransactionalPool } from "./types";
 const NOW = "2026-06-10T12:00:00.000Z" as const;
 
 describe("postgres event store", () => {
+  it("reads through the supplied transaction client without acquiring from the pool", async () => {
+    const { pool, calls } = createReadPool();
+    const client = createReadPool();
+    const store = createPostgresEventStore({ pool });
+    const input = { streamId: "checkout.checkout-session-chk_01", fromVersion: 2, limit: 1 };
+
+    await expect(store.readStreamInTransaction(client.pool, input)).resolves.toEqual([]);
+    expect(calls).toEqual([]);
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].params).toEqual([input.streamId, 2, 1]);
+    await store.readStream(input);
+    expect(calls).toEqual(client.calls);
+    await expect(store.readStreamInTransaction(client.pool, { ...input, limit: 0 })).rejects.toThrow(
+      "Event store read limit must be an integer between 1 and 500.",
+    );
+    expect(client.calls).toHaveLength(1);
+  });
+
   it("defaults readStream and readAll to the documented read page size", async () => {
     const { pool, calls } = createReadPool();
     const store = createPostgresEventStore({ pool });
@@ -74,6 +92,12 @@ describe("postgres event store", () => {
     await expect(store.readAll({ limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT + 1 })).rejects.toThrow(
       "Event store read limit must be an integer between 1 and 500.",
     );
+    await expect(
+      store.readAll({
+        atOrBeforeGlobalPosition: "0" as never,
+        limit: EVENT_STORE_READ_PAGE_SIZE_LIMIT + 1,
+      }),
+    ).rejects.toThrow("Event store read limit must be an integer between 1 and 500.");
 
     expect(calls).toEqual([]);
   });
@@ -149,6 +173,214 @@ describe("postgres event store", () => {
     expect(calls.some((call) => call.sql.includes("INSERT INTO event_store_events"))).toBe(true);
   });
 
+  it("appends on a caller-owned transaction without beginning, committing, or releasing it", async () => {
+    const { pool, calls } = createAppendPool();
+    const store = createPostgresEventStore({
+      pool,
+      now: () => NOW as never,
+      createEventId: createSequentialEventId(),
+      wakeNotifications: { enabled: true },
+    });
+
+    await expect(store.appendToStreamInTransaction(pool, appendInput())).resolves.toHaveLength(1);
+
+    expect(calls.map((call) => call.sql)).not.toEqual(expect.arrayContaining(["BEGIN", "COMMIT", "ROLLBACK"]));
+    expect(calls.some((call) => call.sql === "SELECT pg_notify($1, $2)")).toBe(true);
+  });
+
+  describe("appendToStreamsInTransaction", () => {
+    it("appends every stream and zero-event guard on the supplied client without owning its transaction", async () => {
+      const owner = createAppendPool();
+      const ownerConnect = vi.fn(owner.pool.connect);
+      const supplied = createAppendPool();
+      const store = createPostgresEventStore({
+        pool: { ...owner.pool, connect: ownerConnect },
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+        wakeNotifications: { enabled: true },
+      });
+
+      const results = await store.appendToStreamsInTransaction(supplied.pool, [
+        appendInput({ streamId: "catalog.item-one" }),
+        appendInput({ streamId: "catalog.profile-guard", expectedVersion: 0, events: [] }),
+        appendInput({ streamId: "catalog.item-two" }),
+      ]);
+
+      expect(results.map((result) => [result.streamId, result.storedEvents.length])).toEqual([
+        ["catalog.item-one", 1],
+        ["catalog.profile-guard", 0],
+        ["catalog.item-two", 1],
+      ]);
+      expect(ownerConnect).not.toHaveBeenCalled();
+      expect(owner.calls).toEqual([]);
+      expect(supplied.calls.filter((call) => isTransactionControlStatement(call.sql))).toEqual([]);
+      expect(
+        supplied.calls.filter((call) => call.sql.includes("SELECT current_version")).map((call) => call.params?.[0]),
+      ).toEqual(["catalog.item-one", "catalog.profile-guard", "catalog.item-two"]);
+      expect(supplied.calls.filter(isEventInsertCall)).toHaveLength(2);
+      const notifyCalls = supplied.calls.filter((call) => call.sql === "SELECT pg_notify($1, $2)");
+      expect(notifyCalls).toHaveLength(2);
+      expect(supplied.calls.indexOf(notifyCalls[0])).toBeGreaterThan(supplied.calls.findIndex(isEventInsertCall));
+    });
+
+    it("enqueues no wake notification when notifications are disabled", async () => {
+      const supplied = createAppendPool();
+      const store = createPostgresEventStore({
+        pool: createAppendPool().pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+      });
+
+      await expect(store.appendToStreamsInTransaction(supplied.pool, [appendInput()])).resolves.toHaveLength(1);
+
+      expect(supplied.calls.some((call) => call.sql === "SELECT pg_notify($1, $2)")).toBe(false);
+    });
+
+    it("issues the same statements and returns the same results as appendToStreams for identical inputs", async () => {
+      const inputs = [
+        appendInput({ streamId: "catalog.item-one" }),
+        appendInput({ streamId: "catalog.profile-guard", expectedVersion: 0, events: [] }),
+        appendInput({
+          streamId: "catalog.item-two",
+          events: [
+            { eventType: "catalog.item.created", payload: { itemId: "two" } },
+            { eventType: "catalog.item.renamed", payload: { itemId: "two" } },
+          ],
+        }),
+      ];
+      const owned = createAppendPool();
+      const ownedStore = createPostgresEventStore({
+        pool: owned.pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+      });
+      const supplied = createAppendPool();
+      const suppliedStore = createPostgresEventStore({
+        pool: createAppendPool().pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+      });
+
+      const ownedResults = await ownedStore.appendToStreams!(inputs);
+      const suppliedResults = await suppliedStore.appendToStreamsInTransaction(supplied.pool, inputs);
+
+      expect(suppliedResults).toEqual(ownedResults);
+      expect(supplied.calls).toEqual(owned.calls.filter((call) => !isTransactionControlStatement(call.sql)));
+    });
+
+    it("does not discard a zero-event expected-version guard", async () => {
+      const supplied = createAppendPool({ currentVersion: 2 });
+      const store = createPostgresEventStore({ pool: createAppendPool().pool });
+
+      await expect(
+        store.appendToStreamsInTransaction(supplied.pool, [
+          appendInput({ streamId: "catalog.profile-guard", expectedVersion: 0, events: [] }),
+        ]),
+      ).rejects.toMatchObject({
+        code: "concurrency_conflict",
+        details: { streamId: "catalog.profile-guard", expectedVersion: 0, currentVersion: 2 },
+      });
+      expect(supplied.calls.filter((call) => isTransactionControlStatement(call.sql))).toEqual([]);
+    });
+
+    it("propagates a late guard failure after an earlier stream's insert without rolling back itself", async () => {
+      const supplied = createAppendPool({ currentVersionByStream: { "catalog.profile-guard": 3 } });
+      const store = createPostgresEventStore({
+        pool: createAppendPool().pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+        wakeNotifications: { enabled: true },
+      });
+
+      await expect(
+        store.appendToStreamsInTransaction(supplied.pool, [
+          appendInput({ streamId: "catalog.item-one" }),
+          appendInput({ streamId: "catalog.profile-guard", expectedVersion: 2, events: [] }),
+        ]),
+      ).rejects.toMatchObject({
+        code: "concurrency_conflict",
+        details: { streamId: "catalog.profile-guard", expectedVersion: 2, currentVersion: 3 },
+      });
+
+      const insertCalls = supplied.calls.filter(isEventInsertCall);
+      expect(insertCalls).toHaveLength(1);
+      expect(insertCalls[0].params?.[1]).toBe("catalog.item-one");
+      expect(supplied.calls.filter((call) => isTransactionControlStatement(call.sql))).toEqual([]);
+      expect(supplied.calls.some((call) => call.sql === "SELECT pg_notify($1, $2)")).toBe(false);
+    });
+
+    it("refuses a batch that names the same stream twice before issuing any statement", async () => {
+      const supplied = createAppendPool();
+      const store = createPostgresEventStore({ pool: createAppendPool().pool });
+
+      await expect(
+        store.appendToStreamsInTransaction(supplied.pool, [
+          appendInput({ streamId: "catalog.item-dup" }),
+          appendInput({ streamId: "catalog.item-dup", expectedVersion: "any", events: [] }),
+        ]),
+      ).rejects.toThrow("appendToStreamsInTransaction does not support the same stream id more than once per batch.");
+      expect(supplied.calls).toEqual([]);
+    });
+
+    it("rejects an oversized payload anywhere in the batch before issuing any statement", async () => {
+      const supplied = createAppendPool();
+      const store = createPostgresEventStore({ pool: createAppendPool().pool });
+
+      await expect(
+        store.appendToStreamsInTransaction(supplied.pool, [
+          appendInput(),
+          appendInput({
+            streamId: "catalog.item-oversized",
+            events: [
+              {
+                eventType: "catalog.item.created",
+                payload: { content: "x".repeat(EVENT_STORE_MAX_PAYLOAD_BYTES) },
+              },
+            ],
+          }),
+        ]),
+      ).rejects.toMatchObject({
+        code: "payload_too_large",
+        details: {
+          eventType: "catalog.item.created",
+          payloadBytes: EVENT_STORE_MAX_PAYLOAD_BYTES + 14,
+          maxPayloadBytes: EVENT_STORE_MAX_PAYLOAD_BYTES,
+        },
+      });
+      expect(supplied.calls).toEqual([]);
+    });
+
+    it("returns an empty result for an empty batch without issuing any statement", async () => {
+      const supplied = createAppendPool();
+      const store = createPostgresEventStore({ pool: createAppendPool().pool });
+
+      await expect(store.appendToStreamsInTransaction(supplied.pool, [])).resolves.toEqual([]);
+      expect(supplied.calls).toEqual([]);
+    });
+
+    it.each([
+      ["40001", "concurrency_conflict", "Retryable Postgres conflict while appending events."],
+      ["23505", "concurrency_conflict", "Unique constraint conflict while appending events."],
+      ["XX000", "infrastructure_failure", "Failed to append events in a caller-owned Postgres transaction."],
+    ])(
+      "normalizes a Postgres %s failure to %s without rolling back the caller's transaction",
+      async (postgresCode, code, message) => {
+        const supplied = createAppendPool({ failInsertWithPostgresCode: postgresCode });
+        const store = createPostgresEventStore({
+          pool: createAppendPool().pool,
+          now: () => NOW as never,
+          createEventId: createSequentialEventId(),
+        });
+
+        await expect(store.appendToStreamsInTransaction(supplied.pool, [appendInput()])).rejects.toMatchObject({
+          code,
+          message,
+        });
+        expect(supplied.calls.filter((call) => isTransactionControlStatement(call.sql))).toEqual([]);
+      },
+    );
+  });
+
   it("rejects an oversized payload anywhere in a multi-stream append before persisting any stream", async () => {
     const { pool, calls } = createAppendPool();
     const store = createPostgresEventStore({ pool });
@@ -183,13 +415,14 @@ describe("postgres event store", () => {
       pool: {
         query: async (sql: string, params: readonly unknown[] = []) => {
           queries.push({ sql, params });
-          return { rows: [] };
+          return { rows: sql.includes("append_fence") ? [{ head: "100" }] : [] };
         },
       } as never,
     });
 
     await store.readAll({
       afterGlobalPosition: "42" as never,
+      atOrBeforeGlobalPosition: "50" as never,
       tenantId: "tenant_1" as never,
       eventTypes: ["catalog.catalog-item.published", "catalog.catalog-item.published"],
       streamPrefixes: ["catalog.item-", "catalog.category-"],
@@ -198,18 +431,22 @@ describe("postgres event store", () => {
 
     expect(queries).toHaveLength(2);
     expect(queries[0].sql).toContain("append_fence");
-    expect(queries[1].sql).toContain("global_position > $1::bigint");
-    expect(queries[1].sql).toContain("global_position <= $2::bigint");
-    expect(queries[1].sql).toContain("tenant_id = $3");
-    expect(queries[1].sql).toContain("event_type = ANY($4::text[])");
+    expect(queries[1].sql).toContain("FROM event_store_events AS events");
+    expect(queries[1].sql).toContain("events.global_position > $1::bigint");
+    expect(queries[1].sql).toContain("events.global_position <= $2::bigint");
+    expect(queries[1].sql).toContain("events.global_position <= $3::bigint");
+    expect(queries[1].sql).toContain("events.tenant_id = $4");
+    expect(queries[1].sql).toContain("events.event_type = ANY($5::text[])");
     expect(queries[1].sql).toContain(
-      "((stream_context_name = $5 AND stream_id LIKE $6 || '%' ESCAPE '\\') OR (stream_context_name = $7 AND stream_id LIKE $8 || '%' ESCAPE '\\'))",
+      "((stream_context_name = $6 AND stream_id LIKE $7 || '%' ESCAPE '\\') OR (stream_context_name = $8 AND stream_id LIKE $9 || '%' ESCAPE '\\'))",
     );
     expect(queries[1].sql).not.toContain("stream_category = ANY");
-    expect(queries[1].sql).toContain("LIMIT $9");
+    expect(queries[1].sql).toContain("ORDER BY events.global_position ASC");
+    expect(queries[1].sql).toContain("LIMIT $10");
     expect(queries[1].params).toEqual([
       "42",
-      "0",
+      "100",
+      "50",
       "tenant_1",
       ["catalog.catalog-item.published"],
       "catalog",
@@ -218,6 +455,30 @@ describe("postgres event store", () => {
       "catalog.category-",
       25,
     ]);
+  });
+
+  it.each(["", "007", "-1", "1.0", "not-a-position"])(
+    "refuses malformed readAll horizon %j before querying Postgres",
+    async (malformedHorizon) => {
+      const { pool, calls } = createReadPool();
+      const store = createPostgresEventStore({ pool });
+
+      await expect(store.readAll({ atOrBeforeGlobalPosition: malformedHorizon as never, limit: 10 })).rejects.toThrow(
+        "GlobalPosition must be a canonical unsigned base-10 string.",
+      );
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it("refuses a readAll horizon above the gap-safe head without issuing the page query", async () => {
+    const { pool, calls } = createReadPool({ safeHeadGlobalPosition: "12" });
+    const store = createPostgresEventStore({ pool });
+
+    await expect(store.readAll({ atOrBeforeGlobalPosition: "13" as never, limit: 10 })).rejects.toThrow(
+      "Event store read horizon 13 exceeds available global position 12.",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain("append_fence");
   });
 
   it("keeps mixed stream-prefix shapes local to each OR arm", async () => {
@@ -960,17 +1221,26 @@ async function appendAndCaptureQueries(eventCount: number): Promise<readonly Que
   return calls;
 }
 
+function isTransactionControlStatement(sql: string): boolean {
+  return /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b/i.test(sql);
+}
+
 function isEventInsertCall(call: QueryCall): boolean {
   return call.sql.includes("INSERT INTO event_store_events");
 }
 
-function createReadPool(): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
+function createReadPool(
+  options: Readonly<{ safeHeadGlobalPosition?: string }> = {},
+): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
   const calls: QueryCall[] = [];
 
   return {
     pool: {
       query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql: sql.trim(), ...(params ? { params } : {}) });
+        if (sql.includes("append_fence")) {
+          return { rows: [{ head: options.safeHeadGlobalPosition ?? "0" }], rowCount: 1 };
+        }
         return { rows: [], rowCount: 0 };
       },
       connect: async () => {
@@ -984,6 +1254,7 @@ function createReadPool(): Readonly<{ pool: PgTransactionalPool; calls: QueryCal
 function createAppendPool(
   options: Readonly<{
     currentVersion?: number;
+    currentVersionByStream?: Readonly<Record<string, number>>;
     failInsertWithPostgresCode?: string;
     failNotify?: boolean;
     globalPositions?: readonly string[];
@@ -1009,7 +1280,8 @@ function createAppendPool(
       }
 
       if (normalizedSql.includes("SELECT current_version")) {
-        return { rows: [{ current_version: options.currentVersion ?? 0 }], rowCount: 1 };
+        const currentVersion = options.currentVersionByStream?.[String(params?.[0])] ?? options.currentVersion ?? 0;
+        return { rows: [{ current_version: currentVersion }], rowCount: 1 };
       }
 
       if (normalizedSql.includes("WHERE event_id = ANY")) {

@@ -83,14 +83,6 @@ export function MarketplaceOfferMatchDetailPage({
       </Button>
     </Form>
   ) : null;
-  const muteBuyerAction = canAcceptSubmitted ? (
-    <Form spacing="none" method="post">
-      <HiddenInput type="hidden" name="intent" value="mute-offer-buyer" />
-      <Button type="submit" tone="secondary">
-        {t("marketplace.features.offers.ui.offerMatchDetailPage.mute.buyer")}
-      </Button>
-    </Form>
-  ) : null;
   return (
     <Page>
       <PageHeader
@@ -112,6 +104,14 @@ export function MarketplaceOfferMatchDetailPage({
         />
       ) : null}
 
+      {offer.managed_status ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("marketplace.features.offers.ui.offerMatchDetailPage.offer.match.overview")}
+          description={t(`marketplace.marketFollowing.seller.${offer.managed_status}`)}
+        />
+      ) : null}
+
       {offer.seller_listing_availability_status === "unavailable" ? (
         <MarketplaceNotice
           tone="warning"
@@ -130,7 +130,7 @@ export function MarketplaceOfferMatchDetailPage({
                   <Badge tone={offer.can_fulfill ? "success" : "warning"}>{fulfillmentLabel}</Badge>
                 </Inline>
                 <Text size="lg" weight="semibold">
-                  {formatMoney(offer.price_amount, "USD")}
+                  {formatMoney(offer.price_amount, offer.price_currency_code!)}
                 </Text>
                 <Text tone="secondary">
                   {t("marketplace.features.offers.ui.offerMatchDetailPage.offer.is.percentage.of.ask", {
@@ -161,7 +161,7 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
-                    value: formatMoney(offer.listing_price_amount, "USD"),
+                    value: formatMoney(offer.listing_price_amount, offer.listing_price_currency_code),
                   },
                   {
                     key: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.vs.ask"),
@@ -181,12 +181,11 @@ export function MarketplaceOfferMatchDetailPage({
                   },
                 ]}
               />
-              {acceptOfferAction || addToSellListAction || declineAction || muteBuyerAction ? (
+              {acceptOfferAction || addToSellListAction || declineAction ? (
                 <Inline gap={2}>
                   {acceptOfferAction}
                   {addToSellListAction}
                   {declineAction}
-                  {muteBuyerAction}
                 </Inline>
               ) : null}
             </Stack>
@@ -197,11 +196,11 @@ export function MarketplaceOfferMatchDetailPage({
               lines={[
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.offer.price"),
-                  value: formatMoney(offer.price_amount, "USD"),
+                  value: formatMoney(offer.price_amount, offer.price_currency_code!),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.listing.price"),
-                  value: formatMoney(offer.listing_price_amount, "USD"),
+                  value: formatMoney(offer.listing_price_amount, offer.listing_price_currency_code),
                 },
                 {
                   label: t("marketplace.features.offers.ui.offerMatchDetailPage.marketplace.fee"),
@@ -287,7 +286,7 @@ export function MarketplaceOfferMatchDetailPage({
 
       {acceptOfferAction ? (
         <StickyCtaBar
-          price={formatMoney(offer.price_amount, "USD")}
+          total={formatMoney(offer.price_amount, offer.price_currency_code!)}
           context={
             offer.can_fulfill
               ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")

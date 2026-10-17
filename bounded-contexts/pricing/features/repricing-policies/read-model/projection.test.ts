@@ -4,6 +4,7 @@ import { buildRepricingPolicyProjectionHandlers, repricingPolicyStreamId } from 
 const rule = {
   conditions: [],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "market-estimate" }],
     offset: { mode: "percent", percent: -1 },
     floor: { mode: "absolute", amount: "1.00" },

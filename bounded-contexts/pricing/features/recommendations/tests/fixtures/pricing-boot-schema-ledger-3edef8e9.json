@@ -1,0 +1,80 @@
+{
+  "provenance": {
+    "commit": "3edef8e981847f1aa16c97e13efcdeda7063608e",
+    "rawSha256": "428e91017f5a770a93f2546385d3080b73fa4acfc4b4635f6e0b3c9abb0646c1",
+    "commands": [
+      "git archive --format=tar --output=$archivePath 3edef8e981847f1aa16c97e13efcdeda7063608e",
+      "tar -xf $archivePath -C $fixtureRoot",
+      "pnpm install --offline --frozen-lockfile --ignore-scripts",
+      "pnpm exec tsx -e \"import('./bounded-contexts/pricing/support/runtime-support/schema.ts').then(({ pricingFeatureSchemaMigrations }) => require('node:fs').writeFileSync('.fixture-ledger.json', JSON.stringify(pricingFeatureSchemaMigrations, null, 2) + '\\n', 'utf8'))\""
+    ]
+  },
+  "migrations": [
+    {
+      "migrationId": "20260907_pricing_provider_market_capture",
+      "description": "Add logged provider market capture evidence and its replayable Catalog product-reference input.",
+      "statements": [
+        "CREATE TABLE IF NOT EXISTS pricing_external_catalog_item_reference_inputs (\n  provider_key text NOT NULL,\n  external_key text NOT NULL,\n  catalog_item_id text NOT NULL,\n  updated_at timestamptz NOT NULL,\n  PRIMARY KEY (provider_key, external_key)\n);",
+        "CREATE TABLE IF NOT EXISTS pricing_external_market_capture_cursors (\n  provider_key text PRIMARY KEY,\n  after_external_key text NOT NULL DEFAULT '',\n  generation bigint NOT NULL DEFAULT 0 CHECK (generation >= 0),\n  updated_at timestamptz NOT NULL\n);",
+        "CREATE TABLE IF NOT EXISTS pricing_external_market_captures (\n  capture_id text PRIMARY KEY,\n  provider_key text NOT NULL,\n  catalog_item_id text NOT NULL,\n  external_key text NOT NULL,\n  signal_pass_started_at timestamptz NOT NULL,\n  signal_policy_revision_id text NOT NULL,\n  products_per_pass integer NOT NULL CHECK (products_per_pass BETWEEN 1 AND 5),\n  capture_started_at timestamptz NOT NULL,\n  capture_completed_at timestamptz NOT NULL,\n  observation_policy_revision_id text NULL,\n  stat_hygiene_policy_revision_id text NULL,\n  captures_per_pass integer NULL CHECK (captures_per_pass IS NULL OR captures_per_pass BETWEEN 1 AND 5),\n  currency text NULL CHECK (currency IS NULL OR currency ~ '^[a-z]{3}$'),\n  authenticated_request boolean NOT NULL,\n  recorded_signal_count integer NOT NULL CHECK (recorded_signal_count >= 0),\n  unresolved_signal_count integer NOT NULL CHECK (unresolved_signal_count >= 0),\n  outcome_kind text NOT NULL CHECK (outcome_kind IN ('recorded','recorded-with-rejections','no-secondary-observations','mapping-unresolved','provider-unavailable','configuration-invalid','disabled')),\n  reason_code text NULL CHECK (reason_code IS NULL OR reason_code IN ('observation-policy-invalid','stat-hygiene-policy-invalid','transport-not-mounted')),\n  rejected_row_count integer NOT NULL CHECK (rejected_row_count >= 0),\n  sales_status text NULL CHECK (sales_status IS NULL OR sales_status IN ('observed','unavailable','disabled','not-requested')),\n  sales_requested_at timestamptz NULL,\n  sales_response_observed_at timestamptz NULL,\n  sales_coverage text NULL CHECK (sales_coverage IS NULL OR sales_coverage IN ('complete','request-cap-truncated','page-budget-truncated','inconsistent','unknown')),\n  sales_pages_fetched integer NOT NULL DEFAULT 0 CHECK (sales_pages_fetched >= 0),\n  sales_returned_count integer NOT NULL DEFAULT 0 CHECK (sales_returned_count >= 0),\n  sales_first_reported_total integer NULL CHECK (sales_first_reported_total IS NULL OR sales_first_reported_total >= 0),\n  sales_last_reported_total integer NULL CHECK (sales_last_reported_total IS NULL OR sales_last_reported_total >= 0),\n  sales_last_next_page text NULL CHECK (sales_last_next_page IS NULL OR sales_last_next_page IN ('Yes','')),\n  listings_status text NULL CHECK (listings_status IS NULL OR listings_status IN ('observed','unavailable','disabled','not-requested')),\n  listings_requested_at timestamptz NULL,\n  listings_response_observed_at timestamptz NULL,\n  listings_coverage text NULL CHECK (listings_coverage IS NULL OR listings_coverage IN ('complete','ceiling-truncated','page-budget-truncated','inconsistent','unknown')),\n  listings_pages_fetched integer NOT NULL DEFAULT 0 CHECK (listings_pages_fetched >= 0),\n  listings_returned_count integer NOT NULL DEFAULT 0 CHECK (listings_returned_count >= 0),\n  listings_reported_total integer NULL CHECK (listings_reported_total IS NULL OR listings_reported_total >= 0),\n  own_seller_exclusion_applied boolean NOT NULL DEFAULT false,\n  history_status text NULL CHECK (history_status IS NULL OR history_status IN ('observed','unavailable','disabled','not-requested')),\n  history_requested_at timestamptz NULL,\n  history_response_observed_at timestamptz NULL,\n  history_coverage text NULL CHECK (history_coverage IS NULL OR history_coverage IN ('observed','inconsistent','unknown')),\n  history_result_count integer NOT NULL DEFAULT 0 CHECK (history_result_count >= 0),\n  history_bucket_count integer NOT NULL DEFAULT 0 CHECK (history_bucket_count >= 0),\n  request_posture jsonb NULL,\n  sales_first_result_count integer NULL CHECK (sales_first_result_count IS NULL OR sales_first_result_count >= 0),\n  sales_last_result_count integer NULL CHECK (sales_last_result_count IS NULL OR sales_last_result_count >= 0),\n  sales_http_status_class text NULL CHECK (sales_http_status_class IS NULL OR sales_http_status_class IN ('none','4xx','5xx','other')),\n  listings_http_status_class text NULL CHECK (listings_http_status_class IS NULL OR listings_http_status_class IN ('none','4xx','5xx','other')),\n  history_http_status_class text NULL CHECK (history_http_status_class IS NULL OR history_http_status_class IN ('none','4xx','5xx','other')),\n  history_range text NULL CHECK (history_range IS NULL OR history_range = 'annual')\n);",
+        "CREATE TABLE IF NOT EXISTS pricing_external_sale_observations (\n  capture_id text NOT NULL REFERENCES pricing_external_market_captures(capture_id),\n  sale_fingerprint text NOT NULL,\n  observed_occurrence_count integer NOT NULL CHECK (observed_occurrence_count > 0),\n  provider_condition text NOT NULL,\n  provider_variant text NOT NULL,\n  provider_language text NOT NULL,\n  listing_type text NOT NULL,\n  sold_at timestamptz NOT NULL,\n  quantity integer NOT NULL CHECK (quantity > 0),\n  unit_price numeric(12,2) NOT NULL CHECK (unit_price >= 0),\n  order_shipping numeric(12,2) NOT NULL CHECK (order_shipping >= 0),\n  PRIMARY KEY (capture_id, sale_fingerprint)\n);",
+        "CREATE TABLE IF NOT EXISTS pricing_external_weekly_sale_buckets (\n  provider_key text NOT NULL,\n  external_key text NOT NULL,\n  catalog_item_id text NOT NULL,\n  catalog_product_key text NULL,\n  week_start date NOT NULL,\n  provider_condition text NOT NULL,\n  provider_variant text NOT NULL,\n  provider_language text NOT NULL,\n  transaction_count integer NOT NULL CHECK (transaction_count > 0),\n  quantity_sold integer NOT NULL CHECK (quantity_sold >= 0),\n  low_sale_amount numeric(12,2) NULL,\n  high_sale_amount numeric(12,2) NULL,\n  low_delivered_amount numeric(12,2) NULL,\n  high_delivered_amount numeric(12,2) NULL,\n  provider_market_amount numeric(12,2) NULL,\n  last_capture_id text NOT NULL REFERENCES pricing_external_market_captures(capture_id),\n  last_observed_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL,\n  PRIMARY KEY (provider_key, external_key, week_start)\n);",
+        "CREATE TABLE IF NOT EXISTS pricing_external_listing_snapshots (\n  provider_key text NOT NULL,\n  catalog_item_id text NOT NULL,\n  provider_variant text NOT NULL,\n  provider_language text NOT NULL,\n  provider_condition text NOT NULL,\n  observed_on date NOT NULL,\n  distinct_seller_count integer NOT NULL CHECK (distinct_seller_count >= 0),\n  cheapest_delivered_amount numeric(12,2) NULL,\n  second_cheapest_delivered_amount numeric(12,2) NULL,\n  last_capture_id text NOT NULL REFERENCES pricing_external_market_captures(capture_id),\n  last_observed_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL,\n  PRIMARY KEY (provider_key, catalog_item_id, provider_variant, provider_language, provider_condition, observed_on)\n);",
+        "CREATE TABLE IF NOT EXISTS pricing_external_listing_ask_depth (\n  capture_id text NOT NULL REFERENCES pricing_external_market_captures(capture_id),\n  anonymous_capture_seller_ordinal integer NOT NULL CHECK (anonymous_capture_seller_ordinal > 0),\n  provider_condition text NOT NULL,\n  delivered_amount numeric(12,2) NOT NULL CHECK (delivered_amount >= 0),\n  coverage text NOT NULL CHECK (coverage IN ('complete','ceiling-truncated','page-budget-truncated','inconsistent','unknown')),\n  PRIMARY KEY (capture_id, anonymous_capture_seller_ordinal, provider_condition, delivered_amount)\n);",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_external_catalog_item_reference_inputs_catalog_idx\n  ON pricing_external_catalog_item_reference_inputs (catalog_item_id, external_key)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_external_market_captures_lookup_idx\n  ON pricing_external_market_captures (provider_key, catalog_item_id, capture_started_at DESC, capture_id DESC)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_external_sale_observations_sold_idx\n  ON pricing_external_sale_observations (sold_at, capture_id)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_external_weekly_sale_buckets_catalog_idx\n  ON pricing_external_weekly_sale_buckets (provider_key, catalog_item_id, week_start, external_key)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_external_listing_ask_depth_price_idx\n  ON pricing_external_listing_ask_depth (capture_id, delivered_amount, provider_condition)"
+      ]
+    },
+    {
+      "migrationId": "20260720_pricing_rollup_rederive_queue_generation",
+      "description": "Version every rollup re-derive enqueue so concurrent acknowledgments cannot lose work.",
+      "statements": [
+        "ALTER TABLE pricing_market_trade_rollup_rederive_queue\n  ADD COLUMN IF NOT EXISTS generation bigint NOT NULL DEFAULT 1"
+      ]
+    },
+    {
+      "migrationId": "20260720_pricing_market_listing_inputs_grading",
+      "description": "Add grading to projected listing inputs for repricing rule evaluation.",
+      "statements": [
+        "ALTER TABLE pricing_market_listing_inputs\n  ADD COLUMN IF NOT EXISTS grading text NULL\n  CHECK (grading IS NULL OR grading IN ('graded', 'raw'))"
+      ]
+    },
+    {
+      "migrationId": "20260720_pricing_market_listing_inputs_created_at",
+      "description": "Add listing creation time to projected listing inputs for repricing rule evaluation.",
+      "statements": [
+        "ALTER TABLE pricing_market_listing_inputs\n  ADD COLUMN IF NOT EXISTS created_at timestamptz NULL"
+      ]
+    },
+    {
+      "migrationId": "20260720_pricing_market_listing_inputs_pause_reason",
+      "description": "Add listing pause reason to projected listing inputs for repricing rule evaluation.",
+      "statements": ["ALTER TABLE pricing_market_listing_inputs\n  ADD COLUMN IF NOT EXISTS pause_reason text NULL"]
+    },
+    {
+      "migrationId": "20260720_pricing_market_listing_inputs_inventory_index",
+      "description": "Index projected listing inputs by seller inventory item and status.",
+      "statements": [
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_market_listing_inputs_inventory_idx\n  ON pricing_market_listing_inputs (seller_account_id, inventory_item_id, status)\n  WHERE inventory_item_id IS NOT NULL"
+      ]
+    },
+    {
+      "migrationId": "20260720_pricing_daily_rollup_policy_revision_binding",
+      "description": "Bind every daily rollup period to the immutable stat-hygiene policy revision that shaped it.",
+      "statements": [
+        "ALTER TABLE pricing_daily_product_rollups\n  ADD COLUMN IF NOT EXISTS stat_hygiene_policy_revision_id text NOT NULL\n  DEFAULT 'pricing.market-stat-hygiene/legacy-untrimmed-v1'",
+        "ALTER TABLE pricing_daily_product_rollups\n  ALTER COLUMN stat_hygiene_policy_revision_id\n  SET DEFAULT 'pricing.market-stat-hygiene/compiled-v1'"
+      ]
+    },
+    {
+      "migrationId": "20260716_pricing_bulk_reprice_one_active_job_per_account",
+      "description": "Enforce one queued or running bulk-reprice job per account across every API replica.",
+      "statements": [
+        "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS pricing_bulk_reprice_jobs_one_active_per_account_idx\n  ON pricing_bulk_reprice_jobs ((payload->>'accountId'))\n  WHERE job_kind = 'bulk-reprice' AND status IN ('queued', 'running')"
+      ]
+    }
+  ]
+}

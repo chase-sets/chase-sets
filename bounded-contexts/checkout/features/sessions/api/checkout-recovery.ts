@@ -19,6 +19,7 @@ export type CheckoutRecoveryAction = Readonly<{
 export type CheckoutRecoveryKind =
   | "access-required"
   | "cart-empty"
+  | "checkout-closed"
   | "checkout-handoff-expired"
   | "checkout-preparing"
   | "guest-access-expired"
@@ -53,7 +54,7 @@ export type CheckoutPostWriteResult =
     }>
   | Readonly<{
       kind: "domain-blocker";
-      reason: "cart-empty" | "unresolved-fulfillment" | "projection-lag-without-fresh-receipt";
+      reason: "cart-empty" | "checkout-closed" | "unresolved-fulfillment" | "projection-lag-without-fresh-receipt";
       recoveryKind: "action-required" | "stale-projection";
       retryable: boolean;
     }>
@@ -100,6 +101,7 @@ function recoveryKindForCheckoutRecoveryKind(kind: CheckoutRecoveryKind): PostWr
       return "expired-handoff";
     case "access-required":
     case "cart-empty":
+    case "checkout-closed":
     case "guest-access-expired":
     case "request-validation":
     case "wrong-account":
@@ -158,10 +160,10 @@ function defaultPostWriteResultForRecoveryKind(
     };
   }
 
-  if (kind === "cart-empty") {
+  if (kind === "cart-empty" || kind === "checkout-closed") {
     return {
       kind: "domain-blocker",
-      reason: "cart-empty",
+      reason: kind,
       recoveryKind: "action-required",
       retryable: false,
     };
@@ -205,6 +207,17 @@ export function checkoutRecoveryForKind(
   );
 
   switch (kind) {
+    case "checkout-closed":
+      return {
+        kind,
+        recoveryKind,
+        postWriteResult,
+        status: 503,
+        title: t("checkout.routes.checkoutRecovery.checkout.closed"),
+        description: t("checkout.routes.checkoutRecovery.checkout.closed.description"),
+        trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),
+        primaryAction: cartAction,
+      };
     case "access-required":
       return {
         kind,
@@ -348,6 +361,10 @@ export function checkoutRecoveryForError(
     return checkoutRecoveryForKind("session-not-found", currentPath);
   }
 
+  if (error.status === 503 && errorBodyCode(error) === "checkout_closed") {
+    return checkoutRecoveryForKind("checkout-closed", currentPath);
+  }
+
   if (error.status === 503 && errorBodyCode(error) === "projection_freshness_timeout") {
     return checkoutRecoveryForKind("checkout-preparing", currentPath, "stale-projection");
   }
@@ -401,6 +418,10 @@ export function checkoutRecoveryForFreshWriteError(
 ): CheckoutRecovery | null {
   if (!(error instanceof CheckoutApiError)) {
     return checkoutRecoveryForError(error, actor, currentPath);
+  }
+
+  if (error.status === 503 && errorBodyCode(error) === "checkout_closed") {
+    return checkoutRecoveryForKind("checkout-closed", currentPath);
   }
 
   const freshWriteRecovery = recoverFreshWriteReadError({

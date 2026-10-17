@@ -1,20 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildSupportRemedyFactReactionHandlers } from "./remedy-fact-reactions";
 
 function event(type: string, data: Record<string, unknown>) {
-  return {
+  return buildTransportEvent(type, data, {
     id: "evt_01J00000000000000000000000",
-    type,
     streamId: "settlement.protection-coverage-cov_1",
     streamVersion: 1,
-    globalPosition: 1,
+    globalPosition: "1",
     tenantId: "tnt_1",
-    data,
-    metadata: {},
     audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
     trace: {},
-    timing: { occurredAt: data.occurredAt, recordedAt: data.occurredAt },
-  } as never;
+  });
 }
 
 const envelope = {

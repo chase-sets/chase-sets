@@ -55,6 +55,7 @@ function createScopedHost() {
     runtimeProfile: "public",
     pools,
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       listingPhotoStorage,
     },
@@ -140,7 +141,7 @@ function inventoryStorageLocationCommandHandler(runtime: Awaited<ReturnType<type
 }
 
 const seedCommandContext = {
-  tenantId: "tnt_seed_development",
+  tenantId: "tnt_identity",
   audit: {
     performedByUserId: identitySeedIds.demo.userId,
     forAccountId: identitySeedIds.demo.accountId,
@@ -198,26 +199,46 @@ describe("inventory and checkout seed resume from authoritative streams", () => 
     }
   });
 
-  it("resumes inventory from a committed-but-incomplete storage location", async () => {
+  it("resumes inventory after only its first storage-location create commits", async () => {
     const runtime = await prepareHost();
-    await ordinaryBoot(runtime);
 
-    // Retain only the first storage-location stream, drop everything the seed
-    // authored after it, and empty the projections: a seed that died mid-stage.
-    await pools.inventory.query(
-      "DELETE FROM event_store_events WHERE stream_id LIKE 'inventory.%' AND stream_id <> $1",
-      [northShelfStream],
-    );
-    await pools.inventory.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id LIKE 'inventory.%'");
-    await pools.inventory.query(
-      "UPDATE event_store_streams SET current_version = 0, updated_at = now() WHERE stream_id LIKE 'inventory.%' AND stream_id <> $1",
-      [northShelfStream],
-    );
-    await pools.inventory.query("TRUNCATE TABLE inventory_holds, inventory_items, inventory_storage_locations CASCADE");
+    // Interrupt the seed after its first committed create, without projection
+    // progress from a completed boot or any later seed commands.
+    await inventoryStorageLocationCommandHandler(runtime)({
+      streamId: northShelfStream,
+      command: {
+        type: "CreateStorageLocation",
+        storageLocationId: inventorySeedIds.storageLocations.northShelf,
+        accountId: identitySeedIds.demo.accountId,
+        name: "North shelf",
+        description: "Singles and fast-moving modern inventory",
+        shipFromCode: "CHI-WH-1",
+        shipFromAddress: {
+          name: "Chase Sets Shipping",
+          company: "Chase Sets Demo",
+          line1: "221 N LaSalle St",
+          line2: "Suite 1200",
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+          phone: "3125550101",
+          email: "shipping@chasesets.test",
+        },
+      },
+      context: seedCommandContext,
+    });
 
     const retainedNorthShelf = await streamEventCount("inventory", northShelfStream);
-    expect(retainedNorthShelf).toBeGreaterThan(0);
+    expect(retainedNorthShelf).toBe(1);
     expect(await streamEventCount("inventory", vaultAnnexStream)).toBe(0);
+    const partial = await inventorySeedState();
+    expect(partial.filter((report) => report.kind === "active").map((report) => report.streamId)).toEqual([
+      northShelfStream,
+    ]);
+    expect(
+      partial.filter((report) => report.streamId !== northShelfStream).every((report) => report.kind === "absent"),
+    ).toBe(true);
 
     await ordinaryBoot(runtime);
     // The retained aggregate is resumed, not re-authored.
@@ -246,6 +267,12 @@ describe("inventory and checkout seed resume from authoritative streams", () => 
     await pools.inventory.query("DELETE FROM event_store_aggregate_snapshots WHERE stream_id = $1", [
       archivedOverflowStream,
     ]);
+    // Model death before the atomic archive commit, not deletion of facts
+    // after an immutable archive receipt has already committed.
+    await pools.inventory.query(
+      "DELETE FROM inventory_mutation_attempts WHERE target_id = $1 AND family IN ('location-update', 'location-archive')",
+      [inventorySeedIds.storageLocations.archivedOverflow],
+    );
     await pools.inventory.query(
       "UPDATE event_store_streams SET current_version = 1, updated_at = now() WHERE stream_id = $1",
       [archivedOverflowStream],

@@ -1,5 +1,5 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
-import { Badge, Card, KeyValueList, Stack, Text } from "@chase-sets/design-system";
+import { Badge, Card, KeyValueList, NumericValue, Stack, Text } from "@chase-sets/design-system";
 import type { SettlementWalletAdjustment } from "../../../client";
 import {
   walletAdjustmentDirectionLabel,
@@ -38,7 +38,7 @@ export function WalletAdjustmentReceiptCard({
     },
     {
       key: t("settlement.features.wallets.ui.walletAdjustmentReceipt.amount"),
-      value: formatMoney(adjustment.amount, adjustment.currency_code),
+      value: <NumericValue>{formatMoney(adjustment.amount, adjustment.currency_code)}</NumericValue>,
     },
     {
       key: t("settlement.features.wallets.ui.walletAdjustmentReceipt.reason"),

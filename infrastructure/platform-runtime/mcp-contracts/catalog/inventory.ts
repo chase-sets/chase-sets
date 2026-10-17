@@ -5,6 +5,7 @@ import {
   accountScopedListOutputSchema,
   arrayProperty,
   booleanProperty,
+  guardrails,
   idempotencyKeyProperty,
   integerProperty,
   mutationInput,
@@ -15,7 +16,7 @@ import {
   stringProperty,
   writeTool,
 } from "@chase-sets/platform-runtime/mcp-contracts/builders";
-import { inventoryAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads/inventory";
+import { inventoryCallerSelectableAdjustmentReasons } from "@chase-sets/event-core/public-event-payloads/inventory";
 
 const importSourceProfileOutputProperty: McpJsonSchemaProperty = {
   type: "object",
@@ -304,9 +305,18 @@ export const inventoryService = {
             inventoryItemId: stringProperty("Inventory item to adjust."),
             quantityDelta: integerProperty("Signed quantity adjustment. Positive adds stock; negative removes stock."),
             reason: stringProperty("Business reason for the stock adjustment."),
-            reasonCode: stringProperty("Typed reason for the stock adjustment.", [...inventoryAdjustmentReasons]),
+            reasonCode: stringProperty("Typed reason for the stock adjustment.", [
+              ...inventoryCallerSelectableAdjustmentReasons,
+            ]),
             note: stringProperty("Optional operator note for the stock adjustment."),
-            idempotencyKey: idempotencyKeyProperty(),
+            acquisitionOccurredAt: stringProperty(
+              "Optional timezone-bearing acquisition occurrence for positive stock intake. Omit when unknown; forbidden for reductions.",
+            ),
+            idempotencyKey: stringProperty(
+              "Caller-created Inventory mutation attempt UUIDv4. Reuse only for the same normalized intent; after response loss read the original result.",
+            ),
+            collisionMode: stringProperty("Stock reduction collision policy.", ["protect-orders", "honor-offline"]),
+            confirmSellerCannotFulfill: booleanProperty("Explicit Honor Offline confirmation."),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),
           },
@@ -314,6 +324,26 @@ export const inventoryService = {
         ),
         "inventory-item",
         ["Use for explicit stock corrections after checking active holds and ledger history."],
+      ),
+      availability: "available",
+      guardrails: guardrails("sensitive", { idempotencyAuthority: "owner", dryRunSupported: false }),
+    },
+    {
+      ...readTool(
+        "inventory",
+        "get-mutation-attempt",
+        "Get Inventory Mutation Result",
+        "Read the exact original Inventory result without resubmitting a change.",
+        "inventory.view",
+        objectSchema(
+          {
+            accountId: stringProperty("Authenticated account scope."),
+            attemptId: stringProperty("Original caller-created attempt UUIDv4."),
+          },
+          ["accountId", "attemptId"],
+        ),
+        "inventory-mutation-attempt",
+        ["Use after an uncertain response; an unavailable result does not authorize a second write."],
       ),
       availability: "available",
     },

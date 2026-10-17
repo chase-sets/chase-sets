@@ -1,4 +1,8 @@
 import { defineTransactionalEmail, type NotificationOutbox } from "@chase-sets/outbound-messaging";
+import type {
+  PaymentRefundFailedPayload,
+  PaymentRefundIssuedPayload,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -8,13 +12,7 @@ import {
 
 export const PAYMENTS_REFUND_TRANSACTIONAL_EMAIL_PROJECTION = "payments-refund-transactional-email-projection";
 
-type RefundEmailEventData = Readonly<{
-  refundId: string;
-  paymentId: string;
-  orderIds: readonly string[];
-  amount: string;
-  currencyCode: string;
-}>;
+type RefundEmailEventData = PaymentRefundIssuedPayload | PaymentRefundFailedPayload;
 
 type RefundEmailRecipient = Readonly<{ email: string; accountId: string | null }>;
 
@@ -53,7 +51,7 @@ export function buildRefundTransactionalEmailProjectionHandlers(
   });
 
   return {
-    ...defineTransactionalEmail<RefundEmailEventData, RefundEmailRecipient, "payments.refund-issued">({
+    ...defineTransactionalEmail<PaymentRefundIssuedPayload, RefundEmailRecipient, "payments.refund-issued">({
       outbox,
       projectionName,
       on: "payments.refund-issued",
@@ -61,7 +59,7 @@ export function buildRefundTransactionalEmailProjectionHandlers(
       template: (data, { recipient: resolved, correlationId }) =>
         mapRefundIssuedToTransactionalEmail(intentInput(data, resolved, correlationId)),
     }),
-    ...defineTransactionalEmail<RefundEmailEventData, RefundEmailRecipient, "payments.refund-failed">({
+    ...defineTransactionalEmail<PaymentRefundFailedPayload, RefundEmailRecipient, "payments.refund-failed">({
       outbox,
       projectionName,
       on: "payments.refund-failed",

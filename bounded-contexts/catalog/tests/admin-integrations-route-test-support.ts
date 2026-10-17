@@ -451,3 +451,17 @@ export async function runGovernanceAction(
 ): Promise<Response> {
   return governanceAction(actionRequest(body, url) as Parameters<typeof governanceAction>[0]);
 }
+
+// The read-only pre-write validation slice every preview carries. Tests that
+// do not exercise identity diagnostics use a complete, empty page so the
+// preview token they compute matches the loader's.
+export function emptyPromotionValidation(promoteAsDraft = false) {
+  return {
+    promoteAsDraft,
+    pageLimit: 100,
+    coveredObservationIds: [] as string[],
+    coverage: "complete" as const,
+    continuation: null,
+    diagnostics: [] as never[],
+  };
+}

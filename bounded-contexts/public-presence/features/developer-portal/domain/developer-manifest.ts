@@ -1,5 +1,14 @@
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from "@chase-sets/platform-runtime/mcp-protocol";
+import { publicPolicyHrefsByKey } from "@chase-sets/public-docs";
 import { developerArticles, developerMcpToolCatalog } from "./developer-article-catalog";
+
+export const agentConnectorTermsDeveloperLink = {
+  policyKey: "agent-connector-terms",
+  href: publicPolicyHrefsByKey["agent-connector-terms"],
+  portalLabelKey: "publicPresence.developers.agentTerms",
+  manifestTitle: "Agent Connector Terms",
+  llmsLabel: "Agent Connector Terms",
+} as const;
 
 function normalizeOrigin(origin: string) {
   return origin.replace(/\/+$/, "");
@@ -22,6 +31,13 @@ export function buildDeveloperManifest(origin: string) {
       reviewedAt,
       url: `${baseUrl}${href}`,
     })),
+    policies: [
+      {
+        policyKey: agentConnectorTermsDeveloperLink.policyKey,
+        title: agentConnectorTermsDeveloperLink.manifestTitle,
+        url: `${baseUrl}${agentConnectorTermsDeveloperLink.href}`,
+      },
+    ],
     mcp: {
       endpoint: `${baseUrl}/mcp`,
       protocolVersions: SUPPORTED_MCP_PROTOCOL_VERSIONS,
@@ -39,6 +55,7 @@ export function buildDeveloperLlmsTxt(origin: string) {
     "",
     `- [Developer portal](${manifest.portalUrl})`,
     ...manifest.articles.map((article) => `- [${article.title}](${article.url}): ${article.description}`),
+    `- [${agentConnectorTermsDeveloperLink.llmsLabel}](${manifest.policies[0].url})`,
     `- [Machine-readable developer manifest](${normalizeOrigin(origin)}/developers/manifest.json)`,
     "",
     `MCP endpoint: ${manifest.mcp.endpoint}`,

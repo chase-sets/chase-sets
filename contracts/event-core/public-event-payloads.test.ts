@@ -1,39 +1,85 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFactType } from "../order-groups/index";
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
   inventoryHoldPurposes,
   inventoryHoldReleaseReasons,
+  inventoryOfflineSaleChannels,
   inventoryRestockDecisionOutcomes,
+  marketplaceListingEnforcementSources,
+  parseMarketplaceListingAutoUnlistedPayload,
+  parseMarketplaceListingOperatorUnlistedPayload,
+  parsePlatformOperationsListingRemovalDirectedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
 import type {
+  ChannelOrderFulfillmentAcceptedPayload,
+  ChannelOrderFulfillmentStatusChangedPayload,
+  ChannelsEventPayloads,
   AuthSessionStartedPayload,
   ChaseSetsEventPayloads,
   CheckoutSessionCancelledPayload,
   EmptyEventPayload,
+  FulfillmentShipmentCancelledPayload,
+  FulfillmentShipmentCreatedPayload,
+  FulfillmentShipmentDeliveredPayload,
+  FulfillmentShipmentDispatchedPayload,
+  FulfillmentShipmentLabelAttachedPayload,
+  FulfillmentShipmentLabelRefundStatusRecordedPayload,
+  FulfillmentShipmentPackagePreparedPayload,
+  FulfillmentShipmentPackingStartedPayload,
   IdentityAccountClosedPayload,
   IdentityAccountReactivatedPayload,
   IdentityAccountSuspendedPayload,
   IdentityFounderNumberClaimedPayload,
   InventoryHoldPlacedPayload,
-  MarketplaceEventPayloads,
+  InventoryChannelStockAllocationSetPayload,
+  InventoryExternalChannelSaleRecordedPayload,
+  InventoryItemCreatedPayload,
+  InventoryItemOfflineSaleRecordedPayload,
+  MarketplaceAutomaticListingEnforcementData,
+  MarketplaceListingAutoUnlistedEnforcedPayload,
+  MarketplaceListingAutoUnlistedLegacyPayload,
+  MarketplaceListingAutoUnlistedPayload,
   MarketplaceListingCreatedPayload,
+  MarketplaceListingOperatorUnlistedPayload,
+  MarketplaceListingPriceUpdatedPayload,
+  MarketplaceOfferLifecyclePayload,
+  MarketplaceOperatorListingEnforcementData,
   MarketplaceSalesFeeLineSnapshotPayload,
   OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
   PaymentCapturedPayload,
+  PaymentRefundedPayload,
+  PaymentRefundFailedPayload,
+  PaymentRefundIssuedPayload,
+  PaymentRefundRequestedPayload,
   PlatformFeedbackSubmittedPayload,
   PlatformOperationsReportedContentActionRecordedPayload,
   PlatformOperationsRiskAlertActionRecordedPayload,
   SettlementSupportHoldReleasedPayload,
-  SupportRequestPlatformCoverageEventPayloads,
   WaitlistSignupRecordedPayload,
   WaitlistReferralCodeIssuedPayload,
   WaitlistReferralCodeReservedPayload,
   WaitlistReferralLinkProvisionedPayload,
 } from "@chase-sets/event-core/public-event-payloads";
+import type { AuthEventPayloads } from "./public-event-payloads/auth";
+import type { CheckoutEventPayloads } from "./public-event-payloads/checkout";
+import type { FulfillmentEventPayloads } from "./public-event-payloads/fulfillment";
+import type { IdentityEventPayloads } from "./public-event-payloads/identity";
+import type { InventoryEventPayloads } from "./public-event-payloads/inventory";
+import type { MarketplaceEventPayloads } from "./public-event-payloads/marketplace";
+import type { OrderingEventPayloads } from "./public-event-payloads/ordering";
+import type { PaymentsEventPayloads } from "./public-event-payloads/payments";
+import type {
+  PlatformOperationsEventPayloads,
+  PlatformOperationsListingRemovalDirectedPayload,
+  SupportRequestPlatformCoverageEventPayloads,
+} from "./public-event-payloads/platform-operations";
+import type { PublicPresenceEventPayloads } from "./public-event-payloads/public-presence";
+import type { SettlementEventPayloads } from "./public-event-payloads/settlement";
 
 const modernSuspendedPayload: IdentityAccountSuspendedPayload = {
   enforcement: {
@@ -69,8 +115,245 @@ const missingClosedVersion: IdentityAccountClosedPayload = {
   },
 };
 
+const enforcedAutoUnlistedPayload: MarketplaceListingAutoUnlistedEnforcedPayload = {
+  reportId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  reportCount: 3,
+  threshold: 3,
+  autoUnlistedAt: "2026-10-06T12:00:00.000Z",
+  listingEnforcement: {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "automatic-report-threshold",
+    sourceActionId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T12:00:00.000Z",
+  },
+};
+const legacyAutoUnlistedPayload: MarketplaceListingAutoUnlistedPayload = {
+  reportId: "rpt_legacy",
+  reportCount: 3,
+  threshold: 3,
+  autoUnlistedAt: "2026-07-01T00:00:00.000Z",
+};
+const operatorUnlistedPayload: MarketplaceListingOperatorUnlistedPayload = {
+  listingEnforcement: {
+    version: 1,
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "operator-unlist",
+    sourceActionId: "rca_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T07:30:00.000-05:00",
+  },
+};
+const missingOperatorVersion: MarketplaceListingOperatorUnlistedPayload = {
+  // @ts-expect-error a partial listing enforcement record is corrupt.
+  listingEnforcement: {
+    listingEnforcementActionId: "lea_01ARYZ6S41TSV4RRFFQ69G5FAW",
+    accountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    source: "operator-unlist",
+    sourceActionId: "rca_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    occurredAt: "2026-10-06T07:30:00.000-05:00",
+  },
+};
+
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
 const aggregateFileName = "index.ts";
+
+describe("Order Group post-Fulfillment-shard registration", () => {
+  it("registers each exact payload type in the owning shard and aggregate", () => {
+    expectTypeOf<Pick<ChaseSetsEventPayloads, OrderGroupFactType>>().toEqualTypeOf<OrderGroupEventPayloads>();
+    expectTypeOf<Pick<OrderingEventPayloads, Extract<OrderGroupFactType, `ordering.${string}`>>>().toEqualTypeOf<
+      Pick<OrderGroupEventPayloads, Extract<OrderGroupFactType, `ordering.${string}`>>
+    >();
+    expectTypeOf<Pick<FulfillmentEventPayloads, Extract<OrderGroupFactType, `fulfillment.${string}`>>>().toEqualTypeOf<
+      Pick<OrderGroupEventPayloads, Extract<OrderGroupFactType, `fulfillment.${string}`>>
+    >();
+  });
+
+  it("censuses every landed shard for collisions and rejects parallel namespaces", () => {
+    const registrations = listShardModules(shardDirectory).flatMap((file) =>
+      [...readFileSync(path.join(shardDirectory, file), "utf8").matchAll(/^\s*"([^"]+)":/gm)].map((match) => ({
+        type: match[1],
+        file,
+      })),
+    );
+    const groupRegistrations = registrations.filter(
+      ({ type }) => type.includes("order-group.") || type.includes("shipment-group."),
+    );
+    expect(groupRegistrations).toHaveLength(9);
+    expect(groupRegistrations.map(({ type }) => type).sort()).toEqual(Object.keys(orderGroupFactRegistry).sort());
+    for (const { type, publisher, consumers } of Object.values(orderGroupFactRegistry)) {
+      expect(registrations.filter((entry) => entry.type === type)).toEqual([{ type, file: `${publisher}.ts` }]);
+      expect(consumers.length).toBeGreaterThan(0);
+      expect(new Set(consumers).size).toBe(consumers.length);
+    }
+  });
+
+  it("uses the canonical package codecs for registered public payloads", () => {
+    expectTypeOf<
+      import("@chase-sets/event-core/public-event-payloads").OrderGroupEventPayloads
+    >().toEqualTypeOf<OrderGroupEventPayloads>();
+    for (const { type, codec } of Object.values(orderGroupFactRegistry)) {
+      expect(() => codec.decode({ eventType: type, payload: {} })).toThrow();
+      expect(() => codec.decode({ eventType: `${type}.v1`, payload: {} })).toThrow();
+    }
+  });
+
+  it("rejects each closed-schema discriminator for the public aggregate payload", () => {
+    const formed = orderGroupFactRegistry["ordering.order-group.formed"];
+    const payload: ChaseSetsEventPayloads["ordering.order-group.formed"] = {
+      contractVersion: "order-group-admission/v1",
+      requestId: "request-1",
+      sourceGeneration: 0,
+      draftKey: "draft-1",
+      anchorShipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      anchorOrderId: "ord_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      proposedMemberOrderId: "ord_01ARYZ6S41TSV4RRFFQ69G5FAW",
+      groupId: "ogr_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      quoteFingerprint: "quote-1",
+      memberOrderIds: ["ord_01ARYZ6S41TSV4RRFFQ69G5FAV", "ord_01ARYZ6S41TSV4RRFFQ69G5FAW"],
+      formedAt: "2026-10-03T20:00:00Z",
+      anchorOrderVersion: 4,
+      stagedMemberOrderVersion: 1,
+    };
+    expect(formed.codec.encode(formed.codec.decode({ eventType: formed.type, payload }))).toEqual({
+      eventType: formed.type,
+      payload,
+    });
+    const { quoteFingerprint: omitted, ...missing } = payload;
+    expect(omitted).toBe("quote-1");
+    const invalid = {
+      missing,
+      extra: { ...payload, buyerEmail: "private" },
+      malformed: { ...payload, groupId: "ogr_not-a-ulid" },
+      cardinality: { ...payload, memberOrderIds: [payload.anchorOrderId] },
+      version: { ...payload, contractVersion: "order-group-admission/v0" },
+      nestedExtra: {
+        ...payload,
+        memberOrderIds: [{ id: payload.anchorOrderId, extra: true }, payload.proposedMemberOrderId],
+      },
+      dateOnly: { ...payload, formedAt: "2026-10-03" },
+      outOfRange: { ...payload, anchorOrderVersion: Number.MAX_SAFE_INTEGER + 1 },
+    };
+    for (const [discriminator, candidate] of Object.entries(invalid)) {
+      expect(() => formed.codec.decode({ eventType: formed.type, payload: candidate }), discriminator).toThrow();
+    }
+    const { memberOrderIds: members, stagedMemberOrderVersion: staged, formedAt, ...identity } = payload;
+    expect(members).toHaveLength(2);
+    expect(staged).toBe(1);
+    const aborted = orderGroupFactRegistry["ordering.order-group.admission-aborted"];
+    expect(() =>
+      aborted.codec.decode({
+        eventType: aborted.type,
+        payload: { ...identity, abortedAt: formedAt, reason: "staging-failed" },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("marketplace listing enforcement payloads", () => {
+  const automatic = enforcedAutoUnlistedPayload.listingEnforcement;
+  const operator = operatorUnlistedPayload.listingEnforcement;
+  const auto = (overrides: Readonly<Record<string, unknown>>) => ({ ...enforcedAutoUnlistedPayload, ...overrides });
+  const autoEnforcement = (overrides: Readonly<Record<string, unknown>>) =>
+    auto({ listingEnforcement: { ...automatic, ...overrides } });
+  const operatorEnforcement = (overrides: Readonly<Record<string, unknown>>) => ({
+    listingEnforcement: { ...operator, ...overrides },
+  });
+  const without = (value: Readonly<Record<string, unknown>>, key: string) =>
+    Object.fromEntries(Object.entries(value).filter(([candidate]) => candidate !== key));
+
+  it("types each source with its own typed ULID and keeps the operator payload closed", () => {
+    expectTypeOf<MarketplaceAutomaticListingEnforcementData["sourceActionId"]>().toEqualTypeOf<`rpt_${string}`>();
+    expectTypeOf<MarketplaceOperatorListingEnforcementData["sourceActionId"]>().toEqualTypeOf<`rca_${string}`>();
+    expectTypeOf<
+      MarketplaceOperatorListingEnforcementData["listingEnforcementActionId"]
+    >().toEqualTypeOf<`lea_${string}`>();
+    expectTypeOf(
+      parseMarketplaceListingAutoUnlistedPayload,
+    ).returns.toEqualTypeOf<MarketplaceListingAutoUnlistedPayload>();
+    expect(missingOperatorVersion).toHaveProperty("listingEnforcement");
+  });
+
+  it("round-trips modern payloads and returns historical automatic payloads unchanged", () => {
+    expect(parseMarketplaceListingAutoUnlistedPayload(enforcedAutoUnlistedPayload)).toEqual(
+      enforcedAutoUnlistedPayload,
+    );
+    expect(parseMarketplaceListingOperatorUnlistedPayload(operatorUnlistedPayload)).toEqual(operatorUnlistedPayload);
+    expect(parseMarketplaceListingAutoUnlistedPayload(legacyAutoUnlistedPayload)).toBe(legacyAutoUnlistedPayload);
+  });
+
+  it.each<readonly [string, unknown]>([
+    ...["reportId", "reportCount", "threshold", "autoUnlistedAt"].map(
+      (key) => [`missing ${key}`, without(enforcedAutoUnlistedPayload, key)] as const,
+    ),
+    ...Object.keys(automatic).map(
+      (key) => [`missing nested ${key}`, auto({ listingEnforcement: without(automatic, key) })] as const,
+    ),
+    ["an extra field", auto({ note: "free text" })],
+    ["an extra nested field", autoEnforcement({ reason: "spam" })],
+    ["null enrichment", auto({ listingEnforcement: null })],
+    ["array enrichment", auto({ listingEnforcement: [automatic] })],
+    ["an unknown version", autoEnforcement({ version: 2 })],
+    ["a string version", autoEnforcement({ version: "1" })],
+    ["the operator source", autoEnforcement({ source: "operator-unlist", sourceActionId: operator.sourceActionId })],
+    ["an unknown source", autoEnforcement({ source: "manual" })],
+    ["a source differing from the report", autoEnforcement({ sourceActionId: "rpt_01ARYZ6S41TSV4RRFFQ69G5FAW" })],
+    ["a time differing from the removal", autoEnforcement({ occurredAt: "2026-10-06T12:00:01.000Z" })],
+    [
+      "an account enforcement identity",
+      autoEnforcement({ listingEnforcementActionId: "enf_01ARYZ6S41TSV4RRFFQ69G5FAV" }),
+    ],
+    ["a lowercase identity", autoEnforcement({ listingEnforcementActionId: "lea_01aryz6s41tsv4rrffq69g5fav" })],
+    ["an empty owner", autoEnforcement({ accountId: "" })],
+    ["a padded owner", autoEnforcement({ accountId: " acc_01ARYZ6S41TSV4RRFFQ69G5FAV" })],
+    [
+      "a non-canonical report",
+      auto({ reportId: "rpt_1", listingEnforcement: { ...automatic, sourceActionId: "rpt_1" } }),
+    ],
+    ["a below-threshold count", auto({ reportCount: 2 })],
+    ["a zero threshold", auto({ reportCount: 0, threshold: 0 })],
+    ["a fractional count", auto({ reportCount: 3.5 })],
+    [
+      "a date-only time",
+      auto({ autoUnlistedAt: "2026-10-06", listingEnforcement: { ...automatic, occurredAt: "2026-10-06" } }),
+    ],
+    [
+      "a zoneless time",
+      auto({
+        autoUnlistedAt: "2026-10-06T12:00:00",
+        listingEnforcement: { ...automatic, occurredAt: "2026-10-06T12:00:00" },
+      }),
+    ],
+    [
+      "an impossible calendar day",
+      auto({
+        autoUnlistedAt: "2026-02-30T12:00:00Z",
+        listingEnforcement: { ...automatic, occurredAt: "2026-02-30T12:00:00Z" },
+      }),
+    ],
+  ])("rejects an automatic payload with %s", (_case, payload) => {
+    expect(() => parseMarketplaceListingAutoUnlistedPayload(payload)).toThrow();
+  });
+
+  it.each<readonly [string, unknown]>([
+    ["an empty payload", {}],
+    ["an extra field", { ...operatorUnlistedPayload, reportId: automatic.sourceActionId }],
+    ...Object.keys(operator).map(
+      (key) => [`missing nested ${key}`, { listingEnforcement: without(operator, key) }] as const,
+    ),
+    ["an extra nested field", operatorEnforcement({ note: "free text" })],
+    ["an unknown version", operatorEnforcement({ version: 0 })],
+    ["the automatic source", { listingEnforcement: automatic }],
+    ["a report prefix under the operator source", operatorEnforcement({ sourceActionId: automatic.sourceActionId })],
+    ["an operator source id under the automatic source", operatorEnforcement({ source: "automatic-report-threshold" })],
+    ["an out-of-range hour", operatorEnforcement({ occurredAt: "2026-10-06T24:00:00Z" })],
+    ["an out-of-range offset", operatorEnforcement({ occurredAt: "2026-10-06T07:30:00+24:00" })],
+    ["a date-only time", operatorEnforcement({ occurredAt: "2026-10-06" })],
+  ])("rejects an operator payload with %s", (_case, payload) => {
+    expect(() => parseMarketplaceListingOperatorUnlistedPayload(payload)).toThrow();
+  });
+});
 
 function listShardModules(directory: string): readonly string[] {
   return readdirSync(directory)
@@ -97,7 +380,69 @@ function partitionShardModules(moduleFileNames: readonly string[], reExportedFil
   };
 }
 
+describe("marketplace Offer lifecycle payloads", () => {
+  it("registers paused, resumed and withdrawn on one closed buyer lifecycle payload", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.paused"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.resumed"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["marketplace.offer.withdrawn"]
+    >().toEqualTypeOf<MarketplaceOfferLifecyclePayload>();
+    expectTypeOf<keyof MarketplaceOfferLifecyclePayload>().toEqualTypeOf<"offerId" | "buyerAccountId" | "at">();
+  });
+});
+
+describe("Listing Removal Directive contract", () => {
+  const directive = {
+    actionId: "rca_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    listingId: "lst_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    operatorUserId: null,
+    directedAt: "2026-10-06T09:00:00.000-05:00",
+  };
+  it("accepts exactly four fields and preserves timezone instants and a nullable actor", () => {
+    expect(parsePlatformOperationsListingRemovalDirectedPayload(directive)).toEqual(directive);
+    expect(
+      parsePlatformOperationsListingRemovalDirectedPayload({
+        ...directive,
+        operatorUserId: "usr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        directedAt: "2026-10-06T14:00:00.000Z",
+      }),
+    ).toMatchObject({ operatorUserId: "usr_01ARZ3NDEKTSV4RRFFQ69G5FAV", directedAt: "2026-10-06T14:00:00.000Z" });
+  });
+  it.each([
+    null,
+    [],
+    {},
+    { ...directive, actionId: "rca_1" },
+    { ...directive, listingId: "rev_01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+    { ...directive, operatorUserId: "usr_1" },
+    { ...directive, operatorUserId: undefined },
+    { ...directive, extra: true },
+    { ...directive, directedAt: "2026-02-30T12:00:00Z" },
+    { ...directive, directedAt: "2026-10-06" },
+    { ...directive, directedAt: "2026-10-06T12:00:00" },
+    { ...directive, directedAt: "2026-10-06T24:00:00Z" },
+    { ...directive, directedAt: "2026-10-06T12:00:00+00:60" },
+  ])("rejects malformed or open payload %j", (value) => {
+    expect(() => parsePlatformOperationsListingRemovalDirectedPayload(value)).toThrow();
+  });
+});
+
 describe("public event payload shard partition", () => {
+  it("channel-order-observation-callers: registers accepted and PII-free status facts in the Channels shard", () => {
+    expectTypeOf<
+      ChaseSetsEventPayloads["channels.order-fulfillment-observation.accepted"]
+    >().toEqualTypeOf<ChannelOrderFulfillmentAcceptedPayload>();
+    expectTypeOf<
+      ChaseSetsEventPayloads["channels.order-fulfillment-observation.status-changed"]
+    >().toEqualTypeOf<ChannelOrderFulfillmentStatusChangedPayload>();
+    expectTypeOf<
+      Extract<keyof ChannelOrderFulfillmentStatusChangedPayload, "shipTo" | "lines" | "productAmount">
+    >().toEqualTypeOf<never>();
+  });
   const moduleFileNames = listShardModules(shardDirectory);
   const reExportedFileNames = listAggregateReExports(
     readFileSync(path.join(shardDirectory, aggregateFileName), "utf8"),
@@ -155,6 +500,10 @@ describe("public event payload runtime value exports", () => {
     ]).toHaveLength(5);
   });
 
+  it("exports the closed listing enforcement source vocabulary", () => {
+    expect(marketplaceListingEnforcementSources).toEqual(["operator-unlist", "automatic-report-threshold"]);
+  });
+
   it("exports the inventory hold purposes unchanged through the aggregate", () => {
     expect(inventoryHoldPurposes).toEqual(["order", "manual", "checkout", "pos", "channel", "transfer"]);
   });
@@ -173,6 +522,10 @@ describe("public event payload runtime value exports", () => {
 
   it("exports the inventory restock decision outcomes unchanged through the aggregate", () => {
     expect(inventoryRestockDecisionOutcomes).toEqual(["restocked", "written-off"]);
+  });
+
+  it("exports the closed Inventory offline-sale channels", () => {
+    expect(inventoryOfflineSaleChannels).toEqual(["in-store", "card-show", "other"]);
   });
 });
 
@@ -207,6 +560,14 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["identity.account.closed"],
     IdentityAccountClosedPayload
   >,
+  "marketplace.listing.auto-unlisted": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.auto-unlisted"],
+    MarketplaceListingAutoUnlistedLegacyPayload | MarketplaceListingAutoUnlistedEnforcedPayload
+  >,
+  "marketplace.listing.operator-unlisted": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.operator-unlisted"],
+    MarketplaceListingOperatorUnlistedPayload
+  >,
   "checkout.session.cancelled": true satisfies IsExactly<
     ChaseSetsEventPayloads["checkout.session.cancelled"],
     CheckoutSessionCancelledPayload
@@ -214,6 +575,22 @@ const aggregateTypeIdentity = {
   "inventory.hold.placed": true satisfies IsExactly<
     ChaseSetsEventPayloads["inventory.hold.placed"],
     InventoryHoldPlacedPayload
+  >,
+  "inventory.item.created": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.item.created"],
+    InventoryItemCreatedPayload
+  >,
+  "inventory.item.offline-sale-recorded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.item.offline-sale-recorded"],
+    InventoryItemOfflineSaleRecordedPayload
+  >,
+  "inventory.external-channel-sale.recorded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.external-channel-sale.recorded"],
+    InventoryExternalChannelSaleRecordedPayload
+  >,
+  "inventory.channel-stock-allocation.set": true satisfies IsExactly<
+    ChaseSetsEventPayloads["inventory.channel-stock-allocation.set"],
+    InventoryChannelStockAllocationSetPayload
   >,
   "ordering.order.created": true satisfies IsExactly<
     ChaseSetsEventPayloads["ordering.order.created"],
@@ -227,6 +604,10 @@ const aggregateTypeIdentity = {
     ChaseSetsEventPayloads["marketplace.listing.created"],
     MarketplaceListingCreatedPayload
   >,
+  "marketplace.listing.price-updated": true satisfies IsExactly<
+    ChaseSetsEventPayloads["marketplace.listing.price-updated"],
+    MarketplaceListingPriceUpdatedPayload
+  >,
   "marketplace.listing.published": true satisfies IsExactly<
     ChaseSetsEventPayloads["marketplace.listing.published"],
     EmptyEventPayload
@@ -234,6 +615,54 @@ const aggregateTypeIdentity = {
   "payments.payment-captured": true satisfies IsExactly<
     ChaseSetsEventPayloads["payments.payment-captured"],
     PaymentCapturedPayload
+  >,
+  "fulfillment.shipment.created": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.created"],
+    FulfillmentShipmentCreatedPayload
+  >,
+  "fulfillment.shipment.packing-started": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.packing-started"],
+    FulfillmentShipmentPackingStartedPayload
+  >,
+  "fulfillment.shipment.package-prepared": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.package-prepared"],
+    FulfillmentShipmentPackagePreparedPayload
+  >,
+  "fulfillment.shipment.label-attached": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.label-attached"],
+    FulfillmentShipmentLabelAttachedPayload
+  >,
+  "fulfillment.shipment.label-refund-status-recorded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.label-refund-status-recorded"],
+    FulfillmentShipmentLabelRefundStatusRecordedPayload
+  >,
+  "fulfillment.shipment.dispatched": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.dispatched"],
+    FulfillmentShipmentDispatchedPayload
+  >,
+  "fulfillment.shipment.delivered": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.delivered"],
+    FulfillmentShipmentDeliveredPayload
+  >,
+  "fulfillment.shipment.cancelled": true satisfies IsExactly<
+    ChaseSetsEventPayloads["fulfillment.shipment.cancelled"],
+    FulfillmentShipmentCancelledPayload
+  >,
+  "payments.payment-refunded": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.payment-refunded"],
+    PaymentRefundedPayload
+  >,
+  "payments.refund-requested": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-requested"],
+    PaymentRefundRequestedPayload
+  >,
+  "payments.refund-issued": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-issued"],
+    PaymentRefundIssuedPayload
+  >,
+  "payments.refund-failed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["payments.refund-failed"],
+    PaymentRefundFailedPayload
   >,
   "settlement.support-hold.released.v1": true satisfies IsExactly<
     ChaseSetsEventPayloads["settlement.support-hold.released.v1"],
@@ -252,6 +681,73 @@ const aggregateTypeIdentity = {
     PlatformFeedbackSubmittedPayload
   >,
 } as const;
+
+type IndependentlyComposedPublicEventKeys =
+  | keyof ChannelsEventPayloads
+  | keyof AuthEventPayloads
+  | keyof IdentityEventPayloads
+  | keyof CheckoutEventPayloads
+  | keyof FulfillmentEventPayloads
+  | keyof InventoryEventPayloads
+  | keyof OrderingEventPayloads
+  | keyof MarketplaceEventPayloads
+  | keyof PaymentsEventPayloads
+  | keyof SettlementEventPayloads
+  | keyof SupportRequestPlatformCoverageEventPayloads
+  | keyof PublicPresenceEventPayloads
+  | keyof PlatformOperationsEventPayloads;
+
+const aggregateTypeIdentityCoversEveryRegisteredEvent = true satisfies IsExactly<
+  IndependentlyComposedPublicEventKeys,
+  keyof ChaseSetsEventPayloads
+>;
+
+const inventoryItemCreatedAcquisitionCurrencyContract = {
+  currentCurrency: true satisfies IsExactly<
+    NonNullable<InventoryItemCreatedPayload["acquisitionCostCurrencyCode"]>,
+    string
+  >,
+  retainedCurrency: true satisfies IsExactly<
+    InventoryItemCreatedPayload["acquisitionCostCurrencyCode"],
+    string | null | undefined
+  >,
+} as const;
+
+const marketplaceListingPriceCurrencyContract = {
+  createdCurrentCurrency: true satisfies IsExactly<
+    NonNullable<MarketplaceListingCreatedPayload["priceCurrencyCode"]>,
+    string
+  >,
+  createdLegacyCurrency: true satisfies IsExactly<
+    MarketplaceListingCreatedPayload["priceCurrencyCode"],
+    string | null | undefined
+  >,
+  updatedCurrentCurrency: true satisfies IsExactly<
+    NonNullable<MarketplaceListingPriceUpdatedPayload["priceCurrencyCode"]>,
+    string
+  >,
+  updatedLegacyCurrency: true satisfies IsExactly<
+    MarketplaceListingPriceUpdatedPayload["priceCurrencyCode"],
+    string | null | undefined
+  >,
+} as const;
+
+const externalChannelSaleLineMoneyContract = {
+  shippingCollectedAmount: "4.50",
+  channelFeeAmount: "1.25",
+} as const satisfies Pick<InventoryExternalChannelSaleRecordedPayload, "shippingCollectedAmount" | "channelFeeAmount">;
+
+const historicalFulfillmentShipmentDispatchedPayload = {
+  shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  dispatchedAt: "2026-04-01T00:00:00.000Z",
+} as const satisfies FulfillmentShipmentDispatchedPayload;
+
+const partiallyEnrichedFulfillmentShipmentDispatchedPayload = {
+  shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  orderId: "ord_01ARYZ6S41TSV4RRFFQ69G5FAV",
+  dispatchedAt: "2026-04-01T00:00:00.000Z",
+  // @ts-expect-error dispatch routing enrichment is all-or-nothing.
+} as const satisfies FulfillmentShipmentDispatchedPayload;
 
 const publicPresenceReferralTypeIdentity = {
   reserved: true satisfies IsExactly<
@@ -275,6 +771,18 @@ const publicPresenceReferralTypeIdentity = {
  * must not migrate to a `platform-operations` map.
  */
 const preservedCrossRegistration = {
+  "platform operations registers listing-removal-directed": true satisfies IsExactly<
+    PlatformOperationsEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
+  "marketplace registers listing-removal-directed": true satisfies IsExactly<
+    MarketplaceEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
+  "aggregate resolves listing-removal-directed": true satisfies IsExactly<
+    ChaseSetsEventPayloads["platform-operations.reported-content.listing-removal-directed"],
+    PlatformOperationsListingRemovalDirectedPayload
+  >,
   "marketplace map owns reported-content.action-recorded": true satisfies IsExactly<
     MarketplaceEventPayloads["platform-operations.reported-content.action-recorded"],
     PlatformOperationsReportedContentActionRecordedPayload
@@ -347,7 +855,23 @@ const sharedFeeLineIdentity = {
 describe("public event payload aggregate composition", () => {
   it("keeps every context map in the ChaseSetsEventPayloads intersection", () => {
     expect(Object.values(aggregateTypeIdentity).every(Boolean)).toBe(true);
-    expect(Object.keys(aggregateTypeIdentity)).toHaveLength(17);
+    expect(aggregateTypeIdentityCoversEveryRegisteredEvent).toBe(true);
+    expect(Object.values(inventoryItemCreatedAcquisitionCurrencyContract).every(Boolean)).toBe(true);
+  });
+
+  it("publishes optional External Channel Sale line money on the existing v1 payload", () => {
+    expect(externalChannelSaleLineMoneyContract).toEqual({
+      shippingCollectedAmount: "4.50",
+      channelFeeAmount: "1.25",
+    });
+  });
+
+  it("preserves the historical optionality of the unversioned dispatch fact", () => {
+    expect(historicalFulfillmentShipmentDispatchedPayload).toEqual({
+      shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      dispatchedAt: "2026-04-01T00:00:00.000Z",
+    });
+    expect(partiallyEnrichedFulfillmentShipmentDispatchedPayload).toHaveProperty("orderId");
   });
 
   it("public cancelled payload remains optional, open, and nullable", () => {

@@ -11,7 +11,10 @@ import {
   settlementSupportSourceSchemaMigrations,
   settlementSupportSourceSchemaSql,
 } from "../../features/wallets/integrations/support-source/support-source-schema";
-import { settlementFulfillmentSourceSchemaSql } from "../../features/wallets/integrations/fulfillment-source/fulfillment-source-schema";
+import {
+  settlementFulfillmentSourceSchemaMigrations,
+  settlementFulfillmentSourceSchemaSql,
+} from "../../features/wallets/integrations/fulfillment-source/fulfillment-source-schema";
 import {
   settlementAccountRiskSourceSchemaMigrations,
   settlementAccountRiskSourceSchemaSql,
@@ -72,6 +75,7 @@ export const settlementSchemaSql = [
 
 export const settlementSchemaMigrations = [
   ...settlementSupportSourceSchemaMigrations,
+  ...settlementFulfillmentSourceSchemaMigrations,
   ...settlementWalletSchemaMigrations,
   ...settlementWalletAdjustmentSchemaMigrations,
   ...settlementAccountRiskSourceSchemaMigrations,

@@ -11,6 +11,16 @@ Notes:
 - Shipments are owned by Fulfillment.
 - Shipment tracking is not owned by Ordering or Payments.
 
+## Shipment Group
+
+A **Shipment Group** is the planned Fulfillment-owned physical execution of the two members of an Order Group, admitted by the anchor Shipment aggregate before packing.
+
+- Its `ShipmentGroupId` uses `shg_`, distinct from Ordering's `ogr_` linkage and each `shp_` member Shipment. The admission contract's `groupId` is the Order Group ID, not the Shipment Group ID.
+- Admission is `available`, `reserved`, `committed`, or `released`; physical grouping requires committed admission. Durable facts, not a projection or expiring lease, drive recovery.
+- Combined dispatch uses one actual label and ledger lineage with tracking visible on both members. Seller-elected separate dispatch retains the two-Order linkage and committed admission, with one lineage per actual label and the extra cost borne by the seller.
+- Combined execution requires both members' current destinations to match; otherwise it is held (`destination-mismatch`) until they match, the seller elects separate dispatch, or a member is cancelled.
+- This is a planned contract, not shipped grouping or a multi-location split-shipment capability. [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md) records the decisions.
+
 ## Package
 
 A **Package** is the packed unit prepared for carrier handoff within a shipment workflow.
@@ -24,6 +34,21 @@ Notes:
 - Packing is owned by Fulfillment.
 - Starting Packing closes buyer self-service purchase cancellation because seller work has begun.
 - Packing completion records package count and moves the shipment to label readiness.
+
+## Fulfillment Mutation Attempt
+
+A **Fulfillment Mutation Attempt** is Fulfillment's private, permanent, one-event receipt for one non-provider seller command. It is keyed by the immutable subject-kind and subject-id pair, currently a Shipment, Return Shipment, or Channel Fulfillment Record. It is separate from the subject aggregate and from a Postage Operation. The receipt closes as `succeeded`, `unchanged`, or `failed-safe`; exact replay reads it without appending another subject fact.
+
+## Postage Operation
+
+A **Postage Operation** is Fulfillment's durable provider-command receipt for a Shipment, Return Shipment, or Channel Fulfillment Record across reservation, committed invocation, ambiguity, provider success, and local subject-effect finalization.
+
+Notes:
+
+- `ambiguous` means provider invocation may have occurred and no reissue is authorized.
+- `failed-safe` proves the provider was not invoked.
+- `confirming` is a client read-only state while a keyed owner receipt is absent or unavailable.
+- `effect-applied` means the matching subject fact is authoritative; it is the only provider-operation success state exposed by recovery.
 
 ## Package Plan
 
@@ -93,6 +118,13 @@ Notes:
 - The window is open while the shipment is awaiting package preparation.
 - The window closes when packing starts.
 - After the cutoff, buyer cancellation requests use Support instead of direct cancellation.
+
+## Cancellation Conflict
+
+A **Cancellation Conflict** is a cancellation signal that arrives after packing has started. Fulfillment records
+the signal as a fact and as one entry in the Shipment's keyed conflict set, retaining its kind, origin, and
+originating reason. Sellers resolve pre-dispatch order-cancelled conflicts by voiding an attached label when
+needed and then cancelling the Shipment; post-dispatch and fraud-origin conflicts remain visible for Support.
 
 ## Return Shipment
 

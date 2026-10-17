@@ -7,13 +7,10 @@ import type {
   CatalogSyncScope,
 } from "../../source-observations/api/catalog-sync-scope-planner";
 import type { CatalogSyncRun, SourceObservationIntegrationJob } from "../../source-observations/api/runtime";
-import {
-  assertScopeSyncBatchPreviewCurrent,
-  type ScopeSyncBatchBudget,
-  type ScopeSyncBatchPreview,
-  type ScopeSyncBatchSelection,
-} from "../domain/batch";
+import type { ScopeSyncBatchBudget, ScopeSyncBatchPreview, ScopeSyncBatchSelection } from "../domain/batch";
 import { createScopeSyncBatchStore, type ScopeSyncBatchSnapshot } from "../read-model/store";
+import { createScopeSyncBatchConfirmationCheck } from "./count-capture-planner";
+import { resolveHeldSetExport } from "./held-set-resolution";
 import { createScopeSyncBatchPlanner } from "./planner";
 import { createScopeSyncBatchWorker } from "./worker";
 
@@ -21,6 +18,7 @@ export type ScopeSyncBatchServices = ReturnType<typeof createScopeSyncBatchRunti
 
 export function createScopeSyncBatchRuntime(deps: {
   db: PgQueryable;
+  counts?: ReturnType<typeof import("./count-runtime").createScopeSyncCountRuntime>;
   previewCatalogSyncScope: (input: {
     scope: CatalogSyncScope;
     context: EventStoreContext;
@@ -46,6 +44,7 @@ export function createScopeSyncBatchRuntime(deps: {
     enqueueCatalogSyncRun: deps.enqueueCatalogSyncRun,
     getCatalogSyncRun: deps.getCatalogSyncRun,
   });
+  const confirmation = createScopeSyncBatchConfirmationCheck(planner);
 
   async function preview(input: {
     selection: ScopeSyncBatchSelection;
@@ -61,11 +60,10 @@ export function createScopeSyncBatchRuntime(deps: {
     planFingerprint: string;
     context: EventStoreContext;
   }): Promise<ScopeSyncBatchSnapshot> {
-    const current = await planner.resolve(input);
-    assertScopeSyncBatchPreviewCurrent(input.planFingerprint, current.preview);
+    const current = await confirmation.resolveConfirmation(input);
     const settled = await store.findCompletedByFingerprint(current.preview.planFingerprint, input.context);
     if (settled && (await remainsSettled(settled, input.context))) return settled;
-    return store.create({
+    return (deps.counts?.reserveBatch ?? store.create)({
       batchId: createId("job"),
       preview: current.preview,
       plans: current.plans,
@@ -106,7 +104,24 @@ export function createScopeSyncBatchRuntime(deps: {
   }
 
   return {
+    quoteCounts: (input: Parameters<NonNullable<typeof deps.counts>["quoteCounts"]>[0]) => {
+      if (!deps.counts) throw new Error("Count acquisition is unavailable.");
+      return deps.counts.quoteCounts(input);
+    },
+    getCountQuote: (input: Parameters<NonNullable<typeof deps.counts>["getCountQuote"]>[0]) => {
+      if (!deps.counts) throw new Error("Count acquisition is unavailable.");
+      return deps.counts.getCountQuote(input);
+    },
+    acquireCounts: (input: Parameters<NonNullable<typeof deps.counts>["acquireCounts"]>[0]) => {
+      if (!deps.counts) throw new Error("Count acquisition is unavailable.");
+      return deps.counts.acquireCounts(input);
+    },
+    countSpend: (input: Parameters<NonNullable<typeof deps.counts>["countSpend"]>[0]) =>
+      deps.counts?.countSpend(input) ?? Promise.resolve([]),
+    resolveHeldSets: (input: { bytes: Uint8Array; context: EventStoreContext }) =>
+      resolveHeldSetExport(deps.db, input.bytes),
     preview,
+    preConfirmPlannerRead: confirmation.preConfirmPlannerRead,
     confirm,
     get: (input: { batchId: string; context: EventStoreContext }) => store.get(input.batchId, input.context),
     cancel,

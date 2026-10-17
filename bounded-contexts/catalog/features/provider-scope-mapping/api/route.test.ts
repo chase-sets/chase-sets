@@ -88,10 +88,10 @@ describe("Provider Scope Mapping review route", () => {
     const getUnmappedScopeInbox = vi.fn().mockResolvedValue(emptyInbox());
     const app = buildApp(servicesStub({ getUnmappedScopeInbox }), viewOnlyActor);
 
-    const response = await app.request("/provider-scope-mappings/inbox?limit=25");
+    const response = await app.request("/provider-scope-mappings/inbox?limit=25&productDomain=pokemon");
 
     expect(response.status).toBe(200);
-    expect(getUnmappedScopeInbox).toHaveBeenCalledWith({ limit: 25 });
+    expect(getUnmappedScopeInbox).toHaveBeenCalledWith({ limit: 25, productDomain: "pokemon" });
   });
 
   it("returns 404 when the coverage matrix scope record does not exist", async () => {

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createRepricingPolicyRuntime } from "./runtime";
+import { createRepricingPolicyRuntime, PolicyControlValidationError } from "./runtime";
+import { RepricingPolicyValidationError, type ReviseRepricingPolicyCommand } from "../domain/domain";
 
 const context: EventStoreContext = {
   tenantId: "ten_1" as never,
@@ -53,12 +54,16 @@ function queryStub(rows: readonly Record<string, unknown>[] = []): PgQueryable {
 
 function createRuntime(db: PgQueryable = queryStub()) {
   const eventStore = createMemoryEventStore();
-  return { services: createRepricingPolicyRuntime({ eventStore: eventStore.store, db }), events: eventStore.allEvents };
+  return {
+    services: createRepricingPolicyRuntime({ eventStore: eventStore.store, db, goalAdoptions: async () => [] }),
+    events: eventStore.allEvents,
+  };
 }
 
 const rule = {
   conditions: [],
   directive: {
+    currencyCode: "USD",
     anchorChain: [{ source: "market-estimate" as const }],
     offset: { mode: "percent" as const, percent: -1 },
     floor: { mode: "absolute" as const, amount: "5.00" },
@@ -71,6 +76,55 @@ const rule = {
 };
 
 describe("createRepricingPolicyRuntime", () => {
+  it("domain validation details keep the intentional tag as cause without rewrapping raw messages", async () => {
+    const { services } = createRuntime();
+    await services.commandHandler({
+      streamId: services.streamIdForPolicy("rpp_validation"),
+      context,
+      command: {
+        type: "CreateRepricingPolicy",
+        policyId: "rpp_validation",
+        accountId: "acc_seller",
+        name: "Synthetic",
+        scope: { kind: "all-listings" },
+        rules: [rule],
+        maxChangesPerDay: 25,
+        createdAt: "2026-09-27T00:00:00Z",
+      },
+    });
+    const command: ReviseRepricingPolicyCommand = {
+      type: "ReviseRepricingPolicy",
+      name: "Synthetic",
+      scope: { kind: "all-listings" },
+      rules: [],
+      maxChangesPerDay: 25,
+      revisedAt: "2026-09-27T00:00:01Z",
+    };
+    await expect(
+      services.executeOwnedRepricingPolicy({ policyId: "rpp_validation", accountId: "acc_seller", context, command }),
+    ).rejects.toMatchObject({
+      message: "Invalid policy command.",
+      cause: expect.any(RepricingPolicyValidationError),
+    });
+    const malformed = {
+      ...command,
+      scope: { kind: "synthetic-internal-sentinel" },
+    } as unknown as ReviseRepricingPolicyCommand;
+    let caught: unknown;
+    try {
+      await services.executeOwnedRepricingPolicy({
+        policyId: "rpp_validation",
+        accountId: "acc_seller",
+        context,
+        command: malformed,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(PolicyControlValidationError);
+    expect((caught as PolicyControlValidationError).message).toBe("Invalid policy command.");
+    expect((caught as PolicyControlValidationError).cause).not.toBeInstanceOf(RepricingPolicyValidationError);
+  });
   it("dispatches lifecycle commands through the command handler onto a per-policy stream", async () => {
     const { services, events } = createRuntime();
     const streamId = services.streamIdForPolicy("rpp_1");
@@ -120,9 +174,9 @@ describe("createRepricingPolicyRuntime", () => {
     expect(events.every((event) => event.streamId === streamId)).toBe(true);
   });
 
-  it("exposes exactly one projector wired to the policy pages table", () => {
+  it("exposes policy and halt projectors", () => {
     const { services } = createRuntime();
-    expect(services.projectors).toHaveLength(1);
+    expect(services.projectors).toHaveLength(2);
     expect(services.projectors[0]?.projectionName).toBe("pricing-repricing-policy-projection");
   });
 

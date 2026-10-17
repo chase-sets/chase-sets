@@ -20,6 +20,7 @@ describe("discovery CSAT outcome facts", () => {
       subjectKind: "account" as const,
       subject: { entityType: "session", entityId: "ses_1" },
       idempotencyKey: "discovery:search-session:ses_1",
+      outcomeOccurredAt: "2026-01-01T00:00:00.000Z",
     };
 
     const firstFact = await publishDiscoveryCsatOutcomeFact(eventStore, context, input);
@@ -43,7 +44,12 @@ describe("discovery CSAT outcome facts", () => {
     });
 
     const readStream = vi.spyOn(eventStore, "readStream");
-    await expect(publishDiscoveryCsatOutcomeFact(eventStore, context, input)).resolves.toEqual(firstFact);
+    await expect(
+      publishDiscoveryCsatOutcomeFact(eventStore, context, {
+        ...input,
+        outcomeOccurredAt: "2026-01-03T00:00:00.000Z",
+      }),
+    ).resolves.toEqual(firstFact);
 
     assertBoundedStreamReadContract({
       streamId: firstEvent.streamId,

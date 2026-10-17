@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use the default-safe path first: source actions call `navigateAfterWrite` or `navigateAfterWriteFromSources`, destination loaders call `loadAfterWrite`, and the route maps the returned result through its recovery boundary. The canonical migration steps live in [Post-Write Consistency Policy: Migrating An Existing Route](./post-write-consistency.md#migrating-an-existing-route).
+Use the default-safe path first: source actions call `navigateAfterWrite`, destination loaders call `loadAfterWrite`, and the route maps the returned result through its recovery boundary. The canonical migration steps live in [Post-Write Consistency Policy: Migrating An Existing Route](./post-write-consistency.md#migrating-an-existing-route).
 
 This checklist is advanced authoring guidance for browser actions that write durable state and immediately redirect or refresh to a route whose loader reads a projection-backed API resource when the route needs bespoke review. Typical reasons are semantic handoff predicates, cookie-backed continuations, shared API mounts, file-level helper scans, temporary exceptions, or unusual dependency proof. The route author contract is still:
 
@@ -23,8 +23,8 @@ For flows that do not need a projection-backed immediate read, first choose the 
 - Identify the source action and command that writes durable state.
 - Identify the destination browser route, API context, API `GET` or `HEAD` route, and read-model table or projection group used by the first loader read.
 - Ensure the write result includes `Chase-Sets-Commit-Receipt` or source-aware commit metadata that `appendFreshWriteToken` can encode.
-- Add the `afterWrite` token with `navigateAfterWrite` or `navigateAfterWriteFromSources` when redirecting to the destination.
-- Pass a `handoff` option to `navigateAfterWrite` or `navigateAfterWriteFromSources` when the destination also needs semantic pending recovery for a stale `200` empty, stale unchanged resource, or `404`.
+- Add the `afterWrite` token with `navigateAfterWrite` when redirecting to the destination.
+- Pass a `handoff` option to `navigateAfterWrite` when the destination also needs semantic pending recovery for a stale `200` empty, stale unchanged resource, or `404`.
 - Load the destination with `loadAfterWrite` only for the projection-backed resource that may lag.
 - Evaluate semantic expectations through the `loadAfterWrite` `isHandoffSatisfied` option. Use lower-level `readPostWriteHandoffState`, `readPostWriteHandoff`, or `evaluatePostWriteHandoff` only for bespoke routes that cannot use the helper result shape; missing, malformed, expired, or unpaired handoffs are normal non-applicable states.
 - Use request clients built on `@chase-sets/platform-runtime/http` so server-side fetches preserve `Chase-Sets-Read-After-Write`.
@@ -66,7 +66,7 @@ Every helper use in production route modules must be represented in `readAfterWr
 - `source.routeId` or `source.routeIds`: route contribution that creates or refreshes the write.
 - `source.actions`: customer or operator actions that trigger the write.
 - `source.command`: domain command or command family.
-- `source.helperUses`: `navigateAfterWrite`, `navigateAfterWriteFromSources`, or the lower-level `appendFreshWriteToken`, `appendFreshWriteTokenFromSources`, `appendPostWriteHandoff`, `appendPostWriteHandoffFromSources` subset used by a bespoke route.
+- `source.helperUses`: `navigateAfterWrite` or the lower-level `appendFreshWriteToken`, `appendFreshWriteTokenFromSources`, or `appendPostWriteHandoff` subset used by a bespoke route.
 - `destination.routeId`: browser route that performs the post-write read.
 - `destination.apiContextName`: context serving the API read.
 - `destination.apiRoutePath`: route path matching `apiMounts[].readFreshnessRoutes[].routePath`.

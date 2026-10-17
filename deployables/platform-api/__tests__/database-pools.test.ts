@@ -27,6 +27,7 @@ describe("platform api database pools", () => {
         runtimeProfile: "public",
         pools,
         hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
           processorGateway: createFakePaymentProcessorGateway(),
         },
       });
@@ -77,7 +78,7 @@ describe("platform api database pools", () => {
       const runtime = createPlatformApiHost({
         runtimeProfile: "landing",
         pools,
-        hostPorts: {},
+        hostPorts: { capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" } },
       });
       const mountedContextNames = runtime.mountedContexts.map((entry) => entry.contextName);
 

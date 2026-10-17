@@ -17,6 +17,7 @@ export type ShipmentActionName =
   | "complete-packing"
   | "buy-label"
   | "void-label"
+  | "cancel-shipment"
   | "dispatch"
   | "record-delivery"
   | "return"
@@ -72,6 +73,13 @@ const RULES: readonly ShipmentActionRule[] = [
     feedback: "confirmation-gate",
   },
   {
+    action: "cancel-shipment",
+    allowedFrom: ["packing", "awaiting-label"],
+    resultsIn: "cancelled",
+    permission: "fulfillment.manage",
+    feedback: "row-transition",
+  },
+  {
     action: "dispatch",
     allowedFrom: ["label-attached"],
     resultsIn: "dispatched",
@@ -119,13 +127,23 @@ export function isTerminalShipmentStatus(status: ShipmentStatus): boolean {
 export type ShipmentActionLegalityInput = Readonly<{
   status: ShipmentStatus;
   labelStatus?: PostageLabelStatus | null;
+  conflicts?: readonly Readonly<{ conflict_kind: string; origin: string }>[];
 }>;
+
+function hasOrderCancellationConflict(input: ShipmentActionLegalityInput): boolean {
+  return (input.conflicts ?? []).some(
+    (conflict) => conflict.conflict_kind === "cancellation" && conflict.origin === "order-cancelled",
+  );
+}
 
 // Pure legality check. Returns whether the requested action is legal from the given
 // shipment state, without touching the aggregate or any transport.
 export function isShipmentActionAllowed(action: ShipmentActionName, input: ShipmentActionLegalityInput): boolean {
   const rule = SHIPMENT_ACTION_RULES[action];
   if (!rule.allowedFrom.includes(input.status)) {
+    return false;
+  }
+  if (action === "cancel-shipment" && !hasOrderCancellationConflict(input)) {
     return false;
   }
   if (rule.requiresLabelStatus && input.labelStatus !== rule.requiresLabelStatus) {
@@ -142,6 +160,9 @@ export function assertShipmentActionAllowed(action: ShipmentActionName, input: S
     rule.allowedFrom.includes(input.status),
     `Cannot ${action.replaceAll("-", " ")} a shipment that is ${input.status}.`,
   );
+  if (action === "cancel-shipment") {
+    assert(hasOrderCancellationConflict(input), "Cannot cancel shipment without an order cancellation conflict.");
+  }
   if (rule.requiresLabelStatus) {
     assert(
       input.labelStatus === rule.requiresLabelStatus,
@@ -180,7 +201,11 @@ const DISCLOSURE_ORDER: readonly ShipmentActionName[] = ["void-label", "record-d
 // and the MCP facade so they never diverge from the state machine.
 export function resolveShipmentActionPlan(input: ShipmentActionLegalityInput): ShipmentActionPlan {
   const terminal = isTerminalShipmentStatus(input.status);
-  const primaryCandidate = PRIMARY_BY_STATUS[input.status];
+  const primaryCandidate = hasOrderCancellationConflict(input)
+    ? input.status === "label-attached"
+      ? "void-label"
+      : "cancel-shipment"
+    : PRIMARY_BY_STATUS[input.status];
   const primary = primaryCandidate && isShipmentActionAllowed(primaryCandidate, input) ? primaryCandidate : null;
 
   const disclosed = DISCLOSURE_ORDER.filter((action) => action !== primary && isShipmentActionAllowed(action, input));
@@ -195,6 +220,7 @@ export function resolveShipmentActionPlan(input: ShipmentActionLegalityInput): S
 export type ShipmentLifecycleDispatcher = Readonly<{
   startPacking: () => Promise<ShipmentActionResult>;
   completePacking: () => Promise<ShipmentActionResult>;
+  cancelShipment: () => Promise<ShipmentActionResult>;
   dispatch: () => Promise<ShipmentActionResult>;
   recordDelivery: () => Promise<ShipmentActionResult>;
   returnShipment: () => Promise<ShipmentActionResult>;
@@ -219,6 +245,8 @@ export async function executeShipmentAction(
       return dispatcher.startPacking();
     case "complete-packing":
       return dispatcher.completePacking();
+    case "cancel-shipment":
+      return dispatcher.cancelShipment();
     case "dispatch":
       return dispatcher.dispatch();
     case "record-delivery":

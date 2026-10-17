@@ -4,6 +4,8 @@ const requireActorFromAuthApi = vi.fn();
 const listOfferMatches = vi.fn();
 const listSellerListings = vi.fn();
 const getSellerOpenOrderCount = vi.fn();
+const fetchQueue = vi.fn();
+const realOrderingClient = vi.hoisted(() => ({ enabled: false }));
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   requireActorFromAuthApi: (...args: unknown[]) => requireActorFromAuthApi(...args),
@@ -14,11 +16,20 @@ vi.mock("../../request-support/api-client", () => ({
     listSellerListings: (...args: unknown[]) => listSellerListings(...args),
   }),
 }));
-vi.mock("../../request-support/ordering-open-orders-api-client", () => ({
-  createOrderingOpenOrdersRequestApiClient: () => ({
-    getSellerOpenOrderCount: (...args: unknown[]) => getSellerOpenOrderCount(...args),
-  }),
-}));
+vi.mock("../../request-support/ordering-open-orders-api-client", async () => {
+  const actual = await vi.importActual<typeof import("../../request-support/ordering-open-orders-api-client")>(
+    "../../request-support/ordering-open-orders-api-client",
+  );
+  return {
+    ...actual,
+    createOrderingOpenOrdersRequestApiClient: (request: Request) =>
+      realOrderingClient.enabled
+        ? actual.createOrderingOpenOrdersRequestApiClient(request)
+        : { getSellerOpenOrderCount: (...args: unknown[]) => getSellerOpenOrderCount(...args) },
+  };
+});
+
+vi.stubGlobal("fetch", (...args: unknown[]) => fetchQueue(...args));
 
 const { loader } = await import("./account-desk-loader");
 
@@ -28,9 +39,44 @@ function request() {
 
 afterEach(() => {
   vi.clearAllMocks();
+  realOrderingClient.enabled = false;
 });
 
 describe("Seller Desk home loader", () => {
+  it.each([
+    { status: 200, count: 2, expected: 2 },
+    { status: 200, count: 0, expected: 0 },
+    { status: 500, count: 2, expected: null },
+  ])("reads the mounted Ordering route with status $status and count $count", async ({ status, count, expected }) => {
+    realOrderingClient.enabled = true;
+    requireActorFromAuthApi.mockResolvedValue({ accountId: "acct-1" });
+    listOfferMatches.mockResolvedValue({ items: [] });
+    listSellerListings.mockResolvedValue({
+      items: [],
+      statusCounts: { active: 7, draft: 0, paused: 0, withdrawn: 0 },
+    });
+    const queue = { items: [], rollup: { total: 0 }, sources: [], degraded: false };
+    fetchQueue.mockImplementation(async (input: string) => {
+      if (new URL(input).pathname === "/api/marketplace/account/sales/order-capacity") {
+        return Response.json({ open_order_count: count }, { status });
+      }
+      if (new URL(input).pathname === "/api/marketplace/account/seller-attention-queue") {
+        return Response.json(queue);
+      }
+      return Response.json({ error: "not_found" }, { status: 404 });
+    });
+
+    const data = await loader({ request: request() } as Parameters<typeof loader>[0]);
+
+    expect(data.kpis.openOrdersToShip).toBe(expected);
+    expect(data.kpis.activeListings).toBe(7);
+    expect(data.queue).toEqual(queue);
+    expect(fetchQueue).toHaveBeenCalledWith(
+      "https://example.test/api/marketplace/account/sales/order-capacity",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
   it("composes the queue and KPI band from the marketplace reads", async () => {
     requireActorFromAuthApi.mockResolvedValue({ accountId: "acct-1" });
     listOfferMatches.mockResolvedValue({
@@ -50,6 +96,22 @@ describe("Seller Desk home loader", () => {
       statusCounts: { active: 7, draft: 1, paused: 0, withdrawn: 0 },
     });
     getSellerOpenOrderCount.mockResolvedValue(3);
+    fetchQueue.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        items: [{ source: "offer-response" }, { source: "listing-action" }],
+        rollup: {
+          total: 2,
+          bySeverity: { critical: 0, warning: 1, info: 1 },
+          bySource: { "offer-response": 1, "listing-action": 1 },
+        },
+        sources: [
+          { id: "offer-response", status: "available", itemCount: 1, reason: null },
+          { id: "listing-action", status: "available", itemCount: 1, reason: null },
+        ],
+        degraded: false,
+      }),
+    });
 
     const data = await loader({ request: request() } as Parameters<typeof loader>[0]);
 
@@ -62,6 +124,10 @@ describe("Seller Desk home loader", () => {
     expect(data.queue.rollup.total).toBe(2);
     expect(data.queue.items.map((item) => item.source)).toEqual(["offer-response", "listing-action"]);
     expect(data.queue.degraded).toBe(false);
+    expect(fetchQueue).toHaveBeenCalledWith(
+      "https://example.test/api/marketplace/account/seller-attention-queue",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
   });
 
   it("degrades the offer source and the KPI tile when the reads fail", async () => {
@@ -72,6 +138,7 @@ describe("Seller Desk home loader", () => {
       statusCounts: { active: 2, draft: 0, paused: 0, withdrawn: 0 },
     });
     getSellerOpenOrderCount.mockRejectedValue(new Error("ordering down"));
+    fetchQueue.mockRejectedValue(new Error("seller attention queue down"));
 
     const data = await loader({ request: request() } as Parameters<typeof loader>[0]);
 

@@ -1,5 +1,6 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { createPricingCatalogItemSlug } from "../../../../support/runtime-support/slugs";
@@ -12,7 +13,50 @@ type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
 }>;
 
 export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const categoryStatus =
+    (status: string): ProjectorHandlerMap[string] =>
+    async (event) => {
+      await db.query(
+        `UPDATE pricing_catalog_category_inputs SET status = $2, updated_at = $3, last_stream_version = $4
+       WHERE category_id = $1 AND last_stream_version < $4`,
+        [
+          extractIdFromStreamId(event.streamId, "catalog.category-"),
+          status,
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    };
   return {
+    "catalog.category.created": async (event) => {
+      const data = event.data as { categoryId: string; name: string | LocalizedTextMap };
+      await db.query(
+        `INSERT INTO pricing_catalog_category_inputs (category_id, name, status, updated_at, last_stream_version)
+         VALUES ($1, $2, 'draft', $3, $4) ON CONFLICT (category_id) DO NOTHING`,
+        [
+          data.categoryId,
+          resolveLocalizedTextMap(coerceLocalizedTextMap(data.name)),
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "catalog.category.revised": async (event) => {
+      const data = event.data as { name: string | LocalizedTextMap };
+      await db.query(
+        `UPDATE pricing_catalog_category_inputs SET name = $2, updated_at = $3, last_stream_version = $4
+         WHERE category_id = $1 AND last_stream_version < $4`,
+        [
+          extractIdFromStreamId(event.streamId, "catalog.category-"),
+          resolveLocalizedTextMap(coerceLocalizedTextMap(data.name)),
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "catalog.category.published": categoryStatus("active"),
+    "catalog.category.deprecated": categoryStatus("deprecated"),
+    "catalog.category.archived": categoryStatus("archived"),
     "catalog.catalog-item.created": async (event) => {
       const data = event.data as {
         itemId: string;
@@ -140,48 +184,46 @@ async function markPricingInventoryHoldTerminal(
 
 export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "inventory.item.created": async (event) => {
-      const data = event.data as {
-        itemId: string;
-        accountId: string;
-        catalogItemId: string;
-        productId: string;
-        totalQuantity: number;
-        acquisitionCostAmount?: string | null;
-      };
+    ...defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "inventory.item.created">>({
+      "inventory.item.created": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `INSERT INTO pricing_inventory_item_inputs (
+        await db.query(
+          `INSERT INTO pricing_inventory_item_inputs (
            item_id,
            seller_account_id,
            catalog_catalog_item_id,
            product_id,
            total_quantity,
            acquisition_cost_amount,
+           acquisition_cost_currency_code,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (item_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              total_quantity = EXCLUDED.total_quantity,
              acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+             acquisition_cost_currency_code = EXCLUDED.acquisition_cost_currency_code,
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE pricing_inventory_item_inputs.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.itemId,
-          data.accountId,
-          data.catalogItemId,
-          data.productId,
-          data.totalQuantity,
-          data.acquisitionCostAmount ?? null,
-          event.timing.recordedAt,
-          event.streamVersion,
-        ],
-      );
-    },
+          [
+            data.itemId,
+            data.accountId,
+            data.catalogItemId,
+            data.productId,
+            data.totalQuantity,
+            data.acquisitionCostAmount ?? null,
+            data.acquisitionCostCurrencyCode ?? null,
+            event.timing.recordedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+    }),
     "inventory.item.adjusted": async (event) => {
       const data = event.data as {
         itemId: string;
@@ -289,7 +331,25 @@ export function buildPricingInventoryInputProjectionHandlers(db: PgQueryable): P
 }
 
 export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  // Open-Offer inputs read `status = 'submitted'`; buyer Pause/Withdraw drop out and Resume restores.
+  const projectBuyerOfferStatus =
+    (status: "submitted" | "paused" | "withdrawn"): ProjectorHandlerMap[string] =>
+    async (event) => {
+      await db.query(
+        `UPDATE pricing_buyer_offer_inputs
+         SET status = $2,
+             last_stream_version = $3,
+             updated_at = $4
+         WHERE offer_id = $1
+           AND last_stream_version < $3`,
+        [(event.data as { offerId: string }).offerId, status, event.streamVersion, event.timing.recordedAt],
+      );
+    };
+
   return {
+    "marketplace.offer.paused": projectBuyerOfferStatus("paused"),
+    "marketplace.offer.resumed": projectBuyerOfferStatus("submitted"),
+    "marketplace.offer.withdrawn": projectBuyerOfferStatus("withdrawn"),
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
         listingId: string;
@@ -298,6 +358,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         catalogItemId: string;
         productId: string;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityCap: number;
         gradedCard?: unknown | null;
       };
@@ -310,6 +371,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            catalog_catalog_item_id,
            product_id,
            price_amount,
+           price_currency_code,
            quantity_cap,
            status,
            grading,
@@ -317,13 +379,14 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            pause_reason,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft', $8, $9, NULL, $9, $10)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, NULL, $10, $11)
          ON CONFLICT (listing_id) DO UPDATE
          SET seller_account_id = EXCLUDED.seller_account_id,
              inventory_item_id = EXCLUDED.inventory_item_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_cap = EXCLUDED.quantity_cap,
              grading = EXCLUDED.grading,
              created_at = EXCLUDED.created_at,
@@ -338,6 +401,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.catalogItemId,
           data.productId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityCap,
           data.gradedCard ? "graded" : "raw",
           event.timing.recordedAt,
@@ -346,18 +410,20 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
       );
     },
     "marketplace.listing.price-updated": async (event) => {
-      const data = event.data as { priceAmount: string };
+      const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
 
       await db.query(
         `UPDATE pricing_market_listing_inputs
          SET price_amount = $2,
-             updated_at = $3,
-             last_stream_version = $4
+             price_currency_code = $3,
+             updated_at = $4,
+             last_stream_version = $5
          WHERE listing_id = $1
-           AND last_stream_version < $4`,
+           AND last_stream_version < $5`,
         [
           extractIdFromStreamId(event.streamId, "marketplace.listing-"),
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],
@@ -429,6 +495,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         catalogItemId: string;
         productId: string;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityRequested: number;
       };
 
@@ -440,17 +507,19 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            catalog_catalog_item_id,
            product_id,
            price_amount,
+           price_currency_code,
            quantity_requested,
            status,
            accepted_at,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, NULL, $3, $4, $5, $6, 'submitted', NULL, $7, $8)
+         ) VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, 'submitted', NULL, $8, $9)
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_requested = EXCLUDED.quantity_requested,
              status = EXCLUDED.status,
              accepted_at = EXCLUDED.accepted_at,
@@ -463,7 +532,28 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.catalogItemId,
           data.productId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityRequested,
+          event.timing.recordedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "marketplace.offer.price-updated": async (event) => {
+      const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
+
+      await db.query(
+        `UPDATE pricing_buyer_offer_inputs
+         SET price_amount = $2,
+             price_currency_code = $3,
+             updated_at = $4,
+             last_stream_version = $5
+         WHERE offer_id = $1
+           AND last_stream_version < $5`,
+        [
+          extractIdFromStreamId(event.streamId, "marketplace.offer-"),
+          data.priceAmount,
+          data.priceCurrencyCode ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],
@@ -477,6 +567,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
         catalogItemId: string;
         productId: string;
         priceAmount: string;
+        priceCurrencyCode?: string | null;
         quantityRequested: number;
         acceptedAt: string;
       };
@@ -489,18 +580,20 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
            catalog_catalog_item_id,
            product_id,
            price_amount,
+           price_currency_code,
            quantity_requested,
            status,
            accepted_at,
            updated_at,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'accepted', $8, $8, $9)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'accepted', $9, $9, $10)
          ON CONFLICT (offer_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
              product_id = EXCLUDED.product_id,
              price_amount = EXCLUDED.price_amount,
+             price_currency_code = EXCLUDED.price_currency_code,
              quantity_requested = EXCLUDED.quantity_requested,
              status = EXCLUDED.status,
              accepted_at = EXCLUDED.accepted_at,
@@ -514,6 +607,7 @@ export function buildPricingMarketplaceInputProjectionHandlers(db: PgQueryable):
           data.catalogItemId,
           data.productId,
           data.priceAmount,
+          data.priceCurrencyCode ?? null,
           data.quantityRequested,
           data.acceptedAt,
           event.streamVersion,
@@ -619,24 +713,17 @@ export function buildPricingOrderingInputProjectionHandlers(db: PgQueryable): Pr
 
 export function buildPricingFulfillmentInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "fulfillment.shipment.created": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        orderId: string;
-        lines: Array<{
-          lineId: string;
-          catalogItemId: string;
-          productId: string;
-          quantity: number;
-        }>;
-        createdAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "fulfillment.shipment.created" | "fulfillment.shipment.delivered">
+    >({
+      "fulfillment.shipment.created": async (event) => {
+        const { data } = event;
 
-      await db.query(`DELETE FROM pricing_fulfillment_signal_lines WHERE shipment_id = $1`, [data.shipmentId]);
+        await db.query(`DELETE FROM pricing_fulfillment_signal_lines WHERE shipment_id = $1`, [data.shipmentId]);
 
-      for (const line of data.lines) {
-        await db.query(
-          `INSERT INTO pricing_fulfillment_signal_lines (
+        for (const line of data.lines) {
+          await db.query(
+            `INSERT INTO pricing_fulfillment_signal_lines (
              shipment_id,
              line_id,
              order_id,
@@ -659,33 +746,31 @@ export function buildPricingFulfillmentInputProjectionHandlers(db: PgQueryable):
                delivered_at = EXCLUDED.delivered_at,
                returned_at = EXCLUDED.returned_at,
                updated_at = EXCLUDED.updated_at`,
-          [
-            data.shipmentId,
-            line.lineId,
-            data.orderId,
-            line.catalogItemId,
-            line.productId,
-            line.quantity,
-            data.createdAt,
-          ],
-        );
-      }
-    },
-    "fulfillment.shipment.delivered": async (event) => {
-      const data = event.data as {
-        shipmentId: string;
-        deliveredAt: string;
-      };
+            [
+              data.shipmentId,
+              line.lineId,
+              data.orderId,
+              line.catalogItemId,
+              line.productId,
+              line.quantity,
+              data.createdAt,
+            ],
+          );
+        }
+      },
+      "fulfillment.shipment.delivered": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE pricing_fulfillment_signal_lines
+        await db.query(
+          `UPDATE pricing_fulfillment_signal_lines
          SET status = 'delivered',
              delivered_at = $2,
              updated_at = $2
          WHERE shipment_id = $1`,
-        [data.shipmentId, data.deliveredAt],
-      );
-    },
+          [data.shipmentId, data.deliveredAt],
+        );
+      },
+    }),
     "fulfillment.shipment.returned": async (event) => {
       const data = event.data as {
         shipmentId: string;

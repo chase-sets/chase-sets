@@ -41,7 +41,7 @@ export function ActorIdentityCue({
   if (variant === "panel") {
     return (
       <div className={className}>
-        <Card>
+        <Card elevation="tinted">
           <div className="space-y-4">
             <div className="max-w-3xl space-y-1">
               <div className="font-heading text-lg font-semibold text-foreground">{title}</div>

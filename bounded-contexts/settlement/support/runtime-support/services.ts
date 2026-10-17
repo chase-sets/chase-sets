@@ -12,6 +12,9 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import { createWalletRuntime } from "../../features/wallets/api/runtime";
 import type { NegativeBalancePolicy } from "../../features/wallets/api/runtime";
 import { createWalletAdjustmentRuntime } from "../../features/wallets/api/wallet-adjustment-runtime";
+import { createStagingProofCreditRuntime } from "../../features/wallets/api/staging-proof-credit-runtime";
+import { guardStagingProofPolicy } from "../../features/wallets/api/staging-proof-policy";
+import type { DeploymentEnvironment } from "@chase-sets/platform-runtime/config-schema";
 import { createProtectionCoverageRuntime } from "../../features/protection-coverage/api/protection-coverage-runtime";
 import { createSupportHoldLifecycleRuntime } from "../../features/wallets/integrations/support-hold-lifecycle/support-hold-lifecycle-runtime";
 import { createPayoutRuntime } from "../../features/payouts/api/runtime";
@@ -22,8 +25,12 @@ import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../features/payouts/api/runtime";
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
+import type { MarketplaceLabelPostageActivation } from "../../features/wallets/integrations/fulfillment-source/label-postage-policy";
 
 export type SettlementHostPorts = Readonly<{
+  deploymentEnvironment?: DeploymentEnvironment;
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
+  evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   moneyMovementGateway?: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
   notificationOutbox?: NotificationOutbox;
@@ -38,19 +45,22 @@ export type SettlementHostPorts = Readonly<{
    */
   sensitiveActionVerifier?: SensitiveActionVerifier;
   webhookTelemetry?: ProviderWebhookTelemetry;
+  marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation;
 }>;
 
 export type SettlementServices = Readonly<{
   wallets: ReturnType<typeof createWalletRuntime>;
   walletAdjustments: ReturnType<typeof createWalletAdjustmentRuntime>;
+  stagingProofCredits: ReturnType<typeof createStagingProofCreditRuntime>;
   protectionCoverage: ReturnType<typeof createProtectionCoverageRuntime>;
   supportHoldLifecycle: ReturnType<typeof createSupportHoldLifecycleRuntime>;
   payouts: ReturnType<typeof createPayoutRuntime>;
   payoutReadiness: ReturnType<typeof createPayoutReadinessRuntime>;
   liabilityReconciliation: ReturnType<typeof createLiabilityReconciliationRuntime>;
   accountLinkage: ReturnType<typeof createAccountLinkageRuntime>;
-  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents (clearance window, payout bounds). */
+  /** The shared platform-policy runtime, mounted for this context's `definePolicy` documents. */
   policies: PolicyRuntime;
+  marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -92,7 +102,12 @@ export function createSettlementServices(
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const moneyMovementGateway = ports.moneyMovementGateway ?? createMissingMoneyMovementGateway();
   const operationsRecorder = ports.operationsRecorder ?? createNoopSettlementOperationsRecorder();
-  const policies = createPolicyRuntime({ eventStore, db });
+  const policies = guardStagingProofPolicy(createPolicyRuntime({ eventStore, db }));
+  const stagingProofCredits = createStagingProofCreditRuntime({
+    eventStore,
+    policies,
+    deploymentEnvironment: ports.deploymentEnvironment,
+  });
   const wallets = createWalletRuntime({
     eventStore,
     checkpointStore,
@@ -105,6 +120,7 @@ export function createSettlementServices(
   const protectionCoverage = createProtectionCoverageRuntime({ eventStore, db, operationsRecorder });
   const supportHoldLifecycle = createSupportHoldLifecycleRuntime({ eventStore });
   const payoutReadiness = createPayoutReadinessRuntime({
+    evidenceWindowCorrelation: ports.evidenceWindowCorrelation,
     eventStore,
     checkpointStore,
     db,
@@ -132,6 +148,7 @@ export function createSettlementServices(
 
   return {
     wallets,
+    stagingProofCredits,
     walletAdjustments,
     protectionCoverage,
     supportHoldLifecycle,
@@ -140,6 +157,9 @@ export function createSettlementServices(
     liabilityReconciliation,
     accountLinkage,
     policies,
+    ...(ports.marketplaceLabelPostageActivation
+      ? { marketplaceLabelPostageActivation: ports.marketplaceLabelPostageActivation }
+      : {}),
     projectors: [
       ...wallets.projectors,
       ...protectionCoverage.projectors,

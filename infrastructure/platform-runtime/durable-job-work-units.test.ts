@@ -1,7 +1,105 @@
 import { describe, expect, it } from "vitest";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobWorkUnitStore, durableJobWorkUnitSchemaSql } from "./durable-job-work-units";
 
 describe("durable job work units", () => {
+  it("a missing checkpoint claim never calls the page writer or writes progress", async () => {
+    const calls: string[] = [];
+    let written = false;
+    const store = createPostgresDurableJobWorkUnitStore(
+      {
+        query: async (sql: string) => {
+          calls.push(sql);
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      { jobsTable: "jobs", eventsTable: "events", workUnitsTable: "units" },
+      { workflowName: "test" },
+    );
+    expect(
+      await store.checkpoint({
+        jobId: "job_1",
+        unitId: "unit_1",
+        claimOwnerId: "owner",
+        claimToken: "stale",
+        claimTtlMs: 30_000,
+        resolveProgress: async () => {
+          written = true;
+          return {};
+        },
+      }),
+    ).toBeNull();
+    expect(written).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("unit.claim_token = $4");
+    expect(calls[0]).toContain("FOR UPDATE OF unit, job");
+  });
+
+  it("a checkpoint callback failure rolls back the supplied page transaction without committing", async () => {
+    const calls: string[] = [];
+    let released = false;
+    const client = {
+      release: () => {
+        released = true;
+      },
+      query: async (sql: string) => {
+        calls.push(sql);
+        return { rows: sql.includes("SELECT job.progress") ? [{ progress: { completed: 0 } }] : [], rowCount: 1 };
+      },
+    };
+    const pool: PgTransactionalPool = { query: client.query, connect: async () => client };
+    const store = createPostgresDurableJobWorkUnitStore(
+      pool,
+      { jobsTable: "jobs", eventsTable: "events", workUnitsTable: "units" },
+      { workflowName: "test" },
+    );
+    await expect(
+      store.checkpoint({
+        jobId: "job_1",
+        unitId: "unit_1",
+        claimOwnerId: "owner",
+        claimToken: "token",
+        claimTtlMs: 30_000,
+        resolveProgress: async (db) => {
+          expect(db).toBe(client);
+          await db.query("synthetic page write");
+          throw new Error("page failed");
+        },
+      }),
+    ).rejects.toThrow("page failed");
+    expect(calls).toContain("BEGIN");
+    expect(calls).toContain("ROLLBACK");
+    expect(calls).not.toContain("COMMIT");
+    expect(released).toBe(true);
+  });
+
+  it("reactivation refuses a changed payload/state fence without mutating the retained unit", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresDurableJobWorkUnitStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      { jobsTable: "jobs", eventsTable: "events", workUnitsTable: "units" },
+      { workflowName: "test" },
+    );
+    expect(
+      await store.requeueFailed({
+        jobId: "job_1",
+        unitId: "unit_1",
+        expectedPayload: { validatorVersion: 1 },
+        expectedProgress: {},
+        payload: { validatorVersion: 2 },
+        progress: {},
+      }),
+    ).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain("job.payload = $3::jsonb");
+    expect(calls[0].sql).toContain("job.status = 'failed'");
+    expect(calls[0].sql).toContain("unit.state = 'failed'");
+  });
   it("defines context-owned work-unit tables with claim indexes", () => {
     const sql = durableJobWorkUnitSchemaSql({
       jobsTable: "catalog_source_observation_bulk_review_jobs",

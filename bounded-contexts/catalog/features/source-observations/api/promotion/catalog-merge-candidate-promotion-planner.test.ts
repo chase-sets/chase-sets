@@ -5,11 +5,33 @@ import type { CatalogMergeCandidateReviewSnapshot } from "../../domain/catalog-m
 import {
   planCatalogMergeCandidatePromotionCommands,
   type CatalogMergeCandidatePromotionCatalogMapping,
+  type CatalogMergeCandidatePromotionPlanInput,
 } from "./catalog-merge-candidate-promotion-planner";
+import {
+  createSyntheticDisplayIdentityQueryable,
+  syntheticCurrentCatalogItem,
+  type SyntheticDisplayIdentityFixture,
+} from "../seeding/synthetic-display-identity-queryable";
+
+// Every plan here runs the validated entry against SYNTHETIC display identity
+// data: a resolving global title template plus a draft current item for the
+// matched Catalog Item. Identity-degradation cases build their own fixtures.
+function planPromotion(
+  input: CatalogMergeCandidatePromotionPlanInput & Readonly<{ promoteAsDraft?: boolean }>,
+  displayIdentity: SyntheticDisplayIdentityFixture = {},
+) {
+  return planCatalogMergeCandidatePromotionCommands({
+    db: createSyntheticDisplayIdentityQueryable({
+      currentItems: [syntheticCurrentCatalogItem({ catalog_item_id: "cat_existing" })],
+      ...displayIdentity,
+    }),
+    ...input,
+  });
+}
 
 describe("Catalog Merge Candidate promotion planner", () => {
-  it("plans a previewable Catalog Item create with field provenance and separated external references", () => {
-    const result = planCatalogMergeCandidatePromotionCommands({
+  it("plans a previewable Catalog Item create with field provenance and separated external references", async () => {
+    const result = await planPromotion({
       candidate: {
         candidateId: "cand_charizard",
         status: "ready",
@@ -102,12 +124,12 @@ describe("Catalog Merge Candidate promotion planner", () => {
     });
   });
 
-  it("plans approved update/reapply against the matched Catalog Item without creating a duplicate", () => {
+  it("plans approved update/reapply against the matched Catalog Item without creating a duplicate", async () => {
     const snapshot = candidateSnapshot({
       matches: { catalogItemId: "cat_existing", productIds: ["prod_existing_holofoil"] },
       promotionIntent: "update-catalog-item",
     });
-    const first = planCatalogMergeCandidatePromotionCommands({
+    const first = await planPromotion({
       candidate: { candidateId: "cand_charizard", status: "promoted", snapshot },
       catalog: catalogMapping(),
       resolvedConflicts: [
@@ -120,7 +142,7 @@ describe("Catalog Merge Candidate promotion planner", () => {
         },
       ],
     });
-    const reapplied = planCatalogMergeCandidatePromotionCommands({
+    const reapplied = await planPromotion({
       candidate: { candidateId: "cand_charizard", status: "promoted", snapshot },
       catalog: catalogMapping(),
       resolvedConflicts: [
@@ -162,8 +184,8 @@ describe("Catalog Merge Candidate promotion planner", () => {
     expect(reapplied.plan.promotableChange).toEqual(first.plan.promotableChange);
   });
 
-  it("blocks candidates with ambiguity or unresolved Product reference selection", () => {
-    const result = planCatalogMergeCandidatePromotionCommands({
+  it("blocks candidates with ambiguity or unresolved Product reference selection", async () => {
+    const result = await planPromotion({
       candidate: {
         candidateId: "cand_blocked",
         status: "has-conflicts",
@@ -203,8 +225,8 @@ describe("Catalog Merge Candidate promotion planner", () => {
     });
   });
 
-  it("blocks when the same provider key is proposed at Catalog Item and Product reference levels", () => {
-    const result = planCatalogMergeCandidatePromotionCommands({
+  it("blocks when the same provider key is proposed at Catalog Item and Product reference levels", async () => {
+    const result = await planPromotion({
       candidate: {
         candidateId: "cand_reference_conflict",
         status: "ready",
@@ -230,8 +252,8 @@ describe("Catalog Merge Candidate promotion planner", () => {
     });
   });
 
-  it("blocks ambiguous duplicate external references before command planning", () => {
-    const result = planCatalogMergeCandidatePromotionCommands({
+  it("blocks ambiguous duplicate external references before command planning", async () => {
+    const result = await planPromotion({
       candidate: {
         candidateId: "cand_duplicate_refs",
         status: "ready",
@@ -269,8 +291,8 @@ describe("Catalog Merge Candidate promotion planner", () => {
     });
   });
 
-  it("blocks update planning when a ready candidate does not carry exactly one Catalog Item target", () => {
-    const result = planCatalogMergeCandidatePromotionCommands({
+  it("blocks update planning when a ready candidate does not carry exactly one Catalog Item target", async () => {
+    const result = await planPromotion({
       candidate: {
         candidateId: "cand_missing_target",
         status: "ready",
@@ -285,6 +307,140 @@ describe("Catalog Merge Candidate promotion planner", () => {
     expect(result).toMatchObject({
       status: "blocked",
       diagnostics: [expect.objectContaining({ code: "missing-catalog-item-target" })],
+    });
+  });
+
+  describe("display identity validation before commands", () => {
+    // Blueprint template needing the mapped expansion reference's code attribute.
+    const template = {
+      key: "pokemon-card-title",
+      target_kind: "blueprint" as const,
+      target_id: "bp_pokemon_card",
+      priority: 10,
+      title_template: "{field.card-name} {field.card-number} {reference.expansion.attributes.code}",
+      subtitle_template: null,
+      required_field_keys: ["card-name"],
+    };
+    const fields = [
+      { field_id: "field_card_name", key: "card-name" },
+      { field_id: "field_card_number", key: "card-number" },
+      { field_id: "field_expansion", key: "expansion" },
+    ];
+    const expansion = (attributes: Readonly<Record<string, unknown>>) => ({
+      reference_record_id: "ref_expansion_pal",
+      type_key: "expansion",
+      key: "sv02",
+      name: "Paldea Evolved",
+      attributes,
+      relationships: [],
+      status: "active",
+    });
+    const createCandidate = {
+      candidate: { candidateId: "cand_charizard", status: "ready" as const, snapshot: candidateSnapshot() },
+      createCatalogItemId: "cat_charizard" as CatalogItemId,
+      catalog: catalogMapping(),
+    };
+
+    it("produces no publishable command and a deterministic diagnostic for a degraded proposed identity", async () => {
+      const result = await planPromotion(createCandidate, {
+        fields,
+        templates: [template],
+        referenceRecords: [expansion({})],
+      });
+      const again = await planPromotion(createCandidate, {
+        fields,
+        templates: [template],
+        referenceRecords: [expansion({})],
+      });
+
+      expect(result).toEqual({
+        status: "blocked",
+        plan: null,
+        diagnostics: [
+          {
+            code: "display-identity-unresolvable",
+            path: "displayIdentity",
+            diagnosticText: "Matched template has unresolved title tokens.",
+            displayIdentity: {
+              missingTokens: ["reference.expansion.attributes.code"],
+              templateKey: "pokemon-card-title",
+              templateTargetKind: "blueprint",
+              templateTargetId: "bp_pokemon_card",
+              templateReason: "unresolved-title-tokens",
+            },
+          },
+        ],
+      });
+      expect(again).toEqual(result);
+    });
+
+    it("re-plans to a normal publishable path once the reference data is repaired, or as draft only by explicit choice", async () => {
+      const degraded = { fields, templates: [template], referenceRecords: [expansion({})] };
+      const repaired = { fields, templates: [template], referenceRecords: [expansion({ code: "PAL" })] };
+      const blocked = await planPromotion(createCandidate, degraded);
+      const draft = await planPromotion({ ...createCandidate, promoteAsDraft: true }, degraded);
+      const afterRepair = await planPromotion(createCandidate, repaired);
+
+      expect(blocked.status).toBe("blocked");
+      expect(draft.status).toBe("planned");
+      expect(draft.plan?.promoteAsDraft).toBe(true);
+      expect(draft.diagnostics).toHaveLength(1);
+      expect(afterRepair.status).toBe("planned");
+      expect(afterRepair.diagnostics).toEqual([]);
+      expect(afterRepair.plan?.displayIdentity).toMatchObject({ resolutionStatus: "resolved", missingTokens: [] });
+      expect(afterRepair.plan?.planFingerprint).not.toBe(draft.plan?.planFingerprint);
+    });
+
+    it("validates link-existing against the unchanged current Catalog Item", async () => {
+      const snapshot = candidateSnapshot({
+        matches: { catalogItemId: "cat_existing", productIds: [] },
+        promotionIntent: "link-existing-catalog-item",
+      });
+      const linkExisting = {
+        candidate: { candidateId: "cand_link", status: "ready" as const, snapshot },
+        catalog: catalogMapping(),
+      };
+      const resolvedCurrent = await planPromotion(linkExisting, {
+        fields,
+        templates: [template],
+        referenceRecords: [expansion({ code: "PAL" })],
+        currentItems: [
+          syntheticCurrentCatalogItem({
+            catalog_item_id: "cat_existing",
+            blueprint_id: "bp_pokemon_card",
+            field_values: [
+              { fieldId: "field_card_name", value: "Current name" },
+              { fieldId: "field_card_number", value: "54" },
+              { fieldId: "field_expansion", value: { referenceId: "ref_expansion_pal" } },
+            ],
+          }),
+        ],
+      });
+      // The proposal carries the same facts, but link-existing never overlays
+      // them: the current item without the expansion field stays degraded.
+      const degradedCurrent = await planPromotion(linkExisting, {
+        fields,
+        templates: [template],
+        referenceRecords: [expansion({ code: "PAL" })],
+        currentItems: [
+          syntheticCurrentCatalogItem({
+            catalog_item_id: "cat_existing",
+            blueprint_id: "bp_pokemon_card",
+            field_values: [{ fieldId: "field_card_name", value: "Current name" }],
+          }),
+        ],
+      });
+
+      expect(resolvedCurrent.status).toBe("planned");
+      expect(resolvedCurrent.plan?.commands.map((command) => command.type)).not.toContain("SetCatalogItemFieldValue");
+      expect(degradedCurrent.status).toBe("blocked");
+      expect(degradedCurrent.diagnostics[0]).toMatchObject({
+        code: "display-identity-unresolvable",
+        displayIdentity: {
+          missingTokens: ["field.card-number", "reference.expansion.attributes.code"],
+          templateReason: "unresolved-title-tokens",
+        },
+      });
     });
   });
 });

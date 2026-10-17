@@ -3,6 +3,8 @@
   "packageName": "@chase-sets/marketplace",
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
   "ownedNouns": [
+    "offer-policy",
+    "channel-inbound-clamp",
     "listing",
     "listing-evidence-policy",
     "offer",
@@ -15,7 +17,17 @@
   ],
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["listing-evidence-policy", "listings", "offers", "reports", "reviews", "seller-desk", "seller-metrics"],
+  "slices": [
+    "offer-policy",
+    "channel-inbound-clamp",
+    "listing-evidence-policy",
+    "listings",
+    "offers",
+    "reports",
+    "reviews",
+    "seller-desk",
+    "seller-metrics"
+  ],
   "allowedSupportDirectories": [
     "request-support",
     "realtime-support",
@@ -24,11 +36,18 @@
     "seed-support",
     "ui-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
+  "publicExports": [
+    ".",
+    "./context",
+    "./routes/*",
+    "./seed-support/*",
+    "./server",
+    "./web",
+    "./integration/link-intents"
+  ],
   "allowedContextDependencies": [
     "@chase-sets/commercial-terms",
     "@chase-sets/customer-feedback",
-    "@chase-sets/identity",
     "@chase-sets/inventory"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory"],
@@ -45,6 +64,8 @@
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived",
         "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed",
         "catalog.catalog-item.category-assigned",
         "catalog.catalog-item.category-removed",
         "catalog.blueprint.created",
@@ -87,7 +108,11 @@
       "projectionName": "marketplace-listing-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 21,
       "projectionHandlerSetNames": ["marketplace-listing-projection"]
     },
@@ -111,6 +136,7 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
@@ -265,6 +291,30 @@
   "eventReactions": [
     {
       "sourceContextName": "platform-operations",
+      "reactionName": "marketplace-listing-moderation-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["platform-operations.reported-content.listing-removal-directed"],
+      "order": 95,
+      "reactionHandlerSetNames": ["marketplace-listing-moderation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "pricing",
+      "reactionName": "marketplace-managed-offer-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["pricing.market-price.estimated"],
+      "order": 94,
+      "reactionHandlerSetNames": ["marketplace-managed-offer-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "platform-operations",
       "reactionName": "marketplace-review-hold-reaction",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
@@ -310,6 +360,38 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "marketplace-listing-moderation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["platform-operations"],
+      "ownedTables": [],
+      "includeInBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-managed-offer-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-managed-offer-projection",
+      "projectionRevision": 2,
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_managed_offer_work", "marketplace_managed_offer_audit"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "marketplace-offer-policy-projection",
+      "projectionRevision": 2,
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_buyer_offer_policy_pages", "marketplace_buyer_offer_policy_memberships"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "marketplace-catalog-item-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": [
@@ -350,6 +432,7 @@
     },
     {
       "projectionName": "marketplace-offer-projection",
+      "projectionRevision": 4,
       "sourceContextNames": ["marketplace"],
       "ownedTables": [
         "marketplace_offer_pages",
@@ -477,6 +560,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "managedOfferPricing",
+      "providedBy": "pricing",
+      "purpose": "Evaluate current buyer Offer targets through Pricing's public boundary without Marketplace querying Pricing storage."
+    },
+    {
       "portName": "sellerAttentionSources",
       "providedBy": "platform-api",
       "purpose": "Compose Seller Desk attention sources published by Inventory, Fulfillment, and Settlement without querying their storage from Marketplace."
@@ -489,12 +577,12 @@
     {
       "portName": "listingPhotoStorage",
       "providedBy": "platform-api",
-      "purpose": "Store normalized Marketplace Listing Photo WebP assets in the environment asset bucket without making Marketplace own object-storage infrastructure."
+      "purpose": "Store normalized Marketplace Listing Photo WebP assets and read retained sources for authenticated JPEG downloads without making Marketplace own object-storage infrastructure."
     },
     {
       "portName": "rateLimitPolicyResolver",
       "providedBy": "platform-operations",
-      "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous listing-draft capture and the public standard-terms preview without Marketplace querying Platform Operations storage."
+      "purpose": "Resolve the runtime-configurable rate-limit policy for anonymous listing-draft capture, public standard-terms preview, and authenticated Listing Photo JPEG downloads without Marketplace querying Platform Operations storage."
     },
     {
       "portName": "notificationOutbox",
@@ -602,6 +690,12 @@
             },
             {
               "readModelTable": "marketplace_offer_seller_declines"
+            },
+            {
+              "readModelTable": "marketplace_buyer_offer_policy_pages"
+            },
+            {
+              "readModelTable": "marketplace_managed_offer_audit"
             }
           ]
         },
@@ -617,6 +711,12 @@
             },
             {
               "readModelTable": "marketplace_offer_seller_declines"
+            },
+            {
+              "readModelTable": "marketplace_buyer_offer_policy_pages"
+            },
+            {
+              "readModelTable": "marketplace_managed_offer_audit"
             }
           ]
         },
@@ -674,6 +774,10 @@
       },
       {
         "name": "marketplace.submit-offer",
+        "ownerSlice": "offers"
+      },
+      {
+        "name": "marketplace.update-offer-price",
         "ownerSlice": "offers"
       },
       {
@@ -1041,24 +1145,20 @@
         "p99Ms": 5000
       },
       "source": {
-        "routeIds": ["account-offer-match", "account-offer-matches"],
-        "actions": ["Decline offer match", "Mute offer buyer", "Unmute offer buyer"],
-        "command": "Marketplace offer seller-control commands",
+        "routeIds": ["account-offer-match"],
+        "actions": ["Decline offer match"],
+        "command": "DeclineOfferMatch",
         "helperUses": ["navigateAfterWrite"]
       },
       "destination": {
         "routeId": "account-offer-matches",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/offers/matches",
-        "readModelTables": [
-          "marketplace_offer_pages",
-          "marketplace_offer_seller_controls",
-          "marketplace_offer_seller_declines"
-        ],
+        "readModelTables": ["marketplace_offer_pages", "marketplace_offer_seller_declines"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Decline and mute offer-match actions redirect to Offer Matches with a Marketplace commit receipt; the list loader waits on offer seller-control projections before rendering the seller's remaining matches."
+          "behavior": "Decline offer-match actions redirect to Offer Matches with a Marketplace commit receipt; the list loader waits on Offer Decline projections before rendering the seller's remaining matches."
         }
       }
     },
@@ -1119,6 +1219,30 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "marketplace.offer-policy-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offer-policy/api/route.ts:POST /:id/commands",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H866d6ce86bc5#1",
+        "route-action:bounded-contexts/marketplace/routes/account-offers-submitted.tsx",
+        "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:H0093c9d7d3b9#1",
+        "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx:Hd927c539992e#1"
+      ],
+      "visibleDestination": {
+        "description": "Submitted Offer list/detail controls render the authoritative command or detail snapshot, stream version and exact preview. Route revalidation refreshes Offer summaries but never replaces the reviewed policy snapshot with a projected list row."
+      },
+      "proof": {
+        "authoritativeResponse": "The runtime folds committed events into the loaded aggregate, or reloads authoritative state for an exact operation retry. Detail reads also load the stream; lists are explicitly projected summaries.",
+        "tests": [
+          "bounded-contexts/marketplace/features/offer-policy/api/route.test.ts",
+          "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+        ]
+      }
+    },
+    {
       "id": "marketplace.listing-api-client-command-snapshots",
       "owner": "marketplace",
       "risk": "important",
@@ -1128,10 +1252,10 @@
         "api-client:bounded-contexts/marketplace/client.ts:POST H5299f933f64b#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST Hc5a69ee641c4#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H59449737c72f#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H717d12dd6ee0#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Ha89eae8adbd2#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H89eae60aa986#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H9128ca46a67f#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H94718dd21134#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Hd04fea5e8409#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H98464d79b40c#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H9b81d7eb5cbd#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H55d128bee0de#1",
@@ -1250,15 +1374,38 @@
       "surfaces": [
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/accept",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/decline",
-        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/matches/:id/mute-buyer",
-        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/mutes/:listingId/:buyerAccountId/unmute",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:PATCH /offers/submitted/:id/price",
         "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted"
       ],
       "visibleDestination": {
-        "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer, accepted-offer, declined-offer, and muted-buyer browser destinations use the receipt for fresh offer reads."
+        "description": "Offer API commands return command-owned id/version/status snapshots; submitted-offer, accepted-offer, and declined-offer browser destinations use the receipt for fresh offer reads."
       },
       "proof": {
-        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted, AcceptOffer returns id/version/status=accepted, DeclineOfferMatch returns id/version/status=declined, and MuteBuyerOffers returns id/version/status=muted directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "authoritativeResponse": "SubmitOffer returns id/version/status=submitted, UpdateOfferPrice returns id/version and the command result's status (a paused Offer stays paused), AcceptOffer returns id/version/status=accepted, and DeclineOfferMatch returns id/version/status=declined directly from the command result; stale fee quote failures return the current quote snapshot instead of rendering stale acceptance terms.",
+        "tests": [
+          "bounded-contexts/marketplace/features/offers/api/route.test.ts",
+          "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
+          "bounded-contexts/marketplace/tests/account-offers-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "marketplace.offer-lifecycle-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/:id/pause",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/:id/resume",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/:id/withdraw",
+        "api-route:bounded-contexts/marketplace/features/offers/api/route.ts:POST /offers/submitted/bulk",
+        "fetcher-submit:bounded-contexts/marketplace/features/offers/ui/submitted-offer-lifecycle.tsx:H8e231ba234d8#1"
+      ],
+      "visibleDestination": {
+        "description": "Buyer Pause, Resume and Withdraw return the command result's id, version, status and changed/unchanged outcome per Offer; bulk returns one outcome per requested row. Submitted Offer list and detail show that status until the projected row reaches the same stream version, and list realtime patches revalidate per-status counts."
+      },
+      "proof": {
+        "authoritativeResponse": "changeOfferLifecycle folds the decided lifecycle event into the loaded Offer aggregate and returns its status and version; rejected rows carry not_found, offer_transition_rejected or offer_conflict without a write. Until the host admits lifecycle changes, every producer refuses with 503 offer_lifecycle_closed before any write.",
         "tests": [
           "bounded-contexts/marketplace/features/offers/api/route.test.ts",
           "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
@@ -1273,24 +1420,16 @@
       "strategy": "fresh-read",
       "surfaces": [
         "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-detail-page.tsx:H2df726441e2a#4",
-        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#3",
-        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#4",
-        "route-action:bounded-contexts/marketplace/routes/account-offer-matches.tsx"
+        "post-form:bounded-contexts/marketplace/features/offers/ui/offer-match-list-page.tsx:H2df726441e2a#2"
       ],
       "visibleDestination": {
         "routeId": "account-offer-matches",
         "apiContextName": "marketplace",
         "apiRoutePath": "/account/offers/matches",
-        "readModelTables": [
-          "marketplace_offer_pages",
-          "marketplace_offer_seller_controls",
-          "marketplace_offer_seller_declines"
-        ],
+        "readModelTables": ["marketplace_offer_pages", "marketplace_offer_seller_declines"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Decline and mute offer-match forms redirect to Offer Matches with a Marketplace commit receipt; the list loader forwards afterWrite to the offer match read so seller controls hide declined or muted matches only after the offer projection catches up."
+          "behavior": "Decline offer-match forms redirect to Offer Matches with a Marketplace commit receipt; the list loader forwards afterWrite to the Offer Match read so declined Offers are hidden only after the Offer projection catches up."
         }
       },
       "proof": {
@@ -1426,7 +1565,7 @@
       "risk": "important",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H2df726441e2a#1",
+        "post-form:bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx:H569cfee4bbc9#1",
         "route-action:bounded-contexts/marketplace/routes/account-listings-new.tsx"
       ],
       "visibleDestination": {
@@ -1596,6 +1735,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "listing-evidence-policy": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -1618,98 +1760,372 @@
           "routePath": "account/desk",
           "fileExport": "./routes/account-desk",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-listing",
           "routePath": "account/listings/:listingId",
           "fileExport": "./routes/account-listing",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-listings",
           "routePath": "account/listings",
           "fileExport": "./routes/account-listings",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-listings-new",
           "routePath": "account/listings/new",
           "fileExport": "./routes/account-listings-new",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-offer-match",
           "routePath": "account/offers/matches/:offerId",
           "fileExport": "./routes/account-offer-match",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-offer-matches",
           "routePath": "account/offers/matches",
           "fileExport": "./routes/account-offer-matches",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-offer-submitted",
           "routePath": "account/offers/submitted/:offerId",
           "fileExport": "./routes/account-offer-submitted",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-offers-submitted",
           "routePath": "account/offers/submitted",
           "fileExport": "./routes/account-offers-submitted",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-purchase-review",
           "routePath": "account/purchases/:purchaseId/review",
           "fileExport": "./routes/marketplace/account-purchase-review",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-received-reviews",
           "routePath": "account/reviews/received",
           "fileExport": "./routes/marketplace/account-received-reviews",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-review-summary",
           "routePath": "account/reviews",
           "fileExport": "./routes/marketplace/account-review-summary",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-review",
           "routePath": "account/reviews/:reviewId",
           "fileExport": "./routes/marketplace/account-review",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-sale-review",
           "routePath": "account/sales/:orderId/review",
           "fileExport": "./routes/marketplace/account-sale-review",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
         },
         {
           "routeId": "account-written-reviews",
           "routePath": "account/reviews/written",
           "fileExport": "./routes/marketplace/account-written-reviews",
           "routeType": "route",
-          "sourceContext": "marketplace"
+          "sourceContext": "marketplace",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "marketplace",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }
@@ -1718,14 +2134,41 @@
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
       "key": "seller-desk",
       "label": "Seller Desk",
       "icon": "dashboard",
       "href": "/account/desk",
       "order": 110,
       "visibility": "signed-in",
-      "requiredPermissions": ["listings.view"]
+      "requiredPermissions": ["listings.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "selling-workspace",
+      "label": "Sell",
+      "labelKey": "marketplace.shell.sellingWorkspace.label",
+      "icon": "store",
+      "order": 800,
+      "visibility": "signed-in",
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"],
+      "children": []
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "selling-workspace",
+      "label": "Sell",
+      "labelKey": "marketplace.shell.sellingWorkspace.label",
+      "icon": "store",
+      "order": 170,
+      "visibility": "signed-in",
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 550,
+      "children": []
     },
     {
       "deployable": "admin-web",
@@ -1741,25 +2184,31 @@
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
+      "slot": "account-menu",
       "key": "reviews",
       "label": "Reviews",
+      "labelKey": "marketplace.shell.reviews.label",
       "icon": "star",
       "href": "/account/reviews",
-      "order": 160,
+      "order": 250,
       "visibility": "signed-in",
-      "requiredPermissions": ["reputation.view"]
+      "requiredPermissions": ["reputation.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     },
     {
       "deployable": "marketplace-web",
       "slot": "bottom-nav",
       "key": "reviews",
       "label": "Reviews",
+      "labelKey": "marketplace.shell.reviews.label",
       "icon": "star",
       "href": "/account/reviews",
-      "order": 160,
+      "parentKey": "account-menu",
+      "order": 250,
       "visibility": "signed-in",
-      "requiredPermissions": ["reputation.view"]
+      "requiredPermissions": ["reputation.view", "accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -1767,11 +2216,15 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "listings",
       "label": "Listings",
+      "labelKey": "marketplace.shell.listings.label",
       "icon": "store",
       "href": "/account/listings",
-      "order": 120,
+      "parentKey": "selling-workspace",
+      "order": 125,
       "visibility": "signed-in",
-      "requiredPermissions": ["listings.view"]
+      "requiredPermissions": ["listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
@@ -1779,26 +2232,56 @@
       "placements": ["top-nav", "bottom-nav"],
       "key": "offer-matches",
       "label": "Offer Matches",
+      "labelKey": "marketplace.shell.offerMatches.label",
       "icon": "tag",
       "href": "/account/offers/matches",
+      "parentKey": "selling-workspace",
       "order": 130,
       "visibility": "signed-in",
-      "requiredPermissions": ["offers.view", "listings.view"]
+      "requiredPermissions": ["offers.view", "listings.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     },
     {
       "deployable": "marketplace-web",
-      "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
+      "slot": "account-menu",
       "key": "submitted-offers",
       "label": "Submitted Offers",
+      "labelKey": "marketplace.shell.submittedOffers.label",
       "icon": "message",
       "href": "/account/offers/submitted",
-      "order": 140,
+      "order": 240,
       "visibility": "signed-in",
-      "requiredPermissions": ["offers.view"]
+      "requiredPermissions": ["offers.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "bottom-nav",
+      "key": "submitted-offers",
+      "label": "Submitted Offers",
+      "labelKey": "marketplace.shell.submittedOffers.label",
+      "icon": "message",
+      "href": "/account/offers/submitted",
+      "parentKey": "account-menu",
+      "order": 240,
+      "visibility": "signed-in",
+      "requiredPermissions": ["offers.view", "accounts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 0
     }
   ],
   "directoryIntent": {
+    "offer-policy": {
+      "classification": "slice",
+      "purpose": "Own private Buyer Offer Policy previews, buyer consent, lifecycle and permanent Offer membership authority.",
+      "expectedConsumers": ["Marketplace account API", "Marketplace managed Offer enforcement"]
+    },
+    "channel-inbound-clamp": {
+      "classification": "slice",
+      "purpose": "Own the account-wide, revision-fenced Listing clamp and conservative recovery used while Channel inbound coverage is dark.",
+      "expectedConsumers": ["Channels manual sync through the Marketplace host port"]
+    },
     "listing-evidence-policy": {
       "classification": "slice",
       "purpose": "Own the versioned Marketplace Listing Evidence Policy domain model, shared platform-policy runtime integration, guided administration, and audit history.",
@@ -1861,7 +2344,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by marketplace-owned features and composition seams.",
-      "expectedConsumers": ["listings", "offers"]
+      "expectedConsumers": ["channel-inbound-clamp", "listings", "offers", "reviews"]
     },
     "seed-support": {
       "classification": "support",
@@ -1872,7 +2355,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Expose Marketplace-owned Review presentation and reporting through the deployable-facing web surface.",
-      "expectedConsumers": ["web.ts", "Discovery public-account routes"]
+      "expectedConsumers": ["listings"]
     },
     "routes": {
       "classification": "routes",

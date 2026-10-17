@@ -152,10 +152,28 @@ CREATE TABLE IF NOT EXISTS ordering_order_source_claims (
   source_reference_id text NOT NULL,
   buyer_account_id text NOT NULL,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
-  status text NOT NULL CHECK (status IN ('pending', 'created')),
+  status text NOT NULL CHECK (status IN ('pending', 'created', 'compensating')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (source_type, source_reference_id)
+);
+
+CREATE TABLE IF NOT EXISTS ordering_evidence_window_sources (
+  window_id text NOT NULL CHECK (window_id ~ '^[0-9a-f]{32}$'),
+  sub_invocation text NOT NULL CHECK (sub_invocation IN ('2a', '2b')),
+  source_type text NOT NULL CHECK (source_type IN ('cart-checkout', 'buy-now', 'offer-acceptance')),
+  source_reference_id text NOT NULL CHECK (octet_length(source_reference_id) BETWEEN 1 AND 256),
+  buyer_account_id text NOT NULL CHECK (octet_length(buyer_account_id) BETWEEN 1 AND 256),
+  window_opened_at timestamptz NOT NULL,
+  creator_state text NOT NULL DEFAULT 'open' CHECK (creator_state IN ('open', 'closed')),
+  discharged_at timestamptz NULL,
+  terminal_report jsonb NULL,
+  version integer NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  PRIMARY KEY (window_id, sub_invocation),
+  UNIQUE (source_type, source_reference_id, buyer_account_id),
+  CHECK (octet_length(source_type) BETWEEN 1 AND 256),
+  CHECK ((discharged_at IS NULL) = (terminal_report IS NULL)),
+  CHECK (discharged_at IS NULL OR creator_state = 'closed')
 );
 
 CREATE TABLE IF NOT EXISTS ordering_order_refund_timeline_pages (
@@ -215,10 +233,22 @@ CREATE TABLE IF NOT EXISTS ordering_listing_purchase_limit_claims (
   listing_id text NOT NULL,
   quantity integer NOT NULL CHECK (quantity > 0),
   status text NOT NULL DEFAULT 'claimed',
+  usage_residue_upper_bound_units integer NULL,
   claimed_at timestamptz NOT NULL DEFAULT now(),
   released_at timestamptz NULL,
   UNIQUE (source_type, source_reference_id, buyer_account_id, listing_id)
 );
+
+ALTER TABLE ordering_listing_purchase_limit_claims
+  ADD COLUMN IF NOT EXISTS usage_residue_upper_bound_units integer NULL;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ordering_purchase_limit_usage_residue_bound_check') THEN
+    ALTER TABLE ordering_listing_purchase_limit_claims
+      ADD CONSTRAINT ordering_purchase_limit_usage_residue_bound_check
+      CHECK (usage_residue_upper_bound_units IS NULL OR
+        (usage_residue_upper_bound_units > 0 AND usage_residue_upper_bound_units <= quantity));
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS ordering_listing_purchase_limit_claims_usage_idx
   ON ordering_listing_purchase_limit_claims (buyer_account_id, listing_id, status);
@@ -267,6 +297,56 @@ CREATE INDEX IF NOT EXISTS ordering_seller_open_order_claims_open_idx
 `;
 
 export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260927_ordering_order_source_compensation",
+    description: "Retain failed checkout source identity until capacity signals are reconciled.",
+    statements: [
+      `BEGIN;
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE ordering_order_source_claims
+  DROP CONSTRAINT IF EXISTS ordering_order_source_claims_status_check;
+ALTER TABLE ordering_order_source_claims
+  ADD CONSTRAINT ordering_order_source_claims_status_check
+  CHECK (status IN ('pending', 'created', 'compensating'));
+COMMIT;`,
+    ],
+  },
+  {
+    migrationId: "20260926_ordering_evidence_window_sources",
+    description: "Fence Ordering source creation and retain bounded purchase-limit residue provenance.",
+    statements: [
+      `BEGIN;
+SET LOCAL lock_timeout = '5s';
+CREATE TABLE IF NOT EXISTS ordering_evidence_window_sources (
+  window_id text NOT NULL CHECK (window_id ~ '^[0-9a-f]{32}$'),
+  sub_invocation text NOT NULL CHECK (sub_invocation IN ('2a', '2b')),
+  source_type text NOT NULL CHECK (source_type IN ('cart-checkout', 'buy-now', 'offer-acceptance')),
+  source_reference_id text NOT NULL CHECK (octet_length(source_reference_id) BETWEEN 1 AND 256),
+  buyer_account_id text NOT NULL CHECK (octet_length(buyer_account_id) BETWEEN 1 AND 256),
+  window_opened_at timestamptz NOT NULL,
+  creator_state text NOT NULL DEFAULT 'open' CHECK (creator_state IN ('open', 'closed')),
+  discharged_at timestamptz NULL,
+  terminal_report jsonb NULL,
+  version integer NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  PRIMARY KEY (window_id, sub_invocation),
+  UNIQUE (source_type, source_reference_id, buyer_account_id),
+  CHECK (octet_length(source_type) BETWEEN 1 AND 256),
+  CHECK ((discharged_at IS NULL) = (terminal_report IS NULL)),
+  CHECK (discharged_at IS NULL OR creator_state = 'closed')
+);
+ALTER TABLE ordering_listing_purchase_limit_claims
+  ADD COLUMN IF NOT EXISTS usage_residue_upper_bound_units integer NULL;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ordering_purchase_limit_usage_residue_bound_check') THEN
+    ALTER TABLE ordering_listing_purchase_limit_claims
+      ADD CONSTRAINT ordering_purchase_limit_usage_residue_bound_check
+      CHECK (usage_residue_upper_bound_units IS NULL OR
+        (usage_residue_upper_bound_units > 0 AND usage_residue_upper_bound_units <= quantity));
+  END IF;
+END $$;
+COMMIT;`,
+    ],
+  },
   {
     migrationId: "20260715_ordering_order_source_claims",
     description: "Claim each checkout order source once before creating its durable order set.",

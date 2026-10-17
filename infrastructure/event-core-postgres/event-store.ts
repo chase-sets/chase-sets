@@ -14,6 +14,7 @@ import {
 import {
   EVENT_STORE_READ_PAGE_SIZE_MAX,
   ZERO_GLOBAL_POSITION,
+  compareGlobalPosition,
   globalPositionFromBigInt,
   parseGlobalPosition,
 } from "@chase-sets/event-core/storage";
@@ -27,7 +28,13 @@ import type {
   ReadStreamInput,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
-import { isPgRetryableTransientError, withPgTransaction, type PgPoolClient, type PgTransactionalPool } from "./types";
+import {
+  isPgRetryableTransientError,
+  withPgTransaction,
+  type PgPoolClient,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "./types";
 import { assertSqlIdentifier } from "./sql-identifier";
 import { buildStreamPrefixFilterSql, streamCategory, streamContextName } from "./stream-prefix-filter";
 
@@ -148,6 +155,26 @@ export type PostgresEventStoreConfig = Readonly<{
   wakeNotifications?: PostgresEventStoreWakeNotificationConfig;
 }>;
 
+export interface PostgresEventStore extends EventStore {
+  appendToStreamInTransaction(client: PgQueryable, input: AppendToStreamInput): Promise<readonly StoredEvent[]>;
+  /**
+   * The all-or-nothing multi-stream append (`appendToStreams`) on a
+   * transaction the caller already owns. Every input's expected version is
+   * enforced, including zero-event guards, and a batch names each stream at
+   * most once. This method never begins, commits, rolls back, savepoints or
+   * acquires a pool client: every validation or append error propagates so
+   * the owner rolls the whole transaction back, including a guard that fails
+   * after an earlier stream's rows were inserted. Wake notifications enqueue
+   * on the supplied transaction, so they surface only after the owner's
+   * COMMIT and never after its ROLLBACK.
+   */
+  appendToStreamsInTransaction(
+    client: PgQueryable,
+    inputs: readonly AppendToStreamInput[],
+  ): Promise<readonly AppendToStreamsResult[]>;
+  readStreamInTransaction(client: PgQueryable, input: ReadStreamInput): Promise<readonly StoredEvent[]>;
+}
+
 const DEFAULT_EVENTS_TABLE = "event_store_events";
 
 const DEFAULT_STREAMS_TABLE = "event_store_streams";
@@ -179,7 +206,7 @@ const EVENT_COLUMNS = [
   "trace_state",
 ].join(", ");
 
-export function createPostgresEventStore(config: PostgresEventStoreConfig): EventStore {
+export function createPostgresEventStore(config: PostgresEventStoreConfig): PostgresEventStore {
   const pool = config.pool;
   const eventsTable = assertSqlIdentifier(config.eventsTableName ?? DEFAULT_EVENTS_TABLE);
   const streamsTable = assertSqlIdentifier(config.streamsTableName ?? DEFAULT_STREAMS_TABLE);
@@ -221,7 +248,108 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
     LIMIT $3
   `;
 
+  const readStream = async (client: PgQueryable, input: ReadStreamInput) => {
+    const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
+    const limit = assertEventStoreReadPageSize(input.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
+    return observeEventStoreOperation("read_stream", { limit }, async () => {
+      try {
+        const result = await client.query<DbEventRow>(readStreamSql, [input.streamId, fromVersion, limit]);
+        return result.rows.map(mapDbEventRow);
+      } catch (error) {
+        throw normalizeEventStoreError(error, "Failed to read stream events from Postgres event store.");
+      }
+    });
+  };
+
   return {
+    readStreamInTransaction: readStream,
+    appendToStreamInTransaction: async (client, input) => {
+      if (input.events.length === 0) return [];
+      assertEventPayloadSizes([input]);
+      return observeEventStoreOperation(
+        "append_to_stream_in_transaction",
+        {
+          event_count: input.events.length,
+          event_type: input.events.length === 1 ? input.events[0].eventType : "multiple",
+        },
+        async () => {
+          try {
+            const storedEvents = await appendEventsToStream({
+              client,
+              input,
+              now,
+              createEventId,
+              upsertStreamSql,
+              readCurrentVersionSql,
+              eventsTable,
+              readEventsByIdsSql,
+              updateStreamVersionSql,
+            });
+            if (wakeNotifications) {
+              await enqueueEventStoreWakeNotificationInTransaction({
+                client,
+                config: wakeNotifications,
+                input,
+                storedEvents,
+                emittedAt: now(),
+              });
+            }
+            return storedEvents;
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to append events in a caller-owned Postgres transaction.");
+          }
+        },
+      );
+    },
+    appendToStreamsInTransaction: async (client, inputs) => {
+      if (inputs.length === 0) {
+        return [];
+      }
+
+      assertUniqueStreamIds("appendToStreamsInTransaction", inputs);
+      assertEventPayloadSizes(inputs);
+
+      return observeEventStoreOperation(
+        "append_to_streams_in_transaction",
+        {
+          event_count: inputs.reduce((count, input) => count + input.events.length, 0),
+          event_type: "multiple",
+        },
+        async () => {
+          try {
+            const results = await appendEventsToStreams({
+              client,
+              inputs,
+              now,
+              createEventId,
+              upsertStreamSql,
+              readCurrentVersionSql,
+              eventsTable,
+              readEventsByIdsSql,
+              updateStreamVersionSql,
+            });
+            if (wakeNotifications) {
+              for (let index = 0; index < inputs.length; index += 1) {
+                const input = inputs[index];
+                if (!input) {
+                  continue;
+                }
+                await enqueueEventStoreWakeNotificationInTransaction({
+                  client,
+                  config: wakeNotifications,
+                  input,
+                  storedEvents: results[index]?.storedEvents ?? [],
+                  emittedAt: now(),
+                });
+              }
+            }
+            return results;
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to append events in a caller-owned Postgres transaction.");
+          }
+        },
+      );
+    },
     appendToStream: async (input) => {
       if (input.events.length === 0) {
         return [];
@@ -417,22 +545,11 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
       );
     },
 
-    readStream: async (input: ReadStreamInput) => {
-      const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
-      const limit = assertEventStoreReadPageSize(input.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
-
-      return observeEventStoreOperation("read_stream", { limit }, async () => {
-        try {
-          const result = await pool.query<DbEventRow>(readStreamSql, [input.streamId, fromVersion, limit]);
-
-          return result.rows.map(mapDbEventRow);
-        } catch (error) {
-          throw normalizeEventStoreError(error, "Failed to read stream events from Postgres event store.");
-        }
-      });
-    },
+    readStream: (input) => readStream(pool, input),
 
     readAll: async (input?: ReadAllInput) => {
+      const atOrBeforeGlobalPosition =
+        input?.atOrBeforeGlobalPosition === undefined ? undefined : parseGlobalPosition(input.atOrBeforeGlobalPosition);
       const afterGlobalPosition = input?.afterGlobalPosition ?? ZERO_GLOBAL_POSITION;
       const limit = assertEventStoreReadPageSize(input?.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
 
@@ -445,12 +562,28 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
           stream_prefix_filter: input?.streamPrefixes?.length ? "filtered" : "all",
         },
         async () => {
+          let safeHeadGlobalPosition: GlobalPosition;
           try {
-            const safeHeadGlobalPosition = await readGapSafeEventStoreHead(pool, eventsTable);
+            safeHeadGlobalPosition = await readGapSafeEventStoreHead(pool, eventsTable);
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to read the gap-safe Event Store head.");
+          }
+
+          if (
+            atOrBeforeGlobalPosition !== undefined &&
+            compareGlobalPosition(atOrBeforeGlobalPosition, safeHeadGlobalPosition) > 0
+          ) {
+            throw new Error(
+              `Event store read horizon ${atOrBeforeGlobalPosition} exceeds available global position ${safeHeadGlobalPosition}.`,
+            );
+          }
+
+          try {
             const result = await pool.query<DbEventRow>(
               buildReadAllSql(eventsTable, input),
               buildReadAllParams({
                 afterGlobalPosition,
+                atOrBeforeGlobalPosition,
                 safeHeadGlobalPosition,
                 limit,
                 tenantId: input?.tenantId,
@@ -501,7 +634,7 @@ export async function readGapSafeEventStoreHead(
 }
 
 type AppendInTransactionArgs = Readonly<{
-  client: PgPoolClient;
+  client: PgQueryable;
   input: AppendToStreamInput;
   now: () => IsoUtcTimestamp;
   createEventId: () => EventId;
@@ -524,6 +657,7 @@ type AppendStreamsIndependentlyInTransactionArgs = AppendStreamsInTransactionArg
 
 type ReadAllQueryInput = Readonly<{
   afterGlobalPosition: GlobalPosition;
+  atOrBeforeGlobalPosition?: GlobalPosition;
   safeHeadGlobalPosition: GlobalPosition;
   limit: number;
   tenantId?: ReadAllInput["tenantId"];
@@ -539,16 +673,21 @@ type NormalizedEventStoreWakeNotificationConfig = Readonly<{
 }>;
 
 function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): string {
-  const predicates = ["global_position > $1::bigint", "global_position <= $2::bigint"];
+  const predicates = ["events.global_position > $1::bigint", "events.global_position <= $2::bigint"];
   let nextParam = 3;
 
+  if (input?.atOrBeforeGlobalPosition !== undefined) {
+    predicates.push(`events.global_position <= $${nextParam}::bigint`);
+    nextParam += 1;
+  }
+
   if (input?.tenantId) {
-    predicates.push(`tenant_id = $${nextParam}`);
+    predicates.push(`events.tenant_id = $${nextParam}`);
     nextParam += 1;
   }
 
   if (input?.eventTypes?.length) {
-    predicates.push(`event_type = ANY($${nextParam}::text[])`);
+    predicates.push(`events.event_type = ANY($${nextParam}::text[])`);
     nextParam += 1;
   }
 
@@ -562,15 +701,19 @@ function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): 
 
   return `
     SELECT ${EVENT_COLUMNS}
-    FROM ${eventsTable}
+    FROM ${eventsTable} AS events
     WHERE ${predicates.join("\n      AND ")}
-    ORDER BY global_position ASC
+    ORDER BY events.global_position ASC
     LIMIT $${nextParam}
   `;
 }
 
 function buildReadAllParams(input: ReadAllQueryInput): readonly unknown[] {
   const params: unknown[] = [input.afterGlobalPosition, input.safeHeadGlobalPosition];
+
+  if (input.atOrBeforeGlobalPosition !== undefined) {
+    params.push(input.atOrBeforeGlobalPosition);
+  }
 
   if (input.tenantId) {
     params.push(input.tenantId);
@@ -743,7 +886,7 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
  */
 async function assertStreamExpectedVersionInTransaction(
   args: Readonly<{
-    client: PgPoolClient;
+    client: PgQueryable;
     input: AppendToStreamInput;
     now: () => IsoUtcTimestamp;
     upsertStreamSql: string;
@@ -1029,7 +1172,7 @@ function buildInsertEventsParams(events: readonly AppendEventToInsert[]): readon
 }
 
 async function readExistingEventsById(
-  client: PgPoolClient,
+  client: PgQueryable,
   readEventsByIdsSql: string,
   events: readonly AppendEventCandidate[],
 ): Promise<Map<string, StoredEvent>> {
@@ -1152,12 +1295,43 @@ function normalizeEventStoreWakeNotificationConfig(
 }
 
 type EmitEventStoreWakeNotificationAfterCommitArgs = Readonly<{
-  client: PgPoolClient;
+  client: PgQueryable;
   config: NormalizedEventStoreWakeNotificationConfig;
   input: AppendToStreamInput;
   storedEvents: readonly StoredEvent[];
   emittedAt: IsoUtcTimestamp;
 }>;
+
+async function enqueueEventStoreWakeNotificationInTransaction(
+  args: EmitEventStoreWakeNotificationAfterCommitArgs,
+): Promise<void> {
+  if (args.storedEvents.length === 0) return;
+  const envelope = createEventStoreWakeNotificationEnvelope({
+    input: args.input,
+    storedEvents: args.storedEvents,
+    source: args.config.source,
+    emittedAt: args.emittedAt,
+  });
+  let serialized: string;
+  try {
+    serialized = serializeEventStoreWakeNotificationEnvelope(envelope, {
+      maxPayloadBytes: args.config.maxPayloadBytes,
+    });
+  } catch (error) {
+    const observation = createEventStoreWakeNotificationObservation(args.config.channel, envelope);
+    emitWakeNotificationObserver(args.config.observer?.payloadRejected, {
+      ...observation,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  try {
+    await args.client.query("SELECT pg_notify($1, $2)", [args.config.channel, serialized]);
+  } catch (error) {
+    const observation = createEventStoreWakeNotificationObservation(args.config.channel, envelope);
+    emitWakeNotificationObserver(args.config.observer?.notificationFailed, { ...observation, error });
+  }
+}
 
 async function emitEventStoreWakeNotificationAfterCommit(
   args: EmitEventStoreWakeNotificationAfterCommitArgs,
@@ -1395,6 +1569,13 @@ function assertSafeWakeNotificationRecord(value: unknown, path: string): void {
 
 function byteLengthUtf8(value: string): number {
   return typeof Buffer !== "undefined" ? Buffer.byteLength(value, "utf8") : new TextEncoder().encode(value).length;
+}
+
+function assertUniqueStreamIds(operation: string, inputs: readonly AppendToStreamInput[]): void {
+  const uniqueStreamIds = new Set(inputs.map((input) => input.streamId));
+  if (uniqueStreamIds.size !== inputs.length) {
+    throw new Error(`${operation} does not support the same stream id more than once per batch.`);
+  }
 }
 
 function assertEventPayloadSizes(inputs: readonly AppendToStreamInput[]): void {

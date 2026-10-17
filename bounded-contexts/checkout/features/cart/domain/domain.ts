@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import {
   assert,
   assertNever,
@@ -39,6 +40,8 @@ export type CheckoutSelectedListingSnapshot = Readonly<{
   sellerDisplayName: string | null;
   sellerSlug: string | null;
   priceAmount: string | null;
+  priceCurrencyCode: string | null;
+  listingStreamVersion: number | null;
   source: string;
 }>;
 
@@ -48,20 +51,61 @@ export type CheckoutSelectedListingSnapshotInput = Readonly<{
   sellerDisplayName?: string | null;
   sellerSlug?: string | null;
   priceAmount?: string | null;
+  priceCurrencyCode?: string | null;
+  listingStreamVersion?: number | null;
   source?: string | null;
 }>;
 
 export type CheckoutCartState = Readonly<{
   buyerAccountId: AccountId | null;
+  // The Account that claimed this anonymous source stream, if any. Claiming never
+  // rewrites `buyerAccountId`: the source stream keeps its own identity so its
+  // projected lines stay addressable by the key that wrote them.
+  claimedByAccountId: AccountId | null;
   lines: readonly CheckoutCartLine[];
   lastCheckedOutAt: string | null;
 }>;
 
 export const initialCheckoutCartState: CheckoutCartState = {
   buyerAccountId: null,
+  claimedByAccountId: null,
   lines: [],
   lastCheckedOutAt: null,
 };
+
+const ANONYMOUS_CART_OWNER_PREFIX = "anon_";
+const CLAIMING_ACCOUNT_PREFIX = "acc_";
+
+export type CheckoutCartClaimIdentity = Readonly<{
+  sourceOwnerKey: string;
+  accountId: AccountId;
+}>;
+
+// Cart Claim identity equality is exact: an unpadded, whitespace-free string with
+// the required prefix and a non-empty suffix. Trimming an identifier here would
+// silently address a different stream, so a padded value is refused rather than
+// normalized. This deliberately does not introduce strict-ULID validation --
+// synthetic `acc_buyer` / `anon_cart_a` and generated identifiers stay valid.
+function isExactPrefixedIdentity(value: unknown, prefix: string): value is string {
+  return typeof value === "string" && value.length > prefix.length && value.startsWith(prefix) && !/\s/.test(value);
+}
+
+export function requireCheckoutCartClaimIdentity(claim: Readonly<{ sourceOwnerKey: unknown; accountId: unknown }>) {
+  assert(
+    isExactPrefixedIdentity(claim.sourceOwnerKey, ANONYMOUS_CART_OWNER_PREFIX),
+    "Cart claim source must be an exact anonymous cart key.",
+  );
+  assert(
+    isExactPrefixedIdentity(claim.accountId, CLAIMING_ACCOUNT_PREFIX),
+    "Cart claim account must be an exact account id.",
+  );
+  assert(claim.sourceOwnerKey !== claim.accountId, "A cart cannot claim itself.");
+
+  return {
+    sourceOwnerKey: claim.sourceOwnerKey,
+    accountId: claim.accountId as AccountId,
+  } satisfies CheckoutCartClaimIdentity;
+}
 
 export type AddCartLineCommand = Readonly<{
   type: "AddCartLine";
@@ -89,12 +133,14 @@ export type AddCartLineCommand = Readonly<{
 
 export type SetCartLineQuantityCommand = Readonly<{
   type: "SetCartLineQuantity";
+  actingOwnerKey: string;
   lineId: CartLineId;
   quantity: number;
 }>;
 
 export type SetCartLineFulfillmentCommand = Readonly<{
   type: "SetCartLineFulfillment";
+  actingOwnerKey: string;
   lineId: CartLineId;
   fulfillmentMode: "optimize" | "locked-listing";
   lockedListingId?: string | null;
@@ -105,6 +151,7 @@ export type SetCartLineFulfillmentCommand = Readonly<{
 
 export type RemoveCartLineCommand = Readonly<{
   type: "RemoveCartLine";
+  actingOwnerKey: string;
   lineId: CartLineId;
 }>;
 
@@ -113,12 +160,19 @@ export type ClearCartCommand = Readonly<{
   checkedOutAt: string;
 }>;
 
+export type ClaimCartCommand = Readonly<{
+  type: "ClaimCart";
+  sourceOwnerKey: string;
+  accountId: AccountId;
+}>;
+
 export type CheckoutCartCommand =
   | AddCartLineCommand
   | SetCartLineQuantityCommand
   | SetCartLineFulfillmentCommand
   | RemoveCartLineCommand
-  | ClearCartCommand;
+  | ClearCartCommand
+  | ClaimCartCommand;
 
 export type CartLineAddedEvent = DomainEvent<
   "checkout.cart.line-added",
@@ -181,17 +235,133 @@ export type CartCheckedOutEvent = DomainEvent<
   }>
 >;
 
+export type CartClaimedByAccountEvent = DomainEvent<
+  "checkout.cart.claimed-by-account",
+  Readonly<{
+    sourceOwnerKey: string;
+    accountId: AccountId;
+  }>
+>;
+
 export type CheckoutCartEvent =
   | CartLineAddedEvent
   | CartLineQuantitySetEvent
   | CartLineFulfillmentSetEvent
   | CartLineRemovedEvent
-  | CartCheckedOutEvent;
+  | CartCheckedOutEvent
+  | CartClaimedByAccountEvent;
 
 function requireCartLine(state: CheckoutCartState, lineId: CartLineId) {
   const line = state.lines.find((entry) => entry.lineId === lineId);
   assert(line, "Cart line not found.");
   return line;
+}
+
+/**
+ * The single identity that may act on this cart, and the buyer its lines belong
+ * to. Claiming moves both to the claimant Account while `buyerAccountId` keeps
+ * the retained anonymous source identity, so possession of a claimed `anon_` key
+ * stops being a write capability the moment the claim event lands.
+ *
+ * This reads evolved aggregate state only. The `checkout_cart_claims` alias and
+ * the line-page projection are routing indexes: either can lag or be deleted
+ * outright, so neither may decide authorization.
+ */
+function effectiveCartOwner(state: CheckoutCartState): AccountId | null {
+  return state.claimedByAccountId ?? state.buyerAccountId;
+}
+
+/**
+ * Refuses before any decision an unauthorized writer could observe.
+ *
+ * A null owner is an uninitialized stream, which holds no lines -- the caller's
+ * own `requireCartLine` then refuses with the missing-line message. Ordering the
+ * ownership check first is what keeps "this owner lacks the line", which a
+ * line-id-total sweep absorbs, distinguishable from "this writer may not touch
+ * this cart", which it must never absorb.
+ */
+function assertActingOwnerMayWrite(state: CheckoutCartState, actingOwnerKey: string) {
+  const owner = effectiveCartOwner(state);
+  assert(owner === null || owner === actingOwnerKey, "Cart is owned by a different account.");
+}
+
+/**
+ * How a presented anonymous source stands relative to the reader asking for it.
+ *
+ * Every decidable variant is read from evolved aggregate state alone. The
+ * `checkout_cart_claims` alias is a rebuildable routing index that can lag,
+ * hold a stale or partial row, or be absent after a committed claim event, so
+ * it never contributes a standing here.
+ *
+ * `undecidable` is the one variant no state can produce: it is how a caller
+ * that could not read complete aggregate state -- a store outage or a
+ * concurrency failure -- reports that fact without inventing an answer. Keeping
+ * it inside the same closed union is what stops a generic catch from quietly
+ * degrading an unreadable stream into `unclaimed`.
+ */
+export type CheckoutCartSourceStanding =
+  | Readonly<{ kind: "unclaimed" }>
+  | Readonly<{ kind: "claimed-by-actor" }>
+  | Readonly<{ kind: "claimed-by-other" }>
+  | Readonly<{ kind: "undecidable" }>;
+
+/**
+ * The exhaustive post-claim read decision for one presented anonymous source.
+ *
+ * `acceptedVia` exists only on `accepted`: a refusal and an indeterminate carry
+ * no acceptance provenance at all, so no caller can read one off a negative
+ * answer.
+ */
+export type CheckoutCartReadAuthority =
+  | Readonly<{ status: "accepted"; acceptedVia: "possession" | "account" }>
+  | Readonly<{ status: "refused" }>
+  | Readonly<{ status: "indeterminate" }>;
+
+/**
+ * Classifies complete aggregate state for one reader.
+ *
+ * An unclaimed stream stands open to whoever holds its key; once claimed, only
+ * the claimant stands as its reader. `buyerAccountId` deliberately does not
+ * participate: claiming never rewrites it, so an anonymous source keeps writing
+ * its own identity onto its lines long after possession stopped authorizing
+ * anything.
+ */
+export function checkoutCartSourceStanding(
+  state: CheckoutCartState,
+  actingOwnerKey: string,
+): Exclude<CheckoutCartSourceStanding, Readonly<{ kind: "undecidable" }>> {
+  if (state.claimedByAccountId === null) {
+    return { kind: "unclaimed" };
+  }
+
+  return state.claimedByAccountId === actingOwnerKey ? { kind: "claimed-by-actor" } : { kind: "claimed-by-other" };
+}
+
+/**
+ * Total over the closed standing union, so a future standing cannot be added
+ * without this decision refusing to compile.
+ */
+export function decideCheckoutCartReadAuthority(standing: CheckoutCartSourceStanding): CheckoutCartReadAuthority {
+  switch (standing.kind) {
+    case "unclaimed":
+      return { status: "accepted", acceptedVia: "possession" };
+    case "claimed-by-actor":
+      return { status: "accepted", acceptedVia: "account" };
+    case "claimed-by-other":
+      return { status: "refused" };
+    case "undecidable":
+      return { status: "indeterminate" };
+    default:
+      return assertNever(standing);
+  }
+}
+
+/** Convenience for the common decidable path: complete state plus one reader. */
+export function decideCheckoutCartReadAuthorityFromState(
+  state: CheckoutCartState,
+  actingOwnerKey: string,
+): CheckoutCartReadAuthority {
+  return decideCheckoutCartReadAuthority(checkoutCartSourceStanding(state, actingOwnerKey));
 }
 
 function normalizeFulfillmentMode(
@@ -219,9 +389,10 @@ function normalizeOptionalPriceAmount(value?: string | null) {
   }
 
   assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Selected listing price must be a valid amount.");
-  const amount = Number.parseFloat(normalized);
-  assert(Number.isFinite(amount) && amount > 0, "Selected listing price must be a positive amount.");
-  return amount.toFixed(2);
+  const cents = tryMoneyToCents(normalized);
+  assert(cents !== null, "Selected listing price must be a valid amount.");
+  assert(cents > 0n, "Selected listing price must be a positive amount.");
+  return centsToMoneyAmount(cents);
 }
 
 function normalizeSelectedListingSnapshot(
@@ -239,12 +410,28 @@ function normalizeSelectedListingSnapshot(
     "Selected listing snapshot must match the locked listing.",
   );
 
+  const priceAmount = normalizeOptionalPriceAmount(value.priceAmount);
+  const rawCurrency = normalizeOptionalText(value.priceCurrencyCode);
+  const priceCurrencyCode = rawCurrency?.toUpperCase() ?? null;
+  assert(
+    (priceAmount === null) === (priceCurrencyCode === null),
+    "Selected listing price must include both amount and currency.",
+  );
+  assert(priceCurrencyCode === null || /^[A-Z]{3}$/.test(priceCurrencyCode), "Selected listing currency is invalid.");
+  const listingStreamVersion = value.listingStreamVersion ?? null;
+  assert(
+    priceAmount === null || (Number.isInteger(listingStreamVersion) && Number(listingStreamVersion) > 0),
+    "Selected listing price must include its source stream version.",
+  );
+
   return {
     listingId,
     sellerAccountId: normalizeOptionalText(value.sellerAccountId),
     sellerDisplayName: normalizeOptionalText(value.sellerDisplayName),
     sellerSlug: normalizeOptionalText(value.sellerSlug),
-    priceAmount: normalizeOptionalPriceAmount(value.priceAmount),
+    priceAmount,
+    priceCurrencyCode,
+    listingStreamVersion,
     source: normalizeRequiredText(
       value.source ?? "checkout-cart-request",
       "Selected listing snapshot source is required.",
@@ -269,6 +456,10 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
 ) => {
   switch (command.type) {
     case "AddCartLine":
+      // An add event retains the source-stream identity in buyerAccountId; it
+      // is not an acting-owner field. Claimed source streams are immutable for
+      // additions, while the claimant adds new lines on their Account stream.
+      assert(state.claimedByAccountId === null, "Cart is owned by a different account.");
       assert(
         state.buyerAccountId === null || state.buyerAccountId === command.buyerAccountId,
         "Cart is owned by a different account.",
@@ -307,6 +498,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         },
       ];
     case "SetCartLineQuantity":
+      assertActingOwnerMayWrite(state, command.actingOwnerKey);
       requireCartLine(state, command.lineId);
       return [
         {
@@ -318,6 +510,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         },
       ];
     case "SetCartLineFulfillment": {
+      assertActingOwnerMayWrite(state, command.actingOwnerKey);
       requireCartLine(state, command.lineId);
       const lockedListingId = normalizeOptionalText(command.lockedListingId);
       const fulfillmentMode = normalizeFulfillmentMode(command.fulfillmentMode, lockedListingId);
@@ -326,7 +519,10 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
         fulfillmentMode === "locked-listing"
           ? normalizeSelectedListingSnapshot(command.selectedListingSnapshot, lockedListingId)
           : null;
-      assertCartLineIsNotOwnListing(state.buyerAccountId, selectedListingSnapshot);
+      // The effective buyer, not the retained anonymous source key: on a claimed
+      // cart the Account doing the locking is the one that must not buy its own
+      // listing.
+      assertCartLineIsNotOwnListing(effectiveCartOwner(state), selectedListingSnapshot);
       return [
         {
           type: "checkout.cart.line-fulfillment-set",
@@ -342,6 +538,7 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
       ];
     }
     case "RemoveCartLine":
+      assertActingOwnerMayWrite(state, command.actingOwnerKey);
       requireCartLine(state, command.lineId);
       return [
         {
@@ -363,6 +560,33 @@ export const decideCheckoutCart: AggregateDecider<CheckoutCartState, CheckoutCar
           },
         },
       ];
+    case "ClaimCart": {
+      const claim = requireCheckoutCartClaimIdentity(command);
+      // The runtime builds the stream id from this same validated source, so an
+      // initialized state owned by a different key means the command was
+      // addressed at the wrong stream. Refuse before any event or alias write.
+      assert(
+        state.buyerAccountId === null || state.buyerAccountId === claim.sourceOwnerKey,
+        "Cart claim source does not match the cart stream owner.",
+      );
+      // A pre-feature snapshot has no claim field at all; an absent field is an
+      // unclaimed cart, never a refusal.
+      const claimedByAccountId = state.claimedByAccountId ?? null;
+      if (claimedByAccountId === claim.accountId) {
+        return [];
+      }
+
+      assert(claimedByAccountId === null, "Cart is already claimed by a different account.");
+      return [
+        {
+          type: "checkout.cart.claimed-by-account",
+          data: {
+            sourceOwnerKey: claim.sourceOwnerKey,
+            accountId: claim.accountId,
+          },
+        },
+      ];
+    }
     default:
       return assertNever(command);
   }
@@ -373,6 +597,7 @@ export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCar
     case "checkout.cart.line-added":
       return {
         buyerAccountId: event.data.buyerAccountId,
+        claimedByAccountId: state.claimedByAccountId ?? null,
         lines: [
           ...state.lines,
           {
@@ -436,8 +661,19 @@ export const evolveCheckoutCart: AggregateEvolver<CheckoutCartState, CheckoutCar
     case "checkout.cart.checked-out":
       return {
         buyerAccountId: event.data.buyerAccountId,
+        // Checking out clears lines, never ownership: a claimed cart stays
+        // claimed after it is emptied.
+        claimedByAccountId: state.claimedByAccountId ?? null,
         lines: [],
         lastCheckedOutAt: event.data.checkedOutAt,
+      };
+    case "checkout.cart.claimed-by-account":
+      return {
+        ...state,
+        // The claim establishes the source stream identity when the anonymous
+        // cart has no line history yet.
+        buyerAccountId: state.buyerAccountId ?? (event.data.sourceOwnerKey as AccountId),
+        claimedByAccountId: event.data.accountId,
       };
     default:
       return assertNever(event);

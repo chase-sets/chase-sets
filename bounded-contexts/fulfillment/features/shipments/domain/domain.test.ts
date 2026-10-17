@@ -1,5 +1,256 @@
 import { describe, expect, it } from "vitest";
-import { decideFulfillmentShipment, evolveFulfillmentShipment, initialFulfillmentShipmentState } from "./domain";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import { orderGroupContractVersion, parseAdmissionIdentity } from "@chase-sets/order-groups";
+import { ShipmentAdmissionBusyError } from "./common";
+import {
+  decideFulfillmentShipment,
+  evolveFulfillmentShipment,
+  initialFulfillmentShipmentState,
+  decideShipmentAdmission,
+  type ShipmentAdmissionCommand,
+  type FulfillmentShipmentCommand,
+  type FulfillmentShipmentEvent,
+} from "./domain";
+
+describe("Shipment Group admission matrix", () => {
+  const identity = parseAdmissionIdentity({
+    requestId: "request-1",
+    sourceGeneration: 1,
+    draftKey: "draft-1",
+    anchorShipmentId: createId("shp"),
+    anchorOrderId: createId("ord"),
+    proposedMemberOrderId: createId("ord"),
+    groupId: createId("ogr"),
+    quoteFingerprint: "quote-1",
+  });
+  const other = {
+    ...identity,
+    requestId: "request-2",
+    sourceGeneration: 2,
+    groupId: createId("ogr"),
+    quoteFingerprint: "quote-2",
+  };
+  const now = "2026-10-04T00:00:00.000Z";
+  const available = {
+    ...initialFulfillmentShipmentState,
+    shipmentId: identity.anchorShipmentId,
+    orderId: identity.anchorOrderId,
+    sellerAccountId: "acc_seller" as never,
+    buyerAccountId: "acc_buyer" as never,
+    status: "awaiting-package" as const,
+  };
+  const reserve = decideShipmentAdmission(available, { kind: "reserve", input: identity }, 2, now).event!;
+  const reserved = evolveFulfillmentShipment(available, reserve);
+  const commit = decideShipmentAdmission(
+    reserved,
+    { kind: "commit", input: { ...identity, anchorOrderVersion: 3 } },
+    3,
+    now,
+  ).event!;
+  const committed = evolveFulfillmentShipment(reserved, commit);
+  const release = decideShipmentAdmission(
+    reserved,
+    { kind: "abort", input: { ...identity, reason: "cancelled" } },
+    3,
+    now,
+  ).event!;
+  const released = evolveFulfillmentShipment(reserved, release);
+  const commands: readonly ShipmentAdmissionCommand[] = [
+    { kind: "reserve", input: identity },
+    { kind: "reserve", input: other },
+    { kind: "commit", input: { ...identity, anchorOrderVersion: 3 } },
+    { kind: "commit", input: { ...other, anchorOrderVersion: 3 } },
+    { kind: "abort", input: { ...identity, reason: "cancelled" } },
+    { kind: "abort", input: { ...other, reason: "cancelled" } },
+    { kind: "commit", input: { ...identity, anchorOrderVersion: 3 } },
+    { kind: "abort", input: { ...identity, reason: "cancelled" } },
+    { kind: "dissolve", input: { ...identity, anchorOrderVersion: 3 } },
+  ];
+  const rows = [
+    {
+      phase: "available",
+      state: available,
+      statuses: [
+        "accepted",
+        "accepted",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+      ],
+      events: ["reserved", "reserved", null, null, null, null, null, null, null],
+    },
+    {
+      phase: "reserved",
+      state: reserved,
+      statuses: [
+        "replayed",
+        "identity-conflict",
+        "accepted",
+        "identity-conflict",
+        "accepted",
+        "identity-conflict",
+        "accepted",
+        "accepted",
+        "not-reserved",
+      ],
+      events: [null, "rejected", "committed", null, "released", null, "committed", "released", null],
+    },
+    {
+      phase: "committed",
+      state: committed,
+      statuses: [
+        "replayed",
+        "identity-conflict",
+        "replayed",
+        "identity-conflict",
+        "already-grouped",
+        "identity-conflict",
+        "replayed",
+        "already-grouped",
+        "accepted",
+      ],
+      events: [null, "rejected", null, null, null, null, null, null, "released"],
+    },
+    {
+      phase: "released",
+      state: released,
+      statuses: [
+        "released",
+        "accepted",
+        "released",
+        "identity-conflict",
+        "replayed",
+        "identity-conflict",
+        "released",
+        "replayed",
+        "released",
+      ],
+      events: [null, "reserved", null, null, null, null, null, null, null],
+    },
+  ];
+  for (const row of rows) {
+    it.each(commands.map((command, index) => ({ command, index })))(
+      `${row.phase} matrix column $index`,
+      ({ command, index }) => {
+        const result = decideShipmentAdmission(row.state, command, 4, now);
+        expect(result.result.status).toBe(row.statuses[index]);
+        expect(result.event?.type ?? null).toBe(
+          row.events[index] ? `fulfillment.shipment-group.admission-${row.events[index]}` : null,
+        );
+        if (result.event) expect(result.event.data.shipmentVersion).toBe(4);
+      },
+    );
+  }
+  for (const state of [reserved, committed]) {
+    it.each<FulfillmentShipmentCommand>([
+      { type: "StartShipmentPacking", startedAt: now },
+      { type: "PrepareShipmentPackage", preparedAt: now, packageCount: 1 },
+      { type: "CancelShipment", cancelledAt: now },
+      { type: "RaiseShipmentException", exceptionType: "other", notes: null, raisedAt: now },
+    ])(`blocks physical commands in ${state.admission!.type}: $type`, (command) => {
+      expect(() => decideFulfillmentShipment(state, command)).toThrow(ShipmentAdmissionBusyError);
+    });
+    it(`records fraud once without cancelling in ${state.admission!.type}`, () => {
+      const command: FulfillmentShipmentCommand = {
+        type: "CancelShipment",
+        cancelledAt: now,
+        cancellationSignal: { orderId: identity.anchorOrderId, origin: "payment-fraud-warning", reason: null },
+      };
+      const events = decideFulfillmentShipment(state, command);
+      expect(events.map((event) => event.type)).toEqual(["fulfillment.shipment.cancellation-conflict-recorded"]);
+      expect(decideFulfillmentShipment(events.reduce(evolveFulfillmentShipment, state), command)).toEqual([]);
+    });
+  }
+  it("raw cancellation is busy before Form and a conflict after Form", () => {
+    const command: FulfillmentShipmentCommand = {
+      type: "CancelShipment",
+      cancelledAt: now,
+      cancellationSignal: { orderId: identity.anchorOrderId, origin: "order-cancelled", reason: "buyer-cancelled" },
+    };
+    expect(() => decideFulfillmentShipment(reserved, command)).toThrow(ShipmentAdmissionBusyError);
+    expect(decideFulfillmentShipment(committed, command)[0]?.type).toBe(
+      "fulfillment.shipment.cancellation-conflict-recorded",
+    );
+  });
+  it("pins Form version and leaves old I isolated from N+1", () => {
+    expect(
+      decideShipmentAdmission(committed, { kind: "commit", input: { ...identity, anchorOrderVersion: 4 } }, 4, now)
+        .result.status,
+    ).toBe("identity-conflict");
+    const next = evolveFulfillmentShipment(
+      released,
+      decideShipmentAdmission(released, { kind: "reserve", input: other }, 4, now).event!,
+    );
+    for (const command of [commands[0]!, commands[2]!, commands[4]!]) {
+      expect(decideShipmentAdmission(next, command, 5, "2026-10-05T00:00:00.000Z").event).toBeUndefined();
+    }
+  });
+  it.each(["cancelled", "packing", "awaiting-label", "exception"] as const)(
+    "durably rejects %s and replays its rejection",
+    (status) => {
+      const state = { ...available, status };
+      const decision = decideShipmentAdmission(state, commands[0]!, 2, now);
+      expect(decision.result.status).toBe(status === "cancelled" ? "cancelled" : "packing-started");
+      const rejectedState = evolveFulfillmentShipment(state, decision.event!);
+      expect(decideShipmentAdmission(rejectedState, commands[0]!, 3, now)).toEqual({ result: decision.result });
+    },
+  );
+  it.each([
+    { status: "awaiting-package", reason: "identity-conflict" },
+    { status: "cancelled", reason: "cancelled" },
+    { status: "packing", reason: "identity-conflict" },
+  ] as const)("rejects a recorded conflict in $status as $reason", ({ status, reason }) => {
+    const conflicted = evolveFulfillmentShipment(available, {
+      type: "fulfillment.shipment.cancellation-conflict-recorded",
+      data: {
+        shipmentId: identity.anchorShipmentId,
+        orderId: identity.anchorOrderId,
+        shipmentStatus: available.status,
+        origin: "payment-fraud-warning",
+        reason: null,
+      },
+    });
+    const decision = decideShipmentAdmission({ ...conflicted, status }, commands[0]!, 3, now);
+    expect(decision.result).toEqual({ status: reason });
+    expect(decision.event).toEqual({
+      type: "fulfillment.shipment-group.admission-rejected",
+      data: { contractVersion: orderGroupContractVersion, ...identity, shipmentVersion: 3, reason, rejectedAt: now },
+    });
+  });
+  it.each(["requestId", "sourceGeneration", "groupId", "quoteFingerprint"] as const)(
+    "rejects reacquisition that reuses only %s from a released identity",
+    (field) => {
+      const reused = { ...other, [field]: identity[field] };
+      const decision = decideShipmentAdmission(released, { kind: "reserve", input: reused }, 4, now);
+      expect(decision.result).toEqual({ status: "identity-conflict" });
+      expect(decision.event).toEqual({
+        type: "fulfillment.shipment-group.admission-rejected",
+        data: {
+          contractVersion: orderGroupContractVersion,
+          ...reused,
+          shipmentVersion: 4,
+          reason: "identity-conflict",
+          rejectedAt: now,
+        },
+      });
+    },
+  );
+  it("does not replay dissolution at a different Form version after release", () => {
+    const dissolved = evolveFulfillmentShipment(
+      committed,
+      decideShipmentAdmission(committed, commands[8]!, 4, now).event!,
+    );
+    expect(decideShipmentAdmission(dissolved, commands[8]!, 5, now).result.status).toBe("replayed");
+    expect(
+      decideShipmentAdmission(dissolved, { kind: "dissolve", input: { ...identity, anchorOrderVersion: 4 } }, 5, now),
+    ).toEqual({ result: { status: "released" } });
+  });
+});
 
 const shipmentAddressSnapshots = {
   shippingDestinationSnapshot: {
@@ -88,6 +339,107 @@ function attachPurchasedLabel(state: ReturnType<typeof createPackedShipmentState
 }
 
 describe("fulfillment shipment domain", () => {
+  it("publishes the privacy-minimal shipment routing facts from aggregate state at dispatch", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+
+    const [event] = decideFulfillmentShipment(labeledState, {
+      type: "DispatchShipment",
+      dispatchedAt: "2026-04-02T00:20:00.000Z",
+    });
+
+    expect(event).toEqual({
+      type: "fulfillment.shipment.dispatched",
+      data: {
+        shipmentId: "shp_1",
+        orderId: "ord_1",
+        buyerAccountId: "acc_buyer",
+        sellerAccountId: "acc_seller",
+        trackingIdentifier: "trk_123",
+        dispatchedAt: "2026-04-02T00:20:00.000Z",
+      },
+    });
+    expect(Object.keys(event.data).sort()).toEqual([
+      "buyerAccountId",
+      "dispatchedAt",
+      "orderId",
+      "sellerAccountId",
+      "shipmentId",
+      "trackingIdentifier",
+    ]);
+  });
+
+  it("refuses to dispatch a shipment that has not been created", () => {
+    expect(() =>
+      decideFulfillmentShipment(initialFulfillmentShipmentState, {
+        type: "DispatchShipment",
+        dispatchedAt: "2026-04-02T00:20:00.000Z",
+      }),
+    ).toThrow("Shipment must be created first.");
+  });
+
+  it("refuses to dispatch a labeled shipment whose authoritative order routing fact is absent", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+
+    expect(() =>
+      decideFulfillmentShipment(
+        { ...labeledState, orderId: null },
+        { type: "DispatchShipment", dispatchedAt: "2026-04-02T00:20:00.000Z" },
+      ),
+    ).toThrow("Shipment must reference an order before dispatch.");
+  });
+
+  it("keeps redispatch idempotent after folding the enriched event", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+    const [dispatchedEvent] = decideFulfillmentShipment(labeledState, {
+      type: "DispatchShipment",
+      dispatchedAt: "2026-04-02T00:20:00.000Z",
+    });
+    const dispatchedState = evolveFulfillmentShipment(labeledState, dispatchedEvent);
+
+    expect(
+      decideFulfillmentShipment(dispatchedState, {
+        type: "DispatchShipment",
+        dispatchedAt: "2026-04-02T00:21:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
+  it("replays historical thin and enriched dispatched events without rewriting either payload", () => {
+    const codec = createPassthroughDomainEventCodec<FulfillmentShipmentEvent>();
+    const [historicalEvent, enrichedEvent] = [
+      {
+        eventType: "fulfillment.shipment.dispatched",
+        payload: { shipmentId: "shp_historical", dispatchedAt: "2026-04-01T00:00:00.000Z" },
+      },
+      {
+        eventType: "fulfillment.shipment.dispatched",
+        payload: {
+          shipmentId: "shp_enriched",
+          orderId: "ord_1",
+          buyerAccountId: "acc_buyer",
+          sellerAccountId: "acc_seller",
+          trackingIdentifier: "trk_123",
+          dispatchedAt: "2026-04-02T00:20:00.000Z",
+        },
+      },
+    ].map((storedEvent) => codec.decode(storedEvent));
+
+    const historicalState = evolveFulfillmentShipment(initialFulfillmentShipmentState, historicalEvent);
+    const enrichedState = evolveFulfillmentShipment(historicalState, enrichedEvent);
+
+    expect(historicalState.status).toBe("dispatched");
+    expect(enrichedState.status).toBe("dispatched");
+    expect("orderId" in historicalEvent.data).toBe(false);
+    expect(enrichedEvent.data).toEqual({
+      shipmentId: "shp_enriched",
+      orderId: "ord_1",
+      buyerAccountId: "acc_buyer",
+      sellerAccountId: "acc_seller",
+      trackingIdentifier: "trk_123",
+      dispatchedAt: "2026-04-02T00:20:00.000Z",
+    });
+  });
+
   it("moves a shipment through packing, labeling, dispatch, and delivery", () => {
     const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
       type: "CreateShipment",
@@ -366,10 +718,11 @@ describe("fulfillment shipment domain", () => {
     ).toThrow("Postage amount must be known before a label can be attached.");
   });
 
-  it("records terminal refund statuses for requested label voids without resurrecting terminal states", () => {
+  it("converges identical terminal refund statuses and rejects conflicting observations", () => {
     const labeledState = attachPurchasedLabel(createPackedShipmentState());
     const voidRequestedState = decideFulfillmentShipment(labeledState, {
       type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "submitted",
       refundReference: "rfnd_1",
       voidedAt: "2026-04-02T00:15:00.000Z",
@@ -380,6 +733,7 @@ describe("fulfillment shipment domain", () => {
 
     const voidedState = decideFulfillmentShipment(voidRequestedState, {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "refunded",
       refundReference: "rfnd_1",
       resolvedAt: "2026-04-02T00:20:00.000Z",
@@ -390,17 +744,112 @@ describe("fulfillment shipment domain", () => {
     expect(
       decideFulfillmentShipment(voidedState, {
         type: "RecordShipmentLabelRefundStatus",
-        refundStatus: "rejected",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "refunded",
         refundReference: "rfnd_1",
         resolvedAt: "2026-04-02T00:21:00.000Z",
       }),
     ).toEqual([]);
+    expect(() =>
+      decideFulfillmentShipment(voidedState, {
+        type: "RecordShipmentLabelRefundStatus",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "rejected",
+        refundReference: "rfnd_conflict",
+        resolvedAt: "2026-04-02T00:22:00.000Z",
+      }),
+    ).toThrow("Shipment label refund already has a different terminal status.");
+  });
+
+  it("appends label-voided plus the original-label fact only for immediate terminal outcomes", () => {
+    const labeledState = attachPurchasedLabel(createPackedShipmentState());
+
+    expect(
+      decideFulfillmentShipment(labeledState, {
+        type: "VoidShipmentLabel",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "refunded",
+        refundReference: "rfnd_immediate",
+        voidedAt: "2026-04-02T00:15:00.000Z",
+      }),
+    ).toEqual([
+      {
+        type: "fulfillment.shipment.label-voided",
+        data: {
+          shipmentId: "shp_1",
+          refundStatus: "refunded",
+          refundReference: "rfnd_immediate",
+          voidedAt: "2026-04-02T00:15:00.000Z",
+        },
+      },
+      {
+        type: "fulfillment.shipment.label-refund-status-recorded",
+        data: {
+          shipmentId: "shp_1",
+          postageProviderLabelId: "plbl_123",
+          refundStatus: "refunded",
+          refundReference: "rfnd_immediate",
+          resolvedAt: "2026-04-02T00:15:00.000Z",
+        },
+      },
+    ]);
+
+    expect(
+      decideFulfillmentShipment(labeledState, {
+        type: "VoidShipmentLabel",
+        postageProviderLabelId: "plbl_123",
+        refundStatus: "submitted",
+        refundReference: "rfnd_submitted",
+        voidedAt: "2026-04-02T00:16:00.000Z",
+      }).map((event) => event.type),
+    ).toEqual(["fulfillment.shipment.label-voided"]);
+  });
+
+  it("records late terminal A after replacement B without changing B", () => {
+    const labeledA = attachPurchasedLabel(createPackedShipmentState());
+    const voidRequestedA = decideFulfillmentShipment(labeledA, {
+      type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
+      refundStatus: "submitted",
+      voidedAt: "2026-04-02T00:15:00.000Z",
+    }).reduce(evolveFulfillmentShipment, labeledA);
+    const labeledB = decideFulfillmentShipment(voidRequestedA, {
+      type: "AttachShipmentLabel",
+      shippingMethod: "priority",
+      carrierName: "USPS",
+      labelReference: "lbl_456",
+      trackingIdentifier: "trk_456",
+      postageProviderName: "synthetic-postage",
+      postageProviderMode: "test",
+      postageProviderShipmentId: "synthetic_shipment_B",
+      postageProviderLabelId: "synthetic_label_B",
+      postageAmountCents: 599,
+      postageCurrency: "USD",
+      attachedAt: "2026-04-02T00:16:00.000Z",
+    }).reduce(evolveFulfillmentShipment, voidRequestedA);
+    const [lateA] = decideFulfillmentShipment(labeledB, {
+      type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
+      refundStatus: "refunded",
+      refundReference: "synthetic_refund_A",
+      resolvedAt: "2026-04-02T00:20:00.000Z",
+    });
+    const afterLateA = evolveFulfillmentShipment(labeledB, lateA!);
+
+    expect(lateA?.data).toMatchObject({ postageProviderLabelId: "plbl_123", refundStatus: "refunded" });
+    expect(afterLateA).toMatchObject({
+      postageProviderLabelId: "synthetic_label_B",
+      trackingIdentifier: "trk_456",
+      labelStatus: "purchased",
+      status: "label-attached",
+    });
   });
 
   it("marks rejected label refund requests without opening a replacement-label path", () => {
     const labeledState = attachPurchasedLabel(createPackedShipmentState());
     const voidRequestedState = decideFulfillmentShipment(labeledState, {
       type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "submitted",
       refundReference: "rfnd_1",
       voidedAt: "2026-04-02T00:15:00.000Z",
@@ -408,6 +857,7 @@ describe("fulfillment shipment domain", () => {
 
     const rejectedState = decideFulfillmentShipment(voidRequestedState, {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "rejected",
       refundReference: "rfnd_1",
       resolvedAt: "2026-04-02T00:20:00.000Z",
@@ -423,12 +873,14 @@ describe("fulfillment shipment domain", () => {
 
     const voidRequestedState = decideFulfillmentShipment(labeledState, {
       type: "VoidShipmentLabel",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "submitted",
       refundReference: "rfnd_1",
       voidedAt: "2026-04-02T00:15:00.000Z",
     }).reduce(evolveFulfillmentShipment, labeledState);
     const voidedState = decideFulfillmentShipment(voidRequestedState, {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId: "plbl_123",
       refundStatus: "refunded",
       refundReference: "rfnd_1",
       resolvedAt: "2026-04-02T00:20:00.000Z",
@@ -534,6 +986,170 @@ describe("fulfillment shipment domain", () => {
         type: "CancelShipment",
         cancelledAt: "2026-04-02T00:06:00.000Z",
       }),
-    ).toThrow("Only shipments awaiting package preparation can be cancelled.");
+    ).toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+  });
+
+  it.each(["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const)(
+    "keeps %s cancellation closed without a matching recorded conflict",
+    (status) => {
+      const state = { ...createPackedShipmentState(), status, conflicts: [] };
+      expect(() =>
+        decideFulfillmentShipment(state, {
+          type: "CancelShipment",
+          cancelledAt: "2026-04-02T00:06:00.000Z",
+        }),
+      ).toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+    },
+  );
+
+  it("does not let an order-cancelled conflict for another order unlock the seller exit", () => {
+    const state = {
+      ...createPackedShipmentState(),
+      conflicts: [
+        {
+          orderId: "ord_other" as never,
+          conflictKind: "cancellation" as const,
+          origin: "order-cancelled" as const,
+          reason: "buyer-cancelled",
+          shipmentStatus: "awaiting-label" as const,
+        },
+      ],
+    };
+    expect(() =>
+      decideFulfillmentShipment(state, {
+        type: "CancelShipment",
+        cancelledAt: "2026-04-02T00:06:00.000Z",
+      }),
+    ).toThrow("Only shipments with an order cancellation conflict can be cancelled.");
+  });
+
+  it("records an advanced-state cancellation conflict and then permits the seller exit", () => {
+    const packingState = decideFulfillmentShipment(createPackedShipmentState(), {
+      type: "RaiseShipmentException",
+      exceptionType: "other",
+      notes: null,
+      raisedAt: "2026-04-02T00:06:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createPackedShipmentState());
+    const [conflict] = decideFulfillmentShipment(packingState, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:07:00.000Z",
+      cancellationSignal: {
+        orderId: "ord_1" as never,
+        reason: "buyer-cancelled",
+        origin: "order-cancelled",
+      },
+    });
+    expect(conflict).toEqual({
+      type: "fulfillment.shipment.cancellation-conflict-recorded",
+      data: {
+        shipmentId: "shp_1",
+        orderId: "ord_1",
+        reason: "buyer-cancelled",
+        shipmentStatus: "exception",
+        origin: "order-cancelled",
+      },
+    });
+
+    const awaitingLabel = createPackedShipmentState();
+    const conflicted = evolveFulfillmentShipment(awaitingLabel, {
+      type: "fulfillment.shipment.cancellation-conflict-recorded",
+      data: {
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        reason: "buyer-cancelled",
+        shipmentStatus: "awaiting-label",
+        origin: "order-cancelled",
+      },
+    });
+    const [cancelled] = decideFulfillmentShipment(conflicted, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:08:00.000Z",
+    });
+    expect(cancelled.type).toBe("fulfillment.shipment.cancelled");
+  });
+
+  it("cancels an awaiting-package shipment on a fraud warning without recording a conflict", () => {
+    const created = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      ...shipmentAddressSnapshots,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    const events = decideFulfillmentShipment(created, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:01:00.000Z",
+      cancellationSignal: {
+        orderId: "ord_1" as never,
+        reason: null,
+        origin: "payment-fraud-warning",
+      },
+    });
+    expect(events.map((event) => event.type)).toEqual(["fulfillment.shipment.cancelled"]);
+  });
+
+  it("records exactly one fraud conflict fact once packing has started", () => {
+    const created = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      ...shipmentAddressSnapshots,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    const packing = decideFulfillmentShipment(created, {
+      type: "StartShipmentPacking",
+      startedAt: "2026-04-02T00:03:00.000Z",
+    }).reduce(evolveFulfillmentShipment, created);
+    const events = decideFulfillmentShipment(packing, {
+      type: "CancelShipment",
+      cancelledAt: "2026-04-02T00:04:00.000Z",
+      cancellationSignal: {
+        orderId: "ord_1" as never,
+        reason: null,
+        origin: "payment-fraud-warning",
+      },
+    });
+    expect(events).toEqual([
+      {
+        type: "fulfillment.shipment.cancellation-conflict-recorded",
+        data: {
+          shipmentId: "shp_1",
+          orderId: "ord_1",
+          reason: null,
+          shipmentStatus: "packing",
+          origin: "payment-fraud-warning",
+        },
+      },
+    ]);
   });
 });

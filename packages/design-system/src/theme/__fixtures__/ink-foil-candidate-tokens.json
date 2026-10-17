@@ -40,15 +40,15 @@
     },
     "--chase-logo-end": {
       "shipped": "#174db0",
-      "candidate": "#a87e2f"
+      "candidate": "#9a742b"
     },
     "--chase-logo-mid": {
       "shipped": "#1d5fd6",
-      "candidate": "#c9a44e"
+      "candidate": "#a38132"
     },
     "--chase-logo-start": {
       "shipped": "#0f766e",
-      "candidate": "#8a682a"
+      "candidate": "#806127"
     },
     "--color-accent": {
       "shipped": "#1d5fd6",

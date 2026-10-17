@@ -4,6 +4,17 @@ import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
+  admissionIdentityFromFact,
+  orderGroupContractVersion,
+  orderGroupPayloadValidators,
+  type AdmissionIdentity,
+  type AdmissionRejectionReason,
+  type OrderGroupEventPayloads,
+  type ReserveResult,
+  type CommitResult,
+  type AbortResult,
+} from "@chase-sets/order-groups";
+import {
   createFulfillmentCsatOutcomeFact,
   fulfillmentCsatOutcomeFactEventType,
 } from "../../../support/request-support/csat-outcome-fact";
@@ -17,6 +28,8 @@ import {
   normalizeRequiredText,
   normalizeShipmentExceptionType,
   normalizeShippingMethod,
+  ShipmentLabelRefundTerminalConflictError,
+  ShipmentAdmissionBusyError,
   type PackageStatus,
   type PostageLabelStatus,
   type ShipmentExceptionType,
@@ -50,6 +63,16 @@ export type FulfillmentShipmentException = Readonly<{
   raisedAt: string;
 }>;
 
+export type ShipmentCancellationConflictOrigin = "order-cancelled" | "payment-fraud-warning";
+
+export type FulfillmentShipmentConflict = Readonly<{
+  orderId: OrderId;
+  conflictKind: "cancellation";
+  origin: ShipmentCancellationConflictOrigin;
+  reason: string | null;
+  shipmentStatus: ShipmentStatus;
+}>;
+
 export type FulfillmentAddressOverrideAudit = Readonly<{
   originalSenderSnapshot: AddressSnapshot;
   submittedSenderAddress: AddressSnapshot;
@@ -62,6 +85,8 @@ export type FulfillmentAddressOverrideAudit = Readonly<{
 }>;
 
 export type FulfillmentShipmentState = Readonly<{
+  admission: ShipmentAdmissionEvent | null;
+  admissionHistory: readonly ShipmentAdmissionEvent[];
   shipmentId: ShipmentId | null;
   orderId: OrderId | null;
   buyerAccountId: AccountId | null;
@@ -79,6 +104,7 @@ export type FulfillmentShipmentState = Readonly<{
   postageProviderMode: string | null;
   postageProviderShipmentId: string | null;
   postageProviderLabelId: string | null;
+  postageProviderLabelIds: readonly string[];
   postageRateId: string | null;
   postageServiceLevel: string | null;
   postageAmountCents: number | null;
@@ -88,11 +114,13 @@ export type FulfillmentShipmentState = Readonly<{
   labelErrorMessage: string | null;
   labelRefundStatus: string | null;
   labelRefundReference: string | null;
+  labelRefundStatusesByPostageProviderLabelId: Readonly<Record<string, string>>;
   status: ShipmentStatus | null;
   packageStatus: PackageStatus | null;
   packageCount: number | null;
   lines: FulfillmentShipmentLine[];
   exceptions: FulfillmentShipmentException[];
+  conflicts: FulfillmentShipmentConflict[];
   addressOverrideAudits: FulfillmentAddressOverrideAudit[];
   createdAt: string | null;
   packingStartedAt: string | null;
@@ -109,6 +137,8 @@ export type FulfillmentShipmentState = Readonly<{
 }>;
 
 export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
+  admission: null,
+  admissionHistory: [],
   shipmentId: null,
   orderId: null,
   buyerAccountId: null,
@@ -126,6 +156,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   postageProviderMode: null,
   postageProviderShipmentId: null,
   postageProviderLabelId: null,
+  postageProviderLabelIds: [],
   postageRateId: null,
   postageServiceLevel: null,
   postageAmountCents: null,
@@ -135,11 +166,13 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   labelErrorMessage: null,
   labelRefundStatus: null,
   labelRefundReference: null,
+  labelRefundStatusesByPostageProviderLabelId: {},
   status: null,
   packageStatus: null,
   packageCount: null,
   lines: [],
   exceptions: [],
+  conflicts: [],
   addressOverrideAudits: [],
   createdAt: null,
   packingStartedAt: null,
@@ -243,6 +276,7 @@ export type RecordShipmentLabelPurchaseFailedCommand = Readonly<{
 
 export type VoidShipmentLabelCommand = Readonly<{
   type: "VoidShipmentLabel";
+  postageProviderLabelId: string;
   refundStatus: string;
   refundReference?: string | null;
   voidedAt: string;
@@ -250,6 +284,7 @@ export type VoidShipmentLabelCommand = Readonly<{
 
 export type RecordShipmentLabelRefundStatusCommand = Readonly<{
   type: "RecordShipmentLabelRefundStatus";
+  postageProviderLabelId: string;
   refundStatus: string;
   refundReference?: string | null;
   resolvedAt: string;
@@ -258,6 +293,11 @@ export type RecordShipmentLabelRefundStatusCommand = Readonly<{
 export type CancelShipmentCommand = Readonly<{
   type: "CancelShipment";
   cancelledAt: string;
+  cancellationSignal?: Readonly<{
+    orderId: OrderId;
+    reason: string | null;
+    origin: ShipmentCancellationConflictOrigin;
+  }>;
 }>;
 
 export type DispatchShipmentCommand = Readonly<{
@@ -413,11 +453,56 @@ export type ShipmentLabelRefundStatusRecordedEvent = DomainEvent<
   "fulfillment.shipment.label-refund-status-recorded",
   Readonly<{
     shipmentId: ShipmentId;
+    postageProviderLabelId: string;
     refundStatus: string;
     refundReference: string | null;
     resolvedAt: string;
   }>
 >;
+
+function isTerminalLabelRefundStatus(refundStatus: string): refundStatus is "refunded" | "rejected" {
+  return refundStatus === "refunded" || refundStatus === "rejected";
+}
+
+function recordedLabelRefundStatus(state: FulfillmentShipmentState, postageProviderLabelId: string) {
+  const recorded = state.labelRefundStatusesByPostageProviderLabelId[postageProviderLabelId];
+  if (recorded) return recorded;
+  if (
+    state.postageProviderLabelId === postageProviderLabelId &&
+    state.labelRefundStatus &&
+    isTerminalLabelRefundStatus(state.labelRefundStatus)
+  ) {
+    return state.labelRefundStatus;
+  }
+  return null;
+}
+
+function decideTerminalLabelRefundStatus(
+  state: FulfillmentShipmentState,
+  command: Readonly<{
+    postageProviderLabelId: string;
+    refundStatus: "refunded" | "rejected";
+    refundReference?: string | null;
+    resolvedAt: string;
+  }>,
+): readonly ShipmentLabelRefundStatusRecordedEvent[] {
+  const existingStatus = recordedLabelRefundStatus(state, command.postageProviderLabelId);
+  if (existingStatus === command.refundStatus) return [];
+  if (existingStatus) throw new ShipmentLabelRefundTerminalConflictError();
+
+  return [
+    {
+      type: "fulfillment.shipment.label-refund-status-recorded",
+      data: {
+        shipmentId: state.shipmentId!,
+        postageProviderLabelId: command.postageProviderLabelId,
+        refundStatus: command.refundStatus,
+        refundReference: normalizeOptionalText(command.refundReference),
+        resolvedAt: ensureIsoTimestamp(command.resolvedAt, "Label refund status must record a timestamp."),
+      },
+    },
+  ];
+}
 
 export type ShipmentCancelledEvent = DomainEvent<
   "fulfillment.shipment.cancelled",
@@ -430,10 +515,25 @@ export type ShipmentCancelledEvent = DomainEvent<
   }>
 >;
 
+export type ShipmentCancellationConflictRecordedEvent = DomainEvent<
+  "fulfillment.shipment.cancellation-conflict-recorded",
+  Readonly<{
+    shipmentId: ShipmentId;
+    orderId: OrderId;
+    reason: string | null;
+    shipmentStatus: ShipmentStatus;
+    origin: ShipmentCancellationConflictOrigin;
+  }>
+>;
+
 export type ShipmentDispatchedEvent = DomainEvent<
   "fulfillment.shipment.dispatched",
   Readonly<{
     shipmentId: ShipmentId;
+    orderId: OrderId;
+    buyerAccountId: AccountId;
+    sellerAccountId: AccountId;
+    trackingIdentifier: string | null;
     dispatchedAt: string;
   }>
 >;
@@ -474,7 +574,12 @@ export type FulfillmentCsatOutcomeFactPublishedEvent = DomainEvent<
   ReturnType<typeof createFulfillmentCsatOutcomeFact>
 >;
 
+export type ShipmentAdmissionEvent = {
+  [K in keyof OrderGroupEventPayloads & `fulfillment.${string}`]: DomainEvent<K, OrderGroupEventPayloads[K]>;
+}[keyof OrderGroupEventPayloads & `fulfillment.${string}`];
+
 export type FulfillmentShipmentEvent =
+  | ShipmentAdmissionEvent
   | ShipmentCreatedEvent
   | ShipmentPackingStartedEvent
   | ShipmentPackingLineConfirmedEvent
@@ -486,11 +591,140 @@ export type FulfillmentShipmentEvent =
   | ShipmentLabelVoidedEvent
   | ShipmentLabelRefundStatusRecordedEvent
   | ShipmentCancelledEvent
+  | ShipmentCancellationConflictRecordedEvent
   | ShipmentDispatchedEvent
   | ShipmentDeliveredEvent
   | ShipmentReturnedEvent
   | ShipmentExceptionRaisedEvent
   | FulfillmentCsatOutcomeFactPublishedEvent;
+
+export function sameAdmissionIdentity(left: AdmissionIdentity, right: AdmissionIdentity): boolean {
+  return JSON.stringify(admissionIdentityFromFact(left)) === JSON.stringify(admissionIdentityFromFact(right));
+}
+
+export type ShipmentAdmissionCommand =
+  | Readonly<{ kind: "reserve"; input: AdmissionIdentity }>
+  | Readonly<{ kind: "commit"; input: AdmissionIdentity & { anchorOrderVersion: number } }>
+  | Readonly<{
+      kind: "abort";
+      input: Parameters<import("@chase-sets/order-groups").ShipmentGroupAdmissionAuthority["abort"]>[0];
+    }>
+  | Readonly<{ kind: "dissolve"; input: AdmissionIdentity & { anchorOrderVersion: number } }>;
+
+type AdmissionDecisionResult =
+  | ReserveResult
+  | CommitResult
+  | AbortResult
+  | Readonly<{
+      status: "accepted" | "replayed";
+      fact: OrderGroupEventPayloads["fulfillment.shipment-group.admission-released"];
+    }>;
+
+export function decideShipmentAdmission(
+  state: FulfillmentShipmentState,
+  command: ShipmentAdmissionCommand,
+  shipmentVersion: number,
+  now: string,
+): Readonly<{ result: AdmissionDecisionResult; event?: ShipmentAdmissionEvent }> {
+  const { input, kind } = command;
+  if (state.shipmentId !== input.anchorShipmentId || state.orderId !== input.anchorOrderId || !state.sellerAccountId) {
+    return { result: { status: "identity-conflict" } };
+  }
+  const prior = state.admissionHistory.filter((receipt) => sameAdmissionIdentity(receipt.data, input));
+  const release = prior.find((receipt) => receipt.type === "fulfillment.shipment-group.admission-released");
+  if (release) {
+    if (
+      (kind === "abort" && release.data.reason === "aborted") ||
+      (kind === "dissolve" &&
+        release.data.reason === "group-dissolved" &&
+        prior.some(
+          (receipt) =>
+            receipt.type === "fulfillment.shipment-group.admission-committed" &&
+            receipt.data.anchorOrderVersion === command.input.anchorOrderVersion,
+        ))
+    ) {
+      return { result: { status: "replayed", fact: release.data } };
+    }
+    return { result: { status: "released" } };
+  }
+  const rejected = prior.find((receipt) => receipt.type === "fulfillment.shipment-group.admission-rejected");
+  if (rejected) return { result: { status: kind === "reserve" ? rejected.data.reason : "not-reserved" } };
+  const active = state.admission;
+  const occupied =
+    active?.type === "fulfillment.shipment-group.admission-reserved" ||
+    active?.type === "fulfillment.shipment-group.admission-committed";
+  const matches = active && sameAdmissionIdentity(active.data, input);
+  const base = {
+    contractVersion: orderGroupContractVersion,
+    ...admissionIdentityFromFact(input),
+    shipmentVersion,
+  } as const;
+  if (kind === "reserve") {
+    if (matches && active.type === "fulfillment.shipment-group.admission-reserved")
+      return { result: { status: "replayed", fact: active.data } };
+    if (matches && active.type === "fulfillment.shipment-group.admission-committed")
+      return { result: { status: "replayed", fact: active.data } };
+    let reason: AdmissionRejectionReason | undefined;
+    if (occupied) reason = "identity-conflict";
+    else if (state.status === "cancelled") reason = "cancelled";
+    else if (
+      state.conflicts.length > 0 ||
+      state.admissionHistory.some(
+        (receipt) =>
+          receipt.data.requestId === input.requestId ||
+          receipt.data.groupId === input.groupId ||
+          receipt.data.sourceGeneration === input.sourceGeneration ||
+          receipt.data.quoteFingerprint === input.quoteFingerprint,
+      )
+    )
+      reason = "identity-conflict";
+    else if (state.status !== "awaiting-package") reason = "packing-started";
+    if (reason)
+      return {
+        result: { status: reason },
+        event: {
+          type: "fulfillment.shipment-group.admission-rejected",
+          data: { ...base, reason, rejectedAt: now },
+        },
+      };
+    const event: ShipmentAdmissionEvent = {
+      type: "fulfillment.shipment-group.admission-reserved",
+      data: { ...base, reservedAt: now },
+    };
+    return { result: { status: "accepted", fact: event.data }, event };
+  }
+  if (!occupied) return { result: { status: active ? "identity-conflict" : "not-reserved" } };
+  if (!matches) return { result: { status: "identity-conflict" } };
+  if (kind === "commit") {
+    if (active.type === "fulfillment.shipment-group.admission-committed") {
+      return {
+        result:
+          active.data.anchorOrderVersion === input.anchorOrderVersion
+            ? { status: "replayed", fact: active.data }
+            : { status: "identity-conflict" },
+      };
+    }
+    const event: ShipmentAdmissionEvent = {
+      type: "fulfillment.shipment-group.admission-committed",
+      data: { ...base, anchorOrderVersion: input.anchorOrderVersion, committedAt: now },
+    };
+    return { result: { status: "accepted", fact: event.data }, event };
+  }
+  if (kind === "abort" && active.type === "fulfillment.shipment-group.admission-committed") {
+    return { result: { status: "already-grouped" } };
+  }
+  if (
+    kind === "dissolve" &&
+    (active.type !== "fulfillment.shipment-group.admission-committed" ||
+      active.data.anchorOrderVersion !== input.anchorOrderVersion)
+  )
+    return { result: { status: "not-reserved" } };
+  const event: ShipmentAdmissionEvent = {
+    type: "fulfillment.shipment-group.admission-released",
+    data: { ...base, reason: kind === "abort" ? "aborted" : "group-dissolved", releasedAt: now },
+  };
+  return { result: { status: "accepted", fact: event.data }, event };
+}
 
 function normalizeShipmentLines(lines: readonly FulfillmentShipmentLineInput[]) {
   assert(lines.length > 0, "Shipments must include at least one line.");
@@ -536,6 +770,20 @@ export const decideFulfillmentShipment: AggregateDecider<
   FulfillmentShipmentCommand,
   FulfillmentShipmentEvent
 > = (state, command) => {
+  const admissionBusy =
+    state.admission?.type === "fulfillment.shipment-group.admission-reserved" ||
+    state.admission?.type === "fulfillment.shipment-group.admission-committed";
+  if (
+    admissionBusy &&
+    (command.type === "StartShipmentPacking" ||
+      command.type === "PrepareShipmentPackage" ||
+      command.type === "RaiseShipmentException" ||
+      (command.type === "CancelShipment" &&
+        (!command.cancellationSignal ||
+          (command.cancellationSignal.origin === "order-cancelled" &&
+            state.admission?.type === "fulfillment.shipment-group.admission-reserved"))))
+  )
+    throw new ShipmentAdmissionBusyError();
   switch (command.type) {
     case "CreateShipment":
       assert(state.shipmentId === null, "Shipment has already been created.");
@@ -757,53 +1005,124 @@ export const decideFulfillmentShipment: AggregateDecider<
           },
         },
       ];
-    case "VoidShipmentLabel":
+    case "VoidShipmentLabel": {
       assert(state.shipmentId !== null, "Shipment must be created first.");
+      const postageProviderLabelId = normalizeRequiredText(
+        command.postageProviderLabelId,
+        "Postage provider label identity is required.",
+      );
+      assert(
+        state.postageProviderLabelIds.includes(postageProviderLabelId),
+        "Postage provider label identity was not attached to this shipment.",
+      );
+      const refundStatus = normalizeRequiredText(command.refundStatus, "Label refund status is required.");
+      assert(
+        refundStatus === "submitted" || isTerminalLabelRefundStatus(refundStatus),
+        "Label refund status must be submitted, refunded, or rejected.",
+      );
+      const terminalEvents = isTerminalLabelRefundStatus(refundStatus)
+        ? decideTerminalLabelRefundStatus(state, {
+            postageProviderLabelId,
+            refundStatus,
+            refundReference: command.refundReference,
+            resolvedAt: command.voidedAt,
+          })
+        : [];
+      if (terminalEvents.length === 0 && isTerminalLabelRefundStatus(refundStatus)) return [];
+      if (state.postageProviderLabelId !== postageProviderLabelId) return terminalEvents;
+      if (state.labelStatus === "void-requested") {
+        return refundStatus === "submitted" ? [] : terminalEvents;
+      }
       assert(state.status === "label-attached", "Only attached labels can be voided before dispatch.");
       assert(state.labelStatus === "purchased", "Only purchased labels can be voided.");
-      return [
-        {
-          type: "fulfillment.shipment.label-voided",
-          data: {
-            shipmentId: state.shipmentId,
-            refundStatus: normalizeRequiredText(command.refundStatus, "Label refund status is required."),
-            refundReference: normalizeOptionalText(command.refundReference),
-            voidedAt: ensureIsoTimestamp(command.voidedAt, "Label void must record a timestamp."),
-          },
+      const labelVoidedEvent: ShipmentLabelVoidedEvent = {
+        type: "fulfillment.shipment.label-voided",
+        data: {
+          shipmentId: state.shipmentId,
+          refundStatus,
+          refundReference: normalizeOptionalText(command.refundReference),
+          voidedAt: ensureIsoTimestamp(command.voidedAt, "Label void must record a timestamp."),
         },
-      ];
+      };
+      return [labelVoidedEvent, ...terminalEvents];
+    }
     case "RecordShipmentLabelRefundStatus": {
       assert(state.shipmentId !== null, "Shipment must be created first.");
-      if (state.labelStatus === "voided" || state.labelStatus === "void-rejected") {
-        return [];
-      }
-      assert(state.labelStatus === "void-requested", "Only requested label voids can record refund status.");
+      const postageProviderLabelId = normalizeRequiredText(
+        command.postageProviderLabelId,
+        "Postage provider label identity is required.",
+      );
+      assert(
+        state.postageProviderLabelIds.includes(postageProviderLabelId),
+        "Postage provider label identity was not attached to this shipment.",
+      );
       const refundStatus = normalizeRequiredText(command.refundStatus, "Label refund status is required.");
       assert(
         refundStatus === "refunded" || refundStatus === "rejected",
         "Label refund status must be refunded or rejected.",
       );
-      return [
-        {
-          type: "fulfillment.shipment.label-refund-status-recorded",
-          data: {
-            shipmentId: state.shipmentId,
-            refundStatus,
-            refundReference: normalizeOptionalText(command.refundReference),
-            resolvedAt: ensureIsoTimestamp(command.resolvedAt, "Label refund status must record a timestamp."),
-          },
-        },
-      ];
+      const existingStatus = recordedLabelRefundStatus(state, postageProviderLabelId);
+      if (existingStatus === refundStatus) return [];
+      if (existingStatus) throw new ShipmentLabelRefundTerminalConflictError();
+      if (state.postageProviderLabelId === postageProviderLabelId) {
+        assert(state.labelStatus === "void-requested", "Only requested label voids can record refund status.");
+      }
+      return decideTerminalLabelRefundStatus(state, {
+        postageProviderLabelId,
+        refundStatus,
+        refundReference: command.refundReference,
+        resolvedAt: command.resolvedAt,
+      });
     }
     case "CancelShipment":
-      assert(state.shipmentId !== null, "Shipment must be created first.");
+      if (state.shipmentId === null || state.status === null) {
+        return [];
+      }
       assert(state.orderId !== null, "Shipment must reference an order before cancellation.");
       assert(state.buyerAccountId !== null, "Shipment must reference a buyer before cancellation.");
       assert(state.sellerAccountId !== null, "Shipment must reference a seller before cancellation.");
       if (state.status === "cancelled") {
         return [];
       }
-      assert(state.status === "awaiting-package", "Only shipments awaiting package preparation can be cancelled.");
+      if (command.cancellationSignal) {
+        assert(
+          command.cancellationSignal.orderId === state.orderId,
+          "Shipment cancellation signal must reference this shipment's order.",
+        );
+        const alreadyRecorded = state.conflicts.some(
+          (conflict) =>
+            conflict.conflictKind === "cancellation" &&
+            conflict.orderId === command.cancellationSignal?.orderId &&
+            conflict.origin === command.cancellationSignal?.origin,
+        );
+        if (alreadyRecorded) {
+          return [];
+        }
+        if (state.status !== "awaiting-package" || admissionBusy) {
+          return [
+            {
+              type: "fulfillment.shipment.cancellation-conflict-recorded",
+              data: {
+                shipmentId: state.shipmentId,
+                orderId: state.orderId,
+                reason: command.cancellationSignal.reason,
+                shipmentStatus: state.status,
+                origin: command.cancellationSignal.origin,
+              },
+            },
+          ];
+        }
+      } else if (state.status !== "awaiting-package") {
+        const canResolveOrderCancellation =
+          (state.status === "packing" || state.status === "awaiting-label") &&
+          state.conflicts.some(
+            (conflict) =>
+              conflict.conflictKind === "cancellation" &&
+              conflict.orderId === state.orderId &&
+              conflict.origin === "order-cancelled",
+          );
+        assert(canResolveOrderCancellation, "Only shipments with an order cancellation conflict can be cancelled.");
+      }
       return [
         {
           type: "fulfillment.shipment.cancelled",
@@ -818,6 +1137,9 @@ export const decideFulfillmentShipment: AggregateDecider<
       ];
     case "DispatchShipment":
       assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(state.orderId !== null, "Shipment must reference an order before dispatch.");
+      assert(state.buyerAccountId !== null, "Shipment must reference a buyer before dispatch.");
+      assert(state.sellerAccountId !== null, "Shipment must reference a seller before dispatch.");
       if (state.status === "dispatched") {
         return [];
       }
@@ -827,6 +1149,10 @@ export const decideFulfillmentShipment: AggregateDecider<
           type: "fulfillment.shipment.dispatched",
           data: {
             shipmentId: state.shipmentId,
+            orderId: state.orderId,
+            buyerAccountId: state.buyerAccountId,
+            sellerAccountId: state.sellerAccountId,
+            trackingIdentifier: state.trackingIdentifier,
             dispatchedAt: ensureIsoTimestamp(command.dispatchedAt, "Dispatch must record a timestamp."),
           },
         },
@@ -915,8 +1241,53 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
   event,
 ) => {
   switch (event.type) {
+    case "fulfillment.shipment-group.admission-reserved":
+    case "fulfillment.shipment-group.admission-rejected":
+    case "fulfillment.shipment-group.admission-committed":
+    case "fulfillment.shipment-group.admission-released": {
+      orderGroupPayloadValidators[event.type].parse(event.data);
+      assert(
+        state.shipmentId === event.data.anchorShipmentId && state.orderId === event.data.anchorOrderId,
+        "Admission receipt contradicts Shipment creation lineage.",
+      );
+      const active = state.admission;
+      const prior = state.admissionHistory.filter((receipt) => sameAdmissionIdentity(receipt.data, event.data));
+      if (event.type === "fulfillment.shipment-group.admission-reserved") {
+        assert(
+          !active || active.type === "fulfillment.shipment-group.admission-released",
+          "Admission is already occupied.",
+        );
+        assert(
+          prior.length === 0 && state.status === "awaiting-package" && state.conflicts.length === 0,
+          "Admission reservation contradicts Shipment history.",
+        );
+      } else if (event.type === "fulfillment.shipment-group.admission-rejected") {
+        assert(prior.length === 0, "Admission rejection repeats a recorded identity.");
+      } else {
+        assert(
+          active && sameAdmissionIdentity(active.data, event.data),
+          "Admission transition has no matching reservation.",
+        );
+        assert(
+          event.type === "fulfillment.shipment-group.admission-committed"
+            ? active.type === "fulfillment.shipment-group.admission-reserved"
+            : active.type ===
+                (event.data.reason === "aborted"
+                  ? "fulfillment.shipment-group.admission-reserved"
+                  : "fulfillment.shipment-group.admission-committed"),
+          "Admission transition contradicts its recorded phase.",
+        );
+      }
+      return {
+        ...state,
+        admission: event.type === "fulfillment.shipment-group.admission-rejected" ? active : event,
+        admissionHistory: [...state.admissionHistory, event],
+      };
+    }
     case "fulfillment.shipment.created":
       return {
+        admission: null,
+        admissionHistory: [],
         shipmentId: event.data.shipmentId,
         orderId: event.data.orderId,
         buyerAccountId: event.data.buyerAccountId,
@@ -934,6 +1305,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         postageProviderMode: null,
         postageProviderShipmentId: null,
         postageProviderLabelId: null,
+        postageProviderLabelIds: [],
         postageRateId: null,
         postageServiceLevel: null,
         postageAmountCents: null,
@@ -943,11 +1315,13 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         labelErrorMessage: null,
         labelRefundStatus: null,
         labelRefundReference: null,
+        labelRefundStatusesByPostageProviderLabelId: {},
         status: "awaiting-package",
         packageStatus: "awaiting-package",
         packageCount: null,
         lines: normalizeShipmentLines(event.data.lines),
         exceptions: [],
+        conflicts: [],
         addressOverrideAudits: [],
         createdAt: event.data.createdAt,
         packingStartedAt: null,
@@ -1019,6 +1393,11 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         postageProviderMode: event.data.postageProviderMode,
         postageProviderShipmentId: event.data.postageProviderShipmentId,
         postageProviderLabelId: event.data.postageProviderLabelId,
+        postageProviderLabelIds:
+          event.data.postageProviderLabelId &&
+          !state.postageProviderLabelIds.includes(event.data.postageProviderLabelId)
+            ? [...state.postageProviderLabelIds, event.data.postageProviderLabelId]
+            : state.postageProviderLabelIds,
         postageRateId: event.data.postageRateId,
         postageServiceLevel: event.data.postageServiceLevel,
         postageAmountCents: event.data.postageAmountCents,
@@ -1052,19 +1431,50 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         labelRefundReference: event.data.refundReference,
         labelVoidedAt: event.data.voidedAt,
       };
-    case "fulfillment.shipment.label-refund-status-recorded":
+    case "fulfillment.shipment.label-refund-status-recorded": {
+      const postageProviderLabelId =
+        "postageProviderLabelId" in event.data && typeof event.data.postageProviderLabelId === "string"
+          ? event.data.postageProviderLabelId
+          : state.postageProviderLabelId;
+      const appliesToCurrentLabel =
+        postageProviderLabelId === null || postageProviderLabelId === state.postageProviderLabelId;
       return {
         ...state,
-        status: shipmentStatusFromRefundStatus(event.data.refundStatus),
-        labelStatus: labelStatusFromRefundStatus(event.data.refundStatus),
-        labelRefundStatus: event.data.refundStatus,
-        labelRefundReference: event.data.refundReference,
+        ...(appliesToCurrentLabel
+          ? {
+              status: shipmentStatusFromRefundStatus(event.data.refundStatus),
+              labelStatus: labelStatusFromRefundStatus(event.data.refundStatus),
+              labelRefundStatus: event.data.refundStatus,
+              labelRefundReference: event.data.refundReference,
+            }
+          : {}),
+        labelRefundStatusesByPostageProviderLabelId: postageProviderLabelId
+          ? {
+              ...state.labelRefundStatusesByPostageProviderLabelId,
+              [postageProviderLabelId]: event.data.refundStatus,
+            }
+          : state.labelRefundStatusesByPostageProviderLabelId,
       };
+    }
     case "fulfillment.shipment.cancelled":
       return {
         ...state,
         status: "cancelled",
         cancelledAt: event.data.cancelledAt,
+      };
+    case "fulfillment.shipment.cancellation-conflict-recorded":
+      return {
+        ...state,
+        conflicts: [
+          ...state.conflicts,
+          {
+            orderId: event.data.orderId,
+            conflictKind: "cancellation",
+            origin: event.data.origin,
+            reason: event.data.reason,
+            shipmentStatus: event.data.shipmentStatus,
+          },
+        ],
       };
     case "fulfillment.shipment.dispatched":
       return {

@@ -8,7 +8,12 @@ import {
   type EventStoreError,
 } from "./event-store";
 import type { ChaseSetsEventPayloads } from "./public-event-payloads";
-import { EVENT_STORE_READ_PAGE_SIZE_MAX } from "./storage";
+import {
+  compareGlobalPosition,
+  EVENT_STORE_READ_PAGE_SIZE_MAX,
+  globalPositionFromBigInt,
+  parseGlobalPosition,
+} from "./storage";
 import type {
   AppendToStreamInput,
   EventRecordToStore,
@@ -294,10 +299,27 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       return (streams.get(input.streamId) ?? []).filter((event) => event.streamVersion >= fromVersion).slice(0, limit);
     },
     readAll: async (input?: ReadAllInput) => {
+      const atOrBeforeGlobalPosition =
+        input?.atOrBeforeGlobalPosition === undefined ? undefined : parseGlobalPosition(input.atOrBeforeGlobalPosition);
       const limit = assertEventStoreReadPageSize(input?.limit ?? EVENT_STORE_READ_PAGE_SIZE_MAX);
+      const availableGlobalPosition = globalPositionFromBigInt(globalPosition);
+      if (
+        atOrBeforeGlobalPosition !== undefined &&
+        compareGlobalPosition(atOrBeforeGlobalPosition, availableGlobalPosition) > 0
+      ) {
+        throw new Error(
+          `Event store read horizon ${atOrBeforeGlobalPosition} exceeds available global position ${availableGlobalPosition}.`,
+        );
+      }
+
       const after = BigInt(input?.afterGlobalPosition ?? "0");
       return allEvents
         .filter((event) => BigInt(event.globalPosition) > after)
+        .filter(
+          (event) =>
+            atOrBeforeGlobalPosition === undefined ||
+            compareGlobalPosition(event.globalPosition, atOrBeforeGlobalPosition) <= 0,
+        )
         .filter((event) => !input?.tenantId || event.tenantId === input.tenantId)
         .filter((event) => !input?.eventTypes?.length || input.eventTypes.includes(event.eventType))
         .filter(

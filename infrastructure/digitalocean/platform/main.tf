@@ -92,6 +92,17 @@ check "production_runtime_profile_public_gate" {
   }
 }
 
+check "production_marketplace_served" {
+  assert {
+    condition = !var.production_marketplace_served || (
+      var.environment == "production" &&
+      var.production_runtime_profile == "proof" &&
+      var.production_marketplace_public_enabled == false
+    )
+    error_message = "production_marketplace_served requires the production proof runtime profile with public marketplace launch disabled."
+  }
+}
+
 check "production_marketplace_launch_approval" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
@@ -109,6 +120,7 @@ check "production_marketplace_evidence_reference_quality" {
       for reference in [
         var.production_marketplace_promotion_reference,
         var.production_marketplace_checkout_fee_reference,
+        var.production_payout_fee_reference,
         var.production_checkout_launch_evidence_reference,
         var.production_stripe_money_operations_reference,
         var.production_support_operations_reference,
@@ -130,6 +142,17 @@ check "production_marketplace_checkout_fee_approval" {
       trimspace(var.production_marketplace_checkout_fee_reference) != ""
     )
     error_message = "Production marketplace promotion requires approved Marketplace Checkout Fee evidence before live checkout."
+  }
+}
+
+check "production_payout_fee_approval" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_payout_fee_approved &&
+      trimspace(var.production_payout_fee_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved Payout Fee evidence before live seller payouts."
   }
 }
 
@@ -220,6 +243,14 @@ resource "digitalocean_database_user" "contexts" {
   for_each   = local.managed_context_database_users
   cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = each.value
+
+  # The DigitalOcean provider (2.85) emits an empty user_settings update for a
+  # user whose settings block is unmanaged, and the API rejects it with 400
+  # "request is missing the following required fields: user_settings"
+  # (#7715, Deploy Staging run 34076978160). Settings are not managed here.
+  lifecycle {
+    ignore_changes = [settings]
+  }
 }
 
 # Dedicated least-privilege relay listener users (#1243): one per wave-1
@@ -230,6 +261,11 @@ resource "digitalocean_database_user" "wake_listeners" {
   for_each   = local.wake_listener_database_users
   cluster_id = digitalocean_database_cluster.postgres[0].id
   name       = each.value
+
+  # Same unmanaged-settings provider defect as `contexts` above (#7715).
+  lifecycle {
+    ignore_changes = [settings]
+  }
 }
 
 resource "digitalocean_database_connection_pool" "contexts" {
@@ -247,7 +283,10 @@ resource "terraform_data" "context_database_grants" {
   count = local.managed_postgres_enabled ? 1 : 0
 
   triggers_replace = concat(
-    [digitalocean_database_cluster.postgres[0].id],
+    [
+      digitalocean_database_cluster.postgres[0].id,
+      "managed-postgres-grant-trust-v2",
+    ],
     [
       for context_name in sort(keys(local.managed_context_databases)) :
       "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.contexts[context_name].id}"
@@ -265,12 +304,12 @@ resource "terraform_data" "context_database_grants" {
           user     = digitalocean_database_user.contexts[context_name].name
         }
       ])
-      PGDATABASE = digitalocean_database_db.contexts[sort(keys(local.managed_context_databases))[0]].name
-      PGHOST     = digitalocean_database_cluster.postgres[0].host
-      PGPASSWORD = digitalocean_database_cluster.postgres[0].password
-      PGPORT     = tostring(digitalocean_database_cluster.postgres[0].port)
-      PGSSLMODE  = "require"
-      PGUSER     = digitalocean_database_cluster.postgres[0].user
+      DIGITALOCEAN_ACCESS_TOKEN        = var.digitalocean_token
+      DIGITALOCEAN_DATABASE_CLUSTER_ID = digitalocean_database_cluster.postgres[0].id
+      PGHOST                           = digitalocean_database_cluster.postgres[0].host
+      PGPASSWORD                       = digitalocean_database_cluster.postgres[0].password
+      PGPORT                           = tostring(digitalocean_database_cluster.postgres[0].port)
+      PGUSER                           = digitalocean_database_cluster.postgres[0].user
     }
   }
 
@@ -288,7 +327,10 @@ resource "terraform_data" "wake_listener_database_grants" {
   count = length(local.wake_listener_grant_contexts) > 0 ? 1 : 0
 
   triggers_replace = concat(
-    [digitalocean_database_cluster.postgres[0].id],
+    [
+      digitalocean_database_cluster.postgres[0].id,
+      "managed-postgres-grant-trust-v2",
+    ],
     [
       for context_name in sort(local.wake_listener_grant_contexts) :
       "${digitalocean_database_db.contexts[context_name].id}:${digitalocean_database_user.wake_listeners[context_name].id}"
@@ -307,12 +349,12 @@ resource "terraform_data" "wake_listener_database_grants" {
           kind     = "wake-listener"
         }
       ])
-      PGDATABASE = digitalocean_database_db.contexts[sort(local.wake_listener_grant_contexts)[0]].name
-      PGHOST     = digitalocean_database_cluster.postgres[0].host
-      PGPASSWORD = digitalocean_database_cluster.postgres[0].password
-      PGPORT     = tostring(digitalocean_database_cluster.postgres[0].port)
-      PGSSLMODE  = "require"
-      PGUSER     = digitalocean_database_cluster.postgres[0].user
+      DIGITALOCEAN_ACCESS_TOKEN        = var.digitalocean_token
+      DIGITALOCEAN_DATABASE_CLUSTER_ID = digitalocean_database_cluster.postgres[0].id
+      PGHOST                           = digitalocean_database_cluster.postgres[0].host
+      PGPASSWORD                       = digitalocean_database_cluster.postgres[0].password
+      PGPORT                           = tostring(digitalocean_database_cluster.postgres[0].port)
+      PGUSER                           = digitalocean_database_cluster.postgres[0].user
     }
   }
 

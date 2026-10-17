@@ -448,20 +448,20 @@
     "reason": "Hold direction is derived from the incoming review-hold payload; strict-per-stream subscription ordering preserves the review-hold aggregate sequence, covered by subscription-runner.test.ts."
   },
   {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:138:UPDATE:checkout_cart_line_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/read-model/projection.ts:138 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:141:UPDATE:checkout_cart_line_pages",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/read-model/projection.ts:141 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:167:UPDATE:checkout_cart_line_pages",
-    "reason": "UPDATE at bounded-contexts/checkout/features/cart/read-model/projection.ts:167 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:170:UPDATE:checkout_cart_line_pages",
+    "reason": "UPDATE at bounded-contexts/checkout/features/cart/read-model/projection.ts:170 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:206:DELETE:checkout_cart_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/cart/read-model/projection.ts:206 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:209:DELETE:checkout_cart_line_pages",
+    "reason": "DELETE at bounded-contexts/checkout/features/cart/read-model/projection.ts:209 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
-    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:217:DELETE:checkout_cart_line_pages",
-    "reason": "DELETE at bounded-contexts/checkout/features/cart/read-model/projection.ts:217 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
+    "id": "bounded-contexts/checkout/features/cart/read-model/projection.ts:220:DELETE:checkout_cart_line_pages",
+    "reason": "DELETE at bounded-contexts/checkout/features/cart/read-model/projection.ts:220 directly synchronizes checkout_cart_line_pages from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "bounded-contexts/checkout/features/sell-list/read-model/projection.ts:62:DELETE:checkout_sell_list_line_pages",

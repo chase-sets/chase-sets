@@ -4,6 +4,8 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { MarketplaceOfferMatchDetailPage } from "./offer-match-detail-page";
 import type { OfferMatchDetail } from "./contracts";
+import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
+import { omitPrivateOfferResponseFields } from "../api/response-shape";
 
 const offer: OfferMatchDetail = {
   offer_id: "off_1",
@@ -18,6 +20,8 @@ const offer: OfferMatchDetail = {
   selected_options: [{ dimensionId: "condition", optionId: "raw" }],
   product_summary: "Raw / Near Mint",
   price_amount: "20.00",
+  price_currency_code: "USD",
+  last_stream_version: 2,
   quantity_requested: 1,
   status: "submitted",
   accepted_seller_account_id: null,
@@ -26,6 +30,8 @@ const offer: OfferMatchDetail = {
   updated_at: "2026-04-28T00:00:00.000Z",
   listing_id: "lst_1",
   listing_price_amount: "22.00",
+  listing_price_currency_code: "USD",
+  listing_stream_version: 3,
   listing_quantity_cap: 2,
   listing_visible_quantity: 2,
   offer_price_gap_amount: "2.00",
@@ -38,8 +44,39 @@ const offer: OfferMatchDetail = {
 afterEach(cleanup);
 
 describe("MarketplaceOfferMatchDetailPage", () => {
+  it("has no Mute action and retains Decline and Add to Sell List", () => {
+    const markup = renderToString(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
+    expect(markup).not.toMatch(/Mute buyer|mute-offer-buyer/i);
+    expect(markup).toContain("decline-offer");
+    expect(markup).toContain('value="add-selected-offer"');
+  });
+  it.each(["unavailable", "held", "refresh_required"] as const)(
+    "renders safe %s terms without private DOM or hydration data",
+    (managed_status) => {
+      const loaderData = omitPrivateOfferResponseFields({
+        ...offer,
+        ...privatePolicyFields,
+        policyId: "private",
+        evidence: { marketPrice: "private" },
+        managed_status,
+      });
+      const dom = renderToString(<MarketplaceOfferMatchDetailPage offer={loaderData} canAccept />);
+      const hydration = JSON.stringify(loaderData);
+      for (const key of [...Object.keys(privatePolicyFields), "policyId", "marketPrice"]) {
+        expect(dom).not.toContain(key);
+        expect(hydration).not.toContain(key);
+      }
+      expect(loaderData.can_fulfill).toBe(false);
+      expect(dom).toContain("disabled");
+      expect(dom).toContain(
+        managed_status === "held" ? "held" : managed_status === "unavailable" ? "unavailable" : "refreshing",
+      );
+    },
+  );
   it("renders the offer-match overview as an elevated entity", () => {
     render(<MarketplaceOfferMatchDetailPage offer={offer} canAccept />);
+
+    expect(screen.getByRole("region", { name: "Checkout" }).textContent).toContain("$20.00");
 
     const root = screen.getByText("Ash Ketchum").closest(".rounded-tokenLg");
     expect(root).not.toBeNull();

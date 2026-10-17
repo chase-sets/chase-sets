@@ -12,8 +12,15 @@ function engineMock() {
       enqueueDailyDriftSweep: vi.fn(),
       previewProductRound: vi.fn(),
       processNextEvaluationJob: vi.fn(),
+      enqueueDryRun: vi.fn(async () => null),
+      getDryRun: vi.fn(async () => null),
+      listDryRuns: vi.fn(async () => []),
+      listDryRunTraces: vi.fn(async () => []),
+      listDryRunEvents: vi.fn(async () => []),
+      waitForDryRunEvents: vi.fn(async () => undefined),
+      processNextDryRunJob: vi.fn(async () => 0),
       projectors: [],
-    } as unknown as RepricingEngineServices,
+    } satisfies RepricingEngineServices,
   };
 }
 
@@ -23,7 +30,7 @@ function priceEvent(id: string, amount: string, changeSource?: "repricing-engine
     type: "marketplace.listing.price-updated",
     streamId: "marketplace.listing-lst_dynamic_seller",
     streamVersion: 2,
-    data: { priceAmount: amount, ...(changeSource ? { changeSource } : {}) },
+    data: { priceAmount: amount, priceCurrencyCode: "USD", ...(changeSource ? { changeSource } : {}) },
     tenantId: "tnt_1",
     audit: { performedByUserId: "usr_system", forAccountId: "acc_dynamic_seller" },
     timing: { occurredAt: "2026-07-17T12:00:00.000Z", recordedAt: "2026-07-17T12:00:00.000Z" },

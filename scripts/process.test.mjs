@@ -18,6 +18,24 @@ describe("process helpers", () => {
     vi.unstubAllEnvs();
   });
 
+  it("preserves case-insensitive program-files paths without ambient database or secret variables", () => {
+    expect(
+      buildMinimalProcessEnvironment({
+        Path: "synthetic-path",
+        programfiles: "C:\\Program Files",
+        PROGRAMW6432: "C:\\Program Files",
+        PGHOSTADDR: "synthetic-host",
+        pgservice: "synthetic-service",
+        DATABASE_URL: "synthetic-database-url",
+        UNLISTED_SECRET: "SYNTHETIC_SECRET_9049",
+      }),
+    ).toEqual({
+      Path: "synthetic-path",
+      programfiles: "C:\\Program Files",
+      PROGRAMW6432: "C:\\Program Files",
+    });
+  });
+
   it("runs pnpm native executables directly on Windows", () => {
     const pnpmExe = "C:\\Users\\ToddS\\AppData\\Local\\pnpm\\pnpm.exe";
     const invocation = buildPackageManagerInvocation(["--version"], {
@@ -88,6 +106,39 @@ describe("process helpers", () => {
     ).rejects.toThrow("exited with code 1");
 
     expect(consoleLog).toHaveBeenCalledWith("[child] buffered failure");
+  });
+
+  it("routes explicitly selected bootstrap stderr to stderr without changing ordinary stdout", async () => {
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      runCommand(
+        process.execPath,
+        ["-e", "process.stdout.write('out\\n'); process.stderr.write('fatal\\n'); process.exit(37)"],
+        {
+          prefix: "bootstrap",
+          stderrToStderr: true,
+        },
+      ),
+    ).rejects.toThrow(/exited with code 37/);
+    expect(consoleLog).toHaveBeenCalledWith("[bootstrap] out");
+    expect(consoleError).toHaveBeenCalledWith("[bootstrap] fatal");
+    expect(consoleLog).not.toHaveBeenCalledWith("[bootstrap] fatal");
+  });
+
+  it("terminates a spawned child when onSpawn throws", async () => {
+    let closed;
+    const failure = new Error("synthetic observation failure");
+
+    await expect(
+      runCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        onSpawn(child) {
+          closed = new Promise((resolve) => child.once("close", resolve));
+          throw failure;
+        },
+      }),
+    ).rejects.toBe(failure);
+    await closed;
   });
 
   it("isolates only commands with a POSIX timeout in a process group", () => {
@@ -209,6 +260,7 @@ describe("process helpers", () => {
 
   it("starts an isolated sentinel child without ambient database selectors or Space credentials", async () => {
     vi.stubEnv("CHASE_SETS_HEAVY_SLOT_ID", "0123456789abcdef0123456789abcdef");
+    vi.stubEnv("CHASE_SETS_HEAVY_SLOT_TRANSPORT", "synthetic-transport");
     vi.stubEnv("PGHOST", "localhost");
     vi.stubEnv("PGHOSTADDR", "203.0.113.41");
     vi.stubEnv("PGDATABASE", "hostile");
@@ -241,5 +293,6 @@ describe("process helpers", () => {
     expect(env).not.toHaveProperty("RELEASE_EVIDENCE_SPACES_SECRET_KEY");
     expect(env).not.toHaveProperty("SEED_PACKS_SPACES_SECRET_KEY");
     expect(env).toHaveProperty("CHASE_SETS_HEAVY_SLOT_ID", "0123456789abcdef0123456789abcdef");
+    expect(env).toHaveProperty("CHASE_SETS_HEAVY_SLOT_TRANSPORT", "synthetic-transport");
   });
 });

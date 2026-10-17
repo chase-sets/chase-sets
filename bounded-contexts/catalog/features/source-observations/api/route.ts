@@ -3,6 +3,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { CatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
   BulkReviewJobServices,
+  CatalogMergeCandidateBulkJobServices,
   CatalogMergeCandidateServices,
   CatalogIntegrationEngineServices,
   ControlPlaneTelemetryServices,
@@ -28,13 +29,15 @@ import {
 import { listCatalogProviderProfileVersionReviews } from "./providers/provider-profile-review";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin/admin-control-plane-rbac";
 
-export type SourceObservationRouteServices = SourceObservationReadServices &
+export type SourceObservationRouteServices = Partial<ProviderSendWindowServices> &
+  SourceObservationReadServices &
   ProviderOptionQueryServices &
   ProviderProfileAdminServices &
   CatalogIntegrationEngineServices &
   SourceObservationReviewServices &
   PromotionReapplyServices &
   BulkReviewJobServices &
+  CatalogMergeCandidateBulkJobServices &
   CatalogMergeCandidateServices &
   IntegrationJobServices &
   ControlPlaneTelemetryServices;
@@ -42,6 +45,7 @@ export type SourceObservationRouteServices = SourceObservationReadServices &
 export function sourceObservationRoutes(
   services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
+  readCountSpend?: () => Promise<readonly import("../../scope-sync-batches/domain/count-acquisition").CountSpend[]>,
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -63,6 +67,10 @@ export function sourceObservationRoutes(
     // projection it never renders; providers/governance/release omit the
     // parameter and receive the full overview, including the lifecycle timeline their
     // evidence slices cite.
+    const providerSendWindow = (await services.getProviderSendWindow?.()) ?? { state: "unavailable" as const };
+    if (c.req.query("provider-send-window") === "true") {
+      return c.json({ providerSendWindow }, providerSendWindow.state === "unavailable" ? 503 : 200);
+    }
     const audience = parseCatalogIntegrationControlPlaneOverviewAudience(c.req.query("audience"));
     const [readiness, profiles, recentJobs] = await Promise.all([
       services.getCatalogIntegrationControlPlaneReadiness(),
@@ -70,10 +78,18 @@ export function sourceObservationRoutes(
       services.listRecentIntegrationJobs({ context: c.get("context") }),
     ]);
 
-    return c.json(
-      buildCatalogIntegrationControlPlaneOverview({ readiness, profiles, activeJobs: recentJobs, audience }),
-    );
+    return c.json({
+      ...buildCatalogIntegrationControlPlaneOverview({
+        readiness,
+        profiles,
+        activeJobs: recentJobs,
+        audience,
+        countSpend: await readCountSpend?.(),
+      }),
+      providerSendWindow,
+    });
   });
 
   return app;
 }
+import type { ProviderSendWindowServices } from "./source-observation-runtime-contracts";

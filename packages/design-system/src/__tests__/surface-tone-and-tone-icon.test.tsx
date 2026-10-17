@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   Surface,
@@ -70,11 +71,11 @@ describe("Surface semantic tones", () => {
 });
 
 /**
- * Legacy tone class strings, committed as literals: the four structural tones
+ * Explicit elevated tone class strings, committed as literals: the four structural tones
  * plus the canonical `border-{tone}-soft bg-{tone}-soft text-{tone}` semantic
  * triples.
  */
-const legacyToneClassStrings: Record<SurfaceTone, string> = {
+const elevatedToneClassStrings: Record<SurfaceTone, string> = {
   default: "ds-glass bg-elevated",
   muted: "bg-surface-2",
   accent: "ds-brand-gradient text-accent-contrast",
@@ -88,62 +89,72 @@ const legacyToneClassStrings: Record<SurfaceTone, string> = {
   primary: "border-primary-soft bg-primary-soft text-primary",
 };
 
-describe("Surface legacy output is unchanged when elevation is absent", () => {
-  const legacyCombinations = (Object.keys(legacyToneClassStrings) as SurfaceTone[]).flatMap((tone) =>
-    [false, true].flatMap((elevated) => [false, true].map((glow) => ({ tone, elevated, glow }))),
+describe("Surface tone and glow treatments", () => {
+  const toneAndGlowCombinations = (Object.keys(elevatedToneClassStrings) as SurfaceTone[]).flatMap((tone) =>
+    [false, true].map((glow) => ({ tone, glow })),
   );
 
-  it.each(legacyCombinations)(
-    "pins the legacy tone=$tone elevated=$elevated glow=$glow class string",
-    ({ tone, elevated, glow }) => {
-      render(
-        <Surface tone={tone} elevated={elevated} glow={glow} data-testid="legacy-surface">
-          legacy content
+  it.each(toneAndGlowCombinations)(
+    "renders omitted elevation byte-identically to flush for tone=$tone glow=$glow",
+    ({ tone, glow }) => {
+      const omitted = renderToString(
+        <Surface tone={tone} glow={glow}>
+          tone content
         </Surface>,
       );
 
-      expect(screen.getByTestId("legacy-surface").className).toBe(
-        `surface-border min-w-0 max-w-full rounded-tokenLg ${legacyToneClassStrings[tone]} p-4 ${
-          elevated ? "shadow-tokenLg" : "shadow-tokenSm"
-        }${glow ? " ds-glow" : ""}`,
+      expect(omitted).toBe(
+        renderToString(
+          <Surface tone={tone} elevation="flush" glow={glow}>
+            tone content
+          </Surface>,
+        ),
+      );
+      expect(omitted).not.toMatch(/surface-border|shadow-tokenSm|shadow-tokenLg|ds-glow/);
+    },
+  );
+
+  it.each(toneAndGlowCombinations)(
+    "pins the explicit elevated tone=$tone glow=$glow class string",
+    ({ tone, glow }) => {
+      render(
+        <Surface tone={tone} elevation="elevated" glow={glow} data-testid="elevated-surface">
+          tone content
+        </Surface>,
+      );
+
+      expect(screen.getByTestId("elevated-surface").className).toBe(
+        `surface-border min-w-0 max-w-full rounded-tokenLg ${elevatedToneClassStrings[tone]} p-4 shadow-tokenLg${glow ? " ds-glow" : ""}`,
       );
     },
   );
 });
 
-describe("Surface elevation precedence over the legacy elevated boolean", () => {
-  it("lets an explicit elevation own the complete treatment: elevated plus flush renders shadowless flush", () => {
+describe("Surface elevation prop contract", () => {
+  it("renders the neutral flush treatment without a fill or shadow", () => {
     render(
-      <Surface tone="neutral" elevated elevation="flush" data-testid="precedence-flush-surface">
-        precedence content
+      <Surface tone="neutral" elevation="flush" data-testid="flush-surface">
+        tone content
       </Surface>,
     );
 
-    expect(screen.getByTestId("precedence-flush-surface").className).toBe(
-      "min-w-0 max-w-full rounded-tokenLg text-secondary p-4",
-    );
+    expect(screen.getByTestId("flush-surface").className).toBe("min-w-0 max-w-full rounded-tokenLg text-secondary p-4");
   });
 
-  it("keeps the exact legacy raised output when elevation is absent and elevated is set", () => {
-    render(
-      <Surface tone="neutral" elevated data-testid="precedence-legacy-surface">
-        precedence content
-      </Surface>,
-    );
-
-    expect(screen.getByTestId("precedence-legacy-surface").className).toBe(
-      "surface-border min-w-0 max-w-full rounded-tokenLg border-muted bg-surface-2 text-secondary p-4 shadow-tokenLg",
-    );
+  it("rejects the removed elevated boolean", () => {
+    // @ts-expect-error Elevation is selected by the elevation prop, not a boolean.
+    const removedBoolean = <Surface tone="neutral" elevated />;
+    expect(removedBoolean).toBeDefined();
   });
 
-  it("renders the legacy elevated=true output for explicit elevation=elevated even when the boolean is false", () => {
+  it("renders the neutral elevated treatment with its canonical tone triple", () => {
     render(
-      <Surface tone="neutral" elevation="elevated" elevated={false} data-testid="precedence-elevated-surface">
-        precedence content
+      <Surface tone="neutral" elevation="elevated" data-testid="elevated-surface">
+        tone content
       </Surface>,
     );
 
-    expect(screen.getByTestId("precedence-elevated-surface").className).toBe(
+    expect(screen.getByTestId("elevated-surface").className).toBe(
       "surface-border min-w-0 max-w-full rounded-tokenLg border-muted bg-surface-2 text-secondary p-4 shadow-tokenLg",
     );
   });

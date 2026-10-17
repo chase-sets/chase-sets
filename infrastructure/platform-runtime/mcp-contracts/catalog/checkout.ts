@@ -18,10 +18,12 @@ const checkoutCartLineOutputProperty: McpJsonSchemaProperty = {
   type: "object",
   description: "Checkout cart line.",
   additionalProperties: true,
-  required: ["line_id", "buyer_account_id", "quantity"],
+  // Cart lines are published owner-free: the account that owns a line is
+  // internal source provenance, so the payload never carries it and this schema
+  // must not promise it.
+  required: ["line_id", "quantity"],
   properties: {
     line_id: stringProperty("Checkout cart line identifier."),
-    buyer_account_id: stringProperty("Account that owns the cart line."),
     catalog_item_id: stringProperty("Catalog item identifier."),
     product_id: stringProperty("Resolved product identifier."),
     item_title: stringProperty("Line item title."),
@@ -173,6 +175,8 @@ export const checkoutService = {
                 sellerDisplayName: stringProperty("Seller display name."),
                 sellerSlug: stringProperty("Seller slug."),
                 priceAmount: stringProperty("Listing price amount."),
+                priceCurrencyCode: stringProperty("Listing price ISO 4217 currency code."),
+                listingStreamVersion: integerProperty("Listing stream version that authored the price pair."),
                 source: stringProperty("Snapshot source."),
               },
             },
@@ -219,6 +223,8 @@ export const checkoutService = {
                 sellerDisplayName: stringProperty("Seller display name."),
                 sellerSlug: stringProperty("Seller slug."),
                 priceAmount: stringProperty("Listing price amount."),
+                priceCurrencyCode: stringProperty("Listing price ISO 4217 currency code."),
+                listingStreamVersion: integerProperty("Listing stream version that authored the price pair."),
                 source: stringProperty("Snapshot source."),
               },
             },

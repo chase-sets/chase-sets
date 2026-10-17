@@ -1,8 +1,8 @@
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { LoaderFunctionArgs } from "react-router";
-import type { SourceObservationDetail } from "../../../client";
-import { CatalogApiError } from "../../../client";
+import type { SourceObservationDetail } from "../../client-support/contracts";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import type { CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
 import {
   sourceObservationEvidenceDetailFor,

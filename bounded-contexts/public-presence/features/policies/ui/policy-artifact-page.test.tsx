@@ -1,9 +1,11 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
+import { SettlementPayoutRequestPanel } from "../../../../settlement/features/payouts/ui/payout-request-panel";
 import { agentConnectorTermsPolicyArtifact } from "../domain/agent-connector-terms";
 import { authenticityServiceTermsPolicyArtifact } from "../domain/authenticity-service-terms";
 import { resolveUnresolvedPublicDisclosureText } from "../domain/canonical-claims";
+import { foundersOfferTermsPolicyArtifact } from "../domain/founders-offer-terms";
 import { paymentsTermsPolicyArtifact } from "../domain/payments-terms";
 import type { PublicPolicyArtifact } from "../domain/policy-artifact";
 import { privacyPolicyArtifact } from "../domain/privacy-policy";
@@ -14,6 +16,8 @@ import {
   AuthenticityTermsRouteAdapter,
   buildPolicyArtifactMeta,
   buildPrivacyPolicyMeta,
+  buildFoundersOfferTermsMeta,
+  FoundersOfferTermsRouteAdapter,
   PaymentsTermsRouteAdapter,
   PrivacyPolicyRouteAdapter,
   SellerAgreementRouteAdapter,
@@ -24,10 +28,54 @@ import { TermsOfServiceRouteAdapter } from "./terms-of-service-route-adapter";
 const publishedEffectiveAt = "2026-09-01T00:00:00.000Z";
 const invalidEffectiveAts = ["not-a-date", "2026-09-01", "2026-09-01T00:00:00", "2026-02-31T00:00:00.000Z"] as const;
 
+const payoutPanelProps: Parameters<typeof SettlementPayoutRequestPanel>[0] = {
+  canRequestPayouts: true,
+  wallet: {
+    account_id: "synthetic-payout-disclosure-account",
+    currency_code: "usd",
+    available_balance_amount: "125.00",
+    pending_balance_amount: "0.00",
+    total_credited_amount: "125.00",
+    total_debited_amount: "0.00",
+    negative_balance_status: "in-good-standing",
+    negative_balance_started_at: null,
+    collections_escalated_at: null,
+    opened_at: "2026-09-01T00:00:00.000Z",
+    updated_at: "2026-09-01T00:00:00.000Z",
+  },
+  payoutReadiness: {
+    account_id: "synthetic-payout-disclosure-account",
+    status: "ready",
+    missing_requirements: [],
+    advisory_requirements: [],
+    disabled_reason: null,
+    requirements_deadline: null,
+    provider_reference: "synthetic-provider-account",
+    contact_email: null,
+    onboarding_status: "complete",
+    transfer_capability_status: "active",
+    payout_capability_status: "active",
+    payout_destination_status: "ready",
+    payout_destination_fingerprint: null,
+    payout_destination_changed_at: null,
+    payout_account_dashboard: "none",
+    losses_collector: "application",
+    fees_collector: "application",
+    requirements_collector: "application",
+    updated_at: "2026-09-01T00:00:00.000Z",
+  },
+};
+
 type PolicyArtifactPageProps = Parameters<typeof PolicyArtifactPage>[0];
 const pageCopyIsNotInjectable: "copy" extends keyof PolicyArtifactPageProps ? false : true = true;
 
 const policyRouteAdapters = [
+  {
+    path: "/founders",
+    artifact: foundersOfferTermsPolicyArtifact,
+    pendingTitle: "Counsel review required before this document takes effect",
+    render: (artifact?: PublicPolicyArtifact) => <FoundersOfferTermsRouteAdapter artifact={artifact} />,
+  },
   {
     path: "/terms",
     artifact: termsOfServicePolicyArtifact,
@@ -75,6 +123,17 @@ function renderRouteAdapter(
   return render(<MemoryRouter>{renderAdapter(artifact)}</MemoryRouter>);
 }
 
+// Reads a Surface root's rendered intent from design-system-owned classes:
+// flush/tinted carry no `surface-border` and no `shadow-` class.
+function surfaceIntent(surface: Element | null) {
+  const classes = [...(surface?.classList ?? [])];
+  if (classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))) {
+    return classes.includes("shadow-tokenLg") ? "elevated" : "legacy";
+  }
+  if (classes.includes("border")) return "outlined";
+  return classes.includes("bg-surface-2") ? "tinted" : "flush";
+}
+
 function publishedArtifact(artifact: PublicPolicyArtifact): PublicPolicyArtifact {
   return {
     ...artifact,
@@ -82,7 +141,7 @@ function publishedArtifact(artifact: PublicPolicyArtifact): PublicPolicyArtifact
       ...artifact.metadata,
       publicationStatus: "published",
       effectiveAt: publishedEffectiveAt,
-      counselApprovalReference: `LEGAL-${artifact.metadata.policyKey.toUpperCase()}-TEST-2026-08-15`,
+      counselApprovalReference: `SYNTHETIC-${artifact.metadata.policyKey.toUpperCase()}-COUNSEL-TEST-ONLY`,
       rolloutJurisdictionsOrProductLimits: ["Test-only reviewed launch scope."],
     },
     sections: artifact.sections.map((section) => ({
@@ -98,6 +157,100 @@ describe("policy artifact page", () => {
     cleanup();
   });
 
+  it("links only finite policy references in frozen synthetic operative text without changing serialization", () => {
+    const texts = [
+      "  (chasesets.com/privacy), chasesets.com/privacy.\n[chasesets.com/seller-agreement]; chasesets.com/payments-terms! " +
+        "chasesets.com/agent-terms? chasesets.com/authenticity-terms: chasesets.com/founders  ",
+      "chasesets.com/developers chasesets.com/unknown example.com/privacy notchasesets.com/privacy " +
+        "chasesets.com/privacy-extra chasesets.com/privacy/nested chasesets.com/privacy.example.com",
+      "Synthetic text without references.\n  Whitespace stays unchanged.",
+      "",
+      '<script>alert("synthetic")</script> <b>chasesets.com/privacy</b>',
+    ];
+    const artifact: PublicPolicyArtifact = {
+      metadata: { ...privacyPolicyArtifact.metadata },
+      title: "Synthetic linkification fixture",
+      description: "Synthetic presentation-only test, not legal content.",
+      sections: texts.map((draftText, index) => ({
+        id: `synthetic-reference-${index}`,
+        title: `Synthetic reference ${index}`,
+        draftText,
+        reviewStatus: "counsel-required",
+        reviewManifest: {
+          scopeNote: "Synthetic packet-only note",
+          decisionRefs: [],
+          productTruthRefs: [],
+          openQuestions: [],
+          assumptions: [],
+        },
+      })),
+    };
+    function freeze(value: unknown): void {
+      if (value !== null && typeof value === "object") {
+        Object.values(value).forEach(freeze);
+        Object.freeze(value);
+      }
+    }
+    freeze(artifact);
+    const before = JSON.stringify(artifact);
+    renderRouteAdapter(() => <PolicyArtifactPage artifact={artifact} copyProfile="corpus" eyebrow="Synthetic" />);
+    const article = screen.getByRole("article");
+    const expectedSlugs = [
+      ["privacy", "privacy", "seller-agreement", "payments-terms", "agent-terms", "authenticity-terms", "founders"],
+      [],
+      [],
+      [],
+      ["privacy"],
+    ];
+    for (const [index, section] of artifact.sections.entries()) {
+      const region = within(article).getByRole("region", { name: section.title });
+      const paragraph = region.querySelector("p");
+      if (section.draftText === "") {
+        expect(paragraph).toBeNull();
+        expect(within(region).queryAllByRole("link")).toEqual([]);
+        continue;
+      }
+      expect(paragraph?.textContent).toBe(section.draftText);
+      expect(
+        within(paragraph!)
+          .queryAllByRole("link")
+          .map((link) => [link.textContent, link.getAttribute("href")]),
+      ).toEqual(expectedSlugs[index]!.map((slug) => [`chasesets.com/${slug}`, `/${slug}`]));
+      expect(paragraph!.querySelector("script, b")).toBeNull();
+    }
+    expect(JSON.stringify(artifact)).toBe(before);
+    expect(article.textContent).not.toContain("Synthetic packet-only note");
+  });
+
+  it("rejects a footer-only control with plain operative text even when every allowed destination exists elsewhere", () => {
+    renderRouteAdapter(() => <TermsOfServiceRouteAdapter />);
+    const article = screen.getByRole("article");
+    const section = termsOfServicePolicyArtifact.sections.find(
+      (candidate) => candidate.id === "conduct-and-policy-incorporation",
+    )!;
+    const region = within(article).getByRole("region", { name: section.title });
+    const paragraph = region.querySelector("p")!;
+    const assertOperativeLinks = (operativeText: HTMLElement) =>
+      expect(within(operativeText).queryAllByRole("link"), "operative references must be linked").toHaveLength(6);
+    assertOperativeLinks(paragraph);
+    const footer = screen.getByRole("contentinfo");
+    for (const slug of [
+      "seller-agreement",
+      "payments-terms",
+      "agent-terms",
+      "privacy",
+      "founders",
+      "authenticity-terms",
+    ]) {
+      expect(footer.querySelector(`a[href="/${slug}"]`)).not.toBeNull();
+    }
+    const plainParagraph = document.createElement("p");
+    plainParagraph.textContent = paragraph.textContent;
+    paragraph.replaceWith(plainParagraph);
+    expect(plainParagraph.textContent).toBe(paragraph.textContent);
+    expect(() => assertOperativeLinks(plainParagraph)).toThrow("operative references must be linked");
+  });
+
   for (const route of policyRouteAdapters) {
     it(`preserves counsel-pending posture through the real ${route.path} adapter`, () => {
       const { container } = renderRouteAdapter(route.render);
@@ -107,7 +260,7 @@ describe("policy artifact page", () => {
       expect(screen.getByText("Effective date pending counsel approval")).toBeTruthy();
 
       const page = container.querySelector(`[data-policy-key="${route.artifact.metadata.policyKey}"]`);
-      expect(page?.getAttribute("data-policy-version")).toBe("v1");
+      expect(page?.getAttribute("data-policy-version")).toBe(route.artifact.metadata.version);
       expect(page?.getAttribute("data-policy-publication-status")).toBe("counsel-review-required");
       expect(page?.getAttribute("data-policy-effective-at")).toBe("");
     });
@@ -128,6 +281,71 @@ describe("policy artifact page", () => {
       expect(page?.getAttribute("data-policy-effective-at")).toBe(publishedEffectiveAt);
     });
   }
+
+  it.each(policyRouteAdapters)(
+    "tints the $path metadata and contents panels and keeps every policy section flush",
+    ({ artifact, render: renderAdapter }) => {
+      const { container } = renderRouteAdapter(renderAdapter);
+      const page = container.querySelector(`[data-policy-key="${artifact.metadata.policyKey}"]`)!;
+
+      const metadataPanels = [...page.querySelectorAll("section[aria-label]")];
+      const contentsPanels = [...page.querySelectorAll("nav[aria-label]")];
+      const policySections = [...page.querySelectorAll("section[aria-labelledby]")];
+      expect(metadataPanels.map(surfaceIntent)).toEqual(["tinted"]);
+      expect(contentsPanels.map(surfaceIntent)).toEqual(["tinted"]);
+      expect(policySections.map(surfaceIntent)).toEqual(artifact.sections.map(() => "flush"));
+    },
+  );
+
+  it.each([
+    { label: "Payout fee terms", href: "/payments-terms#payout-fee", title: "Payout fee" },
+    {
+      label: "Seller fees and deductions",
+      href: "/seller-agreement#fees-and-deductions",
+      title: "Fees and deductions",
+    },
+  ])("follows the rendered payout panel link $href to its pending policy subject", ({ label, href, title }) => {
+    const panel = render(<SettlementPayoutRequestPanel {...payoutPanelProps} />);
+    const actualHref = screen.getByRole("link", { name: label }).getAttribute("href");
+    expect(actualHref).toBe(href);
+    const [path, id] = actualHref!.split("#");
+    const route = policyRouteAdapters.find((candidate) => candidate.path === path);
+    expect(route).toBeDefined();
+    panel.unmount();
+    const { container } = renderRouteAdapter(route!.render);
+    expect(screen.getByRole("heading", { level: 2, name: title }).id).toBe(id);
+    expect(container.querySelectorAll(`a[href="#${id}"]`)).toHaveLength(1);
+    expect(container.querySelector(`#${id}`)?.closest("section")?.textContent).toContain("Payout Fee policy document");
+    expect(
+      container.querySelector(`[data-policy-key="${path!.slice(1)}"]`)?.getAttribute("data-policy-publication-status"),
+    ).toBe("counsel-review-required");
+  });
+
+  it("renders all six Founders subjects with one TOC anchor each and intentional pending indexability", () => {
+    const { container } = renderRouteAdapter(() => <FoundersOfferTermsRouteAdapter />);
+    for (const section of foundersOfferTermsPolicyArtifact.sections) {
+      expect(screen.getByRole("heading", { level: 2, name: section.title })).toBeTruthy();
+      expect(container.textContent).toContain(section.draftText);
+      expect(container.querySelectorAll(`a[href="#${section.id}"]`)).toHaveLength(1);
+    }
+    const defaultMeta = buildPolicyArtifactMeta(foundersOfferTermsPolicyArtifact, {
+      title: "Synthetic",
+      description: "Synthetic",
+    });
+    const assertIndexable = (descriptors: ReturnType<typeof buildFoundersOfferTermsMeta>) =>
+      expect(descriptors, "founders indexability exception").not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "robots" })]),
+      );
+    expect(defaultMeta).toContainEqual({ name: "robots", content: "noindex, nofollow" });
+    assertIndexable(buildFoundersOfferTermsMeta());
+    expect(() => assertIndexable(defaultMeta)).toThrow("founders indexability exception");
+    const flipped = buildPolicyArtifactMeta(
+      foundersOfferTermsPolicyArtifact,
+      { title: "Synthetic", description: "Synthetic" },
+      { noindexWhilePending: true },
+    );
+    expect(() => assertIndexable(flipped)).toThrow("founders indexability exception");
+  });
 
   it("does not expose a page-copy prop that lets route adapters pre-decide publication posture", () => {
     expect(pageCopyIsNotInjectable).toBe(true);
@@ -192,6 +410,51 @@ describe("policy artifact page", () => {
     expect(text).toContain(resolveUnresolvedPublicDisclosureText("wallet-deposit-and-fdic-posture"));
     expect(text.toLowerCase()).not.toContain("do not earn interest");
     expect(text.toLowerCase()).not.toContain("insured by the fdic");
+  });
+
+  it("renders the authorized-agent responsibility, access, and agent-caused Account-sanction disclosures on /terms", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = container.textContent ?? "";
+
+    const responsibilityDisclosure = resolveUnresolvedPublicDisclosureText(
+      "authorized-agent-principal-responsibility-and-liability-boundary",
+    );
+    const suspensionDisclosure = resolveUnresolvedPublicDisclosureText(
+      "agent-access-and-agent-caused-account-sanction-boundary",
+    );
+
+    expect(text).toContain(responsibilityDisclosure);
+    expect(text).toContain(suspensionDisclosure);
+    // The responsibility boundary is enrolled in two sections and renders
+    // through both, from the one registry entry.
+    expect(text.split(responsibilityDisclosure).length - 1).toBe(2);
+    expect(text.split(suspensionDisclosure).length - 1).toBe(1);
+  });
+
+  it("renders neither retired agent-responsibility clause as public draft text on the real /terms adapter", () => {
+    const { container } = renderRouteAdapter((artifact) => (
+      <TermsOfServiceRouteAdapter artifact={artifact as TermsOfServicePolicyArtifact | undefined} />
+    ));
+    const text = (container.textContent ?? "").toLowerCase();
+
+    expect(text).not.toContain("you remain responsible for actions your authorized agent takes");
+    expect(text).not.toContain("and for all activity conducted through your account");
+    for (const literal of [
+      "you are fully responsible for",
+      "you are solely responsible for",
+      "is liable for all",
+      "assumes all liability",
+      "accepts full liability",
+      "may suspend or revoke at any time",
+      "at chase sets' sole discretion",
+      "without notice or liability",
+      "immediately terminate agent access",
+      "reserves the right to revoke",
+    ]) {
+      expect(text, literal).not.toContain(literal);
+    }
   });
 
   for (const route of policyRouteAdapters) {

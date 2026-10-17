@@ -64,6 +64,10 @@ export function useCatalogItem(id: string, initialData?: CatalogItemDetail | nul
   return useFetch(() => api.getCatalogItem<CatalogItemDetail>(id), [id], initialData);
 }
 
+export function recheckCatalogItemPublication(id: string) {
+  return api.getCatalogItem<CatalogItemDetail>(id);
+}
+
 export function useProductContentTypes() {
   return useFetch(() => api.listProductContentTypes<ListResponse<ProductContentTypeRef>>(), []);
 }

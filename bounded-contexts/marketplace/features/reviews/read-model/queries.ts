@@ -95,6 +95,7 @@ export type ReviewOpportunityRow = Readonly<{
   author_role: string;
   eligible_at: string;
   active_review_id: string | null;
+  active_review_revealed_at: string | null;
   // Double-blind reveal (m108): true once eligible_at + REVIEW_WINDOW_DAYS
   // has passed with no review submitted yet — the UI shows "review window
   // closed" instead of the submission callout.
@@ -475,6 +476,7 @@ export async function getOrderReviewOpportunity(
        eligibility.author_role,
        eligibility.eligible_at,
        active.review_id AS active_review_id,
+       active.revealed_at::text AS active_review_revealed_at,
        eligibility.effective_deadline_at::text AS window_expires_at,
        eligibility.submission_state,
        CASE WHEN eligibility.submission_state = 'held' THEN 'feedback-on-hold' ELSE NULL END AS hold_reason,

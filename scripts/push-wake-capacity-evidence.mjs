@@ -150,7 +150,7 @@ export function buildPushWakeCapacityEvidence(input) {
     directListenerCount: input.directListenerContexts.length,
     apiWaiterListenerDemand:
       input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.stagingApiInstances,
-    bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
+    bootstrapDemand: 0, // Pre-upgrade bootstrap is a separate quiesced phase, not rolling demand.
     directAppBackendDemand: 0,
     productionLikeDirectBindings: false,
   });
@@ -174,7 +174,7 @@ export function buildPushWakeCapacityEvidence(input) {
     directListenerCount: input.directListenerContexts.length,
     apiWaiterListenerDemand:
       input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.productionApiInstances,
-    bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
+    bootstrapDemand: 0,
     directAppBackendDemand: 0,
     productionLikeDirectBindings: false,
   });
@@ -188,7 +188,7 @@ export function buildPushWakeCapacityEvidence(input) {
       directListenerCount: input.directListenerContexts.length,
       apiWaiterListenerDemand:
         input.apiWaiterContexts.length * input.defaults.apiComponentCount * input.defaults.stagingApiInstances,
-      bootstrapDemand: input.defaults.bootstrapDatabasePoolMax,
+      bootstrapDemand: 0,
       directAppBackendDemand: 0,
       productionLikeDirectBindings: false,
     }),

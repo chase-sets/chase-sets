@@ -1,25 +1,28 @@
 ---
 slug: sales-fees
 path: /sales-fees
-title: Marketplace sales and checkout fees
-description: See the live standard sales-fee schedule, listing-time fee locks, the founders window, and buyer checkout processing fees.
+title: Marketplace sales, payout, and checkout fees
+description: See the live standard sales-fee, payout-fee, and checkout-fee schedules, listing-time fee locks, and the founders window.
 audience: seller
 category: selling
 reviewedAt: "2026-07-14"
-citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee"]
+citedPolicies: ["commercial-terms.marketplace-sales-fee-schedule", "commercial-terms.checkout-processing-fee", "settlement.payout-fee"]
 relatedFlows: ["listing-confirmation", "checkout-price-breakdown"]
 claimCategories: ["fees"]
 promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]
     tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"]
+  - claim: Published payout-fee figures resolve from the current Settlement payout-fee policy document.
+    issues: ["#7819"]
+    tests: ["bounded-contexts/public-presence/tests/help-route.test.tsx", "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts"]
   - claim: Confirming a listing locks the resolved fee terms for its units, and later schedule revisions never change locked units.
     issues: ["#4067"]
     tests: ["bounded-contexts/marketplace/features/listings/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts"]
   - claim: The per-item fee cap is re-audited when settlement credits the seller.
     issues: ["#4099"]
     tests: ["bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts"]
-  - claim: The founders window applies a 0% sales-fee agreement for 60 days, capped at 500 founders.
+  - claim: "Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain."
     issues: ["#4068"]
     tests: ["bounded-contexts/identity/features/founders-cohort/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.test.ts"]
   - claim: Beta access uses three numbered invite waves with ratified capacities and explicit wave-one qualification.
@@ -40,13 +43,13 @@ The lock covers the formula, not a frozen dollar figure: if you edit the item pr
 
 ## Founders window
 
-The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.
+Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain. Listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.
 
-Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The badge appears publicly on the account and its listings and stays permanently.
+Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed.
 
 ## Beta invite waves
 
-Before signup opens to everyone on September 1, 2026, beta access is admitted in three numbered waves:
+Join the waitlist first. Beta access is then admitted in three numbered waves, followed by open signup for everyone. No launch or wave dates are promised:
 
 - Wave 1: 100 invites
 - Wave 2: 250 invites
@@ -65,6 +68,10 @@ Buyers see the applicable checkout fee before payment. The current processing ra
 - Card: {{policy:checkout-processing-fee.card.bps}} plus {{policy:checkout-processing-fee.card.fixed}}
 - Bank account: {{policy:checkout-processing-fee.bank-account.bps}} plus {{policy:checkout-processing-fee.bank-account.fixed}}
 - Chase Sets credit: {{policy:checkout-processing-fee.platform-credit.bps}} plus {{policy:checkout-processing-fee.platform-credit.fixed}}
+
+## Payout fees
+
+The published payout-fee policy's standard components are {{policy:settlement.payout-fee.bps}} of the requested amount plus {{policy:settlement.payout-fee.fixed}}. Its separately configurable fixed component for the first payout of a calendar month is {{policy:settlement.payout-fee.monthly}}.
 
 ## Order Protection and shipping
 

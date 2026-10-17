@@ -10,6 +10,7 @@ export type ProductAlertPageRow = Readonly<{
   selected_options: readonly { dimensionId: string; optionId: string }[];
   product_summary: string | null;
   threshold_amount: string | null;
+  threshold_currency_code: string | null;
   status: "active" | "paused" | "deleted";
   created_at: string;
   updated_at: string;
@@ -34,6 +35,7 @@ export async function listProductAlerts(
        selected_options,
        product_summary,
        threshold_amount,
+       threshold_currency_code,
        status,
        created_at,
        updated_at
@@ -61,6 +63,7 @@ export async function getProductAlert(
        selected_options,
        product_summary,
        threshold_amount,
+       threshold_currency_code,
        status,
        created_at,
        updated_at

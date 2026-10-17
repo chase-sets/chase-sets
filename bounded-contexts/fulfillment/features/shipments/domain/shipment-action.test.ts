@@ -31,7 +31,9 @@ describe("shipment action legality", () => {
       for (const status of ALL_STATUSES) {
         const expected = rule.allowedFrom.includes(status);
         const labelStatus = rule.requiresLabelStatus ?? null;
-        expect(isShipmentActionAllowed(action, { status, labelStatus })).toBe(expected);
+        const conflicts =
+          action === "cancel-shipment" ? [{ conflict_kind: "cancellation", origin: "order-cancelled" }] : [];
+        expect(isShipmentActionAllowed(action, { status, labelStatus, conflicts })).toBe(expected);
       }
     }
   });
@@ -46,6 +48,25 @@ describe("shipment action legality", () => {
     expect(isShipmentActionAllowed("void-label", { status: "label-attached", labelStatus: "purchased" })).toBe(true);
     expect(isShipmentActionAllowed("void-label", { status: "label-attached", labelStatus: "voided" })).toBe(false);
     expect(isShipmentActionAllowed("void-label", { status: "dispatched", labelStatus: "purchased" })).toBe(false);
+  });
+
+  it("allows cancellation only for a matching order-cancelled conflict", () => {
+    const matching = [{ conflict_kind: "cancellation", origin: "order-cancelled" }];
+    expect(isShipmentActionAllowed("cancel-shipment", { status: "packing", conflicts: matching })).toBe(true);
+    expect(isShipmentActionAllowed("cancel-shipment", { status: "awaiting-label", conflicts: matching })).toBe(true);
+    expect(
+      isShipmentActionAllowed("cancel-shipment", {
+        status: "packing",
+        conflicts: [{ conflict_kind: "cancellation", origin: "payment-fraud-warning" }],
+      }),
+    ).toBe(false);
+    expect(
+      isShipmentActionAllowed("cancel-shipment", {
+        status: "packing",
+        conflicts: [{ conflict_kind: "destination-correction", origin: "order-cancelled" }],
+      }),
+    ).toBe(false);
+    expect(isShipmentActionAllowed("cancel-shipment", { status: "packing", conflicts: [] })).toBe(false);
   });
 
   it("never allows a lifecycle action from a terminal status", () => {
@@ -95,6 +116,15 @@ describe("context-aware action plan", () => {
     expect(plan.disclosed).not.toContain("dispatch");
   });
 
+  it("plans the cancellation exit without skipping label voiding", () => {
+    const conflicts = [{ conflict_kind: "cancellation", origin: "order-cancelled" }];
+    expect(resolveShipmentActionPlan({ status: "packing", conflicts }).primary).toBe("cancel-shipment");
+    expect(resolveShipmentActionPlan({ status: "awaiting-label", conflicts }).primary).toBe("cancel-shipment");
+    const labeled = resolveShipmentActionPlan({ status: "label-attached", labelStatus: "purchased", conflicts });
+    expect(labeled.primary).toBe("void-label");
+    expect(labeled.disclosed).not.toContain("cancel-shipment");
+  });
+
   it("offers deliver, return, and exception on a dispatched shipment", () => {
     const plan = resolveShipmentActionPlan({ status: "dispatched" });
     expect(plan.primary).toBeNull();
@@ -122,6 +152,7 @@ describe("transport-agnostic executor", () => {
       dispatcher: {
         startPacking: track("startPacking"),
         completePacking: track("completePacking"),
+        cancelShipment: track("cancelShipment"),
         dispatch: track("dispatch"),
         recordDelivery: track("recordDelivery"),
         returnShipment: track("returnShipment"),
@@ -138,6 +169,18 @@ describe("transport-agnostic executor", () => {
     });
     expect(result).toEqual({ shipmentId: "shp_1", version: 3 });
     expect(calls.dispatch).toBe(1);
+  });
+
+  it("dispatches conflict-gated cancellation", async () => {
+    const { dispatcher, calls } = fakeDispatcher();
+    await executeShipmentAction(dispatcher, {
+      action: "cancel-shipment",
+      current: {
+        status: "packing",
+        conflicts: [{ conflict_kind: "cancellation", origin: "order-cancelled" }],
+      },
+    });
+    expect(calls.cancelShipment).toBe(1);
   });
 
   it("rejects an illegal transition before touching the dispatcher", async () => {

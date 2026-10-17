@@ -1,4 +1,17 @@
 export * from "./support/route-support/auth-host";
+export { resumeAgentGrantRevocation } from "./features/agent-grants/api/revocation";
+export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
+export {
+  createConnectorOAuthService,
+  ConnectorOAuthError,
+  connectorRecord,
+  connectorString,
+  compareConnectorSecret,
+  connectorSecretDigest,
+  type ConnectorOAuthService,
+  type ConnectorGrant,
+  type ConnectorGrantBinding,
+} from "./support/ucp-support/connector-oauth";
 export {
   bootstrapPlatformAdminPassword,
   type PlatformAdminPasswordBootstrapConfig,

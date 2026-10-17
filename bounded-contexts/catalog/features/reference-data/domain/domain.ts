@@ -289,6 +289,35 @@ export const decideReferenceType: AggregateDecider<ReferenceTypeState, Reference
   }
 };
 
+/**
+ * Whether a stored Reference Type event is a legal next transition from the
+ * folded `state`. The evolver applies events; readers that treat a complete
+ * stream as authority check each event here first, so a history whose events
+ * the decider could never have emitted in that order (a second create, a
+ * publish of an active type, a create naming another type) is rejected rather
+ * than folded into an apparently valid state.
+ */
+export function isLegalReferenceTypeTransition(
+  state: ReferenceTypeState,
+  event: ReferenceTypeEvent,
+  referenceTypeId: string,
+): boolean {
+  switch (event.type) {
+    case "catalog.reference-type.created":
+      return state.id === null && event.data.referenceTypeId === referenceTypeId;
+    case "catalog.reference-type.revised":
+      return state.id !== null && state.status !== "archived";
+    case "catalog.reference-type.published":
+      return state.id !== null && state.status === "draft";
+    case "catalog.reference-type.deprecated":
+      return state.id !== null && state.status === "active";
+    case "catalog.reference-type.archived":
+      return state.id !== null && state.status === "deprecated";
+    default:
+      return false;
+  }
+}
+
 export const evolveReferenceType: AggregateEvolver<ReferenceTypeState, ReferenceTypeEvent> = (state, event) => {
   switch (event.type) {
     case "catalog.reference-type.created":
@@ -392,6 +421,36 @@ export const decideReferenceRecord: AggregateDecider<
       return assertNever(command);
   }
 };
+
+/**
+ * Whether a stored Reference Record event is a legal next transition from the
+ * folded `state`; the Reference Record counterpart of
+ * isLegalReferenceTypeTransition. Resolved aliases are legal on any created
+ * record, including terminal ones, but must name the record whose stream holds
+ * them.
+ */
+export function isLegalReferenceRecordTransition(
+  state: ReferenceRecordState,
+  event: ReferenceRecordEvent,
+  referenceRecordId: string,
+): boolean {
+  switch (event.type) {
+    case "catalog.reference-record.created":
+      return state.id === null && event.data.referenceRecordId === referenceRecordId;
+    case "catalog.reference-record.revised":
+      return state.id !== null && state.status !== "archived";
+    case "catalog.reference-record.aliases-resolved":
+      return state.id !== null && event.data.referenceRecordId === referenceRecordId;
+    case "catalog.reference-record.published":
+      return state.id !== null && state.status === "draft";
+    case "catalog.reference-record.deprecated":
+      return state.id !== null && state.status === "active";
+    case "catalog.reference-record.archived":
+      return state.id !== null && state.status === "deprecated";
+    default:
+      return false;
+  }
+}
 
 export const evolveReferenceRecord: AggregateEvolver<ReferenceRecordState, ReferenceRecordEvent> = (state, event) => {
   switch (event.type) {

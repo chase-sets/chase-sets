@@ -1,6 +1,23 @@
 export const catalogSourceObservationsApiDetailMappingEnglishTranslations = {
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.custodyUnavailable":
+    "Operator session custody could not be read.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.expired":
+    "The stored operator session has reached its browser expiry.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.refreshNeeded":
+    "Authentication rejection suggests the credential needs refreshing.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.rejectedAfterRefresh":
+    "The refreshed operator session is still being rejected.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.authenticationFailed":
+    "Authentication was rejected without retained rate-budget evidence.",
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
   "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
+  "catalog.features.sourceObservations.api.route.bulk.job.invalid.filter":
+    "Use a supported candidate job kind and scope record ID. Only completed jobs accept a status filter or page cursor.",
+  "catalog.features.sourceObservations.api.route.bulk.job.invalid.cursor": "The completed-job page cursor is invalid.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid":
+    "Submit a JSON object with a supported candidate job kind and a scope record ID.",
+  "catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.failed.scope.required":
+    "A scope record ID is required to list failed candidate jobs.",
   "catalog.features.sourceObservations.api.route.catalog.sync.run.not.found": "Catalog sync run was not found.",
   "catalog.features.sourceObservations.api.route.integration.job.invalid.action": "Unknown integration job action.",
   "catalog.features.sourceObservations.api.route.integration.job.lifecycle.unsupported":

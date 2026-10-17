@@ -30,6 +30,7 @@ const item: InventoryItemDetail = {
   held_quantity: 1,
   available_quantity: 2,
   acquisition_cost_amount: null,
+  acquisition_cost_currency_code: null,
   created_at: "2026-05-13T00:00:00.000Z",
   updated_at: "2026-05-13T00:00:00.000Z",
   holds: [],

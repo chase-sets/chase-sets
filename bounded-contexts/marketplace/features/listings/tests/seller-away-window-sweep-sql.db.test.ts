@@ -34,6 +34,7 @@ const contextNames = [
   "fulfillment",
   "platform-operations",
   "settlement",
+  "pricing",
 ] as const;
 
 function sourceOnlyModule(contextName: string, streamPrefix: string) {
@@ -55,6 +56,7 @@ const orderingSourceModule = sourceOnlyModule("ordering", "ordering.");
 const fulfillmentSourceModule = sourceOnlyModule("fulfillment", "fulfillment.");
 const platformOperationsSourceModule = sourceOnlyModule("platform-operations", "platform-operations.");
 const settlementSourceModule = sourceOnlyModule("settlement", "settlement.");
+const pricingSourceModule = sourceOnlyModule("pricing", "pricing.");
 
 function context(accountId: string): EventStoreContext {
   return {
@@ -93,6 +95,7 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
     await bootstrapContextDatabase(fulfillmentSourceModule, pools.fulfillment);
     await bootstrapContextDatabase(platformOperationsSourceModule, pools["platform-operations"]);
     await bootstrapContextDatabase(settlementSourceModule, pools.settlement);
+    await bootstrapContextDatabase(pricingSourceModule, pools.pricing);
   });
 
   afterAll(async () => {
@@ -147,6 +150,13 @@ describeDb("marketplace seller away-window start sweep SQL persistence boundary"
         mountRole: "source-only",
         module: settlementSourceModule,
         pool: pools.settlement,
+        ports: {},
+      },
+      {
+        contextName: "pricing",
+        mountRole: "source-only",
+        module: pricingSourceModule,
+        pool: pools.pricing,
         ports: {},
       },
     ]);

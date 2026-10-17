@@ -1,6 +1,7 @@
 {
   "name": "chase-sets",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "packageManager": "pnpm@11.0.9",
   "engines": {
@@ -102,6 +103,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:install": "playwright install",
     "verify": "pnpm run sync:workspace-metadata && pnpm run verify:static && pnpm run verify:typecheck && pnpm run verify:test && pnpm run verify:test-db && pnpm run verify:build",
+    "verify:ci-local": "node ./scripts/verify-ci-local.mjs",
     "verify:metadata": "node ./scripts/sync-workspace-metadata.mjs --check",
     "test:scripts": "vitest run --config ./vitest.scripts.config.mjs",
     "check:kb-reference-ratchet": "node ./scripts/check-structure/kb-reference-ratchet.mjs",
@@ -133,7 +135,7 @@
     "sandbox:gc": "node ./scripts/sandbox.mjs gc",
     "sandbox:clean:all": "node ./scripts/sandbox.mjs clean-all",
     "test:platform": "pnpm --filter @chase-sets/app-platform-api run test",
-    "check:structure": "node ./scripts/check-structure.mjs",
+    "check:structure": "node ./scripts/check-structure.mjs && node ./scripts/check-structure/brand-foil-proof.mjs",
     "check:structure:ci": "STRUCTURE_SINGLE_SLICE_SUPPORT_ENFORCEMENT=violation pnpm run check:structure",
     "test:typecheck": "tsc -p ./tsconfig.tests.json --noEmit",
     "test:typecheck:watch": "tsc -p ./tsconfig.tests.json --noEmit --watch --preserveWatchOutput",
@@ -156,6 +158,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.6.2",
+    "@types/pg": "8.20.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

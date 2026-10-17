@@ -1,0 +1,571 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import {
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { module as channelsModule } from "../../../index";
+import {
+  buildChannelCatalogFactsProjectionHandlers,
+  buildChannelInventoryFactsProjectionHandlers,
+  buildChannelMarketplaceFactsProjectionHandlers,
+} from "../read-model/facts-projection";
+import { readChannelPublicationConnection, resolveChannelPublishableQuantity } from "../read-model/queries";
+import { channelListingCompositionSchemaMigrations, channelListingCompositionTableNames } from "../read-model/schema";
+import { buildChannelListingStateProjectionHandlers } from "../read-model/state-projection";
+
+const databaseBaseUrl = process.env.TEST_DATABASE_URL;
+if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
+const describeDb = databaseBaseUrl ? describe : describe.skip;
+let pools: Readonly<Record<"channels", PgTransactionalPool>>;
+
+describeDb("channel-projection-concurrent-write", () => {
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["channels"], "channel_listing_composition");
+    await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+  });
+  afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("publish_quantity_cap migration and read-back upgrades the previous schema and round-trips null and 2", async () => {
+    const settingsColumns = () =>
+      pools.channels.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='channels_connection_publication_settings' ORDER BY ordinal_position",
+      );
+    const freshColumns = (await settingsColumns()).rows;
+    expect(freshColumns.map((row) => row.column_name)).toEqual([
+      "connection_id",
+      "title_prefix",
+      "title_suffix",
+      "description_footer",
+      "category_allowlist",
+      "excluded_listing_ids",
+      "updated_at",
+      "last_stream_version",
+      "publish_quantity_cap",
+      "low_stock_withhold_units",
+    ]);
+    await pools.channels.query(
+      `INSERT INTO channels_connection_publication_settings VALUES
+       ('legacy-connection','','','','[]'::jsonb,'[]'::jsonb,now(),1)`,
+    );
+    expect(
+      (await pools.channels.query("SELECT publish_quantity_cap FROM channels_connection_publication_settings")).rows,
+    ).toEqual([{ publish_quantity_cap: null }]);
+    await resetMultiContextTestSchemas(pools);
+    const migrationId = "20261003_channels_connection_publish_quantity_cap";
+    if (!channelsModule.schemaMigrations) throw new Error("Channels migrations are required.");
+    const previousModule = {
+      ...channelsModule,
+      schemaSql: channelsModule.schemaSql
+        .replace(",\n    publish_quantity_cap integer NULL", "")
+        .replace(",\n    low_stock_withhold_units integer NULL", ""),
+      schemaMigrations: channelsModule.schemaMigrations
+        .filter(
+          (migration) =>
+            migration.migrationId !== migrationId &&
+            migration.migrationId !== "20261008_channels_connection_low_stock_withhold",
+        )
+        .map((migration) => ({
+          ...migration,
+          statements: migration.statements.map((statement) =>
+            statement
+              .replace(",\n    publish_quantity_cap integer NULL", "")
+              .replace(",\n    low_stock_withhold_units integer NULL", ""),
+          ),
+        })),
+    };
+    await bootstrapContextDatabase(previousModule, pools.channels);
+    const columns = () =>
+      pools.channels.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='channels_connection_publication_settings' AND column_name='publish_quantity_cap'",
+      );
+    expect((await columns()).rows).toEqual([]);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect((await columns()).rows).toEqual([{ column_name: "publish_quantity_cap" }]);
+    expect((await settingsColumns()).rows).toEqual(freshColumns);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    const migration = channelListingCompositionSchemaMigrations.find((entry) => entry.migrationId === migrationId)!;
+    for (const statement of migration.statements) await pools.channels.query(statement);
+    await pools.channels.query(
+      `INSERT INTO channels_connection_facts (connection_id,account_id,provider_key,environment,status,updated_at,connection_stream_version)
+       VALUES ('connection-1','account-1','synthetic-provider','sandbox','active',now(),1),
+              ('connection-other','account-1','synthetic-provider','sandbox','active',now(),1)`,
+    );
+    const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+    const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+    const state = buildChannelListingStateProjectionHandlers(pools.channels);
+    await marketplace["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-1",
+          accountId: "account-1",
+          inventoryItemId: "item-1",
+          catalogItemId: "catalog-1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Synthetic card",
+          itemSubtitle: null,
+          productSummary: null,
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-1",
+        1,
+      ),
+    );
+    await inventory["inventory.item.created"]!(
+      event(
+        "inventory.item.created",
+        {
+          itemId: "item-1",
+          accountId: "account-1",
+          catalogItemId: "catalog-1",
+          totalQuantity: 10,
+        },
+        "inventory.item-item-1",
+        1,
+      ),
+    );
+    let version = 0;
+    for (const publishQuantityCap of [null, 2, null]) {
+      version += 1;
+      await state["channels.channel-publication-configuration.settings-replaced"]!(
+        event(
+          "channels.channel-publication-configuration.settings-replaced",
+          {
+            connectionId: "connection-1",
+            settings: {
+              titlePrefix: "",
+              titleSuffix: "",
+              descriptionFooter: "",
+              categoryAllowlist: [],
+              excludedListingIds: [],
+              publishQuantityCap,
+            },
+          },
+          "channels.channel-publication-configuration-connection-1",
+          version,
+        ),
+      );
+      expect(
+        (
+          await readChannelPublicationConnection(pools.channels, {
+            accountId: "account-1",
+            connectionId: "connection-1",
+          })
+        )?.settings?.publishQuantityCap,
+      ).toBe(publishQuantityCap);
+      await expect(
+        resolveChannelPublishableQuantity(pools.channels, { connectionId: "connection-1", listingId: "listing-1" }),
+      ).resolves.toEqual({ kind: "resolved", lowStockWithheld: false, publishableQuantity: publishQuantityCap ?? 10 });
+      await expect(
+        resolveChannelPublishableQuantity(pools.channels, { connectionId: "connection-other", listingId: "listing-1" }),
+      ).resolves.toEqual({ kind: "resolved", lowStockWithheld: false, publishableQuantity: 10 });
+      await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
+        kind: "resolved",
+        publishableQuantity: 10,
+        lowStockWithheld: false,
+      });
+    }
+  });
+
+  it("low_stock_withhold_units migration and read-back preserves old replay and pre-buffer resolver flags", async () => {
+    await resetMultiContextTestSchemas(pools);
+    const migrationId = "20261008_channels_connection_low_stock_withhold";
+    const strip = (sql: string) => sql.replace(",\n    low_stock_withhold_units integer NULL", "");
+    if (!channelsModule.schemaMigrations) throw new Error("Expected migrations.");
+    await bootstrapContextDatabase(
+      {
+        ...channelsModule,
+        schemaSql: strip(channelsModule.schemaSql),
+        schemaMigrations: channelsModule.schemaMigrations
+          .filter((entry) => entry.migrationId !== migrationId)
+          .map((entry) => ({ ...entry, statements: entry.statements.map(strip) })),
+      },
+      pools.channels,
+    );
+    const columns = () =>
+      pools.channels.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='channels_connection_publication_settings' AND column_name='low_stock_withhold_units'",
+      );
+    expect((await columns()).rows).toEqual([]);
+    await pools.channels.query(
+      "INSERT INTO channels_connection_publication_settings VALUES ('connection-1','','','','[]','[]',now(),1,NULL)",
+    );
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect((await columns()).rows).toEqual([{ column_name: "low_stock_withhold_units" }]);
+    expect(
+      (await pools.channels.query("SELECT low_stock_withhold_units FROM channels_connection_publication_settings"))
+        .rows,
+    ).toEqual([{ low_stock_withhold_units: null }]);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    for (const sql of channelListingCompositionSchemaMigrations.find((entry) => entry.migrationId === migrationId)!
+      .statements)
+      await pools.channels.query(sql);
+    await pools.channels.query(`INSERT INTO channels_connection_facts VALUES
+      ('connection-1','account-1','synthetic-provider','sandbox','active',now(),1),
+      ('connection-other','account-1','synthetic-provider','sandbox','active',now(),1)`);
+    const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+    const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+    const projection = buildChannelListingStateProjectionHandlers(pools.channels);
+    await marketplace["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-1",
+          accountId: "account-1",
+          inventoryItemId: "item-1",
+          catalogItemId: "catalog-1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Synthetic card",
+          itemSubtitle: null,
+          productSummary: null,
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-1",
+        1,
+      ),
+    );
+    await inventory["inventory.item.created"]!(
+      event(
+        "inventory.item.created",
+        {
+          itemId: "item-1",
+          accountId: "account-1",
+          catalogItemId: "catalog-1",
+          totalQuantity: 3,
+        },
+        "inventory.item-item-1",
+        1,
+      ),
+    );
+    await inventory["inventory.hold.placed"]!(
+      event(
+        "inventory.hold.placed",
+        {
+          holdId: "hold-1",
+          itemId: "item-1",
+          quantity: 2,
+        },
+        "inventory.hold-hold-1",
+        1,
+      ),
+    );
+    let version = 1;
+    for (const [label, available, withhold, cap, mode, holdback, quantity, flag] of [
+      ["old-event replay", 1, undefined, null, "shared-pool", 0, 1, false],
+      ["at threshold", 1, 1, null, "shared-pool", 0, 0, true],
+      ["above threshold", 2, 1, null, "shared-pool", 0, 2, false],
+      ["zero", 0, 1, null, "shared-pool", 0, 0, false],
+      ["negative", -1, 1, null, "shared-pool", 0, 0, false],
+      ["partitioned", 1, 1, null, "partitioned", 0, 1, false],
+      ["cap", 3, 2, 1, "shared-pool", 0, 1, false],
+      ["pre-buffer", 3, 2, null, "shared-pool", 2, 1, false],
+      ["buffer-only zero", 2, 1, null, "shared-pool", 2, 0, false],
+      ["off", 1, null, null, "shared-pool", 0, 1, false],
+    ] as const) {
+      const settings = {
+        titlePrefix: "",
+        titleSuffix: "",
+        descriptionFooter: "",
+        categoryAllowlist: [],
+        excludedListingIds: [],
+        publishQuantityCap: cap,
+        ...(withhold === undefined ? {} : { lowStockWithholdUnits: withhold }),
+      };
+      const settingsEvent = event(
+        "channels.channel-publication-configuration.settings-replaced",
+        { connectionId: "connection-1", settings },
+        "channels.channel-publication-configuration-connection-1",
+        ++version,
+      );
+      await projection[settingsEvent.type]!(settingsEvent);
+      await projection[settingsEvent.type]!(settingsEvent);
+      await pools.channels.query("UPDATE channels_inventory_item_facts SET total_quantity=$1 WHERE item_id='item-1'", [
+        available + 2,
+      ]);
+      await pools.channels.query(
+        `INSERT INTO channels_inventory_allocation_facts VALUES ('item-1','account-1',$1,$2::jsonb,now(),1)
+        ON CONFLICT (item_id) DO UPDATE SET mode=EXCLUDED.mode,partitions=EXCLUDED.partitions`,
+        [mode, JSON.stringify([{ channelConnectionId: "connection-1", units: 1 }])],
+      );
+      expect(
+        (
+          await readChannelPublicationConnection(pools.channels, {
+            accountId: "account-1",
+            connectionId: "connection-1",
+          })
+        )?.settings?.lowStockWithholdUnits,
+        label,
+      ).toBe(withhold ?? null);
+      expect(
+        await resolveChannelPublishableQuantity(pools.channels, {
+          connectionId: "connection-1",
+          listingId: "listing-1",
+          buffer: { bufferThresholdUnits: 5, bufferHoldbackUnits: holdback },
+        }),
+        label,
+      ).toEqual({ kind: "resolved", publishableQuantity: quantity, lowStockWithheld: flag });
+      expect(
+        await resolveChannelPublishableQuantity(pools.channels, {
+          connectionId: "connection-other",
+          listingId: "listing-1",
+        }),
+        label,
+      ).toEqual({
+        kind: "resolved",
+        publishableQuantity: mode === "partitioned" ? 0 : Math.max(0, available),
+        lowStockWithheld: false,
+      });
+    }
+  });
+
+  it("channel-publishable-quantity-availability preserves actual stock and active holds", async () => {
+    const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+    const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+    await marketplace["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-1",
+          accountId: "account-1",
+          inventoryItemId: "item-1",
+          catalogItemId: "catalog-1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Card",
+          itemSubtitle: null,
+          productSummary: null,
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-1",
+        1,
+      ),
+    );
+    await inventory["inventory.item.created"]!(
+      event(
+        "inventory.item.created",
+        {
+          itemId: "item-1",
+          accountId: "account-1",
+          catalogItemId: "catalog-1",
+          totalQuantity: 4,
+        },
+        "inventory.item-item-1",
+        1,
+      ),
+    );
+    await inventory["inventory.hold.placed"]!(
+      event(
+        "inventory.hold.placed",
+        {
+          holdId: "hold-1",
+          itemId: "item-1",
+          quantity: 1,
+        },
+        "inventory.hold-hold-1",
+        1,
+      ),
+    );
+    await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
+      kind: "resolved",
+      publishableQuantity: 3,
+      lowStockWithheld: false,
+    });
+    await inventory["inventory.item.adjusted"]!(
+      event(
+        "inventory.item.adjusted",
+        {
+          itemId: "item-1",
+          quantityDelta: -2,
+        },
+        "inventory.item-item-1",
+        2,
+      ),
+    );
+    await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
+      kind: "resolved",
+      publishableQuantity: 1,
+      lowStockWithheld: false,
+    });
+    await inventory["inventory.hold.placed"]!(
+      event(
+        "inventory.hold.placed",
+        {
+          holdId: "hold-2",
+          itemId: "item-1",
+          quantity: 1,
+        },
+        "inventory.hold-hold-2",
+        1,
+      ),
+    );
+    await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
+      kind: "resolved",
+      publishableQuantity: 0,
+      lowStockWithheld: false,
+    });
+    await inventory["inventory.hold.released"]!(
+      event(
+        "inventory.hold.released",
+        {
+          holdId: "hold-2",
+        },
+        "inventory.hold-hold-2",
+        2,
+      ),
+    );
+    await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
+      kind: "resolved",
+      publishableQuantity: 1,
+      lowStockWithheld: false,
+    });
+  });
+
+  it("R1 rejects the quantity-event price-pair overwrite mutant", async () => {
+    const handlers = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+    await handlers["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-1",
+          accountId: "account-1",
+          inventoryItemId: "item-1",
+          catalogItemId: "catalog-1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Card",
+          itemSubtitle: null,
+          productSummary: null,
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-1",
+        1,
+      ),
+    );
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        {
+          priceAmount: "20.00",
+          priceCurrencyCode: "EUR",
+        },
+        "marketplace.listing-listing-1",
+        2,
+      ),
+    );
+    await handlers["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-1",
+          accountId: "account-1",
+          inventoryItemId: "item-1",
+          catalogItemId: "catalog-1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Card",
+          itemSubtitle: null,
+          productSummary: null,
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-1",
+        1,
+      ),
+    );
+    await handlers["marketplace.listing.quantity-cap-updated"]!(
+      event("marketplace.listing.quantity-cap-updated", { quantityCap: 5 }, "marketplace.listing-listing-1", 3),
+    );
+    const result = await pools.channels.query<{
+      price_amount: string;
+      price_currency_code: string;
+      quantity_cap: number;
+      listing_stream_version: string;
+    }>(
+      `SELECT price_amount,price_currency_code,quantity_cap,listing_stream_version::text
+       FROM channels_listing_publication_facts WHERE listing_id='listing-1'`,
+    );
+    expect(result.rows[0]).toEqual({
+      price_amount: "20.00",
+      price_currency_code: "EUR",
+      quantity_cap: 5,
+      listing_stream_version: "3",
+    });
+  });
+
+  it("channel-catalog-facts-replay-safety retains category and both reference tombstones", async () => {
+    const handlers = buildChannelCatalogFactsProjectionHandlers(pools.channels);
+    const catalogStream = "catalog.item-catalog-1";
+    await handlers["catalog.catalog-item.category-assigned"]!(
+      event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, catalogStream, 7),
+    );
+    await handlers["catalog.catalog-item.category-removed"]!(
+      event("catalog.catalog-item.category-removed", { categoryId: "cards" }, catalogStream, 8),
+    );
+    await handlers["catalog.catalog-item.category-assigned"]!(
+      event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, catalogStream, 7),
+    );
+    for (const family of ["product", "catalog-item"] as const) {
+      const linked = `catalog.catalog-item.external-${family}-reference-linked`;
+      const unlinked = `catalog.catalog-item.external-${family}-reference-unlinked`;
+      const payload =
+        family === "product"
+          ? { providerKey: "synthetic-provider", externalKey: "sku:1", selectedOptions: [] }
+          : { providerKey: "synthetic-provider", externalKey: "product:1" };
+      await handlers[linked]!(event(linked, payload, catalogStream, 7));
+      await handlers[unlinked]!(event(unlinked, payload, catalogStream, 8));
+      await handlers[linked]!(event(linked, payload, catalogStream, 7));
+    }
+    const category = await pools.channels.query<{ assigned: boolean; catalog_item_stream_version: string }>(
+      `SELECT assigned,catalog_item_stream_version::text FROM channels_catalog_item_category_facts`,
+    );
+    const references = await pools.channels.query<{ link_state: string; reference_stream_version: string }>(
+      `SELECT link_state,reference_stream_version::text FROM channels_external_product_reference_facts
+       UNION ALL SELECT link_state,reference_stream_version::text FROM channels_external_catalog_item_reference_facts`,
+    );
+    expect(category.rows).toEqual([{ assigned: false, catalog_item_stream_version: "8" }]);
+    expect(references.rows).toEqual([
+      { link_state: "unlinked", reference_stream_version: "8" },
+      { link_state: "unlinked", reference_stream_version: "8" },
+    ]);
+  });
+
+  it("keeps boot SQL and migration ownership aligned for every registered projection and operation fence", async () => {
+    const result = await pools.channels.query<{ tablename: string }>(
+      `SELECT tablename FROM pg_tables WHERE schemaname=current_schema() AND tablename=ANY($1::text[]) ORDER BY tablename`,
+      [channelListingCompositionTableNames],
+    );
+    expect(result.rows.map((row) => row.tablename)).toEqual([...channelListingCompositionTableNames].sort());
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    const second = await pools.channels.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM pg_tables WHERE schemaname=current_schema() AND tablename=ANY($1::text[])`,
+      [channelListingCompositionTableNames],
+    );
+    expect(second.rows[0]?.count).toBe(String(channelListingCompositionTableNames.length));
+  });
+});
+
+function event(type: string, data: Record<string, unknown>, streamId: string, streamVersion: number) {
+  return buildTransportEvent(type, data, { streamId, streamVersion, globalPosition: `${streamId}:${streamVersion}` });
+}

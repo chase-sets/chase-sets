@@ -2,10 +2,14 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { ObjectStorage } from "@chase-sets/object-storage";
 import type { CommercialTermsResolver } from "../../api";
 import type { ListingEvidencePolicyEvaluator } from "../../features/listings/api/evidence-requirement-resolver";
+import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
+import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
 
 export type ListingPhotoStorage = Readonly<{
+  getObject: ObjectStorage["getObject"];
   putObject(
     input: Readonly<{
       key: string;
@@ -27,4 +31,7 @@ export type MarketplaceRuntimeDeps = Readonly<{
   /** The marketplace-owned platform-policy runtime; absent falls back to compiled policy defaults. */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
   listingEvidencePolicyEvaluator?: ListingEvidencePolicyEvaluator;
+  managedOfferPricing?: ManagedOfferPricing;
+  /** Absent keeps Pause, Resume and Withdraw closed. */
+  offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
 }>;

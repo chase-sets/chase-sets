@@ -1,0 +1,18 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-database-restore-drill.yml",
+      "jobId": "restore-drill",
+      "stepAnchor": "name:Run staging database restore drill#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "restore-drill-fork-ca"
+    },
+    {
+      "file": ".github/workflows/platform-database-restore-drill.yml",
+      "jobId": "restore-drill",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}

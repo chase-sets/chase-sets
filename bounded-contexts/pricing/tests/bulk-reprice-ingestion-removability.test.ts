@@ -23,6 +23,7 @@ const skippedDirectoryNames = new Set(["node_modules", "dist", "build", ".turbo"
 const allowedReferencingFiles = new Set(
   [
     "bounded-contexts/pricing/api.ts",
+    "bounded-contexts/pricing/server.ts",
     "bounded-contexts/pricing/support/runtime-support/services.ts",
     "bounded-contexts/pricing/support/runtime-support/schema.ts",
     "bounded-contexts/pricing/support/request-support/inventory-sku-gateway.ts",

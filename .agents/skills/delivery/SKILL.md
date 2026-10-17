@@ -26,7 +26,7 @@ This skill is tracked identically at `.agents/skills/` (read by Codex) and `.cla
 
 No plan file, no sandbox bootstrap unless the tests touched need the database, no per-PR deployment verification.
 
-**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, external provider contract changes (payment-provider event sets, webhook payloads, third-party API schemas), schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and a bounded self-review pass before PR readiness; in solo mode, also deploy-awareness after merge (see Deployment).
+**Full path.** Money movement (payments, settlement, payouts, tax), cross-context contract or event changes, external provider contract changes (payment-provider event sets, webhook payloads, third-party API schemas), schema migrations, destructive data changes, or work explicitly flagged as high risk. Everything in the fast path, plus Planning and the full-path Design Evidence described below; in solo mode, also deploy-awareness after merge (see Deployment).
 
 When in doubt, start on the fast path and escalate the moment scope grows into a full-path trigger.
 
@@ -62,30 +62,85 @@ git -C <worktree> switch -c <branch> --track origin/main
 - Search code and tests for relevant terms, events, routes, IDs, projections, and integrations before asking anything.
 - Blocking decisions split by blast radius and mode:
   - **Reversible, low-blast-radius ambiguity:** proceed on your recommended answer and flag the assumption in the PR description.
-  - **Full-path trigger decisions** (money movement, cross-context contracts/events, schema, destructive data): never assume. Lane mode — stop that thread, state the decision with a recommendation and repo evidence in your completion report; the orchestrator queues it as a decision task. Solo mode — batch all such questions into one message to Todd, each with the decision, why it matters, a recommended answer, and repo evidence.
+  - **Full-path trigger decisions** (money movement, cross-context contracts/events, schema, destructive data): never assume. Lane mode — stop that thread, state the decision with a recommendation and repo evidence in your completion report; the orchestrator is the host and routes it. Solo mode — you are the host: record each decision with why it matters, a recommended answer, and repo evidence, and route it under Decision routing. Never batch these decisions to Todd.
+  - **Decision routing** ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838576100), [escalation boundary](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838600629)): the host decides same-attempt, in-scope repairs itself — stale test pins or counts, fixture collisions, sink or path mistakes, prompt defects, continuation authority, agent-owned placement — and records each as `decision-resolved` with its reasoning. An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, an attempt ceiling, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds. A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane. Independent code/planning review and review-contract/v2 are unchanged.
+  - **Todd receives only two kinds of question** ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838628573)): product priority or scope changes, and operator actions no lane can perform. Package an operator action as one concrete, runnable step. Never escalate another review pass, revision, replan, attempt ceiling or proof route to Todd; the host routes those decisions.
 - Record decisions in the PR description under Resolved Decisions. Files under `.codex/plans/` are optional scratch artifacts — they are gitignored and must never be committed.
 - Do not edit product code, runtime code, schemas, or UI while a full-path plan is still unresolved.
 
+## Operator boundary
+
+The [#4388 prospective amendment](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6135898084)
+narrows the performer boundary of the earlier rulings, not their history.
+Agents prepare, execute, monitor, capture evidence, clean up, and report probes
+and routine work. This boundary applies on both delivery paths; "operator
+actions no lane can perform" means only the residual human step, not a runbook
+for Todd. Todd retains product priority/scope and unrelated reserved authority.
+
+- Use admitted tools, including supported computer use for approved-scope OAuth,
+  sandbox/test sign-ins, and credential entry when permitted. Missing tooling is
+  agent-owned repair, not a reason to assign Todd the workflow. Actual tool
+  policy still governs; do not bypass a restriction or automate TCGplayer login.
+- Request only production-credential or real-money authorization/supervision,
+  private entry for credentials agents may not hold, protected Windows permission
+  prompts, or an actual policy/external-authority step agents cannot lawfully
+  perform. Name the environment, reason a human is needed, exact residual step,
+  and agent resumption point; agents own preparation and all permitted work around
+  it. A test using a live credential or real charge is not autonomous sandbox work.
+- Preserve privacy, least privilege, secret safety, and
+  [production credential custody](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6114225296),
+  including Todd's own operator-session custody: never expose secrets in chat,
+  logs, screenshots, evidence, or commits. Human private entry is only for
+  credentials agents may not hold; sandbox/test safe-entry gaps are agent repair.
+  Preserve provider restrictions, external approvals at their ruled lifecycle,
+  scope limits, and stop conditions. A GA-only approval does not become a
+  sandbox/pre-GA hold. This guidance grants no provider or production
+  authorization. No broader access, outreach, impersonation, retry, evidence or
+  lifecycle authority is granted.
+- If acceptance explicitly names a human performer or human-only evidence,
+  obtain prospective acceptance repair through the existing decision route and
+  independent validation of the agent proof route before execution. Do not
+  relabel agent evidence as human evidence or silently change an issue's ACs.
+  Independent host/reviewer acceptance of a Probe is not mandatory Todd
+  acceptance; the Probe's exact authority and lifecycle evidence still govern.
+
 ## Implementation & Verification
 
-- Inner loop is watch mode (`pnpm --filter @chase-sets/<workspace> run test:watch`); run the scoped checks for every touched workspace before opening the PR. Reserve full `verify` for plausible cross-workspace impact — scope-gated CI carries the full gate.
+- Inner loop is watch mode (`pnpm --filter @chase-sets/<workspace> run test:watch`); run the scoped checks for every touched workspace before opening the PR. On concurrent-lane hosts, set `CHASE_SETS_LANE_MODE=1` for local Vitest commands so the shared config uses lane-safe timeouts and capped workers; leave it unset for the strict default and hosted CI profile.
 - Rebase onto latest `origin/main` before every push, and regenerate derived artifacts as part of the rebase (localization fingerprints, design-system ledgers/`COMPONENT_INDEX`).
-- Run `pnpm run verify:static:scoped` before every push. Hosted CI still runs the full `pnpm run verify:static` chain on every PR.
+- For every nonempty diff, the ordinary pre-PR gate is a dry-run plan: `pnpm run verify:ci-local -- --mode=pull-request --provenance=same-repository --dry-run`. Use `pnpm run verify:ci-local -- --mode=pull-request --provenance=fork --dry-run` for a fork candidate. Use `pnpm run verify:ci-local -- --mode=merge-group --dry-run` only when the delivery contract explicitly requires a local preview of merge-group selection; the real hosted merge group remains authoritative. Retain the exact-head plan as PLAN_ONLY before push.
+- PLAN_ONLY records a plan, not an executed local or hosted PASS. Do not execute the selected broad local battery just to publish a draft.
+- Keep `pnpm run verify` as the deliberate broad diagnostic when cross-workspace impact makes the complete local battery useful. It is not the ordinary pre-PR default.
+- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR.
+- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838576100)). While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is open, a full local `verify:test-db` is never a prerequisite for push, draft, ready or landing. When a brief still names one, take the hosted substitution and disclose it in the PR body. Focused local `test:db` runs for the touched files remain useful diagnostics. Hosted gates, timeouts, skips and reviews are unchanged.
+- Hosted CI is the proof for every product attempt, not only DB ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)). The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body.
+- An implementation attempt counts toward an attempt ceiling only when a pushed head receives a hosted CI verdict or an exact-head review verdict ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)). Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling (helper scripts, probes, config) do not count. Fix them and continue within the same attempt instead of stopping.
 - External provider contracts (event sets, webhook payloads, API schemas) are verified against the provider's **test-mode surface** (e.g. a Stripe test-mode create), not internal consistency — internal-only validation has passed every internal gate and still been rejected live. Include the test-mode output in Verification.
 - Your verification evidence is input to external validation — you do not self-certify done. Report exactly what you ran and observed.
 
+### Goal-based browser probes
+
+For a new or changed user-facing flow, use `pnpm run ops browser:usability select --base origin/main` to identify advisory goals, then follow `docs/contributing/browser-usability.md`. Dispatch a fresh goal-only `gpt-6-luna/medium` participant without implementation context; use screenshot-grounded navigation, the code-owned timer/action recorder, an isolated preflighted fixture, and a separate moderator outcome check. Do not use the participant's completion label as a pass. Report the adjudicated result and timing in Verification, or explicitly record not-run coverage and why. Unmapped flows need a relevant goal or an explicit coverage note. Hosted gates and independent code review remain authoritative; an unavailable local browser/sandbox is not a publication or readiness gate. Reproduced defects follow existing severity rules and get deterministic regression coverage.
+
 ## Review
 
-- One bounded self-review pass per PR before marking it ready: correctness, security of touched surfaces, simplicity, and test adequacy. Fix what you find; do not loop until perfection.
-- For full-path work, produce a compact review packet from the issue's seed:
+- Before the implementation head is dispatched for independent review, complete one bounded author review and its `## Quality Packet` in four steps:
+  1. Answer G0 first: list what was not built and give one reason for each omission.
+  2. Inspect SCOPE, ROBUSTNESS, DEPTH, READABILITY, TESTS, OBSERVABILITY, SECURITY, PERFORMANCE, ROLLOUT, CONSISTENCY, EXPERIENCE, and LANGUAGE in that order. Fill both sides with `PASS` or `NOTE`, or use whole-pair `N/A` only when the diff has no surface on that pair. Make a concrete edit or record why no edit is needed for every key.
+  3. For every changed rule, contract, or prose claim, check an enforcement pair: the changed item and the test, checker, or direct inspection that constrains it.
+  4. Re-run the scoped check after each fix; stop a key only when a full pass makes no edit. `Edits per key:` records each edited key, its edit, and the check re-run after it.
+  This author loop supplies evidence for an independent review; it never replaces that review or hosted CI ownership.
+- For full-path work, add compact attack evidence from the issue's seed:
   changed invariants, likely failure modes, exact omission-revealing artifacts,
-  and the focused commands/probes that exercise them. This packet directs the
+  and the focused commands/probes that exercise them. This evidence directs the
   independent attack; it never asks the reviewer to trust the author's result.
+- Every PR on every path must carry one `## Quality Packet`. Its exact order is the heading; `G0: PASS — <not built, one reason each>`; `QUALITY_PROFILE: <prototype|product-feature|core-library|hot-path|migration|contract>`; `QUALITY_VERDICT:`; the twelve key lines above; then `Edits per key:`, `Enforcement pairs checked:`, and `Unverifiable assumptions:`. A key is `KEY [High|Med|Low]: little=<PASS|NOTE> <payload> ; much=<PASS|NOTE> <payload>`, or `KEY [weight]: N/A <absent surface>` when the pair has no surface in the diff. `BLOCK` belongs only to the reviewer.
+- Each payload follows the matching quality-v2 Evidence column. `PASS` names the probe or artifact examined; `NOTE` names the author's non-blocking observation and its surface; whole-pair `N/A` names the absent surface. When evidence is too large to state inline, cite a resolvable repository path, `file::test name`, executed command, or PR section such as `## Design Evidence`; never use a bare verdict or unnamed "see tests". The independent reviewer must verify every Quality Packet claim and never adopt one.
 - Two probes are mandatory in that pass when they apply, because both defect classes have shipped through green CI:
   - **Changed a service function's signature?** Grep every caller — including composition roots and support/wiring layers — and replace hand-written decoupled function types and `as {...}` casts with the imported interface, so future drift is a typecheck error. A unit test in a fake harness does not prove the production caller compiles.
-  - **Added validation to a command handler?** Enumerate every seeding path (seed, bootstrap, import, reconciliation) and run each against the new rules. PR-lane CI does **not** run the DB-profile suite — the merge group is its first executor — so stand up a disposable Postgres locally rather than pushing unverified attempts.
+  - **Added validation to a command handler?** Enumerate every seeding path (seed, bootstrap, import, reconciliation) and run each against the new rules. PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head. A focused local `test:db` against a disposable Postgres is a useful diagnostic before you push, never a gate.
 - Comprehensive tech-debt review happens on a weekly repo-wide cadence, not per PR.
-- Milestone reviews (anti-ratchet): at most one comprehensive review per milestone per week, and each review must close or deliver something. Never amend new requirements into existing issues — a genuinely new gap becomes a new, fixed-scope issue. File it with the `slice` form so it lands classified (`refined ≡ classified`: open, non-Epic, executable wave milestone + `priority:*` + `area:*` + `kind:*`, excluding `status:tracking-only`), attach it as a **sub-issue of the owning epic** when one owns its acceptance, and record any chain link as a **GitHub issue dependency** rather than only a `Blocked by #N` line. An unclassified issue is undispatchable. Parent attachment is reported, not gating; a future parent-or-standalone gate and any `status:standalone` label require a new fixed-scope change ([#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that they are not current behavior). See `docs/contributing/backlog-model.md`. The delivery board's Status is derived by `scripts/project-status-sync.mjs`, never hand-written: a native **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only` projects to `Tracking`, both non-executable, and a hand-set value is overwritten by the next sync. This applies to issue and milestone comments too: review passes and evidence ledgers must not relocate there. The cadence is monitored by the weekly Review Cadence Digest workflow (advisory, never blocking).
+- Milestone reviews (anti-ratchet): at most one comprehensive review per milestone per week, and each review must close or deliver something. Agents own routine outcome placement, promotion and priority under `docs/contributing/backlog-model.md`; Todd steering is an override, never a required placement approval. Preserve accepted scope and active recovery when reorganizing work. Never amend new requirements into existing issues — a genuinely new gap becomes a new, fixed-scope issue. File it with the `slice` form so it lands classified (`refined ≡ classified`: open, non-Epic, executable wave milestone + `priority:*` + `area:*` + `kind:*`, excluding `status:tracking-only`), attach it as a **sub-issue of the owning epic** when one owns its acceptance, and record any chain link as a **GitHub issue dependency** rather than only a `Blocked by #N` line. An unclassified issue is undispatchable. Parent attachment is reported, not gating; a future parent-or-standalone gate and any `status:standalone` label require a new fixed-scope change ([#6174](https://github.com/chase-sets/chase-sets/issues/6174) records that they are not current behavior). See `docs/contributing/backlog-model.md`. The delivery board's Status is derived by `scripts/project-status-sync.mjs`, never hand-written: a native **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only` projects to `Tracking`, both non-executable, and a hand-set value is overwritten by the next sync. This applies to issue and milestone comments too: review passes and evidence ledgers must not relocate there. The cadence is monitored by the weekly Review Cadence Digest workflow (advisory, never blocking).
 - Milestone and launch evidence lives in the closing GitHub issue/PR, git history, and gitignored `artifacts/` outputs from the retained ops verifiers; do not add evidence ledgers or signoff checklists to committed docs. Evidence recorded against a main commit stays valid for its descendants unless the covered surface changed, so do not request or perform broad "current-main revalidation" passes.
 
 ## Repair Continuation
@@ -119,7 +174,7 @@ repair brief rather than rediscovering the PR:
 
 ## PR & Readiness
 
-Keep PR bodies to roughly 10–20 lines:
+Keep PR bodies compact. The validated snippet below is the canonical section shape; replace its concrete claims with evidence from the exact head:
 
 ```markdown
 ## Summary
@@ -134,18 +189,44 @@ state machine/lifecycle → every state, every transition, the steady state, and
 validation on a shared handler → the caller inventory (seed/bootstrap/import/reconciliation) and which you ran ·
 external provider contract → the provider's test-mode validation output>
 
-## Review Packet
-<full path: changed invariants, likely failure modes, omission-revealing artifacts, and focused attack commands/probes>
+## Quality Packet
+Use the validated `### Quality Packet snippet` below, replacing its concrete evidence with evidence from this exact head.
 
 ## Verification
 <what you ran and observed>
 
-Closes #<issue>
+Refs #<issue>
 ```
 
-Do not include goal-completion boilerplate, worktree/sandbox metadata, or restated checklists.
+Do not include goal-completion boilerplate, worktree/sandbox metadata, or restated checklists. The Quality Packet is required even when `## Design Evidence` does not apply.
 
-**Draft semantics.** Open the PR as a draft while iterating. Mark it ready only when scoped checks are green, the self-review is done, and no full-path assumption is unresolved. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
+### Quality Packet snippet
+
+Use this concrete, validated example as the PR's stable author record; replace its claims with evidence from the exact change. The section must stay at or below 2,048 UTF-8 bytes.
+
+```markdown
+## Quality Packet
+G0: PASS — smallest shape: rename the shipped #7716 pair in place; not built: a second checker module (one file already owns the shape), a CI or launcher guard (#7737 owns it), a profile-weight table (the reviewer verifies weights).
+QUALITY_PROFILE: contract
+QUALITY_VERDICT:
+SCOPE [High]: little=PASS AC1-AC4 → quality-packet-section-contract.test.mjs matrix ; much=PASS diff is the brief's four paths
+ROBUSTNESS [High]: little=PASS every reject path returns a named error, none throws ; much=PASS no guard beyond those errors
+DEPTH [High]: little=PASS script-local; 3 exports, 1 caller ; much=PASS a rename, no new abstraction
+READABILITY [Med]: little=PASS trace SKILL.md → extractQualityPacketSection → errors, 2 files ; much=PASS no restating comment
+TESTS [High]: little=PASS both exports and both mirrors pinned ; much=PASS asserts returned error strings, not internals
+OBSERVABILITY [High]: little=PASS each rejection names its key and reason ; much=PASS accept path is silent
+SECURITY [High]: N/A no input, authorization, secret, or personal-data boundary in the diff
+PERFORMANCE [Low]: N/A no query or per-item I/O; bounded linear scan and two test-only mirror reads
+ROLLOUT [High]: little=PASS retired headings deleted, not left beside ; much=PASS no legacy branch or flag kept
+CONSISTENCY [High]: little=PASS follows scripts/check-structure conventions ; much=PASS no unstated departure
+EXPERIENCE [Low]: N/A no UI surface in the diff
+LANGUAGE [High]: little=PASS Quality Packet, G0, the twelve keys → contracts/quality-v2.md ; much=PASS no coined term
+Edits per key: ROLLOUT deleted the retired field list; LANGUAGE renamed the completion-report item; others no edit, scoped check re-run after each.
+Enforcement pairs checked: packet shape → quality-packet-section-contract.test.mjs; mirror rule → skill-mirror.test.mjs.
+Unverifiable assumptions: none.
+```
+
+**Draft semantics.** Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence. A harness or lock refusal of a scoped check is disclosed, not a draft blocker. Before ready or enqueue, all selected REQUIRED hosted gates must pass and independent exact-head implementation review must pass, with no unresolved full-path assumption. Missing, red, or skipped REQUIRED hosted gates block readiness; PLAN_ONLY never substitutes for them. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
 
 ## Completion Report (lane mode)
 
@@ -156,7 +237,7 @@ End your lane with a report the orchestrator can act on:
 3. File footprint touched (for parallel-lane collision checks).
 4. Assumptions flagged in the PR.
 5. Decisions needing escalation, each with a recommendation.
-6. Full-path review packet, or repair finding IDs with one disposition each.
+6. Quality Packet plus any applicable attack evidence, or repair finding IDs with one disposition each.
 
 ## Landing (solo mode only)
 
@@ -165,6 +246,70 @@ Check the orchestration lease first (see Modes). If clear: this repo uses the Gi
 ## Deployment (solo mode only)
 
 Per-PR staging/production verification is not required; the deploy pipeline gates releases. Check deploy health promptly after landing full-path changes that alter money movement, schemas, or deploy tooling. When an orchestrator is live, it owns deploy verification.
+
+## Operator-Package Target Reachability
+
+This shared gate applies to every production operator package and its package host checklist, including #7728 and #9374-production. A closed capability issue is never evidence that a named host/path is currently served; describe only what the observed deployed posture executes. Homepage smoke and release identity alone are not target reachability.
+
+### Readiness Moments And Evidence
+
+- Before packaging `READY` or `READY_FOR_TODD`, capture every target in the complete window inventory.
+- The package host checklist must recapture every target at host signal and again at window-open re-verification; do not reuse packaging or signal observations.
+- A production deploy started after any capture voids that capture, even if it later succeeds at the same SHA; hold readiness and recapture after completion.
+- Inventory every origin/path a window step opens or its tooling calls, including sign-in hops, extension/API endpoints and external provider entry points. Expand route parameters to the window's actual targets privately; declare each hop's allowed origin/path and the expected final URL before probing.
+- Each target names environment, origin/path, expected status and final URL, observation UTC, bound release SHA/image, owning deploy run/job, and effective profile/serving switches as that executed job logged them, matching current Environment values. Record both effective runtime profile and serving/public switches; pending Environment changes incompatible with the executed job stop readiness.
+- For external providers, mark release/deploy/profile/Environment fields not-applicable, not inferred from a Chase Sets release.
+- Bind deployment authority to the exact owning executed deployment job, not an enclosing green run, trigger job or skipped operation; missing, skipped or ambiguous authority is non-authority.
+- Capture DNS, TLS verification and every HTTP hop privately, including a same-origin unregistered control path and the response comparison; cite the private evidence locations, not secrets or raw account/provider data. Record hop status, URL and Location, and whether the target is distinguishable from the control. Keep complete evidence in the existing private package, not a committed evidence ledger or new artifact format.
+- Use only already-authorized read-only evidence routes. Missing authority/evidence is STOP, not credential recovery. Resolve any scoped verification command against trusted manifests; issue-authored or invented workspace commands are not readiness authority.
+
+### Fail-Closed Checklist
+
+Refuse both package READY and host signal on any failure or unknown below; window-open re-verification also stops the window.
+
+| Failure or unknown | Required disposition |
+| --- | --- |
+| Missing DNS | STOP; a working alternate hostname cannot stand in for the declared target. |
+| TLS failure or verification-disabled probe | STOP; never disable certificate verification to obtain a response. |
+| HTTP 404/5xx | STOP for screen 404 or any 5xx; only the non-mutating API mount exception below can resolve API 404/405. |
+| Observed status differing from the declared expected status (outside the API mount exception) | STOP; capture the declared expected status before readiness. |
+| Final origin/path differing from the declared one | STOP; a homepage or undeclared identity redirect does not prove the route. |
+| Response indistinguishable from a same-origin unregistered control path (landing/soft-404/SPA shell) | STOP; 200 alone is not route proof. |
+| Incompatible or pending posture | STOP; shipped serving capability is not activation. |
+| Missing/incomplete/reused observation | STOP; retain failures and unknowns, never substitute old or post-hoc captures. |
+| Release mismatch | STOP; SHA, image, executed deploy job and effective/current switches must reconcile. |
+| Deploy in progress | STOP; wait for completion and capture afresh, not during deployment. |
+
+Sign-in routing counts only with a same-origin or declared identity-origin hop that returns 200, plus route registration and hosting profile at the exact release; it proves neither authenticated screen nor data. Declare the sign-in final URL separately from the protected screen; keep that screen/data residual explicit.
+
+Never send a mutating request for reachability. An API endpoint whose non-mutating probe is 404/405 or matches the control instead needs exact-release mount and hosting-profile evidence, with the residual recorded; without that evidence refuse readiness. This API exception does not excuse a screen 404, 5xx, DNS/TLS failure, release mismatch or posture failure. It establishes routing/mount only, not that the authenticated operation will succeed. The manual-sync download claims a reservation, so never invoke its action just to prove reachability.
+
+Authenticated checks use existing custody/Phase A authority, never secret collection or new login. External targets use permitted read-only routes only; no provider traffic is authorized by this contract. Reachability is necessary, not an execution GO, account admission, public launch or certification of private data. Staging is independently gated and cannot establish production reachability. Production authorization, performer/custody, no-redelivery and read-only Phase A gates remain unchanged.
+
+### Consumer Target Inventory
+
+These are inventory seeds, not observed-live claims or an exhaustive replacement for the window's steps/tool calls. Bind the actual origins and parameters at every readiness moment; include all sign-in/identity hops and any additional window targets.
+
+| Consumer | Origin and paths to inventory |
+| --- | --- |
+| #7728 Account Channels, connection and publication | Declared marketplace origin: `/account/channels`, `/account/channels/<connectionId>`, `/account/channels/publication`, `/account/channels/publication/<connectionId>`. Include called `/api/channels/connections/<id>`, `/api/channels/connections/<connectionId>/manual-sync` and `/api/channels/publication/<connectionId>`, plus any action endpoints the window uses. Route/mount owners: `bounded-contexts/channels/context.json`. |
+| #7728 manual-sync download | Same declared marketplace origin: `/account/channels/<connectionId>/manual-sync/download`. Inventory the mutating action but prove its mount/profile without claiming a reservation. Owner: `bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx`. |
+| #7728 Catalog Phase A | Declared Admin origin: `/catalog/catalog-items/<id>` for each window item, plus any tooling calls. Owner: `bounded-contexts/catalog/context.json`. |
+| #7728 Seller Portal entry | External provider: `https://store.tcgplayer.com/admin/pricing` and the window's declared Seller Portal import/export entry points and permitted sign-in hops. No upload, export action or new login as a reachability probe. |
+| #9374-production Admin and extension | `https://admin.chasesets.com/catalog/providers/tcgplayer`; `/api/public/catalog/operator-session/grant` and `/api/public/catalog/operator-session/tcgplayer` on that same Admin origin. These extension calls mutate; use the API exception, not DELETE/PUT probes. Owners: `bounded-contexts/catalog/context.json` and `bounded-contexts/catalog/features/operator-session/domain/extension/transport.ts`. |
+| #9374-production provider session entry | External provider: `https://store.tcgplayer.com/admin/pricing`, declared permitted sign-in hops and any other entry point the window opens. Owner: `bounded-contexts/catalog/features/operator-session/domain/extension/protocol.ts`. |
+
+Whether to set `PRODUCTION_MARKETPLACE_SERVED=true` remains Todd's separate `PRODUCT_QUESTION` ([#4388 stop/question](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-6148588435)); this contract neither answers it nor blocks on the answer. If served posture is chosen, the #9292 identity-term receipt remains required before admission, as described in `docs/runbooks/marketplace-production-promotion.md`.
+
+### Worked Controls
+
+**Historical negative (#7728 r4, 2026-10-13; not a current-production observation).** `PRODUCTION_MARKETPLACE_SERVED` absent; ingress serving chasesets.com/www/admin only; marketplace.chasesets.com without an A record; `/account/channels` returning 404 on chasesets.com and admin. Despite closed #8070 and green deploy, package READY and host signal both FAIL. The release-only 14:39Z host signal check and 14:55Z window-open check prove no target reachability and both FAIL this gate. The window stopped before Phase A with no lease or mutation.
+
+The host-rebound runbook names release `f5cbef2cb094a1935841c1a10db0310ac0284442`, image `sha256:d84315b643922527a44633ce43a26c349fb06d49de662bc4d1570c59294bacea`, deploy run/job 38406890844/115345684026. Do not combine the report's `459dc3fd` binding with that release. Retained private sources: `.orchestrator/logs/operator-7728-20261013-r4/`, `.orchestrator/logs/7728-package-r4.report.md`; signal/re-verification/stop rows `.orchestrator/dispatch-log.jsonl:31939/31943/31946` and the linked host stop. Reuse target/citation inventory and safety procedures only, never r4's READY verdict, stale observations, closed-dependency inference or signal as reachability/GO authority.
+
+**Synthetic positive (not live evidence).** Every inventoried target resolves DNS, verifies TLS and routes as declared, differs from its control, and has complete fresh observations at packaging, signal and window-open. Synthetic release/image and owning executed deploy job match every Chase Sets target and current Environment values: `PRODUCTION_MARKETPLACE_SERVED=true`, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, effective profile `proof`, invitation admission and indexing disabled. External fields are explicitly not-applicable; sign-in-only and API-mount residuals stay explicit. Both readiness gates pass only in this synthetic control; no execution GO or public-launch authority follows.
+
+**Reused-capture negative (synthetic).** Reusing the synthetic packaging observations at signal FAILS host signal; reusing signal observations at window-open STOPS the window. Even unchanged release/posture and formerly passing targets do not make reused observations fresh.
 
 ## Cleanup (solo mode only)
 

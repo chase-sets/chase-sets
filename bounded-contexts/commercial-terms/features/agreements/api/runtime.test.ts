@@ -21,6 +21,36 @@ const context = {
 };
 
 describe("commercial terms agreement runtime", () => {
+  it("propagates account name, display name and id through list, detail and options", async () => {
+    const identity = {
+      account_id: "acc_demo",
+      account_name: "Demo Account",
+      account_display_name: "Chase Sets",
+      account_type: "business",
+    };
+    const option = {
+      account_id: identity.account_id,
+      account_name: identity.account_name,
+      display_name: identity.account_display_name,
+      account_type: identity.account_type,
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("COUNT(*)")) return { rows: [{ count: "1" }] };
+        if (sql.includes("FROM platform_policy_document_history")) return { rows: [] };
+        if (sql.includes("FROM platform_policy_documents AS agreement"))
+          return { rows: [{ agreement_id: "cag_demo", ...identity }] };
+        if (sql.includes("FROM commercial_terms_account_pages")) return { rows: [option] };
+        return { rows: [] };
+      }),
+    };
+    const policies = createCommercialTermsPolicyRuntime({ eventStore, db: db as never });
+    const runtime = createAgreementRuntime({ policies, db: db as never });
+    expect(await runtime.listAgreements({})).toMatchObject({ items: [identity], total: 1 });
+    expect(await runtime.getAgreement("cag_demo")).toMatchObject({ ...identity, history: [] });
+    expect(await runtime.listAccountOptions()).toEqual([option]);
+  });
   it("allows exactly one of two concurrent overlapping agreement creates for the same account", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const db = {

@@ -1,4 +1,4 @@
-import { formatMoney, t } from "@chase-sets/localization";
+import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { centsToMoneyAmount } from "@chase-sets/primitives/money";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
@@ -169,6 +169,11 @@ export function FulfillmentShipmentDetailPage({
   const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
   const letterMailpiece = isLetterMailpiece(shipment);
   const postagePolicySnapshot = shipment.shipping_plan_snapshot?.postagePolicySnapshot;
+  const canResolveOrderCancellation =
+    (shipment.status === "packing" || shipment.status === "awaiting-label") &&
+    (shipment.conflicts ?? []).some(
+      (conflict) => conflict.conflict_kind === "cancellation" && conflict.origin === "order-cancelled",
+    );
 
   return (
     <Page>
@@ -188,7 +193,13 @@ export function FulfillmentShipmentDetailPage({
         actions={
           <Stack gap={2}>
             {role === "seller" ? (
-              <LinkButton href={packingSlipHref} tone="primary" target="_blank">
+              <LinkButton
+                href={packingSlipHref}
+                tone="primary"
+                target="_blank"
+                leadingIcon="externalLink"
+                aria-label={t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip.new.tab")}
+              >
                 {t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip")}
               </LinkButton>
             ) : null}
@@ -249,6 +260,14 @@ export function FulfillmentShipmentDetailPage({
           <DetailConfidenceModule
             title={t("fulfillment.features.shipments.ui.shipmentDetailPage.summary")}
             items={[
+              ...(role === "buyer" && shipment.delivered_at
+                ? [
+                    {
+                      label: t("fulfillment.features.shipments.ui.shipmentDetailPage.delivered.at"),
+                      value: formatDateTime(shipment.delivered_at),
+                    },
+                  ]
+                : []),
               {
                 label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.option"),
                 value: shipment.shipping_option,
@@ -396,6 +415,16 @@ export function FulfillmentShipmentDetailPage({
       {role === "seller" ? (
         <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.diagnostics")}>
           <Stack gap={3}>
+            {canResolveOrderCancellation ? (
+              <Card elevation="tinted" data-elevation-role="furniture">
+                <Form spacing="none" method="post">
+                  <Button type="submit" name="intent" value="cancel-shipment" tone="secondary">
+                    {t("fulfillment.features.shipments.ui.shipmentDetailPage.cancel.shipment")}
+                  </Button>
+                </Form>
+              </Card>
+            ) : null}
+
             <DetailConfidenceModule
               title={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.diagnostics")}
               items={[
@@ -462,80 +491,78 @@ export function FulfillmentShipmentDetailPage({
               />
             ) : (
               shipment.postage_label_operations.map((operation) => (
-                <Card key={operation.operation_key} elevation="tinted" data-elevation-role="furniture">
-                  <Stack gap={2}>
-                    <Text weight="semibold">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.operation.kind.status", {
-                        operationKind: operation.operation_kind,
-                        status: operation.status,
-                      })}
+                <Stack key={operation.operation_key} gap={2} data-elevation-role="furniture">
+                  <Text weight="semibold">
+                    {t("fulfillment.features.shipments.ui.shipmentDetailPage.operation.kind.status", {
+                      operationKind: operation.operation_kind,
+                      status: operation.status,
+                    })}
+                  </Text>
+                  <DetailConfidenceModule
+                    title={operation.operation_key}
+                    items={[
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.service"),
+                        value: formatDiagnosticValue(operation.requested_service_level),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.delivery.confirmation"),
+                        value: formatDiagnosticValue(operation.requested_delivery_confirmation),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.amount"),
+                        value: formatDiagnosticValue(operation.requested_insurance_amount),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.mailpiece.class"),
+                        value: formatDiagnosticValue(operation.requested_mailpiece_class),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.policy.version"),
+                        value: formatDiagnosticValue(operation.policy_version),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.parcel.required"),
+                        value: formatDiagnosticBoolean(operation.parcel_required),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.signature.required"),
+                        value: formatDiagnosticBoolean(operation.signature_required),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.required"),
+                        value: formatDiagnosticBoolean(operation.insurance_required),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insured.value"),
+                        value: formatDiagnosticValue(operation.insured_value_amount),
+                      },
+                      {
+                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.evidence.tier"),
+                        value: formatDiagnosticValue(operation.shipping_evidence_tier),
+                      },
+                    ]}
+                  />
+                  {operation.address_override_changed_side ? (
+                    <Text size="sm" tone="secondary">
+                      {operation.address_override_reason
+                        ? t("fulfillment.features.shipments.ui.shipmentDetailPage.address.override.with.reason", {
+                            side: operation.address_override_changed_side,
+                            reason: operation.address_override_reason,
+                          })
+                        : t("fulfillment.features.shipments.ui.shipmentDetailPage.address.override.with.side", {
+                            side: operation.address_override_changed_side,
+                          })}
                     </Text>
-                    <DetailConfidenceModule
-                      title={operation.operation_key}
-                      items={[
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.service"),
-                          value: formatDiagnosticValue(operation.requested_service_level),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.delivery.confirmation"),
-                          value: formatDiagnosticValue(operation.requested_delivery_confirmation),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.amount"),
-                          value: formatDiagnosticValue(operation.requested_insurance_amount),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.mailpiece.class"),
-                          value: formatDiagnosticValue(operation.requested_mailpiece_class),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.policy.version"),
-                          value: formatDiagnosticValue(operation.policy_version),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.parcel.required"),
-                          value: formatDiagnosticBoolean(operation.parcel_required),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.signature.required"),
-                          value: formatDiagnosticBoolean(operation.signature_required),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insurance.required"),
-                          value: formatDiagnosticBoolean(operation.insurance_required),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.insured.value"),
-                          value: formatDiagnosticValue(operation.insured_value_amount),
-                        },
-                        {
-                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.shipping.evidence.tier"),
-                          value: formatDiagnosticValue(operation.shipping_evidence_tier),
-                        },
-                      ]}
+                  ) : null}
+                  {operation.error_message ? (
+                    <MarketplaceNotice
+                      tone="warning"
+                      title={t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")}
+                      description={operation.error_message}
                     />
-                    {operation.address_override_changed_side ? (
-                      <Text size="sm" tone="secondary">
-                        {operation.address_override_reason
-                          ? t("fulfillment.features.shipments.ui.shipmentDetailPage.address.override.with.reason", {
-                              side: operation.address_override_changed_side,
-                              reason: operation.address_override_reason,
-                            })
-                          : t("fulfillment.features.shipments.ui.shipmentDetailPage.address.override.with.side", {
-                              side: operation.address_override_changed_side,
-                            })}
-                      </Text>
-                    ) : null}
-                    {operation.error_message ? (
-                      <MarketplaceNotice
-                        tone="warning"
-                        title={t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")}
-                        description={operation.error_message}
-                      />
-                    ) : null}
-                  </Stack>
-                </Card>
+                  ) : null}
+                </Stack>
               ))
             )}
 
@@ -545,7 +572,7 @@ export function FulfillmentShipmentDetailPage({
                   {t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.events")}
                 </Text>
                 {shipment.postage_provider_events.map((event) => (
-                  <Card key={event.provider_event_id} elevation="tinted" data-elevation-role="furniture">
+                  <Stack key={event.provider_event_id} data-elevation-role="furniture">
                     <DetailConfidenceModule
                       title={t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.event.kind.status", {
                         eventKind: event.event_kind,
@@ -573,7 +600,7 @@ export function FulfillmentShipmentDetailPage({
                         },
                       ]}
                     />
-                  </Card>
+                  </Stack>
                 ))}
               </Stack>
             ) : null}

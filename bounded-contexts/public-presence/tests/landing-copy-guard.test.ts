@@ -34,10 +34,8 @@ describe("landing copy banned-vocabulary guard", () => {
   });
 
   it("ignores banned terms outside the landing-visible namespaces", () => {
-    // publicPresence.info.founders.buyerEconomics.body legitimately uses
-    // "shipping allowance" — it is out of #5618's scope (not a landing
-    // namespace) and must stay untouched. The guard must not reach it.
-    const probe = { "publicPresence.info.founders.buyerEconomics.body": "funded through the shipping allowance" };
+    // An explicitly synthetic non-landing key must stay outside this guard.
+    const probe = { "publicPresence.syntheticOutOfScope.body": "funded through the shipping allowance" };
     expect(findLandingCopyViolations(probe)).toEqual([]);
   });
 

@@ -14,6 +14,7 @@ import type {
 import type { CatalogIntegrationUnitKey } from "../api/integration-unit";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import {
+  canSelectStandaloneProductCoordinate,
   emptyCatalogPrimaryWorkbenchScopeContext,
   importScopeFromScopeContext,
   scopeContextFromProviderScope,
@@ -136,14 +137,18 @@ function enrichedSetNameSelectedScope(
   if (!sourceOptionKindsForProfile(profile).some((kind) => kind.scope === "set-name")) {
     return scope;
   }
-  const selectedValue = scope.expansionName ?? scope.expansionId;
+  const selectedValue = scope.expansionId ?? scope.expansionName;
   if (!selectedValue) {
     return scope;
   }
   const page = sourceOptions.pages.find(
     (candidatePage) => candidatePage.request.providerKey === providerKey && candidatePage.scope === "set-name",
   );
-  const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
+  const option = page?.items.find((item) =>
+    scope.expansionId
+      ? String(item.value) === scope.expansionId
+      : item.value === selectedValue || item.label === selectedValue,
+  );
   if (!option?.label || option.label === selectedValue) {
     const productDomain = normalizeProductDomain(productDomainFromProfile(profile));
     const siblingScope = scopes.find((candidateScope) => {
@@ -151,7 +156,12 @@ function enrichedSetNameSelectedScope(
       const candidateDomain = normalizeProductDomain(productDomainFromScope(candidateContext));
       return (
         Boolean(productDomain && candidateDomain && productDomainsMatch(productDomain, candidateDomain)) &&
-        selectedScopeFieldMatches(selectedValue, [candidateScope.expansion_id, candidateScope.expansion_name]) &&
+        selectedScopeFieldMatches(
+          scope.expansionId ?? selectedValue,
+          scope.expansionId
+            ? [candidateScope.expansion_id]
+            : [candidateScope.expansion_id, candidateScope.expansion_name],
+        ) &&
         Boolean(candidateScope.expansion_name) &&
         comparableText(candidateScope.expansion_name) !== comparableText(selectedValue)
       );
@@ -161,7 +171,8 @@ function enrichedSetNameSelectedScope(
           ...scope,
           productLineName:
             scope.productLineName ??
-            (siblingScope.product_line_name || productLineDisplayNameFromDomain(productDomainFromProfile(profile))),
+            (siblingScope.product_line_name ||
+              (scope.expansionName ? null : productLineDisplayNameFromDomain(productDomainFromProfile(profile)))),
           expansionName: siblingScope.expansion_name,
         }
       : scope;
@@ -169,7 +180,9 @@ function enrichedSetNameSelectedScope(
 
   return {
     ...scope,
-    productLineName: scope.productLineName ?? productLineDisplayNameFromDomain(productDomainFromProfile(profile)),
+    productLineName:
+      scope.productLineName ??
+      (scope.expansionName ? null : productLineDisplayNameFromDomain(productDomainFromProfile(profile))),
     expansionName: option.label,
   };
 }
@@ -179,6 +192,7 @@ function explicitScopeFromRouteContext(
 ): CatalogPrimaryWorkbenchScopeContext {
   return {
     providerKey: routeContext.providerKey ?? routeContext.scope?.providerKey ?? null,
+    productId: routeContext.scope?.productId ?? null,
     languageCode: routeContext.scope?.languageCode ?? null,
     productLineId: routeContext.scope?.productLineId ?? null,
     productLineName: routeContext.scope?.productLineName ?? null,
@@ -290,6 +304,13 @@ function candidateIsRelevantToSelection(
   scopes: readonly SourceObservationIntegrationScope[],
   routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): boolean {
+  if (selectedScope.scope.productId) {
+    return (
+      candidate.providerKey === routeContext.providerKey &&
+      candidate.unitKey === routeContext.unitKey &&
+      profileCanSelectScope(candidate.profile, selectedScope.scope)
+    );
+  }
   if (!selectedScope.hasConcreteScope) {
     return routeContext.providerKey ? candidate.providerKey === routeContext.providerKey : true;
   }
@@ -351,6 +372,7 @@ function sourceScopeUnitRow(
   const blockers = unitReadinessBlockers(candidate, input);
   const commandContext = {
     providerKey: candidate.providerKey,
+    productId: routeScope.productId,
     unitKey: candidate.unitKey,
     importScope,
     profileVersion: candidate.profile?.profileVersion ?? null,
@@ -462,6 +484,10 @@ function providerCommandScope(
 
   return {
     providerKey: candidate.providerKey,
+    productId:
+      selectedScopeMatchesCandidate && profileCanSelectScope(candidate.profile, selectedScope)
+        ? selectedScope.productId
+        : null,
     languageCode: canProjectSelectedScope
       ? (selectedScope.languageCode ?? providerScope.languageCode ?? candidate.profile?.languageOptions[0] ?? null)
       : providerScope.languageCode,
@@ -511,7 +537,7 @@ function selectedSetNameOption(
     return null;
   }
 
-  const selectedValue = selectedScope.expansionName ?? selectedScope.expansionId;
+  const selectedValue = selectedScope.expansionId ?? selectedScope.expansionName;
   if (!selectedValue) {
     return null;
   }
@@ -520,12 +546,21 @@ function selectedSetNameOption(
     (candidatePage) =>
       candidatePage.request.providerKey === candidate.providerKey && candidatePage.scope === "set-name",
   );
-  const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
+  const option = page?.items.find((item) =>
+    selectedScope.expansionId
+      ? String(item.value) === selectedScope.expansionId
+      : item.value === selectedValue || item.label === selectedValue,
+  );
   if (!option?.label || option.label === selectedValue) {
     const scope = scopes.find(
       (candidateScope) =>
         sourceScopeMatchesCandidateProductDomain(candidate, scopeContextFromProviderScope(candidateScope)) &&
-        selectedScopeFieldMatches(selectedValue, [candidateScope.expansion_id, candidateScope.expansion_name]) &&
+        selectedScopeFieldMatches(
+          selectedScope.expansionId ?? selectedValue,
+          selectedScope.expansionId
+            ? [candidateScope.expansion_id]
+            : [candidateScope.expansion_id, candidateScope.expansion_name],
+        ) &&
         Boolean(candidateScope.expansion_name) &&
         comparableText(candidateScope.expansion_name) !== comparableText(selectedValue),
     );
@@ -682,12 +717,14 @@ function profileCanSelectScope(
   profile: CatalogProviderProfileVersionReview | null,
   scope: CatalogPrimaryWorkbenchScopeContext,
 ): boolean {
+  if (scope.productId && !canSelectStandaloneProductCoordinate(profile)) return false;
   const sourceOptionKinds = sourceOptionKindsForProfile(profile);
   if (!profile || sourceOptionKinds.length === 0) {
     return true;
   }
 
   const selectableScopes = new Set(sourceOptionKinds.map((kind) => kind.scope));
+  if (scope.productId && !selectableScopes.has("product")) return false;
   const selectsSetName = selectableScopes.has("set-name");
   if (
     Boolean(scope.productLineId || scope.productLineName) &&
@@ -1003,6 +1040,7 @@ function addComparableTokens(tokens: Set<string>, value: string | null): void {
 
 function scopeHasConcreteSelection(scope: CatalogPrimaryWorkbenchScopeContext): boolean {
   return Boolean(
+    scope.productId ||
     scope.languageCode ||
     scope.productLineId ||
     scope.productLineName ||

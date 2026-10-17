@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -130,7 +130,13 @@ describe("standalone browser e2e probe", () => {
       {
         name: "readiness",
         command: "node",
-        args: ["./scripts/browser-e2e-readiness.mjs"],
+        args: [
+          "--report-on-fatalerror",
+          "--report-exclude-env",
+          "--report-exclude-network",
+          `--report-directory=${outputDirectory}`,
+          "./scripts/browser-e2e-readiness.mjs",
+        ],
       },
     ]);
     expect(JSON.stringify(bundle.commands).toLowerCase()).not.toContain("playwright");
@@ -218,5 +224,93 @@ describe("standalone browser e2e probe", () => {
         ],
       },
     });
+  });
+
+  it("samples the probe tree at a native child exit before sibling teardown", async () => {
+    const outputDirectory = await createTemporaryDirectory();
+    const children = [new FakeChild(6101), new FakeChild(6102)];
+    const readinessChild = children[1];
+    const ownerRoot = path.join(outputDirectory, "locks");
+    await mkdir(path.join(ownerRoot, "verify-lock.d"), { recursive: true });
+    await mkdir(path.join(ownerRoot, "controller-verify-lock.d"), { recursive: true });
+    await writeFile(path.join(ownerRoot, "verify-lock.d", "owner.json"), JSON.stringify({ lockId: "platform" }));
+    await writeFile(
+      path.join(ownerRoot, "controller-verify-lock.d", "owner.json"),
+      JSON.stringify({ lockId: "battery" }),
+    );
+    const calls = [];
+    let clock = 1_700_000_000_000;
+    let exitedAt;
+    let emitted = false;
+
+    await expect(
+      runBrowserE2eProbe({
+        outputDirectory,
+        sandbox: { id: "probe-test", urls: { portal: "http://127.0.0.1:6100" } },
+        target: "browser-e2e",
+        ownerRoot,
+        spawn: () => children.shift(),
+        run: async () => undefined,
+        sampleProcessTree: async () => {
+          calls.push("sample");
+          clock += 100;
+          return [
+            { pid: 6101, parentPid: process.pid, name: "node.exe", createdAt: "2023-11-14T22:13:19.000Z" },
+            { pid: 6102, parentPid: process.pid, name: "node.exe", createdAt: "2023-11-14T22:13:19.000Z" },
+          ];
+        },
+        terminate: (child, signal) => {
+          calls.push("teardown");
+          if (child.exitCode !== null || child.signalCode !== null) return false;
+          child.signalCode = signal;
+          child.emit("exit", null, signal);
+          child.emit("close", null, signal);
+          return true;
+        },
+        fetchImpl: async () => {
+          if (!emitted) {
+            emitted = true;
+            clock += 1_000;
+            exitedAt = clock;
+            calls.push("exit");
+            readinessChild.exitCode = 3221226505;
+            readinessChild.emit("exit", 3221226505, null);
+            readinessChild.emit("close", 3221226505, null);
+          }
+          return { status: 503 };
+        },
+        now: () => clock,
+      }),
+    ).rejects.toThrow(/readiness coordinator exited before readiness/);
+
+    const evidence = JSON.parse(await readFile(path.join(outputDirectory, "web-servers.json"), "utf8"));
+    const readiness = evidence.services.find((service) => service.name === "readiness");
+    const devSystem = evidence.services.find((service) => service.name === "dev-system");
+    expect(readiness).toMatchObject({ pid: 6102, exitCode: 3221226505, status: "exited" });
+    expect(devSystem.processTree.map((entry) => entry.pid)).toEqual([6101]);
+    expect(readiness.processTree.map((entry) => entry.pid)).toEqual([6102]);
+    expect(Date.parse(readiness.exitSample.sampledAt) - Date.parse(readiness.exitedAt)).toBeGreaterThanOrEqual(0);
+    expect(Date.parse(readiness.exitSample.sampledAt) - exitedAt).toBeLessThanOrEqual(5_000);
+    expect(readiness.exitSample.processes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ pid: 6101, parentPid: process.pid, name: "node.exe" })]),
+    );
+    expect(calls.slice(calls.indexOf("exit") + 1, calls.indexOf("teardown"))).toContain("sample");
+    const bundle = JSON.parse(await readFile(path.join(outputDirectory, "probe.json"), "utf8"));
+    expect(bundle).toMatchObject({
+      nodeVersion: process.version,
+      controllerOverlap: true,
+      ownerSnapshots: {
+        start: { verify: { present: true }, controller: { present: true } },
+        exit: { verify: { present: true }, controller: { present: true } },
+      },
+    });
+    for (const phase of ["start", "exit"]) {
+      expect(JSON.parse(await readFile(path.join(outputDirectory, `verify-owner-${phase}.json`), "utf8"))).toEqual({
+        lockId: "platform",
+      });
+      expect(JSON.parse(await readFile(path.join(outputDirectory, `controller-owner-${phase}.json`), "utf8"))).toEqual({
+        lockId: "battery",
+      });
+    }
   });
 });

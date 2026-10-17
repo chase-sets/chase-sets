@@ -1,7 +1,22 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { createHash, randomUUID } from "node:crypto";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import type { ProjectorHandlerContext, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import {
+  parseAdmissionIdentity,
+  parseCommitInput,
+  parseAbortInput,
+  parseReserveResult,
+  parseCommitResult,
+  parseAbortResult,
+  type ShipmentGroupAdmissionAuthority,
+} from "@chase-sets/order-groups";
+import { buildShipmentGroupAdmissionSourceHandlers } from "../integrations/source/shipment-group-admission-source";
+import { ShipmentAdmissionBusyError } from "../domain/common";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -12,6 +27,7 @@ import {
   PostageLabelProviderError,
   type PostageAddress,
   type PostageLabelProvider,
+  type PostageOperationSubjectKind,
   type PostagePackage,
   type PostageProviderWebhookEvent,
   type PostageProviderWebhookGateway,
@@ -30,6 +46,7 @@ import type { AccountId, CatalogItemId, OrderId, ShipmentId } from "@chase-sets/
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
   FulfillmentDomainError,
+  ShipmentLabelRefundTerminalConflictError,
   type ShipmentExceptionType,
   type ShipmentLineId,
   type ShippingMethod,
@@ -59,10 +76,38 @@ import {
   decideFulfillmentShipment,
   evolveFulfillmentShipment,
   initialFulfillmentShipmentState,
+  decideShipmentAdmission,
+  sameAdmissionIdentity,
+  type ShipmentAdmissionCommand,
   type FulfillmentShipmentCommand,
   type FulfillmentShipmentEvent,
   type FulfillmentShipmentState,
 } from "../domain/domain";
+import {
+  assertCompleteHistoryTenant,
+  executeFulfillmentMutationAttempt,
+  readFulfillmentMutationAttempt,
+  fulfillmentMutationKeyDigest,
+  fulfillmentMutationRequestHash,
+  type FulfillmentMutationAttemptReceipt,
+  ShipmentHistoryPoisonedError,
+} from "../domain/mutation-attempt";
+import { assertShipmentActionAllowed } from "../domain/shipment-action";
+import {
+  claimPostageOperationForFinalization,
+  claimReservedPostageOperation,
+  expireInvokingPostageOperation,
+  findPostageOperationByDigest,
+  findPostageOperationByLocator,
+  listStalePostageOperationLocators,
+  postageOperationRecoveryStatus,
+  quarantineShipmentTenantBinding,
+  recordPostageVoidOperationTerminal,
+  reservePostageOperation,
+  transitionPostageOperation,
+  type PostageOperationAuthority,
+  type PostageOperationLocator,
+} from "../read-model/postage-operation-authority";
 
 type ShipmentRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -85,7 +130,10 @@ type ShipmentRuntimeDeps = Readonly<{
 }>;
 
 type ShipmentForPostageProviderEvent = Readonly<{
+  subject_kind: "shipment";
+  subject_id: string;
   shipment_id: string;
+  tenant_id: string;
   seller_account_id: string;
   status: string;
   label_status: string;
@@ -93,15 +141,33 @@ type ShipmentForPostageProviderEvent = Readonly<{
   label_voided_at: string | null;
   tracking_identifier: string | null;
   postage_provider_shipment_id: string | null;
+  postage_provider_label_id: string | null;
+  refund_postage_provider_label_id: string | null;
   matched_void_operation_key: string | null;
+  matched_void_operation_id: string | null;
   matched_void_operation_status: string | null;
+  matched_void_operation_lifecycle_generation: number | null;
+  matched_void_operation_updated_at: string | null;
 }>;
+
+type ChannelFulfillmentRecordForPostageProviderEvent = Readonly<{
+  subject_kind: "channel-fulfillment-record";
+  subject_id: string;
+  tenant_id: string;
+  seller_account_id: string;
+  tracking_identifier: string | null;
+  postage_provider_shipment_id: string | null;
+}>;
+
+type PostageSubjectForProviderEvent = ShipmentForPostageProviderEvent | ChannelFulfillmentRecordForPostageProviderEvent;
 
 export type PostageProviderWebhookProcessingResult = Readonly<{
   status: "ignored" | "recorded" | "duplicate";
   providerEventId?: string;
   eventKind?: string;
   shipmentId?: string | null;
+  subjectKind?: PostageOperationSubjectKind | null;
+  subjectId?: string | null;
   processingResult?: string;
 }>;
 
@@ -144,23 +210,30 @@ export type FulfillmentShipmentServices = Readonly<{
       shipmentId: string;
       sellerAccountId: string;
       packageCount: number;
+      mutationAttemptId?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   startPackingShipment: (
-    params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   confirmPackingLine: (
-    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string }>,
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   unconfirmPackingLine: (
-    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string }>,
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   setPackingLineQuantity: (
-    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string; confirmedQuantity: number }>,
+    params: Readonly<{
+      shipmentId: string;
+      sellerAccountId: string;
+      lineId: string;
+      confirmedQuantity: number;
+      mutationAttemptId?: string;
+    }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   attachLabel: (
@@ -171,6 +244,7 @@ export type FulfillmentShipmentServices = Readonly<{
       carrierName: string;
       labelReference: string;
       trackingIdentifier: string;
+      mutationAttemptId?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
@@ -183,6 +257,7 @@ export type FulfillmentShipmentServices = Readonly<{
       recipient?: PostageAddress | null;
       overrideReason?: string | null;
       package?: PostagePackage | null;
+      mutationAttemptId?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number; trackingIdentifier: string }>;
@@ -194,16 +269,31 @@ export type FulfillmentShipmentServices = Readonly<{
     params?: Readonly<{ staleBefore?: string; staleAfterMs?: number; limit?: number }>,
     context?: EventStoreContext,
   ) => Promise<{ checked: number; failed: number }>;
+  listStalePostageOperationLocators: (
+    params: Readonly<{
+      staleBefore: string;
+      afterUpdatedAt?: string | null;
+      afterOperationId?: string | null;
+      limit?: number;
+    }>,
+  ) => Promise<readonly PostageOperationLocator[]>;
+  reconcilePostageOperationLocator: (
+    locator: Pick<PostageOperationLocator, "operationId" | "tenantId" | "subjectKind" | "subjectId">,
+  ) => Promise<{ outcome: "effect-applied" | "ambiguous" | "pending" | "quarantined" | "missing" }>;
   voidLabel: (
-    params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
+  cancelShipment: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   dispatchShipment: (
-    params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   deliverShipment: (
-    params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId?: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
   returnShipment: (
@@ -211,6 +301,7 @@ export type FulfillmentShipmentServices = Readonly<{
       shipmentId: string;
       sellerAccountId: string;
       reason?: string | null;
+      mutationAttemptId?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
@@ -220,6 +311,7 @@ export type FulfillmentShipmentServices = Readonly<{
       sellerAccountId: string;
       exceptionType: string;
       notes?: string | null;
+      mutationAttemptId?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
@@ -230,12 +322,31 @@ export type FulfillmentShipmentServices = Readonly<{
   cancelShipmentForCancelledOrder: (params: {
     orderId: string;
     cancelledAt: string;
+    reason: string | null;
+    origin: "order-cancelled" | "payment-fraud-warning";
     context: EventStoreContext;
+    sourceIdentity: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
   }) => Promise<{ shipmentId: ShipmentId | null }>;
   listBuyerShipments: (params: Parameters<typeof listBuyerShipments>[1]) => ReturnType<typeof listBuyerShipments>;
   getBuyerShipment: (shipmentId: string, buyerAccountId: string) => ReturnType<typeof getBuyerShipment>;
   listSellerShipments: (params: Parameters<typeof listSellerShipments>[1]) => ReturnType<typeof listSellerShipments>;
   getSellerShipment: (shipmentId: string, sellerAccountId: string) => ReturnType<typeof getSellerShipment>;
+  recoverShipmentMutation: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId: string }>,
+    context: EventStoreContext,
+  ) => Promise<
+    Readonly<{
+      schemaVersion: 1;
+      shipmentId: string;
+      shipmentVersion: number;
+      shipmentStatus: string;
+      status: string;
+      receiptKind: "shipment-attempt" | "postage-operation" | "absent";
+      commandKind: string | null;
+      result: FulfillmentMutationAttemptReceipt["response"] | null;
+      actions: readonly string[];
+    }>
+  >;
   listSellerPackingSlips: (
     params: Parameters<typeof listSellerPackingSlips>[1],
   ) => ReturnType<typeof listSellerPackingSlips>;
@@ -243,6 +354,7 @@ export type FulfillmentShipmentServices = Readonly<{
     orderId: string;
     readyForFulfillmentAt: string;
     context: EventStoreContext;
+    sourceIdentity?: Readonly<{ eventId: string; streamId: string; streamVersion: number; eventType: string }>;
   }) => Promise<{ shipmentId: ShipmentId | null }>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -258,6 +370,18 @@ async function findExistingShipmentIdForOrder(db: PgQueryable, orderId: string):
   );
 
   return result.rows[0]?.shipment_id ?? null;
+}
+
+function deterministicShipmentId(sourceIdentity: string, orderId: string): ShipmentId {
+  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const bytes = createHash("sha256").update(`shipment-source/v1\n${sourceIdentity}\n${orderId}`).digest();
+  let value = BigInt(`0x${bytes.subarray(0, 17).toString("hex")}`);
+  let encoded = "";
+  for (let index = 0; index < 26; index += 1) {
+    encoded = alphabet[Number(value & 31n)]! + encoded;
+    value >>= 5n;
+  }
+  return `shp_${encoded}` as ShipmentId;
 }
 
 async function loadReadyOrderSnapshot(db: PgQueryable, orderId: string): Promise<ReadyOrderSnapshot | null> {
@@ -319,8 +443,6 @@ async function loadReadyOrderSnapshot(db: PgQueryable, orderId: string): Promise
 
 type CancellableShipmentSnapshot = Readonly<{
   shipment_id: string;
-  status: string;
-  package_status: string;
 }>;
 
 async function loadCancellableShipmentForOrder(
@@ -328,7 +450,7 @@ async function loadCancellableShipmentForOrder(
   orderId: string,
 ): Promise<CancellableShipmentSnapshot | null> {
   const result = await db.query<CancellableShipmentSnapshot>(
-    `SELECT shipment_id, status, package_status
+    `SELECT shipment_id
      FROM fulfillment_shipment_pages
      WHERE order_id = $1
      ORDER BY created_at ASC, shipment_id ASC
@@ -352,21 +474,26 @@ async function hasActivePaymentFraudReviewHold(db: PgQueryable, orderId: string)
   return result.rows.length > 0;
 }
 
-async function findShipmentForPostageProviderEvent(
+async function findSubjectForPostageProviderEvent(
   db: PgQueryable,
   event: PostageProviderWebhookEvent,
-): Promise<ShipmentForPostageProviderEvent | null> {
+): Promise<Readonly<{ subject: PostageSubjectForProviderEvent | null; ambiguous: boolean }>> {
   const trackingIdentifier = event.trackingIdentifier?.trim() || null;
   const providerShipmentId = event.providerShipmentId?.trim() || null;
+  const providerName = event.providerName.trim();
+  const providerMode = event.providerMode.trim();
   const matchHistoricalVoidOperations = event.eventKind === "refund-status";
   if (!trackingIdentifier && !providerShipmentId) {
-    return null;
+    return { subject: null, ambiguous: false };
   }
 
-  const result = await db.query<ShipmentForPostageProviderEvent>(
-    `WITH candidate_shipments AS (
+  const result = await db.query<PostageSubjectForProviderEvent>(
+    `WITH candidate_subjects AS (
        SELECT
+         'shipment'::text AS subject_kind,
+         page.shipment_id AS subject_id,
          page.shipment_id,
+         authority.tenant_id,
          page.seller_account_id,
          page.status,
          page.label_status,
@@ -374,16 +501,33 @@ async function findShipmentForPostageProviderEvent(
          page.label_voided_at,
          page.tracking_identifier,
          page.postage_provider_shipment_id,
+         page.postage_provider_label_id,
+         page.postage_provider_label_id AS refund_postage_provider_label_id,
          NULL::text AS matched_void_operation_key,
+         NULL::text AS matched_void_operation_id,
          NULL::text AS matched_void_operation_status,
-         0 AS match_priority,
+         NULL::integer AS matched_void_operation_lifecycle_generation,
+         NULL::timestamptz AS matched_void_operation_updated_at,
+         CASE WHEN $3::boolean THEN 1 ELSE 0 END AS match_priority,
          page.updated_at
        FROM fulfillment_shipment_pages AS page
-       WHERE ($1::text IS NOT NULL AND page.tracking_identifier = $1)
-          OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
+       JOIN fulfillment_shipment_tenant_resolutions AS authority
+         ON authority.shipment_id = page.shipment_id
+        AND authority.status = 'resolved'
+        AND authority.tenant_id = page.tenant_id
+        AND authority.seller_account_id = page.seller_account_id
+       WHERE page.postage_provider_name = $4
+         AND page.postage_provider_mode = $5
+         AND (
+           ($1::text IS NOT NULL AND page.tracking_identifier = $1)
+           OR ($2::text IS NOT NULL AND page.postage_provider_shipment_id = $2)
+         )
        UNION ALL
        SELECT
+         'shipment'::text AS subject_kind,
+         page.shipment_id AS subject_id,
          page.shipment_id,
+         authority.tenant_id,
          page.seller_account_id,
          page.status,
          page.label_status,
@@ -391,15 +535,31 @@ async function findShipmentForPostageProviderEvent(
          page.label_voided_at,
          page.tracking_identifier,
          page.postage_provider_shipment_id,
+         page.postage_provider_label_id,
+         COALESCE(
+           operation.provider_label_id,
+           operation.request_json #>> '{providerLabelId}'
+         ) AS refund_postage_provider_label_id,
          operation.operation_key AS matched_void_operation_key,
+         operation.operation_id AS matched_void_operation_id,
          operation.status AS matched_void_operation_status,
-         1 AS match_priority,
+         operation.lifecycle_generation AS matched_void_operation_lifecycle_generation,
+         operation.updated_at AS matched_void_operation_updated_at,
+         0 AS match_priority,
          operation.updated_at
        FROM fulfillment_postage_label_operations AS operation
        JOIN fulfillment_shipment_pages AS page
-         ON page.shipment_id = operation.shipment_id
+         ON page.shipment_id = operation.subject_id
+        AND operation.subject_kind = 'shipment'
+       JOIN fulfillment_shipment_tenant_resolutions AS authority
+         ON authority.shipment_id = page.shipment_id
+        AND authority.status = 'resolved'
+        AND authority.tenant_id = operation.tenant_id
+        AND authority.seller_account_id = operation.seller_account_id
        WHERE $3::boolean
          AND operation.operation_kind = 'void-label'
+         AND operation.provider_name = $4
+         AND operation.provider_mode = $5
          AND (
            ($1::text IS NOT NULL AND (
              operation.tracking_identifier = $1
@@ -409,10 +569,46 @@ async function findShipmentForPostageProviderEvent(
              operation.provider_shipment_id = $2
              OR operation.request_json #>> '{providerShipmentId}' = $2
            ))
+          )
+       UNION ALL
+       SELECT
+         operation.subject_kind,
+         operation.subject_id,
+         NULL::text AS shipment_id,
+         authority.tenant_id,
+         authority.seller_account_id,
+         NULL::text AS status,
+         NULL::text AS label_status,
+         NULL::text AS label_refund_status,
+         NULL::timestamptz AS label_voided_at,
+         operation.tracking_identifier,
+         operation.provider_shipment_id AS postage_provider_shipment_id,
+         NULL::text AS postage_provider_label_id,
+         NULL::text AS refund_postage_provider_label_id,
+         NULL::text AS matched_void_operation_key,
+         NULL::text AS matched_void_operation_id,
+         NULL::text AS matched_void_operation_status,
+         NULL::integer AS matched_void_operation_lifecycle_generation,
+         NULL::timestamptz AS matched_void_operation_updated_at,
+         0 AS match_priority,
+         operation.updated_at
+       FROM fulfillment_postage_label_operations AS operation
+       JOIN fulfillment_channel_fulfillment_record_tenant_resolutions AS authority
+         ON authority.channel_fulfillment_record_id = operation.subject_id
+        AND authority.status = 'resolved'
+        AND authority.tenant_id = operation.tenant_id
+        AND authority.seller_account_id = operation.seller_account_id
+       WHERE operation.subject_kind = 'channel-fulfillment-record'
+         AND (
+           ($1::text IS NOT NULL AND operation.tracking_identifier = $1)
+           OR ($2::text IS NOT NULL AND operation.provider_shipment_id = $2)
          )
      )
-     SELECT
+     SELECT DISTINCT ON (subject_kind, subject_id)
+       subject_kind,
+       subject_id,
        shipment_id,
+       tenant_id,
        seller_account_id,
        status,
        label_status,
@@ -420,35 +616,85 @@ async function findShipmentForPostageProviderEvent(
        label_voided_at,
        tracking_identifier,
        postage_provider_shipment_id,
+       postage_provider_label_id,
+       refund_postage_provider_label_id,
        matched_void_operation_key,
-       matched_void_operation_status
-     FROM candidate_shipments
-     ORDER BY match_priority ASC, updated_at DESC, shipment_id DESC
-     LIMIT 1`,
-    [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations],
+       matched_void_operation_id,
+       matched_void_operation_status,
+       matched_void_operation_lifecycle_generation,
+       matched_void_operation_updated_at
+     FROM candidate_subjects
+     ORDER BY subject_kind, subject_id, match_priority ASC, updated_at DESC
+     LIMIT 2`,
+    [trackingIdentifier, providerShipmentId, matchHistoricalVoidOperations, providerName, providerMode],
   );
 
-  return result.rows[0] ?? null;
+  return { subject: result.rows.length === 1 ? result.rows[0]! : null, ambiguous: result.rows.length > 1 };
 }
 
-async function hasProcessedPostageProviderEvent(db: PgQueryable, providerEventId: string) {
-  const result = await db.query<{ provider_event_id: string }>(
-    `SELECT provider_event_id
+async function reservePostageProviderEvent(db: PgQueryable, event: PostageProviderWebhookEvent) {
+  const payloadHash = fulfillmentMutationRequestHash({
+    providerName: event.providerName,
+    providerMode: event.providerMode,
+    eventKind: event.eventKind,
+    providerObjectReference: event.providerObjectReference,
+    trackingIdentifier: event.trackingIdentifier ?? null,
+    status: event.status ?? null,
+    statusDetail: event.statusDetail ?? null,
+    occurredAt: event.occurredAt,
+    payload: event.payload ?? {},
+  });
+  const result = await db.query<{
+    provider_event_id: string;
+    payload_hash: string | null;
+    handoff_state: string;
+    processing_result: string;
+    inserted: boolean;
+  }>(
+    `WITH inserted AS (
+       INSERT INTO fulfillment_postage_provider_events (
+         provider_event_id, provider_name, provider_mode, event_kind, provider_object_reference,
+         subject_kind, subject_id, tracking_identifier, status, status_detail, occurred_at, received_at,
+         processing_result, payload_json, payload_hash, handoff_state, receipt_version
+       ) VALUES ($1,$2,$3,$4,$5,NULL,NULL,$6,$7,$8,$9,$10,'reserved',$11::jsonb,$12,'reserved',1)
+       ON CONFLICT (provider_event_id) DO NOTHING
+       RETURNING provider_event_id, payload_hash, handoff_state, processing_result, true AS inserted
+     )
+     SELECT * FROM inserted
+     UNION ALL
+     SELECT provider_event_id, payload_hash, handoff_state, processing_result, false AS inserted
      FROM fulfillment_postage_provider_events
-     WHERE provider_event_id = $1
-       AND processing_result <> 'received'
-     LIMIT 1`,
-    [providerEventId],
+     WHERE provider_event_id = $1 AND NOT EXISTS (SELECT 1 FROM inserted)`,
+    [
+      event.providerEventId,
+      event.providerName,
+      event.providerMode,
+      event.eventKind,
+      event.providerObjectReference,
+      event.trackingIdentifier ?? null,
+      event.status ?? null,
+      event.statusDetail ?? null,
+      event.occurredAt,
+      event.receivedAt ?? new Date().toISOString(),
+      JSON.stringify(event.payload ?? {}),
+      payloadHash,
+    ],
   );
-
-  return result.rows.length > 0;
+  const receipt = result.rows[0];
+  if (!receipt) throw new Error("Postage provider event reservation failed.");
+  return { ...receipt, payloadHash, hashMatches: receipt.payload_hash === payloadHash };
 }
 
 async function recordProcessedPostageProviderEvent(
   db: PgQueryable,
   event: PostageProviderWebhookEvent,
-  shipment: ShipmentForPostageProviderEvent | null,
+  subject: Readonly<{
+    subject_kind: PostageOperationSubjectKind;
+    subject_id: string;
+    tracking_identifier?: string | null;
+  }> | null,
   processingResult: string,
+  claimToken?: string,
 ) {
   await db.query(
     `INSERT INTO fulfillment_postage_provider_events (
@@ -457,37 +703,56 @@ async function recordProcessedPostageProviderEvent(
        provider_mode,
        event_kind,
        provider_object_reference,
-       shipment_id,
+       subject_kind,
+       subject_id,
        tracking_identifier,
        status,
        status_detail,
        occurred_at,
        received_at,
        processing_result,
-       payload_json
+       payload_json,
+       payload_hash,
+       handoff_state,
+       receipt_version
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, $12, $13::jsonb)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::timestamptz, $13, $14::jsonb, $15,
+       CASE WHEN $13 = 'unmatched' THEN 'unmatched' ELSE 'completed' END, 1)
      ON CONFLICT (provider_event_id) DO UPDATE
-     SET shipment_id = EXCLUDED.shipment_id,
-         tracking_identifier = EXCLUDED.tracking_identifier,
-         status = EXCLUDED.status,
-         status_detail = EXCLUDED.status_detail,
+     SET subject_kind = EXCLUDED.subject_kind,
+         subject_id = EXCLUDED.subject_id,
          processing_result = EXCLUDED.processing_result,
-         payload_json = EXCLUDED.payload_json`,
+         handoff_state = CASE WHEN EXCLUDED.processing_result = 'unmatched' THEN 'unmatched' ELSE 'completed' END,
+         receipt_version = fulfillment_postage_provider_events.receipt_version + 1
+     WHERE fulfillment_postage_provider_events.payload_hash = EXCLUDED.payload_hash
+       AND ($16::text IS NULL OR fulfillment_postage_provider_events.claim_token = $16)`,
     [
       event.providerEventId,
       event.providerName,
       event.providerMode,
       event.eventKind,
       event.providerObjectReference,
-      shipment?.shipment_id ?? null,
-      event.trackingIdentifier ?? shipment?.tracking_identifier ?? null,
+      subject?.subject_kind ?? null,
+      subject?.subject_id ?? null,
+      event.trackingIdentifier ?? subject?.tracking_identifier ?? null,
       event.status ?? null,
       event.statusDetail ?? null,
       event.occurredAt,
       event.receivedAt ?? new Date().toISOString(),
       processingResult,
       JSON.stringify(event.payload ?? {}),
+      fulfillmentMutationRequestHash({
+        providerName: event.providerName,
+        providerMode: event.providerMode,
+        eventKind: event.eventKind,
+        providerObjectReference: event.providerObjectReference,
+        trackingIdentifier: event.trackingIdentifier ?? null,
+        status: event.status ?? null,
+        statusDetail: event.statusDetail ?? null,
+        occurredAt: event.occurredAt,
+        payload: event.payload ?? {},
+      }),
+      claimToken ?? null,
     ],
   );
 }
@@ -590,6 +855,13 @@ function normalizeProviderRefundStatus(status: string | null | undefined) {
   return null;
 }
 
+class PostageVoidOperationInterleavingError extends Error {
+  public constructor() {
+    super("Matched postage void operation changed before its terminal outcome was recorded.");
+    this.name = "PostageVoidOperationInterleavingError";
+  }
+}
+
 async function applyPostageProviderRefundEvent(
   db: PgQueryable,
   commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>,
@@ -602,26 +874,13 @@ async function applyPostageProviderRefundEvent(
     return "recorded";
   }
 
-  if (shipment.label_status === "voided" || shipment.label_status === "void-rejected") {
-    return "terminal-refund-status-ignored";
+  const postageProviderLabelId = shipment.refund_postage_provider_label_id?.trim() || null;
+  if (!postageProviderLabelId) {
+    throw new ShipmentHistoryPoisonedError("postage-refund-original-label-missing");
   }
 
-  if (shipment.label_status !== "void-requested") {
-    if (refundStatus === "rejected" && shipment.matched_void_operation_key) {
-      await recordFulfillmentPostageLabelOperationFailed(db, {
-        operationKey: shipment.matched_void_operation_key,
-        errorMessage: "Postage label refund was rejected after a replacement label was purchased.",
-        completedAt: event.occurredAt,
-      });
-      return "refund-rejected-after-rebuy";
-    }
-    if (refundStatus === "refunded" && shipment.matched_void_operation_key) {
-      await recordFulfillmentPostageLabelOperationSucceeded(db, {
-        operationKey: shipment.matched_void_operation_key,
-        completedAt: event.occurredAt,
-      });
-      return "refund-resolved-after-rebuy";
-    }
+  const convergesTerminalRefund = normalizeProviderRefundStatus(shipment.label_refund_status) !== null;
+  if (!shipment.matched_void_operation_key && shipment.label_status !== "void-requested" && !convergesTerminalRefund) {
     return "recorded";
   }
 
@@ -629,6 +888,7 @@ async function applyPostageProviderRefundEvent(
     streamId: `fulfillment.shipment-${shipment.shipment_id}`,
     command: {
       type: "RecordShipmentLabelRefundStatus",
+      postageProviderLabelId,
       refundStatus,
       refundReference: event.providerObjectReference,
       resolvedAt: event.occurredAt,
@@ -636,25 +896,34 @@ async function applyPostageProviderRefundEvent(
     context,
   });
 
-  if (result.newEvents.length === 0) {
-    return "terminal-refund-status-ignored";
-  }
-
-  if (shipment.matched_void_operation_key) {
-    if (refundStatus === "refunded") {
-      await recordFulfillmentPostageLabelOperationSucceeded(db, {
-        operationKey: shipment.matched_void_operation_key,
-        completedAt: event.occurredAt,
-      });
-    } else {
-      await recordFulfillmentPostageLabelOperationFailed(db, {
-        operationKey: shipment.matched_void_operation_key,
-        errorMessage: "Postage label refund was rejected by the provider.",
-        completedAt: event.occurredAt,
-      });
+  if (shipment.matched_void_operation_id) {
+    if (
+      !shipment.matched_void_operation_status ||
+      shipment.matched_void_operation_lifecycle_generation === null ||
+      !shipment.matched_void_operation_updated_at
+    ) {
+      throw new ShipmentHistoryPoisonedError("postage-refund-operation-authority-incomplete");
     }
+    const operation = await recordPostageVoidOperationTerminal(db, {
+      operationId: shipment.matched_void_operation_id,
+      tenantId: shipment.tenant_id,
+      subjectKind: shipment.subject_kind,
+      subjectId: shipment.subject_id,
+      expectedStatus: shipment.matched_void_operation_status as PostageOperationAuthority["status"],
+      expectedLifecycleGeneration: shipment.matched_void_operation_lifecycle_generation,
+      expectedUpdatedAt: shipment.matched_void_operation_updated_at,
+      refundStatus,
+      refundReference: event.providerObjectReference,
+      resolvedAt: event.occurredAt,
+    });
+    if (!operation) throw new PostageVoidOperationInterleavingError();
   }
 
+  if (result.newEvents.length === 0) return "terminal-refund-status-ignored";
+  const resolvedHistoricalLabel = shipment.postage_provider_label_id !== postageProviderLabelId;
+  if (resolvedHistoricalLabel) {
+    return refundStatus === "refunded" ? "refund-resolved-after-rebuy" : "refund-rejected-after-rebuy";
+  }
   return refundStatus === "refunded" ? "refund-refunded" : "refund-rejected";
 }
 
@@ -810,32 +1079,43 @@ function assertPostagePolicyCompliance(
 
 function postageLabelOperationRequest(
   input: Readonly<{
-    shipmentId: string;
-    orderId: string;
+    subjectKind: "shipment";
+    subjectId: string;
     serviceLevel: string;
     deliveryConfirmation: "signature" | null;
     insuranceAmount: string | null;
     labelPackage: PostagePackage;
     labelSize: "7x3" | null;
+    sender?: PostageAddress;
+    recipient?: PostageAddress;
     addressOverrideAudit: {
       changedSide: string;
       reason: string;
-      actor: string;
-      timestamp: string;
+      actor?: string;
+      timestamp?: string;
     } | null;
     shippingPlanSnapshot: PackagePlan | null;
   }>,
 ) {
   const policySnapshot = input.shippingPlanSnapshot?.postagePolicySnapshot ?? null;
   return {
-    shipmentId: input.shipmentId,
-    orderId: input.orderId,
+    subjectKind: input.subjectKind,
+    subjectId: input.subjectId,
     serviceLevel: input.serviceLevel,
     deliveryConfirmation: input.deliveryConfirmation,
     insuranceAmount: input.insuranceAmount,
     labelSize: input.labelSize,
+    ...(input.sender ? { sender: input.sender } : {}),
+    ...(input.recipient ? { recipient: input.recipient } : {}),
     package: input.labelPackage,
-    addressOverride: input.addressOverrideAudit,
+    addressOverride: input.addressOverrideAudit
+      ? {
+          changedSide: input.addressOverrideAudit.changedSide,
+          reason: input.addressOverrideAudit.reason,
+          ...(input.addressOverrideAudit.actor ? { actor: input.addressOverrideAudit.actor } : {}),
+          ...(input.addressOverrideAudit.timestamp ? { timestamp: input.addressOverrideAudit.timestamp } : {}),
+        }
+      : null,
     postagePolicySnapshot: policySnapshot
       ? {
           policyVersion: policySnapshot.policyVersion,
@@ -852,7 +1132,11 @@ function postageLabelOperationRequest(
   };
 }
 
-export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
+export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices &
+  Readonly<{
+    shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority;
+    shipmentGroupAdmissionHandlers: ProjectorHandlerMap;
+  }> {
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
@@ -864,12 +1148,152 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     decide: decideFulfillmentShipment,
   });
 
-  async function requireSellerShipment(shipmentId: string, sellerAccountId: string) {
+  async function loadAdmissionShipment(shipmentId: string, context: EventStoreContext) {
+    const streamId = `fulfillment.shipment-${shipmentId}`;
+    const history = await readCompleteStream(deps.eventStore, { streamId });
+    if (history.length === 0 || history.every((event) => event.tenantId !== context.tenantId)) {
+      return { state: initialFulfillmentShipmentState, version: 0 };
+    }
+    try {
+      assertCompleteHistoryTenant(history, String(context.tenantId));
+      let state = initialFulfillmentShipmentState;
+      const codec = createPassthroughDomainEventCodec<FulfillmentShipmentEvent>();
+      for (const [index, stored] of history.entries()) {
+        if (
+          stored.streamId !== streamId ||
+          stored.streamVersion !== index + 1 ||
+          (index === 0) !== (stored.eventType === "fulfillment.shipment.created") ||
+          (stored.eventType.startsWith("fulfillment.shipment-group.") &&
+            stored.payload.shipmentVersion !== stored.streamVersion)
+        ) {
+          throw new Error("Shipment event envelope contradicts its creation or admission lineage.");
+        }
+        state = evolveFulfillmentShipment(state, codec.decode(stored));
+        if (state.shipmentId !== shipmentId || !state.sellerAccountId)
+          throw new Error("Invalid immutable Shipment binding.");
+      }
+      return { state, version: history.at(-1)!.streamVersion };
+    } catch (error) {
+      throw new ShipmentHistoryPoisonedError(
+        `Shipment '${shipmentId}' history is poisoned: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  async function executeAdmission(
+    command: ShipmentAdmissionCommand,
+    context: EventStoreContext,
+    invocation?: ProjectorHandlerContext,
+    causationId: string | null = null,
+  ) {
+    for (;;) {
+      invocation?.throwIfLeaseLost?.();
+      const loaded = await loadAdmissionShipment(command.input.anchorShipmentId, context);
+      const decision = decideShipmentAdmission(loaded.state, command, loaded.version + 1, new Date().toISOString());
+      if (!decision.event) return decision.result;
+      invocation?.throwIfLeaseLost?.();
+      try {
+        const stored = await repository.append({
+          streamId: `fulfillment.shipment-${command.input.anchorShipmentId}`,
+          expectedVersion: loaded.version,
+          context,
+          events: [decision.event],
+          metadata: { causationId },
+          wakeSourceContextName: "fulfillment",
+        });
+        recordCommittedEvents(stored, "fulfillment");
+        invocation?.throwIfLeaseLost?.();
+        return decision.result;
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict") continue;
+        throw error;
+      }
+    }
+  }
+  const shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority = {
+    reserve: async (input, context) =>
+      parseReserveResult(await executeAdmission({ kind: "reserve", input: parseAdmissionIdentity(input) }, context)),
+    commit: async (input, context) =>
+      parseCommitResult(await executeAdmission({ kind: "commit", input: parseCommitInput(input) }, context)),
+    abort: async (input, context) =>
+      parseAbortResult(await executeAdmission({ kind: "abort", input: parseAbortInput(input) }, context)),
+  };
+  const shipmentGroupAdmissionHandlers = buildShipmentGroupAdmissionSourceHandlers({
+    loadShipment: loadAdmissionShipment,
+    execute: executeAdmission,
+    cancelAnchor: async (identity, context, invocation) => {
+      const shipmentId = identity.anchorShipmentId;
+      for (;;) {
+        const loaded = await loadAdmissionShipment(shipmentId, context);
+        if (
+          loaded.state.status === "cancelled" ||
+          loaded.state.admission?.type !== "fulfillment.shipment-group.admission-released" ||
+          !sameAdmissionIdentity(loaded.state.admission.data, identity)
+        )
+          return;
+        invocation?.throwIfLeaseLost?.();
+        try {
+          await commandHandler({
+            streamId: `fulfillment.shipment-${shipmentId}`,
+            expectedVersion: loaded.version,
+            context,
+            command: { type: "CancelShipment", cancelledAt: new Date().toISOString() },
+          });
+          return;
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict") continue;
+          throw error;
+        }
+      }
+    },
+  });
+
+  async function requireSellerShipment(shipmentId: string, sellerAccountId: string, context?: EventStoreContext) {
+    if (context) {
+      const loaded = await repository.load(`fulfillment.shipment-${shipmentId}`);
+      assertCompleteHistoryTenant(loaded.storedEvents, String(context.tenantId));
+      if (String(loaded.state.sellerAccountId) !== sellerAccountId) {
+        throw new FulfillmentDomainError("Shipment not found.");
+      }
+    }
     const shipment = await getSellerShipment(deps.db, shipmentId, sellerAccountId);
     if (!shipment) {
       throw new FulfillmentDomainError("Shipment not found.");
     }
     return shipment;
+  }
+
+  async function executeAttempt(
+    params: Readonly<{
+      shipmentId: string;
+      sellerAccountId: string;
+      mutationAttemptId: string;
+      commandKind: string;
+      target?: string | null;
+      request?: Readonly<Record<string, unknown>>;
+      command: () => FulfillmentShipmentCommand;
+      successStatus: string;
+    }>,
+    context: EventStoreContext,
+  ) {
+    const receipt = await executeFulfillmentMutationAttempt({
+      eventStore: deps.eventStore,
+      loadShipment: repository.load,
+      context,
+      mutationAttemptId: params.mutationAttemptId,
+      subjectKind: "shipment",
+      subjectId: params.shipmentId,
+      sellerAccountId: params.sellerAccountId,
+      commandKind: params.commandKind,
+      target: params.target,
+      request: params.request ?? {},
+      createCommand: params.command,
+      successStatus: params.successStatus,
+    });
+    if (receipt.resultClass === "failed-safe") {
+      throw new FulfillmentDomainError(`Shipment mutation was refused safely (${receipt.reason}).`);
+    }
+    return { shipmentId: params.shipmentId, version: receipt.subjectVersion };
   }
 
   function buildPurchaseUspsLabelOperationKey(shipment: FulfillmentShipmentDetailRow) {
@@ -927,7 +1351,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     addressOverrideAudit: ShipmentLabelAddressOverrideAudit | null,
     context: EventStoreContext,
   ) {
-    const loaded = await repository.load(`fulfillment.shipment-${operation.shipment_id}`);
+    const loaded = await repository.load(`fulfillment.shipment-${operation.subject_id}`);
     if (
       loaded.state.postageProviderLabelId === label.providerLabelId ||
       loaded.state.trackingIdentifier === label.trackingIdentifier
@@ -940,7 +1364,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         completedAt: label.purchasedAt,
       });
       return {
-        shipmentId: operation.shipment_id,
+        shipmentId: operation.subject_id,
         version: loaded.version,
         trackingIdentifier: label.trackingIdentifier,
       };
@@ -951,7 +1375,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     }
 
     const result = await commandHandler({
-      streamId: `fulfillment.shipment-${operation.shipment_id}`,
+      streamId: `fulfillment.shipment-${operation.subject_id}`,
       command: {
         type: "AttachShipmentLabel",
         shippingMethod: "standard",
@@ -981,59 +1405,412 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     });
 
     return {
-      shipmentId: operation.shipment_id,
+      shipmentId: operation.subject_id,
       version: result.version,
       trackingIdentifier: label.trackingIdentifier,
     };
   }
 
+  function systemContextForOperation(
+    operation: Pick<PostageOperationAuthority, "tenant_id" | "seller_account_id">,
+  ): EventStoreContext {
+    return {
+      tenantId: operation.tenant_id as never,
+      audit: {
+        performedByUserId: "usr_fulfillment_system" as never,
+        forAccountId: operation.seller_account_id as never,
+      },
+    };
+  }
+
+  function postageOperationRequestRecord(operation: PostageOperationAuthority) {
+    if (
+      !operation.request_json ||
+      typeof operation.request_json !== "object" ||
+      Array.isArray(operation.request_json)
+    ) {
+      throw new FulfillmentDomainError("Postage operation request is invalid.");
+    }
+    return operation.request_json as Record<string, unknown>;
+  }
+
+  function postageProviderLabelIdForOperation(operation: PostageOperationAuthority) {
+    const request = postageOperationRequestRecord(operation);
+    const postageProviderLabelId = operation.provider_label_id ?? request.providerLabelId;
+    if (typeof postageProviderLabelId !== "string" || postageProviderLabelId.trim().length === 0) {
+      throw new ShipmentHistoryPoisonedError("postage-provider-label-id-invalid");
+    }
+    return postageProviderLabelId;
+  }
+
+  async function finalizeAuthoritativePostageOperation(
+    operation: PostageOperationAuthority,
+    claim: NonNullable<Awaited<ReturnType<typeof claimPostageOperationForFinalization>>>,
+  ) {
+    const context = systemContextForOperation(operation);
+    if (operation.subject_kind !== "shipment") {
+      throw new ShipmentHistoryPoisonedError("postage-operation-subject-kind-mismatch");
+    }
+    const loaded = await repository.load(`fulfillment.shipment-${operation.subject_id}`);
+    assertCompleteHistoryTenant(loaded.storedEvents, operation.tenant_id);
+    if (String(loaded.state.sellerAccountId) !== operation.seller_account_id) {
+      throw new ShipmentHistoryPoisonedError("shipment-seller-mismatch");
+    }
+    const providerResult = operation.provider_result_json;
+
+    if (operation.operation_kind === "purchase-usps-label") {
+      if (!providerResult || typeof providerResult !== "object" || Array.isArray(providerResult)) {
+        throw new ShipmentHistoryPoisonedError("postage-provider-result-invalid");
+      }
+      const label = providerResult as PurchasedPostageLabel;
+      if (
+        typeof label.providerLabelId !== "string" ||
+        typeof label.providerShipmentId !== "string" ||
+        typeof label.trackingIdentifier !== "string" ||
+        typeof label.purchasedAt !== "string"
+      ) {
+        throw new ShipmentHistoryPoisonedError("postage-provider-result-invalid");
+      }
+      if (
+        loaded.state.postageProviderLabelId !== label.providerLabelId &&
+        loaded.state.trackingIdentifier !== label.trackingIdentifier
+      ) {
+        const request = postageOperationRequestRecord(operation);
+        const addressOverride = request.addressOverride;
+        const addressOverrideAudit =
+          addressOverride && typeof addressOverride === "object" && !Array.isArray(addressOverride)
+            ? (addressOverride as ShipmentLabelAddressOverrideAudit)
+            : null;
+        await commandHandler({
+          streamId: `fulfillment.shipment-${operation.subject_id}`,
+          command: {
+            type: "AttachShipmentLabel",
+            shippingMethod: "standard",
+            carrierName: label.carrierName,
+            labelReference: label.labelReference,
+            labelDocumentUrl: label.labelDocumentUrl,
+            trackingIdentifier: label.trackingIdentifier,
+            postageProviderName: label.providerName,
+            postageProviderMode: label.providerMode,
+            postageProviderShipmentId: label.providerShipmentId,
+            postageProviderLabelId: label.providerLabelId,
+            postageRateId: label.providerRateId,
+            postageServiceLevel: label.serviceLevel,
+            postageAmountCents: label.postageAmountCents,
+            postageCurrency: label.postageCurrency,
+            addressOverrideAudit,
+            attachedAt: label.purchasedAt,
+          },
+          context,
+          expectedVersion: loaded.version,
+        });
+      }
+      const completed = await transitionPostageOperation(deps.db, {
+        claim,
+        from: "provider-succeeded",
+        to: "effect-applied",
+        completedAt: label.purchasedAt,
+      });
+      return Boolean(completed);
+    }
+
+    if (operation.operation_kind === "void-label") {
+      if (!providerResult || typeof providerResult !== "object" || Array.isArray(providerResult)) {
+        throw new ShipmentHistoryPoisonedError("postage-provider-result-invalid");
+      }
+      const result = providerResult as Awaited<ReturnType<PostageLabelProvider["voidLabel"]>>;
+      const refundStatus = normalizeProviderRefundStatus(result.refundStatus);
+      if (!refundStatus && result.refundStatus !== "submitted") {
+        throw new ShipmentHistoryPoisonedError("postage-provider-result-invalid");
+      }
+      if (loaded.state.labelStatus !== "voided" && loaded.state.labelStatus !== "void-rejected") {
+        await commandHandler({
+          streamId: `fulfillment.shipment-${operation.subject_id}`,
+          command: {
+            type: "VoidShipmentLabel",
+            postageProviderLabelId: postageProviderLabelIdForOperation(operation),
+            refundStatus: result.refundStatus,
+            refundReference: result.refundReference,
+            voidedAt: result.voidedAt,
+          },
+          context,
+          expectedVersion: loaded.version,
+        });
+      }
+      const completed = await transitionPostageOperation(deps.db, {
+        claim,
+        from: "provider-succeeded",
+        to: "effect-applied",
+        completedAt: result.voidedAt,
+      });
+      return Boolean(completed);
+    }
+
+    const completed = await transitionPostageOperation(deps.db, {
+      claim,
+      from: "provider-succeeded",
+      to: "effect-applied",
+      completedAt: new Date().toISOString(),
+    });
+    return Boolean(completed);
+  }
+
+  async function invokeReservedPostageOperation(operation: PostageOperationAuthority) {
+    const claim = await claimReservedPostageOperation(deps.db, operation);
+    if (!claim) return null;
+    const invoking = await transitionPostageOperation(deps.db, {
+      claim,
+      from: "reserved",
+      to: "invoking",
+      providerInvoked: true,
+    });
+    if (!invoking) return null;
+    const request = postageOperationRequestRecord(operation);
+    try {
+      const providerResult =
+        operation.operation_kind === "purchase-usps-label"
+          ? await postageLabelProvider.purchaseUspsLabel({
+              subjectKind: operation.subject_kind,
+              subjectId: operation.subject_id,
+              idempotencyKey: operation.provider_idempotency_key!,
+              serviceLevel: String(request.serviceLevel),
+              deliveryConfirmation: (request.deliveryConfirmation ?? null) as "signature" | null,
+              insuranceAmount: (request.insuranceAmount ?? null) as string | null,
+              labelSize: (request.labelSize ?? null) as "7x3" | null,
+              sender: request.sender as PostageAddress,
+              recipient: request.recipient as PostageAddress,
+              package: request.package as PostagePackage,
+            })
+          : await postageLabelProvider.voidLabel({
+              providerShipmentId: String(request.providerShipmentId),
+              providerLabelId: String(request.providerLabelId),
+              trackingIdentifier: String(request.trackingIdentifier),
+            });
+      return await transitionPostageOperation(deps.db, {
+        claim,
+        from: "invoking",
+        to: "provider-succeeded",
+        providerInvoked: true,
+        providerShipmentId:
+          operation.operation_kind === "purchase-usps-label"
+            ? (providerResult as PurchasedPostageLabel).providerShipmentId
+            : String(request.providerShipmentId),
+        providerLabelId:
+          operation.operation_kind === "purchase-usps-label"
+            ? (providerResult as PurchasedPostageLabel).providerLabelId
+            : String(request.providerLabelId),
+        trackingIdentifier:
+          operation.operation_kind === "purchase-usps-label"
+            ? (providerResult as PurchasedPostageLabel).trackingIdentifier
+            : String(request.trackingIdentifier),
+        providerResult,
+      });
+    } catch {
+      await transitionPostageOperation(deps.db, {
+        claim,
+        from: "invoking",
+        to: "ambiguous",
+        providerInvoked: true,
+        closedReason: "invocation-outcome-unknown",
+      });
+      return null;
+    }
+  }
+
   return {
     commandHandler,
+    shipmentGroupAdmissionAuthority,
+    shipmentGroupAdmissionHandlers,
     processPostageProviderWebhook: async (input, context) => {
       const event = await postageWebhookGateway.processPostageProviderWebhook(input);
       if (!event) {
         return { status: "ignored", processingResult: "ignored" };
       }
 
-      const shipment = await findShipmentForPostageProviderEvent(deps.db, event);
-      const alreadyProcessed = await hasProcessedPostageProviderEvent(deps.db, event.providerEventId);
-      if (alreadyProcessed) {
+      const reservation = await reservePostageProviderEvent(deps.db, event);
+      if (!reservation.hashMatches) {
         return {
           status: "duplicate",
           providerEventId: event.providerEventId,
           eventKind: event.eventKind,
-          shipmentId: shipment?.shipment_id ?? null,
-          processingResult: "duplicate",
+          shipmentId: null,
+          processingResult: "quarantined-hash-mismatch",
+        };
+      }
+      if (!reservation.inserted && ["completed", "quarantined"].includes(reservation.handoff_state)) {
+        return {
+          status: "duplicate",
+          providerEventId: event.providerEventId,
+          eventKind: event.eventKind,
+          shipmentId: null,
+          processingResult: reservation.processing_result,
+        };
+      }
+      const claimToken = randomUUID();
+      const now = new Date();
+      const claim = await deps.db.query<{ provider_event_id: string }>(
+        `UPDATE fulfillment_postage_provider_events
+         SET claim_token = $3, claim_generation = claim_generation + 1,
+             claim_expires_at = $4, receipt_version = receipt_version + 1
+         WHERE provider_event_id = $1 AND payload_hash = $2
+           AND handoff_state IN ('reserved', 'outbound-pending', 'return-pending', 'unmatched')
+           AND (claim_token IS NULL OR claim_expires_at <= $5)
+         RETURNING provider_event_id`,
+        [
+          event.providerEventId,
+          reservation.payloadHash,
+          claimToken,
+          new Date(now.getTime() + 60_000).toISOString(),
+          now.toISOString(),
+        ],
+      );
+      if (!claim.rows[0]) {
+        return {
+          status: "duplicate",
+          providerEventId: event.providerEventId,
+          eventKind: event.eventKind,
+          shipmentId: null,
+          processingResult: "pending",
         };
       }
 
+      const match = await findSubjectForPostageProviderEvent(deps.db, event);
+      if (match.ambiguous) {
+        await deps.db.query(
+          `UPDATE fulfillment_postage_provider_events
+           SET handoff_state = 'quarantined', processing_result = 'multiple-authority-matches',
+               receipt_version = receipt_version + 1
+           WHERE provider_event_id = $1 AND payload_hash = $2 AND claim_token = $3`,
+          [event.providerEventId, reservation.payloadHash, claimToken],
+        );
+        return {
+          status: "recorded",
+          providerEventId: event.providerEventId,
+          eventKind: event.eventKind,
+          shipmentId: null,
+          processingResult: "quarantined",
+        };
+      }
+      const subject = match.subject;
+      const shipment = subject?.subject_kind === "shipment" ? subject : null;
+
       let processingResult = "recorded";
       let returnShipmentId: string | null = null;
-      if (!shipment) {
+      let processedSubject: Readonly<{
+        subject_kind: PostageOperationSubjectKind;
+        subject_id: string;
+        tracking_identifier?: string | null;
+      }> | null = subject;
+      if (!subject) {
         if (event.eventKind === "tracking-status" && deps.returnTrackingFallback) {
           const fallback = await deps.returnTrackingFallback(event, context);
           returnShipmentId = fallback.returnShipmentId;
+          processedSubject = fallback.returnShipmentId
+            ? {
+                subject_kind: "return-shipment",
+                subject_id: fallback.returnShipmentId,
+                tracking_identifier: event.trackingIdentifier ?? null,
+              }
+            : null;
           processingResult = `return:${fallback.processingResult}`;
         } else {
           processingResult = "unmatched";
         }
-      } else if (event.eventKind === "tracking-status") {
-        processingResult = await applyPostageProviderTrackingEvent(commandHandler, event, shipment, context);
-      } else if (event.eventKind === "refund-status") {
-        processingResult = await applyPostageProviderRefundEvent(deps.db, commandHandler, event, shipment, context);
+      } else if (shipment) {
+        try {
+          const loaded = await repository.load(`fulfillment.shipment-${shipment.shipment_id}`);
+          assertCompleteHistoryTenant(loaded.storedEvents, shipment.tenant_id);
+          if (String(loaded.state.sellerAccountId) !== shipment.seller_account_id) {
+            throw new ShipmentHistoryPoisonedError("shipment-seller-mismatch");
+          }
+          const effectContext = systemContextForOperation({
+            tenant_id: shipment.tenant_id,
+            seller_account_id: shipment.seller_account_id,
+          });
+          if (event.eventKind === "tracking-status") {
+            processingResult = await applyPostageProviderTrackingEvent(commandHandler, event, shipment, effectContext);
+          } else if (event.eventKind === "refund-status") {
+            processingResult = await applyPostageProviderRefundEvent(
+              deps.db,
+              commandHandler,
+              event,
+              shipment,
+              effectContext,
+            );
+          }
+        } catch (error) {
+          if (
+            error instanceof ShipmentLabelRefundTerminalConflictError ||
+            error instanceof PostageVoidOperationInterleavingError
+          ) {
+            const conflictResult =
+              error instanceof ShipmentLabelRefundTerminalConflictError
+                ? "terminal-refund-status-conflict"
+                : "postage-void-operation-interleaving";
+            await deps.db.query(
+              `UPDATE fulfillment_postage_provider_events
+               SET handoff_state = 'quarantined', processing_result = $4,
+                   receipt_version = receipt_version + 1
+               WHERE provider_event_id = $1 AND payload_hash = $2 AND claim_token = $3`,
+              [event.providerEventId, reservation.payloadHash, claimToken, conflictResult],
+            );
+            return {
+              status: "recorded",
+              providerEventId: event.providerEventId,
+              eventKind: event.eventKind,
+              shipmentId: shipment.shipment_id,
+              processingResult: conflictResult,
+            };
+          }
+          if (!(error instanceof ShipmentHistoryPoisonedError)) throw error;
+          await quarantineShipmentTenantBinding(deps.db, {
+            shipmentId: shipment.shipment_id,
+            tenantId: shipment.tenant_id,
+            reasonCode: "postage-webhook-authority-mismatch",
+          });
+          await deps.db.query(
+            `UPDATE fulfillment_postage_provider_events
+             SET handoff_state = 'quarantined', processing_result = 'authority-mismatch',
+                 receipt_version = receipt_version + 1
+             WHERE provider_event_id = $1 AND payload_hash = $2 AND claim_token = $3`,
+            [event.providerEventId, reservation.payloadHash, claimToken],
+          );
+          return {
+            status: "recorded",
+            providerEventId: event.providerEventId,
+            eventKind: event.eventKind,
+            shipmentId: null,
+            processingResult: "quarantined",
+          };
+        }
       }
 
-      await recordProcessedPostageProviderEvent(deps.db, event, shipment, processingResult);
+      await recordProcessedPostageProviderEvent(deps.db, event, processedSubject, processingResult, claimToken);
 
       return {
         status: "recorded",
         providerEventId: event.providerEventId,
         eventKind: event.eventKind,
         shipmentId: shipment?.shipment_id ?? returnShipmentId,
+        subjectKind: processedSubject?.subject_kind ?? null,
+        subjectId: processedSubject?.subject_id ?? null,
         processingResult,
       };
     },
     createShipmentForReadyOrder: async (params) => {
+      const sourceShipmentId = params.sourceIdentity
+        ? deterministicShipmentId(params.sourceIdentity.eventId, params.orderId)
+        : null;
+      if (sourceShipmentId) {
+        const existing = await repository.load(`fulfillment.shipment-${sourceShipmentId}`);
+        if (existing.version > 0) {
+          assertCompleteHistoryTenant(existing.storedEvents, String(params.context.tenantId));
+          if (String(existing.state.orderId) !== params.orderId) {
+            throw new ShipmentHistoryPoisonedError("Shipment source identity was reused for a different order.");
+          }
+          return { shipmentId: null };
+        }
+      }
       const existingShipmentId = await findExistingShipmentIdForOrder(deps.db, params.orderId);
       if (existingShipmentId) {
         return { shipmentId: null };
@@ -1044,7 +1821,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         return { shipmentId: null };
       }
 
-      const shipmentId = createId("shp") as ShipmentId;
+      const shipmentId = sourceShipmentId ?? (createId("shp") as ShipmentId);
       await commandHandler({
         streamId: `fulfillment.shipment-${shipmentId}`,
         command: {
@@ -1077,26 +1854,104 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId };
     },
     cancelShipmentForCancelledOrder: async (params) => {
+      if (
+        !params.sourceIdentity.eventId ||
+        !params.sourceIdentity.streamId ||
+        !Number.isInteger(params.sourceIdentity.streamVersion) ||
+        params.sourceIdentity.streamVersion < 1 ||
+        !["ordering.order.cancelled", "payments.payment-fraud-warning-received"].includes(
+          params.sourceIdentity.eventType,
+        )
+      ) {
+        throw new ShipmentHistoryPoisonedError("Shipment cancellation source identity is invalid.");
+      }
       const shipment = await loadCancellableShipmentForOrder(deps.db, params.orderId);
-      if (!shipment || shipment.status === "cancelled") {
+      if (!shipment) {
         return { shipmentId: null };
       }
-      if (shipment.status !== "awaiting-package" || shipment.package_status !== "awaiting-package") {
-        return { shipmentId: null };
+      const loaded = await repository.load(`fulfillment.shipment-${shipment.shipment_id}`);
+      assertCompleteHistoryTenant(loaded.storedEvents, String(params.context.tenantId));
+      if (String(loaded.state.orderId) !== params.orderId) {
+        throw new ShipmentHistoryPoisonedError("Shipment cancellation source identity was reused for another order.");
       }
-
-      await commandHandler({
+      const result = await commandHandler({
         streamId: `fulfillment.shipment-${shipment.shipment_id}`,
         command: {
           type: "CancelShipment",
           cancelledAt: params.cancelledAt,
+          cancellationSignal: {
+            orderId: params.orderId as OrderId,
+            reason: params.reason,
+            origin: params.origin,
+          },
         },
         context: params.context,
+        expectedVersion: loaded.version,
       });
 
-      return { shipmentId: shipment.shipment_id as ShipmentId };
+      return { shipmentId: result.newEvents.length > 0 ? (shipment.shipment_id as ShipmentId) : null };
+    },
+    cancelShipment: async (params, context) => {
+      await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+        params.mutationAttemptId ? context : undefined,
+      );
+      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      if (loaded.state.status === null) {
+        throw new FulfillmentDomainError("Shipment not found.");
+      }
+      if (
+        loaded.state.admission?.type === "fulfillment.shipment-group.admission-reserved" ||
+        loaded.state.admission?.type === "fulfillment.shipment-group.admission-committed"
+      ) {
+        throw new ShipmentAdmissionBusyError();
+      }
+      assertShipmentActionAllowed("cancel-shipment", {
+        status: loaded.state.status,
+        labelStatus: loaded.state.labelStatus,
+        conflicts: loaded.state.conflicts.map((conflict) => ({
+          conflict_kind: conflict.conflictKind,
+          origin: conflict.origin,
+        })),
+      });
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "cancel-shipment",
+            command: () => ({ type: "CancelShipment", cancelledAt: new Date().toISOString() }),
+            successStatus: "cancelled",
+          },
+          context,
+        );
+      }
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: { type: "CancelShipment", cancelledAt: new Date().toISOString() },
+        context,
+      });
+      return { shipmentId: params.shipmentId, version: result.version };
     },
     packShipment: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "prepare-package",
+            request: { packageCount: params.packageCount },
+            command: () => ({
+              type: "PrepareShipmentPackage",
+              packageCount: params.packageCount,
+              preparedAt: new Date().toISOString(),
+            }),
+            successStatus: "packed",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1112,6 +1967,18 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     startPackingShipment: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "start-packing",
+            command: () => ({ type: "StartShipmentPacking", startedAt: new Date().toISOString() }),
+            successStatus: "packing",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1126,6 +1993,23 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     confirmPackingLine: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "confirm-packing-line",
+            target: params.lineId,
+            command: () => ({
+              type: "ConfirmShipmentPackingLine",
+              lineId: params.lineId as ShipmentLineId,
+              confirmedAt: new Date().toISOString(),
+            }),
+            successStatus: "confirmed",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1141,6 +2025,23 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     unconfirmPackingLine: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "unconfirm-packing-line",
+            target: params.lineId,
+            command: () => ({
+              type: "UnconfirmShipmentPackingLine",
+              lineId: params.lineId as ShipmentLineId,
+              unconfirmedAt: new Date().toISOString(),
+            }),
+            successStatus: "unconfirmed",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1156,6 +2057,25 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     setPackingLineQuantity: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "set-packing-line-quantity",
+            target: params.lineId,
+            request: { confirmedQuantity: params.confirmedQuantity },
+            command: () => ({
+              type: "SetShipmentPackingLineQuantity",
+              lineId: params.lineId as ShipmentLineId,
+              confirmedQuantity: params.confirmedQuantity,
+              setAt: new Date().toISOString(),
+            }),
+            successStatus: "quantity-set",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1172,6 +2092,31 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     attachLabel: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "attach-manual-label",
+            request: {
+              shippingMethod: params.shippingMethod,
+              carrierName: params.carrierName,
+              labelReference: params.labelReference,
+              trackingIdentifier: params.trackingIdentifier,
+            },
+            command: () => ({
+              type: "AttachShipmentLabel",
+              shippingMethod: params.shippingMethod as ShippingMethod,
+              carrierName: params.carrierName,
+              labelReference: params.labelReference,
+              trackingIdentifier: params.trackingIdentifier,
+              attachedAt: new Date().toISOString(),
+            }),
+            successStatus: "label-attached",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1190,7 +2135,11 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     purchaseUspsLabel: async (params, context) => {
-      const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+      const shipment = await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+        params.mutationAttemptId ? context : undefined,
+      );
       if (shipment.status !== "awaiting-label" || shipment.package_status !== "packed") {
         throw new FulfillmentDomainError(
           "Shipment must be packed and awaiting a label before postage can be purchased.",
@@ -1258,17 +2207,223 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         });
         throw new FulfillmentDomainError(error instanceof Error ? error.message : "Label purchase failed.");
       }
+      const authoritativeRequest = postageLabelOperationRequest({
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
+        serviceLevel: params.serviceLevel,
+        deliveryConfirmation,
+        insuranceAmount,
+        labelSize,
+        sender,
+        recipient,
+        labelPackage,
+        addressOverrideAudit,
+        shippingPlanSnapshot: shipment.shipping_plan_snapshot,
+      });
+
+      if (params.mutationAttemptId) {
+        const tenantId = String(context.tenantId);
+        const keyDigest = fulfillmentMutationKeyDigest({
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          subjectKind: "shipment",
+          key: params.mutationAttemptId,
+        });
+        const targetKey = `purchase:${params.shipmentId}:${shipment.label_voided_at ?? "initial"}`;
+        const requestHash = fulfillmentMutationRequestHash({
+          commandKind: "purchase-usps-label",
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          shipmentId: params.shipmentId,
+          target: targetKey,
+          request: authoritativeRequest,
+        });
+        const reservation = await reservePostageOperation(deps.db, {
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
+          keyDigest,
+          requestHash,
+          targetKey,
+          operationKind: "purchase-usps-label",
+          providerName: postageLabelProvider.providerName,
+          providerMode: postageLabelProvider.providerMode,
+          request: authoritativeRequest,
+          now: purchasedAt,
+        });
+        let operation = reservation.operation;
+        if (reservation.targetConflict) {
+          throw new FulfillmentDomainError("Another immutable postage operation already owns this label target.");
+        }
+        if (!reservation.created) {
+          if (operation.status === "effect-applied" && operation.tracking_identifier) {
+            return {
+              shipmentId: params.shipmentId,
+              version: await getShipmentVersion(params.shipmentId),
+              trackingIdentifier: operation.tracking_identifier,
+            };
+          }
+          if (operation.status === "provider-succeeded" && operation.provider_result_json) {
+            const label = operation.provider_result_json as PurchasedPostageLabel;
+            const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+            assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
+            if (loaded.state.postageProviderLabelId !== label.providerLabelId) {
+              await commandHandler({
+                streamId: `fulfillment.shipment-${params.shipmentId}`,
+                command: {
+                  type: "AttachShipmentLabel",
+                  shippingMethod: "standard",
+                  carrierName: label.carrierName,
+                  labelReference: label.labelReference,
+                  labelDocumentUrl: label.labelDocumentUrl,
+                  trackingIdentifier: label.trackingIdentifier,
+                  postageProviderName: label.providerName,
+                  postageProviderMode: label.providerMode,
+                  postageProviderShipmentId: label.providerShipmentId,
+                  postageProviderLabelId: label.providerLabelId,
+                  postageRateId: label.providerRateId,
+                  postageServiceLevel: label.serviceLevel,
+                  postageAmountCents: label.postageAmountCents,
+                  postageCurrency: label.postageCurrency,
+                  addressOverrideAudit,
+                  attachedAt: label.purchasedAt,
+                },
+                context,
+                expectedVersion: loaded.version,
+              });
+            }
+            const current = await findPostageOperationByDigest(deps.db, {
+              tenantId,
+              sellerAccountId: params.sellerAccountId,
+              subjectKind: "shipment",
+              subjectId: params.shipmentId,
+              keyDigest,
+            });
+            if (current?.claim_token && current.claim_expires_at) {
+              await transitionPostageOperation(deps.db, {
+                claim: current as never,
+                from: "provider-succeeded",
+                to: "effect-applied",
+                completedAt: label.purchasedAt,
+              });
+            }
+            return {
+              shipmentId: params.shipmentId,
+              version: await getShipmentVersion(params.shipmentId),
+              trackingIdentifier: label.trackingIdentifier,
+            };
+          }
+          throw new FulfillmentDomainError(
+            operation.status === "ambiguous"
+              ? "Postage label purchase outcome is ambiguous; reconciliation is required."
+              : "Postage label purchase is pending durable reconciliation.",
+          );
+        }
+
+        const claim = await claimReservedPostageOperation(deps.db, operation);
+        if (!claim) throw new FulfillmentDomainError("Postage label purchase is already claimed.");
+        const invoking = await transitionPostageOperation(deps.db, {
+          claim,
+          from: "reserved",
+          to: "invoking",
+          providerInvoked: true,
+        });
+        if (!invoking) throw new FulfillmentDomainError("Postage label purchase claim was lost before invocation.");
+
+        let purchasedLabel: PurchasedPostageLabel;
+        try {
+          purchasedLabel = await postageLabelProvider.purchaseUspsLabel({
+            subjectKind: "shipment",
+            subjectId: params.shipmentId,
+            idempotencyKey: operation.provider_idempotency_key!,
+            serviceLevel: params.serviceLevel,
+            deliveryConfirmation,
+            insuranceAmount,
+            labelSize,
+            sender,
+            recipient,
+            package: labelPackage,
+          });
+        } catch {
+          await transitionPostageOperation(deps.db, {
+            claim,
+            from: "invoking",
+            to: "ambiguous",
+            providerInvoked: true,
+            closedReason: "invocation-outcome-unknown",
+          });
+          throw new FulfillmentDomainError("Postage label purchase outcome is ambiguous; reconciliation is required.");
+        }
+        const providerSucceeded = await transitionPostageOperation(deps.db, {
+          claim,
+          from: "invoking",
+          to: "provider-succeeded",
+          providerInvoked: true,
+          providerShipmentId: purchasedLabel.providerShipmentId,
+          providerLabelId: purchasedLabel.providerLabelId,
+          trackingIdentifier: purchasedLabel.trackingIdentifier,
+          providerResult: purchasedLabel,
+        });
+        if (!providerSucceeded) {
+          throw new FulfillmentDomainError(
+            "Postage label purchase claim was lost after invocation; reconciliation is required.",
+          );
+        }
+        operation = providerSucceeded;
+
+        const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+        assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
+        if (loaded.state.postageProviderLabelId !== purchasedLabel.providerLabelId) {
+          await commandHandler({
+            streamId: `fulfillment.shipment-${params.shipmentId}`,
+            command: {
+              type: "AttachShipmentLabel",
+              shippingMethod: "standard",
+              carrierName: purchasedLabel.carrierName,
+              labelReference: purchasedLabel.labelReference,
+              labelDocumentUrl: purchasedLabel.labelDocumentUrl,
+              trackingIdentifier: purchasedLabel.trackingIdentifier,
+              postageProviderName: purchasedLabel.providerName,
+              postageProviderMode: purchasedLabel.providerMode,
+              postageProviderShipmentId: purchasedLabel.providerShipmentId,
+              postageProviderLabelId: purchasedLabel.providerLabelId,
+              postageRateId: purchasedLabel.providerRateId,
+              postageServiceLevel: purchasedLabel.serviceLevel,
+              postageAmountCents: purchasedLabel.postageAmountCents,
+              postageCurrency: purchasedLabel.postageCurrency,
+              addressOverrideAudit,
+              attachedAt: purchasedLabel.purchasedAt,
+            },
+            context,
+            expectedVersion: loaded.version,
+          });
+        }
+        const completed = await transitionPostageOperation(deps.db, {
+          claim,
+          from: "provider-succeeded",
+          to: "effect-applied",
+          completedAt: purchasedLabel.purchasedAt,
+        });
+        if (!completed) throw new FulfillmentDomainError("Postage label finalization requires reconciliation.");
+        return {
+          shipmentId: params.shipmentId,
+          version: await getShipmentVersion(params.shipmentId),
+          trackingIdentifier: purchasedLabel.trackingIdentifier,
+        };
+      }
       const operationKey = buildPurchaseUspsLabelOperationKey(shipment);
       const operation = await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
         operationKind: "purchase-usps-label",
-        shipmentId: params.shipmentId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
         providerName: postageLabelProvider.providerName,
         providerMode: postageLabelProvider.providerMode,
         idempotencyKey: operationKey,
         request: postageLabelOperationRequest({
-          shipmentId: params.shipmentId,
-          orderId: shipment.order_id,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
           insuranceAmount,
@@ -1317,8 +2472,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       let purchasedLabel;
       try {
         purchasedLabel = await postageLabelProvider.purchaseUspsLabel({
-          shipmentId: params.shipmentId,
-          orderId: shipment.order_id,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
           idempotencyKey: operationKey,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
@@ -1353,6 +2508,58 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
 
       return attachPurchasedLabelForOperation(operation, purchasedLabel, addressOverrideAudit, context);
     },
+    listStalePostageOperationLocators: async (params) => listStalePostageOperationLocators(deps.db, params),
+    reconcilePostageOperationLocator: async (locator) => {
+      const operation = await findPostageOperationByLocator(deps.db, locator);
+      if (!operation) return { outcome: "missing" };
+      try {
+        if (operation.subject_kind !== "shipment") {
+          throw new ShipmentHistoryPoisonedError("postage-operation-subject-kind-mismatch");
+        }
+        const loaded = await repository.load(`fulfillment.shipment-${operation.subject_id}`);
+        assertCompleteHistoryTenant(loaded.storedEvents, operation.tenant_id);
+        if (
+          operation.operation_id !== locator.operationId ||
+          operation.tenant_id !== locator.tenantId ||
+          operation.subject_kind !== locator.subjectKind ||
+          operation.subject_id !== locator.subjectId ||
+          String(loaded.state.sellerAccountId) !== operation.seller_account_id
+        ) {
+          throw new ShipmentHistoryPoisonedError("postage-operation-authority-mismatch");
+        }
+
+        if (operation.status === "invoking") {
+          const expired = await expireInvokingPostageOperation(deps.db, operation.operation_id, operation.tenant_id);
+          return { outcome: expired ? "ambiguous" : "pending" };
+        }
+        if (operation.status === "reserved") {
+          const succeeded = await invokeReservedPostageOperation(operation);
+          if (!succeeded) {
+            const current = await findPostageOperationByLocator(deps.db, locator);
+            return { outcome: current?.status === "ambiguous" ? "ambiguous" : "pending" };
+          }
+          const applied = await finalizeAuthoritativePostageOperation(succeeded, succeeded as never);
+          return { outcome: applied ? "effect-applied" : "pending" };
+        }
+        if (operation.status === "provider-succeeded") {
+          const claim = await claimPostageOperationForFinalization(deps.db, operation);
+          if (!claim) return { outcome: "pending" };
+          const applied = await finalizeAuthoritativePostageOperation(claim, claim);
+          return { outcome: applied ? "effect-applied" : "pending" };
+        }
+        return { outcome: operation.status === "ambiguous" ? "ambiguous" : "effect-applied" };
+      } catch (error) {
+        if (error instanceof ShipmentHistoryPoisonedError) {
+          await quarantineShipmentTenantBinding(deps.db, {
+            shipmentId: operation.subject_id,
+            tenantId: operation.tenant_id,
+            reasonCode: "postage-operation-authority-mismatch",
+          });
+          return { outcome: "quarantined" };
+        }
+        throw error;
+      }
+    },
     reconcileStalePostageLabelPurchases: async (params = {}, context = FULFILLMENT_SYSTEM_CONTEXT) => {
       const staleBefore =
         params.staleBefore ?? new Date(Date.now() - Math.max(1, params.staleAfterMs ?? 5 * 60 * 1000)).toISOString();
@@ -1368,7 +2575,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       };
 
       for (const operation of operations) {
-        const shipment = await getShipmentForPostageRecovery(deps.db, operation.shipment_id);
+        const shipment = await getShipmentForPostageRecovery(deps.db, operation.subject_id);
         if (!shipment) {
           await recordFulfillmentPostageLabelOperationFailed(deps.db, {
             operationKey: operation.operation_key,
@@ -1439,7 +2646,11 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return result;
     },
     voidLabel: async (params, context) => {
-      const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+      const shipment = await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+        params.mutationAttemptId ? context : undefined,
+      );
       const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
       if (
         !shipment.postage_provider_shipment_id ||
@@ -1452,14 +2663,148 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const voidRequestedAt = new Date().toISOString();
       decideFulfillmentShipment(loaded.state, {
         type: "VoidShipmentLabel",
+        postageProviderLabelId: shipment.postage_provider_label_id,
         refundStatus: "submitted",
         voidedAt: voidRequestedAt,
       });
+      if (params.mutationAttemptId) {
+        const tenantId = String(context.tenantId);
+        assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
+        const keyDigest = fulfillmentMutationKeyDigest({
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          subjectKind: "shipment",
+          key: params.mutationAttemptId,
+        });
+        const targetKey = `void:${params.shipmentId}:${shipment.postage_provider_label_id}`;
+        const request = {
+          providerShipmentId: shipment.postage_provider_shipment_id,
+          providerLabelId: shipment.postage_provider_label_id,
+          trackingIdentifier: shipment.tracking_identifier,
+        };
+        const requestHash = fulfillmentMutationRequestHash({
+          commandKind: "void-label",
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          shipmentId: params.shipmentId,
+          target: targetKey,
+          request,
+        });
+        const reservation = await reservePostageOperation(deps.db, {
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
+          keyDigest,
+          requestHash,
+          targetKey,
+          operationKind: "void-label",
+          providerName: postageLabelProvider.providerName,
+          providerMode: postageLabelProvider.providerMode,
+          request,
+          now: voidRequestedAt,
+        });
+        if (reservation.targetConflict) {
+          throw new FulfillmentDomainError("Another immutable postage operation already owns this label target.");
+        }
+        const operation = reservation.operation;
+        if (!reservation.created) {
+          if (operation.status === "effect-applied") {
+            return { shipmentId: params.shipmentId, version: await getShipmentVersion(params.shipmentId) };
+          }
+          if (operation.status === "provider-succeeded" && operation.provider_result_json) {
+            const result = operation.provider_result_json as Awaited<ReturnType<PostageLabelProvider["voidLabel"]>>;
+            const current = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+            assertCompleteHistoryTenant(current.storedEvents, tenantId);
+            await commandHandler({
+              streamId: `fulfillment.shipment-${params.shipmentId}`,
+              command: {
+                type: "VoidShipmentLabel",
+                postageProviderLabelId: postageProviderLabelIdForOperation(operation),
+                refundStatus: result.refundStatus,
+                refundReference: result.refundReference,
+                voidedAt: result.voidedAt,
+              },
+              context,
+              expectedVersion: current.version,
+            });
+            return { shipmentId: params.shipmentId, version: await getShipmentVersion(params.shipmentId) };
+          }
+          throw new FulfillmentDomainError(
+            operation.status === "ambiguous"
+              ? "Postage label void outcome is ambiguous; reconciliation is required."
+              : "Postage label void is pending durable reconciliation.",
+          );
+        }
+        const claim = await claimReservedPostageOperation(deps.db, operation);
+        if (!claim) throw new FulfillmentDomainError("Postage label void is already claimed.");
+        if (
+          !(await transitionPostageOperation(deps.db, {
+            claim,
+            from: "reserved",
+            to: "invoking",
+            providerInvoked: true,
+          }))
+        ) {
+          throw new FulfillmentDomainError("Postage label void claim was lost before invocation.");
+        }
+        let voidedLabel: Awaited<ReturnType<PostageLabelProvider["voidLabel"]>>;
+        try {
+          voidedLabel = await postageLabelProvider.voidLabel(request);
+        } catch {
+          await transitionPostageOperation(deps.db, {
+            claim,
+            from: "invoking",
+            to: "ambiguous",
+            providerInvoked: true,
+            closedReason: "invocation-outcome-unknown",
+          });
+          throw new FulfillmentDomainError("Postage label void outcome is ambiguous; reconciliation is required.");
+        }
+        if (
+          !(await transitionPostageOperation(deps.db, {
+            claim,
+            from: "invoking",
+            to: "provider-succeeded",
+            providerInvoked: true,
+            providerShipmentId: shipment.postage_provider_shipment_id,
+            providerLabelId: shipment.postage_provider_label_id,
+            trackingIdentifier: shipment.tracking_identifier,
+            providerResult: voidedLabel,
+          }))
+        ) {
+          throw new FulfillmentDomainError("Postage label void result requires reconciliation.");
+        }
+        const result = await commandHandler({
+          streamId: `fulfillment.shipment-${params.shipmentId}`,
+          command: {
+            type: "VoidShipmentLabel",
+            postageProviderLabelId: shipment.postage_provider_label_id,
+            refundStatus: voidedLabel.refundStatus,
+            refundReference: voidedLabel.refundReference,
+            voidedAt: voidedLabel.voidedAt,
+          },
+          context,
+          expectedVersion: loaded.version,
+        });
+        if (
+          !(await transitionPostageOperation(deps.db, {
+            claim,
+            from: "provider-succeeded",
+            to: "effect-applied",
+            completedAt: voidedLabel.voidedAt,
+          }))
+        ) {
+          throw new FulfillmentDomainError("Postage label void finalization requires reconciliation.");
+        }
+        return { shipmentId: params.shipmentId, version: result.version };
+      }
       const operationKey = `shipment:${params.shipmentId}:void-label:${voidRequestedAt}`;
       await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
         operationKind: "void-label",
-        shipmentId: params.shipmentId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
         providerName: postageLabelProvider.providerName,
         providerMode: postageLabelProvider.providerMode,
         idempotencyKey: operationKey,
@@ -1497,6 +2842,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         streamId: `fulfillment.shipment-${params.shipmentId}`,
         command: {
           type: "VoidShipmentLabel",
+          postageProviderLabelId: shipment.postage_provider_label_id,
           refundStatus: voidedLabel.refundStatus,
           refundReference: voidedLabel.refundReference,
           voidedAt: voidedLabel.voidedAt,
@@ -1524,9 +2870,26 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     dispatchShipment: async (params, context) => {
-      const shipment = await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+      const shipment = await requireSellerShipment(
+        params.shipmentId,
+        params.sellerAccountId,
+        params.mutationAttemptId ? context : undefined,
+      );
       if (await hasActivePaymentFraudReviewHold(deps.db, shipment.order_id)) {
         throw new FulfillmentDomainError("Shipment dispatch is blocked while Stripe reviews the payment.");
+      }
+
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "dispatch-shipment",
+            command: () => ({ type: "DispatchShipment", dispatchedAt: new Date().toISOString() }),
+            successStatus: "dispatched",
+          },
+          context,
+        );
       }
 
       const result = await commandHandler({
@@ -1541,6 +2904,18 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     deliverShipment: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "deliver-shipment",
+            command: () => ({ type: "RecordShipmentDelivery", deliveredAt: new Date().toISOString() }),
+            successStatus: "delivered",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1555,6 +2930,23 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     returnShipment: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "return-shipment",
+            request: { reason: params.reason ?? null },
+            command: () => ({
+              type: "ReturnShipment",
+              reason: params.reason ?? null,
+              returnedAt: new Date().toISOString(),
+            }),
+            successStatus: "returned",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1570,6 +2962,24 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     raiseShipmentException: async (params, context) => {
+      if (params.mutationAttemptId) {
+        return executeAttempt(
+          {
+            ...params,
+            mutationAttemptId: params.mutationAttemptId,
+            commandKind: "raise-shipment-exception",
+            request: { exceptionType: params.exceptionType, notes: params.notes ?? null },
+            command: () => ({
+              type: "RaiseShipmentException",
+              exceptionType: params.exceptionType as ShipmentExceptionType,
+              notes: params.notes ?? null,
+              raisedAt: new Date().toISOString(),
+            }),
+            successStatus: "exception-raised",
+          },
+          context,
+        );
+      }
       await requireSellerShipment(params.shipmentId, params.sellerAccountId);
 
       const result = await commandHandler({
@@ -1584,6 +2994,77 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       });
 
       return { shipmentId: params.shipmentId, version: result.version };
+    },
+    recoverShipmentMutation: async (params, context) => {
+      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      const tenantId = String(context.tenantId);
+      try {
+        assertCompleteHistoryTenant(loaded.storedEvents, tenantId);
+        if (String(loaded.state.sellerAccountId) !== params.sellerAccountId) {
+          throw new ShipmentHistoryPoisonedError();
+        }
+      } catch {
+        throw new FulfillmentDomainError("Shipment mutation recovery is unavailable.");
+      }
+      const attempt = await readFulfillmentMutationAttempt({
+        eventStore: deps.eventStore,
+        context,
+        key: params.mutationAttemptId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
+        sellerAccountId: params.sellerAccountId,
+      });
+      if (attempt) {
+        return {
+          schemaVersion: 1,
+          shipmentId: params.shipmentId,
+          shipmentVersion: loaded.version,
+          shipmentStatus: loaded.state.status ?? "unknown",
+          status: attempt.resultClass,
+          receiptKind: "shipment-attempt",
+          commandKind: attempt.commandKind,
+          result: attempt.response,
+          actions: attempt.resultClass === "failed-safe" ? ["correct-and-new-attempt"] : ["read-current-shipment"],
+        };
+      }
+      const keyDigest = fulfillmentMutationKeyDigest({
+        tenantId,
+        sellerAccountId: params.sellerAccountId,
+        subjectKind: "shipment",
+        key: params.mutationAttemptId,
+      });
+      const operation = await findPostageOperationByDigest(deps.db, {
+        tenantId,
+        sellerAccountId: params.sellerAccountId,
+        subjectKind: "shipment",
+        subjectId: params.shipmentId,
+        keyDigest,
+      });
+      if (operation) {
+        const status = postageOperationRecoveryStatus(operation);
+        return {
+          schemaVersion: 1,
+          shipmentId: params.shipmentId,
+          shipmentVersion: loaded.version,
+          shipmentStatus: loaded.state.status ?? "unknown",
+          status,
+          receiptKind: "postage-operation",
+          commandKind: operation.operation_kind,
+          result: null,
+          actions: status === "ambiguous" ? ["read-status", "contact-support"] : ["read-current-shipment"],
+        };
+      }
+      return {
+        schemaVersion: 1,
+        shipmentId: params.shipmentId,
+        shipmentVersion: loaded.version,
+        shipmentStatus: loaded.state.status ?? "unknown",
+        status: "confirming",
+        receiptKind: "absent",
+        commandKind: null,
+        result: null,
+        actions: ["refresh-status", "explicit-same-attempt-retry"],
+      };
     },
     listBuyerShipments: (params) => listBuyerShipments(deps.db, params),
     getBuyerShipment: (shipmentId, buyerAccountId) => getBuyerShipment(deps.db, shipmentId, buyerAccountId),

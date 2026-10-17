@@ -40,6 +40,8 @@ const readyLine: CartReadinessLine = {
       seller_account_id: "acc_seller",
       seller_display_name: "Card Vault",
       price_amount: "25.00",
+      price_currency_code: "USD",
+      listing_stream_version: 7,
       available_quantity: 1,
       product_summary: "Raw",
       product_measure_snapshot: rawProductMeasureSnapshot,
@@ -71,6 +73,8 @@ describe("cart readiness snapshots", () => {
       ],
     });
     expect(snapshot.snapshotId).toMatch(/^cr_/);
+    expect(snapshot.sourceRevision).toBe("cr_1hluq9i");
+    expect(snapshot.snapshotId).toBe("cr_17ujccm");
     expect(snapshot.fulfillmentGroups[0]?.groupId).toMatch(/^cfg_/);
     expect(snapshot.fulfillmentGroups[0]?.supportReference).toMatch(/^CSG-/);
     expect(cartReadinessLineHasFulfillment(readyLine)).toBe(true);
@@ -87,6 +91,8 @@ describe("cart readiness snapshots", () => {
           seller_account_id: "acc_second_seller",
           seller_display_name: "Second Seller",
           price_amount: "10.00",
+          price_currency_code: "USD",
+          listing_stream_version: 8,
           available_quantity: 2,
           product_summary: "Raw",
           product_measure_snapshot: rawProductMeasureSnapshot,
@@ -184,6 +190,8 @@ describe("cart readiness snapshots", () => {
           seller_account_id: "acc_expensive",
           seller_display_name: "Expensive Seller",
           price_amount: "30.00",
+          price_currency_code: "USD",
+          listing_stream_version: 8,
           available_quantity: 1,
           product_summary: "Raw",
           product_measure_snapshot: rawProductMeasureSnapshot,
@@ -193,6 +201,8 @@ describe("cart readiness snapshots", () => {
           seller_account_id: "acc_lower",
           seller_display_name: "Lower Seller",
           price_amount: "24.00",
+          price_currency_code: "USD",
+          listing_stream_version: 9,
           available_quantity: 1,
           product_summary: "Raw",
           product_measure_snapshot: rawProductMeasureSnapshot,
@@ -212,13 +222,108 @@ describe("cart readiness snapshots", () => {
       proposedListingId: "lst_lower",
       currentListingId: "lst_expensive",
       savingsAmount: "6.00",
+      currency: "USD",
     });
+    expect(proposed.customerSafeFacts).toContain("Save USD 6.00 by changing fulfillment before checkout.");
     expect(accepted.status).toBe("ready");
     expect(accepted.optimization.decision).toBe("accepted");
     expect(checkoutLines[0]).toMatchObject({
       fulfillment_mode: "locked-listing",
       locked_listing_id: "lst_lower",
     });
+  });
+
+  it("keeps incomplete legacy Listing money pairs out of fulfillment and savings", () => {
+    const incompleteLine: CartReadinessLine = {
+      ...readyLine,
+      seller_options: [{ ...readyLine.seller_options[0]!, price_currency_code: null }],
+    };
+
+    const snapshot = createCartReadinessSnapshot([incompleteLine]);
+
+    expect(cartReadinessLineHasFulfillment(incompleteLine)).toBe(false);
+    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.optimization.available).toBe(false);
+  });
+
+  it("keeps complete cross-currency Listing prices out of savings comparisons", () => {
+    const crossCurrencyLine: CartReadinessLine = {
+      ...readyLine,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, price_amount: "30.00" },
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_eur_lower",
+          price_amount: "24.00",
+          price_currency_code: "EUR",
+          listing_stream_version: 8,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([crossCurrencyLine]);
+
+    expect(cartReadinessLineHasFulfillment(crossCurrencyLine)).toBe(true);
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.optimization.available).toBe(false);
+  });
+
+  it("keeps a complete two-line EUR cart ready under one authoritative currency", () => {
+    const eurLine: CartReadinessLine = {
+      ...readyLine,
+      seller_options: [
+        {
+          ...readyLine.seller_options[0]!,
+          price_currency_code: "EUR",
+        },
+      ],
+    };
+    const secondEurLine: CartReadinessLine = {
+      ...eurLine,
+      line_id: "cli_eur_second",
+      locked_listing_id: "lst_eur_second",
+      seller_options: [
+        {
+          ...eurLine.seller_options[0]!,
+          listing_id: "lst_eur_second",
+          listing_stream_version: 8,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([eurLine, secondEurLine]);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.unresolvedLineIds).toEqual([]);
+    expect(snapshot.includedLineIds).toEqual(["cli_eur_second", "cli_ready"]);
+  });
+
+  it("names a cart-wide currency mismatch and keeps mixed Listing prices out of Checkout Session", () => {
+    const eurLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_eur",
+      locked_listing_id: "lst_eur",
+      seller_options: [
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_eur",
+          price_currency_code: "EUR",
+          listing_stream_version: 8,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([readyLine, eurLine]);
+
+    expect(snapshot.status).toBe("needs-resolution");
+    expect(snapshot.includedLineIds).toEqual([]);
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_eur", "cli_ready"]);
+    expect(snapshot.lineOutcomes).toEqual([
+      { lineId: "cli_eur", outcome: "checkout", reason: "currency-mismatch" },
+      { lineId: "cli_ready", outcome: "checkout", reason: "currency-mismatch" },
+    ]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
+    expect(snapshot.customerSafeFacts).toContain("Cart items use different currencies.");
   });
 
   it("locks Smart Match lines to the readiness-selected listing before checkout starts", () => {
@@ -351,6 +456,80 @@ describe("cart readiness snapshots", () => {
     });
   });
 
+  it("binds union readiness to the presented source while staying stable across a semantic copy relocation", () => {
+    const unionLine: CartReadinessLine = {
+      ...readyLine,
+      item_subtitle: "Unlimited",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw card",
+      seller_options: [
+        readyLine.seller_options[0]!,
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_alternate",
+          price_amount: "30.00",
+        },
+      ],
+    };
+    const source = { accountId: " acc_buyer ", presentedAnonymousCartId: " anon_cart_a " };
+    const beforeCopy = createCartReadinessSnapshot([unionLine], undefined, source);
+    const duringCopy = createCartReadinessSnapshot(
+      [{ ...unionLine, updated_at: "2026-07-01T00:00:00.000Z" }],
+      undefined,
+      source,
+    );
+    const afterCopy = createCartReadinessSnapshot(
+      [
+        {
+          ...unionLine,
+          seller_options: [...unionLine.seller_options].reverse(),
+          updated_at: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+      undefined,
+      source,
+    );
+
+    expect(duringCopy.sourceRevision).toBe(beforeCopy.sourceRevision);
+    expect(afterCopy.sourceRevision).toBe(beforeCopy.sourceRevision);
+    expect(afterCopy.snapshotId).toBe(beforeCopy.snapshotId);
+    expect(
+      createCartReadinessSnapshot([unionLine], undefined, {
+        accountId: "acc_buyer",
+        presentedAnonymousCartId: "anon_cart_b",
+      }).sourceRevision,
+    ).not.toBe(beforeCopy.sourceRevision);
+    expect(createCartReadinessSnapshot([unionLine]).sourceRevision).not.toBe(beforeCopy.sourceRevision);
+  });
+
+  it.each([
+    ["catalog item", { catalog_catalog_item_id: "cat_changed" }],
+    ["product", { product_id: "cat_1::form:graded" }],
+    ["title", { item_title: "Changed title" }],
+    ["subtitle", { item_subtitle: "Changed subtitle" }],
+    ["selected options", { selected_options: [{ dimensionId: "form", optionId: "graded" }] }],
+    ["product summary", { product_summary: "Changed summary" }],
+    ["quantity", { quantity: 2 }],
+    ["fulfillment", { fulfillment_mode: "optimize", locked_listing_id: null }],
+    ["seller preference", { seller_preference_id: "lst_preferred" }],
+    ["availability", { availability_state: "changed" }],
+    [
+      "seller option",
+      {
+        seller_options: readyLine.seller_options.map((option) => ({
+          ...option,
+          available_quantity: option.available_quantity + 1,
+        })),
+      },
+    ],
+  ] as const)("changes the union revision when the winning line %s changes", (_label, change) => {
+    const source = { accountId: "acc_buyer", presentedAnonymousCartId: "anon_cart_a" };
+    const baseline = createCartReadinessSnapshot([readyLine], undefined, source);
+    const changed = createCartReadinessSnapshot([{ ...readyLine, ...change }], undefined, source);
+
+    expect(changed.sourceRevision).not.toBe(baseline.sourceRevision);
+  });
+
   it("keeps a locked line ready and offers a Save-$X proposal when a cheaper option exists", () => {
     const lockedWithCheaperAlternative: CartReadinessLine = {
       ...readyLine,
@@ -472,32 +651,63 @@ describe("cart readiness snapshots", () => {
     });
   });
 
-  it("marks a Smart Match line ready when measured supply is split across listings", () => {
-    const splitSupplyLine: CartReadinessLine = {
+  it("selects a fulfilling Smart Match Listing when a sibling lacks shipping measures", () => {
+    const optimizeWithIncompleteSibling: CartReadinessLine = {
       ...readyLine,
-      line_id: "cli_optimize_split_supply",
-      quantity: 3,
+      line_id: "cli_optimize_measured",
       fulfillment_mode: "optimize",
       locked_listing_id: null,
       seller_options: [
-        { ...readyLine.seller_options[0]!, listing_id: "lst_a", available_quantity: 2, price_amount: "21.00" },
-        { ...readyLine.seller_options[0]!, listing_id: "lst_b", available_quantity: 1, price_amount: "18.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_measured", price_amount: "18.00" },
+        {
+          ...readyLine.seller_options[0]!,
+          listing_id: "lst_missing_measure",
+          price_amount: "17.00",
+          product_measure_snapshot: null,
+        },
+      ],
+    };
+
+    const snapshot = createCartReadinessSnapshot([optimizeWithIncompleteSibling]);
+
+    expect(snapshot.status).toBe("ready");
+    expect(snapshot.lineOutcomes).toContainEqual({
+      lineId: "cli_optimize_measured",
+      outcome: "checkout",
+      reason: "ready",
+    });
+    expect(snapshot.fulfillmentGroups[0]?.listingIds).toEqual(["lst_measured"]);
+  });
+
+  it("keeps Smart Match unresolved when no single Listing can fulfill its quantity", () => {
+    const splitSupplyLine: CartReadinessLine = {
+      ...readyLine,
+      line_id: "cli_optimize_split_supply",
+      quantity: 2,
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [
+        { ...readyLine.seller_options[0]!, listing_id: "lst_a", available_quantity: 1, price_amount: "10.00" },
+        { ...readyLine.seller_options[0]!, listing_id: "lst_b", available_quantity: 1, price_amount: "10.00" },
       ],
     };
 
     const snapshot = createCartReadinessSnapshot([splitSupplyLine]);
 
-    expect(cartReadinessLineHasFulfillment(splitSupplyLine)).toBe(true);
-    expect(snapshot.status).toBe("ready");
+    expect(cartReadinessLineHasFulfillment(splitSupplyLine)).toBe(false);
+    expect(snapshot.status).toBe("needs-resolution");
+    expect(snapshot.includedLineIds).toEqual([]);
+    expect(snapshot.unresolvedLineIds).toEqual(["cli_optimize_split_supply"]);
     expect(snapshot.lineOutcomes).toContainEqual({
       lineId: "cli_optimize_split_supply",
       outcome: "checkout",
-      reason: "ready",
+      reason: "unassigned-fulfillment",
     });
-    expect(applyCartReadinessToLines([splitSupplyLine], snapshot)).toEqual([splitSupplyLine]);
+    expect(snapshot.fulfillmentGroups).toEqual([]);
+    expect(applyCartReadinessToLines([splitSupplyLine], snapshot)).toEqual([]);
   });
 
-  it("marks split Smart Match supply unresolved when shipping measures are incomplete", () => {
+  it("does not aggregate split Smart Match supply while evaluating shipping measures", () => {
     const splitSupplyMissingMeasureLine: CartReadinessLine = {
       ...readyLine,
       line_id: "cli_optimize_split_missing_measure",
@@ -519,11 +729,11 @@ describe("cart readiness snapshots", () => {
     const snapshot = createCartReadinessSnapshot([splitSupplyMissingMeasureLine]);
 
     expect(cartReadinessLineHasFulfillment(splitSupplyMissingMeasureLine)).toBe(false);
-    expect(snapshot.status).toBe("blocked");
+    expect(snapshot.status).toBe("needs-resolution");
     expect(snapshot.lineOutcomes).toContainEqual({
       lineId: "cli_optimize_split_missing_measure",
       outcome: "checkout",
-      reason: "shipping-measure-missing",
+      reason: "unassigned-fulfillment",
     });
   });
 

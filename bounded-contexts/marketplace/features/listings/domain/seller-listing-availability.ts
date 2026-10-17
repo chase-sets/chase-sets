@@ -1,3 +1,4 @@
+import { MarketplaceListingDomainError } from "./listing-error";
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core/domain";
 
 export type SellerListingAvailabilityStatus = "available" | "unavailable";
@@ -201,7 +202,7 @@ export type SellerListingAvailabilityEvent =
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
-    throw new Error(message);
+    throw new MarketplaceListingDomainError("command-rejected", message);
   }
 }
 

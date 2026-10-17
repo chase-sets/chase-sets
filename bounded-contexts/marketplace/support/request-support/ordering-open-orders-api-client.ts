@@ -25,7 +25,7 @@ export interface OrderingOpenOrdersApiClientOptions {
 }
 
 export function createOrderingOpenOrdersApiClient({
-  baseUrl = "/api/ordering",
+  baseUrl = "/api/marketplace",
   fetch = globalThis.fetch,
   headers,
 }: OrderingOpenOrdersApiClientOptions = {}) {
@@ -50,7 +50,7 @@ export function createOrderingOpenOrdersApiClient({
 
 export function createOrderingOpenOrdersRequestApiClient(request: Request) {
   return createOrderingOpenOrdersApiClient({
-    baseUrl: resolveRequestApiBaseUrl(request, "/api/ordering"),
+    baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "ordering" }),
   });
 }

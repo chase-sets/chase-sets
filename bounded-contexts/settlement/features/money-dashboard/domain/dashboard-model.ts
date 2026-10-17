@@ -24,6 +24,8 @@ export function estimatedPayoutArrivalAt(payout: SettlementPayoutRow) {
 export type NextPayout = Readonly<{
   payoutId: string;
   amount: string;
+  requestedAmount: string;
+  feeAmount: string;
   currencyCode: string;
   estimatedArrivalAt: string;
 }>;
@@ -42,7 +44,9 @@ export function selectNextPayout(payouts: readonly SettlementPayoutRow[]): NextP
   return next
     ? {
         payoutId: next.payout.payout_id,
-        amount: next.payout.amount,
+        amount: next.payout.net_amount,
+        requestedAmount: next.payout.requested_amount,
+        feeAmount: next.payout.fee_amount,
         currencyCode: next.payout.currency_code,
         estimatedArrivalAt: next.estimatedArrivalAt,
       }

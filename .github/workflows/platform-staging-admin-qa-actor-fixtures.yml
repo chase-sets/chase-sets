@@ -36,6 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
     needs: refuse-unconfirmed
     if: always() && needs.refuse-unconfirmed.result == 'skipped' && inputs.confirm == 'provision admin qa fixtures'
     env:

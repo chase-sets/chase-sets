@@ -26,6 +26,8 @@ export const baseListing: DiscoveryMarketListing = {
   storage_location_name: null,
   ship_from_code: null,
   price_amount: "399.99",
+  price_currency_code: "USD",
+  listing_stream_version: 1,
   shipping_allowance_percentage_bps: 500,
   quantity_cap: 2,
   status: "active",
@@ -46,6 +48,8 @@ export const baseOffer: DiscoveryOffer = {
   selected_options: [],
   product_summary: "Raw / Near Mint",
   price_amount: "350.00",
+  price_currency_code: "USD",
+  offer_stream_version: 1,
   quantity_requested: 1,
   status: "submitted",
   accepted_seller_account_id: null,
@@ -56,6 +60,11 @@ export const baseOffer: DiscoveryOffer = {
 
 export const baseAccountOfferMatch: DiscoveryAccountOfferMatch = {
   ...baseOffer,
+  price_currency_code: "USD",
+  offer_stream_version: 1,
+  listing_price_amount: "399.99",
+  listing_price_currency_code: "USD",
+  listing_stream_version: 1,
   seller_available_quantity: 2,
   can_fulfill: true,
   in_sell_list: false,
@@ -81,6 +90,11 @@ export const alternateOffer: DiscoveryOffer = {
 
 export const alternateAccountOfferMatch: DiscoveryAccountOfferMatch = {
   ...alternateOffer,
+  price_currency_code: "USD",
+  offer_stream_version: 1,
+  listing_price_amount: "410.00",
+  listing_price_currency_code: "USD",
+  listing_stream_version: 1,
   seller_available_quantity: 1,
   can_fulfill: true,
   in_sell_list: false,

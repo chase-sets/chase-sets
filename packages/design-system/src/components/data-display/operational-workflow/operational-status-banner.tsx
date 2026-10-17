@@ -37,7 +37,7 @@ export function OperationalStatusBanner({
   ...rest
 }: OperationalStatusBannerProps) {
   return (
-    <Surface {...rest} tone={toneToSemantic(tone)}>
+    <Surface {...rest} tone={toneToSemantic(tone)} elevation="tinted">
       <Stack
         direction={{ base: "column", sm: "row" }}
         align={{ base: "stretch", sm: "start" }}

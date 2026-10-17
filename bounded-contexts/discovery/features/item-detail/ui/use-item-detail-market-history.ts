@@ -8,7 +8,6 @@ import {
   isMarketHistoryRangeKey,
   type MarketHistoryResponse,
   type MarketHistoryRangeKey,
-  type MarketHistorySeriesPoint,
   type MarketHistoryStats,
 } from "../domain/item-detail-market-history";
 
@@ -31,7 +30,7 @@ async function fetchMarketHistory(
 export type UseItemDetailMarketHistoryResult = Readonly<{
   range: MarketHistoryRangeKey;
   setRange: (range: MarketHistoryRangeKey) => void;
-  series: readonly MarketHistorySeriesPoint[];
+  series: MarketHistoryResponse["series"];
   stats: MarketHistoryStats | null;
   minimumSample: number;
   showVerifiedMarkers: boolean;

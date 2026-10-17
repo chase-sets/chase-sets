@@ -6,6 +6,10 @@ import {
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
 import {
+  parseCapabilityAdministrationAuthority,
+  type CapabilityAdministrationAuthority,
+} from "@chase-sets/identity/server";
+import {
   getBooleanEnv,
   getBoundedDurationEnv,
   getContextDatabaseEnvName as getSharedContextDatabaseEnvName,
@@ -35,6 +39,7 @@ import {
   type PlatformPoolConfig,
   type PlatformPostageConfig,
   type PlatformStripeConnectAccountsApi,
+  type PlatformStripeEffectiveMode,
   type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
@@ -62,10 +67,29 @@ import type {
   ReadConsistencyRouteTuning,
 } from "@chase-sets/bounded-context-runtime";
 import { apiContextRegistry } from "./generated/api-context-registry";
+import {
+  parseChannelCredentialKeyring,
+  type ChannelCredentialKeyring,
+  parseEbayAccountDeletionConfiguration,
+  type EbayAccountDeletionConfiguration,
+} from "@chase-sets/channels/server";
+import { parseSecretEnvelopeKeyring, type SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 
 export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
 export type PlatformApiMoneyMovementConfig = PlatformMoneyMovementConfig;
+
+/**
+ * The immutable provider observation retained once by the serving loader. Every member is transported
+ * from the shared Stripe provider load or from the already-resolved deployment environment; nothing
+ * here reclassifies a key or rereads the environment.
+ */
+export type PlatformApiProviderModeObservation = Readonly<{
+  mode: PlatformStripeEffectiveMode;
+  paymentProcessorKind: PlatformApiPaymentProcessorConfig["kind"];
+  moneyMovementKind: PlatformApiMoneyMovementConfig["kind"];
+  deploymentEnvironment: DeploymentEnvironment;
+}>;
 
 export type PlatformApiPostageConfig = PlatformPostageConfig<true>;
 
@@ -108,6 +132,7 @@ export type PlatformApiDiscoverySearchEmbeddingConfig = Readonly<{
   hybridValue: string | null;
   queryCacheMaxEntries: number;
   queryCacheTtlMs: number;
+  queryTimeoutMs: number;
 }>;
 
 export type PlatformApiContextName = ApiHostContextName<typeof apiContextRegistry>;
@@ -124,6 +149,7 @@ export type PlatformApiBaseConfig = Readonly<{
   pool?: PlatformApiPoolConfig;
   port: number;
   internalAuthSecret?: string;
+  evidenceWindowAdmissionSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
   mcpToolCallLimits?: PlatformApiMcpToolCallLimitsConfig;
   agentGrantRateLimit?: RateLimitRule;
@@ -131,6 +157,7 @@ export type PlatformApiBaseConfig = Readonly<{
   readConsistency?: PlatformApiReadConsistencyConfig;
   projectionInlineApplyEnabled?: boolean;
   deploymentEnvironment?: DeploymentEnvironment;
+  capabilityAdministrationAuthority?: CapabilityAdministrationAuthority;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
   registrationAdmission?: PlatformApiRegistrationAdmissionConfig;
@@ -309,9 +336,15 @@ export type PlatformApiRealtimeStreamLimiterConfig =
 
 export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
   Readonly<{
+    checkoutClosed: boolean;
+    offerLifecycleOpen: boolean;
+    channelCredentialKeyring: ChannelCredentialKeyring | null;
+    ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
+    catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
+    stripeEffectiveMode: PlatformStripeEffectiveMode;
     mobileMessaging: PlatformApiMobileMessagingConfig;
     postage: PlatformApiPostageConfig;
     socialLogin: PlatformApiSocialLoginConfig;
@@ -321,12 +354,8 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     discoverySearchEmbeddings: PlatformApiDiscoverySearchEmbeddingConfig;
     stripeGoLive: StripeGoLiveCheckReport;
+    providerModeObservation: PlatformApiProviderModeObservation;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
-    ucpAp2Verifier?: Readonly<{
-      endpoint: string;
-      authorizationToken: string;
-      timeoutMs: number;
-    }>;
     ucpSignatureCreatedFreshnessWindowMs: number;
   }>;
 
@@ -577,7 +606,7 @@ function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigning
     throw new Error("UCP_BUSINESS_SIGNING_ALG must be ES256, ES384, or ES512.");
   }
   if (productionLike && privateJwk.kty !== "EC") {
-    throw new Error("UCP business response signing requires an EC private JWK in production.");
+    throw new Error("UCP business signing keys require an EC private JWK in production.");
   }
 
   return {
@@ -587,36 +616,6 @@ function loadUcpBusinessSigningKeys(productionLike: boolean): UcpBusinessSigning
       privateJwk,
     },
     previousPublicJwks,
-  };
-}
-
-function loadUcpAp2VerifierConfig(longLived: boolean) {
-  const endpoint = getOptionalEnv("UCP_AP2_VERIFIER_URL");
-  const authorizationToken = getOptionalEnv("UCP_AP2_VERIFIER_AUTH_TOKEN");
-  if (!endpoint && !authorizationToken) {
-    return undefined;
-  }
-  if (!endpoint || !authorizationToken) {
-    throw new Error("UCP_AP2_VERIFIER_URL and UCP_AP2_VERIFIER_AUTH_TOKEN must be configured together.");
-  }
-
-  let url: URL;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    throw new Error("UCP_AP2_VERIFIER_URL must be a valid absolute URL.");
-  }
-  if ((longLived && url.protocol !== "https:") || (url.protocol !== "https:" && url.protocol !== "http:")) {
-    throw new Error("UCP_AP2_VERIFIER_URL must use HTTPS in staging and production.");
-  }
-  if (url.username || url.password || url.hash) {
-    throw new Error("UCP_AP2_VERIFIER_URL must not contain credentials or a URL fragment.");
-  }
-
-  return {
-    endpoint: url.toString(),
-    authorizationToken,
-    timeoutMs: getRequiredPositiveNumberEnv("UCP_AP2_VERIFIER_TIMEOUT_MS", 5_000),
   };
 }
 
@@ -651,6 +650,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       productionLike,
       productionMissingSecretError: `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     }),
+    evidenceWindowAdmissionSecret: getOptionalEnv("EVIDENCE_WINDOW_ADMISSION_SECRET") ?? undefined,
     realtime: {
       batchSize: getPositiveNumberEnv("REALTIME_BATCH_SIZE", 100),
       pollIntervalMs: getPositiveNumberEnv("REALTIME_POLL_INTERVAL_MS", 1_000),
@@ -701,6 +701,14 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     },
     projectionInlineApplyEnabled: getBooleanEnv("PROJECTION_INLINE_APPLY_ENABLED", false),
     deploymentEnvironment,
+    capabilityAdministrationAuthority: parseCapabilityAdministrationAuthority(
+      process.env.SUPPORT_EVIDENCE_CAPABILITY_ADMIN_AUTHORITY_JSON,
+      {
+        environment: deploymentEnvironment,
+        deploymentInstance: process.env.CHASE_SETS_DEPLOYMENT_INSTANCE,
+        implementationSha: process.env.CHASE_SETS_IMPLEMENTATION_SHA,
+      },
+    ),
     dataProfiles: loadDataProfiles(deploymentEnvironment),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
     registrationAdmission: {
@@ -745,6 +753,8 @@ function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironmen
 }
 
 export function loadConfig(): PlatformApiConfig {
+  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
+  loadCatalogProviderSendWindowEnabled(process.env);
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
   };
@@ -762,10 +772,6 @@ export function loadConfig(): PlatformApiConfig {
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
   const twilioRequireWebhookSignature = getBooleanEnv("TWILIO_WEBHOOK_SIGNATURE_REQUIRED", true);
   const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
-  const ucpAp2Verifier = loadUcpAp2VerifierConfig(isLongLivedEnvironment(baseConfig.deploymentEnvironment ?? ""));
-  if (ucpAp2Verifier && !ucpBusinessSigningKeys && isLongLivedEnvironment(baseConfig.deploymentEnvironment ?? "")) {
-    throw new Error("UCP AP2 verifier configuration requires UCP business signing keys in staging and production.");
-  }
   const ucpSignatureCreatedFreshnessWindowMs = getRequiredPositiveNumberEnv(
     "UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS",
     DEFAULT_UCP_SIGNATURE_CREATED_FRESHNESS_WINDOW_MS,
@@ -856,9 +862,31 @@ export function loadConfig(): PlatformApiConfig {
           kind: "noop" as const,
         };
 
+  // The deployment environment is resolved once by the base load and is never absent there. The
+  // refusal records that unreachability instead of defaulting the observation to a value the
+  // configuration never produced.
+  const observedDeploymentEnvironment = baseConfig.deploymentEnvironment;
+  if (!observedDeploymentEnvironment) {
+    throw new Error("The deployment environment must resolve before the provider mode observation is retained.");
+  }
+
   return {
     ...baseConfig,
     moneyMovement: stripeProvider.moneyMovement,
+    checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
+    offerLifecycleOpen: getBooleanEnv("CHASE_SETS_OFFER_LIFECYCLE_OPEN", false),
+    channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    ebayAccountDeletionConfiguration: parseEbayAccountDeletionConfiguration(
+      process.env.EBAY_ACCOUNT_DELETION_ENDPOINT,
+      process.env.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN,
+    ),
+    catalogOperatorSessionKeyring,
+    providerModeObservation: {
+      mode: stripeProvider.effectiveMode,
+      paymentProcessorKind: stripeProvider.paymentProcessor.kind,
+      moneyMovementKind: stripeProvider.moneyMovement.kind,
+      deploymentEnvironment: observedDeploymentEnvironment,
+    },
     mobileMessaging,
     postage,
     stripeGoLive: {
@@ -870,7 +898,7 @@ export function loadConfig(): PlatformApiConfig {
       liveSecretKeyLikely: stripeProvider.keyClassification.serverKeyMode === "live",
     },
     catalogAssetStorage,
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     listingPhotoStorage,
     discoverySearchEmbeddings: {
       apiKey: getOptionalEnv("VOYAGE_API_KEY"),
@@ -885,13 +913,17 @@ export function loadConfig(): PlatformApiConfig {
       hybridValue: getOptionalEnv("DISCOVERY_SEARCH_HYBRID"),
       queryCacheMaxEntries: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES", 1_000),
       queryCacheTtlMs: getPositiveNumberEnv("DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS", 900_000),
+      queryTimeoutMs: getBoundedDurationEnv("DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS", 800, {
+        minMs: 1,
+        maxMs: 2_147_483_647,
+      }),
     },
     socialLogin,
     adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,
-    ucpAp2Verifier,
     ucpSignatureCreatedFreshnessWindowMs,
     paymentProcessor: stripeProvider.paymentProcessor,
+    stripeEffectiveMode: stripeProvider.effectiveMode,
   };
 }
 
@@ -925,3 +957,4 @@ function loadRealtimeStreamLimiterConfig(): PlatformApiRealtimeStreamLimiterConf
     leaseTtlSeconds: getOptionalPositiveNumberEnv("REALTIME_REDIS_LEASE_TTL_SECONDS", 60) ?? undefined,
   };
 }
+import { loadCatalogProviderSendWindowEnabled } from "@chase-sets/platform-runtime/config-schema";

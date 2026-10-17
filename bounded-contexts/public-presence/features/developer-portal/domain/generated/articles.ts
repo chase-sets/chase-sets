@@ -519,15 +519,7 @@ export const developerArticles = [
           [
             {
               type: "code",
-              value: "checkout:read",
-            },
-            {
-              type: "text",
-              value: ", ",
-            },
-            {
-              type: "code",
-              value: "checkout:write",
+              value: "dev.ucp.shopping.checkout:manage",
             },
             {
               type: "text",
@@ -537,7 +529,7 @@ export const developerArticles = [
           [
             {
               type: "code",
-              value: "order:read",
+              value: "dev.ucp.shopping.order:read",
             },
             {
               type: "text",

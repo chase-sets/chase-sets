@@ -18,6 +18,7 @@ import { PublicPresencePageShell } from "../../waitlist/ui/public-pages";
 import { publicPresenceT as t } from "../../waitlist/ui/public-presence-translator";
 import { ArticleTableOfContents, CompiledArticleBody, formatArticleReviewedAt } from "../../help/ui/help-pages";
 import { developerArticles, listDeveloperToolsByAvailability } from "../domain/developer-article-catalog";
+import { agentConnectorTermsDeveloperLink } from "../domain/developer-manifest";
 import type { DeveloperArticle, DeveloperMcpToolCatalogEntry } from "../domain/developer-article-model";
 
 export function DeveloperPortalPage() {
@@ -31,7 +32,7 @@ export function DeveloperPortalPage() {
         />
         <Grid columns={{ base: 1, md: 2 }} gap={4}>
           {developerArticles.map((article) => (
-            <Surface key={article.href} element="article" elevated>
+            <Surface key={article.href} element="article" elevation="elevated">
               <Stack gap={3}>
                 <Heading level={2} visualSize={3}>
                   {article.title}
@@ -51,6 +52,9 @@ export function DeveloperPortalPage() {
           description={t("publicPresence.developers.machine.description")}
         >
           <Inline>
+            <LinkButton href={agentConnectorTermsDeveloperLink.href} tone="secondary">
+              {t(agentConnectorTermsDeveloperLink.portalLabelKey)}
+            </LinkButton>
             <LinkButton href="/developers/manifest.json" tone="secondary">
               {t("publicPresence.developers.machine.manifest")}
             </LinkButton>
@@ -151,7 +155,7 @@ function ToolDescriptor({ tool }: { tool: DeveloperMcpToolCatalogEntry }) {
     ? tool.permissionBoundary.requiredScopes
     : [t("publicPresence.developers.catalog.none")];
   return (
-    <Surface element="article" elevated>
+    <Surface element="article" elevation="flush">
       <Stack gap={3}>
         <Heading level={4}>{tool.title}</Heading>
         <Text size="sm">{tool.name}</Text>

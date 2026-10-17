@@ -40,6 +40,17 @@ variable "production_marketplace_public_enabled" {
   }
 }
 
+variable "production_marketplace_served" {
+  type        = bool
+  default     = false
+  description = "Serve the production marketplace to invited accounts while the proof runtime profile is active and public launch remains disabled."
+
+  validation {
+    condition     = var.environment == "production" || var.production_marketplace_served == false
+    error_message = "production_marketplace_served may only be true for production."
+  }
+}
+
 variable "production_runtime_profile" {
   type        = string
   default     = "landing"
@@ -97,6 +108,28 @@ variable "production_marketplace_checkout_fee_reference" {
   validation {
     condition     = !var.production_marketplace_checkout_fee_approved || trimspace(var.production_marketplace_checkout_fee_reference) != ""
     error_message = "production_marketplace_checkout_fee_reference is required when production_marketplace_checkout_fee_approved is true."
+  }
+}
+
+variable "production_payout_fee_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Settlement launch attestation that the payout fee implementation and disclosures are approved before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_payout_fee_approved == false
+    error_message = "production_payout_fee_approved may only be true for production."
+  }
+}
+
+variable "production_payout_fee_reference" {
+  type        = string
+  default     = ""
+  description = "Settlement-owned evidence reference for the approved payout fee implementation and published disclosure."
+
+  validation {
+    condition     = !var.production_payout_fee_approved || trimspace(var.production_payout_fee_reference) != ""
+    error_message = "production_payout_fee_reference is required when production_payout_fee_approved is true."
   }
 }
 

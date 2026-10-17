@@ -35,7 +35,7 @@ import {
   createDiscoverySearchEmbeddingEnrichment,
   type DiscoverySearchEmbeddingEnrichment,
 } from "../../features/search/read-model/embedding-enrichment";
-import type { DiscoverySearchQuerySignal } from "../../features/search/api/runtime";
+import type { DiscoverySearchRetrievalOptions } from "../../features/search/api/runtime";
 import {
   createSavedListPickerRuntime,
   type SavedListPickerServices,
@@ -57,11 +57,10 @@ export type DiscoveryHostPorts = Readonly<{
     hybridValue?: string | null;
     queryCacheMaxEntries?: number;
     queryCacheTtlMs?: number;
+    queryTimeoutMs?: number;
   }>;
   searchEmbeddingProvider?: DiscoveryEmbeddingProvider;
-  searchTelemetry?: Readonly<{
-    recordSearchQuery: (signal: DiscoverySearchQuerySignal) => void;
-  }>;
+  searchTelemetry?: Pick<DiscoverySearchRetrievalOptions, "recordSearchQuery" | "recordQueryEmbeddingLoad">;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
 }>;
 
@@ -134,6 +133,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
       ? createQueryEmbeddingCache({
           maxEntries: embeddingConfig?.queryCacheMaxEntries,
           ttlMs: embeddingConfig?.queryCacheTtlMs,
+          timeoutMs: embeddingConfig?.queryTimeoutMs,
         })
       : undefined,
     rescueEnabled:
@@ -147,6 +147,7 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
         [DISCOVERY_SEARCH_HYBRID_ENV_VAR]: embeddingConfig?.hybridValue ?? undefined,
       }),
     recordSearchQuery: ports.searchTelemetry?.recordSearchQuery,
+    recordQueryEmbeddingLoad: ports.searchTelemetry?.recordQueryEmbeddingLoad,
   });
 
   return {

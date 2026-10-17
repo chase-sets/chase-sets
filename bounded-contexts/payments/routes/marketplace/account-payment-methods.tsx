@@ -209,7 +209,7 @@ export default function AccountPaymentMethodsRoute() {
         ) : (
           <AutoGrid minItemWidth="md" gap={4}>
             {paymentMethods.map((method) => (
-              <Surface key={method.instrument_id} elevated>
+              <Surface key={method.instrument_id} elevation="elevated">
                 <Stack gap={3}>
                   <Inline gap={2} align="center">
                     <Badge tone={readinessTone(method.readiness)}>{method.readiness}</Badge>

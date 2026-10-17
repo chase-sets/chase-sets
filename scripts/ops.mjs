@@ -16,6 +16,10 @@ import { fileURLToPath } from "node:url";
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 
 export const SUBCOMMANDS = {
+  "browser:usability": {
+    script: "browser-usability.mjs",
+    description: "Prepare, adjudicate, and compare advisory goal-only browser probes.",
+  },
   "design-system:raw-ui-budget": {
     script: "design-system-raw-ui-budget.mjs",
     description: "Ratcheted raw UI budgets for bounded-context and deployable consumers.",
@@ -27,10 +31,6 @@ export const SUBCOMMANDS = {
   "account-cart:consistency-probe": {
     script: "account-cart-consistency-probe.mjs",
     description: "Redacted account-cart post-write consistency probe evidence.",
-  },
-  "ucp:ap2-certification-evidence": {
-    script: "ucp-ap2-certification-evidence.mjs",
-    description: "Validate redacted staging UCP AP2 direct-mode certification evidence.",
   },
   "campaign:start-gate": {
     script: "campaign-start-gate.mjs",
@@ -59,7 +59,8 @@ export const SUBCOMMANDS = {
   },
   "catalog:production-completion-report": {
     script: "run-catalog-production-completion-report.mjs",
-    description: "Reconcile a frozen production Catalog completion manifest and gate launch on completeness blockers.",
+    description:
+      "Reconcile a frozen Catalog completion manifest or deployed Catalog database facts and gate launch on completeness blockers.",
   },
   "emergency-recovery:guide": {
     script: "emergency-recovery-guide.mjs",
@@ -84,6 +85,11 @@ export const SUBCOMMANDS = {
   "launch:go-no-go-gate": {
     script: "launch-go-no-go-gate.mjs",
     description: "Aggregate terminal launch-evidence go/no-go gate and recorded decision.",
+  },
+  "legal:review-packet": {
+    script: "legal-review-packet.mjs",
+    description:
+      "Offline deterministic counsel review packet (stdout) or its retained-byte receipt (--receipt). Generates nothing else and claims no approval.",
   },
   "marketplace:checkout-fee-evidence": {
     script: "marketplace-checkout-fee-evidence.mjs",
@@ -119,7 +125,8 @@ export const SUBCOMMANDS = {
   },
   "marketplace:promotion-evidence": {
     script: "marketplace-promotion-evidence.mjs",
-    description: "Marketplace public promotion review evidence.",
+    description:
+      "Marketplace public promotion review evidence; requires the exact successful launch-mode copy audit record via --public-presence-copy-audit.",
   },
   "marketplace:provider-proof-status": {
     script: "marketplace-provider-proof-status.mjs",
@@ -127,7 +134,8 @@ export const SUBCOMMANDS = {
   },
   "marketplace:public-presence-copy-audit": {
     script: "marketplace-public-presence-copy-audit.mjs",
-    description: "Audit public presence copy for launch readiness.",
+    description:
+      "Audit deployed public presence copy; launch mode additionally verifies the retained counsel packet and the full legal corpus.",
   },
   "marketplace:stripe-money-operations-evidence": {
     script: "marketplace-stripe-money-operations-evidence.mjs",
@@ -196,6 +204,10 @@ export const SUBCOMMANDS = {
   "release-health:flake-digest": {
     script: "release-health-flake-digest.mjs",
     description: "Weekly CI flake digest from GitHub Actions retry telemetry.",
+  },
+  "release-health:db-duration-drift": {
+    script: "release-health-db-duration-drift.mjs",
+    description: "Collect DB duration drift and explicitly pending baseline cohorts.",
   },
   "release-health:merge-group-failure-signatures": {
     script: "release-health-merge-group-failure-signatures.mjs",

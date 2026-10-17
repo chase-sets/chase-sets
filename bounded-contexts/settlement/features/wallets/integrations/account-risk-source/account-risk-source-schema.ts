@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS settlement_account_velocity_sources (
   account_id text NOT NULL,
   occurred_at timestamptz NOT NULL,
   amount_cents bigint NOT NULL DEFAULT 0,
+  amount_currency_code text NULL,
+  source_stream_version integer NULL,
   reviewer_account_id text NULL,
   reviewer_account_created_at timestamptz NULL,
   updated_at timestamptz NOT NULL,
@@ -171,6 +173,16 @@ CREATE INDEX IF NOT EXISTS settlement_account_velocity_sources_reviewer_idx
 `;
 
 export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260907_settlement_listing_risk_currency",
+    description:
+      "Preserve nullable Listing value currency and Marketplace stream version for USD-denominated risk aggregation.",
+    statements: [
+      `ALTER TABLE settlement_account_velocity_sources
+  ADD COLUMN IF NOT EXISTS amount_currency_code text NULL,
+  ADD COLUMN IF NOT EXISTS source_stream_version integer NULL`,
+    ],
+  },
   {
     migrationId: "20260720_settlement_account_linkage_clusters",
     description: "Map private risk clusters to opaque identifiers and track their publication lifecycle.",

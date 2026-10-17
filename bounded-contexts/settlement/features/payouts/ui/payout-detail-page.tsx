@@ -5,6 +5,7 @@ import {
   LinkButton,
   MarketplaceNotice,
   MarketplaceStatusTimeline,
+  NumericValue,
   Page,
   PageHeader,
   PageSection,
@@ -55,7 +56,9 @@ export function SettlementPayoutDetailPage({
         title={t("settlement.features.payouts.ui.payoutDetailPage.payout.title", {
           payoutReference: payout.display_reference,
         })}
-        description={formatMoney(payout.amount, payout.currency_code)}
+        description={t("settlement.features.payouts.ui.netPayoutAmount", {
+          amount: formatMoney(payout.net_amount, payout.currency_code),
+        })}
         actions={
           <LinkButton href={backHref} tone="secondary">
             {t("settlement.features.payouts.ui.payoutDetailPage.back.to.payouts")}
@@ -69,7 +72,7 @@ export function SettlementPayoutDetailPage({
             tone="success"
             title={t("settlement.features.payouts.ui.payoutDetailPage.payout.requested.2")}
             description={t("settlement.features.payouts.ui.payoutDetailPage.amount.is.being.sent.to.your.saved", {
-              amount: formatMoney(payout.amount, payout.currency_code),
+              amount: formatMoney(payout.net_amount, payout.currency_code),
             })}
           />
         </PageSection>
@@ -106,8 +109,12 @@ export function SettlementPayoutDetailPage({
           <PriceBreakdown
             lines={[
               {
-                label: t("settlement.features.payouts.ui.payoutDetailPage.amount"),
-                value: formatMoney(payout.amount, payout.currency_code),
+                label: t("settlement.features.payouts.ui.requestedAmount"),
+                value: <NumericValue>{formatMoney(payout.requested_amount, payout.currency_code)}</NumericValue>,
+              },
+              {
+                label: t("settlement.features.payouts.ui.payoutFee"),
+                value: <NumericValue>{formatMoney(payout.fee_amount, payout.currency_code)}</NumericValue>,
               },
               {
                 label: t("settlement.features.payouts.ui.payoutDetailPage.requested.2"),
@@ -138,8 +145,8 @@ export function SettlementPayoutDetailPage({
                   ]
                 : []),
             ]}
-            total={statusLabel(payout.status)}
-            totalLabel={t("settlement.features.payouts.ui.payoutDetailPage.summary")}
+            total={<NumericValue>{formatMoney(payout.net_amount, payout.currency_code)}</NumericValue>}
+            totalLabel={t("settlement.features.payouts.ui.netPayout")}
           />
           {showSupportDetails && payout.provider_status ? (
             <MarketplaceNotice

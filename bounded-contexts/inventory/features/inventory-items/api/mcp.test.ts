@@ -27,7 +27,10 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
   return {
     actor: requestActor,
     tool: null as never,
-    arguments: arguments_,
+    arguments: {
+      ...(arguments_.quantityDelta === undefined ? {} : { idempotencyKey: "559885de-4aa8-49a8-82eb-3fa4413dbe59" }),
+      ...arguments_,
+    },
     request: new Request("https://api.test/mcp"),
     protocol: legacyMcpProtocol,
   };
@@ -60,6 +63,7 @@ function itemRow(overrides: Record<string, unknown> = {}) {
     held_quantity: 1,
     available_quantity: 3,
     acquisition_cost_amount: "10.00",
+    acquisition_cost_currency_code: "USD",
     created_at: "2026-07-08T00:00:00.000Z",
     updated_at: "2026-07-08T00:00:00.000Z",
     ...overrides,
@@ -78,7 +82,14 @@ function services(): InventoryItemServices {
 
 function collisionServices(): InventoryHoldCollisionServices {
   return {
-    reduceItem: vi.fn(async (params) => ({ itemId: params.itemId, version: 3, collision: null })),
+    reduceItem: vi.fn(async (params) => ({
+      itemId: params.itemId,
+      version: 3,
+      requestedQuantity: params.requestedQuantity,
+      appliedQuantity: params.requestedQuantity,
+      refusedQuantity: 0,
+      collision: null,
+    })),
     projectors: [],
   };
 }
@@ -198,6 +209,9 @@ describe("inventory item MCP handlers", () => {
     vi.mocked(collisions.reduceItem).mockResolvedValue({
       itemId: "inv_1",
       version: 3,
+      requestedQuantity: 1,
+      appliedQuantity: 0,
+      refusedQuantity: 1,
       collision: {
         mode: "protect-orders",
         authorizedByRole: null,
@@ -272,7 +286,7 @@ describe("inventory item MCP handlers", () => {
         reason: "Found during count",
         reasonCode: "found",
         note: "  Behind display case  ",
-        idempotencyKey: "adjust-found-1",
+        idempotencyKey: "bfe62e5f-2c1b-47f2-8279-9a0d138c9d21",
       }),
     );
     await handlers.toolHandlers["inventory.adjust-item"]?.(
@@ -281,7 +295,7 @@ describe("inventory item MCP handlers", () => {
         inventoryItemId: "inv_1",
         quantityDelta: 1,
         reason: "Legacy count",
-        idempotencyKey: "adjust-legacy-1",
+        idempotencyKey: "03ec52b6-c35b-4e24-bac0-36d037e28021",
       }),
     );
 
@@ -292,6 +306,53 @@ describe("inventory item MCP handlers", () => {
     );
     expect(vi.mocked(fakeServices.adjustItem).mock.calls[1]?.[0]).not.toHaveProperty("reasonCode");
     expect(vi.mocked(fakeServices.adjustItem).mock.calls[1]?.[0]).not.toHaveProperty("note");
+  });
+
+  it("maps MCP acquisition time to seller provenance and rejects it on reductions", async () => {
+    const fakeServices = services();
+    const collisions = collisionServices();
+    const handlers = createInventoryItemMcpHandlers(fakeServices, storageLocations(), collisions);
+    const acquiredAt = "2026-09-01T05:00:00-05:00";
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: 1,
+          reason: "Intake",
+          acquisitionOccurredAt: acquiredAt,
+          acquisitionSource: "forged",
+        }),
+      ),
+    ).rejects.toThrow("Invalid Inventory request");
+    expect(fakeServices.adjustItem).not.toHaveBeenCalled();
+    await handlers.toolHandlers["inventory.adjust-item"]?.(
+      mcpRequest({
+        accountId: "acc_1",
+        inventoryItemId: "inv_1",
+        quantityDelta: 1,
+        reason: "Intake",
+        acquisitionOccurredAt: acquiredAt,
+      }),
+    );
+    expect(fakeServices.adjustItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        acquisitionOccurrence: { kind: "occurred", occurredAt: acquiredAt, source: "seller-supplied" },
+      }),
+      expect.anything(),
+    );
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: -1,
+          reason: "Reduction",
+          acquisitionOccurredAt: acquiredAt,
+        }),
+      ),
+    ).rejects.toThrow(/reductions cannot claim/);
+    expect(collisions.reduceItem).not.toHaveBeenCalled();
   });
 
   it("derives sold-offline for honor offline and rejects conflicting or unknown codes", async () => {
@@ -330,6 +391,17 @@ describe("inventory item MCP handlers", () => {
           quantityDelta: 1,
           reason: "Count",
           reasonCode: "other",
+        }),
+      ),
+    ).rejects.toThrow("supported inventory adjustment reason");
+    await expect(
+      handlers.toolHandlers["inventory.adjust-item"]?.(
+        mcpRequest({
+          accountId: "acc_1",
+          inventoryItemId: "inv_1",
+          quantityDelta: -1,
+          reason: "Forged channel sale",
+          reasonCode: "sold-external-channel",
         }),
       ),
     ).rejects.toThrow("supported inventory adjustment reason");

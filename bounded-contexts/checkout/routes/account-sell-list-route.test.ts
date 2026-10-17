@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createStaticHandler } from "react-router";
 import { appendFreshWriteToken, appendPostWriteHandoff } from "@chase-sets/http/responses";
+import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { registerPostWriteConsistencyRecorder } from "@chase-sets/platform-runtime/post-write-consistency";
 import { ACCOUNT_SELL_LIST_ADD_LINE_HANDOFF } from "../support/request-support/account-sell-list-handoffs";
 import {
@@ -20,8 +22,8 @@ import {
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateSellListReadiness,
-  mockCreateSettlementRequestApiClient,
   mockGetGuestSellList,
+  mockGetSellListCompositeReview,
   mockGetOfferMatch,
   mockGetPublicOffer,
   mockGetPayoutReadiness,
@@ -92,10 +94,6 @@ vi.mock("@chase-sets/marketplace/server", () => ({
   MarketplaceApiError: MockMarketplaceApiError,
 }));
 
-vi.mock("@chase-sets/settlement/server", () => ({
-  createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
-}));
-
 import { action as accountSellListAction, loader as accountSellListLoader } from "./account-sell-list";
 
 const mockPostWriteConsistencyRecorder = vi.fn();
@@ -112,6 +110,131 @@ describe("checkout web routes: account sell list", () => {
     unregisterPostWriteConsistencyRecorder = null;
     vi.resetAllMocks();
     vi.unstubAllEnvs();
+  });
+
+  it("returns 200 for a receipt-bearing Sell List destination when composite review projection freshness times out", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const sellList = { items: [{ line_id: "sll_receipt", quantity: 1 }], count: 1 };
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn().mockResolvedValue(sellList),
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+      getSellListPayoutReadiness: mockGetPayoutReadiness,
+    });
+    mockGetSellListCompositeReview.mockRejectedValue(
+      new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } }),
+    );
+    const destination = await navigateAfterWriteWithPlatformPostWriteToken(
+      { commandReceipt: checkoutCommit("13", "evt_sell_list_line") },
+      "/account/sell-list",
+    );
+    expect(destination).toContain("postWriteToken=");
+    const { query } = createStaticHandler([
+      { id: "sell-list", path: "/account/sell-list", loader: accountSellListLoader },
+    ]);
+
+    const result = await query(new Request(`http://localhost${destination}`));
+    if (result instanceof Response) throw new Error("Sell List destination unexpectedly redirected");
+
+    expect(result.statusCode, "receipt-bearing destination must succeed").toBe(200);
+    expect(result.errors).toBeNull();
+    expect(result.loaderData["sell-list"]).toMatchObject({
+      sellList,
+      freshnessError: expect.any(String),
+      sellListRecovery: {
+        kind: "pending-fresh-write",
+        recoveryKind: "refreshable-catching-up",
+        actorMode: "account",
+        correctionSource: "sell-list-composite-review",
+      },
+      offerReviews: [],
+      productOfferReviews: [],
+      inventoryItems: [],
+    });
+    expect(mockGetSellListCompositeReview).toHaveBeenCalledOnce();
+    expect(mockPostWriteConsistencyRecorder).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "freshness_timeout", correctionSource: "sell-list-composite-review" }),
+    );
+  });
+
+  it.each(["missing", "expired"])(
+    "does not recover composite review projection timeouts with a %s receipt",
+    async (receipt) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getSellList: vi.fn().mockResolvedValue({ items: [], count: 0 }),
+        getSellListCompositeReview: mockGetSellListCompositeReview,
+      });
+      mockGetSellListCompositeReview.mockRejectedValue(
+        new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } }),
+      );
+      const path =
+        receipt === "missing"
+          ? "/account/sell-list"
+          : appendFreshWriteToken(
+              "/account/sell-list",
+              checkoutCommit("13", "evt_sell_list_line"),
+              Date.now() - 40_000,
+            );
+
+      await expect(
+        accountSellListLoader({
+          request: new Request(`http://localhost${path}`),
+          params: {},
+          context: undefined,
+        } as never),
+      ).rejects.toMatchObject({ status: 503 });
+      expect(mockPostWriteConsistencyRecorder).not.toHaveBeenCalledWith(
+        expect.objectContaining({ correctionSource: "sell-list-composite-review" }),
+      );
+    },
+  );
+
+  it("keeps the original Sell List recovery when both receipt-bearing reads are pending", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    const error = new MockCheckoutApiError(503, { error: { code: "projection_freshness_timeout" } });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn().mockRejectedValue(error),
+      getSellListCompositeReview: mockGetSellListCompositeReview.mockRejectedValue(error),
+    });
+    const path = appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line"));
+
+    const result = await accountSellListLoader({
+      request: new Request(`http://localhost${path}`),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toMatchObject({
+      sellList: { items: [], count: 0, latestConfirmation: null },
+      sellListRecovery: { kind: "pending-fresh-write", correctionSource: "fresh-read" },
+      offerReviews: [],
+      productOfferReviews: [],
+      inventoryItems: [],
+    });
+  });
+
+  it.each([
+    [401, "unauthorized"],
+    [403, "forbidden"],
+    [409, "sell_list_readiness_stale"],
+    [500, "internal_error"],
+    [503, "checkout_unavailable"],
+  ])("does not hide composite review %i/%s failures behind a fresh receipt", async (status, code) => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn().mockResolvedValue({ items: [], count: 0 }),
+      getSellListCompositeReview: mockGetSellListCompositeReview,
+    });
+    mockGetSellListCompositeReview.mockRejectedValue(new MockCheckoutApiError(status, { error: { code } }));
+    const path = appendFreshWriteToken("/account/sell-list", checkoutCommit("13", "evt_sell_list_line"));
+
+    await expect(
+      accountSellListLoader({
+        request: new Request(`http://localhost${path}`),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toMatchObject({ status, body: { error: { code } } });
   });
 
   it("recovers signed-in account Sell List self-refresh when a fresh receipt times out waiting for projection freshness", async () => {
@@ -954,6 +1077,11 @@ describe("checkout web routes: account sell list", () => {
     form.set("buyerDisplayName", "Collector123");
     form.set("buyerAccountId", "acc_buyer_private");
     form.set("offerPriceAmount", "40.00");
+    form.set("offerPriceCurrencyCode", "EUR");
+    form.set("offerStreamVersion", "3");
+    form.set("listingPriceAmount", "45.00");
+    form.set("listingPriceCurrencyCode", "EUR");
+    form.set("listingStreamVersion", "7");
     form.set("catalogItemId", "cat_mewtwo");
     form.set("productId", "cat_mewtwo::raw:nm");
     form.set("itemTitle", "Mewtwo");
@@ -980,6 +1108,11 @@ describe("checkout web routes: account sell list", () => {
       buyerAccountId: null,
       buyerDisplayName: "Collector123",
       offerPriceAmount: "40.00",
+      offerPriceCurrencyCode: "EUR",
+      offerStreamVersion: 3,
+      listingPriceAmount: "45.00",
+      listingPriceCurrencyCode: "EUR",
+      listingStreamVersion: 7,
       catalogItemId: "cat_mewtwo",
       productId: "cat_mewtwo::raw:nm",
       itemTitle: "Mewtwo",
@@ -1223,6 +1356,7 @@ describe("checkout web routes: account sell list", () => {
     form.set("fallbackMode:sll_product", "create-listing");
     form.set("inventoryItemId:sll_product", "inv_1");
     form.set("priceAmount:sll_product", "12.00");
+    form.set("priceCurrencyCode:sll_product", "USD");
     form.set("quantityCap:sll_product", "1");
 
     const response = (await accountSellListAction({
@@ -1249,7 +1383,12 @@ describe("checkout web routes: account sell list", () => {
       expect.objectContaining({
         lineId: "sll_product",
         productOfferTargets: [],
-        fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+        fallbackListing: {
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
       }),
     );
     expectNoSellerCommitSideEffects();
@@ -1389,6 +1528,7 @@ describe("checkout web routes: account sell list", () => {
     form.set("fallbackMode:sll_product", "create-listing");
     form.set("inventoryItemId:sll_product", "inv_1");
     form.set("priceAmount:sll_product", "12.00");
+    form.set("priceCurrencyCode:sll_product", "USD");
     form.set("quantityCap:sll_product", "1");
 
     const response = (await accountSellListAction({
@@ -1417,7 +1557,12 @@ describe("checkout web routes: account sell list", () => {
             quantity: 1,
           },
         ],
-        fallbackListing: { inventoryItemId: "inv_1", priceAmount: "12.00", quantityCap: 1 },
+        fallbackListing: {
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 1,
+        },
       }),
     );
     expectNoSellerCommitSideEffects();

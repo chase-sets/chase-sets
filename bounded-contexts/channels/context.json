@@ -1,0 +1,993 @@
+{
+  "contextName": "channels",
+  "packageName": "@chase-sets/channels",
+  "ownedNouns": [
+    "eBay-account-deletion-receipt",
+    "channel-connection",
+    "channel-health",
+    "channel-publication-facts",
+    "channel-composition-profile",
+    "channel-publication-settings",
+    "channel-publication-eligibility",
+    "channel-listing-desired-state",
+    "channel-listing-reconciliation-run",
+    "channel-inventory-snapshot",
+    "channel-sync-run",
+    "channel-drift",
+    "channel-drift-decision",
+    "channel-reconciliation-run",
+    "missed-sale-gap",
+    "channel-outbound-hold"
+  ],
+  "streamPrefix": "channels.",
+  "apiBasePath": "/api/channels",
+  "slices": [
+    "ebay-account-deletion",
+    "connector-feed",
+    "connections",
+    "credentials",
+    "connector-client",
+    "publication-port",
+    "listing-composition",
+    "tcgplayer-csv",
+    "tcgplayer-orders",
+    "live-export-snapshot",
+    "order-fulfillment-observations",
+    "outbound-sync",
+    "connection-health",
+    "connection-attention",
+    "manual-sync",
+    "reconciliation"
+  ],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./client", "./context", "./server", "./test-support", "./routes/*", "./seed-support/*"],
+  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
+  "seedRequirements": ["inventory"],
+  "hostPorts": [
+    {
+      "portName": "ebayAccountDeletionConfiguration",
+      "providedBy": "platform-api",
+      "purpose": "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET."
+    },
+    {
+      "portName": "webhookTelemetry",
+      "providedBy": "platform-api",
+      "purpose": "Record bounded provider webhook outcomes without request or configuration values."
+    },
+    {
+      "portName": "storageLocationAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume."
+    },
+    {
+      "portName": "connectorOAuth",
+      "providedBy": "platform-api",
+      "purpose": "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority."
+    },
+    {
+      "portName": "marketplaceChannelInboundClamp",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark."
+    },
+    {
+      "portName": "channelSaleRecorder",
+      "providedBy": "inventory",
+      "purpose": "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation."
+    },
+    {
+      "portName": "channelCredentialKeyring",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable."
+    }
+  ],
+  "eventSubscriptions": [
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "channel-fulfillment-item-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.item.created"],
+      "order": 31,
+      "projectionHandlerSetNames": ["channel-fulfillment-item-facts"]
+    },
+    {
+      "sourceContextName": "marketplace",
+      "projectionName": "channel-marketplace-publication-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability.disabled"
+      ],
+      "order": 10,
+      "projectionHandlerSetNames": ["channel-marketplace-publication-facts"]
+    },
+    {
+      "sourceContextName": "catalog",
+      "projectionName": "channel-catalog-publication-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.catalog-item.external-product-reference-linked",
+        "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked"
+      ],
+      "order": 20,
+      "projectionHandlerSetNames": ["channel-catalog-publication-facts"]
+    },
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "channel-inventory-publication-facts",
+      "subscriptionVersion": 2,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.converted",
+        "inventory.hold.extended",
+        "inventory.hold.released",
+        "inventory.hold.expired",
+        "inventory.hold.consumed",
+        "inventory.channel-stock-allocation.set"
+      ],
+      "order": 30,
+      "projectionHandlerSetNames": ["channel-inventory-publication-facts"]
+    },
+    {
+      "sourceContextName": "channels",
+      "projectionName": "channel-owned-publication-state",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.connection.connected",
+        "channels.connection.activated",
+        "channels.connection.paused",
+        "channels.connection.resumed",
+        "channels.connection.disconnected",
+        "channels.channel-publication-configuration.settings-replaced",
+        "channels.channel-publication-configuration.mapping-candidate-recorded",
+        "channels.channel-publication-configuration.mapping-review-decided",
+        "channels.channel-listing.desired-state-changed",
+        "channels.channel-listing.publication-blocked",
+        "channels.channel-listing.publication-recorded",
+        "channels.channel-listing-reconciliation.run-enqueued",
+        "channels.channel-listing-reconciliation.chunk-drained",
+        "channels.channel-listing-reconciliation.run-settled"
+      ],
+      "order": 40,
+      "projectionHandlerSetNames": ["channel-connection-publication-facts", "channel-listing-state-projection"]
+    },
+    {
+      "sourceContextName": "channels",
+      "projectionName": "tcgplayer-csv-projection",
+      "subscriptionVersion": 1,
+      "streamPrefixes": ["channels.tcgplayer-sync-run-"],
+      "order": 50,
+      "projectionHandlerSetNames": ["tcgplayer-csv-projection"]
+    }
+  ],
+  "eventReactions": [
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "channel-fulfillment-observation-retry",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.external-channel-sale.recorded"],
+      "order": 64,
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "channels",
+      "reactionName": "channel-fulfillment-observation-retry",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.channel-listing.desired-state-changed",
+        "channels.channel-publication-configuration.mapping-review-decided"
+      ],
+      "order": 65,
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "marketplace",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
+        "marketplace.listing.withdrawn",
+        "marketplace.seller-listing-availability.enabled",
+        "marketplace.seller-listing-availability.disabled"
+      ],
+      "order": 60,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "catalog",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed",
+        "catalog.catalog-item.external-product-reference-linked",
+        "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked"
+      ],
+      "order": 61,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 2,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "inventory.item.created",
+        "inventory.item.adjusted",
+        "inventory.hold.placed",
+        "inventory.hold.converted",
+        "inventory.hold.extended",
+        "inventory.hold.released",
+        "inventory.hold.expired",
+        "inventory.hold.consumed",
+        "inventory.channel-stock-allocation.set"
+      ],
+      "order": 62,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "channels",
+      "reactionName": "channel-listing-desired-state-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.connection.connected",
+        "channels.connection.activated",
+        "channels.connection.paused",
+        "channels.connection.resumed",
+        "channels.connection.disconnected",
+        "channels.channel-publication-configuration.settings-replaced",
+        "channels.channel-publication-configuration.mapping-candidate-recorded",
+        "channels.channel-publication-configuration.mapping-review-decided",
+        "channels.channel-listing.desired-state-changed",
+        "channels.channel-listing-reconciliation.run-enqueued",
+        "channels.channel-listing-reconciliation.chunk-drained",
+        "channels.channel-listing-reconciliation.run-settled"
+      ],
+      "order": 63,
+      "reactionHandlerSetNames": ["channel-listing-desired-state-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    }
+  ],
+  "projectionGroups": [
+    {
+      "projectionName": "channel-fulfillment-observation-retry",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["inventory", "channels"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-fulfillment-item-facts",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["channel_fulfillment_item_facts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-connection-projection",
+      "sourceContextNames": ["channels"],
+      "ownedTables": ["channel_connections"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "channel-marketplace-publication-facts",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["channels_listing_publication_facts", "channels_seller_availability_facts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-catalog-publication-facts",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": [
+        "channels_catalog_item_category_facts",
+        "channels_external_product_reference_facts",
+        "channels_external_catalog_item_reference_facts"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-inventory-publication-facts",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": [
+        "channels_inventory_item_facts",
+        "channels_inventory_hold_facts",
+        "channels_inventory_allocation_facts"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-owned-publication-state",
+      "sourceContextNames": ["channels"],
+      "ownedTables": [
+        "channels_connection_facts",
+        "channels_connection_publication_settings",
+        "channels_channel_mappings",
+        "channels_channel_listing_links",
+        "channels_listing_reconciliation_runs",
+        "channels_channel_publication_operations"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["channels"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "channel-listing-desired-state-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["marketplace", "catalog", "inventory", "channels"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "tcgplayer-csv-projection",
+      "sourceContextNames": ["channels"],
+      "ownedTables": [
+        "channel_export_schema_pins",
+        "channel_inventory_snapshots",
+        "channel_inventory_snapshot_rows",
+        "channel_sync_runs",
+        "channel_sync_run_rows"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "truncate-owned-tables"
+    }
+  ],
+  "apiDeployables": ["platform-api"],
+  "apiRuntimeProfiles": ["proof", "public"],
+  "apiMounts": [
+    {
+      "mountPath": "/api/channels",
+      "kind": "primary",
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/connections/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "channel_connections" }]
+        },
+        {
+          "routePath": "/connections/:connectionId/manual-sync",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "channel_connections" },
+            { "readModelTable": "channel_sync_runs" },
+            { "readModelTable": "channel_sync_run_rows" }
+          ]
+        },
+        {
+          "routePath": "/publication/:connectionId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "channels_connection_publication_settings"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mountPath": "/channel-connector/oauth",
+      "kind": "additional",
+      "requiresAuth": false
+    },
+    {
+      "mountPath": "/api/channels-webhooks",
+      "kind": "additional",
+      "requiresAuth": false
+    }
+  ],
+  "workerRuntimeProfiles": ["proof", "public"],
+  "agentCoverage": {
+    "ebay-account-deletion-lookup": { "pending": "#9238" }
+  },
+  "deployableContributions": [
+    {
+      "deployable": "marketplace-web",
+      "routes": [
+        {
+          "routeId": "channels-connections",
+          "routePath": "account/channels",
+          "fileExport": "./routes/marketplace/account-channels",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        },
+        {
+          "routeId": "channels-connection-detail",
+          "routePath": "account/channels/:connectionId",
+          "fileExport": "./routes/marketplace/account-channels-connection",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account connection status is private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        },
+        {
+          "routeId": "channels-publication",
+          "routePath": "account/channels/publication",
+          "fileExport": "./routes/marketplace/account-channels-publication",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        },
+        {
+          "routeId": "account-channel-connection-manual-sync-download",
+          "routePath": "account/channels/:connectionId/manual-sync/download",
+          "fileExport": "./routes/marketplace/account-channel-connection-manual-sync-download",
+          "routeType": "route",
+          "placement": "root",
+          "sourceContext": "channels",
+          "delivery": "web-resource-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": ["channels.manage"]
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "The attachment response is not a standalone canonical document."
+          },
+          "availability": { "web": true, "mobile": false },
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "The route returns a web protocol resource rather than a portable page."
+          }
+        },
+        {
+          "routeId": "channels-publication-connection",
+          "routePath": "account/channels/publication/:connectionId",
+          "fileExport": "./routes/marketplace/account-channels-publication-connection",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "delivery": "server-only",
+          "authorization": { "kind": "authenticated", "requiredPermissions": ["channels.view"] },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Account publication settings are private." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "channels",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this account route."
+          }
+        }
+      ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "ebay-account-deletion-lookup",
+          "routePath": "ebay-account-deletion",
+          "fileExport": "./routes/admin/ebay-account-deletion",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "section": "support"
+        }
+      ]
+    }
+  ],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "channels-publication",
+      "label": "Channels",
+      "icon": "store",
+      "href": "/account/channels",
+      "order": 150,
+      "visibility": "signed-in",
+      "requiredPermissions": ["channels.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "ebay-account-deletion-lookup",
+      "label": "eBay Deletion Lookup",
+      "icon": "search",
+      "href": "/ebay-account-deletion",
+      "section": "support",
+      "order": 7,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "channels.activation-to-manual-sync",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "source": {
+        "routeId": "channels-connection-detail",
+        "actions": ["Activate"],
+        "command": "ActivateChannelConnection"
+      },
+      "destination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:connectionId/manual-sync",
+        "readModelTables": ["channel_connections", "channel_sync_runs", "channel_sync_run_rows"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The detail resource route renders the canonical loading state for exact-receipt projection lag; activation is never replayed."
+        }
+      }
+    },
+    {
+      "id": "channels.connect-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "source": {
+        "routeId": "channels-connections",
+        "actions": ["Connect a channel"],
+        "command": "ConnectChannel",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:id",
+        "readModelTables": ["channel_connections"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Fresh connection projection lag renders the canonical loading state rather than a missing connection."
+        }
+      }
+    },
+    {
+      "id": "channels.publication-settings-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "channels-publication-connection",
+        "actions": ["Replace settings"],
+        "command": "ReplaceChannelConnectionPublicationSettings"
+      },
+      "destination": {
+        "routeId": "channels-publication-connection",
+        "apiContextName": "channels",
+        "apiRoutePath": "/publication/:connectionId",
+        "readModelTables": ["channels_connection_publication_settings"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Publication projection lag retains the existing form loading state with bounded read revalidation; the settings write is never replayed."
+        }
+      }
+    }
+  ],
+  "mutationConsistencyInventory": [
+    {
+      "id": "channels.ebay-account-deletion-lookup-snapshot",
+      "owner": "channels",
+      "risk": "internal",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/staff-route.ts:POST /staff/ebay-account-deletion/lookup",
+        "route-action:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-route-adapter.tsx",
+        "post-form:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-lookup-page.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "routeId": "ebay-account-deletion-lookup",
+        "description": "Staff receives the current exact-match receipt metadata directly; POST keeps the sensitive user ID out of URLs and performs no mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "The Channels store selects unexpired matching metadata without projections, subject echo or decryption; the admin action validates that closed response and returns it directly.",
+        "tests": [
+          "deployables/platform-api/__tests__/ebay-account-deletion-staff-composition.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-receipt-lookup.db.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-lookup-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "channels.connect-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:id",
+        "readModelTables": ["channel_connections"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The create receipt follows the redirect; the detail loader renders loading while the connection projection catches up."
+        }
+      }
+    },
+    {
+      "id": "channels.drift-decision-snapshots",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/reconciliation/api/route.ts:POST /:connectionId/drift/:channelListingId/accept",
+        "api-route:bounded-contexts/channels/features/reconciliation/api/route.ts:POST /:connectionId/drift/:channelListingId/repush",
+        "post-form:bounded-contexts/channels/features/reconciliation/ui/drift-panel.tsx:Hb08a81ecfd73#1"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "The existing detail child shows the committed decision snapshot and reloads account-qualified rows, attention and operation log."
+      },
+      "proof": {
+        "authoritativeResponse": "The real decision transaction returns its revision and operation identity. The form stays disabled during submission and revalidation; uncertainty retains the exact request, and conflicts require explicit refresh. Accepted/requested copy never asserts enqueue, application or health.",
+        "tests": [
+          "bounded-contexts/channels/features/reconciliation/tests/channel-reconciliation-runtime.db.test.ts",
+          "bounded-contexts/channels/features/reconciliation/tests/channel-drift-detail.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "channels.connection-attention-resolution",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "optimistic-with-correction",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connection-attention/api/route.ts:POST /:connectionId/attention/resolve",
+        "post-form:bounded-contexts/channels/features/connection-attention/ui/health-panel.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "Attention resolution redirects to the account-scoped combined query without changing manual or health producer state."
+      },
+      "proof": {
+        "correction": "The form retains its generation until the guarded write succeeds; stale writes return 409 and a visible error. Successful redirects revalidate the same query. No optimistic dismissal is made.",
+        "tests": [
+          "bounded-contexts/channels/features/connection-attention/tests/channel-attention-lifecycle.db.test.ts",
+          "bounded-contexts/channels/features/connection-attention/tests/channel-connection-health-panel-states.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "channels.connector-pairing-command-snapshots",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/channels/features/connector-feed/ui/pairing-panel.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/connector-feed/ui/pairing-panel.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "Pairing actions return the committed one-use code or redirect to a current authority read; no optimistic paired status or last-seen is invented."
+      },
+      "proof": {
+        "authoritativeResponse": "Code creation returns the committed pairing identity and expiry. Unpair compares identity/revision before cleanup and the loader revalidates from the locked connection and pairing state. Malformed pairing DTOs render unavailable.",
+        "tests": [
+          "bounded-contexts/channels/features/connector-feed/tests/connector-pairing-lifecycle.db.test.ts",
+          "bounded-contexts/channels/features/connector-feed/tests/connector-pairing-surface.test.tsx",
+          "bounded-contexts/channels/features/connector-feed/tests/connector-contracts.test.ts",
+          "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "channels.connection-command-snapshots",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/pause",
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/activate",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#2",
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/resume",
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H542755c24d1e#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H16abbc610122#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST Hf47bd35ee32b#1",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hbd7dd2c17dad#1",
+        "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Each public Channel Connection mutation returns the committed aggregate snapshot without waiting for or rereading the asynchronous projection. The seller connection list/detail UI renders only that committed snapshot: no optimistic status or action-set change is invented before the response resolves."
+      },
+      "proof": {
+        "authoritativeResponse": "The route maps CommandExecutionResult.state directly to the closed public DTO for writes and accepted no-ops; the detail route action returns the same committed connection to the page, which re-renders its status badge and allowed-action set from that value alone.",
+        "tests": [
+          "bounded-contexts/channels/features/connections/tests/channel-connection-http-contract.test.ts",
+          "bounded-contexts/channels/features/connections/tests/channel-connection-command-snapshot-responses.test.ts",
+          "bounded-contexts/channels/features/connections/tests/channel-connection-actions.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "channels.publication-configuration-optimistic-correction",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "optimistic-with-correction",
+      "surfaces": [
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H2b969724e1a0#1",
+        "api-client:bounded-contexts/channels/support/request-support/api-client.ts:PUT H7bd6e2a2b805#1",
+        "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:POST /:connectionId/mappings/:dimension/:sourceKey/decision",
+        "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:PUT /:connectionId/settings",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:H8d7b1af0483d#1",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Hdedc9988f2e2#1",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx"
+      ],
+      "visibleDestination": {
+        "description": "Publication settings and mapping forms retain submitted values in disabled forms with a pending notice while the real data-router revalidates; a changed configuration stream version remounts the forms from authoritative loader data, while conflicts and command errors remain visible."
+      },
+      "proof": {
+        "correction": "Both forms keep loader-owned expectedStreamVersion. The post-write action-data handoff retains the command streamVersion and latest submitted settings or matching mapping target for display only. A lower projection version retains disabled detail forms under the pending notice and bounded revalidation until the account-scoped API result reaches the written version; the applied-version render identity remounts uncontrolled forms, and conflicts and command failures remain visible.",
+        "tests": [
+          "bounded-contexts/channels/features/listing-composition/tests/channel-publication-settings-route.test.tsx",
+          "bounded-contexts/channels/features/listing-composition/tests/channel-mapping-review-route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "channels.manual-sync-command-snapshots",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/channels/features/manual-sync/api/route.ts:POST Hb42b68759444#1",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/compose",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/ingest",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/download",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/retry-clamp",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/release",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/upload-attempt",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/validation-cancelled",
+        "api-route:bounded-contexts/channels/features/manual-sync/api/route.ts:POST /:connectionId/manual-sync/runs/:runId/verify",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "Every manual sync API mutation returns the committed producer run/panel, exact CSV, bounded ingest receipt (surface, server probe, and the ingested snapshot identity or refusal reason, never export rows or header), or verification snapshot; failures return a closed error without claiming projected success."
+      },
+      "proof": {
+        "authoritativeResponse": "The route returns the exact result from the imported TCGplayer run service and Marketplace clamp port. Run revisions fence every lifecycle write, and bounded upload refusal occurs before the producer parser/write call.",
+        "tests": [
+          "bounded-contexts/channels/features/manual-sync/api/manual-sync-route.test.ts",
+          "bounded-contexts/channels/features/manual-sync/api/manual-sync-runtime.test.ts",
+          "bounded-contexts/channels/features/manual-sync/domain/manual-sync-contracts.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "channels.manual-sync-panel-optimistic-correction",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "optimistic-with-correction",
+      "surfaces": [
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#1",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#3",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#4",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#5",
+        "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "The connection page exposes only actions admitted by the exact loaded run revision, keeps action errors visible, and revalidates the account-scoped panel after successful writes."
+      },
+      "proof": {
+        "correction": "Successful run actions redirect to the same connection route so its authenticated loader replaces the panel with the latest producer revision; ingest returns its bounded receipt as action data while the route revalidates the panel; Staged-basis Compose refusals render ingest guidance, other failures render a canonical error banner, and stale or unlisted actions write nothing.",
+        "tests": [
+          "bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.test.tsx",
+          "bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.test.tsx",
+          "bounded-contexts/channels/features/manual-sync/api/manual-sync-route.test.ts",
+          "bounded-contexts/channels/features/manual-sync/domain/manual-sync-contracts.test.ts"
+        ]
+      }
+    }
+  ],
+  "directoryIntent": {
+    "ebay-account-deletion": {
+      "classification": "slice",
+      "purpose": "Channels owns ebay-account-deletion challenge GET, deployment configuration, encrypted receipt custody, stable subject matching, expiry and staff exact lookup.",
+      "expectedConsumers": [
+        "Channels public webhook mount",
+        "platform-api configuration loader",
+        "Channels webhook receipt caller",
+        "Channels subject binding and deletion consumers",
+        "Scheduled worker",
+        "Staff admin lookup"
+      ]
+    },
+    "order-fulfillment-observations": {
+      "classification": "slice",
+      "purpose": "Own the order-fulfillment-observations slice's shared versioned Channel Order Fulfillment Observation reference composer.",
+      "expectedConsumers": ["Channel fulfillment interpreter (#7795)", "Connector fulfillment producer (#8613)"]
+    },
+    "credentials": {
+      "classification": "slice",
+      "purpose": "Own the credentials slice canonical codecs, transactional custody, bound secret resolution, and explicit key rotation.",
+      "expectedConsumers": ["Channels server custody callers"]
+    },
+    "connection-attention": {
+      "classification": "slice",
+      "purpose": "Own the connection-attention generation lifecycle, resolution facts, and combined channel-action source and detail panel.",
+      "expectedConsumers": ["Channels health producers, connection detail, and Seller Desk"]
+    },
+    "connector-feed": {
+      "classification": "slice",
+      "purpose": "Own Channel Connection pairing, current operation authority, claim/report transport, durable write-only inbound admission and safe request audit.",
+      "expectedConsumers": [
+        "Channels connection detail",
+        "Connector clients",
+        "Channels inbound interpreters and retention sweeps"
+      ]
+    },
+    "connection-health": {
+      "classification": "slice",
+      "purpose": "Own connection-health observations, policy, reason generations, facts, and system pause reads.",
+      "expectedConsumers": ["Channels health producers and outbound hold readers"]
+    },
+    "connections": {
+      "classification": "slice",
+      "purpose": "Own the connections slice lifecycle, setup authority, HTTP contract, and projection.",
+      "expectedConsumers": ["Internal Channels module composition"]
+    },
+    "connector-client": {
+      "classification": "slice",
+      "purpose": "The connector-client slice owns the Chromium-observed TCGplayer connector extension identity and callback constants.",
+      "expectedConsumers": ["TCGplayer connector extension composition"]
+    },
+    "publication-port": {
+      "classification": "slice",
+      "purpose": "Own the publication-port provider-neutral Channel Publication contract and immutable provider registry.",
+      "expectedConsumers": ["Internal Channels publication workflows and provider integrations"]
+    },
+    "listing-composition": {
+      "classification": "slice",
+      "purpose": "Own the listing-composition Channel Publication Facts, configuration, eligibility, desired state, Links, and reconciliation runs.",
+      "expectedConsumers": ["Channels account publication routes and registered channel publication consumers"]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Compose authenticated Channels publication requests and adapt request-time Marketplace capabilities at the context boundary.",
+      "expectedConsumers": ["connections", "manual-sync", "connector-feed"],
+      "crossCuttingRuntimeComposition": true
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Own the context-level Channels runtime service composition contract.",
+      "expectedConsumers": ["credentials"]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Channels test-only browser mapping candidate and bounded row-hold support; never invoked by seed or bootstrap composition.",
+      "expectedConsumers": ["Channels cross-slice DB acceptance tests", "Deployable browser-e2e composition for #8122"]
+    },
+    "manual-sync": {
+      "classification": "slice",
+      "purpose": "Own the manual-sync Channel Sync Run panel, frozen manual lease policy resolution, bounded export ingress, Marketplace clamp coordination, and manual attention query.",
+      "expectedConsumers": ["Channels account connection route, platform API, platform worker, and Seller Desk"]
+    },
+    "outbound-sync": {
+      "classification": "slice",
+      "purpose": "Own Channels outbound-sync operations, execution admission, leases, and connection-scoped activity.",
+      "expectedConsumers": ["Internal Channels module composition", "Channel connector and manual claim workflows"]
+    },
+    "tcgplayer-csv": {
+      "classification": "slice",
+      "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
+      "expectedConsumers": ["Channels manual and connector sync workflows"]
+    },
+    "tcgplayer-orders": {
+      "classification": "slice",
+      "purpose": "The tcgplayer-orders slice owns recoverable Channel Sale Observations and complete pull accounting through the admitted connector reader.",
+      "expectedConsumers": ["Channels connector consumers and platform worker"]
+    },
+    "live-export-snapshot": {
+      "classification": "slice",
+      "purpose": "The live-export-snapshot slice persists each admitted connector export payload as one Live Channel Inventory Snapshot through the tcgplayer-csv owner.",
+      "expectedConsumers": ["Channels module composition and platform worker"]
+    },
+    "reconciliation": {
+      "classification": "slice",
+      "purpose": "Own Channel Drift classification, decisions, reconciliation runs, missed-sale gaps, outbound holds, and bounded metrics.",
+      "expectedConsumers": ["Channels worker composition, connection detail, and downstream health and snapshot owners"]
+    },
+    "routes": {
+      "classification": "routes",
+      "purpose": "Expose Channels-owned account route modules consumed by generated deployable adapters.",
+      "expectedConsumers": ["Generated deployable route adapters"]
+    }
+  },
+  "runtimeDeployables": ["platform-worker"],
+  "localeCatalogs": ["contracts/localization/locales/en/channels.ts"]
+}

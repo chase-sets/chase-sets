@@ -778,6 +778,35 @@ describe("deep route contracts", () => {
     getBody: (error) => error.body,
   });
 
+  it("preserves the singular form-action redirect object contract", () => {
+    const commandResult = {
+      commitPositions: [{ sourceContextName: "marketplace", maxGlobalPosition: "42", eventIds: ["evt_42"] }],
+      commitEventIds: ["evt_42"],
+    };
+    const headers = new Headers({ "X-Proof": "kept" });
+    const options = { headers, nowMs: 1234, status: 303 as const };
+    const destination = "/account/listings/lst_1?view=full#summary";
+
+    const output = formActionRedirect(commandResult, destination, options);
+
+    expect(output.commandResults).toHaveLength(1);
+    expect(output.commandResults[0]).toBe(commandResult);
+    expect(output.destination).toBe(destination);
+    expect(output.options).toBe(options);
+    expect(output.options?.headers).toBe(headers);
+    expect(output.options?.status).toBe(303);
+    expect(new Headers(output.options?.headers).get("X-Proof")).toBe("kept");
+  });
+
+  it("omits the form-action redirect options key when options are not supplied", () => {
+    const commandResult = { status: "accepted" };
+    const output = formActionRedirect(commandResult, "/account/listings/lst_1?view=full#summary");
+
+    expect(output.commandResults).toEqual([commandResult]);
+    expect(output.destination).toBe("/account/listings/lst_1?view=full#summary");
+    expect(Object.prototype.hasOwnProperty.call(output, "options")).toBe(false);
+  });
+
   it("dispatches a declared form intent and owns the post-write redirect", async () => {
     const action = defineFormAction({
       intents: {

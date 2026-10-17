@@ -2,8 +2,8 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
-} from "../../../client";
-import { CatalogApiError } from "../../../client";
+} from "../../client-support/contracts";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import type {
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,
@@ -13,6 +13,7 @@ import type { SourceObservationIntegrationJobScope } from "../../../features/sou
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
+  canSelectStandaloneProductCoordinate,
   importScopeFromScopeContext,
   scopeContextFromFormData,
   scopeContextFromRouteContext,
@@ -21,6 +22,10 @@ import {
 } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { stringValue } from "./integrations-form-values";
+import {
+  getActiveCatalogProviderIntegrationProfileVersion,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "../../../features/source-observations/api/providers/registry";
 
 export type CatalogPrimaryWorkbenchFormIntent = CatalogControlPlaneActionId;
 
@@ -57,8 +62,17 @@ export function commandContextFromFormData(requestUrl: string, formData: FormDat
     selectedObservationIds,
     jobId: stringValue(formData.get("jobId")) ?? parsedContext.jobId,
     promotionPreviewId: stringValue(formData.get("promotionPreviewId")) ?? parsedContext.promotionPreviewId,
+    promoteAsDraft: promoteAsDraftFromFormData(formData, parsedContext.promoteAsDraft === true),
     scopeRecordId: stringValue(formData.get("scopeRecordId")) ?? parsedContext.scopeRecordId ?? null,
   };
+}
+
+// The explicit review choice. A submitted form always states it (the stage's
+// hidden input carries "true"/"false"); only a literal "true" counts, and a
+// form that does not carry the field keeps the URL's value.
+export function promoteAsDraftFromFormData(formData: FormData, fallback: boolean): boolean {
+  const submitted = stringValue(formData.get("promoteAsDraft"));
+  return submitted === null ? fallback : submitted === "true";
 }
 
 function clearExplicitEmptyScopeFields(
@@ -67,6 +81,7 @@ function clearExplicitEmptyScopeFields(
 ): ReturnType<typeof scopeContextFromFormData> {
   return {
     ...scope,
+    productId: explicitEmptyScopeField(formData, ["productId"]) ? null : scope.productId,
     languageCode: explicitEmptyScopeField(formData, ["languageCode", "language"]) ? null : scope.languageCode,
     productLineId: explicitEmptyScopeField(formData, ["productLineId"]) ? null : scope.productLineId,
     productLineName: explicitEmptyScopeField(formData, ["productLineName"]) ? null : scope.productLineName,
@@ -98,10 +113,39 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
 
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
   const scope = context.scope ?? scopeContextFromRouteContext(context);
+  const filterLanguage = context.sourceObservationFilters.language;
+  const languageCode = filterLanguage ?? scope.languageCode;
+  if (scope.productId) {
+    const profile =
+      context.providerKey && context.unitKey
+        ? getActiveCatalogProviderIntegrationProfileVersion(context.providerKey, { ingestionUnitKey: context.unitKey })
+        : null;
+    if (
+      !profile?.active ||
+      catalogProviderProfileVersionIngestionUnitKey(profile) !== context.unitKey ||
+      !canSelectStandaloneProductCoordinate(profile) ||
+      (context.profileVersion && context.profileVersion !== profile.profileVersion) ||
+      Boolean(filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) ||
+      (profile.profile.languageOptions.length > 0 &&
+        (!languageCode || !profile.profile.languageOptions.includes(languageCode))) ||
+      scope.expansionId ||
+      scope.expansionName ||
+      scope.seriesId ||
+      scope.seriesName ||
+      scope.productLineId ||
+      scope.productLineName ||
+      context.sourceObservationFilters.setId ||
+      context.sourceObservationFilters.expansionId
+    ) {
+      throw new Error(
+        "Product import requires the selected active product-scope unit and an unmixed product coordinate.",
+      );
+    }
+  }
   return scopeContextToIntegrationJobScope({
     ...scope,
     ingestionUnitKey: context.unitKey ?? undefined,
-    languageCode: context.sourceObservationFilters.language ?? scope.languageCode,
+    languageCode,
     expansionId:
       context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
   });
@@ -165,6 +209,9 @@ export function reapplyScopeFromContext(context: RouteContext): SourceObservatio
 // left the eligible set) produce different tokens, so `confirmsFreshPromotionPreview`
 // below rejects execution against the stale one — self-invalidation is a server-side
 // guarantee, not a UI nicety the operator can bypass by resubmitting a stale token.
+// The token also binds the explicit promote-as-draft choice and the validation
+// verdict of the covered page: toggling the choice, or a covered observation
+// changing between blocked and eligible, invalidates the confirmation.
 export function promotionPreviewIdFor(
   preview: SourceObservationPromotionPreview,
   context: RouteContext,
@@ -176,6 +223,8 @@ export function promotionPreviewIdFor(
     preview.matched,
     preview.eligible,
     preview.fingerprint || "no-fingerprint",
+    preview.validation.promoteAsDraft ? "draft" : "publishable",
+    promotionValidationToken(preview.validation),
   ].join("-");
 }
 
@@ -195,9 +244,37 @@ export async function previewPromotionForContext(
   context: RouteContext,
   selectedObservationIds: readonly string[],
 ): Promise<SourceObservationPromotionPreview> {
+  const options = { promoteAsDraft: context.promoteAsDraft === true };
   return selectedObservationIds.length > 0
-    ? api.previewBulkPromoteSourceObservationIds<SourceObservationPromotionPreview>([...selectedObservationIds])
-    : api.previewBulkPromoteSourceObservations<SourceObservationPromotionPreview>(promotionScopeFromContext(context));
+    ? api.previewBulkPromoteSourceObservationIds<SourceObservationPromotionPreview>(
+        [...selectedObservationIds],
+        options,
+      )
+    : api.previewBulkPromoteSourceObservations<SourceObservationPromotionPreview>(
+        promotionScopeFromContext(context),
+        options,
+      );
+}
+
+/** Coverage plus a digest of the blocked observation ids, so a validation change re-previews. */
+function promotionValidationToken(validation: SourceObservationPromotionPreview["validation"]): string {
+  const blocked = [
+    ...new Set(
+      validation.diagnostics.filter((diagnostic) => diagnostic.blocking).map((diagnostic) => diagnostic.observationId),
+    ),
+  ].sort();
+  return [validation.coverage, `blocked${blocked.length}`, fnv1aDigest(blocked.join(","))].join(".");
+}
+
+// Isomorphic 32-bit FNV-1a digest: the token must be computable without
+// Node-only modules and only needs to detect a changed blocked set.
+function fnv1aDigest(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 export async function runProviderProfileLifecycleCommand(

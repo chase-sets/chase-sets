@@ -1,7 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { formatDate, formatDateTime } from "./date-time";
 
 describe("formatDate", () => {
+  it("defaults date display to the launch locale and UTC", () => {
+    const calls: Array<readonly [locales: Intl.LocalesArgument, options: Intl.DateTimeFormatOptions | undefined]> = [];
+    const OriginalDateTimeFormat = Intl.DateTimeFormat;
+    const spy = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function DateTimeFormat(locales, options) {
+      calls.push([locales, options]);
+      return new OriginalDateTimeFormat(locales, options);
+    } as typeof Intl.DateTimeFormat);
+
+    try {
+      formatDate("2026-02-23T21:26:00.000Z");
+      formatDateTime("2026-02-23T21:26:00.000Z");
+      expect(calls).toHaveLength(2);
+      for (const [locale, options] of calls) {
+        expect(locale).toBe("en");
+        expect(options?.timeZone).toBe("UTC");
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("formats an ISO timestamp with the medium preset by default (month, day, year)", () => {
     expect(formatDate("2026-02-23T21:26:00.000Z")).toBe("Feb 23, 2026");
   });
@@ -34,6 +55,11 @@ describe("formatDate", () => {
   it("falls back to the raw input string for unparsable values", () => {
     expect(formatDate("pending")).toBe("pending");
   });
+
+  it("uses an explicit presentation fallback without changing the default invalid-value contract", () => {
+    expect(formatDate("pending", { fallback: "Date unavailable" })).toBe("Date unavailable");
+    expect(formatDate("pending")).toBe("pending");
+  });
 });
 
 describe("formatDateTime", () => {
@@ -61,6 +87,10 @@ describe("formatDateTime", () => {
 
   it("falls back to the raw input string for unparsable values", () => {
     expect(formatDateTime("not-a-date")).toBe("not-a-date");
+  });
+
+  it("uses an explicit presentation fallback without echoing an invalid value", () => {
+    expect(formatDateTime("person@example.com", { fallback: "Date unavailable" })).toBe("Date unavailable");
   });
 
   it("renders identically across call sites for the same instant", () => {

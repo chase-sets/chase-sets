@@ -36,6 +36,18 @@ export const cascadeProgressByPool = new Map<object, Map<string, { cursorId: str
 export const readAllCallsByPool = new Map<object, Record<string, unknown>[]>();
 export const sourceHeadByPool = new Map<object, string>();
 export const generationRetentionByPool = new Map<object, Set<string>>();
+export const projectionGroupGenerationsByPool = new Map<
+  object,
+  Map<
+    string,
+    {
+      started_at?: string;
+      active_generation: string;
+      rebuilding_generation: string | null;
+      state: "active" | "rebuilding" | "failed";
+    }
+  >
+>();
 
 export type MockBlockedStream = Readonly<{
   projectionKey: string;
@@ -147,6 +159,16 @@ export function getGenerationRetentionStore(pool: object) {
   return store;
 }
 
+export function getProjectionGroupGenerationStore(pool: object) {
+  let store = projectionGroupGenerationsByPool.get(pool);
+  if (!store) {
+    store = new Map();
+    projectionGroupGenerationsByPool.set(pool, store);
+  }
+
+  return store;
+}
+
 export function getReadAllCalls(pool: object) {
   let calls = readAllCallsByPool.get(pool);
   if (!calls) {
@@ -168,6 +190,9 @@ export function createMockPool(): MockPool {
       }
       if (sql === "SELECT set_config('idle_in_transaction_session_timeout', $1, true)") {
         return { rows: [], rowCount: 0 };
+      }
+      if (sql === "SELECT pg_advisory_xact_lock(hashtextextended('event_subscription_checkpoints:' || $1::text, 0))") {
+        return { rows: [], rowCount: 1 };
       }
 
       if (sql.includes("pg_sequence_last_value")) {
@@ -295,11 +320,81 @@ export function createMockPool(): MockPool {
         };
       }
 
-      if (sql.includes("SELECT projection_revision")) {
+      if (
+        sql.includes("SELECT") &&
+        sql.includes("projection_revision") &&
+        sql.includes("event_projection_group_revisions")
+      ) {
         const key = `${params[0]}:${params[1]}`;
         const value = getProjectionRevisionStore(pool).get(key);
+        const generation = getProjectionGroupGenerationStore(pool).get(key);
+        if (sql.includes("FOR UPDATE OF generation, revision")) {
+          const matches =
+            generation?.state === "active" &&
+            generation.active_generation === params[2] &&
+            generation.started_at === params[3] &&
+            value === params[4];
+          return {
+            rows: matches ? [{ active_generation: generation.active_generation }] : [],
+            rowCount: matches ? 1 : 0,
+          };
+        }
+        if (sql.includes("generation_active_generation")) {
+          return {
+            rows: [
+              {
+                projection_revision: value ?? null,
+                generation_active_generation: generation?.active_generation ?? null,
+                generation_rebuilding_generation: generation?.rebuilding_generation ?? null,
+                generation_state: generation?.state ?? null,
+                generation_started_at: generation?.started_at ?? null,
+              },
+            ],
+          };
+        }
         return {
           rows: value ? [{ projection_revision: value }] : [],
+        };
+      }
+
+      if (sql.includes("FROM pg_constraint") && sql.includes("contype = 'f'")) {
+        return { rows: [] };
+      }
+
+      if (sql.includes("FROM event_projection_group_generations AS generation") && sql.includes("SELECT")) {
+        const key = `${params[0]}:${params[1]}`;
+        const generation = getProjectionGroupGenerationStore(pool).get(key);
+        if (sql.includes("FOR UPDATE")) {
+          if (sql.includes("generation.state = 'active'")) {
+            const matches =
+              generation?.state === "active" &&
+              generation.rebuilding_generation === null &&
+              generation.active_generation === params[2];
+            return {
+              rows: matches ? [{ active_generation: generation.active_generation }] : [],
+              rowCount: matches ? 1 : 0,
+            };
+          }
+          const expectedToken = String(params[2]);
+          return {
+            rows:
+              generation?.state === "rebuilding" &&
+              generation.rebuilding_generation === expectedToken &&
+              generation.started_at === params[3]
+                ? [{ rebuilding_generation: expectedToken, started_at: generation.started_at }]
+                : [],
+          };
+        }
+        return {
+          rows: generation
+            ? [
+                {
+                  active_generation: generation.active_generation,
+                  rebuilding_generation: generation.rebuilding_generation,
+                  state: generation.state,
+                },
+              ]
+            : [],
         };
       }
 
@@ -414,19 +509,66 @@ export function createMockPool(): MockPool {
 
       if (sql.includes("INSERT INTO event_projection_group_generations")) {
         const key = `${params[0]}:${params[1]}`;
-        if (sql.includes("state = 'active'")) {
-          getGenerationRetentionStore(pool).add(key);
+        const store = getProjectionGroupGenerationStore(pool);
+        const current = store.get(key);
+        if (sql.includes("'rebuilding'")) {
+          const activeGeneration = BigInt(current?.active_generation ?? "1");
+          const rebuildingGeneration = BigInt(current?.rebuilding_generation ?? activeGeneration);
+          const nextGeneration =
+            (activeGeneration > rebuildingGeneration ? activeGeneration : rebuildingGeneration) + 1n;
+          const startedAt = new Date(
+            current?.started_at ? Date.parse(current.started_at) + 1 : Date.UTC(2026, 0, 1),
+          ).toISOString();
+          store.set(key, {
+            started_at: startedAt,
+            active_generation: activeGeneration.toString(),
+            rebuilding_generation: nextGeneration.toString(),
+            state: "rebuilding",
+          });
+          return {
+            rows: [{ rebuilding_generation: nextGeneration.toString(), started_at: startedAt }],
+            rowCount: 1,
+          } as never;
         }
-        if (sql.includes("state = 'failed'")) {
-          getGenerationRetentionStore(pool).delete(key);
+        if (!current) {
+          store.set(key, { active_generation: "1", rebuilding_generation: null, state: "active" });
+          return { rows: [], rowCount: 1 } as never;
         }
-        return { rows: [], rowCount: 1 } as never;
+        return { rows: [], rowCount: 0 } as never;
       }
 
       if (sql.includes("UPDATE event_projection_group_generations")) {
-        const cleaned = getGenerationRetentionStore(pool).size;
-        getGenerationRetentionStore(pool).clear();
-        return { rows: [], rowCount: cleaned } as never;
+        if (sql.includes("previous_generation_retain_until IS NOT NULL")) {
+          const cleaned = getGenerationRetentionStore(pool).size;
+          getGenerationRetentionStore(pool).clear();
+          return { rows: [], rowCount: cleaned } as never;
+        }
+        const key = `${params[0]}:${params[1]}`;
+        const store = getProjectionGroupGenerationStore(pool);
+        const current = store.get(key);
+        const expectedToken = String(params[2]);
+        if (
+          current?.state !== "rebuilding" ||
+          current.rebuilding_generation !== expectedToken ||
+          current.started_at !== params[3]
+        ) {
+          return { rows: [], rowCount: 0 } as never;
+        }
+        if (sql.includes("state = 'failed'")) {
+          store.set(key, { ...current, rebuilding_generation: null, state: "failed" });
+          getGenerationRetentionStore(pool).delete(key);
+          return { rows: [], rowCount: 1 } as never;
+        }
+        store.set(key, {
+          started_at: current.started_at,
+          active_generation: expectedToken,
+          rebuilding_generation: null,
+          state: "active",
+        });
+        if (sql.includes("previous_generation_retain_until = now()")) {
+          getGenerationRetentionStore(pool).add(key);
+        }
+        return { rows: [], rowCount: 1 } as never;
       }
 
       if (sql.includes("DELETE FROM event_subscription_checkpoints")) {
@@ -582,6 +724,17 @@ export function createEventCoreMock() {
 
 export function createEventCorePostgresMock() {
   return {
+    EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY: "-8041932795057830931",
+    buildStreamPrefixFilterSql: (streamPrefixes: readonly string[], nextParamIndex: number) => {
+      const prefixes = [...new Set(streamPrefixes)];
+      if (prefixes.length === 0) {
+        return null;
+      }
+      return {
+        predicate: `(${prefixes.map((_prefix, index) => `stream_id LIKE $${nextParamIndex + index} || '%'`).join(" OR ")})`,
+        params: prefixes,
+      };
+    },
     withPgTransaction: async (_pool: object, work: (client: object) => Promise<unknown>) => work(_pool),
     readGapSafeEventStoreHead: async (pool: MockPool) => {
       const result = await pool.query("SELECT pg_sequence_last_value('event_store_events') AS head");
@@ -685,6 +838,7 @@ export function resetMockPoolState() {
   readAllCallsByPool.clear();
   sourceHeadByPool.clear();
   generationRetentionByPool.clear();
+  projectionGroupGenerationsByPool.clear();
 }
 
 export function createStoredEvent(

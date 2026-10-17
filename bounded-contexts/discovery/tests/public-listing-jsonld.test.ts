@@ -25,7 +25,7 @@ describe("public listing Product JSON-LD", () => {
         "@type": "Offer",
         url: "https://marketplace.chasesets.com/listings/charizard-lst_1",
         price: "42.00",
-        priceCurrency: "USD",
+        priceCurrency: "EUR",
         availability: "https://schema.org/InStock",
         itemCondition: "https://schema.org/UsedCondition",
         seller: {
@@ -214,7 +214,7 @@ function publicListing(overrides: Partial<DiscoveryPublicListing> = {}): Discove
       link: "https://marketplace.chasesets.com/listings/charizard-lst_1",
       imageLink: "https://assets.chasesets.com/catalog/charizard.webp",
       priceAmount: "42.00",
-      currencyCode: "USD",
+      currencyCode: "EUR",
       availability: "in stock",
       condition: "used",
       brand: "Pokemon",
@@ -224,6 +224,8 @@ function publicListing(overrides: Partial<DiscoveryPublicListing> = {}): Discove
     created_at: "2026-06-04T00:00:00.000Z",
     updated_at: "2026-06-04T00:00:00.000Z",
     ...overrides,
+    price_currency_code: "price_currency_code" in overrides ? (overrides.price_currency_code ?? null) : "EUR",
+    listing_stream_version: overrides.listing_stream_version ?? 3,
   };
 }
 

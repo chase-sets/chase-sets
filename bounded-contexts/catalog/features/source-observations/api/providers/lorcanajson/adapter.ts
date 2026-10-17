@@ -1,3 +1,5 @@
+import { catalogFixtureTransports, catalogProductionTransport } from "../catalog-fixture-transports";
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -206,6 +208,12 @@ const lorcanajsonProofFetchedAt = "2026-06-23T00:00:00.000Z";
 const DEFAULT_LORCANAJSON_FETCH_TIMEOUT_MS = 30_000;
 
 export function createLorcanajsonProviderAdapter(
+  options: LorcanajsonProviderAdapterOptions = {},
+): ProviderAdapter<LorcanajsonProviderPayload> {
+  return createLorcanajsonAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createLorcanajsonAdapter(
   options: LorcanajsonProviderAdapterOptions = {},
 ): ProviderAdapter<LorcanajsonProviderPayload> {
   return {
@@ -436,8 +444,8 @@ export function createLorcanajsonProviderAdapter(
 }
 
 export function createLorcanajsonValidationProviderAdapter(): ProviderAdapter<LorcanajsonProviderPayload> {
-  return createLorcanajsonProviderAdapter({
-    fetch: lorcanajsonValidationFetch,
+  return createLorcanajsonAdapter({
+    fetch: catalogFixtureTransports.lorcanajson,
     now: () => new Date(lorcanajsonProofFetchedAt),
     profileVersion: LORCANAJSON_VALIDATION_PROFILE_VERSION,
   });
@@ -614,7 +622,9 @@ async function fetchJson<T>(url: string, options: LorcanajsonProviderAdapterOpti
       : null;
 
   try {
-    const response = await (options.fetch ?? globalThis.fetch)(
+    const response = await sendCatalogProviderRequest(
+      "lorcanajson",
+      options.fetch ?? globalThis.fetch,
       url,
       abortController ? { signal: abortController.signal } : undefined,
     );
@@ -954,79 +964,3 @@ function normalizeSetCode(value: string): string {
 function normalizeLabel(value: unknown): string {
   return stringValue(value)?.toLowerCase() ?? "";
 }
-
-function lorcanajsonValidationFetch(input: RequestInfo | URL): Promise<Response> {
-  const response = lorcanajsonValidationResponses[String(input)];
-  if (!response) {
-    return Promise.resolve(new Response(null, { status: 404 }));
-  }
-
-  return Promise.resolve(
-    new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-const lorcanajsonValidationResponses: Readonly<Record<string, unknown>> = {
-  "https://lorcanajson.org/files/current/en/allCards.json": {
-    metadata: {
-      formatVersion: "2.3.2",
-      generatedOn: "2026-05-26T19:11:58",
-      language: "en",
-    },
-    sets: {
-      "1": {
-        id: "1",
-        code: "1",
-        name: "The First Chapter",
-        releaseDate: "2023-08-18",
-        type: "expansion",
-        number: 1,
-      },
-    },
-    cards: [
-      {
-        id: "1-041",
-        fullName: "Elsa - Snow Queen",
-        number: "41",
-        setCode: "1",
-        rarity: "Super Rare",
-        type: "Storyborn Hero Queen",
-        color: "Amethyst",
-        images: {
-          full: "https://images.lorcanajson.org/cards/en/1/041.webp",
-          thumbnail: "https://images.lorcanajson.org/cards/en/1/041-small.webp",
-        },
-        externalLinks: { tcgPlayerId: "1005010" },
-      },
-    ],
-  },
-  "https://lorcanajson.org/files/current/en/sets/setdata.1.json": {
-    metadata: {
-      formatVersion: "2.3.2",
-      generatedOn: "2026-05-26T19:11:58",
-      language: "en",
-    },
-    code: "1",
-    name: "The First Chapter",
-    releaseDate: "2023-08-18",
-    cards: [
-      {
-        id: "1-041",
-        fullName: "Elsa - Snow Queen",
-        number: "41",
-        setCode: "1",
-        rarity: "Super Rare",
-        type: "Storyborn Hero Queen",
-        color: "Amethyst",
-        images: {
-          full: "https://images.lorcanajson.org/cards/en/1/041.webp",
-          thumbnail: "https://images.lorcanajson.org/cards/en/1/041-small.webp",
-        },
-        externalLinks: { tcgPlayerId: "1005010" },
-      },
-    ],
-  },
-};

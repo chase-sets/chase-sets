@@ -1,25 +1,35 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   defineBoundedContextModule,
+  defineBcProjectionGroupReset,
   type BcApiEntry,
   type BcApiModule,
   type BcEventSubscription,
+  type BcProjectionGroup,
 } from "@chase-sets/bounded-context-module";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
   createPostgresEventStore,
   type PgPoolClient,
+  type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   bootstrapContextDatabase,
   createSubscriptionRunner,
+  drainContextRuntime,
+  drainLocalProjectionHandlerSets,
+  loadProjectionGroupGeneration,
+  rebuildProjectionGroup,
   rebuildAllContextProjectionGroups,
   rebuildContextProjectionGroup,
+  rebuildLocalProjectionHandlerSets,
   resetProjectionGroup,
   retryProjectionBlockedStream,
+  syncProjectionGroup,
 } from "./index";
 import {
   closeMultiContextTestPools,
@@ -30,6 +40,12 @@ import {
   resetMultiContextTestSchemas,
 } from "./test-support";
 import { withProjectionTransaction } from "./projection-transactions";
+import { createProjectionGroupWorkerRunner } from "../platform-runtime/worker";
+import { createApiHost, seedApiHostIfEmpty, type ApiContextRegistry } from "../platform-runtime/api";
+import {
+  createCheckpointKey,
+  saveSubscriptionCheckpoint as savePersistedSubscriptionCheckpoint,
+} from "./subscription-store";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
@@ -99,6 +115,25 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Te
     buildApis: () => NO_API_ENTRIES,
     buildSubscriptions: () => [createItemsSubscription()],
   });
+}
+
+function createCutoverTargetModule(
+  onReset: (db: PgQueryable) => Promise<void> = async () => undefined,
+  projectionRevision = 1,
+) {
+  const module = createTargetModule();
+  return {
+    ...module,
+    buildProjectionGroups: () =>
+      (module.projectionGroups ?? []).map(
+        (group): BcProjectionGroup => ({
+          ...group,
+          projectionRevision,
+          resetStrategy: "generation-cutover",
+          reset: defineBcProjectionGroupReset(onReset),
+        }),
+      ),
+  } satisfies BcApiModule<TestServices, PgTransactionalPool, TestPorts>;
 }
 
 function createReactionTargetModule(): BcApiModule<TestServices, PgTransactionalPool, TestPorts> {
@@ -264,13 +299,10 @@ const targetPorts: TestPorts = {};
 
 describeDb("projection operations Postgres integration", () => {
   let pools: Readonly<Record<TestContextName, PgTransactionalPool>>;
+  let databaseUrls: Readonly<Record<TestContextName, string>>;
 
   beforeAll(async () => {
-    const databaseUrls = createMultiContextTestDatabaseUrls(
-      adminDatabaseUrl!,
-      ["source", "target"],
-      "projection_operations",
-    );
+    databaseUrls = createMultiContextTestDatabaseUrls(adminDatabaseUrl!, ["source", "target"], "projection_operations");
     await ensureMultiContextTestDatabases(adminDatabaseUrl!, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
   });
@@ -288,6 +320,509 @@ describeDb("projection operations Postgres integration", () => {
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
   });
+
+  it("failover recovery resets FK-dependent projection groups before rebuilding their identical rows", async () => {
+    const definitions = [
+      { projectionName: "catalog-scope-registry-projection", tables: ["catalog_scope_records"], order: 1 },
+      {
+        projectionName: "catalog-source-observation-projection",
+        tables: ["catalog_merge_candidates", "catalog_source_observations"],
+        order: 2,
+      },
+      { projectionName: "catalog-observation-detail-projection", tables: ["catalog_observation_details"], order: 3 },
+    ];
+    const module = defineBoundedContextModule<TestServices, PgTransactionalPool, TestPorts>({
+      manifest: {
+        contextName: "target",
+        apiBasePath: "/target",
+        streamPrefix: "target.",
+        eventSubscriptions: definitions.map(({ projectionName }) => ({
+          sourceContextName: "source",
+          projectionName,
+          subscriptionVersion: 1,
+          projectionHandlerSetNames: [projectionName],
+          eventTypes: ["source.scope-recorded"],
+        })),
+        projectionGroups: definitions.map(({ projectionName, tables }) => ({
+          projectionName,
+          sourceContextNames: ["source"],
+          ownedTables: tables,
+          resetStrategy: "truncate-owned-tables",
+        })),
+      },
+      schemaSql: `
+        CREATE UNLOGGED TABLE catalog_scope_records (id text PRIMARY KEY);
+        CREATE UNLOGGED TABLE catalog_merge_candidates (id text PRIMARY KEY REFERENCES catalog_scope_records(id));
+        CREATE UNLOGGED TABLE catalog_source_observations (id text PRIMARY KEY REFERENCES catalog_scope_records(id));
+        CREATE UNLOGGED TABLE catalog_observation_details (id text PRIMARY KEY REFERENCES catalog_source_observations(id));
+      `,
+      createServices: (pool) => ({ pool }),
+      buildApis: () => NO_API_ENTRIES,
+      buildSubscriptions: () =>
+        definitions.map(({ projectionName, tables, order }) => ({
+          subscriptionName: projectionName,
+          sourceContextName: "source",
+          projectionName,
+          subscriptionVersion: 1,
+          eventTypes: ["source.scope-recorded"],
+          order,
+          handlers: {
+            "source.scope-recorded": async (event, context) => {
+              for (const table of tables) {
+                await context!.db!.query(`INSERT INTO ${table} (id) VALUES ($1)`, [event.data.id]);
+              }
+            },
+          },
+        })),
+    });
+    await bootstrapContextDatabase(module, pools.target);
+    const mount = () =>
+      createMountedContextTestRuntime([
+        { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+        { contextName: "target", module, pool: pools.target, ports: {} },
+      ]);
+    await createPostgresEventStore({ pool: pools.source }).appendToStream({
+      streamId: "source.scope-one",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "source.scope-recorded", payload: { id: "scope-one" } }],
+    });
+    await drainContextRuntime(mount());
+    const tables = definitions.flatMap(({ tables }) => tables);
+    const readRows = async () =>
+      Promise.all(tables.map(async (table) => (await pools.target.query(`SELECT id FROM ${table} ORDER BY id`)).rows));
+    const before = await readRows();
+    expect(before).toEqual(tables.map(() => [{ id: "scope-one" }]));
+    const live = mount();
+    const liveRoot = live.projectionGroups.find((group) => group.projectionName === definitions[0].projectionName)!;
+    await expect(resetProjectionGroup({ ...liveRoot, getResetGroups: () => [liveRoot] })).rejects.toThrow(
+      "cannot reset FK-dependent table",
+    );
+    expect(await readRows()).toEqual(before);
+    let leaseLost = false;
+    const rollbackRoot = {
+      ...liveRoot,
+      subscriptionRunners: liveRoot.subscriptionRunners.map((runner) => ({
+        ...runner,
+        reset: async (...args: Parameters<typeof runner.reset>) => {
+          await runner.reset(...args);
+          leaseLost = true;
+        },
+      })),
+    };
+    await expect(
+      resetProjectionGroup(rollbackRoot, {
+        throwIfLeaseLost: () => {
+          if (leaseLost) throw new Error("synthetic initiating lease lost");
+        },
+      }),
+    ).rejects.toThrow("synthetic initiating lease lost");
+    expect(await readRows()).toEqual(before);
+    for (const runner of live.subscriptionRunners) {
+      expect(await readCheckpointState(pools.target, runner.checkpointKey)).toMatchObject({
+        checkpoint: "1",
+        recoveryMarker: "1",
+      });
+      expect(await countSubscriptionApplicationRows(runner.checkpointKey)).toBe(1);
+    }
+    await pools.target.query(
+      "UPDATE event_subscription_checkpoints SET lease_fencing_token = 99 WHERE projection_name <> $1",
+      [definitions[0].projectionName],
+    );
+    await pools.target.query(`TRUNCATE ${tables.join(", ")}, event_projection_recovery_markers`);
+    const runtime = mount();
+    for (const runner of runtime.subscriptionRunners) {
+      expect((await runner.refreshStatus()).recoveryRequired).toBe(true);
+    }
+    const root = runtime.projectionGroups.find((group) => group.projectionName === definitions[0].projectionName)!;
+    // The production worker must commit every affected checkpoint reset before any replay.
+    await resetProjectionGroup(root, createProjectionRunContext({ fencingToken: "1" }));
+    for (const runner of runtime.subscriptionRunners) {
+      expect((await readCheckpointState(pools.target, runner.checkpointKey)).checkpoint).toBeNull();
+      expect(await countSubscriptionApplicationRows(runner.checkpointKey)).toBe(0);
+    }
+    // Simulate an old dependent pass saving its pre-reset position after commit.
+    // Durable group invalidation must still require a reset, not trust this marker.
+    for (const { projectionName } of definitions.slice(1)) {
+      await savePersistedSubscriptionCheckpoint(
+        pools.target,
+        { projectionName, sourceContextName: "source", subscriptionVersion: 1 },
+        parseGlobalPosition("1"),
+      );
+    }
+    const restarted = mount();
+    for (const group of restarted.projectionGroups) {
+      if (group.projectionName !== root.projectionName) {
+        expect(await group.refreshStatus()).toMatchObject({ recoveryRequired: true, caughtUp: false });
+      }
+      const worker = createProjectionGroupWorkerRunner(group);
+      while ((await worker.runOnce()).processed > 0) {
+        /* drain to revision completion */
+      }
+      await group.refreshStatus();
+      expect(group.getStatus()).toMatchObject({ recoveryRequired: false, caughtUp: true });
+    }
+    expect(await readRows()).toEqual(before);
+  });
+
+  it("failover recovery lets source-only API-host bootstrap rebuild a markerless local projection", async () => {
+    const module: BcApiModule<TestServices, PgTransactionalPool, TestPorts> = {
+      ...createTargetModule(),
+      eventSubscriptions: [],
+      buildSubscriptions: () => [],
+      projectionGroups: [
+        {
+          projectionName: "local-items",
+          sourceContextNames: ["target"],
+          ownedTables: ["projected_items"],
+          resetStrategy: "truncate-owned-tables" as const,
+        },
+      ],
+      projectionHandlerSets: () => [
+        {
+          projectionName: "local-items",
+          handlers: {
+            "target.recorded": async (event, context) => {
+              await context!.db!.query("INSERT INTO projected_items (item_id, seen_count) VALUES ($1, 1)", [
+                event.data.itemId,
+              ]);
+            },
+          },
+        },
+      ],
+      seedProfiles: ["critical-bootstrap" as const],
+      seed: async () => undefined,
+    };
+    const registry: ApiContextRegistry = [
+      {
+        contextName: "target",
+        packageName: "@chase-sets/synthetic-target",
+        manifest: {
+          contextName: "target",
+          sourceRuntimeDeployables: ["platform-api"],
+          sourceRuntimeProfiles: ["proof"],
+        },
+        module,
+      },
+    ];
+    const mount = () => createApiHost(registry, "platform-api", { pools: { target: pools.target } });
+    const options = { enabledDataProfiles: ["critical-bootstrap" as const], environmentName: null };
+    await createPostgresEventStore({ pool: pools.target }).appendToStream({
+      streamId: "target.item-bootstrap",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "target.recorded", payload: { itemId: "bootstrap-item" } }],
+    });
+    await seedApiHostIfEmpty(registry, "platform-api", mount(), options);
+    expect(await readProjectedItems()).toEqual([{ item_id: "bootstrap-item", seen_count: 1 }]);
+    const checkpointKey = "local-items:target:v1";
+    expect((await readCheckpointState(pools.target, checkpointKey)).checkpoint).toBe("1");
+    await pools.target.query("ALTER TABLE projected_items SET UNLOGGED");
+    await pools.target.query("TRUNCATE projected_items, event_projection_recovery_markers");
+    await createPostgresEventStore({ pool: pools.target }).appendToStream({
+      streamId: "target.item-after-failover",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "target.recorded", payload: { itemId: "after-failover" } }],
+    });
+    await seedApiHostIfEmpty(registry, "platform-api", mount(), options);
+    expect(await readProjectedItems()).toEqual([
+      { item_id: "after-failover", seen_count: 1 },
+      { item_id: "bootstrap-item", seen_count: 1 },
+    ]);
+    expect(await readCheckpointState(pools.target, checkpointKey)).toMatchObject({
+      checkpoint: "2",
+      recoveryMarker: "2",
+    });
+  });
+
+  it.each(["projection", "reaction", "local", "inline"] as const)(
+    "zero-source-first-checkpoint through real %s factory, group, refresh and restart",
+    async (kind) => {
+      const module: BcApiModule<TestServices, PgTransactionalPool, TestPorts> =
+        kind === "reaction"
+          ? createReactionTargetModule()
+          : kind === "projection"
+            ? createTargetModule()
+            : {
+                ...createTargetModule(),
+                eventSubscriptions: [],
+                buildSubscriptions: () => [],
+                projectionGroups: [
+                  {
+                    projectionName: "local-items",
+                    sourceContextNames: ["target"],
+                    ownedTables: ["projected_items"],
+                    resetStrategy: "truncate-owned-tables",
+                  },
+                ],
+                projectionHandlerSets: () => [
+                  {
+                    projectionName: "local-items",
+                    inlineApply: kind === "inline",
+                    handlers: {
+                      "target.recorded": async () => {
+                        throw new Error("empty source invoked handler");
+                      },
+                    },
+                  },
+                ],
+              };
+      await bootstrapContextDatabase(module, pools.target);
+      const mount = () =>
+        createMountedContextTestRuntime([
+          { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+          { contextName: "target", module, pool: pools.target, ports: targetPorts },
+        ]);
+      const runtime = mount();
+      expect(runtime.subscriptionRunners).toHaveLength(1);
+      const runner = runtime.subscriptionRunners[0];
+      const group = runtime.projectionGroups[0];
+      expect(runner.handlerKind).toBe(kind === "reaction" ? "reaction" : "projection");
+      expect(runner.inlineApply).toBe(kind === "inline");
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: null,
+        recoveryMarker: null,
+      });
+      await createProjectionGroupWorkerRunner(group).runOnce(createProjectionRunContext());
+      expect(group.getStatus()).toMatchObject({ initialized: true, caughtUp: true });
+      expect(runner.getStatus()).toMatchObject({ initialized: true, processedEvents: 0 });
+      const first = await readCheckpointState(pools.target, runner.checkpointKey);
+      expect(first).toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: "0",
+        ownerId: "projection-db-test",
+        fencingToken: "1",
+      });
+      const timestamp = await pools.target.query(
+        "SELECT updated_at FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+        [runner.checkpointKey],
+      );
+      await drainContextRuntime(runtime, { settleIdleCheckpoints: true });
+      const restarted = mount();
+      await drainContextRuntime(restarted);
+      expect((await restarted.subscriptionRunners[0].refreshStatus()).initialized).toBe(true);
+      expect(await readCheckpointState(pools.target, runner.checkpointKey)).toEqual(first);
+      expect(
+        await pools.target.query("SELECT updated_at FROM event_subscription_checkpoints WHERE checkpoint_key = $1", [
+          runner.checkpointKey,
+        ]),
+      ).toEqual(timestamp);
+      await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([]);
+      await expect(readProjectedItems()).resolves.toEqual([]);
+      for (const pool of [pools.source, pools.target]) {
+        expect((await pool.query("SELECT event_id FROM event_store_events")).rows).toEqual([]);
+      }
+      await rebuildProjectionGroup(group);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: "0",
+      });
+      expect((await runner.refreshStatus()).initialized).toBe(true);
+    },
+  );
+
+  it("unleased empty local drain and rebuild use the canonical zero subscription authority", async () => {
+    const sets = [
+      {
+        projectionName: "synthetic-local",
+        handlers: {
+          "target.recorded": async () => {
+            throw new Error("unexpected handler");
+          },
+        },
+      },
+    ];
+    await drainLocalProjectionHandlerSets("target", pools.target, sets);
+    await expect(readCheckpointState(pools.target, "synthetic-local:target:v1")).resolves.toEqual({
+      checkpoint: "0",
+      recoveryMarker: "0",
+      ownerId: null,
+      fencingToken: null,
+    });
+    await rebuildLocalProjectionHandlerSets("target", pools.target, sets);
+    await expect(readCheckpointState(pools.target, "synthetic-local:target:v1")).resolves.toEqual({
+      checkpoint: "0",
+      recoveryMarker: "0",
+      ownerId: null,
+      fencingToken: null,
+    });
+    await expect(readSubscriptionApplicationRows("synthetic-local:target:v1")).resolves.toEqual([]);
+  });
+
+  it.each([false, true])(
+    "first zero save cannot rewind concurrent newer authority (stale fence=%s)",
+    async (staleFence) => {
+      const subscription = createItemsSubscription();
+      const holder = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+      const waiter = createControlledSavePool(pools.target);
+      const newer = saveSubscriptionCheckpoint(holder.pool, subscription, "10", {
+        ownerId: "newer",
+        fencingToken: "2",
+      });
+      const runner = createSubscriptionRunner("target", waiter.pool, pools.source, subscription);
+      let pass: ReturnType<typeof runner.runOnce> | undefined;
+      try {
+        await holder.checkpointCompleted.promise;
+        pass = runner.runOnce({ ownerId: "first", fencingToken: staleFence ? "1" : "2" });
+        const settlement = staleFence
+          ? expect(pass).rejects.toThrow("stale lease fencing token")
+          : expect(pass).resolves.toMatchObject({ processed: 0 });
+        await waiter.lockSubmitted.promise;
+        await waitForBackendBlock(pools.target, holder.backendPid, waiter.backendPid);
+        expect(runner.getStatus().initialized).toBe(false);
+        holder.releaseCommit.resolve();
+        await newer;
+        await settlement;
+        expect(runner.getStatus().initialized).toBe(!staleFence);
+        await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+          checkpoint: "10",
+          recoveryMarker: "10",
+          fencingToken: "2",
+        });
+      } finally {
+        holder.releaseCommit.resolve();
+        await Promise.allSettled([newer, ...(pass ? [pass] : [])]);
+      }
+    },
+  );
+
+  it("reset-throttled-first-checkpoint commits on the same group rebuild without forced settlement", async () => {
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    await createPostgresEventStore({ pool: pools.source }).appendToStream({
+      streamId: "source.irrelevant",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: Array.from({ length: 5 }, () => ({ eventType: "source.irrelevant", payload: {} })),
+    });
+    const runner = runtime.subscriptionRunners[0];
+    const group = runtime.projectionGroups[0];
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    try {
+      await runner.runOnce();
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "5",
+        recoveryMarker: "5",
+      });
+      await rebuildProjectionGroup(group);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "5",
+        recoveryMarker: "5",
+      });
+      expect(group.getStatus()).toMatchObject({ initialized: true, caughtUp: true });
+      expect((await runner.refreshStatus()).initialized).toBe(true);
+      await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([]);
+      await expect(readProjectedItems()).resolves.toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("first zero checkpoint is not initialized before commit and rolls back on commit failure", async () => {
+    const controlled = createControlledSavePool(pools.target, {
+      holdBeforeCommit: true,
+      failCommitBeforeQuery: new Error("synthetic first commit failure"),
+    });
+    const subscription = createItemsSubscription();
+    const runner = createSubscriptionRunner("target", controlled.pool, pools.source, subscription);
+    const pass = runner.runOnce();
+    const rejection = expect(pass).rejects.toThrow("synthetic first commit failure");
+    try {
+      await controlled.checkpointCompleted.promise;
+      expect(runner.getStatus().initialized).toBe(false);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: null,
+        recoveryMarker: null,
+      });
+    } finally {
+      controlled.releaseCommit.resolve();
+      await rejection;
+    }
+    expect(runner.getStatus()).toMatchObject({ initialized: false, state: "error" });
+    await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+      checkpoint: null,
+      recoveryMarker: null,
+    });
+    const retry = createSubscriptionRunner("target", pools.target, pools.source, subscription);
+    await retry.runOnce();
+    await expect(readCheckpointState(pools.target, retry.checkpointKey)).resolves.toMatchObject({
+      checkpoint: "0",
+      recoveryMarker: "0",
+    });
+  });
+
+  it.each(["marker", "lease", "abort"] as const)(
+    "first zero checkpoint %s failure leaves no authority and retry converges",
+    async (failure) => {
+      const subscription = createItemsSubscription();
+      let leaseLost = false;
+      const abort = new AbortController();
+      const controlled = createControlledSavePool(pools.target, {
+        afterCheckpoint: () => {
+          if (failure === "lease") leaseLost = true;
+          if (failure === "abort") abort.abort(new Error("synthetic first abort"));
+        },
+      });
+      if (failure === "marker") {
+        await pools.target.query(
+          "ALTER TABLE event_projection_recovery_markers ADD CONSTRAINT synthetic_first_marker_failure CHECK (last_global_position <> 0)",
+        );
+      }
+      const runner = createSubscriptionRunner("target", controlled.pool, pools.source, subscription);
+      try {
+        await expect(
+          runner.runOnce({
+            signal: abort.signal,
+            throwIfLeaseLost: () => {
+              if (leaseLost) throw new Error("synthetic first lease loss");
+            },
+          }),
+        ).rejects.toThrow();
+        expect(runner.getStatus().initialized).toBe(false);
+        await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+          checkpoint: null,
+          recoveryMarker: null,
+        });
+      } finally {
+        if (failure === "marker")
+          await pools.target.query(
+            "ALTER TABLE event_projection_recovery_markers DROP CONSTRAINT synthetic_first_marker_failure",
+          );
+      }
+      await runner.runOnce();
+      expect(runner.getStatus().initialized).toBe(true);
+      await expect(readCheckpointState(pools.target, runner.checkpointKey)).resolves.toMatchObject({
+        checkpoint: "0",
+        recoveryMarker: "0",
+      });
+    },
+  );
+
+  it.each([
+    { checkpoint: "0", marker: null },
+    { checkpoint: "5", marker: null },
+    { checkpoint: "5", marker: "4" },
+  ])(
+    "retained checkpoint $checkpoint with marker $marker refuses first-initialization repair",
+    async ({ checkpoint, marker }) => {
+      const subscription = createItemsSubscription();
+      await seedCheckpointState(pools.target, subscription, {
+        checkpoint,
+        recoveryMarker: marker,
+        ownerId: null,
+        fencingToken: null,
+      });
+      const runner = createSubscriptionRunner("target", pools.target, pools.source, subscription);
+      const before = await readCheckpointState(pools.target, runner.checkpointKey);
+      await expect(runner.runOnce({ settleIdleCheckpoints: true })).rejects.toThrow("committed projection group reset");
+      expect(runner.getStatus()).toMatchObject({ initialized: false, recoveryRequired: true });
+      expect(await readCheckpointState(pools.target, runner.checkpointKey)).toEqual(before);
+      await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([]);
+    },
+  );
 
   it("rebuilds a projection group and retries a blocked stream with statementTimeoutMs set", async () => {
     const runtime = createMountedContextTestRuntime([
@@ -474,6 +1009,478 @@ describeDb("projection operations Postgres integration", () => {
     await expect(loadSubscriptionCheckpoint(primaryRunner.checkpointKey)).resolves.toBe("1");
   });
 
+  it("serializes first checkpoint saves before their statement snapshots", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+    const first = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+    const second = createControlledSavePool(pools.target);
+    const firstSave = saveSubscriptionCheckpoint(first.pool, subscription, "10");
+    let secondSave: Promise<void> | undefined;
+
+    try {
+      await first.checkpointCompleted.promise;
+      secondSave = saveSubscriptionCheckpoint(second.pool, subscription, "1");
+      await second.lockSubmitted.promise;
+
+      const waitEvidence = await waitForBackendBlock(pools.target, first.backendPid, second.backendPid);
+      expect(waitEvidence.blocking_pids).toContain(first.backendPid);
+      expect(waitEvidence.wait_event_type).toBe("Lock");
+      expect(waitEvidence.wait_event).toBe("advisory");
+      expect(waitEvidence.locks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ pid: first.backendPid, locktype: "advisory", granted: true }),
+          expect.objectContaining({ pid: second.backendPid, locktype: "advisory", granted: false }),
+        ]),
+      );
+      const firstLock = waitEvidence.locks.find((lock) => lock.pid === first.backendPid);
+      const secondLock = waitEvidence.locks.find((lock) => lock.pid === second.backendPid);
+      expect(secondLock).toMatchObject({
+        database: firstLock?.database,
+        classid: firstLock?.classid,
+        objid: firstLock?.objid,
+        objsubid: firstLock?.objsubid,
+      });
+      expect(second.checkpointStarted.resolved).toBe(false);
+
+      const independentProjection = { ...subscription, projectionName: "other-items" };
+      const independentVersion = { ...subscription, subscriptionVersion: 2 };
+      const independentLockIds = await Promise.all(
+        [subscription, independentProjection, independentVersion].map(async (candidate) => {
+          const result = await pools.target.query<{ lock_id: string }>(
+            "SELECT hashtextextended('event_subscription_checkpoints:' || $1::text, 0)::text AS lock_id",
+            [createCheckpointKey(candidate)],
+          );
+          return result.rows[0]?.lock_id;
+        }),
+      );
+      expect(new Set(independentLockIds).size).toBe(3);
+      await expect(
+        Promise.all([
+          saveSubscriptionCheckpoint(pools.target, independentProjection, "3"),
+          saveSubscriptionCheckpoint(pools.target, independentVersion, "4"),
+          saveSubscriptionCheckpoint(pools.source, subscription, "5"),
+        ]),
+      ).resolves.toEqual([undefined, undefined, undefined]);
+
+      first.releaseCommit.resolve();
+      const settlements = await Promise.allSettled([firstSave, secondSave]);
+      expect(settlements).toEqual([
+        { status: "fulfilled", value: undefined },
+        { status: "fulfilled", value: undefined },
+      ]);
+      expect(first.checkpointQueries).toHaveLength(1);
+      expect(second.checkpointQueries).toHaveLength(1);
+      expect(first.checkpointQueries[0]?.params).toEqual([checkpointKey, "items", "source", 1, "10", null, null]);
+      expect(second.checkpointQueries[0]?.params?.[4]).toBe("1");
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "10",
+        recoveryMarker: "10",
+      });
+      await expect(readCheckpointState(pools.source, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "5",
+        recoveryMarker: "5",
+      });
+
+      const version = await pools.target.query<{ server_version: string }>("SHOW server_version");
+      const indexes = await pools.target.query<{ indexname: string; indexdef: string }>(
+        `SELECT indexname, indexdef
+         FROM pg_indexes
+         WHERE schemaname = current_schema()
+           AND tablename = 'event_subscription_checkpoints'
+         ORDER BY indexname`,
+      );
+      expect(version.rows[0]?.server_version).toMatch(/^\d+\.\d+/);
+      expect(indexes.rows.map(({ indexname }) => indexname)).toEqual([
+        "event_subscription_checkpoints_pkey",
+        "event_subscription_checkpoints_projection_source_version_idx",
+      ]);
+      console.info(
+        "checkpoint-serialization evidence",
+        JSON.stringify({
+          serverVersion: version.rows[0]?.server_version,
+          indexes: indexes.rows,
+          checkpointKey,
+          firstBackendPid: first.backendPid,
+          secondBackendPid: second.backendPid,
+          waitEvidence,
+          settlements,
+          firstSql: first.checkpointQueries,
+          secondSql: second.checkpointQueries,
+          final: await readCheckpointState(pools.target, checkpointKey),
+        }),
+      );
+    } finally {
+      first.releaseCommit.resolve();
+      await Promise.allSettled([firstSave, ...(secondSave ? [secondSave] : [])]);
+    }
+  });
+
+  it("keeps checkpoint recovery decisions after the preceding save commits", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+    const committedFirst = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+    const bypassedSecond = createControlledSavePool(pools.target, { bypassCheckpointLock: true });
+    const committedSave = saveSubscriptionCheckpoint(committedFirst.pool, subscription, "10");
+    const controlledPools = [committedFirst, bypassedSecond];
+    const savePromises: Promise<void>[] = [committedSave];
+    let bypassedSave: Promise<void> | undefined;
+
+    try {
+      await committedFirst.checkpointCompleted.promise;
+      bypassedSave = saveSubscriptionCheckpoint(bypassedSecond.pool, subscription, "1");
+      savePromises.push(bypassedSave);
+      await bypassedSecond.checkpointStarted.promise;
+      const bypassWait = await waitForBackendBlock(pools.target, committedFirst.backendPid, bypassedSecond.backendPid);
+      expect(bypassWait.blocking_pids).toContain(committedFirst.backendPid);
+      expect(bypassWait.wait_event).not.toBe("advisory");
+
+      committedFirst.releaseCommit.resolve();
+      const bypassSettlements = await Promise.allSettled([committedSave, bypassedSave]);
+      expect(bypassSettlements.map(({ status }) => status)).toEqual(["fulfilled", "fulfilled"]);
+      const bypassFinal = await readCheckpointState(pools.target, checkpointKey);
+      expect(bypassFinal).toMatchObject({ checkpoint: "1", recoveryMarker: "10" });
+
+      await clearCheckpointState(pools.target, checkpointKey);
+      const rolledBackFirst = createControlledSavePool(pools.target, {
+        holdBeforeCommit: true,
+        failCommitBeforeQuery: new Error("synthetic pre-commit failure"),
+      });
+      const survivingSecond = createControlledSavePool(pools.target);
+      controlledPools.push(rolledBackFirst, survivingSecond);
+      const rolledBackSave = saveSubscriptionCheckpoint(rolledBackFirst.pool, subscription, "10");
+      savePromises.push(rolledBackSave);
+      await rolledBackFirst.checkpointCompleted.promise;
+      const survivingSave = saveSubscriptionCheckpoint(survivingSecond.pool, subscription, "1");
+      savePromises.push(survivingSave);
+      await survivingSecond.lockSubmitted.promise;
+      const rollbackWait = await waitForBackendBlock(
+        pools.target,
+        rolledBackFirst.backendPid,
+        survivingSecond.backendPid,
+      );
+      rolledBackFirst.releaseCommit.resolve();
+      const rollbackSettlements = await Promise.allSettled([rolledBackSave, survivingSave]);
+      expect(rollbackSettlements).toEqual([
+        { status: "rejected", reason: expect.objectContaining({ message: "synthetic pre-commit failure" }) },
+        { status: "fulfilled", value: undefined },
+      ]);
+      const rollbackFinal = await readCheckpointState(pools.target, checkpointKey);
+      expect(rollbackFinal).toMatchObject({ checkpoint: "1", recoveryMarker: "1" });
+
+      await clearCheckpointState(pools.target, checkpointKey);
+      const lowerFirst = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+      const higherSecond = createControlledSavePool(pools.target);
+      controlledPools.push(lowerFirst, higherSecond);
+      const lowerSave = saveSubscriptionCheckpoint(lowerFirst.pool, subscription, "1");
+      savePromises.push(lowerSave);
+      await lowerFirst.checkpointCompleted.promise;
+      const higherSave = saveSubscriptionCheckpoint(higherSecond.pool, subscription, "10");
+      savePromises.push(higherSave);
+      await higherSecond.lockSubmitted.promise;
+      await waitForBackendBlock(pools.target, lowerFirst.backendPid, higherSecond.backendPid);
+      lowerFirst.releaseCommit.resolve();
+      const reverseSettlements = await Promise.allSettled([lowerSave, higherSave]);
+      expect(reverseSettlements.map(({ status }) => status)).toEqual(["fulfilled", "fulfilled"]);
+      const reverseFinal = await readCheckpointState(pools.target, checkpointKey);
+      expect(reverseFinal).toMatchObject({ checkpoint: "10", recoveryMarker: "10" });
+
+      console.info(
+        "checkpoint-recovery evidence",
+        JSON.stringify({
+          checkpointKey,
+          bypassWait,
+          bypassSettlements,
+          bypassFinal,
+          rollbackWait,
+          rollbackSettlements: rollbackSettlements.map(({ status }) => status),
+          rollbackFinal,
+          reverseSettlements,
+          reverseFinal,
+        }),
+      );
+    } finally {
+      for (const controlledPool of controlledPools) {
+        controlledPool.releaseCommit.resolve();
+      }
+      await Promise.allSettled(savePromises);
+    }
+  });
+
+  it("preserves checkpoint recovery, owner, and nullable fence matrices", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+
+    await saveSubscriptionCheckpoint(pools.target, subscription, "2");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "2",
+      recoveryMarker: "2",
+      ownerId: null,
+      fencingToken: null,
+    });
+
+    await clearCheckpointState(pools.target, checkpointKey);
+    await seedCheckpointState(pools.target, subscription, {
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "owner-a",
+      fencingToken: "7",
+    });
+    await expect(
+      saveSubscriptionCheckpoint(pools.target, subscription, "20", {
+        ownerId: "older-owner",
+        fencingToken: "6",
+      }),
+    ).rejects.toThrow("rejected stale lease fencing token");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "owner-a",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+      ownerId: "equal-owner",
+      fencingToken: "7",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "equal-owner",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "12", {
+      ownerId: "newer-owner",
+      fencingToken: "8",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "12",
+      recoveryMarker: "12",
+      ownerId: "newer-owner",
+      fencingToken: "8",
+    });
+
+    await clearCheckpointState(pools.target, checkpointKey);
+    await seedCheckpointState(pools.target, subscription, {
+      checkpoint: "10",
+      recoveryMarker: null,
+      ownerId: "before-recovery",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+      ownerId: "invalid-token-owner",
+      fencingToken: "invalid",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "1",
+      recoveryMarker: "1",
+      ownerId: "invalid-token-owner",
+      fencingToken: "7",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "0", {
+      ownerId: "normal-owner",
+      fencingToken: "7",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+      checkpoint: "1",
+      recoveryMarker: "1",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "2", {
+      ownerId: "normal-owner",
+      fencingToken: "7",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+      checkpoint: "2",
+      recoveryMarker: "2",
+    });
+
+    await clearCheckpointState(pools.target, checkpointKey);
+    await seedCheckpointState(pools.target, subscription, {
+      checkpoint: "10",
+      recoveryMarker: "9",
+      ownerId: null,
+      fencingToken: null,
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+      ownerId: "zero-owner",
+      fencingToken: "0",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "1",
+      recoveryMarker: "9",
+      ownerId: "zero-owner",
+      fencingToken: "0",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "0", {
+      ownerId: "invalid-owner",
+      fencingToken: "not-a-number",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "1",
+      recoveryMarker: "9",
+      ownerId: "invalid-owner",
+      fencingToken: "0",
+    });
+    await saveSubscriptionCheckpoint(pools.target, subscription, "10", {
+      ownerId: "numeric-owner",
+      fencingToken: "5",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toEqual({
+      checkpoint: "10",
+      recoveryMarker: "10",
+      ownerId: "numeric-owner",
+      fencingToken: "5",
+    });
+  });
+
+  it("rolls back checkpoint saves on lease loss and abort while waiting for the lock", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+
+    await expect(
+      saveSubscriptionCheckpoint(pools.target, subscription, "1", {
+        throwIfLeaseLost: () => {
+          throw new Error("lease lost before lock acquisition");
+        },
+      }),
+    ).rejects.toThrow("lease lost before lock acquisition");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+
+    let leaseLost = false;
+    const postStatementPool = createControlledSavePool(pools.target, {
+      afterCheckpoint: () => {
+        leaseLost = true;
+      },
+    });
+    await expect(
+      saveSubscriptionCheckpoint(postStatementPool.pool, subscription, "2", {
+        throwIfLeaseLost: () => {
+          if (leaseLost) {
+            throw new Error("lease lost after checkpoint statement");
+          }
+        },
+      }),
+    ).rejects.toThrow("lease lost after checkpoint statement");
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+
+    const holder = createControlledSavePool(pools.target, { holdBeforeCommit: true });
+    const waiter = createControlledSavePool(pools.target);
+    const holderSave = saveSubscriptionCheckpoint(holder.pool, subscription, "10");
+    const abort = new AbortController();
+    let waitingSave: Promise<void> | undefined;
+    try {
+      await holder.checkpointCompleted.promise;
+      waitingSave = saveSubscriptionCheckpoint(waiter.pool, subscription, "1", { signal: abort.signal });
+      await waiter.lockSubmitted.promise;
+      await waitForBackendBlock(pools.target, holder.backendPid, waiter.backendPid);
+      abort.abort(new Error("checkpoint lock wait aborted"));
+      await expect(waitingSave).rejects.toThrow("checkpoint lock wait aborted");
+      holder.releaseCommit.resolve();
+      await expect(holderSave).resolves.toBeUndefined();
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({
+        checkpoint: "10",
+        recoveryMarker: "10",
+      });
+    } finally {
+      holder.releaseCommit.resolve();
+      await Promise.allSettled([holderSave, ...(waitingSave ? [waitingSave] : [])]);
+    }
+  });
+
+  it("preserves retained checkpoint identity errors and marker atomicity", async () => {
+    const subscription = createItemsSubscription();
+    const checkpointKey = createCheckpointKey(subscription);
+    await pools.target.query(
+      `INSERT INTO event_subscription_checkpoints (
+         checkpoint_key,
+         projection_name,
+         source_context_name,
+         subscription_version,
+         last_global_position,
+         updated_at
+       ) VALUES ('retained-noncanonical-key', $1, $2, $3, 4, now())`,
+      [subscription.projectionName, subscription.sourceContextName, subscription.subscriptionVersion],
+    );
+
+    await expect(saveSubscriptionCheckpoint(pools.target, subscription, "5")).rejects.toMatchObject({
+      code: "23505",
+      constraint: "event_subscription_checkpoints_projection_source_version_idx",
+    });
+    await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+    await expect(readCheckpointState(pools.target, "retained-noncanonical-key")).resolves.toMatchObject({
+      checkpoint: "4",
+      recoveryMarker: null,
+    });
+
+    await clearCheckpointState(pools.target, "retained-noncanonical-key");
+    await pools.target.query(
+      `CREATE OR REPLACE FUNCTION fail_subscription_recovery_marker_for_test()
+       RETURNS trigger
+       LANGUAGE plpgsql
+       AS $$
+       BEGIN
+         IF NEW.projection_kind = 'subscription' AND NEW.projection_key = '${checkpointKey}' THEN
+           RAISE EXCEPTION 'synthetic recovery marker failure';
+         END IF;
+         RETURN NEW;
+       END;
+       $$`,
+    );
+    await pools.target.query(
+      `CREATE TRIGGER fail_subscription_recovery_marker_for_test
+       BEFORE INSERT OR UPDATE ON event_projection_recovery_markers
+       FOR EACH ROW EXECUTE FUNCTION fail_subscription_recovery_marker_for_test()`,
+    );
+    try {
+      await expect(saveSubscriptionCheckpoint(pools.target, subscription, "6")).rejects.toThrow(
+        "synthetic recovery marker failure",
+      );
+      await expect(readCheckpointState(pools.target, checkpointKey)).resolves.toMatchObject({ checkpoint: null });
+    } finally {
+      await pools.target.query(
+        "DROP TRIGGER IF EXISTS fail_subscription_recovery_marker_for_test ON event_projection_recovery_markers",
+      );
+      await pools.target.query("DROP FUNCTION IF EXISTS fail_subscription_recovery_marker_for_test() ");
+    }
+  });
+
+  it("resumes committed application after checkpoint persistence fails", async () => {
+    const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const checkpointFailure = new Error("checkpoint persistence unavailable");
+    const failingPool = createFailingCheckpointPool(pools.target, checkpointFailure);
+    const runner = createSubscriptionRunner("target", failingPool, pools.source, createItemsSubscription());
+    const projectionAttempts: string[] = [];
+    targetPorts.beforeProjectionWrite = async (itemId) => {
+      projectionAttempts.push(itemId);
+    };
+
+    await sourceEventStore.appendToStream({
+      streamId: "source.item-checkpoint-failure",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [
+        {
+          eventType: "source.item-recorded",
+          payload: { itemId: "item-checkpoint-failure" },
+        },
+      ],
+    });
+
+    await expect(runner.runOnce(createProjectionRunContext())).rejects.toBe(checkpointFailure);
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-checkpoint-failure", seen_count: 1 }]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "applied" },
+    ]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+
+    const resumedRunner = createSubscriptionRunner("target", pools.target, pools.source, createItemsSubscription());
+    await expect(resumedRunner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
+      processed: 1,
+      lastGlobalPosition: "1",
+    });
+    expect(projectionAttempts).toEqual(["item-checkpoint-failure"]);
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-checkpoint-failure", seen_count: 1 }]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+  });
+
   it("batch-applies clean subscription events with bounded DB round trips", async () => {
     const targetQueries: string[] = [];
     const sourceEventStore = createPostgresEventStore({ pool: pools.source });
@@ -529,6 +1536,9 @@ describeDb("projection operations Postgres integration", () => {
         (sql) => sql.includes("FROM event_projection_blocked_streams") && sql.includes("stream_id = $2"),
       ),
     ).toHaveLength(0);
+    expect(targetQueries.filter((sql) => sql === "BEGIN")).toHaveLength(2);
+    expect(targetQueries.filter((sql) => sql === "COMMIT")).toHaveLength(2);
+    expect(targetQueries.filter((sql) => sql.includes("event_subscription_checkpoints:'"))).toHaveLength(1);
     expect(targetQueries.filter((sql) => sql.includes("INSERT INTO event_subscription_checkpoints"))).toHaveLength(1);
   });
 
@@ -622,50 +1632,768 @@ describeDb("projection operations Postgres integration", () => {
     await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
   });
 
-  it("rolls back owned-table and subscription-ledger reset when the rebuild lease is lost", async () => {
+  it("projection-rebuild-marker-settle keeps the committed marker through drain and rejects marker-after-reset-commit and settle-before-drain mutants", async () => {
     const runtime = createMountedContextTestRuntime([
       { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
       { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
     ]);
     const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+    const group = runtime.projectionGroups[0];
     const runner = runtime.subscriptionRunners[0];
 
     await sourceEventStore.appendToStream({
-      streamId: "source.item-atomic",
+      streamId: "source.item-marker",
       expectedVersion: "no_stream",
       context: createEventStoreContext(),
-      events: [
-        {
-          eventType: "source.item-recorded",
-          payload: { itemId: "item-atomic" },
-        },
-      ],
+      events: [{ eventType: "source.item-recorded", payload: { itemId: "item-marker" } }],
     });
-    await expect(
-      rebuildContextProjectionGroup(runtime, "target", "items", createProjectionRunContext()),
-    ).resolves.toBeUndefined();
-    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-atomic", seen_count: 1 }]);
-    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
-    await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
 
-    let leaseChecks = 0;
-    const lostLeaseContext = createProjectionRunContext({
-      throwIfLeaseLost: () => {
-        leaseChecks += 1;
-        if (leaseChecks >= 6) {
-          throw new Error("projection reset lease lost after owned-table reset");
+    const revisionSyncToken = await resetProjectionGroup(group, createProjectionRunContext());
+    expect(revisionSyncToken).toMatchObject({ generation: "2" });
+    expect(Object.isFrozen(revisionSyncToken)).toBe(true);
+    await expect(readProjectedItems()).resolves.toEqual([]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+    await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(0);
+    await expect(
+      loadProjectionGroupGeneration(pools.target, { targetContextName: "target", projectionName: "items" }),
+    ).resolves.toEqual({ activeGeneration: "1", rebuildingGeneration: "2", state: "rebuilding" });
+
+    const projectionEntered = createDeferred<void>();
+    const releaseProjection = createDeferred<void>();
+    targetPorts.beforeProjectionWrite = async () => {
+      projectionEntered.resolve();
+      await releaseProjection.promise;
+    };
+
+    const sync = syncProjectionGroup(group, createProjectionRunContext());
+    try {
+      await projectionEntered.promise;
+      await expect(
+        loadProjectionGroupGeneration(pools.target, { targetContextName: "target", projectionName: "items" }),
+      ).resolves.toEqual({ activeGeneration: "1", rebuildingGeneration: "2", state: "rebuilding" });
+      await expect(readProjectedItems()).resolves.toEqual([]);
+    } finally {
+      releaseProjection.resolve();
+      await expect(sync).resolves.toBeUndefined();
+    }
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-marker", seen_count: 1 }]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+    await expect(
+      loadProjectionGroupGeneration(pools.target, { targetContextName: "target", projectionName: "items" }),
+    ).resolves.toEqual({ activeGeneration: "2", rebuildingGeneration: null, state: "active" });
+  });
+
+  it("R2 retained-checkpoint direct drain requires a committed group reset before re-arming recovery", async () => {
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    const runner = runtime.subscriptionRunners[0];
+    await createPostgresEventStore({ pool: pools.source }).appendToStream({
+      streamId: "source.item-recovery",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "source.item-recorded", payload: { itemId: "item-recovery" } }],
+    });
+    await rebuildContextProjectionGroup(runtime, "target", "items", createProjectionRunContext());
+    const before = await readCheckpointState(pools.target, runner.checkpointKey);
+    await pools.target.query("TRUNCATE projected_items");
+    await pools.target.query(
+      "DELETE FROM event_projection_recovery_markers WHERE projection_kind = 'subscription' AND projection_key = $1",
+      [runner.checkpointKey],
+    );
+    let failure: unknown;
+    try {
+      await drainContextRuntime(runtime, { settleIdleCheckpoints: true });
+    } catch (error) {
+      failure = error;
+    }
+    const after = await readCheckpointState(pools.target, runner.checkpointKey);
+    console.info("R2 shared persisted recovery evidence", JSON.stringify({ before, after, failure: String(failure) }));
+    expect(after).toEqual({ ...before, recoveryMarker: null });
+    expect(String(failure)).toMatch(/recovery.*reset/i);
+    expect(runtime.projectionGroups[0].getStatus()).toMatchObject({ recoveryRequired: true, caughtUp: false });
+    await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
+    await expect(readProjectedItems()).resolves.toEqual([]);
+    await rebuildContextProjectionGroup(runtime, "target", "items", createProjectionRunContext());
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-recovery", seen_count: 1 }]);
+  });
+
+  it.each(["truncate", "custom"])(
+    "projection-rebuild-marker-atomicity rolls %s marker, table, checkpoint, and ledger back together",
+    async (strategy) => {
+      const runtime = createMountedContextTestRuntime([
+        { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+        {
+          contextName: "target",
+          module:
+            strategy === "custom"
+              ? createCutoverTargetModule(async (db) => {
+                  await db.query("TRUNCATE TABLE projected_items");
+                })
+              : createTargetModule(),
+          pool: pools.target,
+          ports: targetPorts,
+        },
+      ]);
+      const sourceEventStore = createPostgresEventStore({ pool: pools.source });
+      const runner = runtime.subscriptionRunners[0];
+
+      await sourceEventStore.appendToStream({
+        streamId: "source.item-atomic",
+        expectedVersion: "no_stream",
+        context: createEventStoreContext(),
+        events: [
+          {
+            eventType: "source.item-recorded",
+            payload: { itemId: "item-atomic" },
+          },
+        ],
+      });
+      await expect(
+        rebuildContextProjectionGroup(runtime, "target", "items", createProjectionRunContext()),
+      ).resolves.toBeUndefined();
+      await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-atomic", seen_count: 1 }]);
+      await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+      await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
+      await expect(
+        loadProjectionGroupGeneration(pools.target, { targetContextName: "target", projectionName: "items" }),
+      ).resolves.toEqual({ activeGeneration: "2", rebuildingGeneration: null, state: "active" });
+
+      let runnerResetCompleted = false;
+      const resetAfterRunner = {
+        ...runner,
+        reset: async (...args: Parameters<typeof runner.reset>) => {
+          await runner.reset(...args);
+          runnerResetCompleted = true;
+        },
+      };
+      const group = {
+        ...runtime.projectionGroups[0],
+        subscriptionRunners: [resetAfterRunner],
+      };
+      const lostLeaseContext = createProjectionRunContext({
+        throwIfLeaseLost: () => {
+          if (runnerResetCompleted) {
+            throw new Error("projection reset lease lost after marker, table, checkpoint, and ledger reset");
+          }
+        },
+      });
+
+      await expect(resetProjectionGroup(group, lostLeaseContext)).rejects.toThrow(
+        "projection reset lease lost after marker, table, checkpoint, and ledger reset",
+      );
+
+      await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-atomic", seen_count: 1 }]);
+      await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
+      await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
+      await expect(
+        loadProjectionGroupGeneration(pools.target, { targetContextName: "target", projectionName: "items" }),
+      ).resolves.toEqual({ activeGeneration: "2", rebuildingGeneration: null, state: "active" });
+    },
+  );
+
+  it.each(["truncate", "custom"])(
+    "projection-rebuild-marker-atomicity marks before %s reset and commits together",
+    async (strategy) => {
+      const insideReset = createDeferred<void>();
+      const releaseReset = createDeferred<void>();
+      const resetRows: unknown[] = [];
+      const module =
+        strategy === "custom"
+          ? createCutoverTargetModule(async (db) => {
+              resetRows.push(await loadProjectionGroupGeneration(db, generationKey));
+              await db.query("TRUNCATE TABLE projected_items");
+            })
+          : createTargetModule();
+      const group = createGroup(module);
+      await pools.target.query("INSERT INTO projected_items VALUES ('before-reset', 1)");
+      const reset = resetProjectionGroup({
+        ...group,
+        reset: async (context, options) => {
+          resetRows.push(await loadProjectionGroupGeneration(options!.db!, generationKey));
+          await group.reset(context, options);
+          insideReset.resolve();
+          await releaseReset.promise;
+        },
+      });
+      try {
+        await insideReset.promise;
+        expect(resetRows).toEqual(
+          Array.from({ length: strategy === "custom" ? 2 : 1 }, () => ({
+            activeGeneration: "1",
+            rebuildingGeneration: "2",
+            state: "rebuilding",
+          })),
+        );
+        await expect(readGeneration()).resolves.toBeNull();
+      } finally {
+        releaseReset.resolve();
+        await expect(reset).resolves.toMatchObject({ generation: "2" });
+      }
+      await expect(readGeneration()).resolves.toEqual({
+        activeGeneration: "1",
+        rebuildingGeneration: "2",
+        state: "rebuilding",
+      });
+      await expect(readProjectedItems()).resolves.toEqual([]);
+    },
+  );
+
+  it("projection-rebuild-marker-atomicity overlapping resets allocate distinct immutable tokens (reset-reuses-token)", async () => {
+    const secondSubmitted = createDeferred<void>();
+    let markers = 0;
+    const pool = createQueryCapturePool(pools.target, [], (sql) => {
+      if (sql.includes("INSERT INTO event_projection_group_generations") && ++markers === 2) secondSubmitted.resolve();
+    });
+    const group = createGroup(createTargetModule(), pool);
+    const firstEntered = createDeferred<void>();
+    const releaseFirst = createDeferred<void>();
+    let resets = 0;
+    const sharedGroup = {
+      ...group,
+      reset: async (...args: Parameters<typeof group.reset>) => {
+        await group.reset(...args);
+        if (++resets === 1) {
+          firstEntered.resolve();
+          await releaseFirst.promise;
         }
       },
+    };
+    const first = resetProjectionGroup(sharedGroup);
+    await firstEntered.promise;
+    const second = resetProjectionGroup(sharedGroup);
+    await secondSubmitted.promise;
+    releaseFirst.resolve();
+    const tokens = await Promise.all([first, second]);
+    expect(tokens.map((token) => token?.generation)).toEqual(["2", "3"]);
+    await expect(group.markRevisionSynced(tokens[0])).rejects.toThrow("stale rebuild token");
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "1",
+      rebuildingGeneration: "3",
+      state: "rebuilding",
     });
-
-    await expect(resetProjectionGroup(runtime.projectionGroups[0], lostLeaseContext)).rejects.toThrow(
-      "projection reset lease lost after owned-table reset",
-    );
-
-    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-atomic", seen_count: 1 }]);
-    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBe("1");
-    await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
+    await group.markRevisionSynced(tokens[1]);
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "3",
+      rebuildingGeneration: null,
+      state: "active",
+    });
+    await expect(resetProjectionGroup(sharedGroup)).resolves.toMatchObject({ generation: "4" });
   });
+
+  it("projection-rebuild-marker-settle same-runtime stale drainer keeps its pre-drain token (shared-group-token, settle-without-token)", async () => {
+    const group = createGroup();
+    await resetProjectionGroup(group);
+    const drainEntered = createDeferred<void>();
+    const releaseDrain = createDeferred<void>();
+    const runner = group.subscriptionRunners[0];
+    const sharedGroup = {
+      ...group,
+      subscriptionRunners: [
+        {
+          ...runner,
+          runOnce: async (...args: Parameters<typeof runner.runOnce>) => {
+            drainEntered.resolve();
+            await releaseDrain.promise;
+            return runner.runOnce(...args);
+          },
+        },
+      ],
+    };
+    const staleSync = syncProjectionGroup(sharedGroup);
+    try {
+      await drainEntered.promise;
+      await expect(resetProjectionGroup(sharedGroup)).resolves.toMatchObject({ generation: "3" });
+      await sharedGroup.refreshStatus({ captureRevisionSyncToken: true });
+    } finally {
+      releaseDrain.resolve();
+      await expect(staleSync).rejects.toThrow("stale rebuild token");
+    }
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "1",
+      rebuildingGeneration: "3",
+      state: "rebuilding",
+    });
+    await syncProjectionGroup(sharedGroup);
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "3",
+      rebuildingGeneration: null,
+      state: "active",
+    });
+  });
+
+  it("projection-rebuild-marker-settle cross-process stale drainer cannot settle a newer reset", async () => {
+    const group = createGroup();
+    await resetProjectionGroup(group);
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "--eval",
+        `
+      import { createPgPool } from '@chase-sets/event-core-postgres';
+      import { createSubscriptionRunner, resolveModuleProjectionGroups, syncProjectionGroup } from './index.ts';
+      const source = createPgPool(process.env.MARKER_SOURCE_URL);
+      const target = createPgPool(process.env.MARKER_TARGET_URL);
+      const subscription = createSubscriptionRunner('target', target, source, {
+        subscriptionName: 'target.items', sourceContextName: 'source', projectionName: 'items',
+        subscriptionVersion: 1, handlers: {}, eventTypes: ['source.item-recorded'], streamPrefixes: ['source.item-'],
+      });
+      const resume = new Promise(resolve => process.stdin.once('data', resolve));
+      const runner = { ...subscription, runOnce: async (...args) => {
+        process.stdout.write('captured\\n');
+        await resume;
+        return subscription.runOnce(...args);
+      }};
+      const [group] = resolveModuleProjectionGroups([{
+        contextName: 'target', pool: target, services: {}, module: { projectionGroups: [{
+          projectionName: 'items', sourceContextNames: ['source'], ownedTables: ['projected_items'],
+          resetStrategy: 'truncate-owned-tables',
+        }] },
+      }], [runner]);
+      try {
+        await syncProjectionGroup(group);
+        throw new Error('stale completion unexpectedly succeeded');
+      } catch (error) {
+        if (!error.message.includes('stale rebuild token')) throw error;
+      }
+      finally { process.stdin.destroy(); await source.end(); await target.end(); }
+    `,
+      ],
+      {
+        cwd: import.meta.dirname,
+        env: { ...process.env, MARKER_SOURCE_URL: databaseUrls.source, MARKER_TARGET_URL: databaseUrls.target },
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    let output = "";
+    let errors = "";
+    const captured = createDeferred<void>();
+    child.stdout.on("data", (chunk) => {
+      output += String(chunk);
+      if (output.includes("captured")) captured.resolve();
+    });
+    child.stderr.on("data", (chunk) => {
+      errors += String(chunk);
+    });
+    const terminal = new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", resolve);
+    });
+    try {
+      await Promise.race([
+        captured.promise,
+        terminal.then((code) => {
+          throw new Error(`Drainer exited ${code}: ${errors}`);
+        }),
+      ]);
+      await expect(resetProjectionGroup(group)).resolves.toMatchObject({ generation: "3" });
+    } finally {
+      child.stdin.end("resume");
+      expect(await terminal, errors).toBe(0);
+    }
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "1",
+      rebuildingGeneration: "3",
+      state: "rebuilding",
+    });
+    await syncProjectionGroup(createGroup());
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "3",
+      rebuildingGeneration: null,
+      state: "active",
+    });
+  });
+
+  it("projection-rebuild-marker-settle post-commit lease loss leaves rebuilding and a restarted drainer recovers", async () => {
+    const group = createGroup();
+    let committed = false;
+    const interrupted = {
+      ...group,
+      targetPool: {
+        ...pools.target,
+        query: pools.target.query.bind(pools.target),
+        connect: async () => {
+          const client = await pools.target.connect();
+          return {
+            query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+              const result = await client.query<Row>(sql, params);
+              if (sql === "COMMIT") committed = true;
+              return result;
+            },
+            release: (error?: unknown) => client.release(error),
+          };
+        },
+      },
+    };
+    await expect(
+      rebuildProjectionGroup(
+        interrupted,
+        createProjectionRunContext({
+          throwIfLeaseLost: () => {
+            if (committed) throw new Error("lost after reset commit");
+          },
+        }),
+      ),
+    ).rejects.toThrow("lost after reset commit");
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "1",
+      rebuildingGeneration: "2",
+      state: "rebuilding",
+    });
+    await syncProjectionGroup(createGroup());
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "2",
+      rebuildingGeneration: null,
+      state: "active",
+    });
+  });
+
+  it("load-projection-group-generation qualified folded query captures absence and active idle sync issues no marker statement", async () => {
+    const queries: string[] = [];
+    const group = createGroup(createTargetModule(), createQueryCapturePool(pools.target, queries));
+    await expect(readGeneration()).resolves.toBeNull();
+    await expect(group.refreshStatus({ captureRevisionSyncToken: true })).resolves.toMatchObject({
+      revisionSyncToken: null,
+    });
+    expect(queries).toHaveLength(1);
+    await syncProjectionGroup(group);
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "1",
+      rebuildingGeneration: null,
+      state: "active",
+    });
+    queries.length = 0;
+    const status = await group.refreshStatus();
+    expect(Object.hasOwn(status, "revisionSyncToken")).toBe(false);
+    expect(queries).toHaveLength(1);
+    queries.length = 0;
+    await syncProjectionGroup(group);
+    expect(queries.filter((sql) => /(?:INSERT INTO|UPDATE) event_projection_group_generations/.test(sql))).toEqual([]);
+    await resetProjectionGroup(group);
+    queries.length = 0;
+    await expect(group.refreshStatus({ captureRevisionSyncToken: true })).resolves.toMatchObject({
+      revisionSyncToken: { generation: "2" },
+    });
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("revision.projection_revision");
+    expect(queries[0]).toContain("generation.active_generation");
+  });
+
+  it.each([
+    { state: "rebuilding", rebuilding: null },
+    { state: "active", rebuilding: "2" },
+    { state: "failed", rebuilding: "2" },
+  ])(
+    "load-projection-group-generation rejects a partial $state row in PostgreSQL and folded capture",
+    async ({ state, rebuilding }) => {
+      const group = createGroup();
+      await pools.target.query(
+        "INSERT INTO event_projection_group_generations (target_context_name, projection_name, active_generation, rebuilding_generation, state, updated_at) VALUES ('target', 'items', 1, $1::bigint, $2, now())",
+        [rebuilding, state],
+      );
+      await expect(readGeneration()).resolves.toBeNull();
+      const capture = await group.refreshStatus({ captureRevisionSyncToken: true });
+      expect(capture.revisionSyncToken).toBeUndefined();
+      await expect(syncProjectionGroup(group)).rejects.toThrow("stale rebuild token");
+      const retained = await pools.target.query(
+        "SELECT state, rebuilding_generation FROM event_projection_group_generations",
+      );
+      expect(retained.rows).toEqual([{ state, rebuilding_generation: rebuilding }]);
+    },
+  );
+
+  it("load-projection-group-generation preserves PostgreSQL bigint identity and rejects a missing token timestamp", async () => {
+    await pools.target.query(
+      "INSERT INTO event_projection_group_generations (target_context_name, projection_name, active_generation, rebuilding_generation, state, updated_at) VALUES ('target', 'items', 9223372036854775806, 9223372036854775807, 'rebuilding', now())",
+    );
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "9223372036854775806",
+      rebuildingGeneration: "9223372036854775807",
+      state: "rebuilding",
+    });
+    const capture = await createGroup().refreshStatus({ captureRevisionSyncToken: true });
+    expect(capture.revisionSyncToken).toBeUndefined();
+  });
+
+  it("projection-rebuild-marker-cutover shares its start token, retains the previous generation and guards stale reset/complete/fail", async () => {
+    let resets = 0;
+    const group = createGroup(
+      createCutoverTargetModule(async () => {
+        resets += 1;
+      }),
+    );
+    const first = await group.startGenerationRebuild!();
+    expect(first.generation).toBe("2");
+    await expect(resetProjectionGroup(group, undefined, first)).resolves.toBe(first);
+    const second = await group.startGenerationRebuild!();
+    expect(second.generation).toBe("3");
+    await expect(resetProjectionGroup(group, undefined, first)).rejects.toThrow("stale rebuild token");
+    expect(resets).toBe(1);
+    await expect(group.completeGenerationRebuild!(first)).rejects.toThrow("stale rebuild token");
+    await group.failGenerationRebuild!(first);
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "1",
+      rebuildingGeneration: "3",
+      state: "rebuilding",
+    });
+    await group.completeGenerationRebuild!(second);
+    const retained = await pools.target.query<{ previous_generation: string; retained: boolean }>(
+      "SELECT previous_generation, previous_generation_retain_until > now() AS retained FROM event_projection_group_generations",
+    );
+    expect(retained.rows).toEqual([{ previous_generation: "1", retained: true }]);
+    await rebuildProjectionGroup(group);
+    expect(resets).toBe(2);
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "4",
+      rebuildingGeneration: null,
+      state: "active",
+    });
+    const failedGroup = createGroup(
+      createCutoverTargetModule(async () => {
+        throw new Error("custom reset failed");
+      }),
+    );
+    await expect(
+      rebuildProjectionGroup(failedGroup, createProjectionRunContext({ operationId: "op_atomic_reset_failure" })),
+    ).rejects.toThrow("custom reset failed");
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "4",
+      rebuildingGeneration: null,
+      state: "failed",
+    });
+    const failure = await pools.target.query(
+      "SELECT operation_id, previous_generation FROM event_projection_group_generations",
+    );
+    expect(failure.rows).toEqual([{ operation_id: "op_atomic_reset_failure", previous_generation: "3" }]);
+    await expect(syncProjectionGroup(group)).rejects.toThrow("stale rebuild token");
+    await expect(readGeneration()).resolves.toMatchObject({ state: "failed" });
+    await rebuildProjectionGroup(group);
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "5",
+      rebuildingGeneration: null,
+      state: "active",
+    });
+  });
+
+  it("projection-rebuild-marker-cutover failed attempt cannot reset, settle, complete or fail a reused generation", async () => {
+    let resets = 0;
+    const group = createGroup(
+      createCutoverTargetModule(async () => {
+        resets += 1;
+      }),
+    );
+    const failed = await group.startGenerationRebuild!();
+    await group.failGenerationRebuild!(failed);
+    const current = await group.startGenerationRebuild!();
+    expect(current.generation).toBe(failed.generation);
+    expect(current.startedAt).not.toBe(failed.startedAt);
+    await expect(resetProjectionGroup(group, undefined, failed)).rejects.toThrow("stale rebuild token");
+    expect(resets).toBe(0);
+    await expect(group.markRevisionSynced(failed)).rejects.toThrow("stale rebuild token");
+    await expect(group.completeGenerationRebuild!(failed)).rejects.toThrow("stale rebuild token");
+    await group.failGenerationRebuild!(failed);
+    await expect(readGeneration()).resolves.toEqual({
+      activeGeneration: "1",
+      rebuildingGeneration: "2",
+      state: "rebuilding",
+    });
+    const captured = await group.refreshStatus({ captureRevisionSyncToken: true });
+    expect(captured.revisionSyncToken).toEqual(current);
+    await expect(resetProjectionGroup(group, undefined, current)).resolves.toBe(current);
+    await group.completeGenerationRebuild!(current);
+    await expect(readGeneration()).resolves.toMatchObject({ activeGeneration: "2", state: "active" });
+  });
+
+  it.each(["markRevisionSynced", "completeGenerationRebuild"] as const)(
+    "completion fence rolls back activation when revision persistence fails through %s",
+    async (method) => {
+      await syncProjectionGroup(createGroup(createCutoverTargetModule()));
+      const group = createGroup(createCutoverTargetModule(undefined, 2));
+      await group.refreshStatus();
+      const before = await readCompletionState();
+      const token = await group.startGenerationRebuild!();
+      const rebuilding = await readCompletionState();
+      await pools.target.query(`CREATE FUNCTION reject_completion_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF (SELECT state FROM event_projection_group_generations
+              WHERE target_context_name = 'target' AND projection_name = 'items') <> 'active' THEN
+            RAISE EXCEPTION 'generation not yet activated';
+          END IF;
+          RAISE EXCEPTION 'injected revision failure';
+        END; $$`);
+      await pools.target.query(`CREATE TRIGGER reject_completion_revision BEFORE INSERT OR UPDATE
+        ON event_projection_group_revisions FOR EACH ROW EXECUTE FUNCTION reject_completion_revision()`);
+      try {
+        await expect(group[method]!(token)).rejects.toThrow("injected revision failure");
+        expect(await readCompletionState()).toEqual(rebuilding);
+        expect(group.getStatus().storedProjectionRevision).toBe(before.projection_revision);
+      } finally {
+        await pools.target.query("DROP TRIGGER reject_completion_revision ON event_projection_group_revisions");
+        await pools.target.query("DROP FUNCTION reject_completion_revision()");
+      }
+      await group[method]!(token);
+      const completed = await readCompletionState();
+      expect(completed).toMatchObject({
+        active_generation: token.generation,
+        rebuilding_generation: null,
+        previous_generation: "1",
+        state: "active",
+        projection_revision: 2,
+      });
+      await group[method]!(token);
+      expect(await readCompletionState()).toEqual(completed);
+    },
+  );
+
+  it("completion fence two owners refuse the stale completion and preserve the winning revision", async () => {
+    const oldOwner = createGroup(createCutoverTargetModule());
+    const newOwner = createGroup(createCutoverTargetModule(undefined, 2));
+    const stale = await oldOwner.startGenerationRebuild!();
+    const current = await newOwner.startGenerationRebuild!();
+    const outcomes = await Promise.allSettled([
+      oldOwner.completeGenerationRebuild!(stale),
+      newOwner.completeGenerationRebuild!(current),
+    ]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(["rejected", "fulfilled"]);
+    expect(oldOwner.getStatus().storedProjectionRevision).toBeNull();
+    expect(newOwner.getStatus().storedProjectionRevision).toBe(2);
+    expect(await readCompletionState()).toMatchObject({
+      active_generation: current.generation,
+      previous_generation: "1",
+      rebuilding_generation: null,
+      state: "active",
+      projection_revision: 2,
+    });
+    await expect(oldOwner.markRevisionSynced(stale)).rejects.toThrow("stale rebuild token");
+    await expect(oldOwner.completeGenerationRebuild!(current)).rejects.toThrow("stale rebuild token");
+  });
+
+  it.each(["sync", "rebuild", "worker", "markRevisionSynced", "completeGenerationRebuild"] as const)(
+    "completion fence rolls back a lost lease during %s completion",
+    async (entry) => {
+      let lost = false;
+      let completing = false;
+      const pool = createQueryCapturePool(pools.target, [], (sql) => {
+        if (completing && sql.includes("INSERT INTO event_projection_group_revisions")) lost = true;
+      });
+      const group = createGroup(createCutoverTargetModule(), pool);
+      await syncProjectionGroup(group);
+      const token = await group.startGenerationRebuild!();
+      const before = await readCompletionState();
+      completing = true;
+      const context = createProjectionRunContext({
+        throwIfLeaseLost: () => {
+          if (lost) throw new Error("completion lease lost");
+        },
+      });
+      const completion =
+        entry === "sync"
+          ? syncProjectionGroup(group, context)
+          : entry === "rebuild"
+            ? rebuildProjectionGroup(group, context)
+            : entry === "worker"
+              ? createProjectionGroupWorkerRunner(group).runOnce(context)
+              : group[entry]!(token, context);
+      await expect(completion).rejects.toThrow("completion lease lost");
+      const after = await readCompletionState();
+      expect(after).toMatchObject({
+        active_generation: before.active_generation,
+        previous_generation: before.previous_generation,
+        projection_revision: before.projection_revision,
+        state: entry === "rebuild" ? "failed" : "rebuilding",
+      });
+      expect(group.getStatus().storedProjectionRevision).toBe(before.projection_revision);
+      completing = false;
+      await rebuildProjectionGroup(group);
+      expect(await readCompletionState()).toMatchObject({ state: "active", rebuilding_generation: null });
+    },
+  );
+
+  it.each(["sync", "worker"] as const)(
+    "completion fence refuses a stale %s drainer after a second owner resets",
+    async (entry) => {
+      const group = createGroup();
+      await resetProjectionGroup(group);
+      const subscription = group.subscriptionRunners[0];
+      let reset = false;
+      const stale = {
+        ...group,
+        subscriptionRunners: [
+          {
+            ...subscription,
+            runOnce: async () => {
+              if (!reset) {
+                reset = true;
+                await resetProjectionGroup(createGroup());
+              }
+              return { processed: 0, lastGlobalPosition: parseGlobalPosition("0") };
+            },
+          },
+        ],
+      };
+      await expect(
+        entry === "sync" ? syncProjectionGroup(stale) : createProjectionGroupWorkerRunner(stale).runOnce(),
+      ).rejects.toThrow("stale rebuild token");
+      expect(group.getStatus().storedProjectionRevision).toBeNull();
+      expect(await readCompletionState()).toMatchObject({
+        active_generation: "1",
+        rebuilding_generation: "3",
+        state: "rebuilding",
+        projection_revision: null,
+      });
+      await syncProjectionGroup(createGroup());
+      expect(await readCompletionState()).toMatchObject({
+        active_generation: "3",
+        state: "active",
+        projection_revision: 1,
+      });
+    },
+  );
+
+  it("completion fence preserves large tokens and rejects stale absent and active captures", async () => {
+    const group = createGroup(createCutoverTargetModule());
+    const absent = (await group.refreshStatus({ captureRevisionSyncToken: true })).revisionSyncToken;
+    await pools.target.query(`INSERT INTO event_projection_group_generations
+      (target_context_name, projection_name, active_generation, state, updated_at)
+      VALUES ('target', 'items', 9007199254740993, 'active', now())`);
+    await expect(group.markRevisionSynced(absent)).rejects.toThrow("stale rebuild token");
+    const active = (await group.refreshStatus({ captureRevisionSyncToken: true })).revisionSyncToken;
+    const token = await group.startGenerationRebuild!();
+    expect(token.generation).toBe("9007199254740994");
+    await group.completeGenerationRebuild!(token);
+    await expect(group.markRevisionSynced(active)).rejects.toThrow("stale rebuild token");
+    expect(await readCompletionState()).toMatchObject({
+      active_generation: token.generation,
+      previous_generation: "9007199254740993",
+      state: "active",
+      projection_revision: 1,
+    });
+  });
+
+  async function readCompletionState() {
+    const result = await pools.target.query(`SELECT generation.active_generation, generation.previous_generation,
+      generation.rebuilding_generation, generation.state, generation.cutover_at, revision.projection_revision
+      FROM event_projection_group_generations AS generation
+      LEFT JOIN event_projection_group_revisions AS revision USING (target_context_name, projection_name)
+      WHERE generation.target_context_name = 'target' AND generation.projection_name = 'items'`);
+    return result.rows[0];
+  }
+
+  const generationKey = { targetContextName: "target", projectionName: "items" };
+  function readGeneration() {
+    return loadProjectionGroupGeneration(pools.target, generationKey);
+  }
+  function createGroup(module = createTargetModule(), targetPool = pools.target) {
+    return createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module, pool: targetPool, ports: targetPorts },
+    ]).projectionGroups[0];
+  }
 
   it("keeps reaction command dispatch atomic with the subscription application transaction", async () => {
     let nextOrderId = 1;
@@ -913,11 +2641,16 @@ function createProjectionRunContext(overrides: Partial<ProjectionRunContext> = {
   };
 }
 
-function createQueryCapturePool(pool: PgTransactionalPool, queries: string[]): PgTransactionalPool {
+function createQueryCapturePool(
+  pool: PgTransactionalPool,
+  queries: string[],
+  onQuery?: (sql: string) => void,
+): PgTransactionalPool {
   return {
     idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
     query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
       queries.push(String(sql));
+      onQuery?.(sql);
       return pool.query<Row>(sql, params);
     },
     connect: async () => {
@@ -925,6 +2658,7 @@ function createQueryCapturePool(pool: PgTransactionalPool, queries: string[]): P
       return {
         query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
           queries.push(String(sql));
+          onQuery?.(sql);
           return client.query<Row>(sql, params);
         },
         release: (error?: unknown) => client.release(error),
@@ -933,16 +2667,272 @@ function createQueryCapturePool(pool: PgTransactionalPool, queries: string[]): P
   };
 }
 
+function saveSubscriptionCheckpoint(
+  pool: PgTransactionalPool,
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
+  lastGlobalPosition: string,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  return savePersistedSubscriptionCheckpoint(pool, subscription, parseGlobalPosition(lastGlobalPosition), context);
+}
+
+function createControlledSavePool(
+  pool: PgTransactionalPool,
+  options: Readonly<{
+    holdBeforeCommit?: boolean;
+    bypassCheckpointLock?: boolean;
+    failCommitBeforeQuery?: Error;
+    afterCheckpoint?: () => void;
+  }> = {},
+) {
+  const lockSubmitted = createDeferred<void>();
+  const checkpointStarted = createDeferred<void>();
+  const checkpointCompleted = createDeferred<void>();
+  const releaseCommit = createDeferred<void>();
+  const checkpointQueries: Array<Readonly<{ sql: string; params: readonly unknown[] }>> = [];
+  let backendPid = 0;
+  if (!options.holdBeforeCommit) {
+    releaseCommit.resolve();
+  }
+
+  const controlledPool: PgTransactionalPool = {
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    query: <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => pool.query<Row>(sql, params),
+    connect: async () => {
+      const client = await pool.connect();
+      const pidResult = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      backendPid = Number(pidResult.rows[0]?.pid);
+      return {
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("pg_advisory_xact_lock") && sql.includes("event_subscription_checkpoints:")) {
+            lockSubmitted.resolve();
+            if (options.bypassCheckpointLock) {
+              return { rows: [] as Row[], rowCount: 1 };
+            }
+          }
+          if (sql.includes("WITH saved_checkpoint AS")) {
+            checkpointQueries.push({ sql, params: params ?? [] });
+            checkpointStarted.resolve();
+            const result = await client.query<Row>(sql, params);
+            checkpointCompleted.resolve();
+            options.afterCheckpoint?.();
+            return result;
+          }
+          if (sql === "COMMIT") {
+            await releaseCommit.promise;
+            if (options.failCommitBeforeQuery) {
+              throw options.failCommitBeforeQuery;
+            }
+          }
+          return client.query<Row>(sql, params);
+        },
+        release: (error?: unknown) => client.release(error),
+      };
+    },
+  };
+
+  return {
+    pool: controlledPool,
+    get backendPid() {
+      return backendPid;
+    },
+    lockSubmitted,
+    checkpointStarted,
+    checkpointCompleted,
+    releaseCommit,
+    checkpointQueries,
+  };
+}
+
+function createFailingCheckpointPool(pool: PgTransactionalPool, failure: Error): PgTransactionalPool {
+  return {
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    query: <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => pool.query<Row>(sql, params),
+    connect: async () => {
+      const client = await pool.connect();
+      return {
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("WITH saved_checkpoint AS")) {
+            throw failure;
+          }
+          return client.query<Row>(sql, params);
+        },
+        release: (error?: unknown) => client.release(error),
+      };
+    },
+  };
+}
+
+type CheckpointState = Readonly<{
+  checkpoint: string | null;
+  recoveryMarker: string | null;
+  ownerId: string | null;
+  fencingToken: string | null;
+}>;
+
+async function readCheckpointState(pool: PgTransactionalPool, checkpointKey: string): Promise<CheckpointState> {
+  const result = await pool.query<{
+    checkpoint: string | number | bigint;
+    recovery_marker: string | number | bigint | null;
+    lease_owner_id: string | null;
+    lease_fencing_token: string | number | bigint | null;
+  }>(
+    `SELECT checkpoint.last_global_position AS checkpoint,
+            marker.last_global_position AS recovery_marker,
+            checkpoint.lease_owner_id,
+            checkpoint.lease_fencing_token
+     FROM event_subscription_checkpoints AS checkpoint
+     LEFT JOIN event_projection_recovery_markers AS marker
+       ON marker.projection_kind = 'subscription'
+      AND marker.projection_key = checkpoint.checkpoint_key
+     WHERE checkpoint.checkpoint_key = $1`,
+    [checkpointKey],
+  );
+  const row = result.rows[0];
+  return {
+    checkpoint: row ? String(row.checkpoint) : null,
+    recoveryMarker: row?.recovery_marker == null ? null : String(row.recovery_marker),
+    ownerId: row?.lease_owner_id ?? null,
+    fencingToken: row?.lease_fencing_token == null ? null : String(row.lease_fencing_token),
+  };
+}
+
+async function clearCheckpointState(pool: PgTransactionalPool, checkpointKey: string): Promise<void> {
+  await pool.query(
+    `DELETE FROM event_projection_recovery_markers
+     WHERE projection_kind = 'subscription' AND projection_key = $1`,
+    [checkpointKey],
+  );
+  await pool.query(`DELETE FROM event_subscription_checkpoints WHERE checkpoint_key = $1`, [checkpointKey]);
+}
+
+async function seedCheckpointState(
+  pool: PgTransactionalPool,
+  subscription: Pick<BcEventSubscription, "projectionName" | "sourceContextName" | "subscriptionVersion">,
+  state: Readonly<{
+    checkpoint: string;
+    recoveryMarker: string | null;
+    ownerId: string | null;
+    fencingToken: string | null;
+  }>,
+): Promise<void> {
+  const checkpointKey = createCheckpointKey(subscription);
+  await pool.query(
+    `INSERT INTO event_subscription_checkpoints (
+       checkpoint_key,
+       projection_name,
+       source_context_name,
+       subscription_version,
+       last_global_position,
+       lease_owner_id,
+       lease_fencing_token,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7::bigint, now())`,
+    [
+      checkpointKey,
+      subscription.projectionName,
+      subscription.sourceContextName,
+      subscription.subscriptionVersion,
+      state.checkpoint,
+      state.ownerId,
+      state.fencingToken,
+    ],
+  );
+  if (state.recoveryMarker !== null) {
+    await pool.query(
+      `INSERT INTO event_projection_recovery_markers (
+         projection_kind,
+         projection_key,
+         last_global_position,
+         updated_at
+       ) VALUES ('subscription', $1, $2::bigint, now())`,
+      [checkpointKey, state.recoveryMarker],
+    );
+  }
+}
+
+type BackendWaitEvidence = Readonly<{
+  wait_event_type: string | null;
+  wait_event: string | null;
+  blocking_pids: readonly number[];
+  locks: readonly Readonly<{
+    pid: number;
+    locktype: string;
+    database: string | null;
+    classid: string | null;
+    objid: string | null;
+    objsubid: string | null;
+    mode: string;
+    granted: boolean;
+  }>[];
+}>;
+
+async function waitForBackendBlock(
+  pool: PgTransactionalPool,
+  blockingPid: number,
+  blockedPid: number,
+): Promise<BackendWaitEvidence> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const activity = await pool.query<{
+      wait_event_type: string | null;
+      wait_event: string | null;
+      blocking_pids: number[];
+    }>(
+      `SELECT wait_event_type, wait_event, pg_blocking_pids(pid) AS blocking_pids
+       FROM pg_stat_activity
+       WHERE pid = $1`,
+      [blockedPid],
+    );
+    const row = activity.rows[0];
+    if (row?.blocking_pids.map(Number).includes(blockingPid)) {
+      const locks = await pool.query<BackendWaitEvidence["locks"][number]>(
+        `SELECT pid,
+                locktype,
+                database::text,
+                classid::text,
+                objid::text,
+                objsubid::text,
+                mode,
+                granted
+         FROM pg_locks
+         WHERE pid = ANY($1::int[])
+           AND locktype = 'advisory'
+         ORDER BY pid, granted DESC`,
+        [[blockingPid, blockedPid]],
+      );
+      return {
+        wait_event_type: row.wait_event_type,
+        wait_event: row.wait_event,
+        blocking_pids: row.blocking_pids.map(Number),
+        locks: locks.rows,
+      };
+    }
+    await delay(10);
+  }
+  throw new Error(`Backend ${blockedPid} did not become blocked by backend ${blockingPid}.`);
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>;
   resolve: (value?: T | PromiseLike<T>) => void;
+  readonly resolved: boolean;
 } {
   let resolve!: (value?: T | PromiseLike<T>) => void;
+  let resolved = false;
   const promise = new Promise<T>((promiseResolve) => {
-    resolve = (value) => promiseResolve(value as T | PromiseLike<T>);
+    resolve = (value) => {
+      resolved = true;
+      promiseResolve(value as T | PromiseLike<T>);
+    };
   });
 
-  return { promise, resolve };
+  return {
+    promise,
+    resolve,
+    get resolved() {
+      return resolved;
+    },
+  };
 }
 
 function createEventStoreContext() {

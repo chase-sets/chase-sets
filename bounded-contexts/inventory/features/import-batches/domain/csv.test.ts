@@ -5,8 +5,8 @@ describe("parseImportCsv", () => {
   it("parses a valid stock intake row with dynamic option columns", () => {
     const rows = parseImportCsv(
       [
-        "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingQuantityCap",
-        "cat_1,loc_1,3,opt_near_mint,12.50,2",
+        "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
+        "cat_1,loc_1,3,opt_near_mint,12.50,USD,2",
       ].join("\n"),
     );
 
@@ -19,6 +19,7 @@ describe("parseImportCsv", () => {
           totalQuantity: "3",
           "option:condition": "opt_near_mint",
           listingPriceAmount: "12.50",
+          listingPriceCurrencyCode: "USD",
           listingQuantityCap: "2",
         },
       },
@@ -45,15 +46,15 @@ describe("buildNativeInventoryImportCsvTemplate", () => {
     ]);
 
     expect(csv.split("\n")[0]).toBe(
-      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,acquisitionCostAmount,acquisitionCostCurrencyCode,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
-    expect(csv).toContain("cat_example,loc_main,1,Raw,Near Mint,,,,,Example for Main shelf");
-    expect(csv).toContain('cat_example,loc_case,1,Raw,Near Mint,,,,,"Example for Case ""A"", top"');
+    expect(csv).toContain("cat_example,loc_main,1,,Raw,Near Mint,,,,,,,Example for Main shelf");
+    expect(csv).toContain('cat_example,loc_case,1,,Raw,Near Mint,,,,,,,"Example for Case ""A"", top"');
   });
 
   it("renders a header-only template when the account has no active storage locations", () => {
     expect(buildNativeInventoryImportCsvTemplate([])).toBe(
-      "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,acquisitionCostAmount,acquisitionCostCurrencyCode,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
   });
 });
@@ -70,6 +71,7 @@ describe("buildNativeInventoryExportCsv", () => {
           { dimensionId: "condition", optionId: "Near Mint" },
         ],
         acquisition_cost_amount: "1.25",
+        acquisition_cost_currency_code: "CAD",
       },
       {
         catalog_item_id: "cat_2",
@@ -77,8 +79,10 @@ describe("buildNativeInventoryExportCsv", () => {
         total_quantity: 0,
         selected_options: [{ dimensionId: "language", optionId: "en" }],
         acquisition_cost_amount: null,
+        acquisition_cost_currency_code: null,
         seller_sku: "seller-2",
         listing_price_amount: "5.00",
+        listing_price_currency_code: "USD",
         listing_quantity_cap: 2,
         row_note: "quoted, note",
       },
@@ -86,16 +90,16 @@ describe("buildNativeInventoryExportCsv", () => {
 
     expect(csv).toBe(
       [
-        "catalogItemId,storageLocationId,totalQuantity,option:form,option:condition,option:language,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
-        "cat_1,loc_1,3,Raw,Near Mint,,1.25,,,,",
-        'cat_2,loc_2,0,,,en,,seller-2,5.00,2,"quoted, note"',
+        "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,option:form,option:condition,option:language,acquisitionCostAmount,acquisitionCostCurrencyCode,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
+        "cat_1,loc_1,3,,Raw,Near Mint,,1.25,CAD,,,,,",
+        'cat_2,loc_2,0,,,,en,,,seller-2,5.00,USD,2,"quoted, note"',
       ].join("\n"),
     );
   });
 
   it("renders a header-only export when the account has no inventory", () => {
     expect(buildNativeInventoryExportCsv([])).toBe(
-      "catalogItemId,storageLocationId,totalQuantity,acquisitionCostAmount,sellerSku,listingPriceAmount,listingQuantityCap,rowNote",
+      "catalogItemId,storageLocationId,totalQuantity,acquisitionOccurredAt,acquisitionCostAmount,acquisitionCostCurrencyCode,sellerSku,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap,rowNote",
     );
   });
 });

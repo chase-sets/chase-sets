@@ -13,8 +13,40 @@
     "gross-merchandise-value",
     "market-state-snapshot",
     "repricing-policy",
+    "repricing-preset",
+    "authoring-prerequisites",
+    "repricing-listing-outcome",
+    "repricing-management-policy",
+    "repricing-activity",
+    "repricing-activity-digest",
+    "digest-window",
+    "digest-window-member",
+    "digest-baseline",
+    "repricing-halt",
+    "scope-preview",
     "repricing-policy-assignment",
-    "bulk-reprice-job"
+    "repricing-dry-run",
+    "bulk-reprice-job",
+    "market-capture",
+    "demand-curve",
+    "condition-ladder",
+    "pooled-supply",
+    "buyer-arrival-interval",
+    "store-win-share",
+    "sell-time-forecast",
+    "provider-sale-observation",
+    "weekly-sale-bucket",
+    "listing-snapshot",
+    "listing-ask-depth",
+    "anonymous-capture-seller-ordinal",
+    "own-sale-observation",
+    "economics",
+    "economics-fact",
+    "fact-source",
+    "policy-owned",
+    "observed-hold",
+    "observed-turnaround",
+    "daily-return-hurdle"
   ],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
@@ -24,14 +56,23 @@
     "market-trades",
     "market-rollups",
     "market-estimates",
+    "offer-targets",
     "repricing-policies",
     "repricing-engine",
     "public-market-pages",
-    "bulk-reprice-ingestion"
+    "bulk-reprice-ingestion",
+    "own-sale-observations",
+    "economics",
+    "forecast-ledger"
   ],
   "allowedSupportDirectories": ["realtime-support", "request-support", "route-support", "runtime-support"],
-  "publicExports": [".", "./context", "./routes/*", "./server"],
-  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./integration/link-intents"],
+  "allowedContextDependencies": [
+    "@chase-sets/channels",
+    "@chase-sets/commercial-terms",
+    "@chase-sets/marketplace",
+    "@chase-sets/inventory"
+  ],
   "seedRequirements": [
     "catalog",
     "identity",
@@ -47,8 +88,13 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "pricing-catalog-input-projection",
-      "subscriptionVersion": 5,
+      "subscriptionVersion": 7,
       "eventTypes": [
+        "catalog.category.created",
+        "catalog.category.revised",
+        "catalog.category.published",
+        "catalog.category.deprecated",
+        "catalog.category.archived",
         "catalog.catalog-item.created",
         "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.published",
@@ -56,6 +102,8 @@
         "catalog.catalog-item.archived",
         "catalog.catalog-item.external-product-reference-linked",
         "catalog.catalog-item.external-product-reference-unlinked",
+        "catalog.catalog-item.external-catalog-item-reference-linked",
+        "catalog.catalog-item.external-catalog-item-reference-unlinked",
         "catalog.catalog-item.category-assigned",
         "catalog.catalog-item.category-removed"
       ],
@@ -65,10 +113,12 @@
     {
       "sourceContextName": "inventory",
       "projectionName": "pricing-inventory-input-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "inventory.item.created",
         "inventory.item.adjusted",
+        "inventory.external-channel-sale.recorded",
+        "inventory.item.offline-sale-recorded",
         "inventory.hold.placed",
         "inventory.hold.converted",
         "inventory.hold.extended",
@@ -81,7 +131,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "pricing-market-input-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
@@ -90,6 +140,10 @@
         "marketplace.listing.paused",
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
+        "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted"
       ],
       "order": 30,
@@ -118,7 +172,7 @@
     {
       "sourceContextName": "ordering",
       "projectionName": "pricing-market-trades-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
@@ -151,7 +205,7 @@
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["payments.payment-fraud-warning-received"],
+      "eventTypes": ["payments.payment-captured", "payments.payment-fraud-warning-received"],
       "order": 90,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     },
@@ -210,16 +264,52 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "pricing-repricing-evaluation-projection",
+      "projectionRevision": 2,
+      "sourceContextNames": ["pricing"],
+      "ownedTables": [
+        "pricing_repricing_policy_evaluations",
+        "pricing_repricing_listing_outcome_facts",
+        "pricing_repricing_listing_outcomes"
+      ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-repricing-policy-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_repricing_policies"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-repricing-halt-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_repricing_halts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-catalog-input-projection",
       "sourceContextNames": ["catalog"],
-      "ownedTables": ["pricing_catalog_item_inputs", "pricing_external_product_reference_inputs"],
+      "ownedTables": [
+        "pricing_catalog_item_inputs",
+        "pricing_catalog_category_inputs",
+        "pricing_external_product_reference_inputs",
+        "pricing_external_catalog_item_reference_inputs"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
     {
       "projectionName": "pricing-inventory-input-projection",
       "sourceContextNames": ["inventory"],
-      "ownedTables": ["pricing_inventory_item_inputs", "pricing_inventory_hold_inputs"],
+      "ownedTables": [
+        "pricing_inventory_item_inputs",
+        "pricing_inventory_hold_inputs",
+        "pricing_own_sale_observations",
+        "pricing_inventory_acquisition_lots"
+      ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -246,14 +336,30 @@
     },
     {
       "projectionName": "pricing-market-trades-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["ordering", "fulfillment", "identity", "payments", "authenticity", "settlement"],
       "optionalSourceContextNames": ["authenticity"],
       "ownedTables": [
         "pricing_market_trades",
+        "pricing_market_trade_denominations",
         "pricing_market_trade_authenticity_cases",
         "pricing_market_trade_linkage_clusters",
         "pricing_market_trade_rollup_rederive_queue"
       ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-forecast-ledger-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_forecast_ledger_entries"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "pricing-economics-overrides-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_economics_overrides"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -267,13 +373,54 @@
       "resetStrategy": "replay-only"
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "commercialTermsResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve the four Commercial Terms-owned Economics facts at the caller-supplied evaluation instant."
+    },
+    {
+      "portName": "channelConnectionIdentityReader",
+      "providedBy": "channels",
+      "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
+    },
+    {
+      "portName": "tcgplayerMarketTransport",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Supply Pricing's concrete TCGplayer price-point and market-evidence transport; non-worker hosts mount not-mounted."
+    },
+    {
+      "portName": "tcgplayerMarketCaptureReceiptSink",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Retain privacy-safe TCGplayer market-capture receipts whose field summaries are captured before decoding; non-worker hosts mount not-mounted."
+    }
+  ],
   "apiDeployables": ["platform-api"],
   "apiMounts": [
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/account/repricing-policies",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "pricing_repricing_policies"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/repricing-policies/:policyId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "pricing_repricing_policies"
+            }
+          ]
+        }
+      ]
     }
   ],
   "mcpCapabilities": {
@@ -288,7 +435,145 @@
       }
     ]
   },
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "pricing.seller-desk-repricing-policy-list-refresh",
+      "owner": "pricing",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["account-desk-repricing", "account-desk-repricing-policy"],
+        "actions": ["Pause policy", "Resume policy", "Delete policy"],
+        "command": "Pricing repricing policy pause, resume and delete commands",
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-desk-repricing",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies",
+        "readModelTables": ["pricing_repricing_policies"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. The page reloads itself with the same receipt at most ten times, 250 ms apart, and the refresh link stays available once that budget is spent. Halt, budget and dry-run reads never carry the receipt."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/ui/policy-editor-drawer.test.tsx",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.seller-desk-repricing-policy-detail-self-refresh",
+      "owner": "pricing",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-desk-repricing-policy",
+        "actions": ["Pause policy", "Resume policy"],
+        "command": "Pricing repricing policy pause, resume and delete commands",
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-desk-repricing-policy",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies/:policyId",
+        "readModelTables": ["pricing_repricing_policies"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk policy detail loader treats valid fresh-write not-found and projection freshness timeout responses as a refreshable catching-up page that reloads itself with the same receipt at most ten times, 250 ms apart, before leaving the refresh link to the seller; without a valid, unexpired receipt a missing policy stays an ordinary not-found and authorization failures propagate unchanged."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
+        ]
+      }
+    }
+  ],
   "mutationConsistencyInventory": [
+    {
+      "id": "pricing.repricing-policy-control-snapshots",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/revise",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/pause",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/resume",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /:policyId/delete",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /halt",
+        "api-route:bounded-contexts/pricing/features/repricing-policies/api/route.ts:POST /scope-preview"
+      ],
+      "visibleDestination": {
+        "description": "Policy and halt commands return folded aggregate state; scope preview returns the computed counts without mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "Creation appends and consumes atomically; owned commands fence the aggregate before dispatch and return its state.",
+        "tests": [
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/tests/policy-activation.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.seller-desk-repricing-controls",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
+        "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-desk-repricing",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies",
+        "readModelTables": ["pricing_repricing_policies"],
+        "description": "Policy command responses contain folded aggregate state and commit metadata. Seller Desk policy redirects carry that metadata into a bounded fresh read. Policy-list membership and policy-detail existence depend on pricing_repricing_policies, owned by pricing-repricing-policy-projection; returned policy bodies are folded from owned aggregates. Halt state is read directly from its aggregate and is not protected by a policy-projection wait. Pending and permanent recovery follow the shared freshness contract.",
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. The page reloads itself with the same receipt at most ten times, 250 ms apart, and the refresh link stays available once that budget is spent. Halt, budget and dry-run reads never carry the receipt."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.repricing-dry-run-command-snapshot",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/pricing/features/repricing-engine/api/dry-run-route.ts:POST /"],
+      "visibleDestination": {
+        "description": "Dry-run creation returns the persisted account-owned snapshot and body hash."
+      },
+      "proof": {
+        "authoritativeResponse": "enqueueDryRun atomically persists the request and durable job and returns the inserted request snapshot.",
+        "tests": [
+          "bounded-contexts/pricing/features/repricing-engine/api/dry-run-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-engine/tests/repricing-dry-run.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "pricing.recommendation-publish-command-snapshot",
       "owner": "pricing",
@@ -371,6 +656,40 @@
           "bounded-contexts/pricing/features/recommendations/ui/recommendation-list-page.test.tsx"
         ]
       }
+    },
+    {
+      "id": "pricing.economics-resolution-observation",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "read-model-neutral",
+      "surfaces": ["api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /resolve"],
+      "exception": {
+        "owner": "pricing",
+        "reason": "Economics resolution is a read-only calculation over authoritative provider facts, policy, acquisition and sale evidence, and account-scoped overrides. The POST body carries the calculation coordinates; the route appends no event and creates no post-write read.",
+        "reviewBy": "2027-03-08",
+        "issue": "#7707"
+      }
+    },
+    {
+      "id": "pricing.economics-override-command-snapshots",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/set",
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/clear",
+        "api-route:bounded-contexts/pricing/features/economics/api/route.ts:POST /overrides/clear-all"
+      ],
+      "visibleDestination": {
+        "description": "Override command responses return the command-folded Economics override entries and aggregate version, so callers do not depend on the asynchronously projected override table for post-write state."
+      },
+      "proof": {
+        "authoritativeResponse": "EconomicsOverrideRuntime.execute appends with expected-version concurrency, folds the emitted events into aggregate state, and the API returns that state's version and entries directly.",
+        "tests": [
+          "bounded-contexts/pricing/features/economics/api/override-runtime.test.ts",
+          "bounded-contexts/pricing/features/economics/api/route.test.ts"
+        ]
+      }
     }
   ],
   "deployableContributions": [
@@ -382,14 +701,106 @@
           "routePath": "account/repricing",
           "fileExport": "./routes/marketplace/account-repricing",
           "routeType": "route",
-          "sourceContext": "pricing"
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-desk-repricing",
+          "routePath": "account/desk/repricing",
+          "fileExport": "./routes/marketplace/account-desk-repricing",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "route-derived"
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
+          }
+        },
+        {
+          "routeId": "account-desk-repricing-policy",
+          "routePath": "account/desk/repricing/:policyId",
+          "fileExport": "./routes/marketplace/account-desk-repricing-policy",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-bulk-reprice",
           "routePath": "account/bulk-reprice",
           "fileExport": "./routes/marketplace/bulk-reprice",
           "routeType": "route",
-          "sourceContext": "pricing"
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     },
@@ -416,21 +827,19 @@
       "href": "/account/repricing",
       "order": 120,
       "visibility": "signed-in",
-      "requiredPermissions": ["pricing.view"]
-    },
-    {
-      "deployable": "marketplace-web",
-      "slot": "bottom-nav",
-      "key": "repricing",
-      "label": "Pricing",
-      "icon": "chart",
-      "href": "/account/repricing",
-      "order": 120,
-      "visibility": "signed-in",
-      "requiredPermissions": ["pricing.view"]
+      "requiredPermissions": ["pricing.view"],
+      "excludedRoleKeys": ["guest-buyer"]
     }
   ],
   "directoryIntent": {
+    "economics": {
+      "classification": "slice",
+      "purpose": "Resolve replayable native-marketplace or Channel Connection Economics facts, evidence, and overrides for Pricing consumers.",
+      "expectedConsumers": [
+        "Internal pricing module composition",
+        "Pricing Goal consumers through the Pricing server contract"
+      ]
+    },
     "recommendations": {
       "classification": "slice",
       "purpose": "Own recommendations feature behavior, read models, and UI contracts for the pricing context.",
@@ -456,6 +865,11 @@
       "purpose": "Own the blended Market-Value Estimate: the event-sourced Market Price aggregate publishing pricing.market-price.estimated per resolved product (platform verified trades weighted highest, unverified next, external comps by the market-estimate policy, all time-decayed), its minimum-input gate, the current-estimate read model, and the estimate recompute pass riding the market-rollups closer job.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
+    "offer-targets": {
+      "classification": "slice",
+      "purpose": "Evaluate buyer Offer unit item targets from fresh published market-price evidence in market-estimates and authorized Marketplace policy terms without seller inputs.",
+      "expectedConsumers": ["Marketplace buyer Offer preview and application through the Pricing server contract"]
+    },
     "repricing-policies": {
       "classification": "slice",
       "purpose": "Own the RepricingPolicy aggregate (seller-owned rule pipeline: anchor chain, offset, floor, ceiling, tolerance, budgets, scope) and the resolved listing-to-policy assignment read model that is the repricing evaluation engine's work queue input.",
@@ -476,10 +890,20 @@
       "purpose": "Own the removable bulk reprice ingestion on-ramp (m113 #4328): diff-first CSV/API upload, seller-SKU/listingId resolution, chunked apply through Marketplace's bulk price-update port, per-row outcome tracking, and the results-CSV export. Deletable as one directory plus the mount lines documented in docs/bulk-reprice-ingestion.md -- nothing outside this directory (besides the documented mount points) imports from it.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
+    "own-sale-observations": {
+      "classification": "slice",
+      "purpose": "Own seller-scoped observations of external-channel and offline sales projected from Inventory as pricing evidence that remains isolated from the published Market-Value Estimate.",
+      "expectedConsumers": ["Internal pricing module composition", "Future Pricing-owned seller analytics"]
+    },
+    "forecast-ledger": {
+      "classification": "slice",
+      "purpose": "Record every incumbent and shadow price's registered sell-time forecasts from RepricingPolicyEvaluated facts, grade each Forecast Kind against realized sales from the trades tape and Own-Sale Observations, publish ForecastGraded facts, and apply the Adoption Gate to goal versions.",
+      "expectedConsumers": ["Internal pricing module composition", "platform-worker", "Pricing Health surface (#7709)"]
+    },
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["recommendations"]
+      "expectedConsumers": ["economics", "recommendations"]
     },
     "realtime-support": {
       "classification": "support",
@@ -489,7 +913,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["recommendations", "public-market-pages", "bulk-reprice-ingestion"],
+      "expectedConsumers": ["repricing-policies"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

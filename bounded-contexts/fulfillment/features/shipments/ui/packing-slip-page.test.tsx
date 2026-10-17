@@ -7,6 +7,7 @@ import { FulfillmentShipmentPackingPage } from "./shipment-packing-page";
 import type { FulfillmentPackingSlip } from "./contracts";
 
 const slip: FulfillmentPackingSlip = {
+  conflicts: [],
   shipment_id: "shp_1",
   order_id: "ord_1",
   display_reference: "shp_1",
@@ -248,6 +249,7 @@ describe("fulfillment packing slip UI", () => {
         backHref="/account/sales/shipments"
         shipment={packingShipment}
         errorMessage={null}
+        recoveryScope={{ tenantId: "tenant_1", sellerAccountId: packingShipment.seller_account_id }}
       />,
     );
 

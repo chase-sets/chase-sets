@@ -30,6 +30,11 @@ const previewPostgresSecretName = "chase-sets-preview-postgres";
 // than derived from the preview identifier.
 export const previewWildcardTlsSecretName = "preview-wildcard-tls";
 export const previewWildcardTlsSecretNamespace = "cert-manager";
+export const managedPostgresCaVolumeName = "managed-postgres-ca";
+export const managedPostgresCaSecretKey = "managed-postgres-ca.crt";
+export const managedPostgresCaItemPath = "ca.crt";
+export const managedPostgresCaMountPath = "/var/run/secrets/chase-sets/managed-postgres";
+export const managedPostgresCaDigestAnnotation = "chase-sets.com/managed-postgres-ca-sha256";
 
 // Exported so scripts/platform-compose-ingress.mjs (the CI compose
 // boot+smoke job's ingress stand-in) routes requests by the exact same path
@@ -90,93 +95,6 @@ const secretEnvFallbacks = new Set([
   "SCRYDEX_TEAM_ID",
   "CHASE_SETS_DISCORD_INVITE_URL",
 ]);
-
-const envValueDefaults = {
-  NODE_ENV: "production",
-  PORT: "8080",
-  DEPLOYMENT_ENVIRONMENT: "preview",
-  CHASE_SETS_RUNTIME_PROFILE: "public",
-  READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED: "false",
-  READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED: "false",
-  PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED: "false",
-  PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS: "*",
-  DATABASE_POOL_IDLE_TIMEOUT_MS: "5000",
-  DATABASE_POOL_CONNECTION_TIMEOUT_MS: "10000",
-  CHASE_SETS_TRUST_FORWARDED_HEADERS: "true",
-  CHASE_SETS_PUBLIC_INDEXING: "false",
-  CHASE_SETS_M86_DEVELOPER_PORTAL_READY: "false",
-  CHASE_SETS_MARKETPLACE_INDEXING: "false",
-  CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE: "false",
-  CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX: "30",
-  ADMIN_REGISTRATION_ENABLED: "false",
-  REALTIME_BACKGROUND_MAINTENANCE_ENABLED: "false",
-  REALTIME_WAKE_SIGNAL_ENABLED: "false",
-  CATALOG_ASSET_STORAGE_KIND: "s3",
-  CATALOG_ASSET_S3_BUCKET: "",
-  CATALOG_ASSET_S3_REGION: "nyc3",
-  CATALOG_ASSET_S3_ENDPOINT: "https://nyc3.digitaloceanspaces.com",
-  CATALOG_ASSET_PUBLIC_BASE_URL: "",
-  TAX_PROVIDER_BACKED_QUOTES_REQUIRED: "false",
-  OBSERVABILITY_ENABLED: "false",
-  OTEL_EXPORTER_OTLP_ENDPOINT: "",
-  OTEL_RESOURCE_ATTRIBUTES: "cloud.provider=digitalocean,cloud.platform=kubernetes,chase_sets.environment_slug=preview",
-  STRIPE_CONNECT_ACCOUNTS_API: "v2",
-  STRIPE_API_BASE_URL: "https://api.stripe.com",
-  EASYPOST_API_BASE_URL: "https://api.easypost.com",
-  EASYPOST_MODE: "test",
-  ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: "",
-  REALTIME_STREAM_LIMITER: "postgres",
-  NOTIFICATION_EMAIL_PROVIDER: "noop",
-  SES_AWS_REGION: "",
-  SES_FROM_EMAIL: "",
-  SES_CONFIGURATION_SET_NAME: "",
-  PLATFORM_ADMIN_DISPLAY_NAME: "Platform Admin",
-  CHASE_SETS_PUBLIC_ORIGIN: "",
-  CHASE_SETS_MARKETPLACE_ORIGIN: "",
-  CHASE_SETS_INTERNAL_API_ORIGIN: platformApiInternalOrigin(),
-  WORKER_MAX_CONCURRENT_RUNNERS: "5",
-  WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS: "1",
-  WORKER_PROJECTION_OPERATION_RUNNER_COUNT: "1",
-  WORKER_JOB_MAX_CONCURRENT_RUNNERS: "1",
-  WORKER_WAKE_MAX_CONCURRENT_RUNNERS: "2",
-  WORKER_WAKE_HOT_LANE_RUNNER_COUNT: "1",
-  WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT: "1",
-  WORKER_WAKE_BULK_LANE_RUNNER_COUNT: "1",
-  WORKER_WAKE_STATEMENT_TIMEOUT_MS: "30000",
-  WORKER_PROJECTION_WAKE_RELAY_ENABLED: "false",
-  SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT: "1",
-  SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  CATALOG_AUTHORING_BULK_JOB_LANE_COUNT: "1",
-  CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT: "1",
-  SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT: "1",
-  INVENTORY_IMPORT_BATCH_JOB_MAX_CONCURRENT_RUNNERS: "1",
-  INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  PRICING_RECOMMENDATION_JOB_LANE_COUNT: "1",
-  PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT: "1",
-  SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS: "1",
-  SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB: "1",
-  WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS: "1",
-  WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS: "1",
-  TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS: "250",
-  TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS: "30000",
-  TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS: "2",
-  TCGPLAYER_AUTOMATION_MAX_RETRIES: "3",
-  CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "open",
-  CATALOG_INTEGRATION_ACTIVATION_MODE: "open",
-  CATALOG_INTEGRATION_IMPORTS_DISABLED: "",
-  CATALOG_INTEGRATION_PROMOTION_DISABLED: "",
-  CATALOG_INTEGRATION_REAPPLY_DISABLED: "",
-  CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP: "",
-  CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES: "open",
-};
 
 const databasePoolMaxByComponent = {
   "platform-api": "6",
@@ -420,7 +338,46 @@ export function buildPlatformHelmValues(options = {}) {
   const runtimeValues = readPlatformRuntimeValues(rootDir);
 
   const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
-  return values;
+  const components = Object.fromEntries(
+    Object.entries(values.components ?? {}).map(([name, component]) => [
+      name,
+      {
+        ...component,
+        managedPostgresCa: componentUsesDatabaseSecret(component, name),
+        topologySpreadConstraints: [],
+      },
+    ]),
+  );
+  const digest = options.managedPostgresCaSha256 ?? "";
+  if (digest && !/^[0-9a-f]{64}$/.test(digest)) {
+    throw new Error("managedPostgresCaSha256 must be a lowercase SHA-256 digest.");
+  }
+  return {
+    ...values,
+    global: {
+      ...values.global,
+      managedPostgresCaSha256: digest,
+    },
+    components,
+  };
+}
+
+export function isDatabaseSecretKey(value) {
+  return (
+    value === "DATABASE_URL" ||
+    value === "PLATFORM_CONTROL_DATABASE_URL" ||
+    value === "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL" ||
+    value === "PLATFORM_WORK_SIGNAL_DATABASE_URL" ||
+    /^(?:BOOTSTRAP_)?DATABASE_URL_[A-Z0-9_]+(?:_WAITER)?$/.test(value) ||
+    /^WORKER_LISTENER_DATABASE_URL_[A-Z0-9_]+$/.test(value)
+  );
+}
+
+export function componentUsesDatabaseSecret(component, name = "component") {
+  if (!component || !["service", "worker", "job"].includes(component.kind) || !Array.isArray(component.env)) {
+    throw new Error(`Component '${name}' has an unsupported Kubernetes composer shape.`);
+  }
+  return component.env.some((entry) => entry?.secret === true && isDatabaseSecretKey(entry.secretKey ?? entry.name));
 }
 
 /*
@@ -444,6 +401,13 @@ export function renderPlatformHelmValues(options = {}) {
         "        # Keep 45s drain + 780s bootstrap command + 5s kill grace + 45s restore below the hook deadline.",
         `        timeoutSeconds: ${bootstrapQuiesceTimeoutSeconds}`,
         `        commandTimeoutSeconds: ${bootstrapCommandTimeoutSeconds}`,
+      ].join("\n") + "\n",
+    )
+    .replaceAll(
+      "    topologySpreadConstraints: []\n",
+      [
+        "    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.",
+        "    topologySpreadConstraints: []",
       ].join("\n") + "\n",
     );
 }
@@ -471,6 +435,38 @@ export function buildPlatformHelmStagingValues(options = {}) {
   };
 }
 
+// Production runs two 2 vCPU / 4 GiB runtime nodes (1900m CPU / 3074892Ki
+// memory allocatable each). Every app pod was previously BestEffort, so the
+// scheduler had nothing to balance and the 58056846 cutover stacked all five
+// on runtime-37p95u: public-web and platform-worker never reached Ready and
+// cert-manager-webhook and ingress-nginx were restarted under the pressure
+// (Platform Deploy 35559759563). These requests reserve a real share of a
+// node -- 950m and 1792Mi summed, half that node's CPU and under two thirds
+// of its memory -- so all five still fit on one node beside ingress-nginx,
+// cert-manager and the observability collector, while the limits stay above
+// them (Burstable) so a traffic burst can still take a whole vCPU. Requests
+// are the only number the scheduler reads; the limits keep the same
+// 1 vCPU / 1 GiB envelope the staging API has run on (doksStagingApiOverrides).
+// platform-bootstrap is a short pre-rollout hook and is deliberately absent.
+const productionAppComponentRequests = {
+  "public-web": { cpu: "200m", memory: "256Mi" },
+  marketplace: { cpu: "200m", memory: "256Mi" },
+  "admin-web": { cpu: "100m", memory: "256Mi" },
+  "platform-api": { cpu: "250m", memory: "512Mi" },
+  "platform-worker": { cpu: "200m", memory: "512Mi" },
+};
+
+const productionAppComponentLimits = { cpu: "1", memory: "1Gi" };
+
+// Soft hostname spread: the scheduler prefers the node holding fewer of this
+// component's pods, so a rolling cutover places the replacement pod away from
+// the outgoing one instead of doubling up. ScheduleAnyway keeps it a
+// preference, so a single schedulable node never blocks the rollout. The
+// chart supplies labelSelector from the component's own selectorLabels.
+const productionHostnameSpread = [
+  { maxSkew: 1, topologyKey: "kubernetes.io/hostname", whenUnsatisfiable: "ScheduleAnyway" },
+];
+
 export function buildPlatformHelmProductionValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const { productionEnvOverrides } = readPlatformRuntimeValues(rootDir);
@@ -487,6 +483,15 @@ export function buildPlatformHelmProductionValues(options = {}) {
         endpoint: `https://otel.${productionEnvironmentZone}`,
       },
     },
+    components: Object.fromEntries(
+      Object.entries(productionAppComponentRequests).map(([name, requests]) => [
+        name,
+        {
+          resources: { requests, limits: productionAppComponentLimits },
+          topologySpreadConstraints: productionHostnameSpread,
+        },
+      ]),
+    ),
   };
 }
 
@@ -518,9 +523,10 @@ export function buildDoksIngressValues(options = {}) {
 
   const enabled = target !== "";
   const marketplacePublicEnabled = env.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED === "true";
+  const marketplaceServed = marketplacePublicEnabled || env.PRODUCTION_MARKETPLACE_SERVED === "true";
   const hosts = enabled
     ? production
-      ? buildProductionDoksIngressHosts({ marketplacePublicEnabled })
+      ? buildProductionDoksIngressHosts({ marketplaceServed })
       : buildDoksIngressHosts(stagingEnvironmentZone, "live", { apexService: "marketplace" })
     : [];
   const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
@@ -620,7 +626,7 @@ function buildDoksIngressHosts(environmentZone, hostMode, options = {}) {
 }
 
 function buildProductionDoksIngressHosts(options = {}) {
-  const includeMarketplace = options.marketplacePublicEnabled === true;
+  const includeMarketplace = options.marketplaceServed === true;
   const buildHostSet = (hostMode) =>
     buildDoksIngressHosts(productionEnvironmentZone, hostMode).filter(
       (host) => includeMarketplace || !host.host.startsWith("marketplace."),

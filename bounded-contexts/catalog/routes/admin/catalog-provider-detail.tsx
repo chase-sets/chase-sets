@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useLocation } from "react-router";
 import { CatalogProviderDetailPage } from "../../features/source-observations/ui/admin-control-plane/provider-detail/provider-detail-page";
 import { loadProviderDetail } from "../../support/route-support/admin-integrations/provider-detail-loader";
 
@@ -23,11 +23,18 @@ export const meta: MetaFunction = () => [
 // lifecycle-recovery workspace.
 export default function CatalogProviderDetailRoute() {
   const routeData = useLoaderData<typeof loader>();
+  const location = useLocation();
+  // A navigation (even within this route) or an actor change remounts the
+  // Operator session panel, discarding any displayed grant or late completion.
+  const operatorSessionKey = routeData.operatorSessionActorKey
+    ? `${routeData.operatorSessionActorKey}|${location.key}`
+    : null;
   return (
     <CatalogProviderDetailPage
       readModel={routeData.readModel}
       commandFeedback={routeData.commandFeedback}
       providerRefreshSchedules={routeData.providerRefreshSchedules}
+      operatorSessionKey={operatorSessionKey}
     />
   );
 }

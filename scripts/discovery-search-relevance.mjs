@@ -95,7 +95,7 @@ export async function runInMemoryEvaluation(options) {
   );
   validateFixtures(catalogItems, goldenQueries, embeddingFixture);
   const { register } = await import("node:module");
-  register("./typescript-source-loader.mjs", import.meta.url);
+  register("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);
   const relevance = await import("../bounded-contexts/discovery/features/search/domain/relevance-evaluation.ts");
   const report = relevance.runInMemoryDiscoveryRelevanceEvaluation({
     catalogItems,

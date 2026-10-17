@@ -1,10 +1,16 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../../catalog-items/api/runtime";
+import { initialCatalogItemState, type CatalogItemState } from "../../../catalog-items/domain/domain";
+import type { BlueprintId, CatalogItemId, CategoryId } from "../../../../ids";
+import { asArray } from "../../../../support/projection-support/read-model-support";
+import type { PromotionTargetExclusion } from "../promotion/promotion-target-exclusion";
 import type { ReferenceDataServices } from "../../../reference-data/api/runtime";
-import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../../reference-data/domain/domain";
+import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
+import type { ReferenceRecordCommand } from "../../../reference-data/domain/domain";
 import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSetReferenceNormalized,
@@ -25,10 +31,16 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderProfileVersionSelector,
 } from "../provider-integration-profiles";
+import type { CatalogIntegrationRolloutControlPolicy } from "../governance/catalog-integration-rollout-controls";
 import type {
   TcgplayerAutomationCatalogClient,
   TcgplayerAutomationProductDetail,
 } from "../providers/tcgplayer-automation-catalog-client";
+import {
+  createSyntheticDisplayIdentityQueryable,
+  syntheticCurrentCatalogItem,
+  type SyntheticDisplayIdentityFixture,
+} from "./synthetic-display-identity-queryable";
 
 export const context: EventStoreContext = {
   tenantId: "tnt_test" as TenantId,
@@ -50,27 +62,49 @@ export type ReferenceRecordRow = {
   attributes: Readonly<Record<string, JsonValue>>;
 };
 
-export function createActiveTcgplayerProfileVersions(input: { profileKey?: string } = {}): {
+/**
+ * Negative control for unit-scoped rollout regressions: the same policy with
+ * every execution unit key removed, reproducing the provider-only call shape.
+ */
+export function withoutRolloutUnitKey(
+  policy: CatalogIntegrationRolloutControlPolicy,
+): CatalogIntegrationRolloutControlPolicy {
+  return {
+    snapshot: policy.snapshot,
+    decide: (input) => policy.decide({ ...input, unitKey: undefined }),
+    assertAllowed: (input) => policy.assertAllowed({ ...input, unitKey: undefined }),
+  };
+}
+
+export function createActiveTcgplayerProfileVersions(
+  input: { profileKey?: string; additionalActiveProfileKeys?: readonly string[] } = {},
+): {
   listProfileVersions: (
     providerKey?: string | null,
   ) => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
-  getActiveProfileVersion: (providerKey: string) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
+  getActiveProfileVersion: (
+    providerKey: string,
+    selector?: CatalogProviderProfileVersionSelector | null,
+  ) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
 } {
-  const activeProfileKey = input.profileKey ?? "pokemon-single-card-product-sku";
+  const activeProfileKeys = new Set([
+    input.profileKey ?? "pokemon-single-card-product-sku",
+    ...(input.additionalActiveProfileKeys ?? []),
+  ]);
   const versions = catalogProviderIntegrationProfileVersions.map((version) =>
     version.providerKey === "tcgplayer"
       ? {
           ...version,
-          lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
-          active: version.profileKey === activeProfileKey,
+          lifecycle: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("test" as const),
+          active: activeProfileKeys.has(version.profileKey),
           profile: {
             ...version.profile,
-            status: version.profileKey === activeProfileKey ? ("active" as const) : ("planned" as const),
+            status: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("planned" as const),
           },
           executableMappingContract: version.executableMappingContract
             ? {
                 ...version.executableMappingContract,
-                lifecycle: version.profileKey === activeProfileKey ? ("active" as const) : ("test" as const),
+                lifecycle: activeProfileKeys.has(version.profileKey) ? ("active" as const) : ("test" as const),
               }
             : undefined,
         }
@@ -1260,6 +1294,7 @@ export function createIntegrationJobClaimHandoffHarness(
     tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   } = {},
 ) {
+  const referenceHistories = new Map<string, ReturnType<typeof storedEvent>[]>();
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
   let renewAttempts = 0;
   const job = {
@@ -1408,6 +1443,22 @@ export function createIntegrationJobClaimHandoffHarness(
         }
 
         if (sql.includes("FROM catalog_reference_records")) {
+          const typeKey = String(values[0]);
+          const key = String(values[1] ?? "existing");
+          const id = `ref_${key}`;
+          const referenceStream = `catalog.reference-record-${id}`;
+          referenceHistories.set(referenceStream, [
+            storedEvent(1, referenceStream, "catalog.reference-record.created", {
+              referenceRecordId: id,
+              typeKey,
+              key,
+              name: { defaultLocale: "en", values: { en: key } },
+              description: { defaultLocale: "en", values: { en: "" } },
+              attributes: {},
+              relationships: [],
+            }),
+            storedEvent(2, referenceStream, "catalog.reference-record.published", {}),
+          ]);
           return { rowCount: 1, rows: [{ reference_record_id: `ref_${String(values[1] ?? "existing")}` }] as T[] };
         }
 
@@ -1415,7 +1466,7 @@ export function createIntegrationJobClaimHandoffHarness(
       },
     },
     eventStore: {
-      readStream: async () => [],
+      readStream: async ({ streamId }: { streamId: string }) => referenceHistories.get(streamId) ?? [],
       appendToStream: async (input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {
@@ -1451,12 +1502,14 @@ export function createIntegrationJobClaimHandoffHarness(
 }
 
 export function createReferencePreloadHarness() {
+  const { eventStore } = createInMemoryEventStore();
   const referenceTypes = new Map<string, ReferenceTypeRow>();
   const referenceRecords = new Map<string, ReferenceRecordRow>();
   const referenceRecordCreateCommands: Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>[] = [];
   let projectorRuns = 0;
 
   const deps = {
+    eventStore,
     db: {
       query: async <T>(sql: string, values: readonly unknown[] = []) => {
         if (sql.includes("FROM catalog_reference_types")) {
@@ -1498,16 +1551,22 @@ export function createReferencePreloadHarness() {
     },
   } as object as CatalogRuntimeDeps;
 
+  const runtime = createReferenceDataRuntime(deps);
   const referenceData = {
-    referenceTypeCommandHandler: async (input: { command: ReferenceTypeCommand }) => {
+    referenceTypeCommandHandler: async (input: Parameters<ReferenceDataServices["referenceTypeCommandHandler"]>[0]) => {
+      const result = await runtime.referenceTypeCommandHandler(input);
       if (input.command.type === "CreateReferenceType") {
         referenceTypes.set(input.command.referenceTypeId, {
           reference_type_id: input.command.referenceTypeId,
           key: input.command.key,
         });
       }
+      return result;
     },
-    referenceRecordCommandHandler: async (input: { command: ReferenceRecordCommand }) => {
+    referenceRecordCommandHandler: async (
+      input: Parameters<ReferenceDataServices["referenceRecordCommandHandler"]>[0],
+    ) => {
+      const result = await runtime.referenceRecordCommandHandler(input);
       if (input.command.type === "CreateReferenceRecord") {
         referenceRecordCreateCommands.push(input.command);
         referenceRecords.set(input.command.referenceRecordId, {
@@ -1517,6 +1576,7 @@ export function createReferencePreloadHarness() {
           attributes: input.command.attributes ?? {},
         });
       }
+      return result;
     },
     projectors: [
       {
@@ -1561,6 +1621,23 @@ export function createChangedObservationRefreshHarness(
     partialCatalogItemId?: string | null;
     promotionCommandAlreadyApplied?: { catalogItemId: string };
     assetStorage?: CatalogRuntimeDeps["assetStorage"];
+    /** SYNTHETIC display identity data the validated planner resolves against.
+     * Defaults to a resolving global title template plus a draft current item
+     * for every reusable/promoted Catalog Item id the harness knows. */
+    displayIdentity?: SyntheticDisplayIdentityFixture;
+    /** SYNTHETIC poison: every discovered Reference Record history carries a
+     * second contiguous published event, a transition the decider never emits. */
+    referenceHistoryPoison?: "repeated-publish";
+    /** Extra observation rows served by observation id, for mixed-batch runs. */
+    siblingObservations?: readonly Readonly<{
+      observationId: string;
+      providerKey: string;
+      externalKey: string;
+      sourceProfileKey: string;
+      sourceProfileVersion: string;
+      normalized: SourceObservationNormalized;
+      status?: string;
+    }>[];
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -1590,12 +1667,34 @@ export function createChangedObservationRefreshHarness(
     source_payload: { id: "me02.5-136" },
     status: input.status ?? "changed",
     status_reason: null,
-    promoted_catalog_item_id: input.promotedCatalogItemId === undefined ? "cat_existing" : input.promotedCatalogItemId,
+    promoted_catalog_item_id:
+      input.promotedCatalogItemId === undefined
+        ? input.status === "observed"
+          ? null
+          : "cat_existing"
+        : input.promotedCatalogItemId,
     promoted_reference_record_id:
       input.promotedReferenceRecordId === undefined ? null : input.promotedReferenceRecordId,
     promoted_at: "2026-05-19T00:00:00.000Z",
     updated_at: "2026-05-20T00:00:00.000Z",
   };
+  const siblingObservationRows = new Map(
+    (input.siblingObservations ?? []).map((sibling) => [
+      sibling.observationId,
+      {
+        ...observationRow,
+        observation_id: sibling.observationId,
+        provider_key: sibling.providerKey,
+        external_key: sibling.externalKey,
+        source_profile_key: sibling.sourceProfileKey,
+        source_profile_version: sibling.sourceProfileVersion,
+        normalized: sibling.normalized,
+        status: sibling.status ?? "observed",
+        promoted_catalog_item_id: null,
+        promoted_reference_record_id: null,
+      },
+    ]),
+  );
   const streamId = "catalog.source-observation-obs_changed";
   const observationStatus = input.status ?? "changed";
   const promotionCommandAlreadyApplied = input.promotionCommandAlreadyApplied;
@@ -1657,92 +1756,171 @@ export function createChangedObservationRefreshHarness(
       : []),
   ];
 
-  const deps = {
-    db: {
-      query: async <T>(sql: string, values: readonly unknown[] = []) => {
-        if (sql.includes("FROM catalog_source_observations")) {
-          return {
-            rowCount: 1,
-            rows: [observationRow] as T[],
-          };
-        }
+  const referenceHistories = new Map<string, ReturnType<typeof storedEvent>[]>();
+  const harnessDb = {
+    query: async <T>(sql: string, values: readonly unknown[] = []) => {
+      if (sql.includes("FROM catalog_source_observations")) {
+        return {
+          rowCount: 1,
+          rows: [siblingObservationRows.get(String(values[0])) ?? observationRow] as T[],
+        };
+      }
 
-        if (sql.includes("FROM catalog_items AS item") && sql.includes("item.status NOT IN")) {
-          return {
-            rowCount: input.deterministicCatalogItemIds?.length ?? 0,
-            rows: (input.deterministicCatalogItemIds ?? []).map((catalogItemId) => ({
-              catalog_item_id: catalogItemId,
-            })) as T[],
-          };
-        }
+      if (sql.includes("FROM catalog_items AS item") && sql.includes("item.status NOT IN")) {
+        return {
+          rowCount: input.deterministicCatalogItemIds?.length ?? 0,
+          rows: (input.deterministicCatalogItemIds ?? []).map((catalogItemId) => ({
+            catalog_item_id: catalogItemId,
+          })) as T[],
+        };
+      }
 
-        if (sql.includes("FROM catalog_items AS item")) {
-          const row = input.partialCatalogItemId ? { catalog_item_id: input.partialCatalogItemId } : null;
-          return {
-            rowCount: row ? 1 : 0,
-            rows: (row ? [row] : []) as T[],
-          };
-        }
+      if (sql.includes("FROM catalog_items AS item")) {
+        const row = input.partialCatalogItemId ? { catalog_item_id: input.partialCatalogItemId } : null;
+        return {
+          rowCount: row ? 1 : 0,
+          rows: (row ? [row] : []) as T[],
+        };
+      }
 
-        if (sql.includes("FROM catalog_external_catalog_item_references")) {
-          return {
-            rowCount: input.reusableExternalCatalogItemIds?.length ?? 0,
-            rows: (input.reusableExternalCatalogItemIds ?? []).map((catalogItemId) => ({
-              catalog_item_id: catalogItemId,
-            })) as T[],
-          };
-        }
+      if (sql.includes("FROM catalog_external_catalog_item_references")) {
+        return {
+          rowCount: input.reusableExternalCatalogItemIds?.length ?? 0,
+          rows: (input.reusableExternalCatalogItemIds ?? []).map((catalogItemId) => ({
+            catalog_item_id: catalogItemId,
+          })) as T[],
+        };
+      }
 
-        if (sql.includes("FROM catalog_external_product_references")) {
-          const catalogItemIds = sql.includes("WHERE reference.provider_key = $1")
-            ? input.reusableCatalogItemId
-              ? [input.reusableCatalogItemId]
-              : []
-            : (input.reusableExternalProductCatalogItemIds ?? []);
-          return {
-            rowCount: catalogItemIds.length,
-            rows: catalogItemIds.map((catalogItemId) => ({ catalog_item_id: catalogItemId })) as T[],
-          };
-        }
+      if (sql.includes("FROM catalog_external_product_references")) {
+        const catalogItemIds = sql.includes("WHERE reference.provider_key = $1")
+          ? input.reusableCatalogItemId
+            ? [input.reusableCatalogItemId]
+            : []
+          : (input.reusableExternalProductCatalogItemIds ?? []);
+        return {
+          rowCount: catalogItemIds.length,
+          rows: catalogItemIds.map((catalogItemId) => ({ catalog_item_id: catalogItemId })) as T[],
+        };
+      }
 
-        if (sql.includes("FROM catalog_reference_types")) {
-          return {
-            rowCount: 1,
-            rows: [{ reference_type_id: String(values[0]) }] as T[],
-          };
-        }
+      if (sql.includes("FROM catalog_reference_types")) {
+        return {
+          rowCount: 1,
+          rows: [{ reference_type_id: String(values[0]) }] as T[],
+        };
+      }
 
-        if (sql.includes("WHERE reference_record_id = $1")) {
-          return {
-            rowCount: 1,
-            rows: [{ attributes: input.expansionAttributes ?? {} }] as T[],
-          };
-        }
+      if (sql.includes("WHERE reference_record_id = $1")) {
+        return {
+          rowCount: 1,
+          rows: [{ attributes: input.expansionAttributes ?? {} }] as T[],
+        };
+      }
 
-        if (sql.includes("FROM catalog_reference_records")) {
-          return {
-            rowCount: 1,
-            rows: [{ reference_record_id: `ref_${String(values[1] ?? "existing")}` }] as T[],
-          };
-        }
+      if (sql.includes("FROM catalog_reference_records")) {
+        const typeKey = String(values[0]);
+        const key = String(values[1] ?? "existing");
+        const id = `ref_${key}`;
+        const referenceStream = `catalog.reference-record-${id}`;
+        referenceHistories.set(referenceStream, [
+          storedEvent(1, referenceStream, "catalog.reference-record.created", {
+            referenceRecordId: id,
+            typeKey,
+            key,
+            name: { defaultLocale: "en", values: { en: key } },
+            description: { defaultLocale: "en", values: { en: "" } },
+            attributes: {},
+            relationships: [],
+          }),
+          storedEvent(2, referenceStream, "catalog.reference-record.published", {}),
+          ...(input.referenceHistoryPoison === "repeated-publish"
+            ? [storedEvent(3, referenceStream, "catalog.reference-record.published", {})]
+            : []),
+        ]);
+        return {
+          rowCount: 1,
+          rows: [{ reference_record_id: `ref_${String(values[1] ?? "existing")}` }] as T[],
+        };
+      }
 
-        if (sql.includes("FROM catalog_blueprints")) {
-          return { rowCount: 1, rows: [{ id: `bpr_${String(values[0])}` }] as T[] };
-        }
+      if (sql.includes("FROM catalog_blueprints")) {
+        return { rowCount: 1, rows: [{ id: `bpr_${String(values[0])}` }] as T[] };
+      }
 
-        if (sql.includes("FROM catalog_categories")) {
-          return { rowCount: 1, rows: [{ id: `cat_${String(values[0])}` }] as T[] };
-        }
+      if (sql.includes("FROM catalog_categories")) {
+        return { rowCount: 1, rows: [{ id: `cat_${String(values[0])}` }] as T[] };
+      }
 
-        if (sql.includes("FROM catalog_fields")) {
-          return { rowCount: 1, rows: [{ id: `fld_${String(values[0])}` }] as T[] };
-        }
+      if (sql.includes("FROM catalog_fields")) {
+        return { rowCount: 1, rows: [{ id: `fld_${String(values[0])}` }] as T[] };
+      }
 
-        return { rowCount: 0, rows: [] as T[] };
-      },
+      return { rowCount: 0, rows: [] as T[] };
     },
+  };
+  const knownCatalogItemIds = [
+    ...new Set(
+      [
+        observationRow.promoted_catalog_item_id,
+        input.reusableCatalogItemId,
+        input.partialCatalogItemId,
+        ...(input.reusableExternalProductCatalogItemIds ?? []),
+        ...(input.reusableExternalCatalogItemIds ?? []),
+        ...(input.deterministicCatalogItemIds ?? []),
+      ].filter((catalogItemId): catalogItemId is string => Boolean(catalogItemId)),
+    ),
+  ];
+  const displayIdentityDb = createSyntheticDisplayIdentityQueryable({
+    currentItems: knownCatalogItemIds.map((catalogItemId) =>
+      syntheticCurrentCatalogItem({ catalog_item_id: catalogItemId }),
+    ),
+    ...input.displayIdentity,
+    fallback: harnessDb,
+  });
+  const deps = {
+    db: displayIdentityDb,
+    // Orchestration double only; the real boundary is covered by the DB suite.
+    promotionTargetExclusion: {
+      acquire: async (request) => {
+        const targetId = request.additionalTargetIds.at(-1)!;
+        const current =
+          input.displayIdentity?.currentItems?.find((item) => item.catalog_item_id === targetId) ??
+          syntheticCurrentCatalogItem({ catalog_item_id: targetId });
+        const state: CatalogItemState = {
+          ...initialCatalogItemState,
+          id: knownCatalogItemIds.includes(targetId) ? (targetId as CatalogItemId) : null,
+          languageCode: current.language_code,
+          status: current.status === "active" ? ("active" as const) : ("draft" as const),
+          title: { defaultLocale: "en", values: { en: current.title, [current.language_code]: current.title } },
+          subtitle: current.subtitle
+            ? { defaultLocale: "en", values: { en: current.subtitle, [current.language_code]: current.subtitle } }
+            : null,
+          blueprintId: current.blueprint_id as BlueprintId | null,
+          fieldValues: asArray<CatalogItemState["fieldValues"][number]>(current.field_values),
+          categoryIds: asArray<CategoryId>(current.category_ids),
+        };
+        return {
+          targetId,
+          evidence: {
+            items: new Map([[targetId, state]]),
+            histories: new Map(),
+            sources: new Map(),
+            keys: new Map(),
+            bindings: new Map(),
+          },
+          commandHandler: items.commandHandler,
+          preparePlan: async () => 0,
+          guard: () => undefined,
+          append: async () => {
+            throw new Error("Synthetic orchestration port only accepts commands");
+          },
+        };
+      },
+    } satisfies PromotionTargetExclusion,
     eventStore: {
-      readStream: async () => sourceEvents,
+      readStream: async ({ streamId: requestedStream }: { streamId: string }) =>
+        requestedStream === streamId ? sourceEvents : (referenceHistories.get(requestedStream) ?? []),
       appendToStream: async (input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {
@@ -1781,9 +1959,15 @@ export function createChangedObservationRefreshHarness(
     ],
   } as object as CatalogItemServices;
 
+  const referenceRecordCreateCommands: Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>[] = [];
   const referenceData = {
     referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
-    referenceRecordCommandHandler: async () => ({ version: 1, state: {} }),
+    referenceRecordCommandHandler: async (input: { command: ReferenceRecordCommand }) => {
+      if (input.command.type === "CreateReferenceRecord") {
+        referenceRecordCreateCommands.push(input.command);
+      }
+      return { version: 1, state: {} };
+    },
     projectors: [
       {
         runOnce: async () => {
@@ -1800,6 +1984,7 @@ export function createChangedObservationRefreshHarness(
     referenceData,
     itemCommands,
     appendedSourceEvents,
+    referenceRecordCreateCommands,
     projectorRuns: () => itemProjectorRuns + referenceProjectorRuns,
   };
 }
@@ -1811,8 +1996,10 @@ export function createBulkReviewJobHarness(
     progressTotal?: number;
     carriedOutcomes?: ReadonlyArray<{ observationId: string; status: "rejected"; reason?: string | null }>;
     terminalWorkUnits?: boolean;
+    action?: "reject" | "promote";
   } = {},
 ) {
+  const action = options.action ?? "reject";
   const observationIds = Array.from({ length: count }, (_, index) => `obs_${index + 1}`);
   const observations = new Map(
     observationIds.map((observationId, index) => [
@@ -1847,9 +2034,9 @@ export function createBulkReviewJobHarness(
   );
   const job = {
     job_id: "job_bulk_review",
-    job_kind: "reject",
+    job_kind: action,
     payload: {
-      action: "reject",
+      action,
       selectionMode: "ids",
       observationIds,
       scope: {},

@@ -19,6 +19,9 @@ export const catalogAttentionQueueEnglishTranslations = {
   "catalog.features.attentionQueue.metric.freshness.trend": "Counts match the source read models at this time",
   "catalog.features.attentionQueue.empty.title": "Nothing needs you",
   "catalog.features.attentionQueue.empty.description": "The queue is empty — the system is running itself.",
+  "catalog.features.attentionQueue.unavailable.title": "Attention queue unavailable",
+  "catalog.features.attentionQueue.unavailable.description":
+    "The queue could not be read, so work that needs you may be hidden. Keep working below and reload the page to try again.",
   "catalog.features.attentionQueue.severity.critical": "Critical",
   "catalog.features.attentionQueue.severity.warning": "Warning",
   "catalog.features.attentionQueue.severity.info": "Queued",

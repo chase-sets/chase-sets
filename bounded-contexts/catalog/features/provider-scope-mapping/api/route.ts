@@ -5,6 +5,7 @@ import { requireCatalogIntegrationControlPlanePermission } from "../../source-ob
 import { CATALOG_PROVIDER_SCOPE_MAPPING_STREAM_PREFIX } from "../domain/domain";
 import { buildProviderScopeMappingCandidate, type ProviderScopeMappingConfidenceTier } from "../domain/mapping";
 import type { ProviderScopeMappingServices } from "./runtime";
+import { catalogScopeProductDomains, type CatalogScopeProductDomain } from "../../scope-registry/domain/contract";
 
 const MANUAL_PROPOSAL_CONFIDENCE_TIERS: readonly ProviderScopeMappingConfidenceTier[] = [
   "exact",
@@ -63,7 +64,11 @@ export function providerScopeMappingRoutes(services: ProviderScopeMappingService
     }
 
     const limit = Number(c.req.query("limit")) || undefined;
-    const inbox = await services.getUnmappedScopeInbox({ limit });
+    const requestedProductDomain = c.req.query("productDomain")?.trim();
+    const productDomain = catalogScopeProductDomains.includes(requestedProductDomain as CatalogScopeProductDomain)
+      ? (requestedProductDomain as CatalogScopeProductDomain)
+      : undefined;
+    const inbox = await services.getUnmappedScopeInbox({ limit, ...(productDomain ? { productDomain } : {}) });
     return c.json(inbox);
   });
 

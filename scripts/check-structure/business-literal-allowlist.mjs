@@ -37,6 +37,15 @@
 // The guard ratchets: when an entry's file gets a platform-policy migration
 // slice, delete the entry in the same PR.
 export const businessLiteralAllowlist = [
+  // Fixed security lifetimes are not administrator-configurable business policy.
+  {
+    file: "bounded-contexts/catalog/features/operator-session/api/grants.ts",
+    pattern: "interval '30 days'",
+    reason:
+      "#8471 Q1 fixes mint and successful-PUT idle expiry at DB t + 30 days; an administrator must not configure the lifetime of their own credential.",
+    owner: "catalog",
+    ref: "#8471",
+  },
   {
     file: "bounded-contexts/settlement/features/payouts/read-model/queries.ts",
     pattern: "INTERVAL '7 days'",
@@ -44,6 +53,14 @@ export const businessLiteralAllowlist = [
       "Payout risk-summary lookback window (getAccountPayoutRiskSummary): a single reporting query's FILTER clauses, not a value duplicated across functions -- the historical bug pattern this guard exists to catch.",
     owner: "settlement",
     ref: "#4293",
+  },
+  {
+    file: "bounded-contexts/marketplace/features/offers/api/runtime.ts",
+    pattern: "MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT",
+    reason:
+      "Request-size bound for one bulk Offer Pause/Resume/Withdraw call (1 to 250 IDs, matching the 250-row Submitted Offers page), not a money/deadline/rate business value -- a page-size-shaped constant that only coincidentally matches the curated _LIMIT suffix.",
+    owner: "marketplace",
+    ref: "#8691",
   },
   {
     file: "bounded-contexts/discovery/features/search/domain/relevance-evaluation.ts",

@@ -35,10 +35,10 @@ describeDb("pricing recommendations consume Market Price estimates (#5582)", () 
     await pools.pricing.query(
       `INSERT INTO pricing_market_listing_inputs (
          listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id,
-         price_amount, quantity_cap, status, updated_at, last_stream_version
+         price_amount, price_currency_code, quantity_cap, status, updated_at, last_stream_version
        ) VALUES
-         ('lst_seller', 'acc_seller', 'inv_seller', 'cat_1', 'prod_1', 20.00, 1, 'active', CURRENT_TIMESTAMP, 1),
-         ('lst_competitor', 'acc_competitor', 'inv_competitor', 'cat_1', 'prod_1', 18.00, 1, 'active', CURRENT_TIMESTAMP, 1)`,
+         ('lst_seller', 'acc_seller', 'inv_seller', 'cat_1', 'prod_1', 20.00, 'USD', 1, 'active', CURRENT_TIMESTAMP, 1),
+         ('lst_competitor', 'acc_competitor', 'inv_competitor', 'cat_1', 'prod_1', 18.00, 'USD', 1, 'active', CURRENT_TIMESTAMP, 1)`,
     );
     await pools.pricing.query(
       `INSERT INTO pricing_market_price_estimates (

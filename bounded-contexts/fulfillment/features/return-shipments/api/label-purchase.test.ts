@@ -252,6 +252,7 @@ describe("return-shipment label purchase", () => {
 
     // The label routes buyer -> facility.
     const call = (provider.purchaseUspsLabel as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call).toMatchObject({ subjectKind: "return-shipment", subjectId: "rsh_1" });
     expect(call.sender.city).toBe("Chicago");
     expect(call.recipient.city).toBe("Newark");
   });
@@ -301,6 +302,7 @@ describe("return-shipment label purchase", () => {
       destinationSnapshot: { destinationType: "seller", sellerAccountId: "acc_seller" },
     });
     const call = (provider.purchaseUspsLabel as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call).toMatchObject({ subjectKind: "return-shipment", subjectId: "rsh_1" });
     expect(call.recipient.city).toBe("Madison");
   });
 

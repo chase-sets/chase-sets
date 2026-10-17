@@ -12,13 +12,16 @@ export type NativeInventoryExportRow = Readonly<{
   catalog_item_id: string;
   storage_location_id: string;
   total_quantity: number;
+  acquisition_occurred_at?: string | null;
   selected_options: readonly Readonly<{
     dimensionId: string;
     optionId: string;
   }>[];
   acquisition_cost_amount: string | null;
+  acquisition_cost_currency_code: string | null;
   seller_sku?: string | null;
   listing_price_amount?: string | null;
+  listing_price_currency_code?: string | null;
   listing_quantity_cap?: number | null;
   row_note?: string | null;
 }>;
@@ -27,11 +30,14 @@ export const nativeInventoryImportCsvTemplateHeaders = [
   "catalogItemId",
   "storageLocationId",
   "totalQuantity",
+  "acquisitionOccurredAt",
   "option:form",
   "option:condition",
   "acquisitionCostAmount",
+  "acquisitionCostCurrencyCode",
   "sellerSku",
   "listingPriceAmount",
+  "listingPriceCurrencyCode",
   "listingQuantityCap",
   "rowNote",
 ] as const;
@@ -43,8 +49,11 @@ export function buildNativeInventoryImportCsvTemplate(
     "cat_example",
     location.storage_location_id,
     "1",
+    "",
     "Raw",
     "Near Mint",
+    "",
+    "",
     "",
     "",
     "",
@@ -61,10 +70,13 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
     "catalogItemId",
     "storageLocationId",
     "totalQuantity",
+    "acquisitionOccurredAt",
     ...optionColumns.map((dimensionId) => `option:${dimensionId}`),
     "acquisitionCostAmount",
+    "acquisitionCostCurrencyCode",
     "sellerSku",
     "listingPriceAmount",
+    "listingPriceCurrencyCode",
     "listingQuantityCap",
     "rowNote",
   ];
@@ -75,10 +87,13 @@ export function buildNativeInventoryExportCsv(rows: readonly NativeInventoryExpo
       row.catalog_item_id,
       row.storage_location_id,
       String(row.total_quantity),
+      row.acquisition_occurred_at ?? "",
       ...optionColumns.map((dimensionId) => selectedOptions.get(dimensionId) ?? ""),
       row.acquisition_cost_amount ?? "",
+      row.acquisition_cost_currency_code ?? "",
       row.seller_sku ?? "",
       row.listing_price_amount ?? "",
+      row.listing_price_currency_code ?? "",
       row.listing_quantity_cap == null ? "" : String(row.listing_quantity_cap),
       row.row_note ?? "",
     ];

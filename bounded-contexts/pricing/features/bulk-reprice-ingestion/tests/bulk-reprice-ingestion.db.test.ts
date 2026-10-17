@@ -89,9 +89,9 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
   async function seedListings(pool: PgTransactionalPool) {
     const handlers = buildPricingMarketplaceInputProjectionHandlers(pool);
     const listings = [
-      { listingId: "lst_1", inventoryItemId: "inv_1", priceAmount: "10.00" },
-      { listingId: "lst_2", inventoryItemId: null, priceAmount: "20.00" },
-      { listingId: "lst_3", inventoryItemId: "inv_3", priceAmount: "15.00" },
+      { listingId: "lst_1", inventoryItemId: "inv_1", priceAmount: "10.00", priceCurrencyCode: "USD" },
+      { listingId: "lst_2", inventoryItemId: null, priceAmount: "20.00", priceCurrencyCode: "USD" },
+      { listingId: "lst_3", inventoryItemId: "inv_3", priceAmount: "15.00", priceCurrencyCode: "USD" },
     ] as const;
 
     for (const listing of listings) {
@@ -105,6 +105,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
             catalogItemId: "cat_1",
             productId: "cat_1::",
             priceAmount: listing.priceAmount,
+            priceCurrencyCode: listing.priceCurrencyCode,
             quantityCap: 1,
           },
           "2026-07-01T00:00:00.000Z",
@@ -128,7 +129,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     const gateway = {
       calls: 0,
       applyBulkListingPriceUpdates: async (body: {
-        updates: readonly { listingId: string; priceAmount: string }[];
+        updates: readonly { listingId: string; priceAmount: string; priceCurrencyCode: string }[];
       }) => {
         gateway.calls += 1;
         return {
@@ -250,7 +251,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     const totalRows = 10_000;
     await pool.query(
       `INSERT INTO pricing_market_listing_inputs
-         (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at)
+         (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code, quantity_cap, status, updated_at)
        SELECT
          'lst_10k_' || generate_series,
          $1,
@@ -258,6 +259,7 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
          'cat_10k',
          'cat_10k::',
          10.00,
+         'USD',
          1,
          'active',
          now()
@@ -454,8 +456,8 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     const totalRows = 201;
     await pool.query(
       `INSERT INTO pricing_market_listing_inputs
-         (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at)
-       SELECT 'lst_cancel_' || generate_series, $1, NULL, 'cat_cancel', 'cat_cancel::', 10.00, 1, 'active', now()
+         (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, price_amount, price_currency_code, quantity_cap, status, updated_at)
+       SELECT 'lst_cancel_' || generate_series, $1, NULL, 'cat_cancel', 'cat_cancel::', 10.00, 'USD', 1, 'active', now()
        FROM generate_series(1, $2)`,
       [accountId, totalRows],
     );

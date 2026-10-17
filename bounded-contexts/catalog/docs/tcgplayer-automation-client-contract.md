@@ -29,7 +29,9 @@ provider concepts that Chase Sets maps into bounded-context-owned facts.
 ## Provider Domains
 
 The automation client uses one configured user agent and a
-`TCGAuthTicket_Production` cookie across provider-domain clients.
+`TCGAuthTicket_Production` cookie across provider-domain clients. Chase Sets
+resolves that cookie from Catalog-owned custody on every Catalog and Pricing
+automation request, rather than caching an environment credential at startup.
 
 | Domain key | Host | Primary use |
 | --- | --- | --- |
@@ -49,7 +51,10 @@ pulled into Catalog.
 The automation client sends:
 
 - `User-Agent` from provider HTTP configuration.
-- `Cookie: TCGAuthTicket_Production=<cookie>;` when a cookie is configured.
+- `Cookie: TCGAuthTicket_Production=<cookie>;` from the per-request credential
+  resolver: stored operator session primary, environment cookie fallback only
+  when custody is absent or cleared. Unreadable stored custody refuses the
+  request instead of falling back.
 - `Cache-Control: no-cache`.
 - `Content-Type: application/json`.
 
@@ -66,6 +71,15 @@ Requests use domain-scoped throttling:
 Chase Sets must keep the cookie out of event payloads, logs, Source
 Observations, and committed config. Operational state such as learned delays can
 be persisted in a provider operations store, but secret material cannot.
+
+The Operator Extension supplies Todd's current applicable session through a
+narrow environment-bound push grant into encrypted Catalog custody. The next
+automation request resolves the newest stored revision without a secret edit,
+deploy, or restart. Clearing custody retains its monotonic revision fence and
+restores `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` only if configured; it does not end
+the browser/provider session. Pairing and readiness are not provider-success
+proof. Follow [TCGplayer Automation Operations](../../../docs/runbooks/tcgplayer-automation-operations.md)
+for the passive recovery gate and revision-bound ordinary-capture verification.
 
 ## Catalog Sync Flow
 

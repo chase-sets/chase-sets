@@ -155,6 +155,60 @@ describe("browser e2e readiness", () => {
     ).rejects.toThrow(/Browser e2e boot stalled after 100ms: platform-api \(HTTP 503\), platform-worker \(HTTP 503\)/);
   });
 
+  it.each([
+    ["ABORT_ERR", "request-abort"],
+    ["ECONNREFUSED", "connection-refused"],
+    ["UND_ERR_CONNECT_TIMEOUT", "connect-timeout"],
+    ["ENOTFOUND", "name-resolution-failure"],
+    ["ECONNRESET", "other-network-failure"],
+  ])("classifies nested %s failures without retaining exception payloads", async (code, expectedCause) => {
+    const secret = `secret-bearing-${code}`;
+    const nestedCause = Object.assign(new Error(`${secret}-nested-message`), {
+      code,
+      address: `${secret}.example`,
+      response: { body: `${secret}-response-body` },
+      arbitraryCauseField: `${secret}-arbitrary-cause`,
+    });
+    const error = Object.assign(new Error(`${secret}-top-message`, { cause: nestedCause }), {
+      stack: `${secret}-stack`,
+    });
+    const observationRows = [];
+    let now = 0;
+    let failure;
+
+    try {
+      await waitForBrowserE2eReadiness({
+        components: [{ name: "platform-worker", url: "http://platform-worker/health/ready" }],
+        fetchImpl: async () => {
+          throw error;
+        },
+        timeoutMs: 1,
+        pollMs: 1,
+        now: () => now,
+        sleepImpl: async (ms) => {
+          now += ms;
+        },
+        onObservations: async (observations) => observationRows.push(observations),
+      });
+    } catch (caught) {
+      failure = caught;
+    }
+
+    expect(observationRows).toEqual([
+      [
+        {
+          name: "platform-worker",
+          url: "http://platform-worker/health/ready",
+          ready: false,
+          observation: expectedCause,
+        },
+      ],
+    ]);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toContain(`platform-worker (${expectedCause})`);
+    expect(JSON.stringify({ observationRows, message: failure.message })).not.toContain(secret);
+  });
+
   it("names a currently regressed component when services never become ready together", async () => {
     let now = 0;
     let calls = 0;
@@ -315,5 +369,40 @@ describe("browser e2e wake relay priming", () => {
       ["auth", "23", "auth:23"],
       ["marketplace", "107", "marketplace:107"],
     ]);
+  });
+
+  it("browser-e2e-cursor-priming-fails-on-registered-owner-schema-gap", async () => {
+    const calls = [];
+    const ended = [];
+    const createClient = (connectionString) => ({
+      connect: async () => undefined,
+      end: async () => {
+        ended.push(connectionString);
+      },
+      query: async (sql) => {
+        calls.push({ connectionString, sql });
+        if (connectionString === "postgres://registered-owner" && sql.includes("MAX(global_position)")) {
+          throw new Error('relation "event_store_events" does not exist');
+        }
+        return { rows: [] };
+      },
+    });
+
+    await expect(
+      primeBrowserE2eProjectionWakeRelayCursors({
+        sandbox: {
+          controlDatabaseUrl: "postgres://control",
+          contextDatabaseUrls: { "registered-owner": "postgres://registered-owner" },
+        },
+        createClient,
+      }),
+    ).rejects.toThrow('relation "event_store_events" does not exist');
+    expect(calls).toEqual([
+      {
+        connectionString: "postgres://registered-owner",
+        sql: expect.stringContaining("FROM event_store_events"),
+      },
+    ]);
+    expect(ended).toEqual(["postgres://registered-owner", "postgres://control"]);
   });
 });

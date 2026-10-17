@@ -1,4 +1,5 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
+import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type {
   MarketplaceSalesFeeLineSnapshotPayload,
   PaymentCapturedPayload,
@@ -14,10 +15,8 @@ import {
   addMoneyAmounts,
   applyBasisPointsToMoneyAmount,
   centsToMoneyAmount,
-  centsToSignedMoneyAmount,
   moneyToCents,
   roundRational,
-  trySignedMoneyToCents,
 } from "@chase-sets/primitives/money";
 import type { WalletServices } from "../../api/runtime";
 import { balanceCreditHoldId } from "../../api/balance-credit-resolver";
@@ -249,14 +248,16 @@ async function recordProtectionReserveContributions(
     if (allowanceCents + overageCents !== protectionCents) {
       throw new SettlementDomainError("Order Protection funding shares must equal the reserve contribution.");
     }
-    await db.query(
+    const factId = `protection_contribution_${data.paymentId}_${payout.orderId}`;
+    const inserted = await db.query<{ fact_id: string }>(
       `INSERT INTO settlement_protection_reserve_facts (
          fact_id, fact_kind, order_id, payment_id, payment_stream_version,
          protection_amount, allowance_amount, overage_amount, recorded_at
        ) VALUES ($1, 'contribution', $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (order_id) WHERE fact_kind = 'contribution' DO NOTHING`,
+       ON CONFLICT DO NOTHING
+       RETURNING fact_id`,
       [
-        `protection_contribution_${data.paymentId}_${payout.orderId}`,
+        factId,
         payout.orderId,
         data.paymentId,
         event.streamVersion,
@@ -266,6 +267,42 @@ async function recordProtectionReserveContributions(
         data.capturedAt,
       ],
     );
+    if (inserted.rows.length > 0) continue;
+
+    const existing = await db.query<{
+      fact_id: string;
+      fact_kind: string;
+      order_id: string;
+      payment_id: string;
+      payment_stream_version: number;
+      protection_amount: string;
+      allowance_amount: string;
+      overage_amount: string;
+      recorded_at: Date;
+    }>(
+      `SELECT fact_id, fact_kind, order_id, payment_id, payment_stream_version,
+              protection_amount::text, allowance_amount::text, overage_amount::text, recorded_at
+       FROM settlement_protection_reserve_facts
+       WHERE fact_id = $1 OR (fact_kind = 'contribution' AND order_id = $2)`,
+      [factId, payout.orderId],
+    );
+    const fact = existing.rows[0];
+    if (
+      existing.rows.length !== 1 ||
+      fact?.fact_id !== factId ||
+      fact.fact_kind !== "contribution" ||
+      fact.order_id !== payout.orderId ||
+      fact.payment_id !== data.paymentId ||
+      fact.payment_stream_version !== event.streamVersion ||
+      moneyToCents(fact.protection_amount) !== protectionCents ||
+      moneyToCents(fact.allowance_amount) !== allowanceCents ||
+      moneyToCents(fact.overage_amount) !== overageCents ||
+      fact.recorded_at.getTime() !== new Date(data.capturedAt).getTime()
+    ) {
+      throw new SettlementDomainError(
+        `Protection reserve contribution ${factId} for order ${payout.orderId} has mismatched fact evidence; operator review required.`,
+      );
+    }
   }
 }
 
@@ -458,96 +495,11 @@ async function creditSellerPayouts(
   if (!wallets) {
     return;
   }
-  const walletServices = wallets;
-
   const context = {
     tenantId: event.tenantId,
     audit: event.audit,
     trace: event.trace,
   };
-  const availableBalanceByAccount = new Map<string, string>();
-
-  async function getAvailableBalanceAmount(accountId: AccountId) {
-    const existing = availableBalanceByAccount.get(accountId);
-    if (existing !== undefined) {
-      return existing;
-    }
-
-    if (typeof walletServices.getWallet !== "function") {
-      availableBalanceByAccount.set(accountId, "0.00");
-      return "0.00";
-    }
-
-    const wallet = await walletServices.getWallet(accountId);
-    availableBalanceByAccount.set(accountId, wallet.available_balance_amount);
-    return wallet.available_balance_amount;
-  }
-
-  async function postSellerCredit(
-    params: Readonly<{
-      accountId: AccountId;
-      ledgerEntryId: LedgerEntryId;
-      kind: "sale" | "rebate";
-      amount: string;
-      orderId: OrderId;
-      paymentId: PaymentId;
-      pendingDescription: string;
-      offsetDescription: string;
-    }>,
-  ) {
-    const availableBalanceAmount = await getAvailableBalanceAmount(params.accountId);
-    const availableBalanceCents = trySignedMoneyToCents(availableBalanceAmount) ?? 0n;
-    const amountCents = moneyToCents(params.amount);
-    const offsetCents =
-      availableBalanceCents < 0n && amountCents > 0n
-        ? amountCents < -availableBalanceCents
-          ? amountCents
-          : -availableBalanceCents
-        : 0n;
-    const remainingCents = amountCents - offsetCents;
-
-    if (remainingCents > 0n) {
-      await postWalletEntryIdempotently(
-        walletServices,
-        {
-          accountId: params.accountId,
-          ledgerEntryId: offsetCents > 0n ? (`${params.ledgerEntryId}_pending` as LedgerEntryId) : params.ledgerEntryId,
-          kind: params.kind,
-          direction: "credit",
-          amount: centsToMoneyAmount(remainingCents),
-          currencyCode: normalizeCurrencyCode(data.currencyCode),
-          fundsStatus: "pending",
-          orderId: params.orderId,
-          paymentId: params.paymentId,
-          description: params.pendingDescription,
-          postedAt: data.capturedAt,
-        },
-        context,
-      );
-    }
-
-    if (offsetCents > 0n) {
-      const offsetAmount = centsToMoneyAmount(offsetCents);
-      await postWalletEntryIdempotently(
-        walletServices,
-        {
-          accountId: params.accountId,
-          ledgerEntryId: params.ledgerEntryId,
-          kind: params.kind,
-          direction: "credit",
-          amount: offsetAmount,
-          currencyCode: normalizeCurrencyCode(data.currencyCode),
-          fundsStatus: "available",
-          orderId: params.orderId,
-          paymentId: params.paymentId,
-          description: params.offsetDescription,
-          postedAt: data.capturedAt,
-        },
-        context,
-      );
-      availableBalanceByAccount.set(params.accountId, centsToSignedMoneyAmount(availableBalanceCents + offsetCents));
-    }
-  }
 
   for (const payout of data.sellerPayouts) {
     assertMarketplaceSalesFeeBreakdown(payout);
@@ -557,31 +509,31 @@ async function creditSellerPayouts(
     const sellerItemCreditAmount = centsToMoneyAmount(
       moneyToCents(payout.sellerItemNetAmount) - moneyToCents(payout.protectionAllowanceAmount),
     );
-    if (compareMoney(sellerItemCreditAmount, "0.00") > 0) {
-      await postSellerCredit({
+    await wallets.creditSellerCapture(
+      {
         accountId: sellerAccountId,
-        ledgerEntryId: `led_sale_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
         kind: "sale",
         amount: sellerItemCreditAmount,
+        currencyCode: normalizeCurrencyCode(data.currencyCode),
         orderId: payout.orderId as OrderId,
         paymentId,
-        pendingDescription: `Item sale proceeds for order ${payout.orderId}`,
-        offsetDescription: `Negative balance offset from item sale proceeds for order ${payout.orderId}`,
-      });
-    }
+        postedAt: data.capturedAt,
+      },
+      context,
+    );
 
-    if (compareMoney(payout.sellerShippingPayoutAmount, "0.00") > 0) {
-      await postSellerCredit({
+    await wallets.creditSellerCapture(
+      {
         accountId: sellerAccountId,
-        ledgerEntryId: `led_shipping_allowance_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
         kind: "rebate",
         amount: payout.sellerShippingPayoutAmount,
+        currencyCode: normalizeCurrencyCode(data.currencyCode),
         orderId: payout.orderId as OrderId,
         paymentId,
-        pendingDescription: `Shipping allowance for order ${payout.orderId}`,
-        offsetDescription: `Negative balance offset from shipping allowance for order ${payout.orderId}`,
-      });
-    }
+        postedAt: data.capturedAt,
+      },
+      context,
+    );
   }
 }
 
@@ -1282,37 +1234,28 @@ export function buildSettlementPaymentInputProjectionHandlers(
         );
       }
     },
-    "payments.payment-refunded": async (event) => {
-      const data = event.data as {
-        paymentId: string;
-        refundId?: string | null;
-        amount: string;
-        currencyCode: string;
-        processorStatus: string;
-        refundedAmount?: string;
-        sellerPayouts?: unknown;
-        orderRefundAmounts?: readonly OrderAmount[];
-        refundedOrderAmounts?: readonly OrderAmount[];
-        orderRefundCaps?: readonly OrderAmount[];
-        refundedAt: string;
-      };
+    ...defineProjectorHandlers<Pick<ChaseSetsEventPayloads, "payments.payment-refunded">>({
+      "payments.payment-refunded": async (event) => {
+        const { data } = event;
 
-      const existing = await db.query<{
-        amount: string;
-        seller_payouts: unknown;
-      }>(
-        `SELECT amount::text AS amount, seller_payouts
+        const existing = await db.query<{
+          amount: string;
+          seller_payouts: unknown;
+        }>(
+          `SELECT amount::text AS amount, seller_payouts
          FROM settlement_payment_sources
          WHERE payment_id = $1`,
-        [data.paymentId],
-      );
-      const paymentAmount = existing.rows[0]?.amount ?? data.amount;
-      const paymentStatus =
-        data.refundedAmount && compareMoney(data.refundedAmount, paymentAmount) < 0 ? "partially-refunded" : "refunded";
-      const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts ?? existing.rows[0]?.seller_payouts);
+          [data.paymentId],
+        );
+        const paymentAmount = existing.rows[0]?.amount ?? data.amount;
+        const paymentStatus =
+          data.refundedAmount && compareMoney(data.refundedAmount, paymentAmount) < 0
+            ? "partially-refunded"
+            : "refunded";
+        const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts ?? existing.rows[0]?.seller_payouts);
 
-      await db.query(
-        `UPDATE settlement_payment_sources
+        await db.query(
+          `UPDATE settlement_payment_sources
          SET processor_status = $2,
              status = $5,
              failure_code = NULL,
@@ -1322,40 +1265,41 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $4
          WHERE payment_id = $1
            AND last_stream_version < $4`,
-        [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion, paymentStatus],
-      );
+          [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion, paymentStatus],
+        );
 
-      await reconcileRefundLiability(
-        db,
-        wallets,
-        protectionCoverage,
-        {
-          paymentId: data.paymentId,
-          refundId: data.refundId ?? null,
-          paymentAmount,
-          refundAmount: data.amount,
-          currencyCode: data.currencyCode,
-          refundedAt: data.refundedAt,
-          sellerPayouts,
-          orderRefundAmounts: data.orderRefundAmounts,
-          refundedOrderAmounts: data.refundedOrderAmounts,
-          orderRefundCaps: data.orderRefundCaps,
-        },
-        event,
-      );
-      await recordProtectionReserveReversals(
-        db,
-        {
-          paymentId: data.paymentId,
-          refundedAt: data.refundedAt,
-          sellerPayouts,
-          orderRefundAmounts: data.orderRefundAmounts,
-          refundedOrderAmounts: data.refundedOrderAmounts,
-          orderRefundCaps: data.orderRefundCaps,
-        },
-        event,
-      );
-    },
+        await reconcileRefundLiability(
+          db,
+          wallets,
+          protectionCoverage,
+          {
+            paymentId: data.paymentId,
+            refundId: data.refundId ?? null,
+            paymentAmount,
+            refundAmount: data.amount,
+            currencyCode: data.currencyCode,
+            refundedAt: data.refundedAt,
+            sellerPayouts,
+            orderRefundAmounts: data.orderRefundAmounts,
+            refundedOrderAmounts: data.refundedOrderAmounts,
+            orderRefundCaps: data.orderRefundCaps,
+          },
+          event,
+        );
+        await recordProtectionReserveReversals(
+          db,
+          {
+            paymentId: data.paymentId,
+            refundedAt: data.refundedAt,
+            sellerPayouts,
+            orderRefundAmounts: data.orderRefundAmounts,
+            refundedOrderAmounts: data.refundedOrderAmounts,
+            orderRefundCaps: data.orderRefundCaps,
+          },
+          event,
+        );
+      },
+    }),
     "payments.payment-disputed": async (event) => {
       const data = event.data as {
         paymentId: string;
@@ -1420,36 +1364,20 @@ export function buildSettlementPaymentInputProjectionHandlers(
         event,
       );
     },
-    "payments.refund-requested": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        paymentId: string;
-        orderIds: string[];
-        amount: string;
-        currencyCode: string;
-        reason: string;
-        processorName: string;
-        causation?: {
-          remedyId?: string;
-          coverageId?: string | null;
-          allocation?: {
-            sellerFundedAmount?: string;
-            platformFundedAmount?: string;
-            currencyCode?: string;
-            fundingKind?: "seller-funded" | "platform-funded" | "split";
-          };
-        } | null;
-        requestedAt: string;
-      };
+    ...defineProjectorHandlers<
+      Pick<ChaseSetsEventPayloads, "payments.refund-requested" | "payments.refund-issued" | "payments.refund-failed">
+    >({
+      "payments.refund-requested": async (event) => {
+        const { data } = event;
 
-      await recordRefundCausationAllocation(
-        db,
-        { refundId: data.refundId, paymentId: data.paymentId, causation: data.causation },
-        event,
-      );
+        await recordRefundCausationAllocation(
+          db,
+          { refundId: data.refundId, paymentId: data.paymentId, causation: data.causation },
+          event,
+        );
 
-      await db.query(
-        `INSERT INTO settlement_refund_sources (
+        await db.query(
+          `INSERT INTO settlement_refund_sources (
            refund_id,
            payment_id,
            order_ids,
@@ -1482,29 +1410,24 @@ export function buildSettlementPaymentInputProjectionHandlers(
              updated_at = EXCLUDED.updated_at,
              last_stream_version = EXCLUDED.last_stream_version
          WHERE settlement_refund_sources.last_stream_version < EXCLUDED.last_stream_version`,
-        [
-          data.refundId,
-          data.paymentId,
-          JSON.stringify(data.orderIds),
-          data.amount,
-          data.currencyCode,
-          data.reason,
-          data.processorName,
-          data.requestedAt,
-          event.streamVersion,
-        ],
-      );
-    },
-    "payments.refund-issued": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        processorStatus: string;
-        processorRefundReference: string;
-        issuedAt: string;
-      };
+          [
+            data.refundId,
+            data.paymentId,
+            JSON.stringify(data.orderIds),
+            data.amount,
+            data.currencyCode,
+            data.reason,
+            data.processorName,
+            data.requestedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+      "payments.refund-issued": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE settlement_refund_sources
+        await db.query(
+          `UPDATE settlement_refund_sources
          SET processor_status = $2,
              processor_refund_reference = $3,
              status = 'issued',
@@ -1515,20 +1438,14 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $5
          WHERE refund_id = $1
            AND last_stream_version < $5`,
-        [data.refundId, data.processorStatus, data.processorRefundReference, data.issuedAt, event.streamVersion],
-      );
-    },
-    "payments.refund-failed": async (event) => {
-      const data = event.data as {
-        refundId: string;
-        processorStatus: string;
-        failureCode: string | null;
-        failureMessage: string | null;
-        failedAt: string;
-      };
+          [data.refundId, data.processorStatus, data.processorRefundReference, data.issuedAt, event.streamVersion],
+        );
+      },
+      "payments.refund-failed": async (event) => {
+        const { data } = event;
 
-      await db.query(
-        `UPDATE settlement_refund_sources
+        await db.query(
+          `UPDATE settlement_refund_sources
          SET processor_status = $2,
              status = 'failed',
              failure_code = $3,
@@ -1538,15 +1455,16 @@ export function buildSettlementPaymentInputProjectionHandlers(
              last_stream_version = $6
          WHERE refund_id = $1
            AND last_stream_version < $6`,
-        [
-          data.refundId,
-          data.processorStatus,
-          data.failureCode,
-          data.failureMessage,
-          data.failedAt,
-          event.streamVersion,
-        ],
-      );
-    },
+          [
+            data.refundId,
+            data.processorStatus,
+            data.failureCode,
+            data.failureMessage,
+            data.failedAt,
+            event.streamVersion,
+          ],
+        );
+      },
+    }),
   };
 }

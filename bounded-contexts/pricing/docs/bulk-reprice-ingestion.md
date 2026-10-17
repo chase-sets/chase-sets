@@ -69,6 +69,7 @@ HTTP routes, and the UI page.
 | File | Change |
 | --- | --- |
 | `bounded-contexts/pricing/api.ts` | Remove the `createBulkRepriceIngestionRoutes` import and the `app.route("/account/bulk-reprice", ...)` line. |
+| `bounded-contexts/pricing/server.ts` | Remove the `BulkRepriceIngestionServices` type export used by the platform-worker composition root. |
 | `bounded-contexts/pricing/support/runtime-support/services.ts` | Remove the `createBulkRepriceIngestionRuntime` import, the `bulkRepriceIngestion` field on `PricingServices`, and its construction. |
 | `bounded-contexts/pricing/support/runtime-support/schema.ts` | Remove the `pricingBulkRepriceIngestionSchemaSql` import and its entry in `pricingSchemaSql` (the DDL is dropped with it -- add a migration to `DROP TABLE` the three owned tables if historical data must be purged, otherwise leaving inert tables is safe). Keep `platformPolicySchemaSql` if any other Pricing feature has since adopted platform-policy. |
 | `bounded-contexts/pricing/support/request-support/inventory-sku-gateway.ts` | Delete this file (it exists only to implement this feature's inventory port). |

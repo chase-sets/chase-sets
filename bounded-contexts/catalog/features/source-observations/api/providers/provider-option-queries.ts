@@ -61,6 +61,7 @@ import {
 } from "../provider-adapters/ygojson";
 import {
   createScrydexOnePieceProviderAdapter,
+  scrydexCardOptionRecords,
   SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -70,7 +71,12 @@ import {
   type ScrydexOnePieceCredentials,
   type ScrydexOnePieceProviderPayload,
 } from "../provider-adapters/scrydex-one-piece";
-import type { ProviderAdapter, ProviderOptionAlias } from "../provider-adapters/provider-adapter";
+import type {
+  ProviderAdapter,
+  ProviderOptionAlias,
+  ProviderOptionItem,
+  ProviderOptionQueryResult,
+} from "../provider-adapters/provider-adapter";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import {
   createPgCatalogProviderOptionQueryCacheStore,
@@ -83,6 +89,7 @@ import {
 } from "../governance/catalog-integration-observability";
 import { staticCatalogProviderIntegrationProfileVersions } from "../source-observation-runtime-contracts";
 import type {
+  CatalogMergeCandidateBulkJobKind,
   SourceObservationIntegrationJobAction,
   SourceObservationBulkJobAction,
   SourceObservationIntegrationJobResult,
@@ -112,7 +119,7 @@ export function recordIntegrationJobTelemetry(
 
 export function recordBulkReviewWorkUnitTelemetry(
   telemetry: SourceObservationTelemetry | undefined,
-  jobKind: SourceObservationBulkJobAction,
+  jobKind: SourceObservationBulkJobAction | CatalogMergeCandidateBulkJobKind,
   result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled",
 ): void {
   telemetry?.recordBulkReviewWorkUnit?.({ jobKind, result });
@@ -236,7 +243,7 @@ export async function listProviderIntegrationOptions(
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
-    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
+    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv(), profileVersions }),
   ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
   const versions = await profileVersions.listProfileVersions();
@@ -343,7 +350,11 @@ export async function queryProviderIntegrationOptions(
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
-    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
+    createScrydexOnePieceProviderAdapter({
+      credentials: scrydexOnePieceCredentialsFromEnv(),
+      profileVersions,
+      cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
+    }),
   ]),
   telemetry?: SourceObservationTelemetry,
 ): Promise<CatalogProviderOptionQueryPage> {
@@ -380,6 +391,10 @@ export async function queryProviderIntegrationOptions(
       )
     : activeOptionQueryVersions;
 
+  let validatedPagination: ProviderOptionQueryResult["validatedPagination"] = null;
+  const onValidatedPagination = (pagination: ProviderOptionQueryResult["validatedPagination"]) => {
+    validatedPagination = pagination;
+  };
   try {
     const page = await queryCatalogProviderIntegrationOptionsWithCache({
       request: {
@@ -405,6 +420,7 @@ export async function queryProviderIntegrationOptions(
         cacheOnly,
       },
       cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
+      validatedPagination: () => validatedPagination ?? null,
       loadLive: () =>
         listCatalogProviderIntegrationOptionsFromProfiles({
           profiles: liveVersions.map((version) => version.profile),
@@ -452,14 +468,26 @@ export async function queryProviderIntegrationOptions(
               listScryfallCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
             listScrydexOnePieceSets: () => listScrydexOnePieceSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listScrydexOnePieceCards: ({ setId }) =>
-              listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+              listScrydexOnePieceCardOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                setId,
+                onValidatedPagination,
+              }),
             listScrydexOnePieceSealedProducts: ({ setId }) =>
-              listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+              listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                setId,
+                onValidatedPagination,
+              }),
             listScrydexLorcanaSets: () => listScrydexLorcanaSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listScrydexLorcanaCards: ({ setId }) =>
-              listScrydexLorcanaCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+              listScrydexLorcanaCardOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                setId,
+                onValidatedPagination,
+              }),
             listScrydexLorcanaSealedProducts: ({ setId }) =>
-              listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setId }),
+              listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(providerAdapterRegistry, {
+                setId,
+                onValidatedPagination,
+              }),
             listYgoprodeckSets: () => listYgoprodeckSetOptionRecordsThroughAdapter(providerAdapterRegistry),
             listYgoprodeckCards: ({ setCode }) =>
               listYgoprodeckCardOptionRecordsThroughAdapter(providerAdapterRegistry, { setCode }),
@@ -614,7 +642,11 @@ export async function listTcgdexExpansionOptionRecordsThroughAdapter(
     optionKind: "expansions",
     parentValues: { languageCode: input.languageCode, seriesId: input.seriesId ?? "" },
   });
-  return result.items.map((item) => ({
+  return result.items.map(tcgdexExpansionOptionRecord);
+}
+
+export function tcgdexExpansionOptionRecord(item: ProviderOptionItem): JsonValue {
+  return {
     expansionId: item.value,
     name: item.label,
     seriesId: item.parentValue ?? null,
@@ -624,7 +656,7 @@ export async function listTcgdexExpansionOptionRecordsThroughAdapter(
     symbolUrl: item.metadata?.symbolUrl ?? null,
     cardCount: numberFromString(item.metadata?.cardCount),
     officialCardCount: numberFromString(item.metadata?.officialCardCount),
-  }));
+  };
 }
 
 export function requireTcgdexAdapter(
@@ -857,7 +889,10 @@ export async function listScrydexOnePieceSetOptionRecordsThroughAdapter(
 
 export async function listScrydexOnePieceCardOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
+  input: {
+    setId: string | null;
+    onValidatedPagination?: (pagination: ProviderOptionQueryResult["validatedPagination"]) => void;
+  },
 ): Promise<readonly JsonValue[]> {
   if (!input.setId) {
     throw new Error("Scrydex One Piece card option queries require a selected set.");
@@ -866,25 +901,19 @@ export async function listScrydexOnePieceCardOptionRecordsThroughAdapter(
   const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
     unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "cards",
+    cacheObservation: !input.onValidatedPagination,
     parentValues: { expansionId: input.setId, setId: input.setId },
   });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
-    number: item.metadata?.number ?? null,
-    printedNumber: item.metadata?.printedNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    rarityCode: item.metadata?.rarityCode ?? null,
-    type: item.metadata?.type ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
+  input.onValidatedPagination?.(result.validatedPagination);
+  return scrydexCardOptionRecords(result.items, input.setId);
 }
 
 export async function listScrydexOnePieceSealedProductOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
+  input: {
+    setId: string | null;
+    onValidatedPagination?: (pagination: ProviderOptionQueryResult["validatedPagination"]) => void;
+  },
 ): Promise<readonly JsonValue[]> {
   if (!input.setId) {
     throw new Error("Scrydex One Piece sealed-product option queries require a selected set.");
@@ -893,8 +922,10 @@ export async function listScrydexOnePieceSealedProductOptionRecordsThroughAdapte
   const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
     unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "sealed-products",
+    cacheObservation: !input.onValidatedPagination,
     parentValues: { expansionId: input.setId, setId: input.setId },
   });
+  input.onValidatedPagination?.(result.validatedPagination);
   return result.items.map((item) => ({
     sealedProductId: item.value,
     name: item.label,
@@ -925,7 +956,10 @@ export async function listScrydexLorcanaSetOptionRecordsThroughAdapter(
 
 export async function listScrydexLorcanaCardOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
+  input: {
+    setId: string | null;
+    onValidatedPagination?: (pagination: ProviderOptionQueryResult["validatedPagination"]) => void;
+  },
 ): Promise<readonly JsonValue[]> {
   if (!input.setId) {
     throw new Error("Scrydex Lorcana card option queries require a selected set.");
@@ -934,27 +968,19 @@ export async function listScrydexLorcanaCardOptionRecordsThroughAdapter(
   const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
     unitKey: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "cards",
+    cacheObservation: !input.onValidatedPagination,
     parentValues: { expansionId: input.setId, setId: input.setId },
   });
-  return result.items.map((item) => ({
-    cardId: item.value,
-    name: item.label,
-    expansionId: item.parentValue ?? item.metadata?.expansionId ?? input.setId,
-    number: item.metadata?.number ?? null,
-    printedNumber: item.metadata?.printedNumber ?? null,
-    rarity: item.metadata?.rarity ?? null,
-    rarityCode: item.metadata?.rarityCode ?? null,
-    type: item.metadata?.type ?? null,
-    inkColor: item.metadata?.inkColor ?? null,
-    tcgplayerProductId: item.metadata?.tcgplayerProductId ?? null,
-    language: item.metadata?.language ?? null,
-    languageCode: item.metadata?.languageCode ?? null,
-  }));
+  input.onValidatedPagination?.(result.validatedPagination);
+  return scrydexCardOptionRecords(result.items, input.setId);
 }
 
 export async function listScrydexLorcanaSealedProductOptionRecordsThroughAdapter(
   providerAdapterRegistry: ProviderAdapterRegistry,
-  input: { setId: string | null },
+  input: {
+    setId: string | null;
+    onValidatedPagination?: (pagination: ProviderOptionQueryResult["validatedPagination"]) => void;
+  },
 ): Promise<readonly JsonValue[]> {
   if (!input.setId) {
     throw new Error("Scrydex Lorcana sealed-product option queries require a selected set.");
@@ -963,8 +989,10 @@ export async function listScrydexLorcanaSealedProductOptionRecordsThroughAdapter
   const result = await requireScrydexOnePieceAdapter(providerAdapterRegistry).listOptions({
     unitKey: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
     optionKind: "sealed-products",
+    cacheObservation: !input.onValidatedPagination,
     parentValues: { expansionId: input.setId, setId: input.setId },
   });
+  input.onValidatedPagination?.(result.validatedPagination);
   return result.items.map((item) => ({
     sealedProductId: item.value,
     name: item.label,
@@ -1098,7 +1126,11 @@ export async function listTcgplayerSetNameOptionRecordsThroughAdapter(
     optionKind: "set-names",
     parentValues: { productLineId: String(input.productLineId) },
   });
-  return result.items.map((item) => ({
+  return result.items.map(tcgplayerSetNameOptionRecord);
+}
+
+export function tcgplayerSetNameOptionRecord(item: ProviderOptionItem): JsonValue {
+  return {
     setNameId: numberFromString(item.metadata?.setNameId),
     categoryId: numberFromString(item.metadata?.categoryId),
     name: item.label,
@@ -1108,7 +1140,7 @@ export async function listTcgplayerSetNameOptionRecordsThroughAdapter(
     releaseDate: item.metadata?.releaseDate ?? null,
     isSupplemental: booleanFromString(item.metadata?.isSupplemental),
     active: booleanFromString(item.metadata?.active),
-  }));
+  };
 }
 
 export async function listTcgplayerProductOptionRecordsThroughAdapter(

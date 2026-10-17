@@ -44,6 +44,8 @@ type ListingFactsRow = Readonly<{
   product_summary: string | null;
   ship_from_code: string | null;
   price_amount: string;
+  price_currency_code: string | null;
+  listing_stream_version: number;
   shipping_allowance_percentage_bps: number;
   quantity_cap: number;
   status: string;
@@ -105,7 +107,7 @@ export async function refreshGoogleShoppingFeedRowForListing(
       accountId: facts.account_id,
       canonicalUrl,
       priceAmount: facts.price_amount,
-      currencyCode: "USD",
+      currencyCode: facts.price_currency_code,
       quantityCap: facts.quantity_cap,
       crawlable,
     },
@@ -114,7 +116,7 @@ export async function refreshGoogleShoppingFeedRowForListing(
       country: "US",
       service: "Standard shipping",
       priceAmount: shippingAllowanceAmount(facts.price_amount, facts.shipping_allowance_percentage_bps),
-      currencyCode: "USD",
+      currencyCode: facts.price_currency_code,
       shipFromCode: facts.ship_from_code,
       productMeasureReady: null,
     },
@@ -235,6 +237,8 @@ async function loadListingFacts(db: PgQueryable, listingId: string): Promise<Lis
        listing.product_summary,
        listing.ship_from_code,
        listing.price_amount,
+       listing.price_currency_code,
+       listing.listing_stream_version,
        listing.shipping_allowance_percentage_bps,
        listing.quantity_cap,
        listing.status,
@@ -278,6 +282,9 @@ async function upsertGoogleShoppingFeedRow(
        target_country,
        content_language,
        feed_label,
+       source_price_amount,
+       source_price_currency_code,
+       listing_stream_version,
        payload,
        payload_hash,
        eligibility_status,
@@ -290,7 +297,7 @@ async function upsertGoogleShoppingFeedRow(
        tombstone_status,
        updated_at
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, 'US', 'en', 'US', $9::jsonb, $10, $11, $12::jsonb, $13, $14::jsonb, $15, $16, $17, $18, now()
+       $1, $2, $3, $4, $5, $6, $7, $8, 'US', 'en', 'US', $9, $10, $11, $12::jsonb, $13, $14, $15::jsonb, $16, $17::jsonb, $18, $19, $20, $21, now()
      )
      ON CONFLICT (row_id) DO UPDATE SET
        listing_id = EXCLUDED.listing_id,
@@ -303,6 +310,20 @@ async function upsertGoogleShoppingFeedRow(
        target_country = EXCLUDED.target_country,
        content_language = EXCLUDED.content_language,
        feed_label = EXCLUDED.feed_label,
+       source_price_amount = CASE
+         WHEN discovery_google_shopping_feed_rows.listing_stream_version < EXCLUDED.listing_stream_version
+           THEN EXCLUDED.source_price_amount
+         ELSE discovery_google_shopping_feed_rows.source_price_amount
+       END,
+       source_price_currency_code = CASE
+         WHEN discovery_google_shopping_feed_rows.listing_stream_version < EXCLUDED.listing_stream_version
+           THEN EXCLUDED.source_price_currency_code
+         ELSE discovery_google_shopping_feed_rows.source_price_currency_code
+       END,
+       listing_stream_version = GREATEST(
+         discovery_google_shopping_feed_rows.listing_stream_version,
+         EXCLUDED.listing_stream_version
+       ),
        payload = EXCLUDED.payload,
        payload_hash = EXCLUDED.payload_hash,
        eligibility_status = EXCLUDED.eligibility_status,
@@ -323,6 +344,9 @@ async function upsertGoogleShoppingFeedRow(
       row.merchantOfferId,
       row.externalSellerId,
       canonicalListingUrl(facts.listing_slug) ?? "",
+      facts.price_amount,
+      facts.price_currency_code,
+      facts.listing_stream_version,
       JSON.stringify(row.payload ?? {}),
       row.payloadHash,
       row.eligibility.status,

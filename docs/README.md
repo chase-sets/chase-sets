@@ -26,6 +26,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Product Brief](./PRODUCT.md): product vision, users, and marketplace economics.
 - [Marketplace Glossary](./GLOSSARY.md): canonical marketplace language, account-role naming rules, and cross-cutting architecture vocabulary.
 - [Terms of Service Publication](../bounded-contexts/public-presence/docs/terms-of-service-publication.md): Public Presence ownership, counsel placeholder posture, version/consent metadata contract, publication procedure, and launch-copy gate.
+- [Legal Corpus Publication](./runbooks/legal-corpus-publication.md): approved publication, authenticated consent activation, readback, version changes, and rollback.
 
 ### Campaigns
 
@@ -42,8 +43,11 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ### Contributing
 
+- [Goal-Based Browser Probes](./contributing/browser-usability.md): advisory goal-only Luna probes, independent outcome checks, bounded browser recording, and correctness-conditioned timing comparisons.
+
 - [Backlog Model](./contributing/backlog-model.md): the canonical work-structure contract — the strategy/wave/epic/slice ladder, what each GitHub primitive means, the label charter, refined-vs-backlog states, generated rollup, and the orchestrator selection algorithm.
 - [Public Knowledge Base Change Convention](./contributing/public-knowledge-base.md): the `KB:` pull-request/issue marker, warning-only feature-slice ratchet, and documented post-launch block-mode transition.
+- [Workflow Authority Grants](./contributing/workflow-authority-grants.md): owner fragments and generation rules for managed Postgres workflow grants.
 
 ### Bounded contexts and structure
 
@@ -52,6 +56,10 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Identifier Conventions](./architecture/identifier-conventions.md): branded typed-ID minting/parsing, trust-boundary parsing, cross-context ID ownership, camelCase-vs-snake_case field-naming scope, natural-key normalization, provider-scoped external uniqueness, and internal-vs-user-facing ID policy.
 - [Settings Ownership](./architecture/settings-ownership.md): decision rule for behavior-coupled settings, User-owned presentation preferences, device-local ephemera, and deployable/design-system boundaries.
 - [Platform Policy Conventions](./architecture/platform-policy-conventions.md): the platform-policy/environment-configuration/compiled-constant tier decision rule, `definePolicy` machinery, the feature-flags-are-not-policy boundary, and the business-literal structure guard.
+
+### Mobile architecture
+
+- [Web SSR And Local-Asset Mobile Clients](./adr/0030-web-ssr-and-local-asset-mobile-clients.md): Capacitor/local-assets decision, shared route/data seams, ownership and capability boundaries, service-worker/release policy, current Search and Account traces, risks, and enforceable fitness rules.
 
 ### Checkout and guest flows
 
@@ -121,6 +129,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Facility Return Intake](./runbooks/facility-return-intake.md) — custody, discrepancy, unidentified-package, outage, wrong-facility, and correction procedures.
 
 - [Beta Wave Exposure](./runbooks/beta-wave-exposure.md): policy-gated waitlist admission, proportional Argo exposure, monitoring, halt, and rollback procedure.
+- [Platform Loop Rollback](./runbooks/platform-loop-rollback.md): procedure for releasing a milestone from the orchestration-platform loop back to the host orchestrator, Todd-only authorization and ownership-change boundary, and exact run/supervisor identity binding.
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
 - [Stripe Connect Accounts v2 Migration](./runbooks/stripe-connect-accounts-v2-migration.md): Accounts v1 compatibility selector, v2 rollout, existing-account disposition, and cleanup handoff for #3203.
 - [Fraud Operations](./runbooks/fraud-operations.md): fraud-control operator policy, including negative-balance collections thresholds and recovery behavior.
@@ -147,6 +156,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Catalog Provider Integration Profiles](./runbooks/catalog-provider-integration-profiles.md): profile activation, rollback, retirement, and bootstrap failure response.
 - [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
+- [Channels Pilot Operations](./runbooks/channels-pilot-operations.md): TCGplayer phase-1 manual-sync round trip, pause/resume, operator kill switch, degraded manual mode, no-redelivery rule, and evidence capture.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, rebuild triage, and poison-event/blocked-stream repair.
 - [Postgres Slow Query Digest](./runbooks/postgres-slow-query-digest.md): support-safe `pg_stat_statements` aggregate evidence, interpretation, redaction exclusions, and extension ownership boundary.
@@ -181,7 +191,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)
 - [Checkout Primitives](../packages/design-system/CHECKOUT_PRIMITIVES.md)
 - [Operational Workflows](../packages/design-system/OPERATIONAL_WORKFLOWS.md)
-- [Embedded Stripe Appearance](../packages/design-system/EMBEDDED_STRIPE_APPEARANCE.md)
+- [Embedded Stripe Appearance](../infrastructure/stripe-appearance/README.md)
 - [Design System Milestones](../packages/design-system/DESIGN_SYSTEM_MILESTONES.md): completed form-system (#10) and legacy-eradication (#12) traceability and verification commands.
 - [Localization Contract](../contracts/localization/README.md)
 
@@ -214,6 +224,11 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0025: Write-Path Inline Projection Apply](./adr/0025-write-path-inline-projection-apply.md)
 - [ADR 0026: Market-Price Methodology](./adr/0026-market-price-methodology.md)
 - [ADR 0027: Representative Catalog Observation Packs](./adr/0027-representative-catalog-observation-packs.md)
+- [ADR 0029: My Collection Composition And Saved List Ownership](./adr/0029-my-collection-composition-and-saved-list-ownership.md)
+- [ADR 0031: Card Identification Authority And Provider Boundary](./adr/0031-card-identification-authority-and-provider-boundary.md)
+- [ADR 0032: Order Groups And Shipment Groups](./adr/0032-order-groups-and-shipment-groups.md)
+- [ADR 0033: Capability-First Provider Integrations](./adr/0033-capability-first-provider-integrations.md)
+- [ADR 0034: Money Representation And Arithmetic](./adr/0034-money-representation-and-arithmetic.md)
 
 ## Generated Markdown
 

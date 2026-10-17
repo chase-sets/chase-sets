@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
+import { runInNewContext } from "node:vm";
 import { stagingRefreshOverlapWorkflowFiles } from "./staging-refresh-preflight-config.mjs";
 import {
   CATALOG_INTEGRATION_RESET_CONFIRMATION,
@@ -17,18 +19,84 @@ import {
 } from "./catalog-integration-reset.ts";
 
 const workflow = readFileSync(resolve(".github/workflows/catalog-integration-staging-reset.yml"), "utf8");
+
+function assertImmutableProviderUatAdmission(document) {
+  const gate = document.jobs["admit-reviewed-sha"];
+  const resolver = document.jobs["resolve-provider-uat-plan"];
+  const worker = document.jobs["staging-provider-uat"];
+  expect(document.on.workflow_dispatch.inputs.expected_sha).toMatchObject({ required: true, type: "string" });
+  expect(gate.steps).toHaveLength(1);
+  expect(gate.steps[0].env).toEqual({
+    EXPECTED_SHA: "${{ inputs.expected_sha }}",
+    RUN_SHA: "${{ github.sha }}",
+    CONFIRMATION: "${{ inputs.confirm }}",
+    JOURNEY_SCOPE: "${{ inputs.journey_scope }}",
+    ADMIN_WEB_URL: "${{ inputs.admin_web_url }}",
+  });
+  expect(resolver.needs).toBe("admit-reviewed-sha");
+  expect(resolver.if).toBe("needs.admit-reviewed-sha.result == 'success'");
+  expect(worker.needs).toEqual(["admit-reviewed-sha", "resolve-provider-uat-plan"]);
+  expect(worker.if).toBe(
+    "needs.admit-reviewed-sha.result == 'success' && needs.resolve-provider-uat-plan.result == 'success'",
+  );
+  expect(gate.steps.some((step) => /checkout|setup|playwright/i.test(step.uses ?? step.run ?? ""))).toBe(false);
+  const sha = "a".repeat(40);
+  for (const [expected, confirmation, refused] of [
+    [sha, "run catalog staging provider uat", false],
+    ["", "run catalog staging provider uat", true],
+    ["bad", "run catalog staging provider uat", true],
+    ["b".repeat(40), "run catalog staging provider uat", true],
+    [sha, "", true],
+  ]) {
+    const failures = [];
+    runInNewContext(gate.steps[0].with.script, {
+      process: { env: { EXPECTED_SHA: expected, RUN_SHA: sha, CONFIRMATION: confirmation } },
+      core: { setFailed: (message) => failures.push(message) },
+    });
+    expect(failures.length > 0).toBe(refused);
+  }
+}
+
+describe("Catalog provider UAT immutable admission", () => {
+  const source = readFileSync(resolve(".github/workflows/catalog-staging-provider-uat.yml"), "utf8");
+  it("executes the exact preflight with match, missing, malformed, mismatched and unconfirmed inputs before worker setup", () => {
+    assertImmutableProviderUatAdmission(parseYaml(source));
+  });
+  it("detects removal of the immutable comparison and either worker dependency", () => {
+    const withoutComparison = parseYaml(source);
+    withoutComparison.jobs["admit-reviewed-sha"].steps[0].with.script = withoutComparison.jobs[
+      "admit-reviewed-sha"
+    ].steps[0].with.script.replace("expected.toLowerCase() !== process.env.RUN_SHA", "false");
+    expect(() => assertImmutableProviderUatAdmission(withoutComparison)).toThrow();
+    for (const dependency of ["admit-reviewed-sha", "resolve-provider-uat-plan"]) {
+      const bypass = parseYaml(source);
+      bypass.jobs["staging-provider-uat"].needs = bypass.jobs["staging-provider-uat"].needs.filter(
+        (name) => name !== dependency,
+      );
+      expect(() => assertImmutableProviderUatAdmission(bypass)).toThrow();
+    }
+    const bypass = parseYaml(source);
+    bypass.jobs["staging-provider-uat"].if = "always()";
+    expect(() => assertImmutableProviderUatAdmission(bypass)).toThrow();
+  });
+});
 const workflowSource = (file) => readFileSync(resolve(file), "utf8");
 const sharedResetConcurrencyWorkflowFiles = [
   ".github/workflows/catalog-integration-staging-reset.yml",
+  ".github/workflows/catalog-staging-count-preparation.yml",
   ".github/workflows/catalog-staging-provider-uat.yml",
   ".github/workflows/platform-staging-wake-drills.yml",
   ".github/workflows/platform-staging-mixed-version-wake-drills.yml",
   ".github/workflows/platform-staging-representative-commerce-state.yml",
 ];
 const deployConcurrencyWorkflowFiles = [
+  ".github/workflows/platform-preview-wildcard-tls.yml",
   ".github/workflows/platform-production.yml",
+  ".github/workflows/platform-staging-admin-qa-actor-fixtures.yml",
+  ".github/workflows/platform-staging-advisory-evidence.yml",
   ".github/workflows/platform-staging-bootstrap-hook-drill.yml",
   ".github/workflows/platform-staging-helm-recovery.yml",
+  ".github/workflows/platform-staging-representative-commerce-state.yml",
   ".github/workflows/platform-staging-reset.yml",
   ".github/workflows/platform-staging-rollback-drill.yml",
 ];
@@ -75,6 +143,7 @@ function verification(overrides = {}) {
     profileSectionDiagnostics: 0,
     providerOptionQueryCacheEntries: 0,
     providerOptionRateLimits: 0,
+    providerOptionRateLimitsAboveFloor: 0,
     ...overrides,
   };
 }

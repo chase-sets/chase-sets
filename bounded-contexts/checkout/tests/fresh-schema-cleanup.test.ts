@@ -9,8 +9,13 @@ import {
   checkoutMarketplaceSellerOptionsSchemaMigrations,
   checkoutMarketplaceSellerOptionsSchemaSql,
 } from "../features/cart/integrations/marketplace/marketplace-schema";
-import { checkoutCartSchemaSql } from "../features/cart/read-model/schema";
+import {
+  checkoutCartClaimsTableSchemaSql,
+  checkoutCartSchemaMigrations,
+  checkoutCartSchemaSql,
+} from "../features/cart/read-model/schema";
 import { checkoutSellListSchemaMigrations, checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
+import { checkoutSchemaMigrations, checkoutSchemaSql } from "../support/runtime-support/schema";
 import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,6 +75,8 @@ describe("fresh checkout read-model schemas", () => {
       "selected_listing_seller_display_name",
       "selected_listing_seller_slug",
       "selected_listing_price_amount",
+      "selected_listing_price_currency_code",
+      "selected_listing_stream_version",
       "selected_listing_snapshot_source",
       "selected_listing_snapshot_captured_at",
     ]);
@@ -79,12 +86,22 @@ describe("fresh checkout read-model schemas", () => {
     // inline ADD COLUMN in the base SQL.
     expect(checkoutSellListSchemaMigrations).toEqual([
       expect.objectContaining({
+        migrationId: "20260907_checkout_sell_list_price_currency",
+        statements: [
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS offer_price_currency_code text NULL"),
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS price_currency_code text NULL"),
+        ],
+      }),
+      expect.objectContaining({
         migrationId: "20260714_checkout_sell_list_line_listing_id",
         statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS listing_id text NULL")],
       }),
     ]);
-    expect(checkoutSellListSchemaMigrations[0]?.statements).toHaveLength(1);
-    expect(checkoutSellListSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
+    expect(checkoutSellListSchemaMigrations[0]?.statements).toHaveLength(2);
+    expect(checkoutSellListSchemaMigrations[1]?.statements).toHaveLength(1);
+    expect(checkoutSellListSchemaMigrations.flatMap((migration) => migration.statements).join("\n")).not.toMatch(
+      /SET NOT NULL/,
+    );
     const sessionAddColumns = [...checkoutSessionSchemaSql.matchAll(/ADD COLUMN IF NOT EXISTS ([a-z_]+)/g)].map(
       ([, column]) => column,
     );
@@ -129,6 +146,65 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
   });
 
+  it("creates the Cart Claim alias from one shared definition on fresh boot and on existing databases", () => {
+    // The fresh-boot table and the ledger entry are the same definition, so a
+    // database created before Cart Claim cannot keep an older shape.
+    expect(checkoutCartSchemaSql).toContain(checkoutCartClaimsTableSchemaSql);
+    expect(checkoutCartSchemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS checkout_cart_claims_account_idx\n  ON checkout_cart_claims (account_id, source_owner_key);",
+    );
+    expect(checkoutCartClaimsTableSchemaSql).toContain("PRIMARY KEY (source_owner_key)");
+    const whitespaceSql =
+      String.raw`\0009\000A\000B\000C\000D\0020\00A0\1680` +
+      String.raw`\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A` +
+      String.raw`\2028\2029\202F\205F\3000\FEFF`;
+    expect(checkoutCartClaimsTableSchemaSql).toContain(`CHECK (source_owner_key ~ U&'^anon_[^${whitespaceSql}]+$')`);
+    expect(checkoutCartClaimsTableSchemaSql).toContain(`CHECK (account_id ~ U&'^acc_[^${whitespaceSql}]+$')`);
+    expect(checkoutCartSchemaMigrations).toEqual([
+      expect.objectContaining({
+        migrationId: "20260907_checkout_selected_listing_price_currency",
+        statements: [
+          expect.stringContaining("ADD COLUMN IF NOT EXISTS selected_listing_price_currency_code text NULL"),
+        ],
+      }),
+      expect.objectContaining({
+        migrationId: "20260903_checkout_cart_claims",
+        statements: [
+          checkoutCartClaimsTableSchemaSql,
+          expect.stringContaining("CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_cart_claims_account_idx"),
+        ],
+      }),
+    ]);
+    expect(checkoutCartSchemaMigrations[0]?.statements).toHaveLength(1);
+    expect(checkoutCartSchemaMigrations[1]?.statements).toHaveLength(2);
+    // The alias is written on the command path and read back in the same
+    // request, so it stays logged rather than joining the unlogged projections.
+    expect(checkoutCartClaimsTableSchemaSql).not.toMatch(/CREATE\s+UNLOGGED\s+TABLE/i);
+    expect(readText(join(checkoutRoot, "support/runtime-support/unlogged-projection-migrations.ts"))).not.toContain(
+      "checkout_cart_claims",
+    );
+  });
+
+  it("composes the Cart Claim boot SQL and migration into the Checkout module without other drift", () => {
+    const manifest = JSON.parse(readText(join(checkoutRoot, "context.json"))) as {
+      projectionGroups?: Array<{ projectionName?: string; ownedTables?: string[]; resetStrategy?: string }>;
+    };
+
+    expect(checkoutSchemaSql).toContain("CREATE TABLE IF NOT EXISTS checkout_cart_claims");
+    expect(checkoutSchemaMigrations).toEqual(expect.arrayContaining([...checkoutCartSchemaMigrations]));
+    expect(checkoutSchemaMigrations.filter((migration) => migration.migrationId.includes("cart_claims"))).toHaveLength(
+      1,
+    );
+    // Registered reset ownership: replay rebuilds the alias after a truncate.
+    expect(manifest.projectionGroups?.find((group) => group.projectionName === "checkout.cart-projection")).toEqual({
+      projectionName: "checkout.cart-projection",
+      sourceContextNames: ["checkout"],
+      ownedTables: ["checkout_cart_line_pages", "checkout_cart_claims"],
+      requiredDuringBootstrap: false,
+      resetStrategy: "truncate-owned-tables",
+    });
+  });
+
   it("keeps checkout inventory schema evolution before indexes that use evolved columns", () => {
     const locationEvolution = checkoutInventorySupplySchemaSql.indexOf("ALTER TABLE checkout_supply_locations");
     const locationAccountIndex = checkoutInventorySupplySchemaSql.indexOf(
@@ -163,6 +239,7 @@ describe("fresh checkout read-model schemas", () => {
       "checkout_marketplace_seller_options_seller_availability_idx",
     );
     expect(statements).toEqual([
+      expect.stringContaining("ADD COLUMN IF NOT EXISTS price_currency_code text NULL"),
       expect.stringContaining("ADD COLUMN IF NOT EXISTS evidence_requirements jsonb NULL"),
       expect.stringContaining("ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb"),
       expect.stringContaining(
@@ -175,10 +252,10 @@ describe("fresh checkout read-model schemas", () => {
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS checkout_marketplace_seller_options_seller_availability_idx",
       ),
     ]);
-    expect(statements[2]).toContain("ON checkout_marketplace_seller_options (inventory_item_id)");
-    expect(statements[3]).toContain("ON checkout_marketplace_seller_options (catalog_catalog_item_id)");
-    expect(statements[4]).toContain("ON checkout_marketplace_seller_options (seller_account_id, status)");
-    expect(statements[4]).toContain("WHERE status IN ('active', 'seller-unavailable')");
+    expect(statements[3]).toContain("ON checkout_marketplace_seller_options (inventory_item_id)");
+    expect(statements[4]).toContain("ON checkout_marketplace_seller_options (catalog_catalog_item_id)");
+    expect(statements[5]).toContain("ON checkout_marketplace_seller_options (seller_account_id, status)");
+    expect(statements[5]).toContain("WHERE status IN ('active', 'seller-unavailable')");
   });
 
   it("uses the fresh Sell List confirmation read model without execution receipts", () => {

@@ -14,6 +14,7 @@ export const moneyStatusLabels = {
   "platform-balance-insufficient": "Funds are temporarily unavailable for payout.",
   "amount-below-minimum": "Enter an amount above the minimum payout.",
   "amount-above-maximum": "Enter an amount below the maximum payout.",
+  "payout-amount-below-fee": "Enter a payout amount greater than the payout fee.",
   "amount-exceeds-available-balance": "Enter an amount within the available wallet balance.",
   "support-hold-active": "Resolve open support requests before requesting these funds.",
   "payout-release-hold-active": "Recent sales are held until delivery and risk checks clear.",

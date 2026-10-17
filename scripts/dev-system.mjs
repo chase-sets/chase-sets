@@ -10,6 +10,7 @@ import { createBrowserE2eLifecycleRecorder, resolveBrowserE2eEvidencePaths } fro
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import {
   acquireDevSystemHeavySlot,
+  assertSandboxPostgresSettings,
   applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
@@ -17,12 +18,17 @@ import {
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
+  createMarketplaceDevProcessDefinition,
+  createPublicWebDevProcessDefinition,
   isBrowserE2eTarget,
+  readSandboxPostgresSettings,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
+import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
-import { buildPackageManagerInvocation, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
+import { buildPackageManagerInvocation, runCommand, terminateProcessTree } from "./lib/process.mjs";
+import { runObservedBrowserE2eBootstrap } from "./browser-e2e-bootstrap-observation.mjs";
 import {
   applySandboxEnv,
   buildDockerComposeArgs,
@@ -47,7 +53,7 @@ const dockerComposeInvocation = resolveDockerComposeInvocation(buildDockerCompos
 const localAdminDatabaseUrl =
   process.env.POSTGRES_DEV_ADMIN_DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres";
 const devDatabaseUrl = process.env.POSTGRES_DEV_DATABASE_URL ?? sandbox.controlDatabaseUrl;
-const requiredExtensions = ["vector"];
+const requiredExtensions = ["vector", "pg_trgm"];
 const extensionContextNames = new Set(["discovery"]);
 const platformApiEnvExamplePath = path.join(rootDir, "deployables", "platform-api", ".env.example");
 const platformApiEnvLocalPath = path.join(rootDir, "deployables", "platform-api", ".env.local");
@@ -221,28 +227,8 @@ const processes = [
     },
     port: sandbox.ports.adminWeb,
   },
-  {
-    name: "marketplace",
-    workspace: "@chase-sets/app-marketplace-web",
-    env: {
-      ...sandboxEnv,
-      PLATFORM_API_URL: sandbox.urls.platformApi,
-      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
-      PORT: String(sandbox.ports.marketplaceWeb),
-    },
-    port: sandbox.ports.marketplaceWeb,
-  },
-  {
-    name: "public-web",
-    workspace: "@chase-sets/app-public-web",
-    env: {
-      ...sandboxEnv,
-      PLATFORM_API_URL: sandbox.urls.platformApi,
-      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
-      PORT: String(sandbox.ports.publicWeb),
-    },
-    port: sandbox.ports.publicWeb,
-  },
+  createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),
+  createPublicWebDevProcessDefinition(sandbox, sandboxEnv),
 ];
 
 const devTargets = {
@@ -483,11 +469,21 @@ async function ensureDevDatabase() {
     env: sandboxEnv,
     prefix: "docker",
   });
+  await withAdminPool(async () => {
+    const effective = readSandboxPostgresSettings({
+      invocation: dockerComposeInvocation,
+      env: { ...process.env, ...sandboxEnv },
+    });
+    assertSandboxPostgresSettings(effective, readFileSync(path.join(rootDir, "docker-compose.dev.yml"), "utf8"));
+    for (const [name, value] of Object.entries(effective)) {
+      prefixedConsole("postgres", `SHOW ${name} = ${value} (configured = effective; before client fan-out)`);
+    }
+  });
   prefixedConsole("dev", `Provisioning sandbox databases for ${sandbox.id}...`);
   await preparePlatformDatabase();
 }
 
-async function runBootstrap(targetName = "all") {
+async function runBootstrap(targetName = "all", lifecycleRecorder = null) {
   if (isolatedBrowserE2eProbe) {
     prefixedConsole("env", "Skipping local secret-file sync for the isolated browser-e2e probe.");
   } else {
@@ -503,15 +499,25 @@ async function runBootstrap(targetName = "all") {
     prefixedConsole("bootstrap", `Running ${workspace} bootstrap...`);
     const processDefinition = bootstrapProcesses.find((definition) => definition.workspace === workspace);
     const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);
-    await runCommand(invocation.command, invocation.args, {
-      env: buildPlatformChildEnvironment(
-        process.env,
-        applyCurrentPlatformBootstrapSelectors(processDefinition?.env ?? {}, process.env),
-        { minimalBase: true },
-      ),
-      inheritEnv: false,
-      prefix: workspace.replace("@chase-sets/", ""),
-    });
+    const environment = buildPlatformChildEnvironment(
+      process.env,
+      applyCurrentPlatformBootstrapSelectors(processDefinition?.env ?? {}, process.env),
+      { minimalBase: true },
+    );
+    if (lifecycleRecorder) {
+      await runObservedBrowserE2eBootstrap(invocation.command, invocation.args, {
+        name: `bootstrap-${workspace.replace("@chase-sets/", "")}`,
+        prefix: workspace.replace("@chase-sets/", ""),
+        recorder: lifecycleRecorder,
+        environment,
+      });
+    } else {
+      await runCommand(invocation.command, invocation.args, {
+        env: environment,
+        inheritEnv: false,
+        prefix: workspace.replace("@chase-sets/", ""),
+      });
+    }
   }
 }
 
@@ -542,7 +548,7 @@ async function runDev(targetName = "all") {
         target: targetName,
       })
     : null;
-  await runBootstrap(targetName);
+  await runBootstrap(targetName, lifecycleRecorder);
   if (isBrowserE2eTarget(targetName) && Boolean(process.env.CI)) {
     const primedCount = await primeBrowserE2eProjectionWakeRelayCursors({ sandbox });
     prefixedConsole("bootstrap", `Primed projection wake relay cursors at ${primedCount} seeded context event heads.`);
@@ -573,6 +579,13 @@ async function runDev(targetName = "all") {
 
   const children = [];
   let shuttingDown = false;
+  const launcher = createDevSystemLauncher({
+    children,
+    onFailure: () => {
+      shuttingDown = true;
+      completeDevSystemStartupFailure();
+    },
+  });
 
   const shutdown = (signal, exitCode = 0) => {
     if (shuttingDown) {
@@ -612,12 +625,16 @@ async function runDev(targetName = "all") {
 
     if (stripeConfig.secretKey && stripeConfig.publishableKey) {
       const readyFilePath = path.join(os.tmpdir(), `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`);
-      const stripeListener = spawnCommand("node", [stripeCliScript, "listen"], {
-        env: {
-          STRIPE_READY_FILE: readyFilePath,
+      const stripeListener = launcher.launch(
+        { name: "stripe", command: "node", args: [stripeCliScript, "listen"] },
+        {
+          env: {
+            STRIPE_READY_FILE: readyFilePath,
+          },
+          prefix: "stripe",
         },
-        prefix: "stripe",
-      });
+      );
+      if (!stripeListener) return;
 
       stripeListener.on("error", (error) => {
         if (!shuttingDown) {
@@ -662,13 +679,17 @@ async function runDev(targetName = "all") {
   if (targetName === "all") {
     await assertSandboxPortAvailable(sandbox.ports.portal, "portal");
     const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
-    const portal = spawnCommand("node", [portalScript], {
-      env: {
-        ...sandboxEnv,
-        PORT: String(sandbox.ports.portal),
+    const portal = launcher.launch(
+      { name: "portal", command: "node", args: [portalScript] },
+      {
+        env: {
+          ...sandboxEnv,
+          PORT: String(sandbox.ports.portal),
+        },
+        prefix: "portal",
       },
-      prefix: "portal",
-    });
+    );
+    if (!portal) return;
     children.push(portal);
   }
 
@@ -677,15 +698,13 @@ async function runDev(targetName = "all") {
       await assertSandboxPortAvailable(definition.port, definition.name);
     }
 
-    const invocation = definition.command
-      ? { command: definition.command, args: definition.args ?? [] }
-      : buildPackageManagerInvocation(["--filter", definition.workspace, "run", definition.script ?? "dev"]);
-    const child = spawnCommand(invocation.command, invocation.args, {
+    const child = launcher.launch(definition, {
       cwd: definition.cwd ? path.resolve(rootDir, definition.cwd) : undefined,
       env: buildPlatformChildEnvironment(process.env, definition.env),
       inheritEnv: false,
       prefix: definition.name,
     });
+    if (!child) return;
     lifecycleRecorder?.observe(definition.name, child);
 
     child.on("error", (error) => {

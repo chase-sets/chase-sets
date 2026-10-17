@@ -1,0 +1,473 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "job",
+      "secretName": "OBSERVABILITY_GRAFANA_ADMIN_PASSWORD",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "job",
+      "secretName": "OBSERVABILITY_OTEL_WRITE_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "job",
+      "secretName": "PROMETHEUS_QUERY_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "job",
+      "secretName": "SES_AWS_ACCESS_KEY_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "job",
+      "secretName": "SES_AWS_SECRET_ACCESS_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "job",
+      "secretName": "SES_SOURCE_ARN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Confirm one-shot migration#1",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Confirm one-shot migration#1",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Confirm one-shot migration#1",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Confirm one-shot migration#1",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Confirm one-shot migration#1",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Confirm one-shot migration#1",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Migrate state, import staging aliases, and verify the plan#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Migrate state, import staging aliases, and verify the plan#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Migrate state, import staging aliases, and verify the plan#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Migrate state, import staging aliases, and verify the plan#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Migrate state, import staging aliases, and verify the plan#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Migrate state, import staging aliases, and verify the plan#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Pull and archive both source states#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Pull and archive both source states#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Pull and archive both source states#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Pull and archive both source states#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Pull and archive both source states#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Pull and archive both source states#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Summarize migration outcome#10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Summarize migration outcome#10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Summarize migration outcome#10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Summarize migration outcome#10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Summarize migration outcome#10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Summarize migration outcome#10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Validate migration inputs#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Validate migration inputs#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Validate migration inputs#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Validate migration inputs#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Validate migration inputs#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "name:Validate migration inputs#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#2",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#2",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#2",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#2",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#2",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a#2",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-observability-state-migration.yml",
+      "jobId": "migrate",
+      "stepAnchor": "uses:hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

@@ -819,7 +819,6 @@ export interface SurfaceOwnProps extends PropsWithChildren, SystemProps {
   element?: BoxElement;
   tone?: SurfaceTone;
   elevation?: "flush" | "tinted" | "outlined" | "elevated";
-  elevated?: boolean;
   glow?: boolean;
 }
 
@@ -898,14 +897,13 @@ const surfaceElevationToneClasses: Record<Exclude<SurfaceElevation, "elevated">,
 };
 
 /**
- * Canonical furniture surface with tone-driven fills and opt-in
+ * Canonical flush-by-default furniture surface with tone-driven fills and
  * `flush`/`tinted`/`outlined`/`elevated` elevation intents.
  *
  * `tone` names the background family wherever a fill exists; `elevation` owns
- * fill presence and the surface chrome (glass, border, shadow). An explicit
- * `elevation` value owns the complete treatment and the legacy `elevated`
- * boolean is ignored; omitting `elevation` renders the legacy recipe unchanged,
- * with `elevated` keeping its exact current shadow meaning.
+ * fill presence and the surface chrome (glass, border, shadow). Omitting
+ * `elevation` renders the `flush` treatment. Production roots must declare
+ * their elevation explicitly; glow applies only to `elevated` surfaces.
  */
 export const Surface = forwardRef(function Surface(
   {
@@ -914,8 +912,7 @@ export const Surface = forwardRef(function Surface(
     render,
     element = "div",
     tone = "default",
-    elevation,
-    elevated = false,
+    elevation = "flush",
     glow = false,
     padding = 4,
     paddingX,
@@ -940,12 +937,12 @@ export const Surface = forwardRef(function Surface(
       {...rest}
       ref={ref}
       className={
-        elevation === undefined || elevation === "elevated"
+        elevation === "elevated"
           ? cx(
               "surface-border min-w-0 max-w-full rounded-tokenLg",
               surfaceToneClasses[tone],
               systemClasses,
-              elevation === "elevated" || elevated ? "shadow-tokenLg" : "shadow-tokenSm",
+              "shadow-tokenLg",
               glow && "ds-glow",
             )
           : cx("min-w-0 max-w-full rounded-tokenLg", surfaceElevationToneClasses[elevation][tone], systemClasses)

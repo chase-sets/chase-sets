@@ -9,15 +9,12 @@ const freshWriteHelperNames = new Set([
   "appendFreshWriteToken",
   "appendFreshWriteTokenFromSources",
   "appendPostWriteHandoff",
-  "appendPostWriteHandoffFromSources",
   "evaluatePostWriteHandoff",
   "defineResourceRoute",
   "formActionRedirect",
-  "formActionRedirectFromSources",
   "loadAfterWrite",
   "loadFreshlyWrittenResource",
   "navigateAfterWrite",
-  "navigateAfterWriteFromSources",
   "navigateAfterWriteFromSourcesWithCompactToken",
   "navigateAfterWriteFromSourcesWithPlatformPostWriteToken",
   "navigateAfterWriteWithCompactToken",
@@ -27,7 +24,6 @@ const freshWriteHelperNames = new Set([
 ]);
 const semanticPostWriteHandoffHelperNames = new Set([
   "appendPostWriteHandoff",
-  "appendPostWriteHandoffFromSources",
   "evaluatePostWriteHandoff",
   "readPostWriteHandoff",
   "readPostWriteHandoffState",
@@ -36,29 +32,19 @@ const receiptProducingFreshWriteHelperNames = new Set([
   "appendFreshWriteToken",
   "appendFreshWriteTokenFromSources",
   "appendPostWriteHandoff",
-  "appendPostWriteHandoffFromSources",
   "navigateAfterWrite",
-  "navigateAfterWriteFromSources",
   "navigateAfterWriteFromSourcesWithCompactToken",
   "navigateAfterWriteFromSourcesWithPlatformPostWriteToken",
   "navigateAfterWriteWithCompactToken",
   "navigateAfterWriteWithPlatformPostWriteToken",
   "formActionRedirect",
-  "formActionRedirectFromSources",
 ]);
-const routeRuntimeContractHelperNames = new Set([
-  "defineResourceRoute",
-  "formActionRedirect",
-  "formActionRedirectFromSources",
-]);
+const routeRuntimeContractHelperNames = new Set(["defineResourceRoute", "formActionRedirect"]);
 
 function helperUseSatisfiesClaim(usedHelpers, claimedHelper) {
   if (usedHelpers.has(claimedHelper)) return true;
   if (usedHelpers.has("defineResourceRoute") && claimedHelper === "loadAfterWrite") return true;
-  if (
-    (usedHelpers.has("formActionRedirect") || usedHelpers.has("formActionRedirectFromSources")) &&
-    receiptProducingFreshWriteHelperNames.has(claimedHelper)
-  ) {
+  if (usedHelpers.has("formActionRedirect") && receiptProducingFreshWriteHelperNames.has(claimedHelper)) {
     return true;
   }
   return false;
@@ -67,7 +53,7 @@ function helperUseSatisfiesClaim(usedHelpers, claimedHelper) {
 function helperUsageIsCovered(usedHelper, coveredHelpers) {
   if (coveredHelpers.has(usedHelper)) return true;
   if (usedHelper === "defineResourceRoute" && coveredHelpers.has("loadAfterWrite")) return true;
-  if (usedHelper === "formActionRedirect" || usedHelper === "formActionRedirectFromSources") {
+  if (usedHelper === "formActionRedirect") {
     return [...coveredHelpers].some((helper) => receiptProducingFreshWriteHelperNames.has(helper));
   }
   return false;
@@ -558,6 +544,9 @@ export async function collectMutationConsistencySurfaces(options) {
     }
 
     const contextName = contextNameForFile(relativeFile, contextManifests);
+    const contextRoot = contextRootForFile(relativeFile);
+    const completeRawFetchCensus =
+      contextRoot !== null && contextManifests.get(contextRoot)?.manifest.rawFetchCensus === "complete";
     const content = readFileSync(file, "utf8");
     const routeIds = [
       ...(routeIdsByFile.get(relativeFile) ??
@@ -565,6 +554,24 @@ export async function collectMutationConsistencySurfaces(options) {
         routeSupportRouteIds(relativeFile, contextManifests, routesById)),
     ].sort();
     const occurrenceCounts = new Map();
+
+    if (completeRawFetchCensus && !/(?:^|\/)(?:client|server)\.ts$/.test(relativeFile)) {
+      const rawFetchPattern = /\bfetch\s*\([\s\S]{0,1600}?\);/g;
+      for (const match of content.matchAll(rawFetchPattern)) {
+        const method =
+          match[0].match(/\bmethod\s*:\s*["'](GET|POST|PUT|PATCH|DELETE)["']/i)?.[1].toUpperCase() ?? "GET";
+        const detail = occurrenceDetail(occurrenceCounts, "raw-fetch", `${method} ${stableSnippetId(match[0])}`);
+        addMutationSurface(surfaces, {
+          id: buildMutationSurfaceId("raw-fetch", relativeFile, detail),
+          contextName: contextName ?? "deployable",
+          file: relativeFile,
+          kind: "raw-fetch",
+          routeIds,
+          location: `${relativeFile}:${lineNumberAt(content, match.index ?? 0)}`,
+          mutationSurface: `${method} raw fetch`,
+        });
+      }
+    }
 
     if (/^\s*export\s+(?:async\s+function|const)\s+action\b/m.test(content)) {
       addMutationSurface(surfaces, {
@@ -1610,9 +1617,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
   const reportEntries = [];
 
   for (const file of rawPostWriteHandoffMetadataUsages) {
-    violations.push(
-      `${file}: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff or appendPostWriteHandoffFromSources`,
-    );
+    violations.push(`${file}: raw postWriteHandoff query metadata is not allowed; use appendPostWriteHandoff`);
   }
 
   for (const context of contextManifests.values()) {

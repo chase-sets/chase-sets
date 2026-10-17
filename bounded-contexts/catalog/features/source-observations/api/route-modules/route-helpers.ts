@@ -207,6 +207,19 @@ export function parseObservationIds(input: unknown): string[] {
     : [];
 }
 
+/**
+ * The explicit promote-as-draft review choice. Only a literal boolean `true`
+ * counts; omission, strings, and every other value fail closed to false.
+ */
+export function parsePromoteAsDraft(input: unknown): boolean {
+  return input === true;
+}
+
+/** Optional observation-id cursor for the bounded preview validation page. */
+export function parseValidationAfter(input: unknown): string | null {
+  return typeof input === "string" && input.trim() ? input.trim() : null;
+}
+
 export function parseReapplyProfileMode(input: unknown): SourceObservationReapplyProfileMode | null {
   return input === "current-active-profile" || input === "original-source-profile" ? input : null;
 }

@@ -2,10 +2,10 @@
   "contextName": "payments",
   "packageName": "@chase-sets/payments",
   "localeCatalogs": ["contracts/localization/locales/en/payments.ts"],
-  "ownedNouns": ["payment", "refund"],
+  "ownedNouns": ["payment", "refund", "wallet-funding"],
   "streamPrefix": "payments.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["payments", "refunds"],
+  "slices": ["payments", "refunds", "wallet-funding"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
@@ -127,6 +127,20 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "payments-wallet-funding-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["payments_wallet_funding_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "payments-order-input-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["payments_order_inputs"],
@@ -186,6 +200,16 @@
   ],
   "hostPorts": [
     {
+      "portName": "walletFundingEligibilityResolver",
+      "providedBy": "identity",
+      "purpose": "Resolve account standing and active Payments Terms acceptance before wallet funding."
+    },
+    {
+      "portName": "prepaidRefundAuthority",
+      "providedBy": "settlement",
+      "purpose": "Reserve, commit and release exact prepaid refunds; absent authority refuses all reservations."
+    },
+    {
       "portName": "processorGateway",
       "providedBy": "platform-api",
       "purpose": "Create and observe external payment processor intents from the API host."
@@ -194,6 +218,11 @@
       "portName": "webhookTelemetry",
       "providedBy": "platform-api",
       "purpose": "Record support-safe Stripe webhook failure classes, retry decisions, and provider event references."
+    },
+    {
+      "portName": "providerModeObservation",
+      "providedBy": "platform-api",
+      "purpose": "Report the locally configured payment provider mode observation loaded once by the API host."
     },
     {
       "portName": "balanceCreditResolver",
@@ -209,6 +238,16 @@
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox consumed only by payment and refund event projectors."
+    },
+    {
+      "portName": "evidenceWindowProviderWrite",
+      "providedBy": "platform-runtime",
+      "purpose": "Journal admitted provider writes before send and resolve immutable operations through guarded recovery."
+    },
+    {
+      "portName": "evidenceWindowCorrelation",
+      "providedBy": "platform-runtime",
+      "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -244,6 +283,7 @@
       "requiresAuth": false
     }
   ],
+  "anonymousRoutes": [{ "routePath": "/api/marketplace/payment-provider-mode", "methods": ["GET"] }],
   "mcpCapabilities": {
     "tools": [
       { "name": "payments.start-payment-method-setup", "ownerSlice": "payments" },
@@ -341,6 +381,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "payments.wallet-funding-command-snapshots",
+      "owner": "payments",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/payments/features/wallet-funding/api/route.ts:POST /wallet-fundings",
+        "api-route:bounded-contexts/payments/features/wallet-funding/api/route.ts:POST /wallet-fundings/:fundingId/refunds"
+      ],
+      "visibleDestination": {
+        "description": "Funding and refund requests return their authoritative aggregate state, not a projection reread."
+      },
+      "proof": {
+        "authoritativeResponse": "The Wallet Funding command result and refund operation are loaded from the event stream before returning.",
+        "tests": ["bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts"]
+      }
+    },
     {
       "id": "payments.payment-command-snapshots",
       "owner": "payments",
@@ -493,34 +550,127 @@
           "routePath": "account/payments/:paymentId",
           "fileExport": "./routes/marketplace/account-payment",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-payment-new",
           "routePath": "account/payments/new",
           "fileExport": "./routes/marketplace/account-payment-new",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "account-payment-methods",
           "routePath": "account/payment-methods",
           "fileExport": "./routes/marketplace/account-payment-methods",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         },
         {
           "routeId": "checkout-payment",
           "routePath": "checkout/payments/:paymentId",
           "fileExport": "./routes/marketplace/checkout-payment",
           "routeType": "route",
-          "sourceContext": "payments"
+          "sourceContext": "payments",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "public"
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "payments",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
         }
       ]
     }
   ],
-  "shellContributions": [],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "account-menu",
+      "key": "payment-methods",
+      "label": "Payment methods",
+      "icon": "creditCard",
+      "href": "/account/payment-methods",
+      "order": 210,
+      "visibility": "signed-in",
+      "requiredPermissions": [],
+      "excludedRoleKeys": ["guest-buyer"]
+    }
+  ],
   "directoryIntent": {
+    "wallet-funding": {
+      "classification": "slice",
+      "purpose": "Own Wallet Funding card charges, fee quotes and reserved refund execution without order payments or wallet ledger writes.",
+      "expectedConsumers": ["platform-api", "platform-worker", "settlement"]
+    },
     "payments": {
       "classification": "slice",
       "purpose": "Own payments feature behavior, read models, and UI contracts for the payments context.",
@@ -540,7 +690,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by payments-owned features and composition seams.",
-      "expectedConsumers": ["payments", "refunds"]
+      "expectedConsumers": ["payments", "refunds", "wallet-funding"]
     },
     "seed-support": {
       "classification": "support",
@@ -550,7 +700,7 @@
     },
     "ucp-support": {
       "classification": "support",
-      "purpose": "Provide Payments-owned UCP payment-handler declarations and AP2 guarded-completion decisions coordinated by Checkout sessions.",
+      "purpose": "Provide Payments-owned UCP payment-handler declarations and stored-payment-method completion decisions coordinated by Checkout sessions.",
       "expectedConsumers": ["Checkout UCP completion adapter", "Platform UCP route composition"]
     },
     "ui-support": {

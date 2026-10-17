@@ -30,6 +30,62 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { FulfillmentShipmentDetail, FulfillmentShipmentLine } from "./contracts";
+import {
+  completeShipmentMutationDescriptor,
+  hashShipmentMutationIntent,
+  persistShipmentMutationDescriptor,
+  updateShipmentMutationDescriptor,
+} from "./mutation-recovery";
+
+export async function submitPackingLineQuantity(
+  input: Readonly<{
+    recoveryScope: Readonly<{ tenantId: string; sellerAccountId: string }>;
+    shipmentId: string;
+    lineId: string;
+    confirmedQuantity: number;
+    action: string;
+  }>,
+) {
+  const formData = new FormData();
+  formData.set("intent", "set-line-confirmed");
+  formData.set("lineId", input.lineId);
+  formData.set("confirmedQuantity", String(input.confirmedQuantity));
+  const descriptor = await persistShipmentMutationDescriptor({
+    ...input.recoveryScope,
+    shipmentId: input.shipmentId,
+    command: "set-line-confirmed",
+    target: input.lineId,
+    intentHash: await hashShipmentMutationIntent({
+      lineId: input.lineId,
+      confirmedQuantity: input.confirmedQuantity,
+    }),
+  });
+  formData.set("mutationAttemptId", descriptor.mutationAttemptId);
+  const sentAt = new Date().toISOString();
+  const sentDescriptor = await updateShipmentMutationDescriptor(descriptor, {
+    sentAt,
+    lastObservedAt: sentAt,
+    state: "submitting",
+  });
+  const response = await fetch(input.action, {
+    method: "POST",
+    credentials: "same-origin",
+    body: formData,
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"));
+  }
+  const result = (await response.json().catch(() => null)) as {
+    lineId?: string;
+    confirmedQuantity?: number;
+  } | null;
+  if (result?.lineId !== input.lineId || typeof result.confirmedQuantity !== "number") {
+    throw new Error(t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"));
+  }
+  await completeShipmentMutationDescriptor(sentDescriptor, "succeeded");
+  return { lineId: result.lineId, confirmedQuantity: result.confirmedQuantity };
+}
 
 function statusLabel(status: string) {
   switch (status) {
@@ -246,10 +302,12 @@ export function FulfillmentShipmentPackingPage({
   shipment,
   backHref,
   errorMessage,
+  recoveryScope,
 }: {
   shipment: FulfillmentShipmentDetail;
   backHref: string;
   errorMessage?: string | null;
+  recoveryScope: Readonly<{ tenantId: string; sellerAccountId: string }>;
 }) {
   const [packedQuantities, setPackedQuantities] = useState<Record<string, number>>(() =>
     initialPackedQuantities(shipment.lines),
@@ -309,30 +367,16 @@ export function FulfillmentShipmentPackingPage({
     const requestSequence = (lineRequestSequences.current[lineId] ?? 0) + 1;
     lineRequestSequences.current[lineId] = requestSequence;
 
-    const formData = new FormData();
-    formData.set("intent", "set-line-confirmed");
-    formData.set("lineId", lineId);
-    formData.set("confirmedQuantity", String(nextQuantity));
-
     try {
-      const response = await fetch(window.location.pathname, {
-        method: "POST",
-        credentials: "same-origin",
-        body: formData,
+      const result = await submitPackingLineQuantity({
+        recoveryScope,
+        shipmentId: shipment.shipment_id,
+        lineId,
+        confirmedQuantity: nextQuantity,
+        action: window.location.pathname,
       });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"));
-      }
-      const result = (await response.json().catch(() => null)) as {
-        lineId?: string;
-        confirmedQuantity?: number;
-      } | null;
       if (lineRequestSequences.current[lineId] !== requestSequence) {
         return;
-      }
-      if (result?.lineId !== lineId || typeof result.confirmedQuantity !== "number") {
-        throw new Error(t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"));
       }
 
       const serverQuantity = clampPackedQuantity(line, result.confirmedQuantity);
@@ -467,6 +511,11 @@ export function FulfillmentShipmentPackingPage({
           target="_blank"
           tone="secondary"
           leadingIcon="externalLink"
+          aria-label={
+            packingSlipOpened
+              ? t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.again.new.tab")
+              : t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.new.tab")
+          }
           onClick={() => setPackingSlipOpened(true)}
         >
           {packingSlipOpened
@@ -642,6 +691,7 @@ export function FulfillmentShipmentPackingPage({
                     target="_blank"
                     tone="secondary"
                     leadingIcon="externalLink"
+                    aria-label={t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.new.tab")}
                     onClick={() => setPackingSlipOpened(true)}
                   >
                     {t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip")}

@@ -1,4 +1,5 @@
 name: Backlog Roadmap Status
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Backlog Roadmap Status probe {0}', inputs.authority_nonce) || 'Backlog Roadmap Status scheduled writer' }}
 
 on:
   schedule:
@@ -6,26 +7,27 @@ on:
     - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
-      roadmap_issue:
-        description: Issue number whose body carries the roadmap-status markers.
-        required: false
-        default: "4129"
+      authority_nonce:
+        description: Lowercase 32-hex nonce binding this exact authority probe.
+        required: true
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: backlog-roadmap-status
+  group: backlog-roadmap-status-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  status:
-    name: Backlog Roadmap Status
+  write-roadmap-status:
+    if: github.event_name == 'schedule'
+    name: Backlog Roadmap Status writer
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+      pull-requests: read
       issues: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -35,12 +37,12 @@ jobs:
       # Generated rather than hand-maintained: the previous hand-typed rollup in
       # the roadmap issue drifted on 5 of 12 rows within two weeks, hiding a 29%
       # scope increase in one wave. Contract: docs/contributing/backlog-model.md.
-      # Fail-safe: if the target issue has no roadmap-status markers, the body is
-      # left untouched and the run reports a failure instead of guessing.
+      # Fail-safe: invalid or incomplete roadmap/cap authority leaves #4129
+      # byte-identical and reports a failure instead of guessing.
       - name: Generate roadmap status
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          ROADMAP_ISSUE: ${{ inputs.roadmap_issue || '4129' }}
+          ROADMAP_ISSUE: "4129"
         run: node ./scripts/roadmap-status.mjs
 
       # Enforcing, read-only vocabulary ratchet. This intentionally runs after
@@ -49,3 +51,41 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node ./scripts/label-registry.mjs
+
+  probe-authority:
+    if: github.event_name == 'workflow_dispatch'
+    name: probe-authority
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Resolve exact probe-authority job
+        id: probe-job
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node ./scripts/roadmap-status.mjs --resolve-probe-job
+
+      - name: Produce refined inventory authority probe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ROADMAP_WORKFLOW: backlog-roadmap-status.yml
+          ROADMAP_AUTHORITY_NONCE: ${{ inputs.authority_nonce }}
+          ROADMAP_PROBE_JOB_ID: ${{ steps.probe-job.outputs.job_id }}
+        run: node ./scripts/roadmap-status.mjs --probe-authority --out artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json
+
+      - name: Validate refined inventory authority probe
+        run: node ./scripts/roadmap-status.mjs --validate-probe-authority --input artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json
+
+      - name: Upload refined inventory authority probe
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: roadmap-refined-inventory-authority-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/roadmap-refined-inventory-authority/roadmap-refined-inventory-authority-probe.json
+          if-no-files-found: error

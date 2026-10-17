@@ -8,6 +8,7 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationScope,
   SourceObservationListItem,
+  SourceObservationPromotionValidation,
 } from "./contracts";
 import type { CatalogSyncProviderParticipationPreview } from "../api/catalog-sync-scope-planner";
 import type { CatalogPrimaryWorkbenchSourceOptionPageSnapshot } from "./primary-workbench-source-options";
@@ -35,6 +36,8 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   reviewObservations?: ListResponse<SourceObservationListItem> | null;
   mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
+  /** The read-only preview validation for the route's promotion preview token, when one is in play. */
+  promotionValidation?: SourceObservationPromotionValidation | null;
   reviewPagination?: Readonly<{ limit: number; offset: number }>;
   canManageCatalog: boolean;
 }>;

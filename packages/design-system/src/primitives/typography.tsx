@@ -283,20 +283,6 @@ export function Caption<TTarget extends ElementType = "p">(props: CaptionProps<T
   return <Text {...props} size={props.size ?? "2xs"} tone={props.tone ?? "secondary"} />;
 }
 
-export interface DiscountValueProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
-  original: ReactNode;
-  current: ReactNode;
-}
-
-export function DiscountValue({ original, current, ...rest }: DiscountValueProps) {
-  return (
-    <span {...rest} className="inline-flex flex-wrap justify-end gap-x-1">
-      <s className="text-danger decoration-danger">{original}</s>
-      <span className="text-trust">{current}</span>
-    </span>
-  );
-}
-
 export interface InlineTextGroupProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   children?: ReactNode;
   gap?: 1 | 2 | 3;
@@ -321,6 +307,23 @@ export function InlineTextGroup({ children, gap = 2, align = "center", ...rest }
       {...rest}
       className={cx("inline-flex flex-wrap", inlineTextGroupGapClasses[gap], inlineTextGroupAlignClasses[align])}
     >
+      {children}
+    </span>
+  );
+}
+
+export interface NumericValueProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+  children?: ReactNode;
+}
+
+/**
+ * Closed inline role carrier for prices and market data: IBM Plex Mono with
+ * tabular figures. It emits only the mono utility plus tabular figures, so
+ * the owning element keeps its font-size, weight, color, and line height.
+ */
+export function NumericValue({ children, ...rest }: NumericValueProps) {
+  return (
+    <span {...rest} className="font-mono tabular-nums">
       {children}
     </span>
   );
@@ -454,7 +457,7 @@ export interface ThumbnailProps extends Omit<ImgHTMLAttributes<HTMLImageElement>
 
 export function Thumbnail({ src, alt, ratio = 1, icon = "package", ...rest }: ThumbnailProps) {
   return (
-    <Surface padding={0} elevated>
+    <Surface padding={0} elevation="elevated">
       <AspectRatio ratio={ratio}>
         {src ? (
           <img {...rest} alt={alt} src={src} className="h-full w-full rounded-tokenLg object-cover" />

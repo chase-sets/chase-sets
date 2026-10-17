@@ -29,6 +29,8 @@ const listing: MarketplaceListingDetail = {
     country: "US",
   },
   price_amount: "20.00",
+  price_currency_code: "USD",
+  listing_stream_version: 1,
   marketplace_sales_fee_unit_amount: "0.00",
   seller_net_unit_amount: "20.00",
   shipping_allowance_percentage_bps: 500,
@@ -351,6 +353,26 @@ describe("MarketplaceListingDetailPage", () => {
 
     expect(screen.getByRole("button", { name: "Publish listing" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Resolve the catalog shipping measure before publishing this listing.")).toBeTruthy();
+  });
+
+  it("names a legacy incomplete price, blocks publication, and exposes a blank seller repair currency", () => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          status: "draft",
+          product_measure_snapshot: {} as never,
+          price_currency_code: null,
+        }}
+        feeHistory={[]}
+      />,
+    );
+
+    expect(screen.getAllByText("Incomplete price").length).toBeGreaterThan(0);
+    expect(screen.getByText(/This historical listing has an amount but no currency/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish listing" }).hasAttribute("disabled")).toBe(true);
+    expect((container.querySelector('input[name="priceCurrencyCode"]') as HTMLInputElement).value).toBe("");
+    expect(container.innerHTML).not.toContain('value="USD"');
   });
 
   it("walks a draft through the concrete server-owned evidence action before publication", () => {

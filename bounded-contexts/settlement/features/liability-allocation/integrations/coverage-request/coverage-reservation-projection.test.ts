@@ -1,21 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { ProtectionCoverageSettlementPort } from "../../api/ports";
 import { buildSettlementCoverageReservationHandlers } from "./coverage-reservation-projection";
 
 function transportEvent(data: Record<string, unknown>) {
-  return {
+  return buildTransportEvent("support.support-request.platform-coverage-requested.v1", data, {
     id: "evt_req",
-    type: "support.support-request.platform-coverage-requested.v1",
     streamId: "platform-operations.support-request-sup_1",
     streamVersion: 2,
     globalPosition: "1",
     tenantId: "tnt_test",
-    data,
-    metadata: {},
     audit: { performedByUserId: "usr_operator", forAccountId: "acc_platform" },
     trace: {},
     timing: { occurredAt: "2026-05-01T00:00:00.000Z", recordedAt: "2026-05-01T00:00:00.000Z" },
-  } as never;
+  });
 }
 
 describe("settlement coverage reservation projection", () => {

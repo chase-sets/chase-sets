@@ -53,3 +53,33 @@ export async function getInventoryHold(db: PgQueryable, holdId: string, accountI
 
   return result.rows[0] ?? null;
 }
+
+export async function getInventoryCheckoutHold(db: PgQueryable, holdId: string, checkoutSessionId: string) {
+  if (!checkoutSessionId.trim()) return null;
+  const result = await db.query<InventoryHoldRow>(
+    `SELECT
+       hold_id,
+       account_id,
+       item_id,
+       quantity,
+       reason,
+       notes,
+       purpose,
+       source_ref,
+       expires_at,
+       status,
+       created_at,
+       updated_at,
+       released_at,
+       release_reason,
+       consumed_at,
+       expired_at,
+       extension_count
+     FROM inventory_holds
+     WHERE hold_id = $1
+       AND purpose = 'checkout'
+       AND source_ref->>'checkoutSessionId' = $2`,
+    [holdId, checkoutSessionId],
+  );
+  return result.rows[0] ?? null;
+}

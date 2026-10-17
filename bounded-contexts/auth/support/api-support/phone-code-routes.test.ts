@@ -13,6 +13,7 @@ import {
 import type { AuthServices } from "../runtime-support/services";
 import { registerPhoneCodeRoutes } from "./phone-code-routes";
 import type { AuthApiEnv } from "./support";
+import { defineAuthHost } from "../route-support/auth-host";
 
 const { mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockStartInteractiveAuth } = vi.hoisted(
   () => ({
@@ -60,6 +61,79 @@ function buildApp(services: unknown) {
 useMockReset(mockCreateIdentityAuthRequestClient, mockCreatePersonalIdentity, mockStartInteractiveAuth);
 
 describe("phone code auth routes", () => {
+  it("partitions real routed failures", async () => {
+    const app = buildApp({});
+    const host = defineAuthHost({
+      signInPath: "/sign-in",
+      fallbackPath: "/account",
+      defaultSuccessPath: "/account",
+      accountSelectionPath: "/account/select",
+      signedOutReturnTo: "/sign-in",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        app.request(new URL(String(input)).pathname.replace("/api/auth", ""), init),
+      ),
+    );
+    try {
+      for (const intent of ["phone-code-request", "phone-code-consume"]) {
+        for (const action of [host.createSignInAction(), host.createRegisterAction()]) {
+          const result = await action({
+            request: new Request("https://marketplace.test/sign-in", {
+              method: "POST",
+              body: new URLSearchParams({ intent, code: "123456" }),
+            }),
+            params: {},
+            context: {},
+            url: new URL("https://marketplace.test/sign-in"),
+            pattern: "/sign-in",
+          });
+          expect(result).toMatchObject({
+            intent,
+            classification: "FIELD",
+            errors: { fieldErrors: { phone: ["Phone is required."] }, formErrors: [] },
+          });
+        }
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("preserves rejection parity and no write", async () => {
+    const query = vi.fn();
+    const getUserByPhone = vi.fn();
+    const enqueueNotification = vi.fn();
+    const app = buildApp({ db: { query }, identity: { getUserByPhone }, notificationOutbox: { enqueueNotification } });
+    for (const phone of [undefined, "", "   "]) {
+      for (const path of ["request", "consume"]) {
+        const response = await app.request(`/phone-code/${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, code: "123456" }),
+        });
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({
+          error: {
+            code: "validation_failed",
+            details: [{ field: "phone", code: "phone_required", message: "Phone is required." }],
+          },
+        });
+      }
+    }
+    const codeOnly = await app.request("/phone-code/consume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+13125550101" }),
+    });
+    expect(codeOnly.status).toBe(400);
+    expect(await codeOnly.json()).not.toHaveProperty("error.details");
+    expect(query).not.toHaveBeenCalled();
+    expect(getUserByPhone).not.toHaveBeenCalled();
+    expect(enqueueNotification).not.toHaveBeenCalled();
+  });
+
   it("normalizes phone numbers and enqueues an SMS security notification", async () => {
     const enqueueNotification = vi.fn(async () => undefined);
     const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
@@ -312,6 +386,7 @@ describe("phone code auth routes", () => {
             membershipId: "mbr_new",
             accountId: "acc_new",
             roleKey: "owner",
+            rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
           }),
         ],
       }),

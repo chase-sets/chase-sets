@@ -1,15 +1,23 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it, vi } from "vitest";
+import * as channelsClient from "../bounded-contexts/channels/client.ts";
 import {
   batchE2eSuiteIds,
+  chromiumProbeCallerViolations,
   e2eNoSuiteExclusionForChangedFile,
   e2eSuiteIdsForChangedFile,
   e2eSuites,
   isE2eSpecFile,
   isRouteFile,
 } from "./e2e-suites.mjs";
-import { buildSuiteGrep, parseSuiteArgs } from "./run-e2e-suite.mjs";
+import { buildSuiteGrep, commandSuiteInvocation, parseSuiteArgs } from "./run-e2e-suite.mjs";
+import {
+  TCGPLAYER_CONNECTOR_EXTENSION_ID,
+  TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+  TCGPLAYER_CONNECTOR_REDIRECT_URI,
+} from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
 
 function walkFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -19,6 +27,134 @@ function walkFiles(dir) {
 }
 
 describe("run e2e suite", () => {
+  it("claims one playwright root before dispatching registered suites through the production entrypoint", async () => {
+    const events = [];
+    const commandSuites = e2eSuites.filter((suite) => Array.isArray(suite.command));
+    const grepSuites = parseSuiteArgs(["marketplace_checkout,marketplace_seller"]);
+    const argv = process.argv;
+    vi.resetModules();
+    vi.doMock("./lib/heavy-slot.mjs", () => ({
+      acquireHeavySlot: (kind) => events.push({ admission: kind }),
+    }));
+    vi.doMock("./lib/process.mjs", async () => ({
+      ...(await vi.importActual("./lib/process.mjs")),
+      runCommand: async (command, args, options) => events.push({ command, args, options }),
+    }));
+    vi.doMock("./validate-responsive-evidence-artifacts.mjs", () => ({
+      validateResponsiveEvidenceArtifacts: async (options) => {
+        events.push({ artifacts: options });
+        return { violations: [], expectedClaimIds: [], manifests: [] };
+      },
+    }));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      process.argv = [
+        process.execPath,
+        fileURLToPath(new URL("./run-e2e-suite.mjs", import.meta.url)),
+        "--",
+        ...grepSuites.map((suite) => suite.id),
+        ...commandSuites.map((suite) => suite.id),
+      ];
+      await import("./run-e2e-suite.mjs");
+      await vi.dynamicImportSettled();
+      const { buildPackageManagerInvocation } = await vi.importActual("./lib/process.mjs");
+      const rootDir = fileURLToPath(new URL("../", import.meta.url));
+      const options = { cwd: rootDir, stdio: "inherit" };
+      expect(events).toEqual([
+        { admission: "playwright" },
+        {
+          ...buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", buildSuiteGrep(grepSuites)]),
+          options,
+        },
+        { artifacts: { repoRoot: rootDir, selectedGreps: grepSuites.map((suite) => suite.grep) } },
+        ...commandSuites.map((suite) => ({ ...commandSuiteInvocation(suite), options })),
+      ]);
+    } finally {
+      process.argv = argv;
+      log.mockRestore();
+      vi.doUnmock("./lib/heavy-slot.mjs");
+      vi.doUnmock("./lib/process.mjs");
+      vi.doUnmock("./validate-responsive-evidence-artifacts.mjs");
+      vi.resetModules();
+    }
+  });
+
+  it("provides a display for the headed Chromium command on Linux without changing package scripts", () => {
+    const suite = e2eSuites.find((entry) => entry.id === "tcgplayer_connector_extension");
+    const ordinary = commandSuiteInvocation(suite, "win32", {});
+    expect(commandSuiteInvocation(suite, "linux", {})).toEqual({
+      command: "xvfb-run",
+      args: ["--auto-servernum", ordinary.command, ...ordinary.args],
+    });
+    expect(commandSuiteInvocation(suite, "linux", { DISPLAY: ":99" })).toEqual(ordinary);
+    expect(commandSuiteInvocation({ ...suite, requiresDisplay: false }, "linux", {})).toEqual(ordinary);
+  });
+  it("pins the Chromium probe package to its root caller and kills the caller-removed mutant", () => {
+    const packageJson = JSON.parse(readFileSync("deployables/tcgplayer-connector-extension/package.json", "utf8"));
+    expect(chromiumProbeCallerViolations([{ packageJson }])).toEqual([]);
+    expect(
+      chromiumProbeCallerViolations(
+        [{ packageJson }],
+        e2eSuites.filter((suite) => suite.id !== "tcgplayer_connector_extension"),
+      ),
+    ).toEqual([
+      "@chase-sets/app-tcgplayer-connector-extension test:chromium must have exactly one registered E2E command caller",
+    ]);
+    expect(e2eSuites.find((suite) => suite.id === "tcgplayer_connector_extension")?.command).toEqual([
+      "--filter",
+      "@chase-sets/app-tcgplayer-connector-extension",
+      "run",
+      "test:chromium",
+    ]);
+  });
+
+  it("pins the product identity to the Channels client contract", () => {
+    expect(Object.keys(channelsClient).sort()).toEqual([
+      "TCGPLAYER_CONNECTOR_EXTENSION_ID",
+      "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
+      "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+      "assertConnectorRunSettlement",
+      "assertTcgplayerOrderRecord",
+      "buildConnectorManifest",
+      "composeChannelOrderFulfillmentInbound",
+      "composeChannelOrderFulfillmentReference",
+      "composeTcgplayerOrderInbound",
+      "composeTcgplayerOrderObservation",
+      "createConnectorBackground",
+      "createConnectorOperationCoordinator",
+      "createConnectorRetentionStore",
+      "createTcgplayerLiveExportExecutor",
+      "isLiveExportAuthorityRequest",
+      "stagedImportMembershipDigest",
+      "tcgplayerLiveExportAuthority",
+      "tcgplayerOrderLimits",
+      "tcgplayerSaleKey",
+      "translateOrderShippingType",
+      "translateOrderStatus",
+    ]);
+    expect(channelsClient).toMatchObject({
+      TCGPLAYER_CONNECTOR_EXTENSION_ID,
+      TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+      TCGPLAYER_CONNECTOR_REDIRECT_URI,
+    });
+  });
+
+  it("routes the Chromium probe package and owning Channels slice to the registered caller", () => {
+    expect(e2eSuiteIdsForChangedFile("deployables/tcgplayer-connector-extension/src/background.ts")).toEqual([
+      "tcgplayer_connector_extension",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile(
+        "bounded-contexts/channels/features/connector-client/domain/derive-chrome-extension-id.ts",
+      ),
+    ).toEqual(["tcgplayer_connector_extension"]);
+  });
+
+  it("rejects missing and unknown suites", () => {
+    expect(() => parseSuiteArgs([])).toThrow("Usage:");
+    expect(() => parseSuiteArgs(["unknown_suite"])).toThrow("Unknown E2E suite 'unknown_suite'");
+  });
+
   it("accepts comma-separated and positional suite ids", () => {
     const suites = parseSuiteArgs([
       "marketplace_browse,marketplace_account",
@@ -79,6 +215,20 @@ describe("run e2e suite", () => {
       "admin_commerce,admin_access",
       "marketplace_seller,admin_growth",
     ]);
+  });
+
+  it.each([
+    "docker-compose.dev.yml",
+    "scripts/lib/sandbox.mjs",
+    "scripts/dev-system.mjs",
+    "scripts/dev-system-config.mjs",
+  ])("shared sandbox runtime %s covers account and seller in normal suite batches", (file) => {
+    const selected = e2eSuiteIdsForChangedFile(file);
+    const batched = batchE2eSuiteIds(selected).flatMap((batch) => batch.split(","));
+    expect(selected).toContain("marketplace_account");
+    expect(selected).toContain("marketplace_seller");
+    expect(batched).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(new Set(batched).size).toBe(selected.length);
   });
 
   it("routes the marketplace index route to browse coverage", () => {
@@ -153,6 +303,32 @@ describe("run e2e suite", () => {
       "marketplace_account",
       "admin_auth",
     ]);
+  });
+
+  it("routes the Auth seed to its owning suites without widening runtime support", () => {
+    const seedPath = "bounded-contexts/auth/support/runtime-support/seed.ts";
+    const owningSuites = ["marketplace_account", "admin_auth"];
+    expect(e2eSuiteIdsForChangedFile(seedPath)).toEqual(owningSuites);
+    expect(e2eSuiteIdsForChangedFile(seedPath.replaceAll("/", "\\"))).toEqual(owningSuites);
+
+    for (const filePath of [
+      "bounded-contexts/auth/support/runtime-support/seed.db.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.ts.bak",
+      "bounded-contexts/auth/support/runtime-support/retention-policy.ts",
+      "bounded-contexts/unknown/support/runtime-support/seed.ts",
+      "bounded-contexts/auth/features/sessions/ui/session-list-page.test.tsx",
+      "bounded-contexts/auth/routes/access-admin/sessions.test.ts",
+      "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(filePath), filePath).toEqual([]);
+    }
+
+    expect(e2eSuiteIdsForChangedFile("scripts/e2e-suites.mjs")).toEqual(
+      e2eSuites
+        .filter((suite) => suite.deployable === "marketplace" || suite.deployable === "admin-web")
+        .map((suite) => suite.id),
+    );
   });
 
   it("routes shared responsive evidence contract changes to every browser suite", () => {
@@ -347,5 +523,35 @@ describe("run e2e suite", () => {
     );
 
     expect(unownedRoutes).toEqual([]);
+  });
+
+  it("channels-e2e-suite-ownership", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx")).toEqual([
+      "admin_support",
+    ]);
+    // Both Channels ownership keys must independently resolve to marketplace_account,
+    // so deleting either one fails here with an unexpected empty array instead of
+    // silently letting `e2eSuiteIdsForChangedFile` fall through to `?? []`.
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/features/connections/ui/connection-pages.tsx")).toEqual(
+      ["marketplace_account", "marketplace_seller"],
+    );
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels.tsx")).toEqual([
+      "marketplace_account",
+      "marketplace_seller",
+    ]);
+    expect(
+      e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"),
+    ).toEqual(["marketplace_account", "marketplace_seller"]);
+  });
+
+  it("routes the Channels account connection detail to marketplace account coverage", () => {
+    expect(
+      e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/marketplace/account-channels-connection.tsx"),
+    ).toEqual(["marketplace_account", "marketplace_seller"]);
+    expect(
+      e2eSuiteIdsForChangedFile(
+        "bounded-contexts/channels/routes/marketplace/account-channel-connection-manual-sync-download.tsx",
+      ),
+    ).toEqual(["marketplace_account", "marketplace_seller"]);
   });
 });

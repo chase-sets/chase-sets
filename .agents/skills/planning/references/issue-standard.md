@@ -33,17 +33,26 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   (live run 29888165410 confirmed `pull_requests: []` mid-queue); the defect
   was invisible to every check except a probe taken at that exact moment.
 - **Verification plan.** The scoped commands that prove the change
-  (`pnpm --filter <workspace> run test`, guards, e2e batch if UI).
+  (`pnpm --filter <workspace> run test`, guards, e2e batch if UI). For database
+  changes, name the normal final-head hosted `DB Profile Tests` job as the DB
+  proof. While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is
+  open, never make a full local `verify:test-db` a prerequisite. Hosted CI on
+  the pushed head is the proof for every product attempt
+  ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)): never make local E2E or another local full or
+  harness run a gate, a prerequisite, or a PARK or stop condition.
 - **Review packet seed (full path).** Name the invariants and likely failure
   modes the independent reviewer must attack, plus the evidence artifact that
   exposes omissions invisible in the diff (state enumeration, caller inventory,
   authority probe, provider test-mode result). This is a focused attack surface,
   not a restated checklist.
-- **Predicted footprint.** Workspaces/files the change will touch, plus chain
+- **Footprint & chain.** Workspaces/files the change will touch, plus chain
   position. Record chain links as **native GitHub issue dependencies**
   (Blocked by / Blocks); the prose `Blocked by #N` line is a convenience mirror
   and the relationship is what the orchestrator reads. Feeds parallel-lane
   collision checks.
+  A probe, diagnostic or test-infrastructure issue is never a blocking
+  dependency of a product issue unless the product change cannot be written
+  without its output ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)); run it in parallel instead.
   When the change adds validation or invariants to a handler that seed,
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top
@@ -51,22 +60,84 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   A zero-consumer surface freeze records its consuming issue as a native
   **Blocks** dependency, or is parked with a stated un-park condition; "no
   production consumer" alone is not a freeze rationale.
-- **Operator actions.** Enumerate credentials, sign-ins, approvals, and live
-  watch windows, or state `none`. An
-  operator dependency discovered mid-lane stalls delivery on human latency;
-  enumerated actions let the orchestrator batch a single operator session and
-  dispatch operator-dependent work only into a signaled window.
+- **Operator actions.** Enumerate only residual human steps under the
+  [delivery operator boundary](../../delivery/SKILL.md#operator-boundary), or
+  state `none`. Name the environment, why the step needs a human, the exact
+  production-credential or real-money authorization/supervision, private entry
+  for credentials agents may not hold, protected permission prompt, or actual
+  policy/external-authority step agents cannot lawfully perform, and the agent
+  resumption point. Agents own preparation, execution, monitoring,
+  evidence, cleanup, and reporting; missing tooling is agent repair. Batch
+  genuine human steps into a signaled window without blocking preparation.
+  Preserve external approvals at their ruled lifecycle. Performer-specific
+  acceptance requires prospective repair and independent validation before an
+  agent executes the replacement route, not relabeled human evidence.
 - **Glossary impact.** Name changed terms and the owning `GLOSSARY.md`, or
-  state `none`. The receipt proves that the declaration exists; the planning
+  state `none — no new or renamed public names.`. The receipt proves that the declaration exists; the planning
   pressure test still judges whether the terms actually conform.
 - **External authority probe & evidence timing.** Embed the captured probe or
   durable evidence link and name the lifecycle moment it proves, or state
-  `none` when no acceptance criterion depends on an external authority.
+  `none — no acceptance criterion depends on an external authority.`.
 - **Review packet seed.** Full-path work names invariants, likely failure
   modes, and omission-revealing evidence/probes. Fast-path work explicitly
   records `not applicable — fast path`.
 - **Tier + routing hint.** Fast or full path (blast radius), and
   presentation-vs-system for lane assignment.
+
+## Quality-surface declarations
+
+Every newly registered or replanned brief declares the planning baseline for
+quality-v2 below. Shape is mechanical; the pressure test judges truth.
+
+1. **Quality profile.** One standalone line is exactly
+   `QUALITY_PROFILE: <profile>`, where `<profile>` is one installed fixed value: `prototype`,
+   `product-feature`, `core-library`, `hot-path`, `migration`, or `contract`.
+   The brief selects it explicitly; there is no negotiation, defaulting, or
+   profile autodetection in the linter.
+2. **AC exercised surfaces.** `Intent surfaces` contains a Markdown table with
+   exactly `Acceptance criterion | Exercised surface`, at least one fully
+   populated row, and every AC mapped to the public surface it exercises.
+3. **G0, footprint, and non-goals.** `Simplest shape` is exactly one non-empty
+   line. `Not built` is a Markdown table with exactly `Not built | Reason` and
+   at least one fully populated rejected-addition row. `Footprint & chain` is
+   non-empty, and `Scope fence` contains a non-empty `Non-goals:` declaration.
+   None of these declarations has a `none` form.
+4. **UI states and design-system sources.** `UI states and design-system
+   sources` contains either the exact line `none — no UI surface changes.` or a
+   Markdown table with exact ordered columns `UI surface`, `Loading`, `Empty`,
+   `Error`, `Success`, and `Design-system component source`, plus a fully
+   populated row for every changed UI surface.
+5. **Data-path envelope.** `Data-path envelope` contains either the exact line
+   `none — no data path changes.` or a Markdown table with exact ordered columns
+   `Data path`, `Bound`, `Index expectation`, and `Per-item I/O`, plus a fully
+   populated row for every changed query or loop.
+6. **Contract compatibility.** `Contract compatibility` contains either the
+   exact line `none — no schema, event, or contract changes.` or a Markdown
+   table with exact ordered columns `Changed contract`, `Compatibility posture`,
+   plus a fully populated row for every changed contract.
+7. **Glossary impact.** `Glossary impact` contains either the exact line
+   `none — no new or renamed public names.` or a Markdown table with exactly
+   `Public term | Owning glossary or contract` and a fully populated row for
+   every new or renamed public name.
+8. **Superseded paths.** `Superseded paths` contains either the exact line
+   `none — no existing path is replaced or made redundant.` or a Markdown table
+   with exactly `Superseded path | Replacement | Removal` and a fully populated
+   row for every existing path this change replaces or makes redundant. Removal
+   is `this issue` or the native successor `#N`, identifying the owning slice.
+   Each declared removal must be an explicit acceptance criterion with a named
+   evidence method in its owning slice.
+
+Declaration headings may use ATX, setext, or standalone-label Markdown beneath
+any valid parent. Each heading and `QUALITY_PROFILE` appears exactly once. A
+`none` form is the declaration's entire payload and cannot accompany a table;
+empty or partial payloads do not pass merely because the heading exists.
+
+`ready-10-quality-surfaces` is the enforcing drafting-time presence-and-shape
+rule for these declarations. `scripts/brief-lint.mjs` enforces it with no
+opt-out on its CLI path. It is explicitly outside the `issue-readiness/v1`
+checked-rule set: ready-00 through ready-09, that receipt's rule list, and its
+schema remain unchanged. Semantic truth and conformance remain pressure-test
+work.
 
 ## Definition of ready (the dispatch gate)
 
@@ -89,9 +160,9 @@ Stable rule IDs map to the checklist:
 0. **`ready-00-placed-classified` — placed and classified
    (`refined ≡ classified`):** an open issue with a
    native **issue type** (`Slice`, `Bug`,
-   `Decision`, `Probe` — `Epic` is never dispatchable), one wave milestone,
+   `Decision`, `Probe` — `Epic` is never dispatchable), one committed outcome milestone,
    `priority:*`, `area:*`, and `kind:*`; it is neither
-   `status:tracking-only` nor in `Deferred / Incubation` / `Operations`. The
+   `status:tracking-only` nor in a candidate outcome, `Deferred / Incubation`, or `Operations`. The
    slice form applies the labels from its dropdowns
    (`scripts/issue-form-labels.mjs`); issues created by API must set type and
    labels explicitly. An unclassified slice is backlog, not a dispatch
@@ -118,9 +189,9 @@ Stable rule IDs map to the checklist:
    scoped commands as commands, not commands hidden in narrative prose.
 5. **`ready-05-footprint-operators`:** footprint predicted — including every
    caller of any touched shared
-   handler; chain links wired if any; operator actions (credentials, sign-ins,
-   approvals, live watch windows) enumerated — explicitly `none` when there
-   are none.
+   handler; chain links wired if any; residual human steps enumerated under
+   Operator actions — explicitly `none` when there are none. Agent-owned
+   sign-ins, probe execution, and watch windows are not human dependencies.
 6. **`ready-06-decisions-resolved`:** no unresolved full-path decision — or
    the issue is explicitly linked
    `Blocked by` the decision issue.

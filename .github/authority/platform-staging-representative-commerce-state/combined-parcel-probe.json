@@ -1,0 +1,11 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "combined-parcel-probe",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "test-credentials"
+    }
+  ]
+}

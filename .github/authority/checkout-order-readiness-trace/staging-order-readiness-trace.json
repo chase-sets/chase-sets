@@ -1,0 +1,25 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/checkout-order-readiness-trace.yml",
+      "jobId": "staging-order-readiness-trace",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/checkout-order-readiness-trace.yml",
+      "jobId": "staging-order-readiness-trace",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/checkout-order-readiness-trace.yml",
+      "jobId": "staging-order-readiness-trace",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    }
+  ]
+}
