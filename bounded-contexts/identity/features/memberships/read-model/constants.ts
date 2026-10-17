@@ -34,6 +34,9 @@ export const ROLE_PERMISSIONS = {
     "postage-policies.view",
     "return-intake.manage",
     "return-intake.view",
+    "projection-operations.operate",
+    "projection-operations.rebuild",
+    "projection-operations.view",
     // Customer feedback operator capabilities: platform-staff only.
     // Export is a distinct grant from view/manage so the sensitive free-text
     // comment download can be withheld independently.
