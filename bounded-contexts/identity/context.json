@@ -1634,15 +1634,66 @@
   ],
   "agentCoverage": {
     "accounts": { "tools": ["identity.list-accounts"] },
-    "accounts-detail": { "tools": ["identity.get-account-access-hub", "identity.update-account-profile", "identity.suspend-account", "identity.reactivate-account", "identity.close-account", "identity.assign-account-badge", "identity.remove-account-badge"] },
+    "accounts-detail": {
+      "tools": [
+        "identity.get-account-access-hub",
+        "identity.update-account-profile",
+        "identity.suspend-account",
+        "identity.reactivate-account",
+        "identity.close-account",
+        "identity.assign-account-badge",
+        "identity.remove-account-badge"
+      ]
+    },
     "api-keys": { "tools": ["identity.list-users"] },
     "api-keys-detail": { "tools": ["identity.get-user-account-link", "identity.revoke-api-key"] },
-    "invitations": { "tools": ["identity.list-accounts", "identity.list-users", "identity.create-invitation", "identity.resend-invitation", "identity.cancel-invitation", "identity.decline-invitation"] },
-    "invitations-detail": { "tools": ["identity.get-account-access-hub", "identity.resend-invitation", "identity.cancel-invitation", "identity.decline-invitation"] },
-    "memberships": { "tools": ["identity.get-account-access-hub", "identity.change-membership-role", "identity.revoke-membership", "identity.reinstate-membership"] },
-    "memberships-detail": { "tools": ["identity.get-account-access-hub", "identity.change-membership-role", "identity.revoke-membership", "identity.reinstate-membership"] },
+    "invitations": {
+      "tools": [
+        "identity.list-accounts",
+        "identity.list-users",
+        "identity.create-invitation",
+        "identity.resend-invitation",
+        "identity.cancel-invitation",
+        "identity.decline-invitation"
+      ]
+    },
+    "invitations-detail": {
+      "tools": [
+        "identity.get-account-access-hub",
+        "identity.resend-invitation",
+        "identity.cancel-invitation",
+        "identity.decline-invitation"
+      ]
+    },
+    "memberships": {
+      "tools": [
+        "identity.get-account-access-hub",
+        "identity.change-membership-role",
+        "identity.revoke-membership",
+        "identity.reinstate-membership"
+      ]
+    },
+    "memberships-detail": {
+      "tools": [
+        "identity.get-account-access-hub",
+        "identity.change-membership-role",
+        "identity.revoke-membership",
+        "identity.reinstate-membership"
+      ]
+    },
     "users": { "tools": ["identity.list-users"] },
-    "users-detail": { "tools": ["identity.get-user-account-link", "identity.update-user-profile", "identity.suspend-user", "identity.reactivate-user", "identity.add-user-contact-method", "identity.verify-user-contact-method", "identity.enable-user-auth-method", "identity.disable-user-auth-method"] }
+    "users-detail": {
+      "tools": [
+        "identity.get-user-account-link",
+        "identity.update-user-profile",
+        "identity.suspend-user",
+        "identity.reactivate-user",
+        "identity.add-user-contact-method",
+        "identity.verify-user-contact-method",
+        "identity.enable-user-auth-method",
+        "identity.disable-user-auth-method"
+      ]
+    }
   },
   "deployableContributions": [
     {

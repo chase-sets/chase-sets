@@ -1,4 +1,9 @@
-import { ensureMcpActorAccount, readMcpStringArgument, type McpResourceHandler, type McpToolHandler } from "@chase-sets/platform-runtime/mcp";
+import {
+  ensureMcpActorAccount,
+  readMcpStringArgument,
+  type McpResourceHandler,
+  type McpToolHandler,
+} from "@chase-sets/platform-runtime/mcp";
 import type { AccountServices } from "./runtime";
 
 export type AccountMcpHandlers = Readonly<{
@@ -26,5 +31,8 @@ export function createAccountMcpHandlers(services: AccountServices): AccountMcpH
     if (!account) throw new Error("Account not found.");
     return account;
   };
-  return { toolHandlers: { "identity.get-account": getAccount }, resourceHandlers: { "chase-sets://identity/{accountId}/account": readAccountResource } };
+  return {
+    toolHandlers: { "identity.get-account": getAccount },
+    resourceHandlers: { "chase-sets://identity/{accountId}/account": readAccountResource },
+  };
 }
