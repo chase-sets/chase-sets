@@ -473,6 +473,15 @@ async function refreshAccountReviews(db: PgQueryable, accountId: string, updated
   );
 }
 
+/** The account's current manual-payout-review badge as this projection last recorded it. */
+export async function readManualPayoutReviewBadge(db: PgQueryable, accountId: string): Promise<boolean> {
+  const result = await db.query<{ manual_payout_review: boolean }>(
+    `SELECT manual_payout_review FROM settlement_account_risk_sources WHERE account_id = $1`,
+    [accountId],
+  );
+  return result.rows[0]?.manual_payout_review === true;
+}
+
 async function updateBadge(
   db: PgQueryable,
   params: Readonly<{ accountId: string; badgeKey: string; assigned: boolean; updatedAt: string }>,

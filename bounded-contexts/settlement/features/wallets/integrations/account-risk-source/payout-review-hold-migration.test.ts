@@ -3,7 +3,6 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildTransportEvent, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
-import contextManifest from "../../../../context.json";
 import { module as settlementModule } from "../../../../index";
 import type { SettlementServices } from "../../../../support/runtime-support/services";
 import { createPayoutReviewHoldRuntime } from "../../api/payout-review-hold-runtime";
@@ -247,7 +246,7 @@ describe("badge migration subscription", () => {
   });
 
   it("pins the badge migration and identity risk-source subscriptions at version 1", () => {
-    const subscriptions = contextManifest.eventSubscriptions;
+    const subscriptions = settlementModule.eventSubscriptions ?? [];
     expect(
       subscriptions.find(
         (entry) =>
@@ -275,7 +274,7 @@ describe("badge migration subscription", () => {
       subscriptionVersion: 1,
       eventTypes: ["settlement.payout-review-hold.placed", "settlement.payout-review-hold.released"],
     });
-    const groups = contextManifest.projectionGroups;
+    const groups = settlementModule.projectionGroups ?? [];
     expect(groups.find((group) => group.projectionName === "settlement-account-risk-source-projection")).toMatchObject({
       projectionRevision: 3,
       sourceContextNames: ["identity", "marketplace", "payments", "settlement"],
