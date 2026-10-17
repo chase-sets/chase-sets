@@ -27,7 +27,6 @@ export const RELEASE_QUALIFICATION_APPLICABILITY_WITHDRAWAL_CODES = Object.freez
 const WITHDRAWAL_SET = new Set(RELEASE_QUALIFICATION_APPLICABILITY_WITHDRAWAL_CODES);
 
 const EMPTY_GRAPH = Object.freeze([]);
-const normalizeRepoPath = (value) => path.posix.normalize(String(value).replaceAll("\\", "/")).replace(/^\.\//, "");
 const freezeDeep = (value) => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) freezeDeep(child);
@@ -48,11 +47,20 @@ function result(applies, codes, graph) {
   return freezeDeep({ applies: Boolean(applies) && ordered.length === 0, withdrawalCodes: ordered, graph });
 }
 
-function malformedApplicability(applicability) {
+function isCanonicalRepositoryRelativePath(value) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\\") || value.startsWith("/")) return false;
+  const segments = value.split("/");
+  return (
+    !value.startsWith("./") && segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
+  );
+}
+
+function malformedApplicability(applicability, rootPath) {
   if (!applicability || typeof applicability !== "object" || Array.isArray(applicability)) return true;
   if (applicability.kind !== "pure-module/v1") return false;
   if (!Array.isArray(applicability.modules) || applicability.modules.length === 0) return true;
   if (Reflect.ownKeys(applicability).some((key) => !["kind", "modules"].includes(key))) return true;
+  if (!isCanonicalRepositoryRelativePath(rootPath)) return true;
   const paths = new Set();
   for (const module of applicability.modules) {
     if (
@@ -63,6 +71,7 @@ function malformedApplicability(applicability) {
       !Array.isArray(module.specifiers)
     )
       return true;
+    if (!isCanonicalRepositoryRelativePath(module.path)) return true;
     if (paths.has(module.path) || Reflect.ownKeys(module).some((key) => !["path", "specifiers"].includes(key)))
       return true;
     paths.add(module.path);
@@ -135,10 +144,11 @@ function enumerateSpecifiers(sourceFile) {
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const text = ts.isIdentifier(callee) ? callee.text : "";
-      if (text === "require" && node.arguments.length === 1) {
+      if (text === "require") {
         const value = literalText(node.arguments[0]);
-        add(value, "value");
-      } else if (node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length === 1) {
+        if (value === null) found.push({ specifier: null, binding: "value", ambiguousDynamic: true });
+        else add(value, "value");
+      } else if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
         const value = literalText(node.arguments[0]);
         if (value === null) found.push({ specifier: null, binding: "value", ambiguousDynamic: true });
         else add(value, "value");
@@ -160,7 +170,7 @@ function enumerateSpecifiers(sourceFile) {
   return [...grouped.values()];
 }
 
-function deriveMemberNamesFromSource(source, file) {
+function deriveMemberNamesFromSource(source, file, expectedName) {
   const parsed = sourceFileFor(file, source);
   if (!parsed) return null;
   const names = new Set();
@@ -183,7 +193,7 @@ function deriveMemberNamesFromSource(source, file) {
   const visit = (node) => {
     if (
       (ts.isInterfaceDeclaration(node) || ts.isClassDeclaration(node) || ts.isTypeAliasDeclaration(node)) &&
-      (node.name?.text === "EventStore" || node.name?.text === "CompleteStreamReader")
+      node.name?.text === expectedName
     ) {
       found = true;
       const declarations = membersForDeclaration(node);
@@ -211,27 +221,34 @@ export function deriveForbiddenEventStoreMembers({ repoRoot, readFile = null, fi
   const eventStore = read("contracts/event-core/event-store.ts");
   const complete = read("contracts/event-core/complete-stream.ts");
   if (typeof eventStore !== "string" || typeof complete !== "string") return null;
-  const eventStoreNames = deriveMemberNamesFromSource(eventStore, "event-store.ts");
-  const completeNames = deriveMemberNamesFromSource(complete, "complete-stream.ts");
+  const eventStoreNames = deriveMemberNamesFromSource(eventStore, "event-store.ts", "EventStore");
+  const completeNames = deriveMemberNamesFromSource(complete, "complete-stream.ts", "CompleteStreamReader");
   if (!eventStoreNames || !completeNames) return null;
   return Object.freeze([...new Set([...eventStoreNames, ...completeNames])].sort());
 }
 
 function collectForbiddenMemberReferences(sourceFile, forbidden) {
   const codes = new Set();
-  const likelyContractReceiver = (node) => {
-    const text = node.getText(sourceFile);
-    return /(?:store|reader|stream)/i.test(text);
+  const isInterfaceOrImplementsHeritage = (node) => {
+    const clause = node.parent;
+    return (
+      Boolean(clause && ts.isHeritageClause(clause)) &&
+      (ts.isInterfaceDeclaration(clause.parent) || clause.token === ts.SyntaxKind.ImplementsKeyword)
+    );
   };
   const visit = (node, inType = false) => {
-    const type = inType || Boolean(ts.isTypeNode?.(node));
+    const type =
+      inType ||
+      Boolean(
+        ts.isTypeNode?.(node) && !(ts.isExpressionWithTypeArguments(node) && !isInterfaceOrImplementsHeritage(node)),
+      );
     if (!type && ts.isPropertyAccessExpression(node) && forbidden.has(node.name.text))
       codes.add("event_store_member_reference");
     if (!type && ts.isElementAccessExpression(node)) {
       const key = literalText(node.argumentExpression);
       if (ts.isNumericLiteral(node.argumentExpression)) {
         // Numeric indices are statically known but cannot name a contract member.
-      } else if (key === null && likelyContractReceiver(node.expression)) codes.add("ambiguous_member_reference_key");
+      } else if (key === null) codes.add("ambiguous_member_reference_key");
       else if (forbidden.has(key)) codes.add("event_store_member_reference");
     }
     if (!type && ts.isBindingElement(node)) {
@@ -250,7 +267,7 @@ function collectForbiddenMemberReferences(sourceFile, forbidden) {
   return codes;
 }
 
-function classifyNode({ repoRoot, file, source, now, readFileAt, registry }) {
+function classifyNode({ file, source, now, readFileAt, registry }) {
   const read = readFileAt ?? ((side, name) => (side === "candidate" && name === file ? source : null));
   const record = classifyReleaseQualificationScope({
     now,
@@ -261,10 +278,6 @@ function classifyNode({ repoRoot, file, source, now, readFileAt, registry }) {
     registry,
   });
   return record.class === "persistent_required" ? "persistent_dependency" : null;
-}
-
-function buildContext(repoRoot, context) {
-  return context ?? loadModuleResolutionContext(repoRoot);
 }
 
 /** Evaluate a pure-module/v1 applicability contract over its recursive value graph. */
@@ -284,17 +297,17 @@ export function evaluateReleaseQualificationApplicability({
   if (!applicability || typeof applicability !== "object" || Array.isArray(applicability))
     return result(false, ["malformed_applicability_metadata"], EMPTY_GRAPH);
   if (applicability.kind !== "pure-module/v1") return result(false, ["unsupported_applicability_kind"], EMPTY_GRAPH);
-  if (malformedApplicability(applicability)) return result(false, ["malformed_applicability_metadata"], EMPTY_GRAPH);
-  const root = normalizeRepoPath(rootPath ?? applicability.modules[0].path);
-  const declarations = new Map(applicability.modules.map((module) => [normalizeRepoPath(module.path), module]));
+  const root = rootPath ?? applicability.modules[0].path;
+  if (malformedApplicability(applicability, root))
+    return result(false, ["malformed_applicability_metadata"], EMPTY_GRAPH);
+  const declarations = new Map(applicability.modules.map((module) => [module.path, module]));
   const source = (file) => {
     if (typeof readFile === "function") return readFile(file);
     if (Object.hasOwn(files, file)) return files[file];
     const absolute = path.join(repoRoot, ...file.split("/"));
     return existsSync(absolute) ? readFileSync(absolute, "utf8") : null;
   };
-  const loadedContext = buildContext(repoRoot, resolutionContext);
-  const ctx = loadedContext;
+  const ctx = resolutionContext ?? loadModuleResolutionContext(repoRoot);
   const forbidden = deriveForbiddenEventStoreMembers({ repoRoot, readFile: source, files });
   if (!forbidden) return result(false, ["event_store_contract_unreadable"], EMPTY_GRAPH);
   const codes = new Set();
@@ -302,7 +315,7 @@ export function evaluateReleaseQualificationApplicability({
   const visited = new Set();
   const pending = [root];
   while (pending.length) {
-    const file = normalizeRepoPath(pending.shift());
+    const file = pending.shift();
     if (visited.has(file)) continue;
     visited.add(file);
     const content = source(file);
@@ -321,7 +334,7 @@ export function evaluateReleaseQualificationApplicability({
     const module = sql.modules?.[0];
     if (!module || module.outcome !== "not-sql" || sql.unresolvedMemberRoots?.fileList?.includes(file))
       codes.add("sql_execution_surface");
-    const dependencyCode = classifyNode({ repoRoot, file, source: content, now, readFileAt, registry });
+    const dependencyCode = classifyNode({ file, source: content, now, readFileAt, registry });
     if (dependencyCode) codes.add(dependencyCode);
     const specifiers = enumerateSpecifiers(parsed);
     const records = specifiers.map(({ specifier, binding, ambiguousDynamic }) => ({
@@ -337,7 +350,7 @@ export function evaluateReleaseQualificationApplicability({
       }
       const resolution = resolveModule({ importerPath: file, specifierText: item.specifier, ...ctx });
       if (resolution.kind === "repo") {
-        if (item.binding === "value") pending.push(normalizeRepoPath(resolution.path));
+        if (item.binding === "value") pending.push(resolution.path);
       } else if (resolution.kind === "unresolved") {
         codes.add(
           resolution.reason === "path-escapes-repository"
