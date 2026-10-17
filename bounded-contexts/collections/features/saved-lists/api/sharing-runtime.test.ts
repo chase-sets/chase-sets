@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { SavedListCommandId, SavedListId, SavedListOwnerSnapshot } from "../domain/contracts";
@@ -49,6 +50,77 @@ function setup() {
 }
 
 describe("Saved List sharing runtime", () => {
+  it("records each committed sharing command and nothing for a no-change replay", async () => {
+    const { runtime, allEvents } = setup();
+    const run = async <T>(action: () => Promise<T>) =>
+      runWithEventCommitMetadata(async () => {
+        const result = await action();
+        return { result, metadata: getEventCommitMetadata() };
+      });
+
+    const disclosed = await run(() =>
+      runtime.changeDisclosure(
+        {
+          commandId: commandId("disclose"),
+          listId,
+          ownerAccountId,
+          expectedVersion: 0,
+          disclosure: { showTrackedQuantities: false, showCurrentEstimatedValue: true },
+        },
+        context,
+      ),
+    );
+    expect(disclosed.metadata.sources).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: allEvents.slice(0, 2).map((event) => event.eventId),
+        maxGlobalPosition: allEvents[1]!.globalPosition,
+      },
+    ]);
+
+    const noChange = await run(() =>
+      runtime.changeDisclosure(
+        {
+          commandId: commandId("disclose-no-change"),
+          listId,
+          ownerAccountId,
+          expectedVersion: disclosed.result.sharing.version,
+          disclosure: { showTrackedQuantities: false, showCurrentEstimatedValue: true },
+        },
+        context,
+      ),
+    );
+    expect(noChange.metadata.eventIds).toEqual([]);
+
+    const rotated = await run(() =>
+      runtime.rotateUnlistedAccess(
+        { commandId: commandId("rotate"), listId, ownerAccountId, expectedVersion: disclosed.result.sharing.version },
+        context,
+      ),
+    );
+    expect(rotated.metadata.sources).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: allEvents.slice(2).map((event) => event.eventId),
+        maxGlobalPosition: allEvents.at(-1)!.globalPosition,
+      },
+    ]);
+
+    const revoked = await run(() =>
+      runtime.revokeUnlistedAccess(
+        { commandId: commandId("revoke"), listId, ownerAccountId, expectedVersion: rotated.result.sharing.version },
+        context,
+      ),
+    );
+    expect(revoked.metadata.sources).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: allEvents.slice(3).map((event) => event.eventId),
+        maxGlobalPosition: allEvents.at(-1)!.globalPosition,
+      },
+    ]);
+  });
+
   it("rotates and revokes an idempotent unlisted secret without persisting the raw secret", async () => {
     const { runtime, allEvents } = setup();
     const input = { commandId: commandId("rotate"), listId, ownerAccountId, expectedVersion: 0 };
