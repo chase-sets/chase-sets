@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { collectFiles } from "./lib/files.mjs";
 import { scanPlaywrightArtifactUploads } from "./playwright-artifact-upload-fence.mjs";
 import {
   observeGitIdentity,
@@ -16,6 +18,10 @@ import {
 
 const roots = [];
 const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+const retryProbeConfig = path.join(repoRoot, "scripts/fixtures/responsive-evidence-retry/playwright.config.mjs");
+const playwrightCli = createRequire(import.meta.url).resolve("@playwright/test/cli");
+// Each retry probe runs a browserless Playwright child process with one retry.
+const retryProbeTimeout = 120_000;
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -502,6 +508,162 @@ describe("hosted evidence from synthetic Git merge checkouts", () => {
   });
 });
 
+describe("responsive evidence from a retried Playwright capture", () => {
+  const probeRoots = [];
+  let retried;
+
+  beforeAll(async () => {
+    retried = await retryProbe("retried-pass", probeRoots);
+  }, retryProbeTimeout);
+  afterAll(async () => Promise.all(probeRoots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
+
+  it("keeps a manifest from each attempt when Playwright retries a capture test", () => {
+    console.info(`retried-capture probe output tree:\n${retried.files.join("\n")}`);
+    expect(retried.status, retried.output).toBe(0);
+    expect(retried.output).toMatch(/^\s*1 flaky$/m);
+    expect(retried.captures.map((capture) => capture.attempt)).toEqual([0, 1]);
+    const [first, retry] = retried.captures;
+    expect(retry.directory).toBe(`${first.directory}-retry1`);
+  });
+
+  it("accepts only the final attempt's manifest and publishes only its payload", async () => {
+    const [earlier, final] = retried.captures;
+    const validation = await validateResponsiveEvidenceArtifacts({
+      repoRoot: retried.root,
+      expectedClaimIds: [retried.claim.id],
+    });
+    expect(validation).toMatchObject({ violations: [], manifests: [final.path], ignoredManifests: [earlier.path] });
+
+    const result = await prepareHostedResponsiveEvidenceArtifact({
+      repoRoot: retried.root,
+      selectedGreps: [retried.claim.testTitle],
+      producer: { ...successfulProducer(), outcome: retried.status === 0 ? "success" : "failure" },
+      producerLogPath: retried.log,
+      gitIdentity: syntheticGitIdentity(),
+    });
+    const capture = `captures/${retried.claim.id}/${retried.claim.id}`;
+    const published = path.join(retried.root, "artifacts/hosted-responsive-evidence");
+    expect(result).toMatchObject({ publish: true, violations: [], expectedClaimIds: [retried.claim.id] });
+    expect(result.files).toEqual([
+      `${capture}.manifest.json`,
+      `${capture}.png`,
+      "provenance.json",
+      "style-evidence.log",
+    ]);
+    expect(await readFile(path.join(published, `${capture}.manifest.json`), "utf8")).toBe(
+      await readFile(path.join(retried.root, final.path), "utf8"),
+    );
+    expect(await readFile(path.join(published, `${capture}.png`), "utf8")).toBe(
+      "responsive evidence retry probe attempt 1\n",
+    );
+    const provenance = JSON.parse(await readFile(path.join(published, "provenance.json"), "utf8"));
+    expect(provenance.claims[0].producerSuccessLine).toContain("(retry #1)");
+  });
+});
+
+describe("retried-capture fail-closed controls", () => {
+  it(
+    "rejects one claim captured by two tests when only one of them retried",
+    async () => {
+      const probe = await retryProbe("two-tests");
+      expect(probe.status, probe.output).toBe(0);
+      expect(probe.captures.map((capture) => capture.attempt)).toEqual([0, 0, 1]);
+
+      const result = await validateResponsiveEvidenceArtifacts({
+        repoRoot: probe.root,
+        expectedClaimIds: [probe.claim.id],
+      });
+
+      expect(result.violations).toContainEqual(
+        expect.stringContaining(`duplicate runtime manifest for claim '${probe.claim.id}'`),
+      );
+      expect(result.manifests).toHaveLength(2);
+      expect(result.manifests).toContain(probe.captures[2].path);
+      expect(result.ignoredManifests).toHaveLength(1);
+    },
+    retryProbeTimeout,
+  );
+
+  it(
+    "rejects two captures of one claim in one attempt",
+    async () => {
+      const probe = await retryProbe("two-captures-one-attempt");
+      expect(probe.status, probe.output).toBe(0);
+      expect(probe.captures.map((capture) => capture.attempt)).toEqual([0, 0]);
+      expect(probe.captures[0].directory).toBe(probe.captures[1].directory);
+
+      const result = await validateResponsiveEvidenceArtifacts({
+        repoRoot: probe.root,
+        expectedClaimIds: [probe.claim.id],
+      });
+
+      expect(result.violations).toContainEqual(
+        expect.stringContaining(`duplicate runtime manifest for claim '${probe.claim.id}'`),
+      );
+      expect(result.ignoredManifests).toEqual([]);
+    },
+    retryProbeTimeout,
+  );
+
+  it(
+    "publishes nothing when the retried capture's final attempt failed",
+    async () => {
+      const probe = await retryProbe("failed-final-attempt");
+      expect(probe.status, probe.output).not.toBe(0);
+      expect(probe.captures.map((capture) => capture.attempt)).toEqual([0, 1]);
+      const hostedArtifact = {
+        repoRoot: probe.root,
+        selectedGreps: [probe.claim.testTitle],
+        producerLogPath: probe.log,
+        gitIdentity: syntheticGitIdentity(),
+      };
+
+      const failed = await prepareHostedResponsiveEvidenceArtifact({
+        ...hostedArtifact,
+        producer: { ...successfulProducer(), outcome: "failure" },
+      });
+      // A misreported outcome still cannot publish: no producer line reports a passing attempt.
+      const misreported = await prepareHostedResponsiveEvidenceArtifact({
+        ...hostedArtifact,
+        producer: successfulProducer(),
+      });
+
+      expect(failed).toMatchObject({ publish: false, files: [] });
+      expect(failed.violations).toContain("responsive evidence producer outcome must be 'success', got 'failure'.");
+      expect(misreported).toMatchObject({ publish: false, files: [] });
+      expect(misreported.violations).toContainEqual(
+        expect.stringContaining(
+          `expected exactly one successful producer line for '${probe.claim.testTitle}', found 0`,
+        ),
+      );
+      expect(existsSync(path.join(probe.root, "artifacts/hosted-responsive-evidence"))).toBe(false);
+    },
+    retryProbeTimeout,
+  );
+
+  it(
+    "ignores an earlier attempt's capture when the passing retry captured nothing",
+    async () => {
+      const probe = await retryProbe("earlier-attempt-only");
+      expect(probe.status, probe.output).toBe(0);
+      expect(probe.captures.map((capture) => capture.attempt)).toEqual([0]);
+      expect(probe.directories).toHaveLength(2);
+
+      const result = await validateResponsiveEvidenceArtifacts({
+        repoRoot: probe.root,
+        expectedClaimIds: [probe.claim.id],
+      });
+
+      expect(result.manifests).toEqual([]);
+      expect(result.ignoredManifests).toEqual([probe.captures[0].path]);
+      expect(result.violations).toContainEqual(
+        expect.stringContaining(`required responsive evidence payload for claim '${probe.claim.id}' is missing`),
+      );
+    },
+    retryProbeTimeout,
+  );
+});
+
 async function mergeCheckout(depth, { advanceBase = false } = {}) {
   const source = await fixture();
   const git = (...args) =>
@@ -598,6 +760,83 @@ async function mergeGroupCheckout(depth) {
       eventBaseSha,
     },
   };
+}
+
+// Runs one scenario of scripts/fixtures/responsive-evidence-retry under the
+// installed Playwright with --retries=1, inside a temporary repository root, and
+// returns the real output tree. Each capture's screenshot names its attempt.
+async function retryProbe(scenario, cleanup = roots) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "responsive-retry-probe-"));
+  cleanup.push(root);
+  const sourceText = await readFile(path.join(repoRoot, sourceManifestPath), "utf8");
+  const claims = JSON.parse(sourceText).claims.filter((claim) => claim.kind === "claim");
+  // A test-title grep for this claim selects no other claim.
+  const claim = claims.find(
+    (candidate) => claims.filter((other) => other.testTitle.includes(candidate.testTitle)).length === 1,
+  );
+  await write(root, sourceManifestPath, sourceText);
+  await write(root, "playwright.config.ts", "export default {};\n");
+  const outputRoot = path.join(root, "artifacts/playwright/test-results");
+  const run = await runNode([playwrightCli, "test", "--config", retryProbeConfig, "--retries=1"], {
+    ...process.env,
+    // Hosted producers run on Linux, where the list reporter always prints ✓ and ✘;
+    // on Windows it prints them only inside Windows Terminal.
+    WT_SESSION: process.env.WT_SESSION ?? "responsive-evidence-retry-probe",
+    RESPONSIVE_EVIDENCE_RETRY_PROBE_ROOT: root,
+    RESPONSIVE_EVIDENCE_RETRY_PROBE_OUTPUT_DIR: outputRoot,
+    RESPONSIVE_EVIDENCE_RETRY_PROBE_CLAIM: claim.id,
+    RESPONSIVE_EVIDENCE_RETRY_PROBE_SCENARIO: scenario,
+  });
+  const log = path.join(root, "producer.log");
+  await writeFile(log, run.stdout, "utf8");
+
+  const files = (await collectFiles(outputRoot))
+    .map((file) => path.relative(outputRoot, file).replaceAll("\\", "/"))
+    .sort();
+  const captures = [];
+  for (const file of files.filter((candidate) => candidate.endsWith(".manifest.json"))) {
+    const runtime = JSON.parse(await readFile(path.join(outputRoot, file), "utf8"));
+    const screenshot = await readFile(path.join(root, runtime.artifacts.screenshot.path), "utf8");
+    captures.push({
+      path: `artifacts/playwright/test-results/${file}`,
+      directory: file.split("/")[0],
+      attempt: Number(/attempt (\d+)/.exec(screenshot)?.[1]),
+    });
+  }
+  captures.sort((left, right) => left.attempt - right.attempt || left.path.localeCompare(right.path, "en"));
+  return {
+    root,
+    claim,
+    status: run.status,
+    output: `${run.stdout}${run.stderr}`.replace(/\u001b\[[0-9;]*m/g, ""),
+    log,
+    files,
+    directories: [...new Set(files.filter((file) => file.includes("/")).map((file) => file.split("/")[0]))],
+    captures,
+  };
+}
+
+// The checkout cwd lets a host heavy-admission guard attribute the child to this
+// worktree; --config alone locates the fixture.
+function runNode(args, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, {
+      cwd: repoRoot,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
 }
 
 const sourceManifestPath = "infrastructure/playwright-evidence/responsive-evidence-manifest.json";
