@@ -52,6 +52,7 @@ import { isChannelsServices, connectorAuditMiddleware, type ChannelsServices } f
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
 import { module as identityModule } from "@chase-sets/identity";
 import {
+  createIdentityOperatorAuthority,
   createIdentityTermsAcceptanceResolver,
   createIdentityWalletFundingEligibilityResolver,
   identityTermsOfServicePolicy,
@@ -396,6 +397,15 @@ export function createPlatformApiHost(
           getProtectionReserveSummary: (params) => getProtectionReserveSummary(settlementPool, params),
         }
       : undefined;
+  // Reads the Membership aggregate through the Identity services this host composes; Auth carries it on its
+  // identity port and native MCP consumes it from there.
+  const operatorAuthority = createIdentityOperatorAuthority({
+    getMembershipState: (membershipId) => {
+      const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
+      if (!identity) throw new Error("Identity services are not composed on this host.");
+      return identity.memberships.getMembershipState(membershipId);
+    },
+  });
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
   const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
     ? createIdentityWalletFundingEligibilityResolver(identityPool)
@@ -695,6 +705,7 @@ export function createPlatformApiHost(
       ...(savedListProductCatalog ? { savedListProductCatalog } : {}),
       savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
+      operatorAuthority,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
@@ -1015,6 +1026,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   }
   const mcpOptions = {
     ...options.mcp,
+    operatorAuthority: options.mcp?.operatorAuthority ?? identityServices.auth?.identity?.operatorAuthority,
     agentGrantRateLimiter: options.mcp?.agentGrantRateLimiter ?? options.ucp?.agentGrantRateLimiter,
     toolHandlers,
     resourceHandlers: {

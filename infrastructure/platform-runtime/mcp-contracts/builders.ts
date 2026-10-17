@@ -44,7 +44,14 @@ export type McpPermissionBoundary = Readonly<{
 export type McpConfirmationPolicy = Readonly<{
   required: boolean;
   prompt?: string;
+  /** Title-bound: this input and the confirmation text must both equal the tool title. */
   matchInputField?: string;
+  /**
+   * Input-bound: names a required string input; the confirmation text must
+   * equal that input's exact per-call value. Exclusive with `matchInputField`.
+   * Binds the confirmation to the value only; the handler still validates it.
+   */
+  matchInputValue?: string;
 }>;
 
 export type McpGuardrails = Readonly<{
@@ -183,7 +190,8 @@ export const objectSchema = (
 export const readBoundary = (permission: string, scope: McpAccessScope = "account"): McpPermissionBoundary => ({
   scope,
   requiredPermissions: [permission],
-  requiredScopes: agentOAuthScopesForPermissions([permission]),
+  // Commerce scopes neither gate nor satisfy an operator capability; the operator predicate admits it.
+  requiredScopes: scope === "operator" ? [] : agentOAuthScopesForPermissions([permission]),
   accountScoped: scope === "account",
   auditPrincipal: "actor",
 });

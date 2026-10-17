@@ -1,10 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
-  AGENT_OAUTH_SCOPE_FAMILIES,
-  AGENT_OAUTH_SUPPORTED_SCOPES,
+  AGENT_OAUTH_COMMERCE_SCOPES,
+  AGENT_OAUTH_KNOWN_SCOPE_FAMILIES,
   CHANNEL_CONNECTOR_SCOPE_FAMILY,
   agentOAuthScopesForPermissions,
+  isAgentOAuthOperatorScope,
   isAgentOAuthScope,
   isChannelConnectorScope,
   normalizeAgentOAuthScopes,
@@ -34,15 +35,16 @@ describe("connector-scope-family-isolation", () => {
     (scope) => {
       expect(isChannelConnectorScope(scope)).toBe(true);
       expect(isAgentOAuthScope(scope)).toBe(false);
+      expect(isAgentOAuthOperatorScope(scope)).toBe(false);
       expect(normalizeAgentOAuthScopes([scope])).toEqual([]);
-      expect(AGENT_OAUTH_SUPPORTED_SCOPES).not.toContain(scope);
+      expect(AGENT_OAUTH_COMMERCE_SCOPES).not.toContain(scope);
       expect(UCP_OAUTH_SUPPORTED_SCOPES).not.toContain(scope);
       expect(authServer.UCP_OAUTH_SUPPORTED_SCOPES).not.toContain(scope);
       expect(MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED).not.toContain(scope);
       expect(JSON.stringify(flattenMcpTools(mcpServiceCatalog))).not.toContain(scope);
       const permissions = [
         ...new Set(
-          AGENT_OAUTH_SCOPE_FAMILIES.flatMap((family) =>
+          AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.flatMap((family) =>
             family.scopes.flatMap((definition) => [...definition.permissions]),
           ),
         ),

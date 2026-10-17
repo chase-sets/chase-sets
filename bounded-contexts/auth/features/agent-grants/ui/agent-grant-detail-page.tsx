@@ -3,7 +3,7 @@ import { useNavigation, useSubmit } from "react-router";
 import { t } from "@chase-sets/localization";
 import { formatDateTime, formatMoney } from "@chase-sets/localization";
 import { centsToMoneyAmount } from "@chase-sets/primitives/money";
-import { AGENT_OAUTH_SCOPE_FAMILIES } from "@chase-sets/auth-context";
+import { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES } from "@chase-sets/auth-context";
 import {
   AdminResourceDetailPage,
   AlertDialog,
@@ -43,7 +43,7 @@ function clientLabel(grant: AgentGrant) {
 }
 
 function GrantedScopes({ scopes }: { scopes: readonly string[] }) {
-  const grantedFamilies = AGENT_OAUTH_SCOPE_FAMILIES.map((family) => ({
+  const grantedFamilies = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map((family) => ({
     family,
     granted: family.scopes.filter((scope) => scopes.includes(scope.scope)),
   })).filter((entry) => entry.granted.length > 0);
