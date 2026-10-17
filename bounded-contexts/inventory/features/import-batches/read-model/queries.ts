@@ -4,8 +4,18 @@ import type {
   InventoryImportQuantityMode,
   InventoryImportSourceKey,
 } from "../domain/import-source-adapters";
+import { INVENTORY_IMPORT_CREATE_JOB_KINDS } from "../domain/job-kinds";
 
-export type InventoryImportBatchStatus = "uploaded" | "committed";
+export type InventoryImportBatchStatus =
+  | "uploaded"
+  | "validating"
+  | "ready-to-commit"
+  | "committing"
+  | "committed"
+  | "partial"
+  | "failed-safe"
+  | "ambiguous"
+  | "expired";
 export type InventoryImportRowStatus = "accepted" | "rejected" | "committed";
 export type InventoryImportResolutionStatus = "native" | "resolved" | "unresolved";
 
@@ -76,11 +86,33 @@ type RawImportBatchRow = Omit<
     validation_errors: unknown;
   }>;
 
+const IMPORT_BATCH_CREATE_JOB_KINDS_SQL = INVENTORY_IMPORT_CREATE_JOB_KINDS.map((kind) => `'${kind}'`).join(", ");
+
 const IMPORT_BATCH_STATUS_SQL = `CASE
+  WHEN status = 'expired' THEN 'expired'
   WHEN total_count > 0
    AND accepted_count > 0
    AND committed_count = accepted_count
     THEN 'committed'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status = 'failed') THEN 'failed-safe'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status IN ('queued', 'running')) THEN 'validating'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = 'commit' AND job.status IN ('queued', 'running')) THEN 'committing'
+  WHEN committed_count > 0 THEN 'partial'
+  WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
+    WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
+      AND job.payload->>'accountId' = inventory_import_batches.account_id
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status = 'completed'
+      AND (job.progress->>'total')::integer <> inventory_import_batches.total_count) THEN 'ambiguous'
+  WHEN total_count > 0 THEN 'ready-to-commit'
   ELSE 'uploaded'
 END`;
 
@@ -114,6 +146,7 @@ export async function getImportBatch(
   db: PgQueryable,
   batchId: string,
   accountId: string,
+  page?: Readonly<{ limit: number; offset?: number }>,
 ): Promise<InventoryImportBatchDetail | null> {
   const batchResult = await db.query<InventoryImportBatch>(
     `SELECT
@@ -124,7 +157,7 @@ export async function getImportBatch(
        adapter_version,
        quantity_mode,
        default_storage_location_id,
-       source_filename,
+       NULL::text AS source_filename,
        total_count,
        accepted_count,
        rejected_count,
@@ -176,8 +209,8 @@ export async function getImportBatch(
        updated_at
      FROM inventory_import_batch_rows
      WHERE batch_id = $1
-     ORDER BY row_number ASC`,
-    [batchId],
+     ORDER BY row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
+    page ? [batchId, Math.max(0, Math.min(page.limit, 100)), Math.max(0, page.offset ?? 0)] : [batchId],
   );
 
   return {
@@ -208,7 +241,7 @@ export async function listImportBatches(
          adapter_version,
          quantity_mode,
          default_storage_location_id,
-         source_filename,
+         NULL::text AS source_filename,
          total_count,
          accepted_count,
          rejected_count,
