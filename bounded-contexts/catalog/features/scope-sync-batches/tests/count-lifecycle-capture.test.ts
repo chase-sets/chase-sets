@@ -300,10 +300,18 @@ describe("staging count capture lifecycle", () => {
   it("the replay guard-disabled mutant proceeds past acquisition", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
     const store = captureStoreMutant([
+      ["(last !== undefined && phaseOrder(phase) <= phaseOrder(last))", "false"],
+      ["index === 0 || phaseOrder(run.phases[index - 1]!) < phaseOrder(phase)", "true"],
       [
-        "if (retained.some((run) => run.host.dispatchId === input.host.dispatchId)) throw new CountCaptureStopped();",
-        "",
+        "run.quote.fingerprint !== fingerprint ||\n          run.approvalAt ||\n          !run.finalNotice?.readBackAt",
+        "run.quote.fingerprint !== fingerprint || !run.finalNotice?.readBackAt",
       ],
+      [
+        "inPhase.length >= countCapturePhaseCaps[phase]",
+        "(phase !== 'acquisition' && inPhase.length >= countCapturePhaseCaps[phase])",
+      ],
+      ["inPhase.length >= run.quote.cap", "false"],
+      ["inPhase.some((entry) => entry.category === send.category)", "false"],
     ])(f.pool, () => f.clock.now);
     const lifecycle = createCountCaptureLifecycle(captureDeps(f, { store }));
     const run = journey(f, lifecycle, async (intent, post) => {
@@ -356,7 +364,11 @@ describe("staging count capture lifecycle", () => {
       }),
     };
     const lifecycle = captureLifecycleMutant(
-      [["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"]],
+      [
+        ["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"],
+        ["quote.cap !== quote.plannedCredits", "false"],
+        ["result.cap !== run.quote.cap", "false"],
+      ],
       { counts },
     )(
       captureDeps(f, {

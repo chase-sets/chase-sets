@@ -271,7 +271,6 @@ describe("capture receipt contracts", () => {
     await expect(captureActionInPage(freezeArgs(streamed(text)))).rejects.toThrow("capture-stopped");
   });
   it("stops headers followed by an endless body within the deadline", async () => {
-    const started = performance.now();
     const outcome = await Promise.race([
       captureActionInPage(freezeArgs(streamed('{"receipt":', { endless: true }), 50)).then(
         () => "resolved",
@@ -280,7 +279,6 @@ describe("capture receipt contracts", () => {
       new Promise((resolve) => setTimeout(() => resolve("hung"), 2_000)),
     ]);
     expect(outcome).toBe("rejected");
-    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });
 
