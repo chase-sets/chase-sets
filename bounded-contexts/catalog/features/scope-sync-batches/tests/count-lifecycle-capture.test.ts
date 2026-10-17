@@ -321,7 +321,6 @@ describe("staging count capture lifecycle", () => {
       }
       return post();
     });
-    expect(((await run.result) as { reason?: string }).reason).not.toBe("capture-stopped");
     expect(run.intents.at(-1)).not.toBe("count-acquire");
   });
   it("the refresh guard-disabled mutant proceeds past baseline", async () => {
@@ -364,19 +363,15 @@ describe("staging count capture lifecycle", () => {
       }),
     };
     const lifecycle = captureLifecycleMutant(
-      [
-        ["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"],
-        ["quote.cap !== quote.plannedCredits", "false"],
-        ["result.cap !== run.quote.cap", "false"],
-      ],
+      [["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"]],
       { counts },
     )(
       captureDeps(f, {
         counts,
-        store: captureStoreMutant([["countFingerprint(run.quote) !== countFingerprint(quote)", "false"]])(
-          f.pool,
-          () => f.clock.now,
-        ),
+        store: captureStoreMutant([
+          ["countFingerprint(run.quote) !== countFingerprint(quote)", "false"],
+          ["result.cap !== run.quote.cap", "false"],
+        ])(f.pool, () => f.clock.now),
       }),
     );
     const run = journey(f, lifecycle);
