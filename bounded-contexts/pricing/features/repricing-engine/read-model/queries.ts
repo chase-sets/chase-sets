@@ -59,8 +59,6 @@ export type RepricingRoundListing = Readonly<{
   maxChangesPerDay: number;
   /** Null unless the matched chain holds a curve-objective anchor whose goal requires Economics. */
   economics: RepricingListingEconomics | null;
-  /** Raw resolution retained only for the durable health contribution path. */
-  economicsResolution?: EconomicsResolution;
 }>;
 
 export type RepricingRoundInputs = Readonly<{
@@ -77,6 +75,7 @@ export type RepricingRoundInputs = Readonly<{
   /** Read only when a listing's rules read the curve; null when none does or none is served at capture. */
   demandCurve: DemandCurveWithPoints | null;
   healthDemandCurve?: DemandCurveWithPoints | null;
+  healthEconomics?: ReadonlyMap<string, EconomicsResolution>;
 }>;
 
 type ListingRow = Readonly<{
@@ -299,6 +298,7 @@ type PageRound = {
   lastSold: RepricingRoundInputs["lastSold"];
   demandCurve: RepricingRoundInputs["demandCurve"];
   healthDemandCurve?: NonNullable<RepricingRoundInputs["demandCurve"]>;
+  healthEconomics?: Map<string, EconomicsResolution>;
 };
 
 /**
@@ -331,7 +331,11 @@ async function readGoalInputs(
     for (const [index, listing] of round.listings.entries()) {
       if (!requiresGoalEconomics(round, listing, input.capturedAt, input.policy)) continue;
       const resolved = await resolveListingEconomics(input, round, listing);
-      round.listings[index] = { ...listing, economics: resolved.goal, economicsResolution: resolved.resolution };
+      round.listings[index] = { ...listing, economics: resolved.goal };
+      if (input.includeHealth && resolved.resolution) {
+        round.healthEconomics ??= new Map();
+        round.healthEconomics.set(listing.listingId, resolved.resolution);
+      }
     }
   }
 }
@@ -341,21 +345,11 @@ async function resolveListingEconomics(
   input: RepricingRoundCapture,
   round: RepricingRoundInputs,
   listing: RepricingRoundListing,
-): Promise<Readonly<{ goal: RepricingListingEconomics; resolution: EconomicsResolution }>> {
+): Promise<Readonly<{ goal: RepricingListingEconomics; resolution: EconomicsResolution | null }>> {
   if (listing.inventoryItemId === null) {
     return {
       goal: { availability: "unavailable", reason: "inventory-item-missing" },
-      resolution: {
-        kind: "unavailable",
-        reason: "provider-unavailable",
-        accountId: listing.sellerAccountId,
-        channel: { kind: "native-marketplace" },
-        currency: listing.priceCurrencyCode?.trim().toLowerCase() ?? "",
-        effectiveAt: input.capturedAt,
-        revision: "inventory-item-missing",
-        facts: {} as never,
-        diagnostics: {} as never,
-      },
+      resolution: null,
     };
   }
   // A matched rule implies a denominated listing price.

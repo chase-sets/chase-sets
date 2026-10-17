@@ -27,6 +27,7 @@ import {
 } from "../domain/fact";
 import * as roundPlanner from "../domain/round";
 import { goalAnchor, goalDirective, parityCurve } from "./curve-objective-fixture";
+import type { RepricingHealthContribution } from "../api/health-summary";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -267,6 +268,15 @@ describeDb("curve-objective rounds through live, preview and dry-run pages", () 
       [{ ...expectedRequest(capturedAt), inventoryItemId: "inv_goal_percentile" }],
     ]);
     const dry = await services.listDryRunTraces(seller, run!.dryRunId);
+    const healthRows = await pool.query<{ listing_id: string; health: RepricingHealthContribution }>(
+      "SELECT listing_id, health FROM pricing_repricing_dry_run_traces WHERE dry_run_id = $1",
+      [run!.dryRunId],
+    );
+    for (const trace of dry.filter((trace) => trace.anchor?.source === "curve-objective")) {
+      const contribution = healthRows.rows.find((row) => row.listing_id === trace.listingId)!.health;
+      expect(contribution.modeled?.medianDays).toBe(trace.anchor!.goal!.forecastMedianSellDays);
+      expect(contribution.modeled?.forecastStatus).toBe(trace.anchor!.goal!.forecastStatus);
+    }
 
     reset();
     const plannedBefore = plan.mock.results.length;

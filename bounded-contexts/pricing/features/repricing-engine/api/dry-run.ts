@@ -250,6 +250,11 @@ export function createRepricingDryRunServices(
         };
         // Every page captures at the request instant, in the RFC 3339 form Economics requires.
         const capturedAt = new Date(run.requestedAt).toISOString();
+        const healthPolicies = new Map<
+          string,
+          { revisionId: string; value: ReturnType<typeof decodeDemandCurvePolicyValue> }
+        >();
+        const attemptedPolicyRevisions = new Set<string>();
         while (true) {
           checkLease();
           const products = await listCandidateRepricingProducts(db, candidate, run.cursor);
@@ -266,22 +271,30 @@ export function createRepricingDryRunServices(
           const healthContributions: RepricingHealthContribution[] = [];
           const curveMap = new Map<string, { policyRevisionId: string }>();
           for (const [key, round] of rounds) if (round.healthDemandCurve) curveMap.set(key, round.healthDemandCurve);
-          const policyIds = [...new Set([...curveMap.values()].map((curve) => curve.policyRevisionId))];
-          const policyRows = policyIds.length
+          const revisions = [...new Set([...curveMap.values()].map((curve) => curve.policyRevisionId))].filter(
+            (id) => !attemptedPolicyRevisions.has(id),
+          );
+          const policyIds = new Map<string, { documentId: string; effectiveFrom: number }>();
+          for (const id of revisions) {
+            attemptedPolicyRevisions.add(id);
+            const separator = id.indexOf(":");
+            const documentId = id.slice(0, separator);
+            const effectiveFrom = Date.parse(id.slice(separator + 1));
+            if (separator > 0 && documentId.startsWith("pol_") && Number.isFinite(effectiveFrom))
+              policyIds.set(id, { documentId, effectiveFrom });
+          }
+          const policyRows = policyIds.size
             ? (
-                await db.query<{ document_id: string; value: unknown }>(
-                  "SELECT document_id, value FROM platform_policy_documents WHERE document_id = ANY($1::text[])",
-                  [policyIds],
+                await db.query<{ document_id: string; effective_from: string; value: unknown }>(
+                  "SELECT document_id, effective_from::text AS effective_from, value FROM platform_policy_documents WHERE document_id = ANY($1::text[])",
+                  [[...new Set([...policyIds.values()].map((revision) => revision.documentId))]],
                 )
               ).rows
             : [];
-          const healthPolicies = new Map<
-            string,
-            { revisionId: string; value: ReturnType<typeof decodeDemandCurvePolicyValue> }
-          >();
-          for (const id of policyIds) {
-            const row = policyRows.find((item) => item.document_id === id);
-            if (row)
+          const rowsByDocument = new Map(policyRows.map((row) => [row.document_id, row]));
+          for (const [id, revision] of policyIds) {
+            const row = rowsByDocument.get(revision.documentId);
+            if (row && Date.parse(row.effective_from) === revision.effectiveFrom)
               healthPolicies.set(id, { revisionId: id, value: decodeDemandCurvePolicyValue(row.value as never) });
           }
           for (const round of rounds.values()) {
@@ -320,21 +333,11 @@ export function createRepricingDryRunServices(
                   round.marketEstimate?.currencyCode?.toUpperCase() === currency.toUpperCase()
                     ? round.marketEstimate.amount
                     : listing.priceAmount;
-                if (listing.economicsResolution)
-                  return { resolution: listing.economicsResolution, marketUnitPriceAmount: marketAmount };
+                const sharedResolution = round.healthEconomics?.get(listing.listingId);
+                if (sharedResolution) return { resolution: sharedResolution, marketUnitPriceAmount: marketAmount };
                 if (!listing.inventoryItemId)
                   return {
-                    resolution: {
-                      kind: "unavailable",
-                      reason: "provider-unavailable",
-                      accountId: listing.sellerAccountId,
-                      channel: { kind: "native-marketplace" },
-                      currency,
-                      effectiveAt: capturedAt,
-                      revision: "missing-inventory",
-                      facts: {} as never,
-                      diagnostics: {} as never,
-                    },
+                    resolution: null,
                     marketUnitPriceAmount: marketAmount,
                   };
                 const resolution = await economics.resolve({
@@ -351,6 +354,7 @@ export function createRepricingDryRunServices(
             );
             healthContributions.push(...contributions);
           }
+          const healthByListing = new Map(healthContributions.map((health) => [health.listingId, health]));
           checkLease();
           const guard = [sellerAccountId, dryRunId, run.updatedAt, input.claimOwnerId, claimed.attemptCount];
           await db.query(
@@ -369,7 +373,7 @@ export function createRepricingDryRunServices(
               JSON.stringify(
                 traces.map((trace) => ({
                   trace,
-                  health: healthContributions.find((health) => health.listingId === trace.listingId) ?? null,
+                  health: healthByListing.get(trace.listingId) ?? null,
                   delta_cents:
                     trace.targetPriceAmount === null
                       ? null
@@ -399,14 +403,23 @@ export function createRepricingDryRunServices(
           if (products.length < 500) break;
         }
         checkLease();
-        const healthRows = await db.query<{ health: RepricingHealthContribution | null }>(
-          `SELECT health FROM pricing_repricing_dry_run_traces WHERE seller_account_id = $1 AND dry_run_id = $2 AND health IS NOT NULL ORDER BY listing_id`,
-          [sellerAccountId, dryRunId],
+        const healthRows = await db.query<{ health: RepricingHealthContribution | null; missing_count: string }>(
+          `SELECT item.health, count(*) FILTER (WHERE item.health IS NULL) OVER ()::text AS missing_count
+           FROM pricing_repricing_dry_run_traces AS item
+           JOIN pricing_repricing_dry_runs AS run USING (dry_run_id, seller_account_id)
+           WHERE run.seller_account_id = $1 AND run.dry_run_id = $2 AND run.updated_at = $3::timestamptz
+             AND run.status = 'running' AND ${claimSql} ORDER BY item.listing_id`,
+          [sellerAccountId, dryRunId, run.updatedAt, input.claimOwnerId, claimed.attemptCount],
         );
-        const health = summarizeHealth(healthRows.rows.map((row) => row.health!).filter(Boolean), capturedAt);
+        const health =
+          Number(healthRows.rows[0]?.missing_count ?? 0) > 0
+            ? null
+            : summarizeHealth(healthRows.rows.map((row) => row.health!).filter(Boolean), capturedAt);
         const completed = await db.query<RepricingDryRun>(
           `WITH items AS MATERIALIZED (
-             SELECT item.* FROM pricing_repricing_dry_run_traces AS item
+             SELECT item.outcome, item.skip_reason, item.flags, item.delta_cents,
+               item.trace->>'currentPriceAmount' AS current_price_amount
+             FROM pricing_repricing_dry_run_traces AS item
              WHERE item.seller_account_id = $1 AND item.dry_run_id = $2
            ), summary AS (SELECT jsonb_build_object(
              'listingsEvaluated', (SELECT count(*) FROM items),
@@ -421,7 +434,7 @@ export function createRepricingDryRunServices(
                  GROUP BY flag.key) AS counts), '{}'::jsonb),
              'deltaBuckets', COALESCE((SELECT jsonb_object_agg(counts.key, counts.n) FROM
                (SELECT width_bucket(items.delta_cents::numeric /
-                   NULLIF((items.trace->>'currentPriceAmount')::numeric, 0),
+                   NULLIF(items.current_price_amount::numeric, 0),
                    ARRAY[-20,-10,-5,-1,1,5,10,20]::numeric[]) AS key, count(*) AS n
                  FROM items WHERE items.outcome = 'changed' GROUP BY key) AS counts), '{}'::jsonb)
            ) AS value)

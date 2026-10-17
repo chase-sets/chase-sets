@@ -8,6 +8,8 @@ export type CapitalCycle = Readonly<{
 /**
  * The one capital-cycle calculation shared by Pricing Health and later goal
  * comparison work. Values are intentionally signed: a loss is still a fact.
+ * Unlike parity's zero sentinel at cycle <= 0, NaN represents unavailable
+ * profit/day here; callers persist null plus the non-positive-cycle reason.
  */
 export function capitalCycle(
   netProceeds: number,

@@ -257,7 +257,12 @@ current default.
 **Capital Turn** is the signed daily logarithmic return over the weighted median
 wait plus Economics turnaround cycle. **Profit/day** is signed net proceeds
 less unit cost over that same cycle. Both are unavailable when their required
-population or positive cycle is absent.
+population or positive cycle is absent. `no-modeled-listings` means M is empty;
+`no-economics` means E is empty. `inventory-item-missing` identifies a modeled
+listing that cannot request Economics because it has no Inventory item.
+Stored Capital Turn is a fractional daily log return; display multiplies it by
+100 for %/day. A curve stamped `fallback` has no resolvable document revision
+and remains risk unknown rather than inheriting the current launch policy.
 
 ## Digest Window
 
