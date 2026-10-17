@@ -206,16 +206,82 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
 
     await updateCreatedPayload(pools.marketplace, streamId, "priceAmount", "1.00");
-    await expect(marketplaceModule.seed!(pools.marketplace)).rejects.toThrow(/mismatched fields: price amount/);
+    await expect(runMarketplaceSeed(pools)).rejects.toThrow(/mismatched fields: price amount/);
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before,
     );
 
     await updateCreatedPayload(pools.marketplace, streamId, "priceAmount", "389.00");
-    await marketplaceModule.seed!(pools.marketplace);
+    await runMarketplaceSeed(pools);
     await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.paused");
     const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
     expect(reports.find((report) => report.id === listingId)).toMatchObject({ kind: "draft", status: "paused" });
+  }, 300_000);
+
+  it("refuses each named AC1 field drift with zero appends", async () => {
+    const { pools } = seedRuntime;
+    const listingId = marketplaceReservedSeedIds.listings.cardVaultCharizardPsa8;
+    const streamId = listingStream(listingId);
+    const drifts = [
+      ["accountId", "acc_seed_demo_account", "owner account"],
+      ["inventoryItemId", "inv_seed_drift", "inventory item"],
+      ["catalogItemId", "cat_seed_drift", "catalog item"],
+      ["quantityCap", 99, "quantity cap"],
+    ] as const;
+
+    for (const [field, value, mismatch] of drifts) {
+      const originalPayload = await readCreatedPayload(pools.marketplace, streamId);
+      const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
+      await updateCreatedJsonField(pools.marketplace, streamId, field, value);
+      await expect(runMarketplaceSeed(pools)).rejects.toThrow(new RegExp(`mismatched fields: ${mismatch}`));
+      await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
+        before,
+      );
+      await restoreCreatedPayload(pools.marketplace, streamId, originalPayload);
+    }
+
+    const originalPayload = await readCreatedPayload(pools.marketplace, streamId);
+    const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
+    await pools.marketplace.query(
+      `UPDATE event_store_events
+       SET payload = (payload - 'priceCurrencyCode') || '{"priceAmount":"1.00"}'::jsonb
+       WHERE stream_id = $1 AND event_type = 'marketplace.listing.created'`,
+      [streamId],
+    );
+    await expect(runMarketplaceSeed(pools)).rejects.toThrow(/mismatched fields: price amount/);
+    await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
+      before,
+    );
+    await restoreCreatedPayload(pools.marketplace, streamId, originalPayload);
+
+    await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.paused");
+    await expect(runMarketplaceSeed(pools)).rejects.toThrow(/mismatched fields: status/);
+    await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.published");
+
+    const withdrawnId = marketplaceReservedSeedIds.listings.surgingSparksWithdrawn;
+    const withdrawnStream = listingStream(withdrawnId);
+    const withdrawnPayload = await readCreatedPayload(pools.marketplace, withdrawnStream);
+    const withdrawnBefore = await countListingEvents(
+      pools.marketplace,
+      withdrawnStream,
+      "marketplace.listing.price-updated",
+    );
+    await updateCreatedJsonField(pools.marketplace, withdrawnStream, "priceAmount", "1.00");
+    await expect(runMarketplaceSeed(pools)).rejects.toThrow(/mismatched fields: price amount/);
+    await expect(
+      countListingEvents(pools.marketplace, withdrawnStream, "marketplace.listing.price-updated"),
+    ).resolves.toBe(withdrawnBefore);
+    await restoreCreatedPayload(pools.marketplace, withdrawnStream, withdrawnPayload);
+
+    const inspectionId = marketplaceReservedSeedIds.listings.cardVaultCharizardMarketMaker;
+    const inspectionStream = listingStream(inspectionId);
+    const inspectionPayload = await readCreatedPayload(pools.marketplace, inspectionStream);
+    await stripCreatedCurrency(pools.marketplace, inspectionStream);
+    await replacePublishedEvent(pools.marketplace, inspectionStream, "marketplace.listing.paused");
+    const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
+    expect(reports.find((report) => report.id === inspectionId)).toMatchObject({ kind: "draft", status: "paused" });
+    await replacePublishedEvent(pools.marketplace, inspectionStream, "marketplace.listing.published");
+    await restoreCreatedPayload(pools.marketplace, inspectionStream, inspectionPayload);
   }, 300_000);
 
   it("reconciles a legacy active draft to exact and authors it in one real-DB seed", async () => {
@@ -223,14 +289,10 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const listingId = marketplaceReservedSeedIds.listings.lugiaNeoGenesisBgs95;
     const streamId = listingStream(listingId);
     await stripCreatedCurrency(pools.marketplace, streamId);
-    await pools.marketplace.query(
-      `DELETE FROM event_store_events
-       WHERE stream_id = $1 AND event_type = 'marketplace.listing.published'`,
-      [streamId],
-    );
+    await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.photos-added");
     const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
 
-    await marketplaceModule.seed!(pools.marketplace);
+    await runMarketplaceSeed(pools);
 
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before + 1,
@@ -241,7 +303,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       [streamId],
     );
     expect(Number(published.rows[0]?.count ?? 0)).toBe(1);
-    await marketplaceModule.seed!(pools.marketplace);
+    await runMarketplaceSeed(pools);
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before + 1,
     );
@@ -263,7 +325,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     const before = await countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true);
 
-    await expect(marketplaceModule.seed!(pools.marketplace)).rejects.toThrow(/mismatched fields: fee locks/);
+    await expect(runMarketplaceSeed(pools)).rejects.toThrow(/mismatched fields: fee locks/);
     await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
       before,
     );
@@ -272,14 +334,14 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
   it("keeps withdrawn legacy listings unchanged while reconciling active listings", async () => {
     const { pools } = seedRuntime;
-    await marketplaceModule.seed!(pools.marketplace);
+    await runMarketplaceSeed(pools);
     const withdrawnId = marketplaceReservedSeedIds.listings.surgingSparksWithdrawn;
     const withdrawnStream = listingStream(withdrawnId);
     await stripCreatedCurrency(pools.marketplace, withdrawnStream);
     await replacePublishedEvent(pools.marketplace, withdrawnStream, "marketplace.listing.withdrawn");
     const before = await countListingEvents(pools.marketplace, withdrawnStream, "marketplace.listing.price-updated");
 
-    await marketplaceModule.seed!(pools.marketplace);
+    await runMarketplaceSeed(pools);
 
     await expect(
       countListingEvents(pools.marketplace, withdrawnStream, "marketplace.listing.price-updated"),
@@ -290,6 +352,22 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     expect(state.rows[0]?.event_type).toBe("marketplace.listing.withdrawn");
     await replacePublishedEvent(pools.marketplace, withdrawnStream, "marketplace.listing.published");
+  }, 300_000);
+
+  it("reconciles a paused legacy listing once and leaves it exact", async () => {
+    const { pools } = seedRuntime;
+    const streamId = listingStream(marketplaceReservedSeedIds.listings.prismaticEvolutionsPaused);
+    await stripCreatedCurrency(pools.marketplace, streamId);
+    const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
+
+    await runMarketplaceSeed(pools);
+    await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
+      before + 1,
+    );
+    await runMarketplaceSeed(pools);
+    await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
+      before + 1,
+    );
   }, 300_000);
 
   it("survives an owner write between classify and append and converges on the next run", async () => {
@@ -335,6 +413,23 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     expect(Number(allUpdates.rows[0]?.count ?? 0)).toBe(22);
   }, 300_000);
 
+  it("creates an absent exact listing among unrelated rows", async () => {
+    const { pools } = seedRuntime;
+    const listingId = marketplaceReservedSeedIds.listings.mewtwoBlackStarPromoActive;
+    const streamId = listingStream(listingId);
+    await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+
+    await runMarketplaceSeed(pools);
+
+    await expect(countStreamEvents(pools.marketplace, streamId)).resolves.toBeGreaterThan(0);
+    const latest = await pools.marketplace.query<{ event_type: string }>(
+      `SELECT event_type FROM event_store_events
+       WHERE stream_id = $1 ORDER BY stream_version DESC LIMIT 1`,
+      [streamId],
+    );
+    expect(latest.rows[0]?.event_type).toBe("marketplace.listing.published");
+  }, 300_000);
+
   it("refuses missing supply without creating the absent listing and remains idempotent across boots", async () => {
     const { pools } = seedRuntime;
     const runtime = createMarketplaceSeedRuntime(pools);
@@ -367,6 +462,20 @@ async function updateCreatedPayload(
      SET payload = jsonb_set(payload, ARRAY[$2], to_jsonb($3::text), false)
      WHERE stream_id = $1 AND event_type = 'marketplace.listing.created'`,
     [streamId, field, value],
+  );
+}
+
+async function updateCreatedJsonField(
+  pool: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]["marketplace"],
+  streamId: string,
+  field: string,
+  value: string | number,
+) {
+  await pool.query(
+    `UPDATE event_store_events
+     SET payload = jsonb_set(payload, ARRAY[$2], $3::jsonb, false)
+     WHERE stream_id = $1 AND event_type = 'marketplace.listing.created'`,
+    [streamId, field, JSON.stringify(value)],
   );
 }
 
@@ -410,9 +519,17 @@ async function readCreatedPayload(
 async function replacePublishedEvent(
   pool: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]["marketplace"],
   streamId: string,
-  eventType: "marketplace.listing.paused" | "marketplace.listing.withdrawn" | "marketplace.listing.published",
+  eventType:
+    | "marketplace.listing.paused"
+    | "marketplace.listing.withdrawn"
+    | "marketplace.listing.published"
+    | "marketplace.listing.photos-added",
 ) {
-  const payload = eventType.endsWith("paused") ? '{"reason":"seller"}' : "{}";
+  const payload = eventType.endsWith("paused")
+    ? '{"reason":"seller"}'
+    : eventType.endsWith("photos-added")
+      ? '{"evidence":[]}'
+      : "{}";
   const fromType =
     eventType === "marketplace.listing.published" ? "marketplace.listing.paused" : "marketplace.listing.published";
   await pool.query(
@@ -446,6 +563,11 @@ async function countStreamEvents(
     [streamId],
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function runMarketplaceSeed(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
+  const runtime = createMarketplaceSeedRuntime(pools);
+  return marketplaceModule.seed!(pools.marketplace, runtime.services.marketplace as MarketplaceSeedServices);
 }
 
 async function readSeedEventCounts(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
