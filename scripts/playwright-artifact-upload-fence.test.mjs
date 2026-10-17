@@ -210,6 +210,7 @@ runs:
     expect(uploads.map(({ paths }) => paths)).toEqual([
       ["artifacts/catalog-scale-probe/preview.json"],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
+      ["artifacts/catalog-count-lifecycle/receipt.json"],
     ]);
   });
 
