@@ -527,7 +527,10 @@ describe("responsive evidence from a retried Playwright capture", () => {
   });
 
   it("accepts only the final attempt's manifest and publishes only its payload", async () => {
-    expect(retried.captures.map((capture) => capture.attempt), retried.output).toEqual([0, 1]);
+    expect(
+      retried.captures.map((capture) => capture.attempt),
+      retried.output,
+    ).toEqual([0, 1]);
     const [earlier, final] = retried.captures;
     const validation = await validateResponsiveEvidenceArtifacts({
       repoRoot: retried.root,
