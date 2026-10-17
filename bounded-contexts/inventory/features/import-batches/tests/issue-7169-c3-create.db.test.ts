@@ -248,6 +248,18 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     expect(
       await baseJobStore.claimNext({ claimOwnerId: "base-old-2", claimTtlMs: 30_000, jobKinds: ["create"] }),
     ).toBeNull();
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batch_job_inputs (input_id, account_id, csv_text, parsed_rows, source_filename, created_at)
+       VALUES ('input_rollback_synthetic', $1, $2, NULL, 'rollback.csv', now())`,
+      [accountId, params.csvText],
+    );
+    expect(
+      (
+        await pools.inventory.query(
+          "SELECT csv_text FROM inventory_import_batch_job_inputs WHERE input_id = 'input_rollback_synthetic'",
+        )
+      ).rows,
+    ).toEqual([{ csv_text: params.csvText }]);
     expect(
       (
         await pools.inventory.query(
@@ -256,6 +268,8 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
         )
       ).rows,
     ).toEqual([{ csv_text: null, snapshot_version: 1 }]);
+    expect(await inventory.importBatches.processNextImportBatchJob(claim)).toBe(1);
+    expect((await inventory.importBatches.getImportBatchJob(job.jobId))?.status).toBe("completed");
   });
 
   it("issue-7169-c3-safe-rollout: isolates poison retained records and continues valid work", async () => {
