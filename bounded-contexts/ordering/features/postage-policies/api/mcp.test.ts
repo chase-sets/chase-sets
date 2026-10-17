@@ -130,7 +130,10 @@ describe("ordering postage policy MCP handlers", () => {
     ];
     expect(Object.keys(createOrderingPostagePolicyMcpHandlers(services()).toolHandlers).sort()).toEqual(expectedNames);
     expect(
-      orderingService.tools.filter((tool) => tool.name.includes("postage")).map((tool) => tool.name).sort(),
+      orderingService.tools
+        .filter((tool) => tool.name.includes("postage"))
+        .map((tool) => tool.name)
+        .sort(),
     ).toEqual(expectedNames);
     for (const tool of orderingService.tools.filter((entry) => entry.name.includes("postage"))) {
       expect(tool.availability).toBe("available");
@@ -187,7 +190,9 @@ describe("ordering postage policy MCP handlers", () => {
     await handlers.toolHandlers["ordering.activate-postage-policy"]?.(
       request({ id: policyId, activationReason: "publish" }),
     );
-    await handlers.toolHandlers["ordering.retire-postage-policy"]?.(request({ id: policyId, retirementReason: "replace" }));
+    await handlers.toolHandlers["ordering.retire-postage-policy"]?.(
+      request({ id: policyId, retirementReason: "replace" }),
+    );
     await handlers.toolHandlers["ordering.clone-postage-policy"]?.(
       request({ id: policyId, label: "Clone", effectiveFrom: createArguments.effectiveFrom }),
     );
