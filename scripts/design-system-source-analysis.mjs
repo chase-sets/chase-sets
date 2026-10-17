@@ -37,9 +37,81 @@ function hasJsxAttribute(node, name) {
   return node.attributes.properties.some((property) => ts.isJsxAttribute(property) && property.name.text === name);
 }
 
-function rawClassNameJsxElementFinding(sourceFile, node) {
+function unwrapExpression(expression) {
+  let current = expression;
+
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+
+  return current;
+}
+
+function propertyNameText(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text;
+  return null;
+}
+
+function objectLiteralHasClassNameProperty(expression) {
+  const unwrapped = unwrapExpression(expression);
+  if (!ts.isObjectLiteralExpression(unwrapped)) return false;
+
+  return unwrapped.properties.some((property) => {
+    if (ts.isPropertyAssignment(property)) {
+      return propertyNameText(property.name) === "className";
+    }
+
+    if (ts.isShorthandPropertyAssignment(property)) {
+      return property.name.text === "className";
+    }
+
+    return false;
+  });
+}
+
+export function collectClassNameObjectIdentifiers(sourceFile) {
+  const identifiers = new Set();
+
+  function visit(node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & ts.NodeFlags.Const) !== 0 &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      objectLiteralHasClassNameProperty(node.initializer)
+    ) {
+      identifiers.add(node.name.text);
+    }
+
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return identifiers;
+}
+
+function hasClassNameSpread(node, classNameObjectIdentifiers) {
+  return node.attributes.properties.some((property) => {
+    if (!ts.isJsxSpreadAttribute(property)) return false;
+
+    const expression = unwrapExpression(property.expression);
+    return (
+      objectLiteralHasClassNameProperty(expression) ||
+      (ts.isIdentifier(expression) && classNameObjectIdentifiers.has(expression.text))
+    );
+  });
+}
+
+function rawClassNameJsxElementFinding(node, classNameObjectIdentifiers) {
   if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) return null;
-  if (!hasJsxAttribute(node, "className")) return null;
+
+  if (!hasJsxAttribute(node, "className") && !hasClassNameSpread(node, classNameObjectIdentifiers)) return null;
 
   const tagName = jsxTagName(node);
 
@@ -49,8 +121,11 @@ function rawClassNameJsxElementFinding(sourceFile, node) {
   };
 }
 
-export function rawClassNameHostElementFinding(sourceFile, node) {
-  const finding = rawClassNameJsxElementFinding(sourceFile, node);
+export function rawClassNameHostElementFinding(sourceFile, node, classNameObjectIdentifiers) {
+  const finding = rawClassNameJsxElementFinding(
+    node,
+    classNameObjectIdentifiers ?? collectClassNameObjectIdentifiers(sourceFile),
+  );
   if (!finding) return null;
 
   const tagName = jsxTagName(node);
