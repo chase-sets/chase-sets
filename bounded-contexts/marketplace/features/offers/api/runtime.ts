@@ -686,10 +686,9 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         `SELECT status AS account_status FROM marketplace_account_pages WHERE account_id = $1`,
         [current.state.buyerAccountId],
       );
-      if (buyerAccount.rows[0]?.account_status && buyerAccount.rows[0].account_status !== "active") {
+      if (buyerAccount.rows[0]?.account_status !== "active") {
         throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", {
           status: current.state.status,
-          accountStatus: buyerAccount.rows[0].account_status,
         });
       }
 

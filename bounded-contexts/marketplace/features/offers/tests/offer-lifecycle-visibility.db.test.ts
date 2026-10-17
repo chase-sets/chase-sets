@@ -149,4 +149,39 @@ describeDb("Offer lifecycle visibility on Postgres", () => {
     await project("marketplace.offer.withdrawn", 5);
     await expectHidden("withdrawn", "6.00");
   });
+
+  it("hides submitted Offers for suspended and closed buyers, then restores only after reactivation", async () => {
+    await project("marketplace.offer.submitted", 1, {
+      catalogItemId: "cat_one",
+      productId: "cat_one::",
+      itemTitle: "Item",
+      itemSubtitle: null,
+      productSummary: null,
+      shippingDestinationSnapshot: {
+        name: "Buyer",
+        line1: "1 Main",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      priceAmount: "5.00",
+      priceCurrencyCode: "USD",
+      quantityRequested: 1,
+    });
+    await expectOpenAt("5.00");
+    await pools.marketplace.query(
+      `UPDATE marketplace_account_pages SET status = 'suspended' WHERE account_id = 'acc_buyer'`,
+    );
+    expect((await reads()).publicOffer).toBeNull();
+    expect((await reads()).matches).toEqual([]);
+    await pools.marketplace.query(
+      `UPDATE marketplace_account_pages SET status = 'closed' WHERE account_id = 'acc_buyer'`,
+    );
+    expect((await reads()).publicOffer).toBeNull();
+    await pools.marketplace.query(
+      `UPDATE marketplace_account_pages SET status = 'active' WHERE account_id = 'acc_buyer'`,
+    );
+    await expectOpenAt("5.00");
+  });
 });

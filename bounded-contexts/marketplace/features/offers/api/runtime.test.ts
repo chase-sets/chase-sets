@@ -14,6 +14,7 @@ import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/
 const acceptedOfferMatch = {
   offer_id: "off_1",
   buyer_account_id: "acc_buyer",
+  account_status: "active",
   catalog_catalog_item_id: "cat_charizard",
   product_id: "cat_charizard::",
   item_title: "Charizard",
