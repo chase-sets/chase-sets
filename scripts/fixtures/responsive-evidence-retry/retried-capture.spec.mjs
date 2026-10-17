@@ -6,9 +6,10 @@ import { test } from "@playwright/test";
 import { responsiveEvidenceArtifactPaths } from "../../../infrastructure/playwright-evidence/index.ts";
 import sourceManifest from "../../../infrastructure/playwright-evidence/responsive-evidence-manifest.json" with { type: "json" };
 
-// Browserless retry scenarios for the #9854 probe. Every capture writes its
-// runtime manifest where responsiveEvidenceArtifactPaths puts it, with synthetic
-// measurements and a screenshot payload that names the attempt that wrote it.
+// Browserless retry scenarios for the retried-capture probe in
+// scripts/validate-responsive-evidence-artifacts.test.mjs. Every capture writes
+// its runtime manifest where responsiveEvidenceArtifactPaths puts it, with
+// synthetic measurements and a screenshot payload naming the writing attempt.
 // Artifact paths and the config digest bind to the probe's temporary repository
 // root, as captureResponsiveEvidence binds them to the checkout.
 const probeRoot = process.env.RESPONSIVE_EVIDENCE_RETRY_PROBE_ROOT;
