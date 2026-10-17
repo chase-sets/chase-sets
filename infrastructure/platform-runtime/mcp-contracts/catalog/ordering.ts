@@ -6,8 +6,7 @@ import {
   idempotencyKeyProperty,
   integerProperty,
   mutationInput,
-  nullableNumberProperty,
-  nullableStringProperty,
+  nullableProperty,
   objectSchema,
   readTool,
   resource,
@@ -40,22 +39,27 @@ const postagePolicyProperties = {
     "Shipping options that require signature.",
     stringProperty("Shipping option."),
   ),
-  signatureRequiredDeclaredValueAmount: nullableNumberProperty(
-    "Nullable declared value threshold requiring signature.",
-  ),
+  signatureRequiredDeclaredValueAmount: nullableProperty({
+    type: "number",
+    description: "Nullable declared value threshold requiring signature.",
+  }),
   signatureRequiredPhysicalFlags: arrayProperty(
     "Physical flags that require signature.",
     stringProperty("Physical flag."),
   ),
-  insuranceRequiredDeclaredValueAmount: nullableNumberProperty(
-    "Nullable declared value threshold requiring insurance.",
-  ),
+  insuranceRequiredDeclaredValueAmount: nullableProperty({
+    type: "number",
+    description: "Nullable declared value threshold requiring insurance.",
+  }),
 } as const;
 
 const postagePolicyFields = {
   label: stringProperty("Policy label."),
   effectiveFrom: stringProperty("ISO timestamp when the policy becomes effective."),
-  effectiveUntil: nullableStringProperty("Nullable ISO timestamp when the policy stops being effective."),
+  effectiveUntil: nullableProperty({
+    type: "string",
+    description: "Nullable ISO timestamp when the policy stops being effective.",
+  }),
   ...postagePolicyProperties,
 };
 
@@ -380,7 +384,10 @@ export const orderingService = {
             id: stringProperty("Source postage policy identifier."),
             label: stringProperty("New policy label."),
             effectiveFrom: stringProperty("ISO timestamp when the clone becomes effective."),
-            effectiveUntil: nullableStringProperty("Nullable ISO timestamp when the clone stops being effective."),
+            effectiveUntil: nullableProperty({
+              type: "string",
+              description: "Nullable ISO timestamp when the clone stops being effective.",
+            }),
             idempotencyKey: idempotencyKeyProperty(),
             confirmed: booleanProperty("Explicit confirmation of the requested action."),
             confirmationText: stringProperty("Exact confirmation text."),

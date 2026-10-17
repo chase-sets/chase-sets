@@ -43,6 +43,22 @@ function retainedUpgradeKeys({ baseSource, currentSource }) {
 }
 
 describe("boot schema DDL discipline", () => {
+  it("extracts all five Pricing Product Line migration statements without opaque transformations", async () => {
+    const source = await readFile(
+      new URL(
+        "../../bounded-contexts/pricing/features/recommendations/integrations/source/source-schema.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const migration = extractSchemaMigrationStatements(source)[0];
+    expect(migration.statements).toHaveLength(5);
+    expect(migration.statements[0].sql).toContain("CREATE TABLE IF NOT EXISTS pricing_catalog_reference_inputs");
+    expect(migration.statements[0].sql).not.toMatch(/CREATE INDEX/i);
+    expect(migration.statements[1].sql).toMatch(/CREATE INDEX CONCURRENTLY/i);
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
+  });
+
   it("extracts exported boot schema SQL templates only", () => {
     const source = `
 const migrationBackfillSql = \`UPDATE example_pages SET value = 'x';\`;

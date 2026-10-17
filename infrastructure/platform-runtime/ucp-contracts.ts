@@ -90,7 +90,6 @@ export type UcpMcpToolDescriptor = Readonly<{
   }>;
   invoking: string;
   invoked: string;
-  trustedHandoffOnUnsignedMcp?: boolean;
 }>;
 
 export type UcpMcpResourceDescriptor = Readonly<{
@@ -182,6 +181,31 @@ export const UCP_MCP_RESOURCES = [
     mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
   },
 ] as const satisfies readonly UcpMcpResourceDescriptor[];
+
+const checkoutResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    line_items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          item: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+          quantity: { type: "integer", minimum: 1 },
+          quantity_unit: {
+            type: "object",
+            properties: { unit: { const: "C62" }, scale: { const: 0 } },
+            required: ["unit", "scale"],
+          },
+        },
+        required: ["item", "quantity"],
+      },
+    },
+  },
+  required: ["line_items"],
+} as const;
 
 export const UCP_MCP_TOOLS = [
   {
@@ -276,16 +300,9 @@ export const UCP_MCP_TOOLS = [
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
-      additionalProperties: true,
-      properties: {
-        source: { type: "object", additionalProperties: true },
-        intent: { type: "object", additionalProperties: true },
-        type: { type: "string", enum: ["cart", "buy-now", "offer-intent", "offer"] },
-        items: { type: "array", items: { type: "object", additionalProperties: true } },
-        line_items: { type: "array", items: { type: "object", additionalProperties: true } },
-        shipping_option: { type: "string" },
-        optimization_goal: { type: "string", enum: ["fewest-shipments", "lowest-total"] },
-      },
+      additionalProperties: false,
+      properties: { checkout: checkoutResourceSchema },
+      required: ["checkout"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
@@ -320,19 +337,17 @@ export const UCP_MCP_TOOLS = [
     title: "Update Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this to update shipping option, optimization goal, or shipping address on an existing Chase Sets checkout session. This requires a linked buyer account and does not move money.",
+      "Use this to submit unchanged line items on an existing checkout session. Line changes are not supported. This does not move money.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
       properties: {
         id: { type: "string", description: "Checkout session id." },
-        shipping_option: { type: "string" },
-        optimization_goal: { type: "string", enum: ["fewest-shipments", "lowest-total"] },
-        shipping_address: { type: "object", additionalProperties: true },
+        checkout: checkoutResourceSchema,
       },
-      required: ["id"],
+      required: ["id", "checkout"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
@@ -345,7 +360,7 @@ export const UCP_MCP_TOOLS = [
     title: "Complete Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP agents may continue headlessly only with a saved payment method.",
+      "Use this after the user asks to place the order to read checkout state and its trusted buyer continuation URL. This never creates orders or moves money.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
     inputSchema: {
@@ -364,7 +379,6 @@ export const UCP_MCP_TOOLS = [
     annotations: writeAnnotations({ destructive: true, openWorld: true }),
     invoking: "Preparing trusted checkout handoff",
     invoked: "Checkout handoff ready",
-    trustedHandoffOnUnsignedMcp: true,
   },
   {
     name: "cancel_checkout",

@@ -364,8 +364,14 @@ export function validateMcpServiceCatalog(
       errors.push(...operatorScopeErrors(tool.name, tool.permissionBoundary));
 
       const { matchInputField, matchInputValue } = tool.guardrails.confirmation;
+      // A confirmation binding must always carry a value, so it is never nullable.
+      const nullableBinding = [matchInputField, matchInputValue].find(
+        (field) => field !== undefined && Array.isArray(tool.inputSchema.properties[field]?.type),
+      );
       if (matchInputField && matchInputValue) {
         errors.push(`${tool.name} cannot set both confirmation matchInputField and matchInputValue.`);
+      } else if (nullableBinding) {
+        errors.push(`${tool.name} confirmation input '${nullableBinding}' cannot be nullable.`);
       } else if (
         matchInputValue &&
         (tool.inputSchema.properties[matchInputValue]?.type !== "string" ||

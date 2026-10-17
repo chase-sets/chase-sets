@@ -326,11 +326,28 @@ describe("platform worker projection wake interest graph", () => {
         .filter((runner) => runner.projectionName === "pricing-forecast-ledger-projection")
         .map((runner) => runner.checkpointKey),
     ).toEqual(["pricing-forecast-ledger-projection:pricing:v1"]);
+    // #9783 moves pricing-catalog-input-projection to catalog v8 (+7 Product Line event types).
+    const productLineRunner = inheritedRunners.find(
+      (runner) => runner.projectionName === "pricing-catalog-input-projection",
+    );
+    expect(productLineRunner).toMatchObject({
+      checkpointKey: "pricing-catalog-input-projection:catalog:v8",
+      subscriptionVersion: 8,
+      eventTypes: expect.arrayContaining([
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
+        "catalog.reference-record.created",
+        "catalog.reference-record.revised",
+        "catalog.reference-record.published",
+        "catalog.reference-record.deprecated",
+        "catalog.reference-record.archived",
+      ]),
+    });
     expect(
       fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
     ).toEqual({
       count: 256,
-      sha256: "e1bcbbdfdf0765defa95110a7a333e19ffc36cb35b103d878cb83ceda8d9e544",
+      sha256: "b0c7fa7bedb465d117afee5a79dd688b3bb7a1351aa1afb73a0b0407e60c5002",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -359,7 +376,7 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 256,
-      sha256: "544736446622d626972c650b5cc91480122777629388fbdf31e0172cde26994b",
+      sha256: "bfb7ff23b9d9cedd97470416e3ef75b9e36ab9f16d3079c570b37d72c0b2fbb6",
     });
     expect(
       fingerprint(
@@ -370,18 +387,18 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 159,
-      sha256: "c3e7699411661926a03f1e2be17800ce8b8c750907a844abf49ef6feb7749bb5",
+      sha256: "0a73df217e97742ca52e075f2945f4c54726c1fb4ccc4094d039905ae3df7f68",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
       count: 159,
-      sha256: "ee3830e0000be54e6c457eef282d01afdb88d79cb3b55fef0ca41bcb777e15d7",
+      sha256: "45de3093ae018317244a6d507ea2d5e81909b31057f8e4db94699a2e5f42184e",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
       count: 256,
-      sha256: "36b8c77302ef82d50a7d8dd2bb4426ae9cb720a16d8b45d4aacd31a1cc70e9d0",
+      sha256: "cade127fa0f6ffe997a009d9ec74b15fc7363e3486a60ebbaa57d5994e409ef5",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 123,
