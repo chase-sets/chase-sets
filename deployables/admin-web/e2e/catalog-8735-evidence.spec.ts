@@ -373,10 +373,22 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     });
     active = "populatedFirstLoad";
     const review = page.getByRole("table", { name: "Source Observation review" });
-    const showReview = async () => {
-      const disclosure = page.getByRole("button", { name: "Source Observation evidence", exact: true });
-      if ((await disclosure.count()) && (await disclosure.getAttribute("aria-expanded")) !== "true")
-        await disclosure.click();
+    const showReview = async (checkedStatus?: string) => {
+      await expect
+        .poll(async () => {
+          const stage = page.locator('[data-catalog-import-workflow-stage="review-changes"]');
+          if ((await stage.getAttribute("aria-expanded")) !== "true") await stage.click();
+          const disclosure = page.getByRole("button", { name: "Source Observation evidence", exact: true });
+          if ((await disclosure.count()) && (await disclosure.getAttribute("aria-expanded")) !== "true")
+            await disclosure.click();
+          return checkedStatus
+            ? page
+                .getByRole("radio", { name: checkedStatus, exact: true })
+                .isChecked()
+                .catch(() => false)
+            : true;
+        })
+        .toBe(true);
     };
     await showReview();
     const row = review.getByRole("row").filter({ hasText: "Pikachu" });
@@ -511,7 +523,7 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     const rejected = page.getByRole("radio", { name: "Rejected (0)", exact: true });
     await rejected.click();
     await expect(page).toHaveURL(/filter.status=rejected/);
-    await showReview();
+    await showReview("Rejected (0)");
     await expect(rejected).toBeChecked();
     await expect(row).toHaveCount(0);
     const text = await page.locator("body").innerText();
@@ -522,6 +534,7 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     pass("narrowedEmpty", { url: rejectedUrl, copy: text.match(/No rejected observations[^\n]*/i)?.[0] });
     active = "allRestore";
     await all.click();
+    await showReview("All (1)");
     await expect(all).toBeChecked();
     await expect(row).toBeVisible();
     const allUrl = page.url();
@@ -537,7 +550,7 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     pass("reload", { url: page.url() });
     active = "backForward";
     await page.goBack();
-    await showReview();
+    await showReview("Rejected (0)");
     await expect(rejected).toBeChecked();
     assert.equal(page.url(), rejectedUrl);
     await expect(row).toHaveCount(0);
@@ -563,6 +576,7 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     );
     assert.ok(others.length, "FIXTURE_GAP: no other existing scope available");
     await expansion.selectOption(others[0].value);
+    await expect(page).toHaveURL((url) => url.searchParams.get("expansionId") === others[0].value);
     await showReview();
     await expect(row).toHaveCount(0);
     await checkProvider();
@@ -575,6 +589,28 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     pass("providerFree", { server: await monitor.read(), browserExternal, transportUnchanged: true });
     receipt.outcome = "CAPTURE_COMPLETE";
   } catch (error) {
+    save("failure-dom.json", {
+      url: page.url(),
+      text: await page
+        .locator("body")
+        .innerText()
+        .catch(() => "unavailable"),
+      stages: await page
+        .locator("[data-catalog-import-workflow-stage]")
+        .evaluateAll((elements) =>
+          elements.map((element) => ({
+            stage: element.getAttribute("data-catalog-import-workflow-stage"),
+            expanded: element.getAttribute("aria-expanded"),
+          })),
+        )
+        .catch(() => []),
+      radios: await page
+        .getByRole("radio", { includeHidden: true })
+        .evaluateAll((elements) =>
+          elements.map((element) => ({ text: element.textContent, checked: element.getAttribute("aria-checked") })),
+        )
+        .catch(() => []),
+    });
     receipt.outcome = "CAPTURE_INCOMPLETE";
     receipt.error = error instanceof Error ? error.message : String(error);
     assertions[active] = { result: "FAIL", evidence: receipt.error };
