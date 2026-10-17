@@ -110,7 +110,7 @@ export function createCollectionsServices(
     }),
     savedListValuation: createSavedListValuationRuntime(pool),
     savedListReadModels,
-    discovery: createSavedListDiscoveryRuntime({ db, savedLists, productCatalog }),
+    discovery: createSavedListDiscoveryRuntime({ db, pool, savedLists, productCatalog }),
     recovery: createSavedListRecoveryRuntime({ pool, eventStore, productCatalog }),
     savedListSharing,
     savedListSharedAccess: createSavedListSharedAccess({
