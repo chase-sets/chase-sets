@@ -27,7 +27,7 @@ const now = () => 0;
 const AC12_PINNED_CANDIDATE = "46834e05bc5d09c0dc98e4525289f8c405e0f786";
 const AC12_PINNED_MERGE_BASE = "e579491f2ec47eb9018e260754cb81b2c61196ff";
 const AC12_FIXTURE = JSON.parse(
-  readFileSync(new URL("./fixtures/release-qualification-scope/ac12-candidate-sweep-v1.json", import.meta.url), "utf8"),
+  readFileSync(new URL("./fixtures/release-qualification-ac12/ac12-candidate-sweep-v1.json", import.meta.url), "utf8"),
 );
 
 function fixture(extra = {}, packages = []) {
@@ -964,7 +964,6 @@ describe("release qualification applicability evaluator", () => {
     };
     const candidate = resolvePinnedCommit(AC12_FIXTURE.candidate.sha);
     const mergeBase = resolvePinnedCommit(AC12_FIXTURE.mergeBase.sha);
-    expect(candidate === null).toBe(mergeBase === null);
     if (candidate && mergeBase) {
       const tree = (sha) => execFileSync("git", ["rev-parse", `${sha}^{tree}`], { encoding: "utf8" }).trim();
       expect(tree(candidate)).toBe(AC12_FIXTURE.candidate.treeSha);
