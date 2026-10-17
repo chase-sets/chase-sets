@@ -22,7 +22,6 @@ import {
   isOperatorToolAllowed,
   mcpServiceCatalog,
   type McpJsonSchema,
-  type McpJsonSchemaPrimitiveType,
   type McpPermissionBoundary,
   type McpJsonSchemaProperty,
   type McpActor,
@@ -508,6 +507,8 @@ function typeName(value: unknown) {
 
   return typeof value;
 }
+
+type McpJsonSchemaPrimitiveType = Extract<McpJsonSchemaProperty["type"], string>;
 
 function validatePrimitiveType(value: unknown, expected: McpJsonSchemaPrimitiveType) {
   switch (expected) {
