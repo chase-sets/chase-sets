@@ -61,7 +61,7 @@ type TestOrderCommands = Readonly<{
 }>;
 type TestServices = Readonly<{ pool: PgTransactionalPool; orderCommands?: TestOrderCommands }>;
 type TestPorts = {
-  beforeProjectionWrite?: (itemId: string) => Promise<void>;
+  beforeProjectionWrite?: (itemId: string, db: PgQueryable) => Promise<void>;
   failProjectionOnce?: () => boolean;
   failReactionAfterDispatchOnce?: () => boolean;
   createOrderId?: () => string;
@@ -201,7 +201,7 @@ function createItemsSubscription(): BcEventSubscription {
         }
 
         const itemId = String(event.data.itemId);
-        await targetPorts.beforeProjectionWrite?.(itemId);
+        await targetPorts.beforeProjectionWrite?.(itemId, context.db);
         await context.db.query(
           `INSERT INTO projected_items (item_id, seen_count)
            VALUES ($1, 1)
@@ -967,8 +967,7 @@ describeDb("projection operations Postgres integration", () => {
     ]);
     const sourceEventStore = createPostgresEventStore({ pool: pools.source });
     const primaryRunner = runtime.subscriptionRunners[0];
-    const primarySettled = createDeferred<void>();
-    const competingClaim = createLateLedgerClaimPool(pools.target, primarySettled.promise);
+    const competingClaim = createLedgerClaimObserverPool(pools.target);
     const competingRunner = createSubscriptionRunner(
       "target",
       competingClaim.pool,
@@ -978,9 +977,12 @@ describeDb("projection operations Postgres integration", () => {
     const projectionAttempts: string[] = [];
     const firstProjectionStarted = createDeferred<void>();
     const releaseFirstProjection = createDeferred<void>();
+    let primaryBackendPid = 0;
 
-    targetPorts.beforeProjectionWrite = async (itemId) => {
+    targetPorts.beforeProjectionWrite = async (itemId, db) => {
       projectionAttempts.push(itemId);
+      const pidResult = await db.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      primaryBackendPid = Number(pidResult.rows[0]?.pid);
       firstProjectionStarted.resolve();
       await releaseFirstProjection.promise;
     };
@@ -998,13 +1000,22 @@ describeDb("projection operations Postgres integration", () => {
     });
 
     const primaryRun = primaryRunner.runOnce();
-    void primaryRun.then(
-      () => primarySettled.resolve(),
-      () => primarySettled.resolve(),
-    );
     await firstProjectionStarted.promise;
     const competingRun = competingRunner.runOnce();
 
+    // Release only once the competing claim is provably waiting on the primary's
+    // uncommitted ledger row; an unsettled run alone may not have read its checkpoint.
+    await expect(
+      Promise.race([
+        competingClaim.claimSubmitted.promise.then(() => "claim-submitted"),
+        competingRun.then(
+          () => "settled",
+          () => "settled",
+        ),
+      ]),
+    ).resolves.toBe("claim-submitted");
+    const claimWait = await waitForBackendBlock(pools.target, primaryBackendPid, competingClaim.claimBackendPid);
+    expect(claimWait).toMatchObject({ wait_event_type: "Lock", wait_event: "transactionid" });
     await expect(hasSettledWithin(competingRun, 50)).resolves.toBe(false);
     releaseFirstProjection.resolve();
 
@@ -2692,20 +2703,15 @@ function createQueryCapturePool(
   };
 }
 
-// Holds every target query of the wrapped runner until `arrival` resolves, and
-// records the backend that submits its application-ledger claim.
-function createLateLedgerClaimPool(pool: PgTransactionalPool, arrival: Promise<unknown>) {
+// Records the backend that submits the wrapped runner's application-ledger claim.
+function createLedgerClaimObserverPool(pool: PgTransactionalPool) {
   const claimSubmitted = createDeferred<void>();
   let claimBackendPid = 0;
 
-  const latePool: PgTransactionalPool = {
+  const observedPool: PgTransactionalPool = {
     idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
-    query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
-      await arrival;
-      return pool.query<Row>(sql, params);
-    },
+    query: <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => pool.query<Row>(sql, params),
     connect: async () => {
-      await arrival;
       const client = await pool.connect();
       const pidResult = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
       const backendPid = Number(pidResult.rows[0]?.pid);
@@ -2723,7 +2729,7 @@ function createLateLedgerClaimPool(pool: PgTransactionalPool, arrival: Promise<u
   };
 
   return {
-    pool: latePool,
+    pool: observedPool,
     get claimBackendPid() {
       return claimBackendPid;
     },
