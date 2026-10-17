@@ -289,6 +289,9 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           }
         }
         if (ts.isForInStatement(parent) && parent.initializer === current) return UNRESOLVED_ASSIGNMENT_PATTERN;
+        if (ts.isSpreadElement(parent) && ts.isArrayLiteralExpression(parent.parent)) {
+          return mutant === "assignment-unresolved-open" ? NOT_ASSIGNMENT_PATTERN : UNRESOLVED_ASSIGNMENT_PATTERN;
+        }
         if (ts.isBindingElement(parent) && parent.name === current) {
           if (parent.initializer || parent.dotDotDotToken)
             return mutant === "assignment-unresolved-open" ||
@@ -333,7 +336,16 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       } else if (ts.isSpreadAssignment(element)) {
         return checker.getIndexTypeOfType(sourceType, ts.IndexKind.String) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
       }
-      if (key === undefined) return UNRESOLVED_ASSIGNMENT_PATTERN;
+      if (key === undefined) {
+        const computed = element.propertyName ?? element.name;
+        const keyType = computed && ts.isComputedPropertyName(computed) ? typeOf(computed.expression) : undefined;
+        const numeric = keyType && Boolean(keyType.flags & ts.TypeFlags.NumberLike);
+        return (
+          (numeric && checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number)) ??
+          checker.getIndexTypeOfType(sourceType, ts.IndexKind.String) ??
+          UNRESOLVED_ASSIGNMENT_PATTERN
+        );
+      }
       return (
         checker.getTypeOfPropertyOfType(sourceType, key) ??
         checker.getIndexTypeOfType(sourceType, /^\d+$/.test(key) ? ts.IndexKind.Number : ts.IndexKind.String) ??
@@ -349,10 +361,24 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           symbol = undefined;
         }
       } else {
-        const target = ts.isPropertyAssignment(element) ? element.initializer : (element.name ?? element.expression);
+        const target =
+          ts.isPropertyAssignment(element) &&
+          ts.isBinaryExpression(element.initializer) &&
+          element.initializer.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            ? element.initializer.left
+            : ts.isPropertyAssignment(element)
+              ? element.initializer
+              : (element.name ?? element.expression);
         symbol = target && checker.getSymbolAtLocation(target);
       }
-      const fallback = ts.isPropertyAssignment(element) ? element.initializer : (element.name ?? element.expression);
+      const fallback =
+        ts.isPropertyAssignment(element) &&
+        ts.isBinaryExpression(element.initializer) &&
+        element.initializer.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          ? element.initializer.left
+          : ts.isPropertyAssignment(element)
+            ? element.initializer
+            : (element.name ?? element.expression);
       return symbol ? checker.getTypeOfSymbolAtLocation(symbol, element) : typeOf(fallback);
     };
     const inspectPattern = (pattern) => {
@@ -360,13 +386,28 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       const sourceType = assignment === NOT_ASSIGNMENT_PATTERN ? typeOf(pattern) : assignment;
       if (assignment === NOT_ASSIGNMENT_PATTERN && !ts.isObjectBindingPattern(pattern)) return;
       const sourceFamily = sourceType === UNRESOLVED_ASSIGNMENT_PATTERN || (sourceType && isFamily(sourceType));
-      if (!sourceFamily) return;
+      if (!sourceFamily && assignment === NOT_ASSIGNMENT_PATTERN) return;
       const elements = ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties;
       for (const element of elements) {
         const name = element.propertyName ?? element.name;
-        if (name && ts.isComputedPropertyName(name) && !staticKey(name.expression)) reject(name, "FAMILY_DYNAMIC_KEY");
-        if (element.initializer && isFamily(typeOf(element.initializer)))
-          reject(element.initializer, "FAMILY_TYPE_ERASURE");
+        if (sourceFamily && name && ts.isComputedPropertyName(name) && !staticKey(name.expression))
+          reject(name, "FAMILY_DYNAMIC_KEY");
+        const fallbackValue = ts.isBindingElement(element)
+          ? element.initializer
+          : ts.isShorthandPropertyAssignment(element)
+            ? element.objectAssignmentInitializer
+            : ts.isPropertyAssignment(element) &&
+                ts.isBinaryExpression(element.initializer) &&
+                element.initializer.operatorToken.kind === ts.SyntaxKind.EqualsToken
+              ? element.initializer.right
+              : undefined;
+        if (
+          mutant !== "assignment-target-erasure-off" &&
+          fallbackValue &&
+          opaqueType(targetType(element)) &&
+          isFamily(typeOf(fallbackValue))
+        )
+          reject(fallbackValue, "FAMILY_TYPE_ERASURE");
         const target = targetType(element);
         const member = memberType(sourceType, element);
         if (
@@ -376,6 +417,31 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         )
           reject(element.name ?? element, "FAMILY_TYPE_ERASURE");
       }
+    };
+    const inspectArrayPattern = (pattern) => {
+      const sourceType = assignmentSourceType(pattern);
+      if (sourceType === NOT_ASSIGNMENT_PATTERN || mutant === "assignment-target-erasure-off") return;
+      pattern.elements.forEach((element, index) => {
+        if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) return;
+        const isDefault = ts.isBinaryExpression(element) && element.operatorToken.kind === ts.SyntaxKind.EqualsToken;
+        const target = isDefault ? element.left : element;
+        if (ts.isObjectLiteralExpression(target) || ts.isArrayLiteralExpression(target)) return;
+        const symbol = checker.getSymbolAtLocation(target);
+        const targetTypeAtLocation = symbol ? checker.getTypeOfSymbolAtLocation(symbol, target) : typeOf(target);
+        if (!opaqueType(targetTypeAtLocation)) return;
+        const member =
+          sourceType === UNRESOLVED_ASSIGNMENT_PATTERN
+            ? sourceType
+            : (checker.getTypeOfPropertyOfType(sourceType, String(index)) ??
+              checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number) ??
+              UNRESOLVED_ASSIGNMENT_PATTERN);
+        if (
+          member === UNRESOLVED_ASSIGNMENT_PATTERN ||
+          isFamily(member) ||
+          (isDefault && isFamily(typeOf(element.right)))
+        )
+          reject(target, "FAMILY_TYPE_ERASURE");
+      });
     };
     const isContextualSink = (node) => {
       const parent = node.parent;
@@ -418,6 +484,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         } else if (isMemberFunction(typeOf(node))) reject(node, "UNNAMED_FAMILY_MEMBER");
       }
       if (ts.isObjectBindingPattern(node) || ts.isObjectLiteralExpression(node)) inspectPattern(node);
+      if (ts.isArrayLiteralExpression(node)) inspectArrayPattern(node);
       if (ts.isForInStatement(node) && isFamily(typeOf(node.expression))) reject(node, "FAMILY_ENUMERATION");
       if (ts.isForOfStatement(node)) {
         const inspectBinding = (binding) => {

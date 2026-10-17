@@ -437,6 +437,187 @@ const assignmentClosureControls = [
   ],
 ].map(([id, source, reason]) => ({ id, source, reason }));
 
+const briefS3Controls = [
+  [
+    "Y1",
+    'declare const m: Record<string, H>; export function route() { let fn: unknown; ({ s: { [method as "createHold"]: fn } } = m); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y2",
+    'declare const m: { [key: string]: H }; export function route() { let fn: unknown; ({ s: { [method as "createHold"]: fn } } = m); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y3",
+    'export function route(list: H[]) { let fn: unknown; ({ 0: { [method as "createHold"]: fn } } = list); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y3c",
+    'export function route(list: H[]) { let fn: unknown; ({ [0]: { [method as "createHold"]: fn } } = list); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y4",
+    'export function route(svc: H) { let fn: unknown; for ({ [method as "createHold"]: fn } of new Set([svc])); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y5",
+    'function* g(svc: H) { yield svc; } export function route(svc: H) { let fn: unknown; for ({ [method as "createHold"]: fn } of g(svc)); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y6",
+    'declare const items: Iterable<H>; export function route() { let fn: unknown; for ({ [method as "createHold"]: fn } of items); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y7",
+    'export function route(svc: H) { let fn: unknown; [{ [method as "createHold"]: fn }] = new Set([svc]); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Y8",
+    'export function route(svc: H) { let fn: unknown; for ([, { [method as "createHold"]: fn }] of new Map([["s", svc]])); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "G1",
+    'declare const m: { s: H }; export function route() { let fn: unknown; ({ s: { [method as "createHold"]: fn } = {} as Record<string, unknown> } = m); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "G2",
+    'export function route(svc: H) { let fn: unknown; [{ [method as "createHold"]: fn } = {} as Record<string, unknown>] = [svc]; return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "G3",
+    'export function route(svc: H) { let fn: unknown; [...[{ [method as "createHold"]: fn }]] = [svc]; return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "G4",
+    'declare const list: { s: H }[]; export function route() { let fn: unknown; for ({ s: { [method as "createHold"]: fn } = {} as Record<string, unknown> } of list); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "G5",
+    'declare const items: AsyncIterable<H>; export async function route() { let fn: unknown; for await ({ [method as "createHold"]: fn } of items); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "G6",
+    'declare const u: H[] | Set<H>; export function route() { let fn: unknown; for ({ [method as "createHold"]: fn } of u); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "L1",
+    "export function route(svc: H) { let a: unknown; ({ a = svc } = {} as { a?: unknown }); return a; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  ["L2", "export function route() { let a: unknown; ({ holds: a } = services); consume(a); }", "FAMILY_TYPE_ERASURE"],
+  [
+    "L6",
+    "export function route() { let a: any; ({ holds: a } = services); return a[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "L9",
+    "export function route() { let a: any; for ({ holds: a } of [services]); return a[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "L11",
+    "declare const t: [H]; export function route() { let a: any; [a] = t; return a[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "L12",
+    "export function route(svc: H) { let a: any; ({ a = svc } = {} as { a?: unknown }); return a[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "Z1",
+    'export function route(svc: H) { let fn: unknown; ({ [flag ? "s" : "t"]: { [method as "createHold"]: fn } } = { s: svc, t: svc }); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "Z2",
+    'declare const which: "s" | "t"; export function route(svc: H) { let fn: unknown; ({ [which]: { [method as "createHold"]: fn } } = { s: svc, t: svc }); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
+  [
+    "A3",
+    "declare const m: { s: H }; export function route() { let a: any; ({ s: a } = m); return a; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  ["A5", "declare const t: H[]; export function route() { let a: any; [a] = t; return a; }", "FAMILY_TYPE_ERASURE"],
+  [
+    "A6",
+    "export function route(svc: H) { let a: any; ({ a = svc } = {} as { a?: number }); return a; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  ["A19", "export function route(svc: H) { let a: any; [a] = new Set([svc]); return a; }", "FAMILY_TYPE_ERASURE"],
+].map(([id, source, reason]) => ({ id, source, reason }));
+
+const briefS3CleanControls = [
+  [
+    "Y11",
+    'export function route(svc: H) { let fn: unknown; ({ ["s"]: { createHold: fn } } = { s: svc }); return fn; }',
+  ],
+  ["Y12", "export function route(svc: H) { let fn: unknown; ({ 0: { createHold: fn } } = [svc]); return fn; }"],
+  [
+    "Y13",
+    "declare const m: Record<string, H>; export function route() { let fn: unknown; ({ s: { createHold: fn } } = m); return fn; }",
+  ],
+  [
+    "P-NF1",
+    "declare const registry: Record<string, unknown>; export function route() { let v: unknown; ({ [method]: v } = registry); return v; }",
+  ],
+  ["P-S1", 'export function route(svc: H) { let fn: unknown; ({ ["createHold"]: fn } = svc); return fn; }'],
+  [
+    "P-S2",
+    'export function route(svc: H) { const k = "createHold"; let fn: unknown; ({ [k]: fn } = svc); return fn; }',
+  ],
+  [
+    "P-S3",
+    'declare const m: Record<string, H>; export function route() { let fn: unknown; ({ ["s"]: { ["createHold"]: fn } } = m); return fn; }',
+  ],
+  [
+    "T1",
+    'export function route(svc: H) { let fn: H["createHold"]; ({ ["s"]: { createHold: fn } } = { s: svc }); return fn; }',
+  ],
+  ["T2", 'export function route(svc: H) { let fn: H["createHold"]; ({ 0: { createHold: fn } } = [svc]); return fn; }'],
+  [
+    "T3",
+    'declare const m: Record<string, H>; export function route() { let fn: H["createHold"]; ({ s: { createHold: fn } } = m); return fn; }',
+  ],
+  ["T4", "export function route() { let holds: H; ({ holds } = services); return holds; }"],
+  [
+    "T5",
+    "declare const source: number[]; export function route(i: number, j: number) { const rows = [...source]; [rows[i], rows[j]] = [rows[j]!, rows[i]!]; return rows; }",
+  ],
+  [
+    "T6",
+    "declare function write(): Promise<{ digest: string }>; export async function route() { let fileSha256: string; ({ digest: fileSha256 } = await write()); return fileSha256; }",
+  ],
+  [
+    "N15-names",
+    'declare const src: { n: Record<string, number>; s: H }; export function route() { let v: unknown; ({ ["n"]: { [method]: v } } = src); return v; }',
+  ],
+  ["A8", "export function route() { let h: H; ({ holds: h } = services); return h; }"],
+  ["A10", "export function route(fallback: H) { const { holds: h = fallback } = services; return h; }"],
+  ["A11", "export function route({ holds = services.holds }: Partial<InventoryServices>) { return holds; }"],
+  ["A12", "export function route(fallback: H) { let h: H; ({ holds: h = fallback } = services); return h; }"],
+  [
+    "A13",
+    'export function route() { let r: InventoryServices["restockDecisions"]; ({ restockDecisions: r } = services); return r; }',
+  ],
+].map(([id, source]) => ({ id, source }));
+
 async function matrix(cases, run) {
   const fixtures = Object.fromEntries(
     cases.map(({ source, id }, index) => [
@@ -455,6 +636,67 @@ async function matrix(cases, run) {
 function emit(name, data) {
   for (const entry of Array.isArray(data) ? data : [data]) process.stdout.write(`${name} ${JSON.stringify(entry)}\n`);
 }
+
+describe("issue-7169-destructuring-assignment-closure", () => {
+  it("keeps the brief's S3 controls compile-clean and rejected", async () => {
+    await matrix(briefS3Controls, ({ root, roots, program, families, fixtures }) => {
+      const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
+      for (const [index, control] of briefS3Controls.entries()) {
+        const file = Object.keys(fixtures)[index];
+        const source = program.getSourceFile(path.join(root, file));
+        expect(program.getSyntacticDiagnostics(source), control.id).toEqual([]);
+        expect(program.getSemanticDiagnostics(source), control.id).toEqual([]);
+        expect(
+          result.diagnostics.some(
+            ({ file: diagnosticFile, reason }) => diagnosticFile === file && reason === control.reason,
+          ),
+          control.id,
+        ).toBe(true);
+      }
+      emit("s3-brief-controls", { total: briefS3Controls.length, rejected: result.diagnostics.length });
+    });
+  });
+
+  it("keeps the brief's S3 precision controls compile-clean and admitted", async () => {
+    await matrix(briefS3CleanControls, ({ root, roots, program, families, fixtures }) => {
+      const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
+      for (const [index, control] of briefS3CleanControls.entries()) {
+        const file = Object.keys(fixtures)[index];
+        const source = program.getSourceFile(path.join(root, file));
+        expect(program.getSyntacticDiagnostics(source), control.id).toEqual([]);
+        expect(program.getSemanticDiagnostics(source), control.id).toEqual([]);
+        expect(
+          result.diagnostics.some(({ file: diagnosticFile }) => diagnosticFile === file),
+          control.id,
+        ).toBe(false);
+      }
+      emit("s3-brief-clean", { total: briefS3CleanControls.length, admitted: briefS3CleanControls.length });
+    });
+  });
+
+  it.each([
+    ["assignment-source-syntactic", ["Y1", "Y2", "Y3", "Y3c", "Y4", "Y5", "Y6", "Y7", "Y8"]],
+    ["assignment-unresolved-open", ["G1", "G2", "G3", "G4"]],
+    ["assignment-default-trusted", ["G1", "G2", "G4"]],
+    ["assignment-target-erasure-off", ["L1", "L2", "L6", "L9", "L11", "L12"]],
+  ])("kills the %s S3 bypass", async (mutant, ids) => {
+    const controls = briefS3Controls.filter(({ id }) => ids.includes(id));
+    await matrix(controls, ({ root, roots, program, families, fixtures }) => {
+      const options = { repoRoot: root, roots, program, families };
+      const result = analyzeInventoryDynamicDispatch({ ...options, mutant });
+      for (const [index, control] of controls.entries()) {
+        const file = Object.keys(fixtures)[index];
+        expect(
+          result.diagnostics.some(
+            ({ file: diagnosticFile, reason }) => diagnosticFile === file && reason === control.reason,
+          ),
+          `${mutant}:${control.id}`,
+        ).toBe(true);
+      }
+      emit("s3-mutant", { mutant, controls: controls.map(({ id }) => id), result: "KILLED" });
+    });
+  });
+});
 
 // Prepare the tracked Program once, as in authoritative-stream-read-classification.test.mjs.
 const roots = enumerateTrackedRoots(repoRoot);
