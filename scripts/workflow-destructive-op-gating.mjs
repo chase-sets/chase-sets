@@ -1983,11 +1983,15 @@ function plainBindings(name, writers, use, context, seen) {
     const header = readLoop(owner);
     if (!header || header.ifs !== "IFS=" || header.targets.length !== 1)
       return refused(`${name} loop header is not LI`);
-    return proof.lead || proof.premise === "L3-T" || proof.premise === "LI"
-      ? proof.lead
+    if (proof.lead) return proof;
+    // A single admitted producer feeding one plain `read -r` target is the
+    // finite LI output closure.  Its producer is already checked as a benign
+    // command substitution; promote only that residual output here.
+    return proof.premise === "L3-T"
+      ? leadProof("LI", proof.dependencies)
+      : proof.premise === "LI"
         ? proof
-        : { ...proof, premise: "LI" }
-      : refused(`${name} read-loop binding is not admitted output`);
+        : refused(`${name} read-loop binding is not admitted output`);
   }
   if (["then", "else", "arm", "group"].includes(role)) return { ...proof, premise: "LS" };
   return refused(`${name} binding context is unsupported`);

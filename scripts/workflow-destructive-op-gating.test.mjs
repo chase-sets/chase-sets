@@ -1650,7 +1650,7 @@ describe("origin-bound sed directories", () => {
         "TMPDIR assignment": 'TMPDIR="-e"\n' + run,
         "TMPDIR export": 'export TMPDIR="-e"\n' + run,
         "quoted export TMPDIR": '"export" TMPDIR="-e"\n' + run,
-        "PATH export": 'export PATH="' + directory.file + '"\n' + run,
+        "PATH export": 'export PATH="-e"\n' + run,
         "read rebinding": change(sedCommand("$tmp/versions.tf"), `read -r tmp\n${sedCommand("$tmp/versions.tf")}`),
         "conditional binding": change('tmp="$(mktemp -d)"', 'if true; then tmp="$(mktemp -d)"; fi'),
         "piped binding": change('tmp="$(mktemp -d)"', 'true | tmp="$(mktemp -d)"'),
