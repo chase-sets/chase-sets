@@ -23,7 +23,7 @@
       "sourceContextName": "identity",
       "projectionName": "settlement-payout-review-hold-migration",
       "subscriptionVersion": 1,
-      "subscriptionName": "settlement-payout-review-hold-migration",
+      "subscriptionName": "settlement.identity-payout-review-hold-migration",
       "filterToEventTypes": true,
       "eventTypes": ["identity.account.badge-assigned", "identity.account.badge-removed"],
       "order": 21,
@@ -830,7 +830,10 @@
       },
       "proof": {
         "authoritativeResponse": "Place and release return the aggregate command outcome and stream version.",
-        "tests": ["bounded-contexts/settlement/features/wallets/domain/payout-review-hold.test.ts"]
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/domain/payout-review-hold.test.ts",
+          "bounded-contexts/settlement/features/wallets/api/payout-review-hold-route.test.ts"
+        ]
       }
     },
     {
@@ -846,7 +849,10 @@
       },
       "proof": {
         "authoritativeResponse": "The Settlement hold route returns the aggregate outcome and version; the workbench never treats projection state as command authority.",
-        "tests": ["bounded-contexts/settlement/features/wallets/domain/payout-review-hold.test.ts"]
+        "tests": [
+          "bounded-contexts/settlement/features/wallets/api/payout-review-hold-route.test.ts",
+          "bounded-contexts/settlement/features/wallets/ui/wallet-workbench-page.test.tsx"
+        ]
       }
     },
     {

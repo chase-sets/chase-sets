@@ -71,13 +71,16 @@ export const decidePayoutReviewHold: AggregateDecider<
 > = (state, command) => {
   if (state.accountId !== null && state.accountId !== command.accountId)
     throw new Error("Payout review hold stream account does not match command.");
+  const data = payload(command);
+  // Badge migration only converges a hold no operator or risk alert has decided, and never writes a tombstone.
+  if (command.source === "badge-migration" && state.hasNonMigrationEvent) return [];
   if (command.type === "PlacePayoutReviewHold") {
-    if (state.active) return [];
-    if (command.source === "badge-migration" && state.hasNonMigrationEvent) return [];
-    return [{ type: payoutReviewHoldFactTypes.placed, data: payload(command) }];
+    return state.active ? [] : [{ type: payoutReviewHoldFactTypes.placed, data }];
   }
-  if (state.active) return [{ type: payoutReviewHoldFactTypes.released, data: payload(command) }];
-  if (!state.streamExists) return [{ type: payoutReviewHoldFactTypes.released, data: payload(command) }];
+  if (state.active) return [{ type: payoutReviewHoldFactTypes.released, data }];
+  if (!state.streamExists && command.source !== "badge-migration") {
+    return [{ type: payoutReviewHoldFactTypes.released, data }];
+  }
   return [];
 };
 

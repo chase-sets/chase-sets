@@ -347,7 +347,7 @@ describe("platform worker projection wake interest graph", () => {
       fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
     ).toEqual({
       count: 258,
-      sha256: "ea5f736df518b9ad31f03ef027dabdafefc6239aab424af3fd5d359c2ce686ba",
+      sha256: "fec827319f92e563dc9597ca0becd23a69bd83033c2da8c879ead71f022f6c1d",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -376,7 +376,7 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 258,
-      sha256: "bb090e58fdef7ce588982ff773502ccf073aae40200f99fa42a5f873c4d08608",
+      sha256: "6460c03abc7a8e37c688909d1877e67d8e90276d926dc3a99e41e7fb1bda4a4c",
     });
     expect(
       fingerprint(
@@ -387,7 +387,7 @@ describe("platform worker projection wake interest graph", () => {
       ),
     ).toEqual({
       count: 161,
-      sha256: "a1a67864f7d362208aa1609347f45c8356298e67f62304b8c126d43f00e2a581",
+      sha256: "8e3ce7ec3af9763ae8d2602228610b67aab5111a28d8bde9ed112092972559c8",
     });
     expect({
       count: rawCheckpointIdentities.length,
