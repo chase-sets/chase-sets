@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -81,6 +82,98 @@ describeDb("durable Saved List recovery", () => {
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("records recovery events only after the transaction commits", async () => {
+    const { service, sending } = await ready();
+    const observed = await runWithEventCommitMetadata(async () => {
+      const result = await service.apply({ operationId: sending.operationId, revision: sending.revision }, context);
+      return { result, metadata: getEventCommitMetadata() };
+    });
+    const stored = await pools.collections.query<{ event_id: string; global_position: string }>(
+      "SELECT event_id, global_position::text FROM event_store_events ORDER BY global_position",
+    );
+    expect(observed.result).toMatchObject({ status: "applied" });
+    expect(observed.metadata.sources).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: stored.rows.map((event) => event.event_id),
+        maxGlobalPosition: stored.rows.at(-1)!.global_position,
+      },
+    ]);
+  });
+
+  it("records only the retry events when the first recovery attempt rolls back", async () => {
+    const prepared = await ready();
+    const baseStore = createPostgresEventStore({ pool: pools.collections });
+    let appends = 0;
+    const retrying = createSavedListRecoveryRuntime({
+      pool: pools.collections,
+      eventStore: {
+        ...baseStore,
+        appendToStreamInTransaction: async (client, input) => {
+          const stored = await baseStore.appendToStreamInTransaction(client, input);
+          appends += 1;
+          if (appends === 1) throw Object.assign(new Error("synthetic concurrency"), { code: "concurrency_conflict" });
+          return stored;
+        },
+      },
+      productCatalog: catalog,
+      clock: () => clock,
+      enabled: true,
+    });
+    const observed = await runWithEventCommitMetadata(async () => {
+      const result = await retrying.apply(
+        { operationId: prepared.sending.operationId, revision: prepared.sending.revision },
+        context,
+      );
+      return { result, metadata: getEventCommitMetadata() };
+    });
+    const stored = await pools.collections.query<{ event_id: string }>(
+      "SELECT event_id FROM event_store_events ORDER BY global_position",
+    );
+    expect(appends).toBe(2);
+    expect(observed.result).toMatchObject({ status: "applied" });
+    expect(observed.metadata.eventIds).toEqual(stored.rows.map((event) => event.event_id));
+  });
+
+  it("does not expose metadata when commit fails after an inner append", async () => {
+    const { sending } = await ready();
+    const failure = new Error("synthetic commit failure");
+    const failingPool: PgTransactionalPool = {
+      query: pools.collections.query.bind(pools.collections),
+      idleInTransactionSessionTimeoutMillis: pools.collections.idleInTransactionSessionTimeoutMillis,
+      connect: async () => {
+        const client = await pools.collections.connect();
+        return {
+          release: client.release.bind(client),
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (sql === "COMMIT") throw failure;
+            return client.query<Row>(sql, values);
+          },
+        };
+      },
+    };
+    const failing = createSavedListRecoveryRuntime({
+      pool: failingPool,
+      eventStore: createPostgresEventStore({ pool: failingPool }),
+      productCatalog: catalog,
+      clock: () => clock,
+      enabled: true,
+    });
+    const observed = await runWithEventCommitMetadata(async () => {
+      const error = await failing.apply({ operationId: sending.operationId, revision: sending.revision }, context).then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+      return { error, metadata: getEventCommitMetadata() };
+    });
+    expect(observed.error).toBe(failure);
+    expect(observed.metadata.eventIds).toEqual([]);
+    expect(
+      (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+        .rows[0]?.count,
+    ).toBe("0");
   });
 
   it("direct-recovery-without-browser-state", async () => {

@@ -1,4 +1,9 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import {
+  getEventCommitMetadata,
+  recordCommittedEvents,
+  runWithEventCommitMetadata,
+} from "@chase-sets/event-core/consistency";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   withPgTransaction,
@@ -451,46 +456,51 @@ export function createSavedListRecoveryRuntime(
           },
         };
         try {
-          return await withPgTransaction(transactionPool, async (db) => {
-            const row = await readRow(db, input.operationId, owner, true);
-            if (!row) throw new SavedListRecoveryError("not-found");
-            if (row.status === "expired") throw new SavedListRecoveryError("expired");
-            if (row.send_revision !== input.revision || row.fingerprint !== before.fingerprint)
-              throw new SavedListRecoveryError("conflict");
-            const found = await receipt(db, row, context);
-            if (found) return output(row, found);
-            if (row.status !== "possible-send" || new Date(row.expires_at).getTime() <= now().getTime())
-              throw new SavedListRecoveryError("expired");
-            await lockIntent(db, row);
-            const request = row.request!;
-            const runtime = boundRuntime(db, validatedCatalog);
-            if (request.destination.kind === "new")
-              await runtime.createSavedList(
-                {
-                  commandId: request.destination.createCommandId,
-                  listId: request.destination.listId,
-                  ownerAccountId: owner,
-                  title: request.destination.title,
-                },
+          const committed = await runWithEventCommitMetadata(async () => {
+            const result = await withPgTransaction(transactionPool, async (db) => {
+              const row = await readRow(db, input.operationId, owner, true);
+              if (!row) throw new SavedListRecoveryError("not-found");
+              if (row.status === "expired") throw new SavedListRecoveryError("expired");
+              if (row.send_revision !== input.revision || row.fingerprint !== before.fingerprint)
+                throw new SavedListRecoveryError("conflict");
+              const found = await receipt(db, row, context);
+              if (found) return output(row, found);
+              if (row.status !== "possible-send" || new Date(row.expires_at).getTime() <= now().getTime())
+                throw new SavedListRecoveryError("expired");
+              await lockIntent(db, row);
+              const request = row.request!;
+              const runtime = boundRuntime(db, validatedCatalog);
+              if (request.destination.kind === "new")
+                await runtime.createSavedList(
+                  {
+                    commandId: request.destination.createCommandId,
+                    listId: request.destination.listId,
+                    ownerAccountId: owner,
+                    title: request.destination.title,
+                  },
+                  context,
+                );
+              const snapshot = await runtime.getOwnerSnapshot(
+                { listId: request.destination.listId, ownerAccountId: owner },
                 context,
               );
-            const snapshot = await runtime.getOwnerSnapshot(
-              { listId: request.destination.listId, ownerAccountId: owner },
-              context,
-            );
-            if (!snapshot) throw new SavedListRecoveryError("not-found");
-            const result = await runtime.applyLineChanges(lineInput(row, snapshot.version), context);
-            const applied = result.receipt.lineResults.some((line) => line.status !== "rejected");
-            const terminal = await update(
-              db,
-              row,
-              applied ? "applied" : "rejected",
-              true,
-              applied ? null : (result.receipt.lineResults[0]?.error?.code ?? null),
-            );
-            await finishIntent(db, row, !applied);
-            return output(terminal, applied ? result : null);
+              if (!snapshot) throw new SavedListRecoveryError("not-found");
+              const result = await runtime.applyLineChanges(lineInput(row, snapshot.version), context);
+              const applied = result.receipt.lineResults.some((line) => line.status !== "rejected");
+              const terminal = await update(
+                db,
+                row,
+                applied ? "applied" : "rejected",
+                true,
+                applied ? null : (result.receipt.lineResults[0]?.error?.code ?? null),
+              );
+              await finishIntent(db, row, !applied);
+              return output(terminal, applied ? result : null);
+            });
+            return { result, committedEvents: getEventCommitMetadata().committedEvents };
           });
+          recordCommittedEvents(committed.committedEvents, "collections");
+          return committed.result;
         } catch (error) {
           if (!(error instanceof SavedListConcurrencyConflictError) || attempt === 1) throw error;
           if (!rolledBack) throw new SavedListRecoveryError("conflict");
