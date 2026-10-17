@@ -1427,7 +1427,12 @@ function proveText(text, site, context, seen) {
       return leadProof("L3");
     case "expression": {
       const roots = expressionRoots(lead.body);
-      if (!roots || roots.inputs.length) return refused(`unproved expression root ${lead.body}`);
+      if (!roots) return refused(`unproved expression root ${lead.body}`);
+      if (roots.inputs.length) {
+        return context?.legacyEnvelope
+          ? provenanceProof("LX", [`\${{ ${lead.body} }}`], roots.inputs)
+          : refused(`unproved expression root ${lead.body}`);
+      }
       // Every name the suffix expands is separately proved at the site.
       const suffix = [...lead.rest.matchAll(/\$\{?([A-Za-z_]\w*)\}?/g)].map(([, name]) => name);
       if (/[`]|\$\(|\$\{\{|\$[^A-Za-z_{]/.test(lead.rest)) return refused("unsupported expression suffix");
@@ -1677,6 +1682,8 @@ function proveDeclared(name, site, context) {
   const rest = value.slice(end + 2);
   if (roots.inputs.length) {
     if (rest) return refused(`${name} input is not the whole declaration`);
+    if (context.legacyEnvelope)
+      return provenanceProof("L4-T", [`${name}=${value}`], [name, ...roots.inputs]);
     return guardedInput(name, site, context);
   }
   if (roots.roots.length === 1 && /^job\.services\.[\w-]+\.id$/.test(roots.roots[0]) && !rest)
@@ -1962,7 +1969,15 @@ function plainBindings(name, writers, use, context, seen) {
   if (role === "root") return { ...proof, premise: use.scope === root ? "L3" : "LS" };
   if (owner.kind === "for") {
     if (!finiteIterator(owner, use.scope, context, seen)) return refused(`${name} loop is not a finite literal loop`);
-    return proof.lead ? { ...proof, premise: "LB" } : refused(`${name} loop binding proves provenance only`);
+    // A temporary-directory producer is a bounded lead for the workflow
+    // closures that consume it as a data path.  It is not a proof that a
+    // direct `cd` target is safe: changing the process root is itself the
+    // destructive boundary under review, so keep that loop binding refused.
+    if (proof.premise === "T2" && use.node?.command?.words?.[0]?.value === "cd")
+      return refused(`${name} loop binding proves provenance only`);
+    return context.legacyEnvelope || proof.lead
+      ? { ...proof, premise: "LB" }
+      : refused(`${name} loop binding proves provenance only`);
   }
   if (owner.kind === "while" && role === "body") {
     const header = readLoop(owner);
@@ -2040,7 +2055,8 @@ function conditionalBindings(name, statements, proofs, use, context) {
   const loop = base.list.parent;
   if (base.list.role === "body" && loop?.kind === "for") {
     if (!finiteIterator(loop, use.scope, context, new Set())) return refused(`${name} loop is not finite`);
-    if (!proofs.every((proof) => proof.proved && proof.lead)) return refused(`${name} loop writer is not a safe lead`);
+    if (!context.legacyEnvelope && !proofs.every((proof) => proof.proved && proof.lead))
+      return refused(`${name} loop writer is not a safe lead`);
     return joined(
       "LC-B",
       proofs.filter((_, index) => reaching.includes(statements[index])),
@@ -2122,7 +2138,9 @@ function finiteArray(name, site, context, seen = new Set()) {
       );
   }
   const proof = joined("LE", proofs);
-  return proof.proved && !proof.lead ? refused(`${name} element proves provenance only`) : proof;
+  return proof.proved && !proof.lead && !context.legacyEnvelope
+    ? refused(`${name} element proves provenance only`)
+    : proof;
 }
 
 // `while <IFS assignment> read -r TARGET...` as the whole loop condition.
@@ -2207,9 +2225,12 @@ function readTarget(name, writer, use, context, seen) {
   // A whole-language guard on the read target upgrades this otherwise
   // provenance-only row without trusting the producer's external output.
   const guarded = guardedInput(name, use, context);
-  return guarded.proved
-    ? { ...guarded, dependencies: [name, ...proof.dependencies] }
-    : guardedRunBinding(name, proof, use, root);
+  if (guarded.proved) return { ...guarded, dependencies: [name, ...proof.dependencies] };
+  // The exact LR header, one quoted `gh issue list` substitution, and the
+  // fixed number/title projection form a finite validated output binding.
+  // Promote that result to LI so the first field may occupy an option-capable
+  // terminal position without treating arbitrary tool output as a lead.
+  return leadProof("LI", [name, producerName, ".number", ".title"]);
 }
 
 // LL / LP: `local NAME=value` alone at its function body's statement level,
@@ -2230,7 +2251,11 @@ function localBinding(name, writer, use, context, seen) {
   if (positional) return positionalActuals(functionNode, Number(positional[1]), root, context, seen);
   const proof = proveText(writer.value, siteOf(writer.scope, writer.node), context, seen);
   if (!proof.proved) return proof;
-  return proof.lead ? { ...proof, premise: "LL" } : refused(`${name} local proves provenance only`);
+  return context.legacyEnvelope || proof.lead
+    ? proof.lead
+      ? { ...proof, premise: "LL" }
+      : proof
+    : refused(`${name} local proves provenance only`);
 }
 
 // LP: the nth single-word actual of every direct same-run call, each proved a
@@ -2249,7 +2274,9 @@ function positionalActuals(functionNode, position, root, context, seen) {
     return proveText(actual.value, siteOf(scope, node), context, seen);
   });
   const proof = joined("LP", proofs);
-  return proof.proved && !proof.lead ? refused("positional actual proves provenance only") : proof;
+  return proof.proved && !proof.lead && !context.legacyEnvelope
+    ? refused("positional actual proves provenance only")
+    : proof;
 }
 
 // The F4 lead proof for `word` at the context's site. The shared trace
@@ -2267,9 +2294,12 @@ function proveOperand(word, context) {
   }
   const proof = proveText(word.value, context?.site ?? null, context ?? {}, context?.seen ?? new Set());
   // The F4 envelope admits only a lead proof at option-capable operand and
-  // resource positions.  Provenance-only proofs are retained in the trace
-  // for the R handoff but do not authorize execution.
-  const proved = proof.proved && proof.lead && !(proof.nullable && !proof.nonemptyUse);
+  // resource positions. The immutable `from` side of an origin transition is
+  // checked under the pre-envelope semantics so both witnesses remain valid.
+  const proved =
+    proof.proved &&
+    (context?.legacyEnvelope === true || proof.lead) &&
+    !(proof.nullable && !proof.nonemptyUse);
   context?.trace?.proofs.push({
     entry: context.entry,
     word: word.raw ?? word.value,
@@ -2510,6 +2540,21 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
         );
       } else {
         if (!variadicWord(word) && ++operands > shape.operands) return false;
+        if (word.dynamic && !variadicWord(word) && shape.values && context?.site) {
+          // Data positions stay admissible without a lead proof, but retain
+          // their provenance-only witness for the R handoff inventory.
+          const proof = proveText(word.value, context?.site ?? null, context ?? {}, context?.seen ?? new Set());
+          if (proof.proved)
+            context.trace?.proofs.push({
+              entry: context.entry,
+              word: word.raw ?? word.value,
+              index: word.index,
+              ...(proof.lead
+                ? provenanceProof("LX", [word.raw ?? word.value], proof.dependencies)
+                : proof),
+              proved: true,
+            });
+        }
         if (word.dynamic && !variadicWord(word) && !shape.values && !proveOperand(word, context)) return false;
         index += 1;
       }
@@ -3474,6 +3519,18 @@ export function storedOccurrenceProofs(entry, grammar = DESTRUCTIVE_GRAMMAR) {
 const originKey = ({ sha, path, job, step }) => `${sha}\u0000${path}\u0000${job}\u0000${step}`;
 const originScopes = new WeakMap();
 
+// Transition witnesses are intentionally checked twice: the current record
+// under the lead-only envelope and its immutable `from` record under the
+// pre-envelope semantics. The latter is inferred from the grammar's current
+// same-ID transition so callers cannot opt an arbitrary corpus row out of F4.
+function isLegacyTransitionOrigin(entry, grammar) {
+  if (entry?.transition || !entry?.origin) return false;
+  const current = (grammar.benignForms ?? []).find(
+    (candidate) => candidate.id === entry.id && candidate.transition?.from,
+  );
+  return Boolean(current && originKey(current.transition.from) === originKey(entry.origin));
+}
+
 // The stored origin record of an entry: its LF run text and the step, job
 // and workflow env maps at that origin, self-hashed. Absent or altered
 // records prove nothing.
@@ -3520,6 +3577,7 @@ function originSites(entry, grammar) {
       sites.push({
         ...siteContext(scope, command, {
           origin: witness,
+          legacyEnvelope: isLegacyTransitionOrigin(entry, grammar),
           directories: directories
             .filter(({ after }) => after < (command.words[0]?.index ?? -1) + scope.offset)
             .map(({ operand }) => operand),
@@ -3540,7 +3598,7 @@ function originSites(entry, grammar) {
 // origin-bound directory operands it proves.
 function roleViolations(entry, words, grammar, context) {
   const covered =
-    [...words.map((word) => word.value), ...(entry.input ?? [])].some(containsCoveredToken) ||
+    [...words.slice(1).map((word) => word.value), ...(entry.input ?? [])].some(containsCoveredToken) ||
     words.some((word, index) => {
       if ((hopSelector(word) ?? basename(word.value)) !== "node") return false;
       const result = classifyCommand({ words: words.slice(index), redirects: [], assignments: [] }, grammar);
@@ -3788,12 +3846,25 @@ export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR, env 
 // A complete run block. Only a block that is exactly an origin witness carries
 // that witness, and only into its proved substitution occurrence.
 function classifyRun(run, grammar, proof, env = {}) {
-  const witness = runOriginWitness(run);
+  // Shell CRLF is equivalent to LF for lexical scopes and statement indexes.
+  // Normalize before lexing so nested witness occurrences retain the same
+  // scope boundaries as the immutable origin record.
+  const normalizedRun = run.replaceAll("\r\n", "\n");
+  const witness = runOriginWitness(normalizedRun);
   const trace = { unsited: false, proofs: [] };
   // Keep the live/transition guard text for proof dominance while carrying the
   // normalized witness only as origin authority. Replacing the guarded run
   // with the pre-transition witness would silently discard every new guard.
-  const result = classifyProvedRun(run, grammar, proof, witness, witness, lexicalScope(run), env, trace);
+  const result = classifyProvedRun(
+    normalizedRun,
+    grammar,
+    proof,
+    witness,
+    witness,
+    lexicalScope(normalizedRun),
+    env,
+    trace,
+  );
   return { ...result, proofs: trace.proofs };
 }
 

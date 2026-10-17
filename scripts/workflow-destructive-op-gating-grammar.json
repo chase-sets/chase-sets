@@ -27254,6 +27254,7 @@
         }
       ],
       "example": "git show \"${{ needs.resolve-release.outputs.release_commit }}:${source_path}\"",
+      "dataOperands": true,
       "origin": {
         "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",

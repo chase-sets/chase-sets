@@ -199,7 +199,8 @@ function siteFixture(candidate, env = emptyEnv, extras = []) {
     const origin = { ...syntheticOrigin, step: position + 1 };
     if (position) records.push(storedOrigin(origin, run, env));
     for (const unknown of classifyShellCommands(run, { env }).indeterminate) {
-      if (unknown.reason !== "unlisted executable form" || !unknown.command) continue;
+      if (!new Set(["unlisted executable form", "unlisted Terraform command"]).has(unknown.reason) || !unknown.command)
+        continue;
       const words = unknown.command.words.map(({ value, dynamic, quoted }) => ({ value, dynamic, quoted }));
       const input = unknown.command.redirects
         .filter(({ target }) => target?.body !== undefined)
@@ -1289,8 +1290,9 @@ describe("origin-proved dynamic package selection", () => {
       id: originIds[1],
       file: productionFile,
       job: "build-image",
-      bytes: 1638,
-      sha256: "fb2ed0ee188f938991ce89b677bbe174cfdee0845a6d09468c7fe0e8b6ecb898",
+      bytes: 1744,
+      sha256: "ae27f4e536a6d784443e1a88e648e596fb1c1ac46deb390c7be98c3fcf97ed3d",
+      originSha: "991a1d8586da9405dcdec26e4f02e40ee93ba420",
     },
   ];
   // YAML-decoded, as the detector receives a step's run text.
@@ -1370,7 +1372,12 @@ describe("origin-proved dynamic package selection", () => {
     "C1 the complete origin block admits its preserved entry: %s",
     (_file, block) => {
       const entry = entryOf(block);
-      expect(entry.origin).toEqual({ sha: corpusSha, path: block.file, job: block.job, step: 7 });
+      expect(entry.origin).toEqual({
+        sha: block.originSha ?? corpusSha,
+        path: block.file,
+        job: block.job,
+        step: 7,
+      });
       expect(entry.id).toBe(sha256(JSON.stringify({ selector: entry.selector, words: entry.words })));
       const run = blockRun(block);
       const env = blockEnv(block);
@@ -2012,7 +2019,11 @@ describe("site-proved F4 operand leads", () => {
   ];
   it.each(f4RedRows)("F4 RED %s", (_label, run, env) => {
     const fixture = siteFixture(run, env);
-    const target = fixture.target(run.split("\n").at(-1));
+    // `siteFixture.target` compares the parser's normalized word values,
+    // while these controls intentionally keep their quoted shell spelling.
+    // Resolve the same command by removing only those protecting quotes;
+    // dynamic values and their identities remain unchanged.
+    const target = fixture.target(run.split("\n").at(-1).replaceAll('"', ""));
     expect(target).toBeDefined();
     expectSiteRefused(fixture, target, run, env);
   });
@@ -2480,10 +2491,17 @@ describe("#8993 origin transitions at landed H", () => {
     }
     const bySha = {};
     for (const { origin } of DESTRUCTIVE_GRAMMAR.benignForms) bySha[origin.sha] = (bySha[origin.sha] ?? 0) + 1;
-    // 674 historical entries + the prior fresh-base append = 675; H removes 4
-    // and appends 4 (t = 11 move in place); this base appends 36.
-    expect(bySha).toEqual({ [corpusSha]: 674 - 11 - 4, [landed]: 11 + 4, [priorBase]: 1, [freshBase]: 36 });
-    expect(DESTRUCTIVE_GRAMMAR.benignForms).toHaveLength(675 - 4 + 4 + 36);
+    // The landed H transitions retain fifteen identities, this head adds the
+    // thirty-eight #9862 same-ID guards, and the two fresh-base append sets
+    // remain intact.
+    expect(bySha).toEqual({
+      [corpusSha]: 621,
+      "991a1d8586da9405dcdec26e4f02e40ee93ba420": 38,
+      [landed]: 15,
+      [priorBase]: 1,
+      [freshBase]: 36,
+    });
+    expect(DESTRUCTIVE_GRAMMAR.benignForms).toHaveLength(711);
   });
 
   it("every removed pre-H shape is absent from every live workflow", () => {
