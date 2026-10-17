@@ -83,6 +83,7 @@ export type CheckoutAddressDefaults = Readonly<{
 }>;
 
 export type CheckoutSessionPageProps = {
+  expiredCheckout?: boolean;
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
   walletUnavailable?: boolean;
