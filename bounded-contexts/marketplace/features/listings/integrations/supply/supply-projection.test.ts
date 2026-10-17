@@ -219,6 +219,22 @@ describe("marketplace account projection", () => {
     }
   });
 
+  it("fires lifecycle fan-out only after a winning fenced status write", async () => {
+    const db = { query: vi.fn(async () => ({ rows: [{ account_id: "acc_compat" }] })) };
+    const onAccountStatusChanged = vi.fn(async () => undefined);
+    const handlers = buildMarketplaceAccountProjectionHandlers(db as never, { onAccountStatusChanged });
+    await handlers["identity.account.suspended"]!(
+      event("identity.account.suspended", {}, "identity.account-acc_compat"),
+    );
+    expect(onAccountStatusChanged).toHaveBeenCalledOnce();
+    onAccountStatusChanged.mockClear();
+    db.query.mockResolvedValue({ rows: [] });
+    await handlers["identity.account.reactivated"]!(
+      event("identity.account.reactivated", {}, "identity.account-acc_compat"),
+    );
+    expect(onAccountStatusChanged).not.toHaveBeenCalled();
+  });
+
   it("projects account badges used by high-dollar listing publication policy", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

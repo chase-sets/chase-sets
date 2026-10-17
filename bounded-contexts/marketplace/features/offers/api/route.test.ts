@@ -662,14 +662,18 @@ describe("buyer Offer lifecycle routes", () => {
     permissions,
   });
 
-  async function lifecycleApps(offerIds: Readonly<Record<string, string>>, lifecycleOpen = true) {
+  async function lifecycleApps(
+    offerIds: Readonly<Record<string, string>>,
+    lifecycleOpen = true,
+    buyerAccountStatus: string | null = null,
+  ) {
     const eventStore = createInMemoryEventStore().eventStore;
     const appendToStreams = vi.spyOn(eventStore, "appendToStreams");
     const appendToStream = vi.spyOn(eventStore, "appendToStream");
     const services = createMarketplaceOfferRuntime({
       ...(lifecycleOpen ? { offerLifecycleAdmission: { check: async () => ({ admitted: true }) as const } } : {}),
       eventStore,
-      db: { query: vi.fn(async () => ({ rows: [] })) },
+      db: { query: vi.fn(async () => ({ rows: buyerAccountStatus ? [{ account_status: buyerAccountStatus }] : [] })) },
       checkpointStore: {} as never,
       commercialTermsResolver: {} as never,
     });
@@ -797,6 +801,18 @@ describe("buyer Offer lifecycle routes", () => {
     await expect(accept.json()).resolves.toMatchObject({
       error: { code: "offer_not_open", details: { status: "paused" } },
     });
+  });
+
+  it("hides the buyer account status when accepting a suspended buyer Offer", async () => {
+    const { seller } = await lifecycleApps({ off_1: "acc_buyer" }, true, "suspended");
+    const accept = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+    });
+    expect(accept.status).toBe(409);
+    const body = await accept.json();
+    expect(body).toMatchObject({ error: { code: "offer_not_open" } });
+    expect(body.error.details).not.toHaveProperty("accountStatus");
   });
 
   it("hides another buyer's Offer from single lifecycle commands", async () => {

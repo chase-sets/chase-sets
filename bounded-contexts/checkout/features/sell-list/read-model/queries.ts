@@ -13,7 +13,7 @@ type CheckoutCommercialAccountType = "personal" | "business" | "enterprise";
 function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string): string {
   return `${offerAlias}.status = 'submitted'
     AND ${offerAlias}.price_currency_code IS NOT NULL
-    AND ${offerAlias}.offer_stream_version > 0
+    AND ${offerAlias}.last_stream_version > 0
     AND ${accountAlias}.status = 'active'`;
 }
 

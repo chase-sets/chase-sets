@@ -470,6 +470,12 @@ describeDb("checkout preview lifecycle", () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(checkoutModule, pools.checkout);
     await bootstrapContextDatabase(orderingModule, pools.ordering);
+    await pools.ordering.query(
+      `INSERT INTO ordering_account_pages (account_id, display_name, status)
+       VALUES ($1, $1, 'active')
+       ON CONFLICT (account_id) DO UPDATE SET status = 'active'`,
+      [sellerAccountId],
+    );
     for (const module of sourceModules) {
       await bootstrapContextDatabase(module, pools[module.contextName as (typeof sourceNames)[number]]);
     }
