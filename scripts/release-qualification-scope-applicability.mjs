@@ -2,11 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { classifyReleaseQualificationScope } from "./release-qualification-scope.mjs";
-import {
-  enumerateCanonicalModuleCandidates,
-  loadModuleResolutionContext,
-  resolveModule,
-} from "./check-structure/module-resolution.mjs";
+import { loadModuleResolutionContext, resolveModule } from "./check-structure/module-resolution.mjs";
 import { classifySqlExecutionSurface } from "./check-structure/sql-execution-surface.mjs";
 
 /** The evaluator's error vocabulary is deliberately closed and ordered. */
@@ -41,7 +37,9 @@ const freezeDeep = (value) => {
 };
 
 function result(applies, codes, graph) {
-  const ordered = [...new Set(codes)].filter((code) => WITHDRAWAL_SET.has(code));
+  const unknown = [...new Set(codes)].filter((code) => !WITHDRAWAL_SET.has(code));
+  if (unknown.length) throw new Error(`Unknown applicability withdrawal code: ${unknown.join(", ")}`);
+  const ordered = [...new Set(codes)];
   ordered.sort(
     (a, b) =>
       RELEASE_QUALIFICATION_APPLICABILITY_WITHDRAWAL_CODES.indexOf(a) -
@@ -140,7 +138,7 @@ function enumerateSpecifiers(sourceFile) {
       if (text === "require" && node.arguments.length === 1) {
         const value = literalText(node.arguments[0]);
         add(value, "value");
-      } else if (text === "import" && node.arguments.length === 1) {
+      } else if (node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length === 1) {
         const value = literalText(node.arguments[0]);
         if (value === null) found.push({ specifier: null, binding: "value", ambiguousDynamic: true });
         else add(value, "value");
@@ -162,37 +160,35 @@ function enumerateSpecifiers(sourceFile) {
   return [...grouped.values()];
 }
 
-function isTypePosition(node) {
-  let current = node.parent;
-  while (current) {
-    if (ts.isTypeNode?.(current)) return true;
-    if (ts.isExpressionStatement(current) || ts.isBlock(current) || ts.isSourceFile(current)) return false;
-    current = current.parent;
-  }
-  return false;
-}
-
 function deriveMemberNamesFromSource(source, file) {
   const parsed = sourceFileFor(file, source);
   if (!parsed) return null;
   const names = new Set();
+  const membersForDeclaration = (node) => {
+    if (ts.isInterfaceDeclaration(node) || ts.isClassDeclaration(node)) return node.members;
+    if (!ts.isTypeAliasDeclaration(node)) return null;
+    if (ts.isTypeLiteralNode(node.type)) return node.type.members;
+    if (
+      ts.isTypeReferenceNode(node.type) &&
+      ts.isIdentifier(node.type.typeName) &&
+      node.type.typeName.text === "Readonly" &&
+      node.type.typeArguments?.length === 1 &&
+      ts.isTypeLiteralNode(node.type.typeArguments[0])
+    )
+      return node.type.typeArguments[0].members;
+    return null;
+  };
+  let found = false;
+  let readable = false;
   const visit = (node) => {
     if (
       (ts.isInterfaceDeclaration(node) || ts.isClassDeclaration(node) || ts.isTypeAliasDeclaration(node)) &&
-      node.name?.text === "EventStore"
+      (node.name?.text === "EventStore" || node.name?.text === "CompleteStreamReader")
     ) {
-      const declarations = ts.isTypeAliasDeclaration(node) ? (node.type?.members ?? []) : (node.members ?? []);
-      for (const member of declarations) {
-        const name =
-          member.name && (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) ? member.name.text : null;
-        if (name) names.add(name);
-      }
-    }
-    if (
-      (ts.isInterfaceDeclaration(node) || ts.isClassDeclaration(node) || ts.isTypeAliasDeclaration(node)) &&
-      node.name?.text === "CompleteStreamReader"
-    ) {
-      const declarations = ts.isTypeAliasDeclaration(node) ? (node.type?.members ?? []) : (node.members ?? []);
+      found = true;
+      const declarations = membersForDeclaration(node);
+      if (!declarations) return;
+      readable = true;
       for (const member of declarations) {
         const name =
           member.name && (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) ? member.name.text : null;
@@ -202,7 +198,7 @@ function deriveMemberNamesFromSource(source, file) {
     ts.forEachChild(node, visit);
   };
   visit(parsed);
-  return names;
+  return found && readable && names.size ? names : null;
 }
 
 export function deriveForbiddenEventStoreMembers({ repoRoot, readFile = null, files = {} } = {}) {
@@ -215,11 +211,10 @@ export function deriveForbiddenEventStoreMembers({ repoRoot, readFile = null, fi
   const eventStore = read("contracts/event-core/event-store.ts");
   const complete = read("contracts/event-core/complete-stream.ts");
   if (typeof eventStore !== "string" || typeof complete !== "string") return null;
-  const names = new Set([
-    ...(deriveMemberNamesFromSource(eventStore, "event-store.ts") ?? []),
-    ...(deriveMemberNamesFromSource(complete, "complete-stream.ts") ?? []),
-  ]);
-  return names.size ? Object.freeze([...names].sort()) : null;
+  const eventStoreNames = deriveMemberNamesFromSource(eventStore, "event-store.ts");
+  const completeNames = deriveMemberNamesFromSource(complete, "complete-stream.ts");
+  if (!eventStoreNames || !completeNames) return null;
+  return Object.freeze([...new Set([...eventStoreNames, ...completeNames])].sort());
 }
 
 function collectForbiddenMemberReferences(sourceFile, forbidden) {
@@ -230,12 +225,19 @@ function collectForbiddenMemberReferences(sourceFile, forbidden) {
       codes.add("event_store_member_reference");
     if (!type && ts.isElementAccessExpression(node)) {
       const key = literalText(node.argumentExpression);
-      if (key === null) codes.add("ambiguous_member_reference_key");
+      if (ts.isNumericLiteral(node.argumentExpression)) {
+        // Numeric indices are statically known but cannot name a contract member.
+      } else if (key === null) codes.add("ambiguous_member_reference_key");
       else if (forbidden.has(key)) codes.add("event_store_member_reference");
     }
-    if (!type && ts.isBindingElement(node) && node.propertyName) {
+    if (!type && ts.isBindingElement(node)) {
       const key =
-        literalText(node.propertyName) ?? (ts.isIdentifier(node.propertyName) ? node.propertyName.text : null);
+        literalText(node.propertyName ?? node.name) ??
+        (ts.isIdentifier(node.propertyName ?? node.name) ? (node.propertyName ?? node.name).text : null);
+      if (key && forbidden.has(key)) codes.add("event_store_member_reference");
+    }
+    if (!type && (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))) {
+      const key = literalText(node.name) ?? (ts.isIdentifier(node.name) ? node.name.text : null);
       if (key && forbidden.has(key)) codes.add("event_store_member_reference");
     }
     ts.forEachChild(node, (child) => visit(child, type));
@@ -254,9 +256,7 @@ function classifyNode({ repoRoot, file, source, now, readFileAt, registry }) {
     readFileAt: read,
     registry,
   });
-  return record.class === "persistent_required" && !record.reasonCodes.every((code) => code === "unknown_surface")
-    ? "persistent_dependency"
-    : null;
+  return record.class === "persistent_required" ? "persistent_dependency" : null;
 }
 
 function buildContext(repoRoot, context) {
@@ -267,10 +267,9 @@ function buildContext(repoRoot, context) {
 export function evaluateReleaseQualificationApplicability({
   repoRoot = process.cwd(),
   rootPath,
-  path: entryPath,
+  
   applicability,
-  sourceFiles = {},
-  files = sourceFiles,
+  files = {},
   readFile = null,
   readFileAt = null,
   resolutionContext = null,
@@ -282,7 +281,7 @@ export function evaluateReleaseQualificationApplicability({
     return result(false, ["malformed_applicability_metadata"], EMPTY_GRAPH);
   if (applicability.kind !== "pure-module/v1") return result(false, ["unsupported_applicability_kind"], EMPTY_GRAPH);
   if (malformedApplicability(applicability)) return result(false, ["malformed_applicability_metadata"], EMPTY_GRAPH);
-  const root = normalizeRepoPath(rootPath ?? entryPath ?? applicability.modules[0].path);
+  const root = normalizeRepoPath(rootPath ?? applicability.modules[0].path);
   const declarations = new Map(applicability.modules.map((module) => [normalizeRepoPath(module.path), module]));
   const source = (file) => {
     if (typeof readFile === "function") return readFile(file);
@@ -291,10 +290,7 @@ export function evaluateReleaseQualificationApplicability({
     return existsSync(absolute) ? readFileSync(absolute, "utf8") : null;
   };
   const loadedContext = buildContext(repoRoot, resolutionContext);
-  const ctx = {
-    workspacePackages: loadedContext.workspacePackages,
-    existingPaths: new Set([...(loadedContext.existingPaths ?? []), ...Object.keys(files).map(normalizeRepoPath)]),
-  };
+  const ctx = loadedContext;
   const forbidden = deriveForbiddenEventStoreMembers({ repoRoot, readFile: source, files });
   if (!forbidden) return result(false, ["event_store_contract_unreadable"], EMPTY_GRAPH);
   const codes = new Set();
@@ -317,14 +313,10 @@ export function evaluateReleaseQualificationApplicability({
     }
     const refs = collectForbiddenMemberReferences(parsed, new Set(forbidden));
     for (const code of refs) codes.add(code);
-    try {
-      const sql = sqlClassifier({ repoRoot, files: [file] });
-      const module = sql.modules?.[0];
-      if (!module || module.outcome !== "not-sql" || sql.unresolvedMemberRoots?.fileList?.includes(file))
-        codes.add("sql_execution_surface");
-    } catch {
+    const sql = sqlClassifier({ repoRoot, files: [file] });
+    const module = sql.modules?.[0];
+    if (!module || module.outcome !== "not-sql" || sql.unresolvedMemberRoots?.fileList?.includes(file))
       codes.add("sql_execution_surface");
-    }
     const dependencyCode = classifyNode({ repoRoot, file, source: content, now, readFileAt, registry });
     if (dependencyCode) codes.add(dependencyCode);
     const specifiers = enumerateSpecifiers(parsed);
@@ -383,4 +375,3 @@ export function evaluateReleaseQualificationApplicability({
   return result(codes.size === 0, [...codes], graph);
 }
 
-export { enumerateCanonicalModuleCandidates, loadModuleResolutionContext, resolveModule };
