@@ -400,6 +400,10 @@ jobs:
               --json number \
               --jq '.[0].number // empty'
           )"
+          [[ "$existing_issue" =~ ^[^-].*$ ]] || {
+            echo "existing_issue must be a non-option value." >&2
+            exit 1
+          }
           if [ "$ADVISORY_RESULT" = "success" ]; then
             if [ -n "$existing_issue" ]; then
               gh issue close "$existing_issue" \

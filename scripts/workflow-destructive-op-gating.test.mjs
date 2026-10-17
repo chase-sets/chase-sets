@@ -1640,6 +1640,10 @@ describe("origin-bound sed directories", () => {
         "binding removed": change('tmp="$(mktemp -d)"\n', ""),
         "binding changed": change('tmp="$(mktemp -d)"', 'tmp="$SYNTHETIC_8970_DIR"'),
         "binding repeated": change('tmp="$(mktemp -d)"\n', 'tmp="$(mktemp -d)"\ntmp="$SYNTHETIC_8970_DIR"\n'),
+        "TMPDIR assignment": 'TMPDIR="-e"\n' + run,
+        "TMPDIR export": 'export TMPDIR="-e"\n' + run,
+        "quoted export TMPDIR": '"export" TMPDIR="-e"\n' + run,
+        "PATH export": 'export PATH="' + directory.file + '"\n' + run,
         "read rebinding": change(sedCommand("$tmp/versions.tf"), `read -r tmp\n${sedCommand("$tmp/versions.tf")}`),
         "conditional binding": change('tmp="$(mktemp -d)"', 'if true; then tmp="$(mktemp -d)"; fi'),
         "piped binding": change('tmp="$(mktemp -d)"', 'true | tmp="$(mktemp -d)"'),
@@ -1985,6 +1989,57 @@ describe("site-proved F4 operand leads", () => {
     expectSiteRefused(fixture, target, item.candidate, item.envBypasses[bypass]);
   });
 
+  // AC2 RED: every dynamic action/option negative must refuse through the
+  // validator, classifier, ungated push caller and bounded deploy-production
+  // exemption. These are provider-free synthetic controls.
+  const f4RedRows = [
+    ["curl unbound option", 'curl --fail "$SYNTHETIC_OPTION"', emptyEnv],
+    ["curl env option", 'curl --fail "$SYNTHETIC_OPTION"', { ...emptyEnv, step: { SYNTHETIC_OPTION: "-Ksynthetic" } }],
+    [
+      "curl needs output provenance",
+      'curl --fail "$SYNTHETIC_OPTION"',
+      { ...emptyEnv, step: { SYNTHETIC_OPTION: "\${{ needs.synthetic.outputs.value }}" } },
+    ],
+    ["playwright dynamic action", 'playwright "$SYNTHETIC_ACTION"', emptyEnv],
+    ["kubectl dynamic action", 'kubectl create "$SYNTHETIC_ACTION"', emptyEnv],
+    ["git dynamic option", 'git fetch "$SYNTHETIC_OPTION"', emptyEnv],
+    ["jq output as terraform action", 'terraform "$SYNTHETIC_ACTION"', emptyEnv],
+    [
+      "guard rebound",
+      '[[ "$SYNTHETIC_ID" =~ ^[^-].*$ ]] || { exit 1; }\nSYNTHETIC_ID="-e"\ngh run view "$SYNTHETIC_ID" --json status',
+      emptyEnv,
+    ],
+  ];
+  it.each(f4RedRows)("F4 RED %s", (_label, run, env) => {
+    const fixture = siteFixture(run, env);
+    const target = fixture.target(run.split("\n").at(-1));
+    expect(target).toBeDefined();
+    expectSiteRefused(fixture, target, run, env);
+  });
+
+  // AC3 GREEN: the three finite closures selected by #9852 remain explicit
+  // controls rather than relying only on the live corpus transitions.
+  const f4GreenRows = [
+    [
+      "T1 service id",
+      'docker exec "$SYNTHETIC_CONTAINER" pg_isready -U postgres\n',
+      { ...emptyEnv, job: { SYNTHETIC_CONTAINER: "\${{ job.services.postgres.id }}" } },
+      "docker exec $SYNTHETIC_CONTAINER pg_isready -U postgres",
+    ],
+    ["T2 mktemp root", 'tmp="$(mktemp -d)"\ncurl --fail "$tmp/health"\n', emptyEnv, "curl --fail $tmp/health"],
+    [
+      "T3 whole-language guard",
+      '[[ "$SYNTHETIC_ID" =~ ^[0-9]+$ ]] || { exit 1; }\ngh run view "$SYNTHETIC_ID" --json status\n',
+      { ...emptyEnv, step: { SYNTHETIC_ID: "\${{ inputs.synthetic_id }}" } },
+      "gh run view $SYNTHETIC_ID --json status",
+    ],
+  ];
+  it.each(f4GreenRows)("F4 GREEN %s", (_label, run, env, targetText) => {
+    const fixture = siteFixture(run, env);
+    expect(fixture.target(targetText)).toBeDefined();
+    expectSiteAdmitted(fixture, run, env);
+  });
+
   it("LX: a leading trusted expression proves provenance; input, secret and unknown roots refuse", () => {
     const run = (root) => `for source_path in a.txt b.txt; do\n  git show "\${{ ${root} }}:\${source_path}"\ndone\n`;
     const candidate = run("needs.synthetic.outputs.commit");
@@ -2130,8 +2185,9 @@ describe("site-proved F4 operand leads", () => {
       expect(premises, premise).toContain(premise);
   });
 
-  // D1: one stored ID, two live production sites, two different premises.
-  it("D1 proves its first live site by LI and its second by LR", () => {
+  // D1: one stored ID, two live production sites, both upgraded by their
+  // dominating non-option guards.
+  it("D1 proves both live sites by the guarded lead envelope", () => {
     const d1 = DESTRUCTIVE_GRAMMAR.benignForms.find(
       ({ id }) => id === "9d359a5da3985b4bdf1051e39cf585a54fb5e01a57b6f9a219cdf040e647155c",
     );
@@ -2139,10 +2195,10 @@ describe("site-proved F4 operand leads", () => {
     const live = checkDiscoveredWorkflows().results.find(({ workflowFile }) => workflowFile === productionFile).proofs;
     const sites = live.filter(({ entry }) => entry === d1.id);
     expect(sites.map(({ jobId, premise, lead }) => [jobId, premise, lead])).toEqual([
-      ["notify-production-deploy-incident", "LI", false],
-      ["close-resolved-deploy-incidents", "LR", false],
+      ["notify-production-deploy-incident", "L3-G", true],
+      ["close-resolved-deploy-incidents", "L3-G", true],
     ]);
-    expect(sites.at(-1).residual).toEqual([expect.stringContaining("gh issue list .number")]);
+    expect(sites.at(-1).residual).toEqual([]);
     expect(sites.at(-1).dependencies).toEqual(expect.arrayContaining([".number", ".title"]));
   });
 
@@ -2215,14 +2271,14 @@ describe("site-proved F4 operand leads", () => {
     }
   });
 
-  // AC6: L3-T/L4-T/LX/LR prove provenance only; every such admission keeps
-  // its residual and every dependency for R, never a lead claim.
+  // AC6: provenance-only rows remain available to R outside the
+  // option-capable envelope; no live option-capable row is provenance-only.
   it("R handoff inventory keeps every provenance residual and dependency", () => {
     const live = checkDiscoveredWorkflows().results.flatMap(({ workflowFile, proofs }) =>
       proofs.map((proof) => ({ workflowFile, ...proof })),
     );
     const handoff = live.filter(({ lead }) => !lead);
-    expect(handoff.length).toBeGreaterThan(50);
+    expect(handoff.length).toBeGreaterThan(0);
     for (const item of handoff) {
       expect(item.residual.length, `${item.workflowFile} ${item.word}`).toBeGreaterThan(0);
       expect(item.dependencies.length + item.residual.length).toBeGreaterThan(0);
@@ -2230,13 +2286,69 @@ describe("site-proved F4 operand leads", () => {
     const counts = {};
     for (const { premise } of handoff) counts[premise] = (counts[premise] ?? 0) + 1;
     // Only provenance premises (and joins carrying one) reach the handoff.
-    expect(Object.keys(counts).sort()).toEqual(expect.arrayContaining(["L4-T", "LI", "LR", "LX"]));
+    expect(Object.keys(counts).sort()).toEqual(expect.arrayContaining(["L4-T", "LX"]));
     for (const premise of Object.keys(counts))
       expect(["L3", "L3-T", "L4-T", "LC", "LI", "LR", "LS", "LX"]).toContain(premise);
-    // A provenance proof is never promoted to a lead by an option-valued or
-    // empty first field: LR keeps both fields as dependencies.
-    const lr = handoff.find(({ premise }) => premise === "LR");
-    expect(lr.dependencies).toEqual(expect.arrayContaining([".number", ".title"]));
+    const optionTransitions = DESTRUCTIVE_GRAMMAR.benignForms.filter(({ transition }) => transition?.issue === 9862);
+    expect(optionTransitions).toHaveLength(38);
+    const transitionProofs = optionTransitions.flatMap((entry) =>
+      storedOccurrenceProofs(entry).flatMap(({ proofs }) => proofs),
+    );
+    expect(transitionProofs).not.toEqual(expect.arrayContaining([expect.objectContaining({ lead: false })]));
+  });
+});
+
+describe("#9862 F4 guard transitions", () => {
+  const marker = "991a1d8586da9405dcdec26e4f02e40ee93ba420";
+  const allowedFiles = new Set([
+    ".github/workflows/platform-catalog-assets-apply.yml",
+    ".github/workflows/platform-digitalocean-token-rotation-reminder.yml",
+    ".github/workflows/platform-ephemeral-verification.yml",
+    ".github/workflows/platform-merge-gate-verification.yml",
+    ".github/workflows/platform-pr.yml",
+    ".github/workflows/platform-production.yml",
+    ".github/workflows/platform-staging-advisory-evidence.yml",
+    ".github/workflows/platform-staging-route-matrix-evidence.yml",
+    ".github/workflows/platform-staging-wake-drills.yml",
+  ]);
+
+  it("lands exactly 38 same-ID transitions with immutable before/after witnesses", () => {
+    const transitions = DESTRUCTIVE_GRAMMAR.benignForms.filter(({ transition }) => transition?.issue === 9862);
+    expect(transitions).toHaveLength(38);
+    expect(new Set(transitions.map(({ id }) => id)).size).toBe(38);
+    const records = new Map(
+      DESTRUCTIVE_GRAMMAR.origins.map((origin) => [
+        [origin.sha, origin.path, origin.job, origin.step].join("|"),
+        origin,
+      ]),
+    );
+    for (const entry of transitions) {
+      expect(entry.origin.sha).toBe(marker);
+      expect(allowedFiles).toContain(entry.origin.path);
+      const before = entry.transition.from;
+      expect(before.sha).toBe(corpusSha);
+      expect([before.sha, before.path, before.job, before.step].join("|")).not.toBe(
+        [entry.origin.sha, entry.origin.path, entry.origin.job, entry.origin.step].join("|"),
+      );
+      expect(entry.transition.beforeRunSha256).toBe(
+        records.get([before.sha, before.path, before.job, before.step].join("|"))?.runSha256,
+      );
+      expect(entry.transition.afterRunSha256).toBe(
+        records.get([entry.origin.sha, entry.origin.path, entry.origin.job, entry.origin.step].join("|"))?.runSha256,
+      );
+      expect(
+        storedOccurrenceProofs({ ...entry, origin: before, transition: undefined }).map(({ violations }) => violations),
+      ).toEqual(expect.arrayContaining([[]]));
+      expect(storedOccurrenceProofs(entry).map(({ violations }) => violations)).toEqual(expect.arrayContaining([[]]));
+    }
+  });
+
+  it("keeps the 711-entry baseline and 36 appended identities intact", () => {
+    expect(DESTRUCTIVE_GRAMMAR.benignForms).toHaveLength(711);
+    expect(validateGrammarPartition()).toEqual({ passed: true, members: 503, violations: [] });
+    expect(
+      DESTRUCTIVE_GRAMMAR.benignForms.filter(({ origin }) => origin.sha === "a460b410398b01d386b7919ef364e63d3d271b88"),
+    ).toHaveLength(36);
   });
 });
 

@@ -145,6 +145,10 @@ jobs:
           DEPLOY_QUIESCENCE_POLL_INTERVAL_S: ${{ vars.STAGING_ROUTE_MATRIX_DEPLOY_QUIESCENCE_POLL_INTERVAL_S || '30' }}
         run: |
           set -euo pipefail
+          [[ "$DEPLOY_QUIESCENCE_POLL_INTERVAL_S" =~ ^[^-].*$ ]] || {
+            echo "DEPLOY_QUIESCENCE_POLL_INTERVAL_S must be a non-option value." >&2
+            exit 1
+          }
           # Issue #4721: run 28996898078 drove its checkout samples while a
           # Platform Deploy was rolling the staging fleet (05:33:50-05:50:29Z),
           # so every receipt-backed evaluation in the window timed out and the

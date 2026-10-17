@@ -124,6 +124,10 @@ jobs:
             base="$(git rev-parse origin/main)"
           fi
 
+          [[ "$head" =~ ^[^-].*$ ]] || {
+            echo "head must be a non-option value." >&2
+            exit 1
+          }
           if [[ "$base" =~ ^0+$ ]]; then
             base="$(git rev-list --max-parents=0 "$head")"
           fi
@@ -493,6 +497,14 @@ jobs:
           checkout_tree="$(git rev-parse --verify 'HEAD^{tree}')"
           checkout_parents="$(git show -s --diff-merges=off --format=%P HEAD)"
           executed_base_sha="$(printf '%s\n' "$checkout_parents" | awk '{print $1}')"
+          [[ "$executed_base_sha" =~ ^[^-].*$ ]] || {
+            echo "executed_base_sha must be a non-option value." >&2
+            exit 1
+          }
+          [[ "$RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA" =~ ^[^-].*$ ]] || {
+            echo "RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA must be a non-option value." >&2
+            exit 1
+          }
           executed_base_tree="$(git rev-parse --verify "${executed_base_sha}^{tree}")"
           source_head_tree="$(git rev-parse --verify "${RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA}^{tree}")"
           {

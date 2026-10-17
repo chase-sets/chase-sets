@@ -1432,7 +1432,16 @@ function proveText(text, site, context, seen) {
       const suffix = [...lead.rest.matchAll(/\$\{?([A-Za-z_]\w*)\}?/g)].map(([, name]) => name);
       if (/[`]|\$\(|\$\{\{|\$[^A-Za-z_{]/.test(lead.rest)) return refused("unsupported expression suffix");
       const proofs = suffix.map((name) => (site ? proveName(name, site, context, seen) : refused("unsited suffix")));
-      const own = provenanceProof("LX", [`\${{ ${lead.body} }}`], roots.roots);
+      // A service id is a runner-assigned resource identifier.  It is the
+      // sole expression root promoted by the FINAL F4 envelope; all other
+      // expression roots remain provenance only and are refused at an
+      // option-capable position unless a dominating whole-language guard
+      // upgrades the binding.
+      const own =
+        roots.roots.length === 1 && /^job\.services\.[\w-]+\.id$/.test(roots.roots[0])
+          ? leadProof("T1", roots.roots)
+          : (guardedExpressionLead(lead.body, site, context) ??
+            provenanceProof("LX", [`\${{ ${lead.body} }}`], roots.roots));
       const failed = proofs.find((proof) => !proof.proved);
       return (
         failed ?? { ...own, dependencies: [...own.dependencies, ...proofs.flatMap((proof) => [...proof.dependencies])] }
@@ -1451,6 +1460,31 @@ function proveText(text, site, context, seen) {
   }
 }
 
+// G1/G2 also covers a direct expression use whose producer is named only in
+// the same run.  Match the guard to the exact expression binding; an
+// unrelated safe guard must not upgrade arbitrary provenance.
+function guardedExpressionLead(body, site, context) {
+  if (!site) return null;
+  const root = rootOf(site.scope);
+  const use = liftToRoot(site);
+  if (!use) return null;
+  const analysis = runAnalysis(root);
+  for (const [name, writers] of analysis.writers) {
+    if (!writers.length) continue;
+    const sameExpression = writers.some(({ assignment }) => {
+      const value = assignment?.value ?? "";
+      return value.startsWith("${{") && value.slice(3, value.indexOf("}}")).trim() === body;
+    });
+    if (!sameExpression) continue;
+    for (const node of treeNodes(root.tree)) {
+      if (node.kind !== "statement" || !dominates(node, use.node)) continue;
+      const guard = guardOf(node, name, root);
+      if (guard && !guard.language.dash && !guard.language.nullable) return leadProof("L3-G", [name, body]);
+    }
+  }
+  return null;
+}
+
 // BS: `$(basename "$X")` whose input X is one proved binding ending in a
 // nonempty literal non-option component. Otherwise an admitted command
 // substitution proves provenance (L3-T).
@@ -1465,9 +1499,59 @@ function substitutionProof(text, site, context, seen) {
     if (input?.proved) return leadProof("BS", [basenameCall[1], ...input.dependencies]);
   }
   if (!scope) return refused("unlocated substitution");
-  return substitutionAdmitted(scope, context, seen)
-    ? provenanceProof("L3-T", [text], [])
-    : refused("unadmitted substitution output");
+  if (!substitutionAdmitted(scope, context, seen)) return refused("unadmitted substitution output");
+
+  // T2 is intentionally finite.  Only mktemp/mktemp -d (under the proven
+  // runner root) is promoted to a non-option lead.  The root proof is lexical:
+  // the run may not rebind TMPDIR or PATH, export either name, or redefine the
+  // producer.  Other command substitutions remain provenance-only.
+  const producer = commandsFromTokens(scope.lexed.tokens).find(({ words }) => words.length);
+  const producerWords = producer?.words ?? [];
+  if (
+    producerWords[0] &&
+    !producerWords[0].dynamic &&
+    producerWords[0].value === "mktemp" &&
+    producerWords.slice(1).every((word) => !word.dynamic && ["-d"].includes(word.value)) &&
+    producerWords.length <= 2 &&
+    rootDependenciesProved(rootOf(site.scope), context?.env)
+  )
+    return leadProof("T2", ["mktemp", "TMPDIR", "PATH"]);
+
+  // A detached docker run prints a container id.  It is conditional on the
+  // inner image being admitted by the same finite envelope, so no arbitrary
+  // producer output is trusted here.
+  if (
+    producerWords[0] &&
+    !producerWords[0].dynamic &&
+    producerWords[0].value === "docker" &&
+    literal(producerWords[1], "run") &&
+    producerWords.some((word) => literal(word, "-d")) &&
+    producerWords.slice(2).some((word) => word.dynamic && !word.value.startsWith("-")) &&
+    substitutionAdmitted(scope, context, seen)
+  )
+    return leadProof("T2", ["docker", "run", "-d"]);
+
+  return provenanceProof("L3-T", [text], []);
+}
+
+// The finite root dependency proof shared by T2 and the origin-bound F2
+// directory witnesses.  A producer is not trusted when a caller can rebind
+// the root or PATH, including through the quoted `export` spelling.
+function rootDependenciesProved(root, env = {}) {
+  if (!root?.run) return false;
+  if (["TMPDIR", "PATH"].some((name) => declaration(name, env))) return false;
+  const analysis = runAnalysis(root);
+  if (analysis.opaque || analysis.definitions.has("mktemp")) return false;
+  const tokens = root.lexed?.tokens ?? [];
+  for (const token of tokens) {
+    if (token.type !== "word") continue;
+    if (/^(?:TMPDIR|PATH)=/.test(token.value)) return false;
+    if (/^(?:export|declare|local)$/.test(token.value)) {
+      const next = tokens[tokens.indexOf(token) + 1];
+      if (next?.type === "word" && /^(?:TMPDIR|PATH)=/.test(next.value)) return false;
+    }
+  }
+  return true;
 }
 
 // The child scope of `scope` whose substitution text is `text` and that the
@@ -1482,7 +1566,15 @@ function scopeAt(scope, text) {
 function witnessOccurrence(scope) {
   const witness = scope.outer && !scope.outer.outer ? runOriginWitness(scope.outer.run) : null;
   const child = witness && scope.outer.children.find((entry) => entry.scope === scope);
-  return child?.index === witness?.occurrence ? witness : null;
+  if (child?.index === witness?.occurrence) return witness;
+  // A transition guard shifts lexical token indexes. Match the substitution
+  // body against the immutable witness rather than trusting the shifted index.
+  if (witness && child) {
+    const witnessRoot = lexicalScope(witness.run);
+    const matching = witnessRoot.children.find((candidate) => candidate.scope.run === scope.run);
+    if (matching?.index === witness.occurrence) return witness;
+  }
+  return null;
 }
 // Every command in the substitution scope (and its nested substitutions)
 // classifies as admitted benign or non-destructive HANDLED at its own site.
@@ -1502,6 +1594,47 @@ function substitutionAdmitted(scope, context, seen) {
         trace: { unsited: false, proofs: [] },
         seen,
       });
+      // The finite T2 docker producer is the command currently being proved;
+      // classify its image and fixed pnpm entrypoint directly instead of
+      // recursively asking the benign-form matcher to admit the same row.
+      if (
+        result?.disposition === "INDETERMINATE" &&
+        literal(command.words[0], "docker") &&
+        literal(command.words[1], "run")
+      ) {
+        let imageIndex = 2;
+        while (literalOption(command.words[imageIndex])) {
+          if (dockerRunFlags.has(command.words[imageIndex].value)) imageIndex += 1;
+          else if (
+            dockerRunValued.has(command.words[imageIndex].value) &&
+            singleArgument(command.words[imageIndex + 1])
+          )
+            imageIndex += 2;
+          else break;
+        }
+        const image = command.words[imageIndex];
+        const producerOrigin = witnessOccurrence(inner);
+        const producerContext = producerOrigin ? { ...context, origin: producerOrigin } : context;
+        const imageProof = image?.dynamic
+          ? proveOperand(image, {
+              ...producerContext,
+              site: siteOf(inner, node),
+              trace: { unsited: false, proofs: [] },
+              seen,
+            })
+          : image && !image.value.startsWith("-")
+            ? leadProof("L1")
+            : refused("docker image is not a lead");
+        const argv = image ? command.words.slice(imageIndex + 1) : [];
+        if (
+          producerOrigin &&
+          imageProof.proved &&
+          imageProof.lead &&
+          literal(argv[0], "pnpm") &&
+          pnpmRoles(argv, 0, () => true, producerContext)
+        )
+          continue;
+      }
       if (result && (result.operation || result.disposition === "INDETERMINATE")) return false;
     }
   }
@@ -1546,8 +1679,13 @@ function proveDeclared(name, site, context) {
     if (rest) return refused(`${name} input is not the whole declaration`);
     return guardedInput(name, site, context);
   }
+  if (roots.roots.length === 1 && /^job\.services\.[\w-]+\.id$/.test(roots.roots[0]) && !rest)
+    return leadProof("T1", [name, roots.roots[0]]);
   const proof = provenanceProof("L4-T", [`${name}=${value}`], [name, ...roots.roots]);
-  return roots.roots.includes("''") ? { ...proof, nullable: true, nonemptyUse: false } : proof;
+  const normalized = roots.roots.includes("''") ? { ...proof, nullable: true, nonemptyUse: false } : proof;
+  const root = site ? rootOf(site.scope) : null;
+  const use = site ? liftToRoot(site) : null;
+  return root && use ? guardedRunBinding(name, normalized, use, root) : normalized;
 }
 
 // L3-G: an unwritten input-rooted name used only after a dominating
@@ -1816,9 +1954,10 @@ function plainBindings(name, writers, use, context, seen) {
   );
   if (writers.length > 1) return conditionalBindings(name, statements, proofs, use, context);
   const [statement] = statements;
-  const [proof] = proofs;
+  let [proof] = proofs;
   if (!dominatedUse(statement, use, root)) return refused(`${name} binding does not dominate its use`);
   if (!proof.proved) return proof;
+  proof = guardedRunBinding(name, proof, use, root);
   const { role, parent: owner } = statement.list;
   if (role === "root") return { ...proof, premise: use.scope === root ? "L3" : "LS" };
   if (owner.kind === "for") {
@@ -1829,12 +1968,28 @@ function plainBindings(name, writers, use, context, seen) {
     const header = readLoop(owner);
     if (!header || header.ifs !== "IFS=" || header.targets.length !== 1)
       return refused(`${name} loop header is not LI`);
-    return proof.premise === "L3-T" || proof.premise === "LI"
-      ? { ...proof, premise: "LI" }
+    return proof.lead || proof.premise === "L3-T" || proof.premise === "LI"
+      ? proof.lead
+        ? proof
+        : { ...proof, premise: "LI" }
       : refused(`${name} read-loop binding is not admitted output`);
   }
   if (["then", "else", "arm", "group"].includes(role)) return { ...proof, premise: "LS" };
   return refused(`${name} binding context is unsupported`);
+}
+
+// G2: a single dominating whole-language guard can upgrade a run-bound
+// provenance value (steps/needs output, tool output, or a joined binding) to a
+// lead.  This is lexical only: the detector never evaluates the producer.
+function guardedRunBinding(name, proof, use, root) {
+  if (!proof.proved || proof.lead) return proof;
+  for (const node of treeNodes(root.tree)) {
+    if (node.kind !== "statement" || !dominates(node, use.node)) continue;
+    const guard = guardOf(node, name, root);
+    if (guard && !guard.language.dash && !guard.language.nullable)
+      return leadProof("L3-G", [name, ...proof.dependencies]);
+  }
+  return proof;
 }
 
 // LC / LC-B: an initial binding that dominates the use (one unconditional
@@ -1895,9 +2050,14 @@ function conditionalBindings(name, statements, proofs, use, context) {
   const refusal = proofs.find((proof) => !proof.proved);
   return (
     refusal ??
-    joined(
-      "LC",
-      proofs.filter((_, index) => reaching.includes(statements[index])),
+    guardedRunBinding(
+      name,
+      joined(
+        "LC",
+        proofs.filter((_, index) => reaching.includes(statements[index])),
+      ),
+      use,
+      root,
     )
   );
 }
@@ -2039,7 +2199,17 @@ function readTarget(name, writer, use, context, seen) {
     seen,
   });
   if (admitted) return refused(`${producerName} producer is not admitted`);
-  return provenanceProof("LR", [`${producerName}: gh issue list .number`], [name, producerName, ".number", ".title"]);
+  const proof = provenanceProof(
+    "LR",
+    [`${producerName}: gh issue list .number`],
+    [name, producerName, ".number", ".title"],
+  );
+  // A whole-language guard on the read target upgrades this otherwise
+  // provenance-only row without trusting the producer's external output.
+  const guarded = guardedInput(name, use, context);
+  return guarded.proved
+    ? { ...guarded, dependencies: [name, ...proof.dependencies] }
+    : guardedRunBinding(name, proof, use, root);
 }
 
 // LL / LP: `local NAME=value` alone at its function body's statement level,
@@ -2096,7 +2266,10 @@ function proveOperand(word, context) {
     return false;
   }
   const proof = proveText(word.value, context?.site ?? null, context ?? {}, context?.seen ?? new Set());
-  const proved = proof.proved && !(proof.nullable && !proof.nonemptyUse);
+  // The F4 envelope admits only a lead proof at option-capable operand and
+  // resource positions.  Provenance-only proofs are retained in the trace
+  // for the R handoff but do not authorize execution.
+  const proved = proof.proved && proof.lead && !(proof.nullable && !proof.nonemptyUse);
   context?.trace?.proofs.push({
     entry: context.entry,
     word: word.raw ?? word.value,
@@ -2592,8 +2765,9 @@ const originWitnesses = bootSmokeBlocks.map(originWitness).filter(Boolean);
 // A stored entry is bound to a witness only when its origin names that block
 // and its words are exactly the block's occurrence command.
 function entryOriginWitness(entry) {
+  const witnessOrigin = entry.transition?.from ?? entry.origin;
   const witness = originWitnesses.find(({ origin }) =>
-    ["sha", "path", "job", "step"].every((field) => origin[field] === entry.origin?.[field]),
+    ["sha", "path", "job", "step"].every((field) => origin[field] === witnessOrigin?.[field]),
   );
   const exact =
     witness &&
@@ -2611,7 +2785,13 @@ function entryOriginWitness(entry) {
 // The witness whose complete run block this run is, CRLF normalized.
 function runOriginWitness(run) {
   const normalized = run.replaceAll("\r\n", "\n");
-  return originWitnesses.find((witness) => witness.run === normalized) ?? null;
+  const withoutTransitionGuards = normalized.replace(
+    /\n[ \t]*\[\[ "\$[A-Za-z_]\w*" =~ \^\[\^\-\]\.\*\$ \]\] \|\| \{\n[ \t]*echo "[^"]+ must be a non-option value\." >&2\n[ \t]*exit 1\n[ \t]*\}/g,
+    "",
+  );
+  return (
+    originWitnesses.find((witness) => witness.run === normalized || witness.run === withoutTransitionGuards) ?? null
+  );
 }
 
 // Origin-bound directories: the only corpus sed file operands that are
@@ -3370,8 +3550,9 @@ function roleViolations(entry, words, grammar, context) {
   if (
     !admitsProgramAt(words, 0, { ...context, input: entry.input, entry: entry.id }) ||
     shellOrEvalAnywhereUnpinned(words)
-  )
+  ) {
     return [`${entry.id}: benign payload admits an unpinned program.`];
+  }
   return [];
 }
 
@@ -3608,9 +3789,11 @@ export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR, env 
 // that witness, and only into its proved substitution occurrence.
 function classifyRun(run, grammar, proof, env = {}) {
   const witness = runOriginWitness(run);
-  const text = witness?.run ?? run;
   const trace = { unsited: false, proofs: [] };
-  const result = classifyProvedRun(text, grammar, proof, witness, null, lexicalScope(text), env, trace);
+  // Keep the live/transition guard text for proof dominance while carrying the
+  // normalized witness only as origin authority. Replacing the guarded run
+  // with the pre-transition witness would silently discard every new guard.
+  const result = classifyProvedRun(run, grammar, proof, witness, witness, lexicalScope(run), env, trace);
   return { ...result, proofs: trace.proofs };
 }
 
@@ -3653,8 +3836,16 @@ function classifyProvedRun(run, grammar, proof, witness, origin, scope, env, tra
   const invocations = commands
     .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar, context(command)))
     .filter(Boolean);
+  const witnessRoot = witness ? lexicalScope(witness.run) : null;
   for (const substitution of lexed.substitutions) {
-    const bound = witness !== null && substitution.index === witness.occurrence ? witness : null;
+    const bound =
+      witness !== null &&
+      (substitution.index === witness.occurrence ||
+        witnessRoot?.children.some(
+          (candidate) => candidate.index === witness.occurrence && candidate.scope.run === substitution.run,
+        ))
+        ? witness
+        : null;
     const child = scope.children.find(({ index }) => index === substitution.index)?.scope;
     for (const invocation of classifyProvedRun(substitution.run, grammar, proof, null, bound, child, env, trace)
       .invocations)

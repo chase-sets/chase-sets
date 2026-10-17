@@ -11936,7 +11936,7 @@
       ],
       "example": "curl -sSL -o /dev/null -w '%{http_code}' \"${public_base_url}/${object_path}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-catalog-assets-apply.yml",
         "job": "catalog-assets",
         "step": 11
@@ -11944,6 +11944,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'curl': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-catalog-assets-apply.yml",
+          "job": "catalog-assets",
+          "step": 11
+        },
+        "issue": 9862,
+        "beforeRunSha256": "3acedf1fa2954b0b07733b75d8fcb182c4be7fb02faa5af558cab73a584910e9",
+        "afterRunSha256": "35545dbf9dd31268d0f94c1fdef4e7847ccfc67b1267d4dd2d045a4dd49fdcc3"
       }
     },
     {
@@ -14628,7 +14639,7 @@
       ],
       "example": "gh issue edit \"${existing_issue}\" --repo \"${GITHUB_REPOSITORY}\" --body \"${body}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-digitalocean-token-rotation-reminder.yml",
         "job": "remind",
         "step": 1
@@ -14636,6 +14647,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'gh': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-digitalocean-token-rotation-reminder.yml",
+          "job": "remind",
+          "step": 1
+        },
+        "issue": 9862,
+        "beforeRunSha256": "68e6b444a11ea80e50247953f826954cdc8212fd72036b050b65a0b302dab623",
+        "afterRunSha256": "3c2650787a71df1cf0346168ff9447697ea6d3a8bf7e3e114cc6caf0228bf26d"
       }
     },
     {
@@ -16191,7 +16213,7 @@
       ],
       "example": "git checkout --detach \"$release_commit\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-ephemeral-verification.yml",
         "job": "verify-release",
         "step": 5
@@ -16199,6 +16221,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-ephemeral-verification.yml",
+          "job": "verify-release",
+          "step": 5
+        },
+        "issue": 9862,
+        "beforeRunSha256": "9722a47b1eb758e0a3ea15c47a2f361ac8d3f6df95a3edd4ad9b1a687e0e6cf8",
+        "afterRunSha256": "d5e930016e0fae41246a9793a517373d51e76da63593b4d1e9645456fdd91ad8"
       }
     },
     {
@@ -17130,7 +17163,7 @@
       ],
       "example": "kubectl exec --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \"$pod\" -- env EPHEMERAL_VERIFICATION_NAMESPACE=\"$CHASE_SETS_KUBERNETES_NAMESPACE\" REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT=/tmp/representative-commerce-state.json pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-ephemeral-verification.yml",
         "job": "verify-release",
         "step": 18
@@ -17138,6 +17171,17 @@
       "proof": {
         "selector": "Forwarding rule 'kubectl': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-ephemeral-verification.yml",
+          "job": "verify-release",
+          "step": 18
+        },
+        "issue": 9862,
+        "beforeRunSha256": "44ec27f564634aa091ec86795eee43c779c81bc238f98c42d5a4175f2b79760a",
+        "afterRunSha256": "901c821828a44a34cea9dfe0867d33795229be54a5569d0d721fd86a14f2fa14"
       }
     },
     {
@@ -18047,7 +18091,7 @@
       ],
       "example": "grep -F \"$IMAGE_REPOSITORY_REF\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-merge-gate-verification.yml",
         "job": "verify",
         "step": 14
@@ -18055,6 +18099,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'grep': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-merge-gate-verification.yml",
+          "job": "verify",
+          "step": 14
+        },
+        "issue": 9862,
+        "beforeRunSha256": "d883aded418ff30e914e59070bec0c2ebcaf72cf4502e5ca3d3bf339ba889c32",
+        "afterRunSha256": "26d53bb740d472cb7ec8b9816bdaa0e78782cdd2923a8302914af62de69017b1"
       }
     },
     {
@@ -18079,7 +18134,7 @@
       ],
       "example": "grep -v \"$IMAGE_DIGEST\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-merge-gate-verification.yml",
         "job": "verify",
         "step": 14
@@ -18087,6 +18142,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'grep': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-merge-gate-verification.yml",
+          "job": "verify",
+          "step": 14
+        },
+        "issue": 9862,
+        "beforeRunSha256": "d883aded418ff30e914e59070bec0c2ebcaf72cf4502e5ca3d3bf339ba889c32",
+        "afterRunSha256": "26d53bb740d472cb7ec8b9816bdaa0e78782cdd2923a8302914af62de69017b1"
       }
     },
     {
@@ -20171,7 +20237,7 @@
       ],
       "example": "git rev-list --max-parents=0 \"$head\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-pr.yml",
         "job": "change-scope",
         "step": 3
@@ -20179,6 +20245,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-pr.yml",
+          "job": "change-scope",
+          "step": 3
+        },
+        "issue": 9862,
+        "beforeRunSha256": "7c2aa3787147e2c90171f2588a834601f3621b98a78299b489cf6c9aebdf7275",
+        "afterRunSha256": "d2df1bc74bb05d6e0afc08af321b7cd0162b2be6d1a40369965ee27d72225025"
       }
     },
     {
@@ -21202,7 +21279,7 @@
       ],
       "example": "git rev-parse --verify \"${executed_base_sha}^{tree}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-pr.yml",
         "job": "e2e-tests",
         "step": 3
@@ -21210,6 +21287,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-pr.yml",
+          "job": "e2e-tests",
+          "step": 3
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e8e624a1f7dd5091952746ad668a560b5dc77ba51227aa56de8835638377c43e",
+        "afterRunSha256": "d5b68dcd262c2b33a092c21d7a3c5d1f5d98eefb2379cb2b21ac7a4ffe050e6b"
       }
     },
     {
@@ -21239,7 +21327,7 @@
       ],
       "example": "git rev-parse --verify \"${RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA}^{tree}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-pr.yml",
         "job": "e2e-tests",
         "step": 3
@@ -21247,6 +21335,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-pr.yml",
+          "job": "e2e-tests",
+          "step": 3
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e8e624a1f7dd5091952746ad668a560b5dc77ba51227aa56de8835638377c43e",
+        "afterRunSha256": "d5b68dcd262c2b33a092c21d7a3c5d1f5d98eefb2379cb2b21ac7a4ffe050e6b"
       }
     },
     {
@@ -21548,7 +21647,7 @@
       ],
       "example": "docker logs \"$container_id\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-pr.yml",
         "job": "docker-image",
         "step": 7
@@ -21556,6 +21655,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-pr.yml",
+          "job": "docker-image",
+          "step": 7
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e48422407d8d8524fc51f1174991009aa0a794b09ffcb183d360b83116be3c15",
+        "afterRunSha256": "d31f27eeaf945f40a4b335b02d127993a3a2de3a8ae90cb0bec172cd9806cfe0"
       }
     },
     {
@@ -21585,7 +21695,7 @@
       ],
       "example": "docker rm -f \"$container_id\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-pr.yml",
         "job": "docker-image",
         "step": 7
@@ -21593,6 +21703,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-pr.yml",
+          "job": "docker-image",
+          "step": 7
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e48422407d8d8524fc51f1174991009aa0a794b09ffcb183d360b83116be3c15",
+        "afterRunSha256": "d31f27eeaf945f40a4b335b02d127993a3a2de3a8ae90cb0bec172cd9806cfe0"
       }
     },
     {
@@ -21857,7 +21978,7 @@
       ],
       "example": "docker inspect --format '{{.State.Running}}' \"$container_id\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-pr.yml",
         "job": "docker-image",
         "step": 7
@@ -21865,6 +21986,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-pr.yml",
+          "job": "docker-image",
+          "step": 7
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e48422407d8d8524fc51f1174991009aa0a794b09ffcb183d360b83116be3c15",
+        "afterRunSha256": "d31f27eeaf945f40a4b335b02d127993a3a2de3a8ae90cb0bec172cd9806cfe0"
       }
     },
     {
@@ -27123,7 +27255,7 @@
       ],
       "example": "git show \"${{ needs.resolve-release.outputs.release_commit }}:${source_path}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deployment-contract-preflight",
         "step": 2
@@ -27131,6 +27263,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deployment-contract-preflight",
+          "step": 2
+        },
+        "issue": 9862,
+        "beforeRunSha256": "8e651f8e7ae517394f41f14bf7de9023c61294e8172559b23445297a74a5dc09",
+        "afterRunSha256": "b715fc83fc91633a572a1c53cea9a144cb28c12a2b7843d5bf69ab9708d2fb3f"
       }
     },
     {
@@ -27438,7 +27581,7 @@
       ],
       "example": "docker run -d -e NODE_ENV=production -e PORT=8080 -p \"${host_port}:8080\" \"$RELEASE_IMAGE\" pnpm --filter \"$workspace\" run start",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "build-image",
         "step": 7
@@ -27446,6 +27589,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "build-image",
+          "step": 7
+        },
+        "issue": 9862,
+        "beforeRunSha256": "fb2ed0ee188f938991ce89b677bbe174cfdee0845a6d09468c7fe0e8b6ecb898",
+        "afterRunSha256": "ae27f4e536a6d784443e1a88e648e596fb1c1ac46deb390c7be98c3fcf97ed3d"
       }
     },
     {
@@ -27470,7 +27624,7 @@
       ],
       "example": "docker push \"$RELEASE_IMAGE\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "build-image",
         "step": 8
@@ -27478,6 +27632,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "build-image",
+          "step": 8
+        },
+        "issue": 9862,
+        "beforeRunSha256": "00a837b9f2ff2c1ed28942e4ef1d574365952b4fbc5b67a23b97725ca57b5f96",
+        "afterRunSha256": "717842a7c8cf0c9e77907935d6235daf7036ab3764fc1dd222ca83e9fc9f5d9c"
       }
     },
     {
@@ -27522,7 +27687,7 @@
       ],
       "example": "docker buildx imagetools inspect \"$RELEASE_IMAGE\" --format '{{.Manifest.Digest}}'",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "build-image",
         "step": 9
@@ -27530,6 +27695,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "build-image",
+          "step": 9
+        },
+        "issue": 9862,
+        "beforeRunSha256": "7e70d14fe3dcca8cec99490d5e9e78e32ff34340139f3098b2dfde0d639b27aa",
+        "afterRunSha256": "e808a1e8adbbe1153e4b55f3d4b4c2175d15a52d71c2f1a19dfc28fc6863dcfa"
       }
     },
     {
@@ -28137,7 +28313,7 @@
       ],
       "example": "docker buildx imagetools inspect \"$ACTIVE_RELEASE_IMAGE\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-staging",
         "step": 19
@@ -28145,6 +28321,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-staging",
+          "step": 19
+        },
+        "issue": 9862,
+        "beforeRunSha256": "c3750d583f31faafdd5ee73fdb17904f9ce0a52bb120a298e5fbb5974aedded7",
+        "afterRunSha256": "a31c37faa1012a37676d0022bd8e8f61294d302887f97b58a881b056d96c58d9"
       }
     },
     {
@@ -28189,7 +28376,7 @@
       ],
       "example": "docker buildx imagetools inspect \"$ACTIVE_RELEASE_IMAGE\" --format '{{.Manifest.Digest}}'",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-staging",
         "step": 19
@@ -28197,6 +28384,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-staging",
+          "step": 19
+        },
+        "issue": 9862,
+        "beforeRunSha256": "c3750d583f31faafdd5ee73fdb17904f9ce0a52bb120a298e5fbb5974aedded7",
+        "afterRunSha256": "a31c37faa1012a37676d0022bd8e8f61294d302887f97b58a881b056d96c58d9"
       }
     },
     {
@@ -29931,7 +30129,7 @@
       ],
       "example": "curl --silent --show-error --location --head --output /dev/null --write-out '%{http_code}' \"${catalog_asset_public_base_url}/\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-staging",
         "step": 38
@@ -29939,6 +30137,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'curl': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-staging",
+          "step": 38
+        },
+        "issue": 9862,
+        "beforeRunSha256": "c3f8b7769d672b3d82262430eefc2d6d56fb69650c2fab003a67a4f2e828e475",
+        "afterRunSha256": "7d5b18c56e6d67374f3a61da95bd9b3c7d897223b4271a84cc6a2d72866916bb"
       }
     },
     {
@@ -30067,7 +30276,7 @@
       ],
       "example": "kubectl exec --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" --container platform-api \"$pod\" -- rm -f \"$remote_evidence_path\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-staging",
         "step": 42
@@ -30075,6 +30284,17 @@
       "proof": {
         "selector": "Forwarding rule 'kubectl': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-staging",
+          "step": 42
+        },
+        "issue": 9862,
+        "beforeRunSha256": "a32813ee5d0c62a332b161d5c3b2167c9ac22e1ea3b85f554e646bdc537bfe04",
+        "afterRunSha256": "35b7d96ae73383b123ca06ce005aea40e05d51162b36610f110944396d8a895d"
       }
     },
     {
@@ -30169,7 +30389,7 @@
       ],
       "example": "kubectl exec --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" --container platform-api \"$pod\" -- env DEPLOYMENT_ENVIRONMENT=staging REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT=\"$remote_evidence_path\" pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-staging",
         "step": 42
@@ -30177,6 +30397,17 @@
       "proof": {
         "selector": "Forwarding rule 'kubectl': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-staging",
+          "step": 42
+        },
+        "issue": 9862,
+        "beforeRunSha256": "a32813ee5d0c62a332b161d5c3b2167c9ac22e1ea3b85f554e646bdc537bfe04",
+        "afterRunSha256": "35b7d96ae73383b123ca06ce005aea40e05d51162b36610f110944396d8a895d"
       }
     },
     {
@@ -30226,7 +30457,7 @@
       ],
       "example": "kubectl cp --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" --container platform-api \"$pod:$remote_evidence_path\" \"$evidence_path\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-staging",
         "step": 42
@@ -30234,6 +30465,17 @@
       "proof": {
         "selector": "Forwarding rule 'kubectl': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-staging",
+          "step": 42
+        },
+        "issue": 9862,
+        "beforeRunSha256": "a32813ee5d0c62a332b161d5c3b2167c9ac22e1ea3b85f554e646bdc537bfe04",
+        "afterRunSha256": "35b7d96ae73383b123ca06ce005aea40e05d51162b36610f110944396d8a895d"
       }
     },
     {
@@ -31733,7 +31975,7 @@
       ],
       "example": "gh issue comment \"$existing_issue\" --repo \"${GITHUB_REPOSITORY}\" --body \"$body\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "notify-staging-advisory-dispatch-failure",
         "step": 1
@@ -31741,6 +31983,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'gh': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "notify-staging-advisory-dispatch-failure",
+          "step": 1
+        },
+        "issue": 9862,
+        "beforeRunSha256": "065d40ebdfc7282ec100968b72bb84b4a4f765c62d5d7d8aab88e72d52fdbc40",
+        "afterRunSha256": "208068c6a815f1277ff54690e9d86622cf29d8946d0e929cb12224010f181b6a"
       }
     },
     {
@@ -32018,7 +32271,7 @@
       ],
       "example": "git show -s --format=%cI \"$release_commit\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "record-staging-release-health",
         "step": 3
@@ -32026,6 +32279,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "record-staging-release-health",
+          "step": 3
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e148ca5c814446aa378d60fa82690bd6988c7297b0d5699a36038a9e186da643",
+        "afterRunSha256": "7e56f3a360064508290a1f0852f0375dda734dedfdca42d3c500cf67e6877e5c"
       }
     },
     {
@@ -32097,7 +32361,7 @@
       ],
       "example": "git show -s --format=%ct \"$release_commit\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "record-staging-release-health",
         "step": 3
@@ -32105,6 +32369,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "record-staging-release-health",
+          "step": 3
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e148ca5c814446aa378d60fa82690bd6988c7297b0d5699a36038a9e186da643",
+        "afterRunSha256": "7e56f3a360064508290a1f0852f0375dda734dedfdca42d3c500cf67e6877e5c"
       }
     },
     {
@@ -33143,7 +33418,7 @@
       ],
       "example": "git rev-list -n 1 \"$release_tag\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-production",
         "step": 28
@@ -33151,6 +33426,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-production",
+          "step": 28
+        },
+        "issue": 9862,
+        "beforeRunSha256": "b6f82a1798dc3a6ff0be80889d931a9f908213d6effd3195260bb7dc0ba5999c",
+        "afterRunSha256": "caf6f38aff7c2fd2f6e025a72a5e8489b1ef87467f605bc9896f9a800d8f9724"
       }
     },
     {
@@ -35158,7 +35444,7 @@
       ],
       "example": "docker buildx imagetools create --tag \"$release_image\" \"${promoted_image}@${promoted_digest}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-production",
         "step": 53
@@ -35166,6 +35452,17 @@
       "proof": {
         "selector": "Forwarding rule 'docker': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-production",
+          "step": 53
+        },
+        "issue": 9862,
+        "beforeRunSha256": "0e159b7418a2801cddf108670b37a0b9005ba5f1ead71460e103080f60aa251d",
+        "afterRunSha256": "acffd0ce9bb89c65f4a2b3dd35ddc174a3253277fde6dd6eff2cb2fb4cd862d5"
       }
     },
     {
@@ -35321,7 +35618,7 @@
       ],
       "example": "git tag -a \"$release_tag\" \"$release_commit\" -m \"Production release ${release_tag}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-production",
         "step": 53
@@ -35329,6 +35626,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-production",
+          "step": 53
+        },
+        "issue": 9862,
+        "beforeRunSha256": "0e159b7418a2801cddf108670b37a0b9005ba5f1ead71460e103080f60aa251d",
+        "afterRunSha256": "acffd0ce9bb89c65f4a2b3dd35ddc174a3253277fde6dd6eff2cb2fb4cd862d5"
       }
     },
     {
@@ -35437,7 +35745,7 @@
       ],
       "example": "git merge --ff-only \"$release_commit\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-production",
         "step": 53
@@ -35445,6 +35753,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-production",
+          "step": 53
+        },
+        "issue": 9862,
+        "beforeRunSha256": "0e159b7418a2801cddf108670b37a0b9005ba5f1ead71460e103080f60aa251d",
+        "afterRunSha256": "acffd0ce9bb89c65f4a2b3dd35ddc174a3253277fde6dd6eff2cb2fb4cd862d5"
       }
     },
     {
@@ -35479,7 +35798,7 @@
       ],
       "example": "git checkout -B production \"$release_commit\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-production",
         "step": 53
@@ -35487,6 +35806,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-production",
+          "step": 53
+        },
+        "issue": 9862,
+        "beforeRunSha256": "0e159b7418a2801cddf108670b37a0b9005ba5f1ead71460e103080f60aa251d",
+        "afterRunSha256": "acffd0ce9bb89c65f4a2b3dd35ddc174a3253277fde6dd6eff2cb2fb4cd862d5"
       }
     },
     {
@@ -35607,7 +35937,7 @@
       ],
       "example": "git rev-parse \"${RELEASE_COMMIT}^{tree}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-production",
         "step": 54
@@ -35615,6 +35945,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-production",
+          "step": 54
+        },
+        "issue": 9862,
+        "beforeRunSha256": "76da26c3adec7256a96ef454e40d82ec96a857ab417fcbe88dcdef3db4079ea8",
+        "afterRunSha256": "71a1bd68ec6033f38b102263afa0a53069177b0060c09dd47db40d1ae511a389"
       }
     },
     {
@@ -35644,7 +35985,7 @@
       ],
       "example": "git rev-list --count \"${RELEASE_COMMIT}..${latest_main}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "deploy-production",
         "step": 56
@@ -35652,6 +35993,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'git': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "deploy-production",
+          "step": 56
+        },
+        "issue": 9862,
+        "beforeRunSha256": "703e80bd2b8d2ece7e8f9a96fe225bf279e7be528c8ee424fe6928225b9cc5e9",
+        "afterRunSha256": "b30abd60e5087a5091999dfebefc26cf200241cc402ff214d3b1309a5e364bd2"
       }
     },
     {
@@ -35962,7 +36314,7 @@
       ],
       "example": "gh issue close \"${issue_number}\" --repo \"${GITHUB_REPOSITORY}\" --comment \"${close_comment}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "notify-production-deploy-incident",
         "step": 3
@@ -35970,6 +36322,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'gh': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "notify-production-deploy-incident",
+          "step": 3
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e110772ebc46acf0f90448e31dafe9482506c35fdc561582946bb103dea6dc9a",
+        "afterRunSha256": "e6f005a8be478c744a1ef53651b50713fd12f5fcbfe2f4f9df40e502d6e2ed8a"
       }
     },
     {
@@ -36019,7 +36382,7 @@
       ],
       "example": "gh issue comment \"${existing_issue}\" --repo \"${GITHUB_REPOSITORY}\" --body \"${body}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-production.yml",
         "job": "notify-production-deploy-incident",
         "step": 3
@@ -36027,6 +36390,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'gh': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-production.yml",
+          "job": "notify-production-deploy-incident",
+          "step": 3
+        },
+        "issue": 9862,
+        "beforeRunSha256": "e110772ebc46acf0f90448e31dafe9482506c35fdc561582946bb103dea6dc9a",
+        "afterRunSha256": "e6f005a8be478c744a1ef53651b50713fd12f5fcbfe2f4f9df40e502d6e2ed8a"
       }
     },
     {
@@ -38655,7 +39029,7 @@
       ],
       "example": "gh issue close \"$existing_issue\" --repo \"${GITHUB_REPOSITORY}\" --comment \"Advisory staging evidence recovered for ${RELEASE_COMMIT}: ${RUN_URL}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-staging-advisory-evidence.yml",
         "job": "notify-staging-advisory-evidence",
         "step": 1
@@ -38663,6 +39037,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'gh': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-staging-advisory-evidence.yml",
+          "job": "notify-staging-advisory-evidence",
+          "step": 1
+        },
+        "issue": 9862,
+        "beforeRunSha256": "b301f8fea6bbec0f41c7f2f8b4f10707a6dbc66cf71965d558ef6b0e69e52bc5",
+        "afterRunSha256": "1d3b357d4f5fa386abd95b49590fd5a0ed0ae6828c2d1a36a840ce53e9e4d6b5"
       }
     },
     {
@@ -40580,7 +40965,7 @@
       ],
       "example": "sleep \"${DEPLOY_QUIESCENCE_POLL_INTERVAL_S}\"",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-staging-route-matrix-evidence.yml",
         "job": "staging-route-matrix-evidence",
         "step": 7
@@ -40588,6 +40973,17 @@
       "proof": {
         "selector": "Non-forwarding rule 'sleep': fixed command path and origin-proved literal options.",
         "operands": "Remaining operands are single-argument data; option-shaped words must name an origin-proved option."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-staging-route-matrix-evidence.yml",
+          "job": "staging-route-matrix-evidence",
+          "step": 7
+        },
+        "issue": 9862,
+        "beforeRunSha256": "2a0e52a94d25403481b9b897693c21a582c1c8cd57a7e4a10adc129086905663",
+        "afterRunSha256": "6e29f8483f208d48cf76b4f284b43218c8b4bd8592e3fea1e580a5af5b400f3e"
       }
     },
     {
@@ -41609,7 +42005,7 @@
       ],
       "example": "kubectl get deployment --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \"$worker_deployment\" --output json",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-staging-wake-drills.yml",
         "job": "staging-wake-drill",
         "step": 10
@@ -41617,6 +42013,17 @@
       "proof": {
         "selector": "Forwarding rule 'kubectl': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-staging-wake-drills.yml",
+          "job": "staging-wake-drill",
+          "step": 10
+        },
+        "issue": 9862,
+        "beforeRunSha256": "d1bd704ca9484a888b1daf3e3725856a4708b2f9e434c966de32c087eac65a1f",
+        "afterRunSha256": "23e6f88c86b1594bed74f58a50b567f0731430e75c5ea208d001b935fd86f722"
       }
     },
     {
@@ -41849,7 +42256,7 @@
       ],
       "example": "kubectl get deployment --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \"$worker_deployment\" --output jsonpath='{.spec.template.spec.containers[?(@.name==\"platform-worker\")].ports[?(@.name==\"http\")].containerPort}'",
       "origin": {
-        "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+        "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
         "path": ".github/workflows/platform-staging-wake-drills.yml",
         "job": "staging-wake-drill",
         "step": 10
@@ -41857,6 +42264,17 @@
       "proof": {
         "selector": "Forwarding rule 'kubectl': each executable hop resolves its basename and redispatches to its own closed rule.",
         "operands": "Words outside forwarded executable, subcommand and option roles are single-argument data; substitutions classify on their own."
+      },
+      "transition": {
+        "from": {
+          "sha": "926050f88aae70a631c117c1e0f002a3160a9278",
+          "path": ".github/workflows/platform-staging-wake-drills.yml",
+          "job": "staging-wake-drill",
+          "step": 10
+        },
+        "issue": 9862,
+        "beforeRunSha256": "d1bd704ca9484a888b1daf3e3725856a4708b2f9e434c966de32c087eac65a1f",
+        "afterRunSha256": "23e6f88c86b1594bed74f58a50b567f0731430e75c5ea208d001b935fd86f722"
       }
     },
     {
@@ -47454,6 +47872,1108 @@
       },
       "runSha256": "63e29699c19da31449a8b8310292ee14cd01c0c1e080b596a8043fab853bfd1f",
       "envSha256": "2ee135c452ea90b04830e2ab6fd25298c36da2730ea1b9e5707ce15b12bc4ff8"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-catalog-assets-apply.yml",
+      "job": "catalog-assets",
+      "step": 11,
+      "run": "set -euo pipefail\npublic_base_url=\"$(terraform output -raw public_base_url)\"\n[[ \"$public_base_url\" =~ ^[^-].*$ ]] || {\n  echo \"public_base_url must be a non-option value.\" >&2\n  exit 1\n}\nobject_path=\"${{ inputs.catalog_asset_object_path }}\"\nobject_path=\"${object_path#/}\"\nif printf '%s' \"$object_path\" | grep -Eq '(^|/)\\.\\.(/|$)'; then\n  echo \"Catalog asset object path must not contain traversal segments.\" >&2\n  exit 1\nfi\n[[ \"$object_path\" =~ ^[^-].*$ ]] || {\n  echo \"object_path must be a non-option value.\" >&2\n  exit 1\n}\nstatus=\"$(curl -sSL -o /dev/null -w '%{http_code}' \"${public_base_url}/${object_path}\")\"\nif [ \"$status\" != \"200\" ]; then\n  echo \"Catalog asset CDN object delivery check failed; status=${status}.\" >&2\n  exit 1\nfi\necho \"Catalog asset CDN object delivery returned 200.\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "${{ inputs.environment }}"
+        },
+        "step": {
+          "AWS_ACCESS_KEY_ID": "${{ secrets.SPACES_ACCESS_ID }}",
+          "AWS_SECRET_ACCESS_KEY": "${{ secrets.SPACES_SECRET_KEY }}",
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}"
+        }
+      },
+      "runSha256": "35545dbf9dd31268d0f94c1fdef4e7847ccfc67b1267d4dd2d045a4dd49fdcc3",
+      "envSha256": "f43f3b1863303eccdef8d9d20cbf3529e9df7bf98011c99788511d6b8b2fa2d8"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-digitalocean-token-rotation-reminder.yml",
+      "job": "remind",
+      "step": 1,
+      "run": "set -euo pipefail\n\nrun_url=\"${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"\nrotation_window=\"$(date -u +%Y-%m-%d)\"\n\nbody=\"$(cat <<EOF\n<!-- digitalocean-token-rotation-reminder -->\n## DigitalOcean token rotation\n\nQuarterly reminder generated on ${rotation_window} UTC.\n\nRotate these GitHub secrets without printing or pasting values into issues, PRs, logs, screenshots, or artifacts:\n\n- \\`DIGITALOCEAN_ACCESS_TOKEN\\`: full deploy/preview/staging reset/rollback/restore token.\n- \\`DIGITALOCEAN_READONLY_TOKEN\\`: drift digest read-only token.\n- \\`DIGITALOCEAN_REGISTRY_TOKEN\\`: registry cleanup token.\n\nGuidance:\n\n- Create replacement DigitalOcean personal access tokens with 90-day expiration.\n- Add the replacement values to the GitHub environments and repository secrets named above.\n- Run manual workflow dispatches for Platform DigitalOcean Drift Digest, Platform Registry Cleanup with dry run first, and this reminder.\n- After scoped dispatch proof is green, delete the superseded DigitalOcean tokens.\n- Keep issue #3339 open until drift digest, registry cleanup, and this reminder have manual proof against the scoped secrets.\n\nDigitalOcean click-path:\n\n1. DigitalOcean Control Panel -> Account -> API -> Tokens.\n2. Personal access tokens -> Generate New Token.\n3. Set a clear name, choose a 90-day expiration, choose the scope set from the runbook, then generate.\n4. Save the displayed token only into GitHub secrets. The value is shown once.\n5. Delete the previous token only after the replacement secret passes its manual workflow proof.\n\nReminder run: ${run_url}\nEOF\n)\"\n\nexisting_issue=\"$(\n  gh issue list \\\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --state open \\\n    --search \"\\\"${ROTATION_ISSUE_TITLE}\\\" in:title\" \\\n    --json number,title \\\n    --jq '.[] | select(.title == \"[ops] Rotate DigitalOcean tokens\") | .number' \\\n    | head -n 1\n)\"\n[[ \"$existing_issue\" =~ ^[^-].*$ ]] || {\n  echo \"existing_issue must be a non-option value.\" >&2\n  exit 1\n}\n\nif [ -n \"${existing_issue}\" ]; then\n  gh issue edit \"${existing_issue}\" --repo \"${GITHUB_REPOSITORY}\" --body \"${body}\"\n  echo \"Updated DigitalOcean token rotation issue #${existing_issue}.\"\nelse\n  gh issue create \\\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --title \"${ROTATION_ISSUE_TITLE}\" \\\n    --body \"${body}\" \\\n    --label \"kind:ops\" \\\n    --label \"area:infrastructure\"\nfi\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {
+          "GH_TOKEN": "${{ github.token }}",
+          "ROTATION_ISSUE_TITLE": "[ops] Rotate DigitalOcean tokens"
+        }
+      },
+      "runSha256": "3c2650787a71df1cf0346168ff9447697ea6d3a8bf7e3e114cc6caf0228bf26d",
+      "envSha256": "202238b3c7300298f2bbeb94a29e3fc8bcc783689910b646fd1c27e1bba7f4e1"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-ephemeral-verification.yml",
+      "job": "verify-release",
+      "step": 5,
+      "run": "set -euo pipefail\nif [ \"${{ inputs.dispatch_source }}\" = \"automatic\" ]; then\n  release_commit=\"$VALIDATED_RELEASE_COMMIT\"\nelse\n  release_commit=\"$(git rev-parse HEAD)\"\nfi\n[[ \"$release_commit\" =~ ^[^-].*$ ]] || {\n  echo \"release_commit must be a non-option value.\" >&2\n  exit 1\n}\nif ! [[ \"$release_commit\" =~ ^[0-9a-f]{40}$ ]]; then\n  echo \"The selected release did not resolve to an immutable commit SHA.\" >&2\n  exit 1\nfi\ngit checkout --detach \"$release_commit\"\nchecked_out_commit=\"$(git rev-parse HEAD)\"\nif [ \"$checked_out_commit\" != \"$release_commit\" ]; then\n  echo \"Checked out commit ${checked_out_commit} does not match validated release ${release_commit}.\" >&2\n  exit 1\nfi\necho \"release_commit=${release_commit}\" >> \"$GITHUB_OUTPUT\"\necho \"Verifying release ${release_commit} in ${CHASE_SETS_KUBERNETES_NAMESPACE}.\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "DEPLOYMENT_ENVIRONMENT": "preview",
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "VERIFICATION_SLUG": "verify-${{ github.run_id }}-${{ github.run_attempt }}",
+          "PREVIEW_IDENTIFIER": "verify-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_HELM_RELEASE": "csv-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "STRIPE_CONNECT_ACCOUNTS_API": "${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}",
+          "STRIPE_API_BASE_URL": "${{ vars.STRIPE_API_BASE_URL || '' }}",
+          "EASYPOST_API_BASE_URL": "${{ vars.EASYPOST_API_BASE_URL || '' }}",
+          "EASYPOST_MODE": "${{ vars.EASYPOST_MODE || 'test' }}"
+        },
+        "step": {
+          "VALIDATED_RELEASE_COMMIT": "${{ steps.handoff.outputs.release_commit }}"
+        }
+      },
+      "runSha256": "d5e930016e0fae41246a9793a517373d51e76da63593b4d1e9645456fdd91ad8",
+      "envSha256": "b1dd6ed61abeca6c0b76daf09d062bd24c0221844371f84a62976bd9a6d9a42d"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-ephemeral-verification.yml",
+      "job": "verify-release",
+      "step": 18,
+      "run": "set -euo pipefail\nmkdir -p artifacts/ephemeral-verification\npod=\"$(kubectl get pods --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n  -l app.kubernetes.io/component=platform-api \\\n  -o jsonpath='{.items[0].metadata.name}')\"\n[[ \"$pod\" =~ ^[^-].*$ ]] || {\n  echo \"pod must be a non-option value.\" >&2\n  exit 1\n}\nkubectl exec --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \"$pod\" -- \\\n  env EPHEMERAL_VERIFICATION_NAMESPACE=\"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n    REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \\\n    REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT=/tmp/representative-commerce-state.json \\\n    pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production\nkubectl cp \"$CHASE_SETS_KUBERNETES_NAMESPACE/$pod:/tmp/representative-commerce-state.json\" \\\n  artifacts/ephemeral-verification/representative-commerce-state.json\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "DEPLOYMENT_ENVIRONMENT": "preview",
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "VERIFICATION_SLUG": "verify-${{ github.run_id }}-${{ github.run_attempt }}",
+          "PREVIEW_IDENTIFIER": "verify-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_HELM_RELEASE": "csv-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "STRIPE_CONNECT_ACCOUNTS_API": "${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}",
+          "STRIPE_API_BASE_URL": "${{ vars.STRIPE_API_BASE_URL || '' }}",
+          "EASYPOST_API_BASE_URL": "${{ vars.EASYPOST_API_BASE_URL || '' }}",
+          "EASYPOST_MODE": "${{ vars.EASYPOST_MODE || 'test' }}"
+        },
+        "step": {}
+      },
+      "runSha256": "901c821828a44a34cea9dfe0867d33795229be54a5569d0d721fd86a14f2fa14",
+      "envSha256": "e66d46e26b190e2266eebb343a1dbfd2f6c96a2f0852cf5def3f7c43d510541a"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-merge-gate-verification.yml",
+      "job": "verify",
+      "step": 14,
+      "run": "set -euo pipefail\n[[ \"$IMAGE_DIGEST\" =~ ^[^-].*$ ]] || {\n  echo \"IMAGE_DIGEST must be a non-option value.\" >&2\n  exit 1\n}\n[[ \"$IMAGE_REPOSITORY_REF\" =~ ^[^-].*$ ]] || {\n  echo \"IMAGE_REPOSITORY_REF must be a non-option value.\" >&2\n  exit 1\n}\nmkdir -p artifacts/merge-gate\nkubectl get pods --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" -o json > artifacts/merge-gate/gate-pods.json\n# Only platform-image containers count: the namespace also runs the\n# disposable Postgres and observability sidecars from other images.\nplatform_rows=\"$(kubectl get pods --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n  -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image}{\" \"}{.imageID}{\"\\n\"}{end}' \\\n  | grep -F \"$IMAGE_REPOSITORY_REF\" || true)\"\nif [ -z \"$platform_rows\" ]; then\n  echo \"No running containers use ${IMAGE_REPOSITORY_REF}; cannot prove the gate digest.\" >&2\n  exit 1\nfi\nmismatched=\"$(printf '%s\\n' \"$platform_rows\" | grep -v \"$IMAGE_DIGEST\" || true)\"\nif [ -n \"$mismatched\" ]; then\n  echo \"Running platform containers report a different image digest than ${IMAGE_DIGEST}:\" >&2\n  printf '%s\\n' \"$mismatched\" >&2\n  exit 1\nfi\nkubectl top pods --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" --no-headers > artifacts/merge-gate/gate-top.txt || true\nnode ./scripts/merge-gate-verification.mjs mark --file \"$MERGE_GATE_PHASES_FILE\" --phase digest-proven\necho \"Every running platform container reports ${IMAGE_DIGEST}.\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "DEPLOYMENT_ENVIRONMENT": "preview",
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "GATE_SLUG": "gate-${{ github.run_id }}-${{ github.run_attempt }}",
+          "PREVIEW_IDENTIFIER": "gate-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_HELM_RELEASE": "csg-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-gate-${{ github.run_id }}-${{ github.run_attempt }}",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "MERGE_GATE_PHASES_FILE": "artifacts/merge-gate/phases.ndjson",
+          "STRIPE_CONNECT_ACCOUNTS_API": "${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}",
+          "STRIPE_API_BASE_URL": "${{ vars.STRIPE_API_BASE_URL || '' }}",
+          "EASYPOST_API_BASE_URL": "${{ vars.EASYPOST_API_BASE_URL || '' }}",
+          "EASYPOST_MODE": "${{ vars.EASYPOST_MODE || 'test' }}"
+        },
+        "step": {
+          "IMAGE_DIGEST": "${{ steps.image.outputs.digest }}",
+          "IMAGE_REPOSITORY_REF": "${{ steps.image.outputs.repository }}"
+        }
+      },
+      "runSha256": "26d53bb740d472cb7ec8b9816bdaa0e78782cdd2923a8302914af62de69017b1",
+      "envSha256": "45f63bedfe8adcc91e0529f57a5f7ea996f6cab286bfbfdef50c5d4b84f5bf86"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-pr.yml",
+      "job": "change-scope",
+      "step": 3,
+      "run": "set -euo pipefail\nif [ \"${{ github.event_name }}\" = \"pull_request\" ]; then\n  base=\"${{ github.event.pull_request.base.sha }}\"\n  head=\"${{ github.sha }}\"\nelif [ \"${{ github.event_name }}\" = \"merge_group\" ]; then\n  base=\"${{ github.event.merge_group.base_sha }}\"\n  head=\"${{ github.event.merge_group.head_sha }}\"\nelse\n  base=\"${{ github.event.before }}\"\n  head=\"${{ github.sha }}\"\nfi\n\nif [ -z \"$head\" ]; then\n  head=\"${{ github.sha }}\"\nfi\n[[ \"$head\" =~ ^[^-].*$ ]] || {\n  echo \"head must be a non-option value.\" >&2\n  exit 1\n}\nif [ -z \"$base\" ]; then\n  base=\"$(git rev-parse origin/main)\"\nfi\n\nif [[ \"$base\" =~ ^0+$ ]]; then\n  base=\"$(git rev-list --max-parents=0 \"$head\")\"\nfi\n\nnode ./scripts/change-scope.mjs github-output --base=\"${base}\" --head=\"${head}\"\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {}
+      },
+      "runSha256": "d2df1bc74bb05d6e0afc08af321b7cd0162b2be6d1a40369965ee27d72225025",
+      "envSha256": "ca6966f5062e175542b7748308be0fda582de6824ddef97dd2fdb7f48f44a7e7"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-pr.yml",
+      "job": "e2e-tests",
+      "step": 3,
+      "run": "set -euo pipefail\n[[ \"$RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA\" =~ ^[^-].*$ ]] || {\n  echo \"RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA must be a non-option value.\" >&2\n  exit 1\n}\ncheckout_commit=\"$(git rev-parse --verify 'HEAD^{commit}')\"\ncheckout_tree=\"$(git rev-parse --verify 'HEAD^{tree}')\"\ncheckout_parents=\"$(git show -s --diff-merges=off --format=%P HEAD)\"\nexecuted_base_sha=\"$(printf '%s\\n' \"$checkout_parents\" | awk '{print $1}')\"\n[[ \"$executed_base_sha\" =~ ^[^-].*$ ]] || {\n  echo \"executed_base_sha must be a non-option value.\" >&2\n  exit 1\n}\nexecuted_base_tree=\"$(git rev-parse --verify \"${executed_base_sha}^{tree}\")\"\nsource_head_tree=\"$(git rev-parse --verify \"${RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA}^{tree}\")\"\n{\n  echo \"checkout-commit=${checkout_commit}\"\n  echo \"checkout-tree=${checkout_tree}\"\n  echo \"checkout-parents=${checkout_parents}\"\n  echo \"executed-base-sha=${executed_base_sha}\"\n  echo \"executed-base-tree=${executed_base_tree}\"\n  echo \"source-head-tree=${source_head_tree}\"\n} >> \"$GITHUB_OUTPUT\"\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {
+          "RESPONSIVE_EVIDENCE_SOURCE_HEAD_SHA": "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}"
+        }
+      },
+      "runSha256": "d5b68dcd262c2b33a092c21d7a3c5d1f5d98eefb2379cb2b21ac7a4ffe050e6b",
+      "envSha256": "213d795aaa2b5640dc77fd271eed1fd2037273a3500622027d8f62529c2ba5ff"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-pr.yml",
+      "job": "docker-image",
+      "step": 7,
+      "run": "set -euo pipefail\n\n# Keep this aligned with Build Release Image boot smoke in\n# platform-production.yml: start each web component exactly as App\n# Platform does (run_command and health_check from\n# infrastructure/digitalocean/platform/main.tf) before the merge\n# queue accepts a Docker image change.\nboot_smoke() {\n  component=\"$1\"\n  workspace=\"$2\"\n  health_path=\"$3\"\n  host_port=\"$4\"\n\n  container_id=\"$(docker run -d \\\n    -e NODE_ENV=production \\\n    -e PORT=8080 \\\n    -p \"${host_port}:8080\" \\\n    \"$PLATFORM_IMAGE\" \\\n    pnpm --filter \"$workspace\" run start)\"\n[[ \"$container_id\" =~ ^[^-].*$ ]] || {\n  echo \"container_id must be a non-option value.\" >&2\n  exit 1\n}\n\n  for _ in $(seq 1 30); do\n    if curl --fail --silent --output /dev/null \"http://localhost:${host_port}${health_path}\"; then\n      if [ \"$component\" = \"public-web\" ] && ! pnpm run smoke:public-web-routes -- \\\n        --base-url \"http://localhost:${host_port}\" \\\n        --mode no-5xx; then\n        echo \"Boot smoke failed for public-web: the derived public route walk was not 5xx-free.\" >&2\n        docker logs \"$container_id\" >&2 || true\n        docker rm -f \"$container_id\" >/dev/null || true\n        return 1\n      fi\n      echo \"Boot smoke passed for ${component} (${health_path}).\"\n      docker rm -f \"$container_id\" >/dev/null\n      return 0\n    fi\n    if [ \"$(docker inspect --format '{{.State.Running}}' \"$container_id\")\" != \"true\" ]; then\n      break\n    fi\n    sleep 1\n  done\n\n  echo \"Boot smoke failed for ${component}: ${health_path} never became healthy.\" >&2\n  docker logs \"$container_id\" >&2 || true\n  docker rm -f \"$container_id\" >/dev/null || true\n  return 1\n}\n\nboot_smoke marketplace \"@chase-sets/app-marketplace-web\" /health/ready 18080\nboot_smoke public-web \"@chase-sets/app-public-web\" / 18081\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform"
+        },
+        "step": {
+          "DIGITALOCEAN_REGISTRY_TOKEN": "${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "PLATFORM_IMAGE": "chase-sets-platform:pr-validation"
+        }
+      },
+      "runSha256": "d31f27eeaf945f40a4b335b02d127993a3a2de3a8ae90cb0bec172cd9806cfe0",
+      "envSha256": "5b1cd67f9d3ff2b846f8809c37f028a4d7e6bf74feb8369f6ab1e8415a6d53bc"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deployment-contract-preflight",
+      "step": 2,
+      "run": "set -euo pipefail\n[[ \"$source_path\" =~ ^[^-].*$ ]] || {\n  echo \"source_path must be a non-option value.\" >&2\n  exit 1\n}\ncontract_root=\"${RUNNER_TEMP}/deployment-contract-release\"\nmkdir -p \\\n  \"$contract_root/.github/workflows\" \\\n  \"$contract_root/infrastructure/digitalocean/platform\"\ncp .github/workflows/platform-production.yml \"$contract_root/.github/workflows/platform-production.yml\"\nrelease_commit=\"${{ needs.resolve-release.outputs.release_commit }}\"\n[[ \"$release_commit\" =~ ^[^-].*$ ]] || {\n  echo \"release_commit must be a non-option value.\" >&2\n  exit 1\n}\nfor source_path in \\\n  infrastructure/digitalocean/platform/main.tf \\\n  infrastructure/digitalocean/platform/locals.tf \\\n  infrastructure/digitalocean/platform/variables.tf\ndo\n  git show \"${{ needs.resolve-release.outputs.release_commit }}:${source_path}\" > \"$contract_root/${source_path}\"\ndone\necho \"contract_root=${contract_root}\" >> \"$GITHUB_OUTPUT\"\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {}
+      },
+      "runSha256": "b715fc83fc91633a572a1c53cea9a144cb28c12a2b7843d5bf69ab9708d2fb3f",
+      "envSha256": "ca6966f5062e175542b7748308be0fda582de6824ddef97dd2fdb7f48f44a7e7"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "build-image",
+      "step": 7,
+      "run": "set -euo pipefail\n[[ \"$RELEASE_IMAGE\" =~ ^[^-].*$ ]] || {\n  echo \"RELEASE_IMAGE must be a non-option value.\" >&2\n  exit 1\n}\n\n# Build-time success does not prove runtime success (issue #1417):\n# start each web component with its deployed command and health check\n# so a non-booting image fails this parallel job before the push and\n# never reaches the deploy lane.\nboot_smoke() {\n  component=\"$1\"\n  workspace=\"$2\"\n  health_path=\"$3\"\n  host_port=\"$4\"\n\n  container_id=\"$(docker run -d \\\n    -e NODE_ENV=production \\\n    -e PORT=8080 \\\n    -p \"${host_port}:8080\" \\\n    \"$RELEASE_IMAGE\" \\\n    pnpm --filter \"$workspace\" run start)\"\n\n  for _ in $(seq 1 30); do\n    if curl --fail --silent --output /dev/null \"http://localhost:${host_port}${health_path}\"; then\n      if [ \"$component\" = \"public-web\" ] && ! pnpm run smoke:public-web-routes -- \\\n        --base-url \"http://localhost:${host_port}\" \\\n        --mode no-5xx; then\n        echo \"Boot smoke failed for public-web: the derived public route walk was not 5xx-free.\" >&2\n        docker logs \"$container_id\" >&2 || true\n        docker rm -f \"$container_id\" >/dev/null || true\n        return 1\n      fi\n      echo \"Boot smoke passed for ${component} (${health_path}).\"\n      docker rm -f \"$container_id\" >/dev/null\n      return 0\n    fi\n    if [ \"$(docker inspect --format '{{.State.Running}}' \"$container_id\")\" != \"true\" ]; then\n      break\n    fi\n    sleep 1\n  done\n\n  echo \"Boot smoke failed for ${component}: ${health_path} never became healthy.\" >&2\n  docker logs \"$container_id\" >&2 || true\n  docker rm -f \"$container_id\" >/dev/null || true\n  return 1\n}\n\nboot_smoke marketplace \"@chase-sets/app-marketplace-web\" /health/ready 18080\nboot_smoke public-web \"@chase-sets/app-public-web\" / 18081\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform"
+        },
+        "step": {
+          "RELEASE_IMAGE": "${{ steps.release_image.outputs.image }}"
+        }
+      },
+      "runSha256": "ae27f4e536a6d784443e1a88e648e596fb1c1ac46deb390c7be98c3fcf97ed3d",
+      "envSha256": "72d3c794ae5be689b5071818012eb894afca90800e105b03571386366899d15b"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "build-image",
+      "step": 8,
+      "run": "set -euo pipefail\n[[ \"$RELEASE_IMAGE\" =~ ^[^-].*$ ]] || {\n  echo \"RELEASE_IMAGE must be a non-option value.\" >&2\n  exit 1\n}\ndocker push \"$RELEASE_IMAGE\"\necho \"Pushed release image ${RELEASE_IMAGE}\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform"
+        },
+        "step": {
+          "RELEASE_IMAGE": "${{ steps.release_image.outputs.image }}"
+        }
+      },
+      "runSha256": "717842a7c8cf0c9e77907935d6235daf7036ab3764fc1dd222ca83e9fc9f5d9c",
+      "envSha256": "72d3c794ae5be689b5071818012eb894afca90800e105b03571386366899d15b"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "build-image",
+      "step": 9,
+      "run": "set -euo pipefail\n[[ \"$RELEASE_IMAGE\" =~ ^[^-].*$ ]] || {\n  echo \"RELEASE_IMAGE must be a non-option value.\" >&2\n  exit 1\n}\ndigest=\"$(docker buildx imagetools inspect \"$RELEASE_IMAGE\" --format '{{.Manifest.Digest}}')\"\nif ! [[ \"$digest\" =~ ^sha256:[0-9a-f]{64}$ ]]; then\n  echo \"Release image ${RELEASE_IMAGE} did not resolve to an immutable sha256 digest.\" >&2\n  exit 1\nfi\n{\n  echo \"image=${RELEASE_IMAGE}\"\n  echo \"digest=${digest}\"\n} >> \"$GITHUB_OUTPUT\"\necho \"Pinned candidate ${RELEASE_IMAGE}@${digest}.\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform"
+        },
+        "step": {
+          "RELEASE_IMAGE": "${{ steps.release_image.outputs.image }}"
+        }
+      },
+      "runSha256": "e808a1e8adbbe1153e4b55f3d4b4c2175d15a52d71c2f1a19dfc28fc6863dcfa",
+      "envSha256": "72d3c794ae5be689b5071818012eb894afca90800e105b03571386366899d15b"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deploy-staging",
+      "step": 19,
+      "run": "set -euo pipefail\n[[ \"$ACTIVE_RELEASE_IMAGE\" =~ ^[^-].*$ ]] || {\n  echo \"ACTIVE_RELEASE_IMAGE must be a non-option value.\" >&2\n  exit 1\n}\ndoctl registry login --expiry-seconds 3600\nif ! docker buildx imagetools inspect \"$ACTIVE_RELEASE_IMAGE\" >/dev/null; then\n  echo \"Active release image ${ACTIVE_RELEASE_IMAGE} no longer exists.\" >&2\n  exit 1\nfi\nobserved_digest=\"$(docker buildx imagetools inspect \"$ACTIVE_RELEASE_IMAGE\" --format '{{.Manifest.Digest}}')\"\nif [ \"$observed_digest\" != \"$ACTIVE_RELEASE_IMAGE_DIGEST\" ]; then\n  echo \"Active release image digest changed from ${ACTIVE_RELEASE_IMAGE_DIGEST} to ${observed_digest}.\" >&2\n  exit 1\nfi\n{\n  echo \"image=${ACTIVE_RELEASE_IMAGE}\"\n  echo \"digest=${ACTIVE_RELEASE_IMAGE_DIGEST}\"\n} >> \"$GITHUB_OUTPUT\"\necho \"TF_VAR_platform_image_digest=${ACTIVE_RELEASE_IMAGE_DIGEST}\" >> \"$GITHUB_ENV\"\necho \"Verified immutable active release ${ACTIVE_RELEASE_IMAGE}@${ACTIVE_RELEASE_IMAGE_DIGEST}.\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "staging",
+          "TF_VAR_environment_project_id": "${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}",
+          "TF_VAR_platform_image_repository": "chase-sets-platform",
+          "TF_VAR_platform_image_tag": "${{ needs.resolve-release.outputs.release_commit }}",
+          "TF_VAR_checkout_shopify_simple_kill_switch_active": "${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+          "TF_VAR_alert_emails": "${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}",
+          "TF_VAR_platform_internal_auth_secret": "${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}",
+          "TF_VAR_platform_admin_email": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "TF_VAR_platform_admin_password": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "TF_VAR_platform_admin_display_name": "${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}",
+          "TF_VAR_discord_invite_url": "${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}",
+          "TF_VAR_stripe_secret_key": "${{ secrets.STRIPE_SECRET_KEY }}",
+          "TF_VAR_stripe_publishable_key": "${{ secrets.STRIPE_PUBLISHABLE_KEY }}",
+          "TF_VAR_stripe_webhook_secret": "${{ secrets.STRIPE_WEBHOOK_SECRET }}",
+          "TF_VAR_stripe_connect_webhook_secret": "${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}",
+          "TF_VAR_stripe_connect_accounts_api": "${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}",
+          "TF_VAR_stripe_api_base_url": "${{ vars.STRIPE_API_BASE_URL || '' }}",
+          "TF_VAR_ucp_business_signing_key_id": "${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}",
+          "TF_VAR_ucp_business_signing_alg": "${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}",
+          "TF_VAR_ucp_business_signing_private_jwk": "${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}",
+          "TF_VAR_ucp_business_signing_previous_public_jwks": "${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}",
+          "TF_VAR_ucp_ap2_verifier_url": "${{ secrets.UCP_AP2_VERIFIER_URL || '' }}",
+          "TF_VAR_ucp_ap2_verifier_auth_token": "${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}",
+          "TF_VAR_ucp_ap2_verifier_timeout_ms": "${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}",
+          "TF_VAR_easypost_api_key": "${{ secrets.EASYPOST_API_KEY }}",
+          "TF_VAR_voyage_api_key": "${{ secrets.VOYAGE_API_KEY || '' }}",
+          "TF_VAR_easypost_api_base_url": "${{ vars.EASYPOST_API_BASE_URL || '' }}",
+          "TF_VAR_easypost_webhook_secret": "${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_easypost_mode": "${{ vars.EASYPOST_MODE || 'test' }}",
+          "TF_VAR_tcgplayer_automation_tcg_auth_cookie": "${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+          "TF_VAR_scrydex_api_key": "${{ secrets.SCRYDEX_API_KEY || '' }}",
+          "TF_VAR_scrydex_team_id": "${{ secrets.SCRYDEX_TEAM_ID || '' }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_notification_email_provider": "${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}",
+          "TF_VAR_ses_aws_region": "${{ vars.SES_AWS_REGION || '' }}",
+          "TF_VAR_ses_aws_access_key_id": "${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}",
+          "TF_VAR_ses_aws_secret_access_key": "${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}",
+          "TF_VAR_ses_from_email": "${{ vars.SES_FROM_EMAIL || '' }}",
+          "TF_VAR_ses_configuration_set_name": "${{ vars.SES_CONFIGURATION_SET_NAME || '' }}",
+          "TF_VAR_ses_source_arn": "${{ secrets.SES_SOURCE_ARN || '' }}",
+          "TF_VAR_observability_enabled": "${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}",
+          "TF_VAR_observability_otlp_endpoint": "${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}",
+          "TF_VAR_observability_otlp_headers": "${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "CHASE_SETS_HELM_RELEASE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "ARGO_ROLLOUTS_ENABLED": "${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}",
+          "BETA_WAVE_SIZE": "${{ vars.BETA_WAVE_SIZE || '100' }}",
+          "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT": "${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+          "DESTRUCTIVE_CHANGE_ALLOW_FILE": ".github/deployment/production-destructive-change-approved.md",
+          "DOKS_INGRESS_TARGET": "${{ vars.DOKS_INGRESS_TARGET || '' }}",
+          "TF_VAR_doks_ingress_target": "${{ vars.DOKS_INGRESS_TARGET || '' }}"
+        },
+        "step": {
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}",
+          "ACTIVE_RELEASE_IMAGE": "${{ needs.build-image.outputs.platform_image }}",
+          "ACTIVE_RELEASE_IMAGE_DIGEST": "${{ steps.activate_release.outputs.active_image_digest }}"
+        }
+      },
+      "runSha256": "a31c37faa1012a37676d0022bd8e8f61294d302887f97b58a881b056d96c58d9",
+      "envSha256": "4a93f2529814ee8843f846e71e7df9b9788d300a685393f94db96cade151d686"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deploy-staging",
+      "step": 38,
+      "run": "set -euo pipefail\necho \"Smoking the live staging hosts served by DOKS.\"\nlanding_domain=\"$(terraform output -raw landing_domain)\"\nadmin_domain=\"$(terraform output -raw admin_domain)\"\ncatalog_asset_public_base_url=\"$(terraform output -raw catalog_asset_public_base_url)\"\n[[ \"$catalog_asset_public_base_url\" =~ ^[^-].*$ ]] || {\n  echo \"catalog_asset_public_base_url must be a non-option value.\" >&2\n  exit 1\n}\nmarketplace_domain=\"$(terraform output -json marketplace_domains | jq -r '.[0] // empty')\"\nstaging_root_marketplace_domain=\"$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')\"\nif [ -z \"$landing_domain\" ] || [ -z \"$admin_domain\" ] || [ -z \"$catalog_asset_public_base_url\" ] || [ -z \"$marketplace_domain\" ] || [ -z \"$staging_root_marketplace_domain\" ]; then\n  echo \"Required staging smoke domains were not present in Terraform outputs.\" >&2\n  exit 1\nfi\n\nif [ -n \"$TF_VAR_google_social_login_client_id\" ] &&\n  [ -n \"$TF_VAR_google_social_login_client_secret\" ] &&\n  [ -n \"$TF_VAR_facebook_social_login_client_id\" ] &&\n  [ -n \"$TF_VAR_facebook_social_login_client_secret\" ]; then\n  export SMOKE_REQUIRE_SOCIAL_LOGIN=true\nelse\n  export SMOKE_REQUIRE_SOCIAL_LOGIN=false\nfi\n\ncd ../../..\nexport MARKETPLACE_ROOT_WEB_URL=\"https://${staging_root_marketplace_domain}\"\npnpm run smoke:platform -- \\\n  \"https://${landing_domain}\" \\\n  \"https://${admin_domain}\" \\\n  \"https://${marketplace_domain}\"\ncatalog_asset_root_status=\"\"\nfor attempt in $(seq 1 12); do\n  catalog_asset_root_status=\"$(curl --silent --show-error --location --head --output /dev/null --write-out '%{http_code}' \\\n    \"${catalog_asset_public_base_url}/\" || true)\"\n  echo \"Catalog asset CDN root status ${catalog_asset_root_status} on attempt ${attempt}.\"\n  if [ \"$catalog_asset_root_status\" = \"403\" ]; then\n    break\n  fi\n  sleep 10\ndone\nif [ \"$catalog_asset_root_status\" != \"403\" ]; then\n  echo \"Catalog asset CDN root must stay protected; expected 403, got ${catalog_asset_root_status:-none}.\" >&2\n  exit 1\nfi\necho \"Catalog asset CDN root returned expected protected status 403.\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "staging",
+          "TF_VAR_environment_project_id": "${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}",
+          "TF_VAR_platform_image_repository": "chase-sets-platform",
+          "TF_VAR_platform_image_tag": "${{ needs.resolve-release.outputs.release_commit }}",
+          "TF_VAR_checkout_shopify_simple_kill_switch_active": "${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+          "TF_VAR_alert_emails": "${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}",
+          "TF_VAR_platform_internal_auth_secret": "${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}",
+          "TF_VAR_platform_admin_email": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "TF_VAR_platform_admin_password": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "TF_VAR_platform_admin_display_name": "${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}",
+          "TF_VAR_discord_invite_url": "${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}",
+          "TF_VAR_stripe_secret_key": "${{ secrets.STRIPE_SECRET_KEY }}",
+          "TF_VAR_stripe_publishable_key": "${{ secrets.STRIPE_PUBLISHABLE_KEY }}",
+          "TF_VAR_stripe_webhook_secret": "${{ secrets.STRIPE_WEBHOOK_SECRET }}",
+          "TF_VAR_stripe_connect_webhook_secret": "${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}",
+          "TF_VAR_stripe_connect_accounts_api": "${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}",
+          "TF_VAR_stripe_api_base_url": "${{ vars.STRIPE_API_BASE_URL || '' }}",
+          "TF_VAR_ucp_business_signing_key_id": "${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}",
+          "TF_VAR_ucp_business_signing_alg": "${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}",
+          "TF_VAR_ucp_business_signing_private_jwk": "${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}",
+          "TF_VAR_ucp_business_signing_previous_public_jwks": "${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}",
+          "TF_VAR_ucp_ap2_verifier_url": "${{ secrets.UCP_AP2_VERIFIER_URL || '' }}",
+          "TF_VAR_ucp_ap2_verifier_auth_token": "${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}",
+          "TF_VAR_ucp_ap2_verifier_timeout_ms": "${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}",
+          "TF_VAR_easypost_api_key": "${{ secrets.EASYPOST_API_KEY }}",
+          "TF_VAR_voyage_api_key": "${{ secrets.VOYAGE_API_KEY || '' }}",
+          "TF_VAR_easypost_api_base_url": "${{ vars.EASYPOST_API_BASE_URL || '' }}",
+          "TF_VAR_easypost_webhook_secret": "${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_easypost_mode": "${{ vars.EASYPOST_MODE || 'test' }}",
+          "TF_VAR_tcgplayer_automation_tcg_auth_cookie": "${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+          "TF_VAR_scrydex_api_key": "${{ secrets.SCRYDEX_API_KEY || '' }}",
+          "TF_VAR_scrydex_team_id": "${{ secrets.SCRYDEX_TEAM_ID || '' }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_notification_email_provider": "${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}",
+          "TF_VAR_ses_aws_region": "${{ vars.SES_AWS_REGION || '' }}",
+          "TF_VAR_ses_aws_access_key_id": "${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}",
+          "TF_VAR_ses_aws_secret_access_key": "${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}",
+          "TF_VAR_ses_from_email": "${{ vars.SES_FROM_EMAIL || '' }}",
+          "TF_VAR_ses_configuration_set_name": "${{ vars.SES_CONFIGURATION_SET_NAME || '' }}",
+          "TF_VAR_ses_source_arn": "${{ secrets.SES_SOURCE_ARN || '' }}",
+          "TF_VAR_observability_enabled": "${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}",
+          "TF_VAR_observability_otlp_endpoint": "${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}",
+          "TF_VAR_observability_otlp_headers": "${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "CHASE_SETS_HELM_RELEASE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "ARGO_ROLLOUTS_ENABLED": "${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}",
+          "BETA_WAVE_SIZE": "${{ vars.BETA_WAVE_SIZE || '100' }}",
+          "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT": "${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+          "DESTRUCTIVE_CHANGE_ALLOW_FILE": ".github/deployment/production-destructive-change-approved.md",
+          "DOKS_INGRESS_TARGET": "${{ vars.DOKS_INGRESS_TARGET || '' }}",
+          "TF_VAR_doks_ingress_target": "${{ vars.DOKS_INGRESS_TARGET || '' }}"
+        },
+        "step": {
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}",
+          "AWS_ACCESS_KEY_ID": "${{ secrets.SPACES_ACCESS_ID }}",
+          "AWS_SECRET_ACCESS_KEY": "${{ secrets.SPACES_SECRET_KEY }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "PLATFORM_ADMIN_EMAIL": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "PLATFORM_ADMIN_PASSWORD": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "SMOKE_REQUIRE_ADMIN": "true",
+          "SMOKE_REQUIRE_MARKETPLACE": "true",
+          "SMOKE_REQUIRE_MARKETPLACE_ROOT": "true",
+          "SMOKE_WRITE_WAITLIST": "false",
+          "SMOKE_SOURCE": "staging-smoke",
+          "SMOKE_UTM_CAMPAIGN": "staging-main",
+          "SMOKE_FETCH_ATTEMPTS": "24",
+          "SMOKE_FETCH_RETRY_DELAY_MS": "5000",
+          "SMOKE_FETCH_TIMEOUT_MS": "15000"
+        }
+      },
+      "runSha256": "7d5b18c56e6d67374f3a61da95bd9b3c7d897223b4271a84cc6a2d72866916bb",
+      "envSha256": "9c73d2f4aa6ca49e3b27cddc0a8c466ebfdd75b2cc0014465ad2f88f4802b3bb"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deploy-staging",
+      "step": 42,
+      "run": "set -euo pipefail\ncd ../../..\nevidence_dir=artifacts/release-health/staging-representative-commerce-state\nevidence_path=\"$evidence_dir/representative-commerce-state.json\"\nbinding_path=\"$evidence_dir/release-binding.json\"\nremote_evidence_path=/tmp/representative-commerce-state.json\n[[ \"$remote_evidence_path\" =~ ^[^-].*$ ]] || {\n  echo \"remote_evidence_path must be a non-option value.\" >&2\n  exit 1\n}\nmkdir -p \"$evidence_dir\"\n\nif [ -z \"${KUBECONFIG:-}\" ] || [ ! -s \"$KUBECONFIG\" ]; then\n  echo \"Representative commerce state requires the staging Kubernetes credential configured by this job.\" >&2\n  exit 1\nfi\nif ! [[ \"$EXPECTED_RELEASE_COMMIT\" =~ ^[0-9a-f]{40}$ ]]; then\n  echo \"Representative commerce state requires the exact 40-character deployed release commit.\" >&2\n  exit 1\nfi\nif ! [[ \"$EXPECTED_IMAGE_DIGEST\" =~ ^sha256:[0-9a-f]{64}$ ]]; then\n  echo \"Representative commerce state requires the exact deployed image digest.\" >&2\n  exit 1\nfi\n\npod_record=\"$(kubectl get pods --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n  -l app.kubernetes.io/component=platform-api -o json \\\n  | jq -cer --arg image_digest \"$EXPECTED_IMAGE_DIGEST\" '\n      [\n        .items[]\n        | select(.status.phase == \"Running\")\n        | . as $pod\n        | [\n            .status.containerStatuses[]?\n            | select(.name == \"platform-api\" and .ready == true and (.imageID | endswith($image_digest)))\n          ] as $containers\n        | select(($containers | length) == 1)\n        | { podName: $pod.metadata.name, imageID: $containers[0].imageID }\n      ]\n      | sort_by(.podName)\n      | first // error(\"no ready platform-api pod runs the exact deployed image digest\")\n    ')\"\npod=\"$(jq -er '.podName' <<<\"$pod_record\")\"\n[[ \"$pod\" =~ ^[^-].*$ ]] || {\n  echo \"pod must be a non-option value.\" >&2\n  exit 1\n}\nimage_id=\"$(jq -er '.imageID' <<<\"$pod_record\")\"\n\nkubectl exec --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" --container platform-api \"$pod\" -- \\\n  rm -f \"$remote_evidence_path\"\nkubectl exec --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" --container platform-api \"$pod\" -- \\\n  env DEPLOYMENT_ENVIRONMENT=staging \\\n    REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \\\n    REPRESENTATIVE_COMMERCE_STATE_EVIDENCE_OUT=\"$remote_evidence_path\" \\\n    pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production\nkubectl cp --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" --container platform-api \\\n  \"$pod:$remote_evidence_path\" \"$evidence_path\"\n\ntest -s \"$evidence_path\"\njq -e '\n  .schemaVersion == \"representative-commerce-state.evidence/v2\"\n  and .type == \"representative-commerce-state.complete\"\n  and .environmentName == \"staging\"\n  and (.checkedAt | type == \"string\" and length > 0)\n  and .dataProfiles == [\n    \"critical-bootstrap\",\n    \"catalog-integration-bootstrap\",\n    \"representative-commerce-state\"\n  ]\n' \"$evidence_path\" >/dev/null\nevidence_sha256=\"$(sha256sum \"$evidence_path\" | awk '{print $1}')\"\njq -n \\\n  --arg releaseCommit \"$EXPECTED_RELEASE_COMMIT\" \\\n  --arg imageDigest \"$EXPECTED_IMAGE_DIGEST\" \\\n  --arg podName \"$pod\" \\\n  --arg imageID \"$image_id\" \\\n  --arg evidenceSha256 \"$evidence_sha256\" \\\n  '{\n    schemaVersion: \"staging-representative-commerce-state-release-binding/v1\",\n    environment: \"staging\",\n    releaseCommit: $releaseCommit,\n    imageDigest: $imageDigest,\n    podName: $podName,\n    imageID: $imageID,\n    evidenceSha256: $evidenceSha256\n  }' > \"$binding_path\"\necho \"Representative commerce state completed in ${pod} for ${EXPECTED_RELEASE_COMMIT}@${EXPECTED_IMAGE_DIGEST}.\"\n\ncd infrastructure/digitalocean/platform\nadmin_domain=\"$(terraform output -raw admin_domain)\"\nif [ -z \"$admin_domain\" ]; then\n  echo \"Required staging admin domain was not present in Terraform outputs.\" >&2\n  exit 1\nfi\ncd ../../..\ngate_out=artifacts/release-health/staging-projection-convergence-gate.json\n# Bounded convergence gate (issue #4709): every deploy rolls the fleet, so the\n# Buy Now freshness probes race post-rollout projection replay. Wait for the\n# staging projection-status surface to report the Buy Now route's exact durable\n# dependency caught-up (or spend the budget) before probing. Do not default to\n# all groups: unrelated degraded projections and the status collector's own auth\n# session event are valid lag elsewhere but do not gate checkout.session-projection.\n# This never blocks promotion on its own; the probe step that follows still fails\n# loudly on steady-state SLO breaches.\nset +e\npnpm run guest-buy-now:freshness-probe -- \\\n  --convergence-gate \\\n  --environment staging \\\n  --admin-base-url \"https://${admin_domain}\" \\\n  --convergence-budget-ms \"${PROJECTION_CONVERGENCE_BUDGET_MS}\" \\\n  --convergence-poll-interval-ms \"${PROJECTION_CONVERGENCE_POLL_INTERVAL_MS}\" \\\n  --convergence-projection-names \"${PROJECTION_CONVERGENCE_PROJECTION_NAMES}\" \\\n  --out \"$gate_out\"\ngate_exit=$?\nset -e\nconverged=\"$(jq -r 'if .gate.converged == null then \"unknown\" else (.gate.converged | tostring) end' \"$gate_out\" 2>/dev/null || echo unknown)\"\nconverged_after_ms=\"$(jq -r '.gate.convergedAfterMs // \"did not converge\"' \"$gate_out\" 2>/dev/null || echo unknown)\"\nlagging=\"$(jq -r '(.gate.final.laggingGroups // []) | join(\", \")' \"$gate_out\" 2>/dev/null || echo \"\")\"\n{\n  echo \"## Staging projection convergence gate\"\n  echo \"\"\n  echo \"| Converged | Converged after (ms) | Budget (ms) | Lagging groups |\"\n  echo \"| --- | --- | --- | --- |\"\n  echo \"| ${converged} | ${converged_after_ms} | ${PROJECTION_CONVERGENCE_BUDGET_MS} | ${lagging:-none} |\"\n  echo \"\"\n  echo \"Bounded pre-probe gate (issue #4709): waits for staging projections to catch up after the fleet rollout before the Buy Now freshness probes run. Timing gate only; does not block promotion.\"\n} >> \"$GITHUB_STEP_SUMMARY\"\nif [ \"$gate_exit\" -ne 0 ]; then\n  echo \"Staging projection convergence gate failed to run (exit ${gate_exit}).\" >&2\n  exit 1\nfi\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "staging",
+          "TF_VAR_environment_project_id": "${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}",
+          "TF_VAR_platform_image_repository": "chase-sets-platform",
+          "TF_VAR_platform_image_tag": "${{ needs.resolve-release.outputs.release_commit }}",
+          "TF_VAR_checkout_shopify_simple_kill_switch_active": "${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+          "TF_VAR_alert_emails": "${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}",
+          "TF_VAR_platform_internal_auth_secret": "${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}",
+          "TF_VAR_platform_admin_email": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "TF_VAR_platform_admin_password": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "TF_VAR_platform_admin_display_name": "${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}",
+          "TF_VAR_discord_invite_url": "${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}",
+          "TF_VAR_stripe_secret_key": "${{ secrets.STRIPE_SECRET_KEY }}",
+          "TF_VAR_stripe_publishable_key": "${{ secrets.STRIPE_PUBLISHABLE_KEY }}",
+          "TF_VAR_stripe_webhook_secret": "${{ secrets.STRIPE_WEBHOOK_SECRET }}",
+          "TF_VAR_stripe_connect_webhook_secret": "${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}",
+          "TF_VAR_stripe_connect_accounts_api": "${{ vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2' }}",
+          "TF_VAR_stripe_api_base_url": "${{ vars.STRIPE_API_BASE_URL || '' }}",
+          "TF_VAR_ucp_business_signing_key_id": "${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}",
+          "TF_VAR_ucp_business_signing_alg": "${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}",
+          "TF_VAR_ucp_business_signing_private_jwk": "${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}",
+          "TF_VAR_ucp_business_signing_previous_public_jwks": "${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}",
+          "TF_VAR_ucp_ap2_verifier_url": "${{ secrets.UCP_AP2_VERIFIER_URL || '' }}",
+          "TF_VAR_ucp_ap2_verifier_auth_token": "${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}",
+          "TF_VAR_ucp_ap2_verifier_timeout_ms": "${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}",
+          "TF_VAR_easypost_api_key": "${{ secrets.EASYPOST_API_KEY }}",
+          "TF_VAR_voyage_api_key": "${{ secrets.VOYAGE_API_KEY || '' }}",
+          "TF_VAR_easypost_api_base_url": "${{ vars.EASYPOST_API_BASE_URL || '' }}",
+          "TF_VAR_easypost_webhook_secret": "${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_easypost_mode": "${{ vars.EASYPOST_MODE || 'test' }}",
+          "TF_VAR_tcgplayer_automation_tcg_auth_cookie": "${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+          "TF_VAR_scrydex_api_key": "${{ secrets.SCRYDEX_API_KEY || '' }}",
+          "TF_VAR_scrydex_team_id": "${{ secrets.SCRYDEX_TEAM_ID || '' }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_notification_email_provider": "${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}",
+          "TF_VAR_ses_aws_region": "${{ vars.SES_AWS_REGION || '' }}",
+          "TF_VAR_ses_aws_access_key_id": "${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}",
+          "TF_VAR_ses_aws_secret_access_key": "${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}",
+          "TF_VAR_ses_from_email": "${{ vars.SES_FROM_EMAIL || '' }}",
+          "TF_VAR_ses_configuration_set_name": "${{ vars.SES_CONFIGURATION_SET_NAME || '' }}",
+          "TF_VAR_ses_source_arn": "${{ secrets.SES_SOURCE_ARN || '' }}",
+          "TF_VAR_observability_enabled": "${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}",
+          "TF_VAR_observability_otlp_endpoint": "${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}",
+          "TF_VAR_observability_otlp_headers": "${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+          "DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK": "chase-sets",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "CHASE_SETS_HELM_RELEASE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "ARGO_ROLLOUTS_ENABLED": "${{ vars.STAGING_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}",
+          "BETA_WAVE_SIZE": "${{ vars.BETA_WAVE_SIZE || '100' }}",
+          "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT": "${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+          "DESTRUCTIVE_CHANGE_ALLOW_FILE": ".github/deployment/production-destructive-change-approved.md",
+          "DOKS_INGRESS_TARGET": "${{ vars.DOKS_INGRESS_TARGET || '' }}",
+          "TF_VAR_doks_ingress_target": "${{ vars.DOKS_INGRESS_TARGET || '' }}"
+        },
+        "step": {
+          "KUBECONFIG": "${{ runner.temp }}/chase-sets-staging.kubeconfig",
+          "EXPECTED_RELEASE_COMMIT": "${{ needs.resolve-release.outputs.release_commit }}",
+          "EXPECTED_IMAGE_DIGEST": "${{ steps.image.outputs.digest }}",
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}",
+          "AWS_ACCESS_KEY_ID": "${{ secrets.SPACES_ACCESS_ID }}",
+          "AWS_SECRET_ACCESS_KEY": "${{ secrets.SPACES_SECRET_KEY }}",
+          "DIGITALOCEAN_ACCESS_TOKEN": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "PLATFORM_ADMIN_EMAIL": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "PLATFORM_ADMIN_PASSWORD": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "PROJECTION_CONVERGENCE_BUDGET_MS": "${{ vars.STAGING_PROJECTION_CONVERGENCE_BUDGET_MS || '300000' }}",
+          "PROJECTION_CONVERGENCE_POLL_INTERVAL_MS": "${{ vars.STAGING_PROJECTION_CONVERGENCE_POLL_INTERVAL_MS || '5000' }}",
+          "PROJECTION_CONVERGENCE_PROJECTION_NAMES": "${{ vars.STAGING_PROJECTION_CONVERGENCE_PROJECTION_NAMES || 'checkout.session-projection' }}"
+        }
+      },
+      "runSha256": "35b7d96ae73383b123ca06ce005aea40e05d51162b36610f110944396d8a895d",
+      "envSha256": "53b59a30f6a6c90a620dc606c52a8d7664409edb8d88f2bd37814b0c1ed5dff5"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "notify-staging-advisory-dispatch-failure",
+      "step": 1,
+      "run": "set -euo pipefail\ntitle=\"Incident: Staging advisory evidence failing\"\nbody=\"$(cat <<EOF\nThe production workflow could not dispatch advisory staging evidence.\n\n- Release commit: ${RELEASE_COMMIT}\n- Production workflow run: ${RUN_URL}\n- Advisory workflow: Platform Staging Advisory Evidence\n\nProduction promotion remains governed only by blocking staging gates. Inspect the dispatch step, then rerun the advisory workflow for this release commit and image digest.\nEOF\n)\"\nexisting_issue=\"$(\n  gh issue list \\\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --state open \\\n    --search \"\\\"${title}\\\" in:title\" \\\n    --json number \\\n    --jq '.[0].number // empty'\n)\"\n[[ \"$existing_issue\" =~ ^[^-].*$ ]] || {\n  echo \"existing_issue must be a non-option value.\" >&2\n  exit 1\n}\nif [ -n \"$existing_issue\" ]; then\n  gh issue comment \"$existing_issue\" --repo \"${GITHUB_REPOSITORY}\" --body \"$body\"\nelse\n  gh issue create \\\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --title \"$title\" \\\n    --body \"$body\" \\\n    --label \"kind:ops\" \\\n    --label \"area:infrastructure\"\nfi\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {
+          "GH_TOKEN": "${{ github.token }}",
+          "RELEASE_COMMIT": "${{ needs.deploy-staging.outputs.active_release_commit || 'unresolved' }}",
+          "RUN_URL": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+        }
+      },
+      "runSha256": "208068c6a815f1277ff54690e9d86622cf29d8946d0e929cb12224010f181b6a",
+      "envSha256": "2d926fe339c1249bb02787ce95fec75bc17d3782efdda66bdf8cc1bc95d4ad22"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "record-staging-release-health",
+      "step": 3,
+      "run": "set -euo pipefail\nrelease_commit=\"${{ needs.resolve-release.outputs.release_commit }}\"\n[[ \"$release_commit\" =~ ^[^-].*$ ]] || {\n  echo \"release_commit must be a non-option value.\" >&2\n  exit 1\n}\ncompleted_at=\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"\ncommitted_at=\"$(git show -s --format=%cI \"$release_commit\")\"\nif ! node ./scripts/release-health-github-metadata.mjs \\\n  --repository \"${{ github.repository }}\" \\\n  --release-commit \"$release_commit\" \\\n  --source-workflow-created-at \"${SOURCE_WORKFLOW_CREATED_AT:-}\" \\\n  --format github-output >> \"$GITHUB_OUTPUT\"; then\n  echo \"GitHub release-health metadata was unavailable; writing deterministic fallbacks.\" >&2\n  {\n    echo \"pr_number=\"\n    echo \"pr_opened_at=\"\n    echo \"pr_ready_for_review_at=\"\n    echo \"pr_approved_at=\"\n    echo \"queue_queued_at=${SOURCE_WORKFLOW_CREATED_AT:-}\"\n    echo \"queue_merge_group_started_at=\"\n    echo \"queue_merged_at=${committed_at}\"\n    echo \"queue_dequeued_at=\"\n    echo \"queue_failure_reason=\"\n    echo \"queue_batch_size=1\"\n    echo \"merge_sha=${release_commit}\"\n  } >> \"$GITHUB_OUTPUT\"\nfi\n\ngit fetch origin production || true\ndrift_commits=0\ndrift_seconds=0\nif git show-ref --verify --quiet refs/remotes/origin/production; then\n  drift_commits=\"$(git rev-list --count \"origin/production..${release_commit}\" 2>/dev/null || printf '0')\"\n  release_epoch=\"$(git show -s --format=%ct \"$release_commit\")\"\n  production_epoch=\"$(git show -s --format=%ct origin/production)\"\n  if [ \"$release_epoch\" -gt \"$production_epoch\" ]; then\n    drift_seconds=$((release_epoch - production_epoch))\n  fi\nfi\n\n{\n  echo \"completed_at=${completed_at}\"\n  echo \"committed_at=${committed_at}\"\n  echo \"drift_commits=${drift_commits}\"\n  echo \"drift_seconds=${drift_seconds}\"\n} >> \"$GITHUB_OUTPUT\"\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {
+          "SOURCE_WORKFLOW_CREATED_AT": "${{ needs.resolve-release.outputs.dispatch_created_at }}",
+          "GH_TOKEN": "${{ github.token }}"
+        }
+      },
+      "runSha256": "7e56f3a360064508290a1f0852f0375dda734dedfdca42d3c500cf67e6877e5c",
+      "envSha256": "660273ff080127c5d1975beb5930a49ae68351e2b82bd3c8ad43b1682c26c9c1"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deploy-production",
+      "step": 28,
+      "run": "set -euo pipefail\n\ngit fetch origin production --tags\nlast_known_good_commit=\"$(git rev-parse origin/production)\"\nrelease_tag=\"$(\n  git tag --points-at \"$last_known_good_commit\" --list 'release-*' \\\n    | sort \\\n    | tail -n 1\n)\"\n[[ \"$release_tag\" =~ ^[^-].*$ ]] || {\n  echo \"release_tag must be a non-option value.\" >&2\n  exit 1\n}\nif [ -z \"$release_tag\" ]; then\n  echo \"Production marker ${last_known_good_commit} has no release-* tag; refusing mutation without rollback identity.\" >&2\n  exit 1\nfi\n\nregistry_name=\"$(doctl registry get --format Name --no-header 2>/dev/null | tr -d '[:space:]' || true)\"\nif [ -z \"$registry_name\" ]; then\n  echo \"DigitalOcean Container Registry does not exist; refusing cutover without rollback image evidence.\" >&2\n  exit 1\nfi\n\ndoctl registry login --expiry-seconds 3600\nrelease_image_ref=\"registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${release_tag}\"\nrollback_digest=\"$(docker buildx imagetools inspect \"$release_image_ref\" --format '{{.Manifest.Digest}}')\"\nif ! [[ \"$rollback_digest\" =~ ^sha256:[0-9a-f]{64}$ ]]; then\n  echo \"Last-known-good release image ${release_image_ref} did not resolve to an immutable sha256 digest.\" >&2\n  exit 1\nfi\nrollback_index_ref=\"registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}@${rollback_digest}\"\nrollback_index_json=\"$(docker buildx imagetools inspect \"$rollback_index_ref\" --raw)\"\nrollback_index_path=\"${RUNNER_TEMP}/production-rollback-index.json\"\nprintf '%s' \"$rollback_index_json\" > \"$rollback_index_path\"\n\nmkdir -p artifacts/release-health\ntarget_path=\"artifacts/release-health/production-rollback-target.json\"\nnode ./scripts/platform-kubernetes-deployment.mjs capture-rollback-target \\\n  --registry-name=\"$registry_name\" \\\n  --repository=\"$PLATFORM_IMAGE_REPOSITORY\" \\\n  --tag=\"$last_known_good_commit\" \\\n  --digest=\"$rollback_digest\" \\\n  --index-manifest=\"$rollback_index_path\" \\\n  --platform=\"linux/amd64\" \\\n  --last-known-good-commit=\"$last_known_good_commit\" \\\n  --release-tag=\"$release_tag\" \\\n  --namespace=\"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n  --release=\"$CHASE_SETS_HELM_RELEASE\" \\\n  --out=\"$target_path\" \\\n  --github-output=\"$GITHUB_OUTPUT\"\n\nimage_exists=true\n\nsmoke_verified=false\nif [ -n \"$release_tag\" ] && git rev-parse --verify --quiet \"refs/tags/${release_tag}^{commit}\" >/dev/null; then\n  tag_commit=\"$(git rev-list -n 1 \"$release_tag\")\"\n  if [ \"$tag_commit\" = \"$last_known_good_commit\" ]; then\n    smoke_verified=true\n  fi\nfi\n\n{\n  echo \"image_exists=${image_exists}\"\n  echo \"smoke_verified=${smoke_verified}\"\n  echo \"last_known_good_commit=${last_known_good_commit}\"\n  echo \"rollback_release_tag=${release_tag}\"\n} >> \"$GITHUB_OUTPUT\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "production",
+          "TF_VAR_environment_project_id": "${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}",
+          "TF_VAR_platform_image_repository": "chase-sets-platform",
+          "TF_VAR_platform_image_tag": "${{ needs.resolve-release.outputs.release_commit }}",
+          "TF_VAR_platform_image_digest": "${{ needs.deploy-staging.outputs.platform_image_digest }}",
+          "PRODUCTION_DOKS_INGRESS_TARGET": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "PRODUCTION_MARKETPLACE_SERVED": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_doks_ingress_target": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "TF_VAR_production_runtime_profile": "${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing') }}",
+          "TF_VAR_production_marketplace_served": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "TF_VAR_production_marketplace_public_enabled": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_approved": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_reference": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}",
+          "TF_VAR_production_marketplace_checkout_fee_approved": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_checkout_fee_reference": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_payout_fee_approved": "${{ vars.PRODUCTION_PAYOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_payout_fee_reference": "${{ vars.PRODUCTION_PAYOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_checkout_launch_evidence_approved": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_checkout_launch_evidence_reference": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}",
+          "TF_VAR_checkout_shopify_simple_kill_switch_active": "${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_approved": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_reference": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_support_operations_approved": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_support_operations_reference": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_fulfillment_postage_approved": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_fulfillment_postage_reference": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
+          "TF_VAR_production_transactional_email_approved": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_transactional_email_reference": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE || '' }}",
+          "TF_VAR_production_launch_supply_measurements_approved": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_launch_supply_measurements_reference": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}",
+          "TF_VAR_alert_emails": "${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}",
+          "TF_VAR_platform_internal_auth_secret": "${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}",
+          "TF_VAR_platform_admin_email": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "TF_VAR_platform_admin_password": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "TF_VAR_platform_admin_display_name": "${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}",
+          "TF_VAR_discord_invite_url": "${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}",
+          "TF_VAR_production_tax_readiness_approved": "${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_tax_readiness_reference": "${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}",
+          "TF_VAR_tax_provider_backed_quotes_required": "${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_stripe_secret_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}",
+          "TF_VAR_stripe_publishable_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}",
+          "TF_VAR_stripe_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_accounts_api": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+          "TF_VAR_stripe_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+          "TF_VAR_ucp_business_signing_key_id": "${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}",
+          "TF_VAR_ucp_business_signing_alg": "${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}",
+          "TF_VAR_ucp_business_signing_private_jwk": "${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}",
+          "TF_VAR_ucp_business_signing_previous_public_jwks": "${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}",
+          "TF_VAR_ucp_ap2_verifier_url": "${{ secrets.UCP_AP2_VERIFIER_URL || '' }}",
+          "TF_VAR_ucp_ap2_verifier_auth_token": "${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}",
+          "TF_VAR_ucp_ap2_verifier_timeout_ms": "${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}",
+          "TF_VAR_easypost_api_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}",
+          "TF_VAR_voyage_api_key": "${{ secrets.VOYAGE_API_KEY || '' }}",
+          "TF_VAR_easypost_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}",
+          "TF_VAR_easypost_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_easypost_mode": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}",
+          "TF_VAR_tcgplayer_automation_tcg_auth_cookie": "${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+          "TF_VAR_scrydex_api_key": "${{ secrets.SCRYDEX_API_KEY || '' }}",
+          "TF_VAR_scrydex_team_id": "${{ secrets.SCRYDEX_TEAM_ID || '' }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_notification_email_provider": "${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}",
+          "TF_VAR_ses_aws_region": "${{ vars.SES_AWS_REGION || '' }}",
+          "TF_VAR_ses_aws_access_key_id": "${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}",
+          "TF_VAR_ses_aws_secret_access_key": "${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}",
+          "TF_VAR_ses_from_email": "${{ vars.SES_FROM_EMAIL || '' }}",
+          "TF_VAR_ses_configuration_set_name": "${{ vars.SES_CONFIGURATION_SET_NAME || '' }}",
+          "TF_VAR_ses_source_arn": "${{ secrets.SES_SOURCE_ARN || '' }}",
+          "TF_VAR_observability_enabled": "${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}",
+          "TF_VAR_observability_otlp_endpoint": "${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}",
+          "TF_VAR_observability_otlp_headers": "${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "CHASE_SETS_HELM_RELEASE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "ARGO_ROLLOUTS_ENABLED": "${{ vars.PRODUCTION_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}",
+          "BETA_WAVE_SIZE": "${{ vars.BETA_WAVE_SIZE || '100' }}",
+          "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT": "${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+          "DESTRUCTIVE_CHANGE_ALLOW_FILE": ".github/deployment/production-destructive-change-approved.md",
+          "PRODUCTION_RELEASE_LOCKED": "${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}",
+          "PRODUCTION_RELEASE_LOCK_REASON": "${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}",
+          "PRODUCTION_RELEASE_LOCK_REFERENCE": "${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}"
+        },
+        "step": {
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}",
+          "DIGITALOCEAN_ACCESS_TOKEN": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}"
+        }
+      },
+      "runSha256": "caf6f38aff7c2fd2f6e025a72a5e8489b1ef87467f605bc9896f9a800d8f9724",
+      "envSha256": "13c201477fd7cd378b86a474ec22d2ce8abca66d377de050f664c3a538614485"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deploy-production",
+      "step": 53,
+      "run": "set -euo pipefail\nrelease_commit=\"${{ needs.resolve-release.outputs.release_commit }}\"\n[[ \"$release_commit\" =~ ^[^-].*$ ]] || {\n  echo \"release_commit must be a non-option value.\" >&2\n  exit 1\n}\nrelease_tag=\"release-$(date -u +%Y%m%d%H%M%S)-$(printf '%s' \"$release_commit\" | cut -c1-8)\"\npromoted_image=\"${{ steps.image.outputs.image }}\"\n[[ \"$promoted_image\" =~ ^[^-].*$ ]] || {\n  echo \"promoted_image must be a non-option value.\" >&2\n  exit 1\n}\npromoted_digest=\"${{ steps.image.outputs.digest }}\"\n[[ \"$promoted_digest\" =~ ^[^-].*$ ]] || {\n  echo \"promoted_digest must be a non-option value.\" >&2\n  exit 1\n}\nrelease_image=\"${promoted_image%:*}:${release_tag}\"\n\ndocker buildx imagetools create --tag \"$release_image\" \"${promoted_image}@${promoted_digest}\"\n\ngit config user.name \"github-actions[bot]\"\ngit config user.email \"41898282+github-actions[bot]@users.noreply.github.com\"\ngit fetch origin production || true\ngit fetch origin --tags || true\n\nif ! git rev-parse --verify --quiet \"refs/tags/${release_tag}^{commit}\" >/dev/null; then\n  git tag -a \"$release_tag\" \"$release_commit\" -m \"Production release ${release_tag}\"\n  git push origin \"refs/tags/${release_tag}\"\nfi\n\nif git show-ref --verify --quiet refs/remotes/origin/production; then\n  production_marker_commit=\"$(git rev-parse origin/production)\"\n  git checkout -B production origin/production\n  if ! git merge --ff-only \"$release_commit\"; then\n    {\n      echo \"marker_updated=false\"\n      echo \"marker_mismatch=true\"\n      echo \"production_marker_commit=${production_marker_commit}\"\n      echo \"marker_error=production-marker-non-fast-forward\"\n    } >> \"$GITHUB_OUTPUT\"\n    {\n      echo \"## Production marker mismatch\"\n      echo\n      echo \"Production deployed successfully, but the smoke-verified production marker could not fast-forward.\"\n      echo\n      echo \"- Deployed commit: ${release_commit}\"\n      echo \"- Current production marker: ${production_marker_commit}\"\n      echo \"- Error: production-marker-non-fast-forward\"\n    } >> \"$GITHUB_STEP_SUMMARY\"\n    exit 1\n  fi\nelse\n  production_marker_commit=\"\"\n  git checkout -B production \"$release_commit\"\nfi\n\nif ! git push origin production; then\n  git fetch origin production || true\n  production_marker_commit=\"$(git rev-parse origin/production 2>/dev/null || printf '%s' \"${production_marker_commit}\")\"\n  {\n    echo \"marker_updated=false\"\n    echo \"marker_mismatch=true\"\n    echo \"production_marker_commit=${production_marker_commit}\"\n    echo \"marker_error=production-marker-push-failed\"\n  } >> \"$GITHUB_OUTPUT\"\n  {\n    echo \"## Production marker mismatch\"\n    echo\n    echo \"Production deployed successfully, but the smoke-verified production marker push failed.\"\n    echo\n    echo \"- Deployed commit: ${release_commit}\"\n    echo \"- Current production marker: ${production_marker_commit:-unknown}\"\n    echo \"- Error: production-marker-push-failed\"\n  } >> \"$GITHUB_STEP_SUMMARY\"\n  exit 1\nfi\n\n{\n  echo \"marker_updated=true\"\n  echo \"marker_mismatch=false\"\n  echo \"production_marker_commit=${release_commit}\"\n  echo \"marker_error=\"\n} >> \"$GITHUB_OUTPUT\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "production",
+          "TF_VAR_environment_project_id": "${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}",
+          "TF_VAR_platform_image_repository": "chase-sets-platform",
+          "TF_VAR_platform_image_tag": "${{ needs.resolve-release.outputs.release_commit }}",
+          "TF_VAR_platform_image_digest": "${{ needs.deploy-staging.outputs.platform_image_digest }}",
+          "PRODUCTION_DOKS_INGRESS_TARGET": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "PRODUCTION_MARKETPLACE_SERVED": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_doks_ingress_target": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "TF_VAR_production_runtime_profile": "${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing') }}",
+          "TF_VAR_production_marketplace_served": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "TF_VAR_production_marketplace_public_enabled": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_approved": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_reference": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}",
+          "TF_VAR_production_marketplace_checkout_fee_approved": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_checkout_fee_reference": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_payout_fee_approved": "${{ vars.PRODUCTION_PAYOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_payout_fee_reference": "${{ vars.PRODUCTION_PAYOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_checkout_launch_evidence_approved": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_checkout_launch_evidence_reference": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}",
+          "TF_VAR_checkout_shopify_simple_kill_switch_active": "${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_approved": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_reference": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_support_operations_approved": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_support_operations_reference": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_fulfillment_postage_approved": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_fulfillment_postage_reference": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
+          "TF_VAR_production_transactional_email_approved": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_transactional_email_reference": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE || '' }}",
+          "TF_VAR_production_launch_supply_measurements_approved": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_launch_supply_measurements_reference": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}",
+          "TF_VAR_alert_emails": "${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}",
+          "TF_VAR_platform_internal_auth_secret": "${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}",
+          "TF_VAR_platform_admin_email": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "TF_VAR_platform_admin_password": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "TF_VAR_platform_admin_display_name": "${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}",
+          "TF_VAR_discord_invite_url": "${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}",
+          "TF_VAR_production_tax_readiness_approved": "${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_tax_readiness_reference": "${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}",
+          "TF_VAR_tax_provider_backed_quotes_required": "${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_stripe_secret_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}",
+          "TF_VAR_stripe_publishable_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}",
+          "TF_VAR_stripe_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_accounts_api": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+          "TF_VAR_stripe_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+          "TF_VAR_ucp_business_signing_key_id": "${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}",
+          "TF_VAR_ucp_business_signing_alg": "${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}",
+          "TF_VAR_ucp_business_signing_private_jwk": "${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}",
+          "TF_VAR_ucp_business_signing_previous_public_jwks": "${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}",
+          "TF_VAR_ucp_ap2_verifier_url": "${{ secrets.UCP_AP2_VERIFIER_URL || '' }}",
+          "TF_VAR_ucp_ap2_verifier_auth_token": "${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}",
+          "TF_VAR_ucp_ap2_verifier_timeout_ms": "${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}",
+          "TF_VAR_easypost_api_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}",
+          "TF_VAR_voyage_api_key": "${{ secrets.VOYAGE_API_KEY || '' }}",
+          "TF_VAR_easypost_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}",
+          "TF_VAR_easypost_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_easypost_mode": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}",
+          "TF_VAR_tcgplayer_automation_tcg_auth_cookie": "${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+          "TF_VAR_scrydex_api_key": "${{ secrets.SCRYDEX_API_KEY || '' }}",
+          "TF_VAR_scrydex_team_id": "${{ secrets.SCRYDEX_TEAM_ID || '' }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_notification_email_provider": "${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}",
+          "TF_VAR_ses_aws_region": "${{ vars.SES_AWS_REGION || '' }}",
+          "TF_VAR_ses_aws_access_key_id": "${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}",
+          "TF_VAR_ses_aws_secret_access_key": "${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}",
+          "TF_VAR_ses_from_email": "${{ vars.SES_FROM_EMAIL || '' }}",
+          "TF_VAR_ses_configuration_set_name": "${{ vars.SES_CONFIGURATION_SET_NAME || '' }}",
+          "TF_VAR_ses_source_arn": "${{ secrets.SES_SOURCE_ARN || '' }}",
+          "TF_VAR_observability_enabled": "${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}",
+          "TF_VAR_observability_otlp_endpoint": "${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}",
+          "TF_VAR_observability_otlp_headers": "${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "CHASE_SETS_HELM_RELEASE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "ARGO_ROLLOUTS_ENABLED": "${{ vars.PRODUCTION_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}",
+          "BETA_WAVE_SIZE": "${{ vars.BETA_WAVE_SIZE || '100' }}",
+          "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT": "${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+          "DESTRUCTIVE_CHANGE_ALLOW_FILE": ".github/deployment/production-destructive-change-approved.md",
+          "PRODUCTION_RELEASE_LOCKED": "${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}",
+          "PRODUCTION_RELEASE_LOCK_REASON": "${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}",
+          "PRODUCTION_RELEASE_LOCK_REFERENCE": "${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}"
+        },
+        "step": {
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}"
+        }
+      },
+      "runSha256": "acffd0ce9bb89c65f4a2b3dd35ddc174a3253277fde6dd6eff2cb2fb4cd862d5",
+      "envSha256": "c061972b53c854fcf545b86c23e3044ac8bb2b4a90d5a1603e17d2ed9860d0f6"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deploy-production",
+      "step": 54,
+      "run": "set -euo pipefail\n[[ \"$RELEASE_COMMIT\" =~ ^[^-].*$ ]] || {\n  echo \"RELEASE_COMMIT must be a non-option value.\" >&2\n  exit 1\n}\ntree_hash=\"$(git rev-parse \"${RELEASE_COMMIT}^{tree}\")\"\nnode ./scripts/promoted-release.mjs create \\\n  --out artifacts/release-health/promoted-release.json \\\n  --producer-run-id \"${{ github.run_id }}\" \\\n  --producer-run-attempt \"${{ github.run_attempt }}\" \\\n  --environment production \\\n  --release-commit \"$RELEASE_COMMIT\" \\\n  --tree-hash \"$tree_hash\" \\\n  --image-repository \"$RELEASE_IMAGE\" \\\n  --image-digest \"$RELEASE_IMAGE_DIGEST\" \\\n  --promotion-result promoted \\\n  --promoted-at \"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "production",
+          "TF_VAR_environment_project_id": "${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}",
+          "TF_VAR_platform_image_repository": "chase-sets-platform",
+          "TF_VAR_platform_image_tag": "${{ needs.resolve-release.outputs.release_commit }}",
+          "TF_VAR_platform_image_digest": "${{ needs.deploy-staging.outputs.platform_image_digest }}",
+          "PRODUCTION_DOKS_INGRESS_TARGET": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "PRODUCTION_MARKETPLACE_SERVED": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_doks_ingress_target": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "TF_VAR_production_runtime_profile": "${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing') }}",
+          "TF_VAR_production_marketplace_served": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "TF_VAR_production_marketplace_public_enabled": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_approved": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_reference": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}",
+          "TF_VAR_production_marketplace_checkout_fee_approved": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_checkout_fee_reference": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_payout_fee_approved": "${{ vars.PRODUCTION_PAYOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_payout_fee_reference": "${{ vars.PRODUCTION_PAYOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_checkout_launch_evidence_approved": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_checkout_launch_evidence_reference": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}",
+          "TF_VAR_checkout_shopify_simple_kill_switch_active": "${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_approved": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_reference": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_support_operations_approved": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_support_operations_reference": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_fulfillment_postage_approved": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_fulfillment_postage_reference": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
+          "TF_VAR_production_transactional_email_approved": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_transactional_email_reference": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE || '' }}",
+          "TF_VAR_production_launch_supply_measurements_approved": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_launch_supply_measurements_reference": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}",
+          "TF_VAR_alert_emails": "${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}",
+          "TF_VAR_platform_internal_auth_secret": "${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}",
+          "TF_VAR_platform_admin_email": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "TF_VAR_platform_admin_password": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "TF_VAR_platform_admin_display_name": "${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}",
+          "TF_VAR_discord_invite_url": "${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}",
+          "TF_VAR_production_tax_readiness_approved": "${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_tax_readiness_reference": "${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}",
+          "TF_VAR_tax_provider_backed_quotes_required": "${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_stripe_secret_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}",
+          "TF_VAR_stripe_publishable_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}",
+          "TF_VAR_stripe_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_accounts_api": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+          "TF_VAR_stripe_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+          "TF_VAR_ucp_business_signing_key_id": "${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}",
+          "TF_VAR_ucp_business_signing_alg": "${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}",
+          "TF_VAR_ucp_business_signing_private_jwk": "${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}",
+          "TF_VAR_ucp_business_signing_previous_public_jwks": "${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}",
+          "TF_VAR_ucp_ap2_verifier_url": "${{ secrets.UCP_AP2_VERIFIER_URL || '' }}",
+          "TF_VAR_ucp_ap2_verifier_auth_token": "${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}",
+          "TF_VAR_ucp_ap2_verifier_timeout_ms": "${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}",
+          "TF_VAR_easypost_api_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}",
+          "TF_VAR_voyage_api_key": "${{ secrets.VOYAGE_API_KEY || '' }}",
+          "TF_VAR_easypost_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}",
+          "TF_VAR_easypost_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_easypost_mode": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}",
+          "TF_VAR_tcgplayer_automation_tcg_auth_cookie": "${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+          "TF_VAR_scrydex_api_key": "${{ secrets.SCRYDEX_API_KEY || '' }}",
+          "TF_VAR_scrydex_team_id": "${{ secrets.SCRYDEX_TEAM_ID || '' }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_notification_email_provider": "${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}",
+          "TF_VAR_ses_aws_region": "${{ vars.SES_AWS_REGION || '' }}",
+          "TF_VAR_ses_aws_access_key_id": "${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}",
+          "TF_VAR_ses_aws_secret_access_key": "${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}",
+          "TF_VAR_ses_from_email": "${{ vars.SES_FROM_EMAIL || '' }}",
+          "TF_VAR_ses_configuration_set_name": "${{ vars.SES_CONFIGURATION_SET_NAME || '' }}",
+          "TF_VAR_ses_source_arn": "${{ secrets.SES_SOURCE_ARN || '' }}",
+          "TF_VAR_observability_enabled": "${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}",
+          "TF_VAR_observability_otlp_endpoint": "${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}",
+          "TF_VAR_observability_otlp_headers": "${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "CHASE_SETS_HELM_RELEASE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "ARGO_ROLLOUTS_ENABLED": "${{ vars.PRODUCTION_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}",
+          "BETA_WAVE_SIZE": "${{ vars.BETA_WAVE_SIZE || '100' }}",
+          "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT": "${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+          "DESTRUCTIVE_CHANGE_ALLOW_FILE": ".github/deployment/production-destructive-change-approved.md",
+          "PRODUCTION_RELEASE_LOCKED": "${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}",
+          "PRODUCTION_RELEASE_LOCK_REASON": "${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}",
+          "PRODUCTION_RELEASE_LOCK_REFERENCE": "${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}"
+        },
+        "step": {
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}",
+          "RELEASE_COMMIT": "${{ needs.resolve-release.outputs.release_commit }}",
+          "RELEASE_IMAGE": "${{ steps.image.outputs.image }}",
+          "RELEASE_IMAGE_DIGEST": "${{ steps.image.outputs.digest }}"
+        }
+      },
+      "runSha256": "71a1bd68ec6033f38b102263afa0a53069177b0060c09dd47db40d1ae511a389",
+      "envSha256": "5d29f2aa3e0d69515e8a2bd26ede888ea52616879e7244ba3d7641e1e9d9804c"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "deploy-production",
+      "step": 56,
+      "run": "set -euo pipefail\n[[ \"$RELEASE_COMMIT\" =~ ^[^-].*$ ]] || {\n  echo \"RELEASE_COMMIT must be a non-option value.\" >&2\n  exit 1\n}\nif [ \"$PRODUCTION_ROLLBACK_RESULT\" = \"success\" ]; then\n  terminal=\"rolled-back\"\n  terminal_commit=\"$ROLLBACK_TARGET_COMMIT\"\n  terminal_digest=\"$ROLLBACK_OBSERVED_DIGEST\"\nelif [ \"$PRODUCTION_MARKER_UPDATED\" = \"true\" ]; then\n  terminal=\"promoted\"\n  terminal_commit=\"$RELEASE_COMMIT\"\n  terminal_digest=\"$RELEASE_IMAGE_DIGEST\"\nelse\n  terminal=\"failed\"\n  terminal_commit=\"$RELEASE_COMMIT\"\n  terminal_digest=\"$RELEASE_IMAGE_DIGEST\"\nfi\n\npending_commit=\"\"\ncoalesced_count=0\nif [ \"$AUTOMATIC_RELEASE\" = \"true\" ]; then\n  git fetch origin main\n  latest_main=\"$(git rev-parse origin/main)\"\n[[ \"$latest_main\" =~ ^[^-].*$ ]] || {\n  echo \"latest_main must be a non-option value.\" >&2\n  exit 1\n}\n  if [ \"$latest_main\" != \"$RELEASE_COMMIT\" ]; then\n    pending_commit=\"$latest_main\"\n    coalesced_count=\"$(git rev-list --count \"${RELEASE_COMMIT}..${latest_main}\")\"\n  fi\nfi\n\ntransitions=\"$(jq -cn \\\n  --arg commit \"$RELEASE_COMMIT\" \\\n  --arg digest \"$RELEASE_IMAGE_DIGEST\" \\\n  --arg mode \"$RELEASE_STATE_MODE\" \\\n  --arg terminal \"$terminal\" \\\n  --arg terminalCommit \"$terminal_commit\" \\\n  --arg terminalDigest \"$terminal_digest\" \\\n  --arg pending \"$pending_commit\" \\\n  --argjson count \"$coalesced_count\" \\\n  '[{type:\"active\", commit:$commit, imageDigest:$digest, mode:$mode}]\n    + (if $pending == \"\" then [] else [\n        {type:\"pending\", commit:$pending, mode:\"automatic\"},\n        {type:\"coalesced\", commit:$pending, count:$count}\n      ] end)\n    + [{type:$terminal, commit:$terminalCommit, imageDigest:$terminalDigest, mode:$mode}]')\"\necho \"transitions=${transitions}\" >> \"$GITHUB_OUTPUT\"\necho \"Terminal release outcome: ${terminal}; pending latest: ${pending_commit:-none}; coalesced commits: ${coalesced_count}.\"\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "TF_VAR_environment": "production",
+          "TF_VAR_environment_project_id": "${{ vars.DIGITALOCEAN_PROJECT_ID || '' }}",
+          "TF_VAR_platform_image_repository": "chase-sets-platform",
+          "TF_VAR_platform_image_tag": "${{ needs.resolve-release.outputs.release_commit }}",
+          "TF_VAR_platform_image_digest": "${{ needs.deploy-staging.outputs.platform_image_digest }}",
+          "PRODUCTION_DOKS_INGRESS_TARGET": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "PRODUCTION_MARKETPLACE_SERVED": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_doks_ingress_target": "${{ vars.PRODUCTION_DOKS_INGRESS_TARGET || '' }}",
+          "TF_VAR_production_runtime_profile": "${{ vars.PRODUCTION_RUNTIME_PROFILE || (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' && 'proof' || 'landing') }}",
+          "TF_VAR_production_marketplace_served": "${{ vars.PRODUCTION_MARKETPLACE_SERVED || 'false' }}",
+          "TF_VAR_production_marketplace_public_enabled": "${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_approved": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_promotion_reference": "${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}",
+          "TF_VAR_production_marketplace_checkout_fee_approved": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_marketplace_checkout_fee_reference": "${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_payout_fee_approved": "${{ vars.PRODUCTION_PAYOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_payout_fee_reference": "${{ vars.PRODUCTION_PAYOUT_FEE_REFERENCE || '' }}",
+          "TF_VAR_production_checkout_launch_evidence_approved": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_checkout_launch_evidence_reference": "${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}",
+          "TF_VAR_checkout_shopify_simple_kill_switch_active": "${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_approved": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_stripe_money_operations_reference": "${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_support_operations_approved": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_support_operations_reference": "${{ vars.PRODUCTION_SUPPORT_OPERATIONS_REFERENCE || '' }}",
+          "TF_VAR_production_fulfillment_postage_approved": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_fulfillment_postage_reference": "${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
+          "TF_VAR_production_transactional_email_approved": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_transactional_email_reference": "${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE || '' }}",
+          "TF_VAR_production_launch_supply_measurements_approved": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_launch_supply_measurements_reference": "${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}",
+          "TF_VAR_alert_emails": "${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}",
+          "TF_VAR_platform_internal_auth_secret": "${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}",
+          "TF_VAR_platform_admin_email": "${{ secrets.PLATFORM_ADMIN_EMAIL }}",
+          "TF_VAR_platform_admin_password": "${{ secrets.PLATFORM_ADMIN_PASSWORD }}",
+          "TF_VAR_platform_admin_display_name": "${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}",
+          "TF_VAR_discord_invite_url": "${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}",
+          "TF_VAR_production_tax_readiness_approved": "${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_production_tax_readiness_reference": "${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}",
+          "TF_VAR_tax_provider_backed_quotes_required": "${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED == 'true' && 'true' || 'false' }}",
+          "TF_VAR_stripe_secret_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_SECRET_KEY || '' }}",
+          "TF_VAR_stripe_publishable_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_PUBLISHABLE_KEY || '' }}",
+          "TF_VAR_stripe_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_stripe_connect_accounts_api": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.STRIPE_CONNECT_ACCOUNTS_API || 'v2') || 'v2' }}",
+          "TF_VAR_stripe_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.STRIPE_API_BASE_URL || '' }}",
+          "TF_VAR_ucp_business_signing_key_id": "${{ secrets.UCP_BUSINESS_SIGNING_KEY_ID || '' }}",
+          "TF_VAR_ucp_business_signing_alg": "${{ secrets.UCP_BUSINESS_SIGNING_ALG || 'ES256' }}",
+          "TF_VAR_ucp_business_signing_private_jwk": "${{ secrets.UCP_BUSINESS_SIGNING_PRIVATE_JWK || '' }}",
+          "TF_VAR_ucp_business_signing_previous_public_jwks": "${{ secrets.UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS || '[]' }}",
+          "TF_VAR_ucp_ap2_verifier_url": "${{ secrets.UCP_AP2_VERIFIER_URL || '' }}",
+          "TF_VAR_ucp_ap2_verifier_auth_token": "${{ secrets.UCP_AP2_VERIFIER_AUTH_TOKEN || '' }}",
+          "TF_VAR_ucp_ap2_verifier_timeout_ms": "${{ secrets.UCP_AP2_VERIFIER_TIMEOUT_MS || '5000' }}",
+          "TF_VAR_easypost_api_key": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_API_KEY || '' }}",
+          "TF_VAR_voyage_api_key": "${{ secrets.VOYAGE_API_KEY || '' }}",
+          "TF_VAR_easypost_api_base_url": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && vars.EASYPOST_API_BASE_URL || '' }}",
+          "TF_VAR_easypost_webhook_secret": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+          "TF_VAR_easypost_mode": "${{ (vars.PRODUCTION_RUNTIME_PROFILE == 'proof' || vars.PRODUCTION_RUNTIME_PROFILE == 'public' || vars.PRODUCTION_MARKETPLACE_SERVED == 'true' || vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true') && (vars.EASYPOST_MODE || 'production') || 'test' }}",
+          "TF_VAR_tcgplayer_automation_tcg_auth_cookie": "${{ secrets.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE || '' }}",
+          "TF_VAR_scrydex_api_key": "${{ secrets.SCRYDEX_API_KEY || '' }}",
+          "TF_VAR_scrydex_team_id": "${{ secrets.SCRYDEX_TEAM_ID || '' }}",
+          "TF_VAR_google_social_login_client_id": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_google_social_login_client_secret": "${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_admin_google_workspace_hosted_domains": "${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
+          "TF_VAR_facebook_social_login_client_id": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+          "TF_VAR_facebook_social_login_client_secret": "${{ secrets.FACEBOOK_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+          "TF_VAR_notification_email_provider": "${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}",
+          "TF_VAR_ses_aws_region": "${{ vars.SES_AWS_REGION || '' }}",
+          "TF_VAR_ses_aws_access_key_id": "${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}",
+          "TF_VAR_ses_aws_secret_access_key": "${{ secrets.SES_AWS_SECRET_ACCESS_KEY || '' }}",
+          "TF_VAR_ses_from_email": "${{ vars.SES_FROM_EMAIL || '' }}",
+          "TF_VAR_ses_configuration_set_name": "${{ vars.SES_CONFIGURATION_SET_NAME || '' }}",
+          "TF_VAR_ses_source_arn": "${{ secrets.SES_SOURCE_ARN || '' }}",
+          "TF_VAR_observability_enabled": "${{ vars.OBSERVABILITY_ENABLED == 'false' && 'false' || 'true' }}",
+          "TF_VAR_observability_otlp_endpoint": "${{ vars.OBSERVABILITY_OTLP_ENDPOINT || '' }}",
+          "TF_VAR_observability_otlp_headers": "${{ secrets.OBSERVABILITY_OTLP_HEADERS || '' }}",
+          "PLATFORM_IMAGE_REPOSITORY": "chase-sets-platform",
+          "CHASE_SETS_HELM_RELEASE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform",
+          "CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT": "15m",
+          "ARGO_ROLLOUTS_ENABLED": "${{ vars.PRODUCTION_ARGO_ROLLOUTS_ENABLED == 'true' && 'true' || 'false' }}",
+          "BETA_WAVE_SIZE": "${{ vars.BETA_WAVE_SIZE || '100' }}",
+          "BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT": "${{ vars.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT || '10' }}",
+          "DESTRUCTIVE_CHANGE_ALLOW_FILE": ".github/deployment/production-destructive-change-approved.md",
+          "PRODUCTION_RELEASE_LOCKED": "${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}",
+          "PRODUCTION_RELEASE_LOCK_REASON": "${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}",
+          "PRODUCTION_RELEASE_LOCK_REFERENCE": "${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}"
+        },
+        "step": {
+          "TF_VAR_digitalocean_token": "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}",
+          "TF_VAR_spaces_access_id": "${{ secrets.SPACES_ACCESS_ID }}",
+          "TF_VAR_spaces_secret_key": "${{ secrets.SPACES_SECRET_KEY }}",
+          "RELEASE_COMMIT": "${{ needs.deploy-staging.outputs.active_release_commit }}",
+          "RELEASE_IMAGE_DIGEST": "${{ needs.deploy-staging.outputs.active_image_digest }}",
+          "RELEASE_STATE_MODE": "${{ inputs.dispatch_source }}",
+          "AUTOMATIC_RELEASE": "${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}",
+          "PRODUCTION_MARKER_UPDATED": "${{ steps.production_marker.outputs.marker_updated || 'false' }}",
+          "PRODUCTION_ROLLBACK_RESULT": "${{ steps.production_rollback.outputs.result || 'not-attempted' }}",
+          "ROLLBACK_TARGET_COMMIT": "${{ steps.production_rollback.outputs.rollback_target_commit || '' }}",
+          "ROLLBACK_OBSERVED_DIGEST": "${{ steps.production_rollback.outputs.rollback_observed_digest || '' }}"
+        }
+      },
+      "runSha256": "b30abd60e5087a5091999dfebefc26cf200241cc402ff214d3b1309a5e364bd2",
+      "envSha256": "960b7dfa12bdc4f88859cd7fc582edb65a4f86f52432fa61d71ff75690fafe29"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-production.yml",
+      "job": "notify-production-deploy-incident",
+      "step": 3,
+      "run": "set -euo pipefail\n\nif [ \"${DEPLOY_INCIDENT_ACTION}\" = \"close\" ]; then\n  close_comment=\"$(node ./scripts/platform-deploy-incident.mjs --command build-comment)\"\n  open_incidents=\"$(\n    gh issue list \\\n      --repo \"${GITHUB_REPOSITORY}\" \\\n      --state open \\\n      --search \"\\\"Incident: Platform Deploy\\\" in:title\" \\\n      --limit 200 \\\n      --json number,title,body \\\n      --jq '.[] | @base64'\n  )\"\n\n  if [ -z \"${open_incidents}\" ]; then\n    echo \"No open superseded deploy incidents to close.\"\n    exit 0\n  fi\n\n  while IFS= read -r encoded_issue; do\n    if [ -z \"${encoded_issue}\" ]; then\n      continue\n    fi\n    issue_json=\"$(printf '%s' \"${encoded_issue}\" | base64 --decode)\"\n    issue_number=\"$(jq -r '.number' <<< \"${issue_json}\")\"\n[[ \"$issue_number\" =~ ^[^-].*$ ]] || {\n  echo \"issue_number must be a non-option value.\" >&2\n  exit 1\n}\n    issue_title=\"$(jq -r '.title' <<< \"${issue_json}\")\"\n    issue_body=\"$(jq -r '.body // \"\"' <<< \"${issue_json}\")\"\n    issue_action=\"$(node ./scripts/platform-deploy-incident.mjs \\\n      --command classify-issue \\\n      --format plain \\\n      --title \"${issue_title}\" \\\n      --body \"${issue_body}\")\"\n    if [ \"${issue_action}\" != \"close\" ]; then\n      continue\n    fi\n\n    gh issue close \"${issue_number}\" \\\n      --repo \"${GITHUB_REPOSITORY}\" \\\n      --comment \"${close_comment}\"\n    echo \"Closed superseded no-op deploy incident #${issue_number}: ${issue_title}\"\n  done <<< \"${open_incidents}\"\n  exit 0\nfi\n\ntitle=\"Incident: Platform Deploy ${PLATFORM_DEPLOY_INCIDENT_REASON} [${ROOT_CAUSE_SIGNATURE}]\"\nbody=\"$(node ./scripts/platform-deploy-incident.mjs --command build-incident-body)\"\n\nexisting_issue=\"$(\n  gh issue list \\\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --state open \\\n    --search \"\\\"${title}\\\" in:title\" \\\n    --json number \\\n    --jq '.[0].number // empty'\n)\"\n[[ \"$existing_issue\" =~ ^[^-].*$ ]] || {\n  echo \"existing_issue must be a non-option value.\" >&2\n  exit 1\n}\n\nif [ -n \"${existing_issue}\" ]; then\n  gh issue comment \"${existing_issue}\" --repo \"${GITHUB_REPOSITORY}\" --body \"${body}\"\n  echo \"Updated incident issue #${existing_issue}.\"\nelse\n  issue_create_args=(\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --title \"${title}\" \\\n    --body \"${body}\" \\\n    --label \"kind:ops\" \\\n    --label \"area:infrastructure\"\n  )\n\n  incident_milestone_title=\"Incidents\"\n  incident_milestone_number=\"$(\n    gh api --paginate \"repos/${GITHUB_REPOSITORY}/milestones?state=open&per_page=100\" \\\n      --jq '.[] | select(.title == \"Incidents\") | .number'\n  )\"\n\n  if [ -n \"${incident_milestone_number}\" ]; then\n    issue_create_args+=(--milestone \"${incident_milestone_title}\")\n  else\n    echo \"Open incident milestone '${incident_milestone_title}' was not found; creating issue without a milestone.\"\n  fi\n\n  gh issue create \"${issue_create_args[@]}\"\nfi\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {
+          "GH_TOKEN": "${{ github.token }}",
+          "RUN_URL": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+          "RELEASE_COMMIT": "${{ needs.resolve-release.outputs.release_commit || inputs.release_ref || 'unresolved' }}",
+          "DEPLOY_INCIDENT_ACTION": "${{ steps.classify_deploy_outcome.outputs.action }}",
+          "PLATFORM_DEPLOY_INCIDENT_REASON": "${{ steps.classify_deploy_outcome.outputs.root_cause_code }}",
+          "ROOT_CAUSE_SUMMARY": "${{ steps.classify_deploy_outcome.outputs.root_cause_summary }}",
+          "AFFECTED_COMPONENT": "${{ steps.classify_deploy_outcome.outputs.affected_component }}",
+          "ROOT_CAUSE_PHASE": "${{ steps.classify_deploy_outcome.outputs.phase }}",
+          "ROOT_CAUSE_REMEDIATION": "${{ steps.classify_deploy_outcome.outputs.remediation }}",
+          "ROOT_CAUSE_PROVIDER_REASON": "${{ steps.classify_deploy_outcome.outputs.provider_reason }}",
+          "ROOT_CAUSE_SIGNATURE": "${{ steps.classify_deploy_outcome.outputs.root_cause_signature }}",
+          "DEPLOYMENT_CONTRACT_PREFLIGHT_RESULT": "${{ needs.deployment-contract-preflight.result }}",
+          "SUPERSEDED_BY_COMMIT": "${{ needs.deploy-staging.outputs.superseded_by_commit || '' }}",
+          "RESOLVE_RELEASE_RESULT": "${{ needs.resolve-release.result }}",
+          "BUILD_IMAGE_RESULT": "${{ needs.build-image.result }}",
+          "DEPLOY_STAGING_RESULT": "${{ needs.deploy-staging.result }}",
+          "DEPLOY_PRODUCTION_RESULT": "${{ needs.deploy-production.result }}",
+          "ROLLBACK_RESULT": "${{ needs.deploy-production.outputs.rollback_result || 'not-attempted' }}",
+          "RECORD_STAGING_HEALTH_RESULT": "${{ needs.record-staging-release-health.result }}",
+          "ARTIFACTS_URL": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}"
+        }
+      },
+      "runSha256": "e6f005a8be478c744a1ef53651b50713fd12f5fcbfe2f4f9df40e502d6e2ed8a",
+      "envSha256": "eb83a03c34933897bc0927498154c57f0ecca573740ffb28ac73bcb397be78cc"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "job": "notify-staging-advisory-evidence",
+      "step": 1,
+      "run": "set -euo pipefail\ntitle=\"Incident: Staging advisory evidence failing\"\nexisting_issue=\"$(\n  gh issue list \\\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --state open \\\n    --search \"\\\"${title}\\\" in:title\" \\\n    --json number \\\n    --jq '.[0].number // empty'\n)\"\n[[ \"$existing_issue\" =~ ^[^-].*$ ]] || {\n  echo \"existing_issue must be a non-option value.\" >&2\n  exit 1\n}\nif [ \"$ADVISORY_RESULT\" = \"success\" ]; then\n  if [ -n \"$existing_issue\" ]; then\n    gh issue close \"$existing_issue\" \\\n      --repo \"${GITHUB_REPOSITORY}\" \\\n      --comment \"Advisory staging evidence recovered for ${RELEASE_COMMIT}: ${RUN_URL}\"\n  else\n    echo \"Advisory staging evidence passed; no incident is open.\"\n  fi\n  exit 0\nfi\nbody=\"$(cat <<EOF\nAdvisory staging evidence failed without changing the production promotion decision.\n\n- Release commit: ${RELEASE_COMMIT}\n- Advisory result: ${ADVISORY_RESULT}\n- Scenario seed bootstrap error: ${SCENARIO_SEED_ERROR:-none captured}\n- Workflow run: ${RUN_URL}\n- Evidence artifacts: ${ARTIFACTS_URL}\n\nInspect scenario-seed and deployed marketplace E2E evidence. Reruns are serialized in the advisory lane and reconcile the same representative staging contracts.\nEOF\n)\"\nif [ -n \"$existing_issue\" ]; then\n  gh issue comment \"$existing_issue\" --repo \"${GITHUB_REPOSITORY}\" --body \"$body\"\nelse\n  gh issue create \\\n    --repo \"${GITHUB_REPOSITORY}\" \\\n    --title \"$title\" \\\n    --body \"$body\" \\\n    --label \"kind:ops\" \\\n    --label \"area:infrastructure\"\nfi\n",
+      "env": {
+        "workflow": {},
+        "job": {},
+        "step": {
+          "GH_TOKEN": "${{ github.token }}",
+          "ADVISORY_RESULT": "${{ needs.staging-advisory-evidence.result }}",
+          "SCENARIO_SEED_ERROR": "${{ needs.staging-advisory-evidence.outputs.scenario_seed_error }}",
+          "RELEASE_COMMIT": "${{ inputs.release_commit }}",
+          "RUN_URL": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+          "ARTIFACTS_URL": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}"
+        }
+      },
+      "runSha256": "1d3b357d4f5fa386abd95b49590fd5a0ed0ae6828c2d1a36a840ce53e9e4d6b5",
+      "envSha256": "4689004381bcb4baa19e1b77f51abd2839db967f5cae4ebb30d01b9be1ad309c"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-staging-route-matrix-evidence.yml",
+      "job": "staging-route-matrix-evidence",
+      "step": 7,
+      "run": "set -euo pipefail\n[[ \"$DEPLOY_QUIESCENCE_POLL_INTERVAL_S\" =~ ^[^-].*$ ]] || {\n  echo \"DEPLOY_QUIESCENCE_POLL_INTERVAL_S must be a non-option value.\" >&2\n  exit 1\n}\n# Issue #4721: run 28996898078 drove its checkout samples while a\n# Platform Deploy was rolling the staging fleet (05:33:50-05:50:29Z),\n# so every receipt-backed evaluation in the window timed out and the\n# evidence read as a wake regression. Wait (bounded) until no deploy\n# run is in progress before generating traffic. Timing gate only:\n# on budget exhaustion we proceed and let the samples fail loudly.\ndeadline=$((SECONDS + DEPLOY_QUIESCENCE_BUDGET_S))\nwhile :; do\n  in_flight=\"$(gh api \"repos/${GITHUB_REPOSITORY}/actions/workflows/platform-production.yml/runs?status=in_progress&per_page=1\" --jq '.total_count' 2>/dev/null || echo 0)\"\n  queued=\"$(gh api \"repos/${GITHUB_REPOSITORY}/actions/workflows/platform-production.yml/runs?status=queued&per_page=1\" --jq '.total_count' 2>/dev/null || echo 0)\"\n  if [ \"${in_flight:-0}\" = \"0\" ] && [ \"${queued:-0}\" = \"0\" ]; then\n    echo \"No Platform Deploy runs in flight; proceeding with route-matrix sampling.\"\n    break\n  fi\n  if [ \"$SECONDS\" -ge \"$deadline\" ]; then\n    echo \"::warning::Platform Deploy still in flight after ${DEPLOY_QUIESCENCE_BUDGET_S}s; route-matrix samples may race the rollout.\" \\\n      | tee -a \"$GITHUB_STEP_SUMMARY\"\n    break\n  fi\n  echo \"Platform Deploy in flight (running=${in_flight}, queued=${queued}); waiting ${DEPLOY_QUIESCENCE_POLL_INTERVAL_S}s...\"\n  sleep \"${DEPLOY_QUIESCENCE_POLL_INTERVAL_S}\"\ndone\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "PROMETHEUS_URL": "${{ inputs.prometheus_url }}",
+          "PROMETHEUS_QUERY_TOKEN": "${{ secrets.PROMETHEUS_QUERY_TOKEN || '' }}",
+          "ROUTE_MATRIX_EVIDENCE_WINDOW": "${{ inputs.window }}",
+          "ROUTE_MATRIX_EVIDENCE_ENVIRONMENT": "staging",
+          "READ_CONSISTENCY_ROUTE_MATRIX_EVIDENCE_OUT": "artifacts/wake-drills/read-consistency-route-matrix-evidence.json",
+          "READ_CONSISTENCY_ROUTE_MATRIX_SAMPLER_OUT": "artifacts/wake-drills/read-consistency-route-matrix-sampler.json",
+          "ROUTE_MATRIX_CHECKOUT_PROBE_OUT": "artifacts/wake-drills/route-matrix-checkout-probe.json",
+          "ROUTE_MATRIX_ACCOUNT_CART_PROBE_OUT": "artifacts/wake-drills/route-matrix-account-cart-probe.json",
+          "ROUTE_MATRIX_DEPLOY_WINDOW_OUT": "artifacts/wake-drills/read-consistency-route-matrix-deploy-window.json"
+        },
+        "step": {
+          "GH_TOKEN": "${{ github.token }}",
+          "DEPLOY_QUIESCENCE_BUDGET_S": "${{ vars.STAGING_ROUTE_MATRIX_DEPLOY_QUIESCENCE_BUDGET_S || '1500' }}",
+          "DEPLOY_QUIESCENCE_POLL_INTERVAL_S": "${{ vars.STAGING_ROUTE_MATRIX_DEPLOY_QUIESCENCE_POLL_INTERVAL_S || '30' }}"
+        }
+      },
+      "runSha256": "6e29f8483f208d48cf76b4f284b43218c8b4bd8592e3fea1e580a5af5b400f3e",
+      "envSha256": "eb151153c9201b7c7dc0165c8552380800a1089f7e85ea2c06121469133eff34"
+    },
+    {
+      "sha": "991a1d8586da9405dcdec26e4f02e40ee93ba420",
+      "path": ".github/workflows/platform-staging-wake-drills.yml",
+      "job": "staging-wake-drill",
+      "step": 10,
+      "run": "set -euo pipefail\nworker_deployment=\"$(\n  kubectl get deployment \\\n    --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n    --selector 'app.kubernetes.io/component=platform-worker,app.kubernetes.io/instance=chase-sets-platform,app.kubernetes.io/name=chase-sets-platform' \\\n    --output jsonpath='{.items[0].metadata.name}'\n)\"\n[[ \"$worker_deployment\" =~ ^[^-].*$ ]] || {\n  echo \"worker_deployment must be a non-option value.\" >&2\n  exit 1\n}\nif [ -z \"$worker_deployment\" ]; then\n  echo \"No staging platform-worker deployment was found for worker-status capture.\" >&2\n  kubectl get deployment --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" >&2 || true\n  exit 1\nfi\n\nworker_status_port=18080\nworker_target_port=\"$(\n  kubectl get deployment \\\n    --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n    \"$worker_deployment\" \\\n    --output jsonpath='{.spec.template.spec.containers[?(@.name==\"platform-worker\")].ports[?(@.name==\"http\")].containerPort}'\n)\"\nif ! [[ \"$worker_target_port\" =~ ^[0-9]+$ ]]; then\n  echo \"Could not resolve staging platform-worker http container port from deployment/${worker_deployment}.\" >&2\n  kubectl get deployment \\\n    --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n    \"$worker_deployment\" \\\n    --output json >&2 || true\n  exit 1\nfi\n\nport_forward_log=\"${RUNNER_TEMP}/staging-worker-status-port-forward.log\"\nkubectl port-forward \\\n  --namespace \"$CHASE_SETS_KUBERNETES_NAMESPACE\" \\\n  \"deployment/${worker_deployment}\" \\\n  \"${worker_status_port}:${worker_target_port}\" \\\n  > \"$port_forward_log\" 2>&1 &\nport_forward_pid=\"$!\"\necho \"$port_forward_pid\" > \"${RUNNER_TEMP}/staging-worker-status-port-forward.pid\"\necho \"WAKE_DRILL_WORKER_STATUS_URL=http://127.0.0.1:${worker_status_port}/internal/workers/status\" >> \"$GITHUB_ENV\"\n\nfor _attempt in $(seq 1 30); do\n  if curl --fail --silent --show-error \"http://127.0.0.1:${worker_status_port}/internal/workers/status\" >/dev/null; then\n    echo \"Staging worker-status port-forward is ready.\"\n    exit 0\n  fi\n  if ! kill -0 \"$port_forward_pid\" 2>/dev/null; then\n    echo \"Staging worker-status port-forward exited before becoming ready.\" >&2\n    cat \"$port_forward_log\" >&2 || true\n    exit 1\n  fi\n  sleep 1\ndone\n\necho \"Timed out waiting for staging worker-status port-forward readiness.\" >&2\ncat \"$port_forward_log\" >&2 || true\nexit 1\n",
+      "env": {
+        "workflow": {},
+        "job": {
+          "TF_IN_AUTOMATION": "true",
+          "TF_INPUT": "false",
+          "CHASE_SETS_KUBERNETES_NAMESPACE": "chase-sets-platform"
+        },
+        "step": {}
+      },
+      "runSha256": "23e6f88c86b1594bed74f58a50b567f0731430e75c5ea208d001b935fd86f722",
+      "envSha256": "aff52e8ffa33b5ae493aa43c8ea45c59bb72b718563d0761e9800a6b7a9ac8f2"
     }
   ]
 }

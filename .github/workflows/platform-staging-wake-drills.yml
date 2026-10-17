@@ -251,6 +251,10 @@ jobs:
               --selector 'app.kubernetes.io/component=platform-worker,app.kubernetes.io/instance=chase-sets-platform,app.kubernetes.io/name=chase-sets-platform' \
               --output jsonpath='{.items[0].metadata.name}'
           )"
+          [[ "$worker_deployment" =~ ^[^-].*$ ]] || {
+            echo "worker_deployment must be a non-option value." >&2
+            exit 1
+          }
           if [ -z "$worker_deployment" ]; then
             echo "No staging platform-worker deployment was found for worker-status capture." >&2
             kubectl get deployment --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" >&2 || true
