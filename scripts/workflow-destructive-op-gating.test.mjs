@@ -1533,6 +1533,21 @@ describe("origin-proved dynamic package selection", () => {
       const run = recordChange(record.run);
       return run === record.run ? record : { ...record, run, runSha256: sha256(run) };
     });
+    const originKey = ({ sha, path, job, step }) => [sha, path, job, step].join("|");
+    const records = new Map(grammar.origins.map((record) => [originKey(record), record]));
+    grammar.benignForms = grammar.benignForms.map((entry) => {
+      if (!entry.transition) return entry;
+      const before = records.get(originKey(entry.transition.from));
+      const after = records.get(originKey(entry.origin));
+      return {
+        ...entry,
+        transition: {
+          ...entry.transition,
+          ...(before ? { beforeRunSha256: before.runSha256 } : {}),
+          ...(after ? { afterRunSha256: after.runSha256 } : {}),
+        },
+      };
+    });
     writeFileSync(join(directory, "workflow-destructive-op-gating-grammar.json"), JSON.stringify(grammar));
     writeFileSync(join(directory, "workflow-destructive-op-gating.mjs"), source);
     return import(pathToFileURL(join(directory, "workflow-destructive-op-gating.mjs")).href);

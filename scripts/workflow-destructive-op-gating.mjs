@@ -2548,6 +2548,7 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
           // Data positions stay admissible without a lead proof, but retain
           // their provenance-only witness for the R handoff inventory.
           const proof = proveText(word.value, context?.site ?? null, context ?? {}, context?.seen ?? new Set());
+          if (!proof.proved) return false;
           if (proof.proved)
             context.trace?.proofs.push({
               entry: context.entry,
