@@ -284,7 +284,18 @@
       { "name": "inventory.commit-import-batch", "ownerSlice": "import-batches" },
       { "name": "inventory.list-items", "ownerSlice": "inventory-items" },
       { "name": "inventory.adjust-item", "ownerSlice": "inventory-items" },
-      { "name": "inventory.get-mutation-attempt", "ownerSlice": "inventory-items" }
+      { "name": "inventory.get-mutation-attempt", "ownerSlice": "inventory-items" },
+      { "name": "inventory.list-recovered-items", "ownerSlice": "recovered-items" },
+      { "name": "inventory.get-recovered-item-metrics", "ownerSlice": "recovered-items" },
+      { "name": "inventory.identify-recovered-item", "ownerSlice": "recovered-items" },
+      { "name": "inventory.inspect-recovered-item", "ownerSlice": "recovered-items" },
+      { "name": "inventory.require-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
+      { "name": "inventory.complete-recovered-item-authenticity-review", "ownerSlice": "recovered-items" },
+      { "name": "inventory.record-recovered-item-disposition-authority", "ownerSlice": "recovered-items" },
+      { "name": "inventory.decide-recovered-item-disposition", "ownerSlice": "recovered-items" },
+      { "name": "inventory.record-recovered-item-value", "ownerSlice": "recovered-items" },
+      { "name": "inventory.correct-recovered-item-source", "ownerSlice": "recovered-items" },
+      { "name": "inventory.merge-recovered-item", "ownerSlice": "recovered-items" }
     ],
     "resources": [
       {
@@ -709,7 +720,21 @@
     }
   ],
   "agentCoverage": {
-    "inventory-recovered-items": { "pending": "#9238" }
+    "inventory-recovered-items": {
+      "tools": [
+        "inventory.list-recovered-items",
+        "inventory.get-recovered-item-metrics",
+        "inventory.identify-recovered-item",
+        "inventory.inspect-recovered-item",
+        "inventory.require-recovered-item-authenticity-review",
+        "inventory.complete-recovered-item-authenticity-review",
+        "inventory.record-recovered-item-disposition-authority",
+        "inventory.decide-recovered-item-disposition",
+        "inventory.record-recovered-item-value",
+        "inventory.correct-recovered-item-source",
+        "inventory.merge-recovered-item"
+      ]
+    }
   },
   "deployableContributions": [
     {

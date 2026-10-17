@@ -39,6 +39,7 @@ import { inventoryUnloggedProjectionSchemaMigrations } from "./support/runtime-s
 import { inspectInventorySeedState, seedInventoryDatabase } from "./support/runtime-support/seed";
 import { createInventoryImportBatchMcpHandlers } from "./features/import-batches/api/mcp";
 import { createInventoryItemMcpHandlers } from "./features/inventory-items/api/mcp";
+import { createRecoveredItemMcpHandlers } from "./features/recovered-items/api/mcp";
 import { resetInventoryItemProjection } from "./features/inventory-items/read-model/projection";
 import { resetStorageLocationProjection } from "./features/storage-locations/read-model/projection";
 import { resetInventoryHoldProjection } from "./features/holds/read-model/projection";
@@ -68,15 +69,18 @@ const baseModule = defineBoundedContextModule<InventoryServices, PgTransactional
       services.holdCollisions,
       services.mutations,
     );
+    const recoveredItems = createRecoveredItemMcpHandlers(services.recoveredItems);
 
     return {
       toolHandlers: {
         ...importBatches.toolHandlers,
         ...items.toolHandlers,
+        ...recoveredItems.toolHandlers,
       },
       resourceHandlers: {
         ...importBatches.resourceHandlers,
         ...items.resourceHandlers,
+        ...recoveredItems.resourceHandlers,
       },
     };
   },
