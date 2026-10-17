@@ -260,8 +260,9 @@ async function provisionAdminQaActorFixture(
     }
     const absent = [account, user, membership].filter((read) => read.kind === "missing").length;
     outcome = absent === 0 && !createdUser ? "steady" : absent === 3 ? "created" : "reconciled";
-  } catch (error) {
-    if (services.eventStore && attempt < 2 && isConcurrencyConflict(error)) {
+  } catch {
+    // A concurrent boot can win each of the four appends once; every retry re-reads all histories first.
+    if (services.eventStore && attempt < 4) {
       return provisionAdminQaActorFixture(services, context, fixture, email, attempt + 1);
     }
     return outcomeOnly(fixture, "error");
@@ -290,20 +291,19 @@ async function inspectAdminQaActorFixture(
   fixture: AdminQaActorFixtureDefinition,
   email: string,
 ): Promise<FixtureInspection> {
-  if (services.eventStore) {
-    const history = await Promise.all([
-      inspectHistory(services.eventStore, `identity.account-${fixture.accountId}`, ["identity.account.created"]),
-      inspectHistory(services.eventStore, `identity.user-${fixture.userId}`, [
-        "identity.user.created",
-        "identity.user.auth-method-enabled",
-      ]),
-      inspectHistory(services.eventStore, `identity.membership-${fixture.membershipId}`, [
-        "identity.membership.granted",
-      ]),
-    ]);
-    if (history.some((entry) => entry === "error")) return { kind: "error" };
-    if (history.some((entry) => entry === "conflict")) return { kind: "conflict" };
-  }
+  const store = services.eventStore;
+  const history = store
+    ? await Promise.all([
+        inspectHistory(store, `identity.account-${fixture.accountId}`, ["identity.account.created"]),
+        inspectHistory(store, `identity.user-${fixture.userId}`, [
+          "identity.user.created",
+          "identity.user.auth-method-enabled",
+        ]),
+        inspectHistory(store, `identity.membership-${fixture.membershipId}`, ["identity.membership.granted"]),
+      ])
+    : undefined;
+  if (history?.some((entry) => entry === "error")) return { kind: "error" };
+  if (history?.some((entry) => entry === "conflict")) return { kind: "conflict" };
   const [account, user, membership] = await Promise.all([
     readFixtureState(
       services.db,
@@ -322,7 +322,8 @@ async function inspectAdminQaActorFixture(
     ),
   ]);
   if ([account, user, membership].some((read) => read.kind === "error")) return { kind: "error" };
-  if (services.eventStore) {
+  if (history) {
+    if (!agreesWithHistory(history, [account, user, membership])) return { kind: "conflict" };
     if (account.kind === "present" && !matchesAccount(account.value, fixture)) return { kind: "conflict" };
     if (user.kind === "present" && !matchesUser(user.value, fixture, email)) return { kind: "conflict" };
     if (membership.kind === "present" && !matchesMembership(membership.value, fixture)) return { kind: "conflict" };
@@ -367,8 +368,9 @@ function outcomeOnly(
   };
 }
 
-function isConcurrencyConflict(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
+/** Canonical-looking history that rehydrates to no state is malformed, not absent. */
+function agreesWithHistory(history: readonly string[], reads: readonly StateRead[]): boolean {
+  return reads.every((read, index) => (read.kind === "present") === (history[index] === "present"));
 }
 
 async function inspectHistory(
