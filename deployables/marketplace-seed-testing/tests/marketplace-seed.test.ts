@@ -489,7 +489,9 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       [streamId],
     );
     await clearListingStream(pools, streamId);
-    await pools.inventory.query("DELETE FROM inventory_items WHERE item_id = $1", [created.rows[0]!.inventory_item_id]);
+    await pools.marketplace.query("DELETE FROM marketplace_supply_items WHERE item_id = $1", [
+      created.rows[0]!.inventory_item_id,
+    ]);
 
     await expect(marketplaceModule.seed!(pools.marketplace, services)).rejects.toThrow(/missing inventory supply/);
     await expect(countStreamEvents(pools.marketplace, streamId)).resolves.toBe(0);
