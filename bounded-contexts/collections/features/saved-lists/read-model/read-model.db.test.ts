@@ -122,10 +122,14 @@ describeDb("Saved List read-model SQL boundary", () => {
     const ledger = await db.query(`SELECT migration_id FROM bounded_context_schema_migrations
       WHERE migration_id = '20261012_collections_anonymous_owner_fingerprint'`);
     expect(ledger.rows).toHaveLength(1);
-    await expect(
-      db.query(`UPDATE collections_anonymous_saved_list_intents SET anonymous_owner_id = NULL
-      WHERE intent_id = 'sli_upgrade'`),
-    ).rejects.toMatchObject({ code: "23502" });
+    await db.query(`UPDATE collections_anonymous_saved_list_intents SET anonymous_owner_id = NULL
+      WHERE intent_id = 'sli_upgrade'`);
+    expect(
+      (
+        await db.query(`SELECT anonymous_owner_id FROM collections_anonymous_saved_list_intents
+      WHERE intent_id = 'sli_upgrade'`)
+      ).rows,
+    ).toEqual([{ anonymous_owner_id: null }]);
     await insertLegacyIntent(db, "sli_after_boot", "anon_upgrade");
     expect(
       (
