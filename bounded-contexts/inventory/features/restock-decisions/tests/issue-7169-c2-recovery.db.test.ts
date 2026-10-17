@@ -1155,7 +1155,7 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
   async function prepareImport(targetLocation: string = locationId) {
     await boot();
     await projectItems();
-    const batch = await services.importBatches.createBatch(
+    const job = await services.importBatches.enqueueCreateBatchJob(
       {
         accountId: seedAccount,
         parsedRows: [
@@ -1171,8 +1171,10 @@ describeDb("issue-7169-c2-release-safety: real seed and retained import callers"
           },
         ],
       },
-      seedContext,
+      withInventoryMutationAttempt(seedContext, randomUUID()),
     );
+    await services.importBatches.processNextImportBatchJob({ claimOwnerId: "c2-import-fixture", claimTtlMs: 30_000 });
+    const batch = (await services.importBatches.getBatch(job.payload.batchId!, seedAccount))!;
     expect(batch.accepted_count).toBe(1);
     expect(batch.rows[0].storage_location_id).toBe(targetLocation);
     if (targetLocation === locationId) {
