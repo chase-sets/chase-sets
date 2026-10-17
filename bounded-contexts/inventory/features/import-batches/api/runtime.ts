@@ -2271,6 +2271,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       void batch;
       return { processed: 1 };
     } catch (error) {
+      if (error instanceof InventoryImportBatchClaimLostError) throw error;
       if (isImportBatchJobHandoff(error, input)) {
         await workUnitStore.releaseClaim({
           jobId: claim.job.jobId,
@@ -2339,11 +2340,15 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         );
       },
     });
-    await requireImportBatchJobClaim(completed);
+    if (completed !== "recorded") {
+      throw new InventoryImportBatchClaimLostError("Import create claim no longer owns the validation outcome.");
+    }
     const summary = await workUnitStore.summarize({ jobId: input.jobId });
     return { complete: summary.total > 0 && summary.total === summary.completed + summary.failed + summary.skipped };
   }
 }
+
+class InventoryImportBatchClaimLostError extends InventoryDomainError {}
 
 function importBatchJobProgress(
   phase: InventoryImportBatchJobProgress["phase"],
