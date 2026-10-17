@@ -6,12 +6,16 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createMcpRoutes, type McpAuditRecord } from "@chase-sets/platform-runtime/mcp";
 import { inventoryService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/inventory";
-import manifest from "../../../context.json";
 import type { InventoryApiEnv } from "../../../api";
 import { inventoryRecoveredItemRoutes } from "./route";
 import { createRecoveredItemRuntime } from "./runtime";
 import { createRecoveredItemMcpHandlers } from "./mcp";
 import type { RecoveredItemServices } from "./runtime";
+
+const manifest: {
+  agentCoverage: { "inventory-recovered-items": { tools: string[] } };
+  mcpCapabilities: { tools: { name: string; ownerSlice: string }[] };
+} = JSON.parse(readFileSync(new URL("../../../context.json", import.meta.url), "utf8"));
 
 const actor = {
   sessionId: "sess_1",
