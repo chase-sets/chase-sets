@@ -189,7 +189,7 @@ export const inventoryService = {
         "inventory-item",
         ["Use before creating or updating listings, pricing recommendations, or stock holds."],
       ),
-      availability: "available",
+      availability: "available" as const,
       outputSchema: accountScopedListOutputSchema("Inventory item rows visible to the actor."),
     },
     {
@@ -208,7 +208,7 @@ export const inventoryService = {
         "import-source-profile",
         ["Use before creating an import batch so agents can choose the right sourceKey and row shape."],
       ),
-      availability: "available",
+      availability: "available" as const,
       outputSchema: inventoryImportSourcesOutputSchema,
     },
     {
@@ -245,7 +245,7 @@ export const inventoryService = {
         "import-batch",
         ["Use after source rows are fetched and before committing stock or draft listings."],
       ),
-      availability: "available",
+      availability: "available" as const,
       outputSchema: inventoryImportBatchDetailOutputSchema,
     },
     {
@@ -265,7 +265,7 @@ export const inventoryService = {
         "import-batch",
         ["Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."],
       ),
-      availability: "available",
+      availability: "available" as const,
       outputSchema: inventoryImportBatchDetailOutputSchema,
     },
     {
@@ -358,6 +358,193 @@ export const inventoryService = {
       ["Use only after confirming no active inventory depends on the location."],
       "destructive",
     ),
+    {
+      ...readTool(
+        "inventory",
+        "list-recovered-items",
+        "List Recovered Items",
+        "List recovered inventory items awaiting operator recovery workflow actions.",
+        "recovered-inventory.view",
+        objectSchema(
+          {
+            status: stringProperty("Optional recovered item status."),
+            limit: integerProperty("Maximum records to return."),
+            offset: integerProperty("Zero-based record offset."),
+          },
+          [],
+        ),
+        "recovered-item",
+        ["Use to locate recovered items before an operator action."],
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: objectSchema(
+        {
+          items: arrayProperty("Recovered item rows.", {
+            type: "object",
+            description: "Recovered item.",
+            additionalProperties: true,
+            properties: {},
+          }),
+          total: integerProperty("Total matching records."),
+          count: integerProperty("Returned record count."),
+        },
+        ["items", "total", "count"],
+      ),
+    },
+    {
+      ...readTool(
+        "inventory",
+        "get-recovered-item-metrics",
+        "Get Recovered Item Metrics",
+        "Read aggregate recovered inventory recovery and value metrics.",
+        "recovered-inventory.view",
+        objectSchema({}, []),
+        "recovered-item-metrics",
+        ["Use for recovery operations monitoring."],
+        "operator",
+      ),
+      availability: "available",
+    },
+    ...[
+      [
+        "identify-recovered-item",
+        "Identify Recovered Item",
+        "Identify a recovered item with catalog identity and evidence.",
+        "sensitive",
+        ["id", "catalogItemId", "productId", "selectedOptions", "evidenceReferences", "occurredAt"],
+      ],
+      [
+        "inspect-recovered-item",
+        "Inspect Recovered Item",
+        "Complete condition inspection for a recovered item.",
+        "sensitive",
+        ["id", "conditionGrade", "evidenceReferences", "occurredAt"],
+      ],
+      [
+        "require-recovered-item-authenticity-review",
+        "Require Recovered Item Authenticity Review",
+        "Require authenticity review under the applicable policy.",
+        "sensitive",
+        ["id", "policyVersion", "reasonCode", "evidenceReferences", "occurredAt"],
+      ],
+      [
+        "complete-recovered-item-authenticity-review",
+        "Complete Recovered Item Authenticity Review",
+        "Record the outcome of a recovered item authenticity review.",
+        "sensitive",
+        ["id", "outcome", "reviewReference", "evidenceReferences", "occurredAt"],
+      ],
+      [
+        "record-recovered-item-disposition-authority",
+        "Record Recovered Item Disposition Authority",
+        "Record ownership authority and allowed dispositions for a recovered item.",
+        "sensitive",
+        [
+          "id",
+          "legalOwner",
+          "authorityKind",
+          "allowedDispositions",
+          "policyVersion",
+          "evidenceReferences",
+          "occurredAt",
+        ],
+      ],
+      [
+        "decide-recovered-item-disposition",
+        "Decide Recovered Item Disposition",
+        "Choose and persist the authorized disposition for a recovered item.",
+        "destructive",
+        [
+          "id",
+          "disposition",
+          "targetAccountId",
+          "storageLocationId",
+          "policyVersion",
+          "evidenceReferences",
+          "reasonCode",
+          "occurredAt",
+        ],
+      ],
+      [
+        "record-recovered-item-value",
+        "Record Recovered Item Value",
+        "Record recovered proceeds or costs for a recovered item.",
+        "sensitive",
+        [
+          "id",
+          "recoveryId",
+          "recoveryType",
+          "grossAmount",
+          "costAmount",
+          "currencyCode",
+          "policyVersion",
+          "evidenceReferences",
+          "occurredAt",
+        ],
+      ],
+      [
+        "correct-recovered-item-source",
+        "Correct Recovered Item Source",
+        "Correct the return shipment source for a recovered item with evidence.",
+        "sensitive",
+        ["id", "correctedReturnShipmentId", "reason", "evidenceReferences", "occurredAt"],
+      ],
+      [
+        "merge-recovered-item",
+        "Merge Recovered Item",
+        "Merge a duplicate recovered item into a canonical item.",
+        "destructive",
+        ["id", "canonicalRecoveredItemId", "reason", "evidenceReferences", "occurredAt"],
+      ],
+    ].map(([name, title, description, risk, fields]) => ({
+      ...writeTool(
+        "inventory",
+        name as string,
+        title as string,
+        description as string,
+        "recovered-inventory.manage",
+        objectSchema(
+          Object.fromEntries([
+            ["id", stringProperty("Recovered item identifier.")],
+            ...(fields as string[])
+              .filter((field) => field !== "id")
+              .map((field) => [
+                field,
+                field === "evidenceReferences" || field === "allowedDispositions"
+                  ? arrayProperty(`${field} values.`, stringProperty(`${field} value.`))
+                  : field === "selectedOptions"
+                    ? arrayProperty("Selected catalog options.", {
+                        type: "object",
+                        description: "Selected catalog option.",
+                        additionalProperties: false,
+                        required: ["dimensionId", "optionId"],
+                        properties: {
+                          dimensionId: stringProperty("Catalog option dimension."),
+                          optionId: stringProperty("Catalog option value."),
+                        },
+                      })
+                    : stringProperty(`${field} value.`),
+              ]),
+            ["idempotencyKey", idempotencyKeyProperty()],
+            ["confirmationText", stringProperty("Exact tool title confirmation text.")],
+          ]),
+          [
+            "id",
+            ...(fields as string[]).filter(
+              (field) => field !== "id" && field !== "targetAccountId" && field !== "storageLocationId",
+            ),
+            "idempotencyKey",
+            "confirmationText",
+          ],
+        ),
+        "recovered-item",
+        ["Use only after reviewing the current recovered item state and required evidence."],
+        risk as "sensitive" | "destructive",
+        "operator",
+      ),
+      availability: "available" as const,
+    })),
   ],
   resources: [
     {
