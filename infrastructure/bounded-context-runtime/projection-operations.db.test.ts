@@ -8,7 +8,7 @@ import {
   type BcEventSubscription,
   type BcProjectionGroup,
 } from "@chase-sets/bounded-context-module";
-import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import type { ProjectionRunContext, ProjectorHandlerContext } from "@chase-sets/event-core/projector";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
   createPostgresEventStore,
@@ -61,7 +61,7 @@ type TestOrderCommands = Readonly<{
 }>;
 type TestServices = Readonly<{ pool: PgTransactionalPool; orderCommands?: TestOrderCommands }>;
 type TestPorts = {
-  beforeProjectionWrite?: (itemId: string, db: PgQueryable) => Promise<void>;
+  beforeProjectionWrite?: (itemId: string, db: NonNullable<ProjectorHandlerContext["db"]>) => Promise<void>;
   failProjectionOnce?: () => boolean;
   failReactionAfterDispatchOnce?: () => boolean;
   createOrderId?: () => string;
