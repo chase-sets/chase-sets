@@ -1,11 +1,105 @@
 import { describe, expect, it } from "vitest";
-import { decidePayment, evolvePayment, initialPaymentState, type PaymentCommand, type PaymentState } from "./domain";
+import {
+  decidePayment,
+  evolvePayment,
+  initialPaymentState,
+  remainingRefundableAmountForOrders,
+  type PaymentCommand,
+  type PaymentState,
+} from "./domain";
 
 const commercialAmounts = {
   marketplaceSalesFeeAmount: "2.00",
   marketplaceCheckoutFeeAmount: "1.00",
   sellerNetAmount: "39.50",
 } as const;
+
+describe("payments canonical domain money", () => {
+  it("adds refund deltas without a provider cumulative amount through the canonical fallback", () => {
+    const partial = partiallyRefundedPaymentState();
+    const events = decidePayment(partial, {
+      type: "RecordPaymentRefund",
+      refundId: "rfd_synthetic_delta" as never,
+      orderIds: ["ord_1" as never],
+      processorStatus: "succeeded",
+      processorRefundReference: "re_synthetic_delta",
+      amount: "0.50",
+      refundedAt: "2026-10-04T12:00:00.000Z",
+    });
+    expect(events[0]).toMatchObject({
+      type: "payments.payment-refunded",
+      data: { amount: "0.50", refundedAmount: "4.50" },
+    });
+    expect(events.reduce(evolvePayment, partial).refundedAmount).toBe("4.50");
+  });
+
+  it("rejects overflow in the default seller payout component sum before emitting a payment", () => {
+    const component = createdPaymentState().sellerPayouts[0]!;
+    const command: Extract<PaymentCommand, { type: "CreatePayment" }> = {
+      type: "CreatePayment",
+      paymentId: "pay_synthetic_component_overflow" as never,
+      buyerAccountId: "acc_synthetic_buyer" as never,
+      orderIds: ["ord_synthetic_a" as never, "ord_synthetic_b" as never],
+      amount: "9999999999.99",
+      marketplaceSalesFeeAmount: "0.00",
+      marketplaceCheckoutFeeAmount: "0.00",
+      sellerNetAmount: "9999999999.99",
+      sellerPayouts: [
+        { ...component, orderId: "ord_synthetic_a" as never, sellerPayoutAmount: "9999999999.99" },
+        { ...component, orderId: "ord_synthetic_b" as never, sellerPayoutAmount: "0.01" },
+      ],
+      currencyCode: "usd",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_synthetic_component_overflow",
+      processorClientSecret: null,
+      processorStatus: "requires_payment_method",
+      createdAt: "2026-10-04T12:00:00.000Z",
+    };
+    expect(() => decidePayment(initialPaymentState, command)).toThrow();
+    expect(
+      decidePayment(initialPaymentState, {
+        ...command,
+        sellerPayouts: [command.sellerPayouts![0]!],
+      })[0]!.data,
+    ).toMatchObject({ sellerPayoutAmount: "9999999999.99" });
+  });
+
+  it("payments money consolidation applies the ruled rejection behavior per module class", () => {
+    for (const amount of ["1.001", "-1.00", "10000000000.00", "", "not-money", "1e2", "+1.00"]) {
+      expect(() => createdPaymentState(amount)).toThrow();
+      const state = capturedPaymentState();
+      expect(() =>
+        remainingRefundableAmountForOrders(
+          {
+            ...state,
+            orderRefundCaps: [{ orderId: "ord_1" as never, amount }],
+          },
+          ["ord_1" as never],
+        ),
+      ).toThrow();
+    }
+    const state = capturedPaymentState();
+    expect(
+      remainingRefundableAmountForOrders(
+        {
+          ...state,
+          refundedOrderAmounts: [{ orderId: "ord_1" as never, amount: "11.00" }],
+        },
+        ["ord_1" as never],
+      ),
+    ).toBe("0.00");
+    expect(
+      remainingRefundableAmountForOrders(
+        {
+          ...state,
+          refundedOrderAmounts: [{ orderId: "ord_1" as never, amount: "3.00" }],
+        },
+        ["ord_1" as never],
+      ),
+    ).toBe("7.00");
+  });
+});
 
 function evolve(state: PaymentState, command: PaymentCommand) {
   return decidePayment(state, command).reduce(evolvePayment, state);
