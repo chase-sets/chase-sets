@@ -40,7 +40,12 @@ import {
 } from "./mcp-protocol";
 import type { ResolvedActor } from "./auth";
 import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "./http";
-import { flattenAvailableMcpTools, validateMcpServiceCatalog, type McpServiceDescriptor } from "./mcp-contracts";
+import {
+  flattenAvailableMcpResources,
+  flattenAvailableMcpTools,
+  validateMcpServiceCatalog,
+  type McpServiceDescriptor,
+} from "./mcp-contracts";
 
 const actor: ResolvedActor = {
   sessionId: "sess_1",
@@ -667,7 +672,17 @@ describe("MCP runtime routes", () => {
     expect(full.tools.map((tool) => tool.name)).toContain("marketplace.get-seller-attention-queue");
   });
 
-  it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
+  // Operator tools/list visibility depends only on the operator authority's role permissions, so a grant equal to
+  // the union every available operator capability requires lists every available tool without hand-listing them.
+  const operatorCapabilityPermissions = [
+    ...new Set(
+      [...flattenAvailableMcpTools(), ...flattenAvailableMcpResources()]
+        .filter((capability) => capability.permissionBoundary.scope === "operator")
+        .flatMap((capability) => capability.permissionBoundary.requiredPermissions),
+    ),
+  ].sort();
+
+  function listToolsWithOperatorRolePermissions(rolePermissions: readonly string[]) {
     const app = createActorApp(
       { ...actor, roleKey: "platform-admin" },
       {
@@ -675,11 +690,11 @@ describe("MCP runtime routes", () => {
           kind: "granted",
           membershipId: actor.membershipId,
           roleKey: "platform-admin",
-          rolePermissions: ["insights-dashboards.view"],
+          rolePermissions,
         }),
       },
     );
-    const response = await app.request("/", {
+    return app.request("/", {
       method: "POST",
       body: JSON.stringify(createRequest("tools/list")),
       headers: {
@@ -687,6 +702,10 @@ describe("MCP runtime routes", () => {
         [MCP_PROTOCOL_VERSION_HEADER]: MCP_PROTOCOL_VERSION_2025_11_25,
       },
     });
+  }
+
+  it("maps every cataloged tool risk model onto MCP standard annotations", async () => {
+    const response = await listToolsWithOperatorRolePermissions(operatorCapabilityPermissions);
     const body = (await response.json()) as {
       result: {
         tools: Array<{
@@ -699,16 +718,7 @@ describe("MCP runtime routes", () => {
         }>;
       };
     };
-    const operatorPermissions = new Set(["insights-dashboards.view"]);
-    const descriptorsByName = new Map(
-      flattenAvailableMcpTools()
-        .filter(
-          (tool) =>
-            tool.permissionBoundary.scope !== "operator" ||
-            tool.permissionBoundary.requiredPermissions.every((permission) => operatorPermissions.has(permission)),
-        )
-        .map((tool) => [tool.name, tool]),
-    );
+    const descriptorsByName = new Map(flattenAvailableMcpTools().map((tool) => [tool.name, tool]));
 
     expect(response.status).toBe(200);
     expect(body.result.tools).toHaveLength(descriptorsByName.size);
@@ -725,6 +735,33 @@ describe("MCP runtime routes", () => {
       if (descriptor.risk !== "read" && descriptor.guardrails.idempotencyKey === "required") {
         expect(tool.annotations.idempotentHint).toBe(true);
       }
+    }
+  });
+
+  it("drops exactly the operator tools whose permission the derived operator grant lacks", async () => {
+    const availableTools = flattenAvailableMcpTools();
+    const operatorTools = availableTools.filter((tool) => tool.permissionBoundary.scope === "operator");
+    const operatorToolPermissions = [
+      ...new Set(operatorTools.flatMap((tool) => tool.permissionBoundary.requiredPermissions)),
+    ].sort();
+    expect(operatorToolPermissions.length).toBeGreaterThan(0);
+
+    for (const withheldPermission of operatorToolPermissions) {
+      const response = await listToolsWithOperatorRolePermissions(
+        operatorCapabilityPermissions.filter((permission) => permission !== withheldPermission),
+      );
+      const body = (await response.json()) as { result: { tools: Array<{ name: string }> } };
+      const droppedToolNames = operatorTools
+        .filter((tool) => tool.permissionBoundary.requiredPermissions.includes(withheldPermission))
+        .map((tool) => tool.name);
+
+      expect(response.status).toBe(200);
+      expect(body.result.tools.map((tool) => tool.name).sort()).toEqual(
+        availableTools
+          .map((tool) => tool.name)
+          .filter((name) => !droppedToolNames.includes(name))
+          .sort(),
+      );
     }
   });
 

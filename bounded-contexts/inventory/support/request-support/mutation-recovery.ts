@@ -32,6 +32,7 @@ const families: readonly InventoryMutationFamily[] = [
   "location-update",
   "location-archive",
   "restock-record",
+  "import-create",
 ];
 
 const fields = ["version", "attemptId", "accountId", "actorUserId", "family", "targetId", "createdAt"];
@@ -74,6 +75,7 @@ export function createInventoryMutationRecovery(
   let state: InventoryRecoveryState = "editing";
   let record: InventoryRecoveryRecord | null = null;
   let result: unknown;
+  let confirmation: Promise<void> | null = null;
 
   function persist() {
     if (!record) return;
@@ -146,30 +148,37 @@ export function createInventoryMutationRecovery(
       remove();
       state = "failed-safe";
     },
-    confirm: async (read: (attemptId: string) => Promise<InventoryRecoveryReceipt | null>) => {
-      if (!record || !["confirming", "ambiguous", "reauth-required"].includes(state)) return;
+    confirm: (read: (attemptId: string) => Promise<InventoryRecoveryReceipt | null>) => {
+      if (confirmation) return confirmation;
+      if (!record || !["confirming", "ambiguous", "reauth-required"].includes(state)) return Promise.resolve();
       const frozen = record;
       state = "confirming";
-      try {
-        const receipt = await read(frozen.attemptId);
-        if (record !== frozen) return;
-        if (!receipt || receipt.version !== 1 || receipt.family !== family || receipt.targetId !== frozen.targetId) {
-          state = "ambiguous";
-          return;
+      const task = (async () => {
+        try {
+          const receipt = await read(frozen.attemptId);
+          if (record !== frozen) return;
+          if (!receipt || receipt.version !== 1 || receipt.family !== family || receipt.targetId !== frozen.targetId) {
+            state = "ambiguous";
+            return;
+          }
+          result = receipt.result;
+          remove();
+          state = "succeeded";
+        } catch (error) {
+          if (record !== frozen) return;
+          state =
+            typeof error === "object" &&
+            error !== null &&
+            "status" in error &&
+            (error.status === 401 || error.status === 403)
+              ? "reauth-required"
+              : "ambiguous";
         }
-        result = receipt.result;
-        remove();
-        state = "succeeded";
-      } catch (error) {
-        if (record !== frozen) return;
-        state =
-          typeof error === "object" &&
-          error !== null &&
-          "status" in error &&
-          (error.status === 401 || error.status === 403)
-            ? "reauth-required"
-            : "ambiguous";
-      }
+      })();
+      confirmation = task;
+      return task.finally(() => {
+        if (confirmation === task) confirmation = null;
+      });
     },
     accepted: (receipt: InventoryRecoveryReceipt) => {
       if (

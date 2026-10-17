@@ -722,10 +722,29 @@ export const ENVIRONMENT_DATA_PROFILES = [
 
 export type EnvironmentDataProfile = (typeof ENVIRONMENT_DATA_PROFILES)[number];
 
+/**
+ * The client a schema migration's `dataStep` receives: one parameterized
+ * `query`, shaped so `PgQueryable` helpers accept it without a cast.
+ */
+export type BcSchemaMigrationClient = Readonly<{
+  query<Row = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<Readonly<{ rows: Row[]; rowCount?: number | null }>>;
+}>;
+
 export type BcSchemaMigration = Readonly<{
   readonly migrationId: string;
   readonly description: string;
   readonly statements: readonly string[];
+  /**
+   * TypeScript data work for the migration. The runner applies it, then
+   * `statements`, then the ledger row in one transaction it owns; any error
+   * rolls all three back and the next bootstrap retries. The step issues no
+   * `BEGIN`, `COMMIT` or `ROLLBACK` (savepoints are allowed), and neither it
+   * nor `statements` may use `CONCURRENTLY`.
+   */
+  readonly dataStep?: (db: BcSchemaMigrationClient) => Promise<void>;
 }>;
 
 /**

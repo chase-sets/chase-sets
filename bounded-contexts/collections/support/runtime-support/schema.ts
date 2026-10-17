@@ -3,6 +3,7 @@ import { savedListValuationSchemaSql } from "../../features/saved-list-valuation
 import { savedListReadModelSchemaSql } from "../../features/saved-lists/read-model/schema";
 import { savedListSharedPageSchemaSql } from "../../features/saved-lists/read-model/shared-page-schema";
 import { anonymousOwnerExpandSql } from "./anonymous-owner-migrations";
+import { anonymousOwnerActivationSchemaSql } from "./anonymous-owner-activation";
 import { savedListRecoverySchemaSql } from "./recovery-migrations";
 
 const savedListDiscoverySchemaSql = `CREATE TABLE IF NOT EXISTS collections_saved_list_picker (
@@ -23,7 +24,7 @@ CREATE INDEX IF NOT EXISTS collections_saved_list_picker_owner_recent_idx
 
 CREATE TABLE IF NOT EXISTS collections_anonymous_saved_list_intents (
   intent_id text PRIMARY KEY,
-  anonymous_owner_id text NOT NULL,
+  anonymous_owner_id text NULL,
   anonymous_owner_fingerprint text NULL,
   owner_revision integer NOT NULL DEFAULT 0 CHECK (owner_revision >= 0),
   source_path text NOT NULL,
@@ -52,6 +53,8 @@ CREATE INDEX IF NOT EXISTS collections_anonymous_saved_list_intents_owner_active
   ON collections_anonymous_saved_list_intents (anonymous_owner_id, status, expires_at);
 
 ${anonymousOwnerExpandSql}
+
+${anonymousOwnerActivationSchemaSql}
 
 CREATE INDEX IF NOT EXISTS collections_anonymous_saved_list_intents_expiry_idx
   ON collections_anonymous_saved_list_intents (status, expires_at);`;

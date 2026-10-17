@@ -2,6 +2,8 @@ import {
   type McpJsonSchema,
   type McpServiceDescriptor,
   arrayProperty,
+  booleanProperty,
+  idempotencyKeyProperty,
   integerProperty,
   objectSchema,
   publicBoundary,
@@ -9,6 +11,7 @@ import {
   resource,
   service,
   stringProperty,
+  writeTool,
 } from "@chase-sets/platform-runtime/mcp-contracts/builders";
 
 const discoverySearchOutputSchema: McpJsonSchema = {
@@ -161,6 +164,125 @@ export const discoveryService = {
     },
   ),
   tools: [
+    {
+      ...writeTool(
+        "discovery",
+        "enqueue-google-shopping-diagnostics-refresh",
+        "Enqueue Google Shopping Diagnostics Refresh",
+        "Queue a bounded Google Shopping diagnostics refresh in dry-run mode.",
+        "google-shopping.manage",
+        objectSchema(
+          {
+            mode: stringProperty("Sync mode; only dry-run is supported.", ["dry-run"]),
+            batchSize: integerProperty("Maximum diagnostics rows to inspect."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Whether the operator confirmed the action."),
+            confirmationText: stringProperty("Exact tool title confirmation."),
+          },
+          ["idempotencyKey", "confirmationText"],
+        ),
+        "google-shopping-diagnostics-refresh",
+        ["Use to validate Google Shopping diagnostics without provider writes."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "discovery",
+        "enqueue-google-shopping-dry-run-full-sync",
+        "Enqueue Google Shopping Dry-Run Full Sync",
+        "Queue a bounded Google Shopping full sync in dry-run mode.",
+        "google-shopping.manage",
+        objectSchema(
+          {
+            mode: stringProperty("Sync mode; only dry-run is supported.", ["dry-run"]),
+            batchSize: integerProperty("Maximum feed rows to process."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Whether the operator confirmed the action."),
+            confirmationText: stringProperty("Exact tool title confirmation."),
+          },
+          ["idempotencyKey", "confirmationText"],
+        ),
+        "google-shopping-dry-run-full-sync",
+        ["Use to preview a complete Google Shopping feed synchronization."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...writeTool(
+        "discovery",
+        "enqueue-google-shopping-dry-run-maintenance-sync",
+        "Enqueue Google Shopping Dry-Run Maintenance Sync",
+        "Queue bounded Google Shopping maintenance work in dry-run mode.",
+        "google-shopping.manage",
+        objectSchema(
+          {
+            mode: stringProperty("Sync mode; only dry-run is supported.", ["dry-run"]),
+            limit: integerProperty("Maximum maintenance candidates to process."),
+            refreshWindowDays: integerProperty("Age threshold for a refresh candidate."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Whether the operator confirmed the action."),
+            confirmationText: stringProperty("Exact tool title confirmation."),
+          },
+          ["idempotencyKey", "confirmationText"],
+        ),
+        "google-shopping-dry-run-maintenance-sync",
+        ["Use to preview stale-row refresh and cleanup maintenance."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...readTool(
+        "discovery",
+        "get-google-shopping-sync-job",
+        "Get Google Shopping Sync Job",
+        "Read the bounded durable status snapshot for a Google Shopping sync job.",
+        "google-shopping.manage",
+        objectSchema({ jobId: stringProperty("Google Shopping sync job identifier.") }, ["jobId"]),
+        "google-shopping-sync-job",
+        ["Use to inspect a previously queued Google Shopping dry-run."],
+        "operator",
+      ),
+      availability: "available",
+    },
+    {
+      ...readTool(
+        "discovery",
+        "list-google-shopping-feed-rows",
+        "List Google Shopping Feed Rows",
+        "Read bounded Google Shopping feed-row readiness and synchronization state.",
+        "google-shopping.manage",
+        objectSchema(
+          {
+            filter: stringProperty("Feed-row state filter.", [
+              "all",
+              "eligible",
+              "excluded",
+              "failed",
+              "disapproved",
+              "pending-delete",
+              "nearing-refresh",
+              "stale",
+              "pending-diagnostics",
+            ]),
+            search: stringProperty("Optional title, listing, product, or offer search."),
+            limit: integerProperty("Maximum rows to return."),
+            refreshWindowDays: integerProperty("Age threshold for nearing-refresh rows."),
+          },
+          [],
+        ),
+        "google-shopping-feed-row",
+        ["Use to inspect feed eligibility, diagnostics, and synchronization state."],
+        "operator",
+      ),
+      availability: "available",
+    },
     {
       ...readTool(
         "discovery",

@@ -6,6 +6,141 @@ vi.mock("@chase-sets/event-core-postgres", () => createEventCorePostgresMock());
 
 import { ProjectionFreshnessTimeoutError, waitForProjectionFreshness } from "./index";
 
+describe("reaction output freshness", () => {
+  function fixture() {
+    const reaction = {
+      sourceContextName: "marketplace",
+      checkpointKey: "reaction:marketplace:v1",
+      refreshStatus: vi.fn(async () => ({ lastGlobalPosition: "1000", state: "degraded", lastError: "private" })),
+      readReceiptApplicationOutputs: vi.fn(async (_ids: readonly string[]) => ({
+        state: "applied" as "applied" | "pending" | "failed",
+        outputPositions: ["20"],
+      })),
+    };
+    const destination = {
+      sourceContextName: "ordering",
+      checkpointKey: "orders:ordering:v1",
+      refreshStatus: vi.fn(async () => ({ lastGlobalPosition: "19", state: "behind", lastError: null })),
+      readOutputApplicationStatus: vi.fn(async (_positions: readonly string[]) => ({
+        failed: false,
+        requiredGlobalPosition: "20" as string | null,
+      })),
+    };
+    return {
+      reaction,
+      destination,
+      input: {
+        projectionGroups: [
+          {
+            targetContextName: "ordering",
+            projectionName: "reaction",
+            handlerKind: "reaction",
+            subscriptionRunners: [reaction],
+          },
+          { targetContextName: "ordering", projectionName: "orders", subscriptionRunners: [destination] },
+        ],
+        targetContextNames: ["ordering"],
+        dependencies: [
+          { targetContextName: "ordering", projectionName: "reaction" },
+          { targetContextName: "ordering", projectionName: "orders" },
+        ],
+        receipt: {
+          observedAtMs: 1,
+          sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "1000", eventIds: ["accepted"] }],
+        },
+        timeoutMs: 0,
+        pollIntervalMs: 1,
+      },
+    };
+  }
+
+  it("holds the destination at its recorded position, never the independent receipt position", async () => {
+    const { input, destination } = fixture();
+    await expect(waitForProjectionFreshness(input)).rejects.toMatchObject({
+      name: "ProjectionFreshnessTimeoutError",
+      details: { pending: [expect.objectContaining({ projectionName: "orders", requiredGlobalPosition: "20" })] },
+    });
+    expect(destination.readOutputApplicationStatus).toHaveBeenCalledWith(["20"]);
+    destination.refreshStatus.mockResolvedValue({ lastGlobalPosition: "20", state: "caught-up", lastError: null });
+    await expect(waitForProjectionFreshness(input)).resolves.toMatchObject({ wakeRequestCount: 0 });
+  });
+
+  it.each(["missing", "NULL"])("pends on a %s reaction output record despite its checkpoint", async () => {
+    const { input, reaction, destination } = fixture();
+    reaction.readReceiptApplicationOutputs.mockResolvedValue({ state: "pending", outputPositions: [] });
+    await expect(waitForProjectionFreshness(input)).rejects.toMatchObject({
+      name: "ProjectionFreshnessTimeoutError",
+      details: { pending: [expect.objectContaining({ projectionName: "reaction" })] },
+    });
+    expect(destination.readOutputApplicationStatus).not.toHaveBeenCalled();
+  });
+
+  it("requires the reaction checkpoint even when its output record is applied", async () => {
+    const { input, reaction } = fixture();
+    reaction.refreshStatus.mockResolvedValue({ lastGlobalPosition: "999", state: "behind", lastError: "private" });
+    await expect(waitForProjectionFreshness(input)).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+  });
+
+  it("refuses receipt-scoped reaction failure immediately, even below its checkpoint", async () => {
+    const { input, reaction } = fixture();
+    reaction.refreshStatus.mockResolvedValue({ lastGlobalPosition: "0", state: "degraded", lastError: "private" });
+    reaction.readReceiptApplicationOutputs.mockResolvedValue({ state: "failed", outputPositions: [] });
+    await expect(waitForProjectionFreshness(input)).rejects.toMatchObject({
+      name: "ProjectionFreshnessFailedError",
+      details: { pending: [expect.objectContaining({ projectionName: "reaction" })] },
+    });
+  });
+
+  it("refuses destination poison or deferral only after reaching its exact output target", async () => {
+    const { input, destination } = fixture();
+    destination.readOutputApplicationStatus.mockResolvedValue({ failed: true, requiredGlobalPosition: "20" });
+    await expect(waitForProjectionFreshness(input)).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+    destination.refreshStatus.mockResolvedValue({ lastGlobalPosition: "20", state: "degraded", lastError: null });
+    await expect(waitForProjectionFreshness(input)).rejects.toMatchObject({ name: "ProjectionFreshnessFailedError" });
+  });
+
+  it("has no destination requirement for an empty record or outputs the destination does not handle", async () => {
+    const { input, reaction, destination } = fixture();
+    reaction.readReceiptApplicationOutputs.mockResolvedValue({ state: "applied", outputPositions: [] });
+    await expect(waitForProjectionFreshness(input)).resolves.toMatchObject({ wakeRequestCount: 0 });
+    reaction.readReceiptApplicationOutputs.mockResolvedValue({ state: "applied", outputPositions: ["20"] });
+    destination.readOutputApplicationStatus.mockResolvedValue({ failed: false, requiredGlobalPosition: null });
+    await expect(waitForProjectionFreshness(input)).resolves.toMatchObject({ wakeRequestCount: 0 });
+  });
+
+  it("freezes exact outputs and adds only one newly pending destination wake batch", async () => {
+    const { input, reaction, destination } = fixture();
+    reaction.refreshStatus.mockResolvedValueOnce({ lastGlobalPosition: "0", state: "behind", lastError: "private" });
+    const requestWake = vi.fn(async () => 1);
+    let notification = 0;
+    await waitForProjectionFreshness({
+      ...input,
+      timeoutMs: 100,
+      workSignalGateway: {
+        requestWake,
+        waitForReadiness: async () => {
+          notification += 1;
+          if (notification === 2) {
+            reaction.readReceiptApplicationOutputs.mockResolvedValue({ state: "applied", outputPositions: ["99999"] });
+            destination.refreshStatus.mockResolvedValue({
+              lastGlobalPosition: "20",
+              state: "caught-up",
+              lastError: null,
+            });
+          }
+          return "notified";
+        },
+      },
+    });
+    expect(requestWake.mock.calls).toHaveLength(2);
+    expect(requestWake.mock.calls[1]).toEqual([
+      expect.objectContaining({ requests: [expect.objectContaining({ requiredPosition: "20" })] }),
+    ]);
+    expect(reaction.readReceiptApplicationOutputs).toHaveBeenCalledTimes(3);
+    expect(destination.readOutputApplicationStatus).toHaveBeenLastCalledWith(["20"]);
+  });
+});
+
 describe("bounded context projection freshness waits", () => {
   beforeEach(() => {
     resetMockPoolState();

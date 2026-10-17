@@ -205,6 +205,37 @@ export async function getDiscoveryPublicListingBySlug(
   return result.rows[0] ? mapListing(result.rows[0]) : null;
 }
 
+export async function getDiscoveryPublicListingById(
+  db: PgQueryable,
+  listingId: string,
+): Promise<DiscoveryPublicListingRow | null> {
+  const result = await db.query<DiscoveryPublicListingDbRow>(
+    `SELECT listing.*,
+       item.slug AS catalog_item_slug,
+       account.seller_slug,
+       account.seller_display_name,
+       account.seller_listing_availability_status,
+       account.seller_listing_availability_reason_category,
+       account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
+       account.seller_available_again_at::text AS seller_available_again_at,
+       COALESCE(account.seller_at_capacity, false) AS seller_at_capacity,
+       account.average_rating_as_seller::text AS seller_average_rating,
+       COALESCE(account.rating_count_as_seller, 0)::integer AS seller_review_count,
+       COALESCE(account.badges, '[]'::jsonb) AS seller_badges,
+       account.founder_number AS seller_founder_number,
+       NULL AS google_shopping_structured_data_payload,
+       ${buyerVisibleListingQuantitySql("listing")} AS visible_quantity
+     FROM discovery_market_listings AS listing
+     LEFT JOIN discovery_market_accounts AS account ON account.account_id = listing.account_id
+     LEFT JOIN discovery_item_detail_pages AS item ON item.catalog_item_id = listing.catalog_catalog_item_id
+     WHERE listing.listing_id = $1
+       AND ${buyerVisibleListingPredicateSql("listing", "account")}
+     LIMIT 1`,
+    [listingId],
+  );
+  return result.rows[0] ? mapListing(result.rows[0]) : null;
+}
+
 export async function getDiscoveryPublicAccountBySlug(
   db: PgQueryable,
   slug: string,

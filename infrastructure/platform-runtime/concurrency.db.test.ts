@@ -184,6 +184,53 @@ describe("platform runtime Postgres concurrency guards", () => {
     ]);
   });
 
+  it("requeues only the last released work-unit claim without changing terminal parents or accepting stale tokens", async () => {
+    const jobStore = createPostgresDurableJobStore<JobPayload, JobProgress, JobResult>(
+      pools.platform,
+      durableJobTables,
+    );
+    const unitStore = createPostgresDurableJobWorkUnitStore<
+      JobPayload,
+      JobProgress,
+      JobResult,
+      UnitPayload,
+      UnitResult
+    >(pools.platform, durableWorkUnitTables, { workflowName: "catalog-import" });
+    const jobId = "job_release_units";
+    await jobStore.enqueue({ jobId, jobKind: "import", payload: { task: "sync" }, progress: { completed: 0 } });
+    await unitStore.enqueue({
+      jobId,
+      units: [
+        { unitId: "unit_1", payload: { item: "card_1" } },
+        { unitId: "unit_2", payload: { item: "card_2" } },
+      ],
+    });
+    const claimInput = {
+      claimOwnerId: "worker_a",
+      claimTtlMs: 30_000,
+      workflowMaxActiveClaims: 2,
+      jobMaxActiveClaims: 2,
+    };
+    const first = (await unitStore.claimNext(claimInput)).claim!;
+    const second = (await unitStore.claimNext(claimInput)).claim!;
+    const fence = (claim: typeof first) => ({
+      jobId,
+      unitId: claim.unit.unitId,
+      claimOwnerId: claim.claimOwnerId,
+      claimToken: claim.claimToken,
+    });
+    expect(await unitStore.releaseClaim(fence(first))).toBe(true);
+    expect((await jobStore.get(jobId))?.status).toBe("running");
+    expect(await unitStore.releaseClaim(fence(second))).toBe(true);
+    expect((await jobStore.get(jobId))?.status).toBe("queued");
+    const reclaimed = (await unitStore.claimNext(claimInput)).claim!;
+    expect(await unitStore.releaseClaim(fence(first))).toBe(false);
+    expect((await jobStore.get(jobId))?.status).toBe("running");
+    await jobStore.cancel({ jobId, progress: { completed: 0 }, errorMessage: "Operator cancelled job." });
+    expect(await unitStore.releaseClaim(fence(reclaimed))).toBe(true);
+    expect((await jobStore.get(jobId))?.status).toBe("failed");
+  });
+
   it("rejects stale durable terminals and allows an expired claim to be reclaimed", async () => {
     const store = createPostgresDurableJobStore<JobPayload, JobProgress, JobResult>(pools.platform, durableJobTables);
     await store.enqueue({

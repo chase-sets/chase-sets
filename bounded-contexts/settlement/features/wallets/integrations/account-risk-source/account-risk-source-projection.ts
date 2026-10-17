@@ -10,7 +10,7 @@ import {
   settlementFraudVelocityPolicy,
   type SettlementFraudVelocityPolicyValue,
 } from "../../domain/fraud-velocity-policy";
-
+import { moneyToCents as parseMoneyToCents } from "@chase-sets/primitives/money";
 type ShippingAddressSnapshot = Readonly<{
   line1: string;
   line2: string | null;
@@ -135,9 +135,9 @@ async function refreshAddressClusterAccounts(
 
 type SellerPayoutComponent = Readonly<{ orderId: string; sellerAccountId: string; sellerPayoutAmount?: string }>;
 
-function moneyToCents(value: unknown): number {
-  const parsed = Number.parseFloat(String(value ?? "0"));
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+function moneyToCents(value: string | null | undefined): number {
+  const amount = value ?? "0";
+  return Number(parseMoneyToCents(amount));
 }
 
 function normalizeSellerPayouts(value: unknown): SellerPayoutComponent[] {
