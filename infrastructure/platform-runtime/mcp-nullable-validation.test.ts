@@ -153,7 +153,9 @@ describe("nullable MCP tool inputs at the tools/call boundary", () => {
   it("requires a required nullable property to be present", async () => {
     const { handler, body } = await callTool({ note: null });
 
-    expect(body.result).toEqual(argumentError("threshold: Required field is missing. Expected present. Actual missing."));
+    expect(body.result).toEqual(
+      argumentError("threshold: Required field is missing. Expected present. Actual missing."),
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -178,16 +180,8 @@ describe("nullable MCP tool inputs at the tools/call boundary", () => {
       { threshold: null, reference: { kind: "refund", supportRequestId: "sr_1" } },
       "reference.kind: Expected one of: support-request. Expected support-request. Actual refund.",
     ],
-    [
-      "item enum",
-      { threshold: null, tags: ["a", "c"] },
-      "tags[1]: Expected one of: a, b. Expected a | b. Actual c.",
-    ],
-    [
-      "null item",
-      { threshold: null, tags: [null] },
-      "tags[0]: Expected string. Expected string. Actual null.",
-    ],
+    ["item enum", { threshold: null, tags: ["a", "c"] }, "tags[1]: Expected one of: a, b. Expected a | b. Actual c."],
+    ["null item", { threshold: null, tags: [null] }, "tags[0]: Expected string. Expected string. Actual null."],
   ])("keeps the non-null rules for nullable properties: %s", async (_label, args, details) => {
     const { handler, body } = await callTool(args);
 
