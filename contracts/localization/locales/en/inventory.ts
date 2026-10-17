@@ -1,4 +1,12 @@
 export const inventoryEnglishTranslations = {
+  "inventory.import.resume.title": "Resume an import",
+  "inventory.import.resume.description":
+    "Accepted imports continue if you leave this page. Uncommitted imports can be resumed for 24 hours after upload; active work is never expired. Restoring an uncertain attempt only checks its original result. Files are not saved in this browser; reselect a file only for a new import.",
+  "inventory.import.expired.title": "Import expired",
+  "inventory.import.expired.description":
+    "The resume window ended. The original receipt and row diagnostics remain available. Select the source again to start a new import; no stock was changed by validation.",
+  "inventory.import.rows.previous": "Previous 100 rows",
+  "inventory.import.rows.next": "Next 100 rows",
   "inventory.recovery.editing": "Inventory changes are ready.",
   "inventory.recovery.submitting": "Submitting Inventory change.",
   "inventory.recovery.confirming": "Confirming the original Inventory result. No change will be resubmitted.",
@@ -35,6 +43,9 @@ export const inventoryEnglishTranslations = {
     "Only manual inventory holds can be released by sellers.",
   "inventory.features.inventoryItems.api.route.inventory.item.not.found": "Inventory item not found.",
   "inventory.features.inventoryItems.api.route.request.failed": "Request failed.",
+  "inventory.features.importBatches.api.route.import.source.not.accepted":
+    "Import source was not accepted. Check the file and attempt identity.",
+  "inventory.features.importBatches.api.route.import.row.page.invalid": "Import row page is invalid.",
   "inventory.features.inventoryItems.api.route.units.committed.to.open.orders":
     "{count} units are committed to open orders.",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.code": "Adjustment reason",

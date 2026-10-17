@@ -12,12 +12,13 @@ import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { inventorySeedIds } from "../../../support/seed-support/ids";
 import { buildInventoryItemProjectionHandlers } from "../../inventory-items/read-model/projection";
 import { buildInventoryRestockDecisionProjectionHandlers } from "../read-model/projection";
+import { registerImportRecoveryBrowserTests } from "../../import-batches/tests/recovery.browser";
 
 const path = "/account/inventory/restock-decisions";
 const mutationRequest = (request: { url(): string; method(): string }) =>
   request.method() === "POST" && new URL(request.url()).pathname === `${path}.data`;
 
-type SignIn = (page: Page, baseUrl: string) => Promise<unknown>;
+type SignIn = (page: Page, baseUrl: string) => Promise<void>;
 
 async function fixture(page: Page, info: TestInfo, signIn: SignIn) {
   const baseUrl = String(info.project.use.baseURL);
@@ -119,7 +120,13 @@ async function fixture(page: Page, info: TestInfo, signIn: SignIn) {
   }
 }
 
-export function registerRestockRecoveryBrowserTests(signIn: SignIn) {
+export function registerRestockRecoveryBrowserTests(
+  signIn: SignIn,
+  captureAccessibilityEvidence: (input: { page: Page; testInfo: TestInfo; surface: string }) => Promise<void>,
+  importSignIn: SignIn = signIn,
+) {
+  registerImportRecoveryBrowserTests(importSignIn, captureAccessibilityEvidence);
+
   test.describe("@marketplace-seller @browser-e2e-seed issue-7169-c2-route-isolation AC2/9/10/11/13", () => {
     for (const outcome of ["restock", "write-off"] as const) {
       test(`real ${outcome} action loses its response and restores the exact result without another write`, async ({
