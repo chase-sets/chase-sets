@@ -1462,6 +1462,107 @@ describe("UCP OAuth routes", () => {
   });
 });
 
+describe("operator scopes refused until the sign-in gate", () => {
+  const redirectUri = "https://agent.example/callback";
+  const challenge = pkceChallenge("synthetic-verifier");
+  const operatorFixture = (requestActor: typeof actor) => {
+    const resolveActor = vi.fn(async () => requestActor);
+    const options = createOAuthOptions({ resolveActor });
+    const db = options.auth.db as unknown as ReturnType<typeof createAuthorizationCodeDb>;
+    return { resolveActor, db, app: new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options)) };
+  };
+
+  it.each([
+    { label: "owner", requestActor: actor },
+    { label: "platform-admin", requestActor: { ...actor, roleKey: "platform-admin" } },
+  ])("refuses authorize naming operations:* with invalid_scope before consent for $label", async ({ requestActor }) => {
+    const { app, db, resolveActor } = operatorFixture(requestActor);
+    const registration = await registerClient(app, {
+      redirect_uris: [redirectUri],
+      scope: "catalog:read operations:read operations:write",
+    });
+    expect(registration.status).toBe(201);
+    const client = (await registration.json()) as { client_id: string; scope: string };
+    expect(client.scope).toBe("catalog:read operations:read operations:write");
+
+    for (const scope of ["operations:read", "catalog:read operations:read", "operations:write"]) {
+      const response = await app.request(authorizeUrl({ clientId: client.client_id, redirectUri, scope, challenge }));
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: "invalid_scope" });
+      expect(response.headers.get("location")).toBeNull();
+    }
+    expect(resolveActor).not.toHaveBeenCalled();
+    expect(db.consents.size).toBe(0);
+    expect(db.codes.size).toBe(0);
+
+    const commerce = await app.request(
+      authorizeUrl({ clientId: client.client_id, redirectUri, scope: "catalog:read", challenge }),
+    );
+    expect(commerce.status).toBe(302);
+    expect(commerce.headers.get("location")).toContain("/account/agents/consent?consent_token=");
+  });
+
+  it("accepts operator scopes in a Client ID Metadata Document and still refuses to authorize them", async () => {
+    const clientId = "https://agent.example/operator-client.json";
+    const options = createOAuthOptions({
+      fetchClientIdMetadata: async () => ({
+        client_id: clientId,
+        client_uri: "https://agent.example/.well-known/ucp",
+        redirect_uris: [redirectUri],
+        scope: "catalog:read operations:write",
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    const app = new Hono().route("/ucp/oauth", createUcpOAuthRoutes(options));
+
+    const commerce = await app.request(authorizeUrl({ clientId, redirectUri, scope: "catalog:read", challenge }));
+    expect(commerce.status).toBe(302);
+    const operator = await app.request(authorizeUrl({ clientId, redirectUri, scope: "operations:write", challenge }));
+    expect(operator.status).toBe(400);
+    await expect(operator.json()).resolves.toMatchObject({ error: "invalid_scope" });
+  });
+
+  it("never reads or approves a consent request that names an operator scope", async () => {
+    const { app, db } = operatorFixture(actor);
+    const registration = await registerClient(app, {
+      redirect_uris: [redirectUri],
+      scope: "account:manage operations:write",
+    });
+    const { client_id: clientId } = (await registration.json()) as { client_id: string };
+    const started = await app.request(authorizeUrl({ clientId, redirectUri, scope: "account:manage", challenge }));
+    const token = new URL(started.headers.get("location")!, "http://localhost").searchParams.get("consent_token")!;
+    // GET refuses operator scopes, so this row is unreachable; it pins the consent-time refusal on its own.
+    const [row] = [...db.consents.values()];
+    row!.scopes = ["account:manage", "operations:write"];
+
+    const read = await app.request(`/ucp/oauth/consent?consent_token=${token}`);
+    expect(read.status).toBe(400);
+    const approve = await app.request("/ucp/oauth/authorize", {
+      method: "POST",
+      body: new URLSearchParams({ consent_token: token, decision: "approve" }),
+      headers: { Origin: "http://localhost", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(approve.status).toBe(400);
+    expect(approve.headers.get("location")).toBeNull();
+    expect(db.codes.size).toBe(0);
+  });
+
+  it("never advertises operator scopes in authorization-server metadata while registration accepts them", async () => {
+    const metadataApp = new Hono().route("/.well-known", createUcpOAuthMetadataRoutes());
+    const metadata = (await (await metadataApp.request("/.well-known/oauth-authorization-server")).json()) as {
+      scopes_supported: string[];
+      scope_families_supported: Array<{ family: string }>;
+    };
+    expect(JSON.stringify(metadata)).not.toContain("operations");
+    expect(metadata.scopes_supported).toEqual([...UCP_OAUTH_SUPPORTED_SCOPES]);
+    expect(UCP_OAUTH_SUPPORTED_SCOPES).toHaveLength(17);
+
+    const { app } = operatorFixture(actor);
+    const registration = await registerClient(app, { redirect_uris: [redirectUri], scope: "operations:read" });
+    expect(registration.status).toBe(201);
+  });
+});
+
 async function managementFixture(configured = true) {
   const db = createAuthorizationCodeDb();
   const consent = createInMemoryConsentDirectory();

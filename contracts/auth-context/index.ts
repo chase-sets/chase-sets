@@ -91,7 +91,11 @@ export function resolveRecentAuthenticationStatus(
   return { recentlyAuthenticated: ageMs >= 0 && ageMs <= maxAgeMs, authenticatedAt };
 }
 
-export type AgentOAuthScope =
+export type AgentOAuthScope = AgentOAuthCommerceScope | AgentOAuthOperatorScope;
+
+export type AgentOAuthOperatorScope = "operations:read" | "operations:write";
+
+export type AgentOAuthCommerceScope =
   | "catalog:read"
   | "dev.ucp.shopping.checkout:manage"
   | "dev.ucp.shopping.order:read"
@@ -131,7 +135,12 @@ export type AgentOAuthGrantContext = Readonly<{
   rolePermissions: readonly string[];
 }>;
 
-export const AGENT_OAUTH_SCOPE_FAMILIES = [
+/**
+ * The commerce scope families: the only scopes either OAuth metadata
+ * document, connector packaging or the developer portal advertises, and the
+ * only scopes that map to permissions.
+ */
+export const AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES = [
   {
     family: "catalog",
     label: "Catalog",
@@ -306,14 +315,55 @@ export const AGENT_OAUTH_SCOPE_FAMILIES = [
   },
 ] as const satisfies readonly AgentOAuthScopeFamily[];
 
-export const AGENT_OAUTH_SUPPORTED_SCOPES = AGENT_OAUTH_SCOPE_FAMILIES.flatMap((family) =>
-  family.scopes.map((scope) => scope.scope),
-) as readonly AgentOAuthScope[];
+/**
+ * Operator scopes. `operations:write` implies `operations:read`. They map to
+ * no permission, so HTTP and commerce actors never widen: an operator
+ * capability is admitted only through the Identity {@link OperatorAuthority},
+ * and runs with that authority's role permissions. Never advertised.
+ */
+export const AGENT_OAUTH_OPERATOR_SCOPE_FAMILY = {
+  family: "operations",
+  label: "Platform operations",
+  description: "Administer Chase Sets while your membership is platform-admin.",
+  scopes: [
+    {
+      scope: "operations:read",
+      label: "Read platform operations",
+      description: "Run read-only operator tools.",
+      permissions: [],
+    },
+    {
+      scope: "operations:write",
+      label: "Operate the platform",
+      description: "Run every operator tool, including confirmed changes.",
+      permissions: [],
+    },
+  ],
+} as const satisfies AgentOAuthScopeFamily;
 
-const AGENT_OAUTH_SCOPE_SET = new Set<string>(AGENT_OAUTH_SUPPORTED_SCOPES);
+/** Every family Auth recognizes, for consent and grant labels. Not an advertised list. */
+export const AGENT_OAUTH_KNOWN_SCOPE_FAMILIES = [
+  ...AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES,
+  AGENT_OAUTH_OPERATOR_SCOPE_FAMILY,
+] as const satisfies readonly AgentOAuthScopeFamily[];
+
+export const AGENT_OAUTH_COMMERCE_SCOPES = AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES.flatMap((family) =>
+  family.scopes.map((scope) => scope.scope),
+) as readonly AgentOAuthCommerceScope[];
+
+export const AGENT_OAUTH_OPERATOR_SCOPES = AGENT_OAUTH_OPERATOR_SCOPE_FAMILY.scopes.map(
+  (scope) => scope.scope,
+) as readonly AgentOAuthOperatorScope[];
+
+const AGENT_OAUTH_SCOPE_SET = new Set<string>([...AGENT_OAUTH_COMMERCE_SCOPES, ...AGENT_OAUTH_OPERATOR_SCOPES]);
+const AGENT_OAUTH_OPERATOR_SCOPE_SET = new Set<string>(AGENT_OAUTH_OPERATOR_SCOPES);
 
 export function isAgentOAuthScope(value: unknown): value is AgentOAuthScope {
   return typeof value === "string" && AGENT_OAUTH_SCOPE_SET.has(value);
+}
+
+export function isAgentOAuthOperatorScope(value: unknown): value is AgentOAuthOperatorScope {
+  return typeof value === "string" && AGENT_OAUTH_OPERATOR_SCOPE_SET.has(value);
 }
 
 export function normalizeAgentOAuthScopes(value: unknown): AgentOAuthScope[] {
@@ -325,7 +375,7 @@ export function normalizeAgentOAuthScopes(value: unknown): AgentOAuthScope[] {
 }
 
 export function agentOAuthScopesForPermission(permission: string): readonly AgentOAuthScope[] {
-  return AGENT_OAUTH_SCOPE_FAMILIES.flatMap((family) =>
+  return AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES.flatMap((family) =>
     family.scopes
       .filter((scope) => (scope.permissions as readonly string[]).includes(permission))
       .map((scope) => scope.scope),
@@ -344,7 +394,7 @@ export function resolveAgentOAuthScopedPermissions(
 ): readonly string[] {
   const normalizedScopes = normalizeAgentOAuthScopes(scopes);
   const allowedPermissions = new Set<string>(
-    AGENT_OAUTH_SCOPE_FAMILIES.flatMap((family) =>
+    AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES.flatMap((family) =>
       family.scopes
         .filter((scope) => normalizedScopes.includes(scope.scope))
         .flatMap((scope) => [...scope.permissions]),
@@ -361,6 +411,30 @@ export function missingAgentOAuthScopesForPermissions(
   const normalizedGrantedScopes = new Set(normalizeAgentOAuthScopes(grantedScopes));
   return agentOAuthScopesForPermissions(permissions).filter((scope) => !normalizedGrantedScopes.has(scope));
 }
+
+export type OperatorAuthorityDenialReason =
+  | "no-membership"
+  | "inactive"
+  | "not-platform-admin"
+  | "membership-mismatch"
+  | "authority-unavailable";
+
+export type OperatorAuthorityDecision =
+  | Readonly<{
+      kind: "granted";
+      membershipId: string;
+      roleKey: "platform-admin";
+      rolePermissions: readonly string[];
+    }>
+  | Readonly<{ kind: "denied"; reason: OperatorAuthorityDenialReason }>;
+
+/**
+ * Identity-owned port that decides whether an actor may use operator
+ * capabilities. Implementations read the actor's Membership aggregate, never
+ * a projection. Consumers treat a thrown error or an absent port as a
+ * denial (`authority-unavailable`).
+ */
+export type OperatorAuthority = (actor: ResolvedActor) => Promise<OperatorAuthorityDecision>;
 
 export type AuthenticatedRequestVariables<TActor extends ResolvedActor = ResolvedActor> = {
   actor: TActor | null;
