@@ -1053,8 +1053,8 @@ describe("checkout web routes: account sell list", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1");
-    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2");
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(1, "off_1", { attemptId: "decline_off_1".padEnd(22, "_") });
+    expect(mockDeclineOfferMatch).toHaveBeenNthCalledWith(2, "off_2", { attemptId: "decline_off_2".padEnd(22, "_") });
     expect(removeSellListLine).toHaveBeenCalledWith("sll_1");
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/desk/offers");
