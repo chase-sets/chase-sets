@@ -863,26 +863,44 @@ describe("closed executable admission", () => {
 
   // L2: a closed workflow-function name is admitted only as a call of the one
   // same-run definition; its arguments are data values for that body.
+  // One row per (function, bypass) keeps each test inside the strict budget.
   const functionRows = inventory.filter((row) => row.kind === "function");
+  const functionCase = (selector) => {
+    const entry = { ...syntheticEntry([selector, D("$SYNTHETIC_ARG")]), origin: syntheticOrigin };
+    const run = `${selector}() {\n  :\n}\n${selector} "$SYNTHETIC_ARG"\n`;
+    const stored = (text) => ({
+      ...DESTRUCTIVE_GRAMMAR,
+      benignForms: [...DESTRUCTIVE_GRAMMAR.benignForms, entry],
+      origins: [...DESTRUCTIVE_GRAMMAR.origins, storedOrigin(syntheticOrigin, text)],
+    });
+    const bypasses = {
+      "call without a definition": `${selector} "$SYNTHETIC_ARG"\n`,
+      "second definition": `${run}${selector}() {\n  :\n}\n`,
+    };
+    return { entry, run, stored, bypasses };
+  };
   it("workflow function calls need exactly one same-run definition", () => {
     expect(functionRows.length).toBeGreaterThan(10);
-    for (const { selector } of functionRows) {
-      const entry = { ...syntheticEntry([selector, D("$SYNTHETIC_ARG")]), origin: syntheticOrigin };
-      const run = `${selector}() {\n  :\n}\n${selector} "$SYNTHETIC_ARG"\n`;
-      const stored = (text) => ({
-        ...DESTRUCTIVE_GRAMMAR,
-        benignForms: [...DESTRUCTIVE_GRAMMAR.benignForms, entry],
-        origins: [...DESTRUCTIVE_GRAMMAR.origins, storedOrigin(syntheticOrigin, text)],
-      });
+  });
+  it.each(functionRows.map(({ selector }) => selector))(
+    "workflow function %s: its one definition admits the call",
+    (selector) => {
+      const { run, stored } = functionCase(selector);
       expect(validateGrammarPartition(stored(run)).violations, selector).toEqual([]);
       expect(classifyShellCommands(run, { grammar: stored(run) }).indeterminate, selector).toEqual([]);
-      for (const bypass of [`${selector} "$SYNTHETIC_ARG"\n`, `${run}${selector}() {\n  :\n}\n`]) {
-        expect(validateGrammarPartition(stored(bypass)).violations, bypass).toEqual([unpinned(entry)]);
-        expect(classifyShellCommands(bypass, { grammar: stored(run) }).indeterminate[0]?.reason, bypass).toBe(
-          unpinned(entry),
-        );
-      }
-    }
+    },
+  );
+  it.each(
+    functionRows.flatMap(({ selector }) =>
+      Object.keys(functionCase(selector).bypasses).map((label) => [selector, label]),
+    ),
+  )("workflow function %s: %s refuses", (selector, label) => {
+    const { entry, run, stored, bypasses } = functionCase(selector);
+    const bypass = bypasses[label];
+    expect(validateGrammarPartition(stored(bypass)).violations, bypass).toEqual([unpinned(entry)]);
+    expect(classifyShellCommands(bypass, { grammar: stored(run) }).indeterminate[0]?.reason, bypass).toBe(
+      unpinned(entry),
+    );
   });
   it("rejects unknown utilities and multi-argument expansions in single-argument slots", () => {
     for (const items of [
@@ -1931,23 +1949,40 @@ describe("site-proved F4 operand leads", () => {
     },
   };
 
-  it.each(Object.entries(premiseCases))("%s: candidate proves its lead, every bypass refuses", (_label, item) => {
-    const env = item.env ?? emptyEnv;
-    const bypasses = Object.entries(item.bypasses ?? {});
-    const fixture = siteFixture(
-      item.candidate,
-      env,
-      bypasses.map(([, run]) => run),
+  // One row per (premise, bypass) and (premise, envBypass) keeps each test
+  // inside the strict budget. Every row of a premise uses the one fixture that
+  // spells all of its bypasses, built on first use.
+  const premiseFixtures = new Map();
+  const premiseFixture = (label) => {
+    if (!premiseFixtures.has(label)) {
+      const item = premiseCases[label];
+      const env = item.env ?? emptyEnv;
+      const fixture = siteFixture(item.candidate, env, Object.values(item.bypasses ?? {}));
+      premiseFixtures.set(label, { item, env, fixture, target: fixture.target(item.target) });
+    }
+    return premiseFixtures.get(label);
+  };
+  const premiseRows = (field) =>
+    Object.entries(premiseCases).flatMap(([label, item]) =>
+      Object.keys(item[field] ?? {}).map((bypass) => [label, bypass]),
     );
-    const target = fixture.target(item.target);
+
+  it.each(Object.keys(premiseCases))("%s: candidate proves its lead", (label) => {
+    const { item, env, fixture, target } = premiseFixture(label);
     expect(target, item.target).toBeDefined();
     expectSiteAdmitted(fixture, item.candidate, env);
-    for (const [label, run] of bypasses) {
-      expect(run, label).not.toBe(item.candidate);
-      expectSiteRefused(fixture, target, run, env);
-    }
-    for (const bypassEnv of Object.values(item.envBypasses ?? {}))
-      expectSiteRefused(fixture, target, item.candidate, bypassEnv);
+  });
+  it.each(premiseRows("bypasses"))("%s: bypass %s refuses", (label, bypass) => {
+    const { item, env, fixture, target } = premiseFixture(label);
+    const run = item.bypasses[bypass];
+    expect(target, item.target).toBeDefined();
+    expect(run, bypass).not.toBe(item.candidate);
+    expectSiteRefused(fixture, target, run, env);
+  });
+  it.each(premiseRows("envBypasses"))("%s: env bypass %s refuses", (label, bypass) => {
+    const { item, fixture, target } = premiseFixture(label);
+    expect(target, item.target).toBeDefined();
+    expectSiteRefused(fixture, target, item.candidate, item.envBypasses[bypass]);
   });
 
   it("LX: a leading trusted expression proves provenance; input, secret and unknown roots refuse", () => {

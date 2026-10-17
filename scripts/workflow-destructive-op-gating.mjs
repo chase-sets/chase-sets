@@ -1321,7 +1321,7 @@ function enclosing(node, kinds) {
 // option-shaped ($! and $$ are leadOf "process"). Declaring one in env voids
 // the root.
 const capturedRoots = new Set(["RUNNER_TEMP", "GITHUB_WORKSPACE", "GITHUB_STEP_SUMMARY", "PWD"]);
-// The enumerated fixed-shape GitHub event/commit fields (#9003 LC clause):
+// The enumerated fixed-shape GitHub event/commit fields (the LC clause):
 // provenance (L4-T/LX), never a lead proof. Every other github.* root,
 // including PR title/body/ref names and wildcard event fields, refuses.
 const githubProvenance = new Set([
