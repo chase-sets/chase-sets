@@ -31,6 +31,7 @@ import type { InventoryStorageLocation } from "../../storage-locations/api/contr
 import { listInventoryImportSources } from "../domain/import-source-adapters";
 import { appendInventoryHandoffSearch, inventoryListingHref } from "../../inventory-items/ui/listing-handoff";
 import { activeResolutionRow, rowNeedsResolution, unresolvedResolutionRowIds } from "./resolution-flow";
+import { InventoryMutationForm } from "../../../support/ui-support/mutation-recovery";
 import {
   normalizeSelectedOptionsForSchema,
   recordToSelectionEntries,
@@ -365,12 +366,18 @@ export function InventoryImportBatchPage({
   detailLoadMessage?: string | null;
   catalogItemApiBaseUrl?: string;
 }) {
-  const canCommit = Boolean(detail && detail.accepted_count > detail.committed_count);
+  const canCommit = Boolean(
+    detail &&
+    ["uploaded", "ready-to-commit", "partial"].includes(detail.status) &&
+    detail.accepted_count > detail.committed_count,
+  );
   const latestBatchId = detail?.batch_id ?? batches[0]?.batch_id ?? null;
   const activeJob = useInventoryImportBatchJob(activeJobId);
   const unresolvedRowIds = detail ? unresolvedResolutionRowIds(detail) : [];
   const resolveRow = activeResolutionRow(detail, selectedResolveRowId(currentPath));
   const resolveRowPosition = resolveRow ? unresolvedRowIds.indexOf(resolveRow.row_id) + 1 : 0;
+  const rawOffset = Number(new URLSearchParams(currentPath?.split("?")[1] ?? "").get("offset") ?? 0);
+  const rowOffset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
 
   return (
     <Page>
@@ -421,54 +428,77 @@ export function InventoryImportBatchPage({
         />
       ) : null}
 
-      <MarketplaceDashboardPanel
-        title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}
-        description={t("inventory.features.importBatches.ui.importBatchPage.review.row.outcomes.before.creating")}
-        metrics={[
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.total.rows"),
-            value: detail?.total_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.csv.rows"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.accepted"),
-            value: detail?.accepted_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.ready.to.commit"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.rejected"),
-            value: detail?.rejected_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.needs.row.fixes"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.committed"),
-            value: detail?.committed_count ?? 0,
-            detail: t("inventory.features.importBatches.ui.importBatchPage.items.created"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.source"),
-            value: detail
-              ? localizedImportSourceLabel(detail.source_key)
-              : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
-            detail: detail
-              ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
-                  version: detail.adapter_version,
-                })
-              : t("inventory.features.importBatches.ui.importBatchPage.not.set"),
-          },
-          {
-            label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
-            value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
-            detail:
-              detail?.default_storage_location_id ??
-              t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
-          },
-        ]}
+      <MarketplaceNotice
+        tone="info"
+        title={t("inventory.import.resume.title")}
+        description={t("inventory.import.resume.description")}
       />
+      {detail?.status === "expired" ? (
+        <MarketplaceNotice
+          tone="warning"
+          title={t("inventory.import.expired.title")}
+          description={t("inventory.import.expired.description")}
+        />
+      ) : null}
+
+      {detail ? (
+        <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}>
+          <MarketplaceDashboardPanel
+            title={t("inventory.features.importBatches.ui.importBatchPage.batch.summary")}
+            description={t("inventory.features.importBatches.ui.importBatchPage.review.row.outcomes.before.creating")}
+            metrics={[
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.total.rows"),
+                value: detail?.total_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.csv.rows"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.accepted"),
+                value: detail?.accepted_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.ready.to.commit"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.rejected"),
+                value: detail?.rejected_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.needs.row.fixes"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.committed"),
+                value: detail?.committed_count ?? 0,
+                detail: t("inventory.features.importBatches.ui.importBatchPage.items.created"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.source"),
+                value: detail
+                  ? localizedImportSourceLabel(detail.source_key)
+                  : t("inventory.features.importBatches.ui.importBatchPage.chase.sets"),
+                detail: detail
+                  ? t("inventory.features.importBatches.ui.importBatchPage.adapter.version", {
+                      version: detail.adapter_version,
+                    })
+                  : t("inventory.features.importBatches.ui.importBatchPage.not.set"),
+              },
+              {
+                label: t("inventory.features.importBatches.ui.importBatchPage.mode"),
+                value: detail?.quantity_mode ?? t("inventory.features.importBatches.ui.importBatchPage.add.stock"),
+                detail:
+                  detail?.default_storage_location_id ??
+                  t("inventory.features.importBatches.ui.importBatchPage.no.default.location"),
+              },
+            ]}
+          />
+        </PageSection>
+      ) : null}
 
       <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.upload.csv")}>
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form spacing="none" method="post" encType="multipart/form-data">
+          <InventoryMutationForm
+            family="import-create"
+            targetId="draft"
+            spacing="none"
+            method="post"
+            encType="multipart/form-data"
+          >
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="create-batch" />
               <Inline>
@@ -504,11 +534,6 @@ export function InventoryImportBatchPage({
                 }))}
               />
               <TextInput
-                label={t("inventory.features.importBatches.ui.importBatchPage.source.filename")}
-                name="sourceFilename"
-                placeholder={t("inventory.features.importBatches.ui.importBatchPage.source.filename.placeholder")}
-              />
-              <TextInput
                 label={t("inventory.features.importBatches.ui.importBatchPage.csv.file")}
                 name="file"
                 type="file"
@@ -537,7 +562,7 @@ export function InventoryImportBatchPage({
                 </LinkButton>
               </Inline>
             </Stack>
-          </Form>
+          </InventoryMutationForm>
         </Card>
       </PageSection>
 
@@ -690,6 +715,22 @@ export function InventoryImportBatchPage({
               emptyTitle={t("inventory.features.importBatches.ui.importBatchPage.no.rows")}
               emptyDescription={t("inventory.features.importBatches.ui.importBatchPage.upload.csv.to.review.rows")}
             />
+            <Inline>
+              {rowOffset > 0 ? (
+                <LinkButton
+                  href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${Math.max(0, rowOffset - 100)}`}
+                >
+                  {t("inventory.import.rows.previous")}
+                </LinkButton>
+              ) : null}
+              {rowOffset + detail.rows.length < detail.total_count ? (
+                <LinkButton
+                  href={`/account/inventory/imports/${encodeURIComponent(detail.batch_id)}?offset=${rowOffset + 100}`}
+                >
+                  {t("inventory.import.rows.next")}
+                </LinkButton>
+              ) : null}
+            </Inline>
           </Stack>
         </PageSection>
       ) : (

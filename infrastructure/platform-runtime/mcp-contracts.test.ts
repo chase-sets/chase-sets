@@ -433,16 +433,21 @@ describe("MCP service catalog", () => {
       updated_at: "2026-05-28T00:00:00.000Z",
       rows: [],
     };
+    const importAcceptanceOutput = {
+      receiptVersion: 1,
+      jobId: "job_1",
+      batchId: "imb_1",
+      status: "accepted",
+    };
 
     expect(validateOutputSchema(findMcpTool("inventory.list-import-sources")?.outputSchema, listSourcesOutput)).toEqual(
       [],
     );
-    for (const toolName of [
-      "inventory.create-import-batch",
-      "inventory.get-import-batch",
-      "inventory.commit-import-batch",
-    ]) {
+    for (const toolName of ["inventory.get-import-batch"]) {
       expect(validateOutputSchema(findMcpTool(toolName)?.outputSchema, importBatchOutput)).toEqual([]);
+    }
+    for (const toolName of ["inventory.create-import-batch", "inventory.commit-import-batch"]) {
+      expect(validateOutputSchema(findMcpTool(toolName)?.outputSchema, importAcceptanceOutput)).toEqual([]);
     }
     expect(
       validateOutputSchema(findMcpTool("checkout.get-cart")?.outputSchema, {
