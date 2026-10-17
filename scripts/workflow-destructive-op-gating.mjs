@@ -373,6 +373,12 @@ function shellTokens(run) {
     }
   };
 
+  // Inside `[[ ... ]]` the operators &&, ||, !, (, ), < and > are conditional
+  // words, and the operand after `=~` is a regular expression whose
+  // parentheses, `|` and trailing `$` are literal.
+  let condition = false;
+  let regex = false;
+
   const readWord = () => {
     const start = index;
     let value = "";
@@ -383,13 +389,23 @@ function shellTokens(run) {
     let pattern = false;
     let braces = 0;
     let braceList = false;
+    let depth = 0;
     const expansion = () => {
       dynamic = true;
       if (!quote) unprotected = true;
     };
     while (index < run.length) {
       const character = run[index];
-      if (!quote && (blank(character) || operatorAt(run, index))) break;
+      if (!quote && regex) {
+        if (blank(character) && depth === 0) break;
+        if (character === "(") depth += 1;
+        else if (character === ")") depth -= 1;
+        if (character === "$" && !/[A-Za-z_{(]/.test(run[index + 1] ?? "")) {
+          value += character;
+          index += 1;
+          continue;
+        }
+      } else if (!quote && (blank(character) || operatorAt(run, index))) break;
       if (character === "\\" && quote !== "'") {
         const next = run[index + 1];
         if (next === "\n") index += 2;
@@ -470,6 +486,9 @@ function shellTokens(run) {
     const raw = run.slice(start, index);
     const token = { type: "word", value, dynamic, quoted, unprotected, pattern, index: start, raw };
     tokens.push(token);
+    regex = condition && !quoted && value === "=~";
+    if (!quoted && value === "[[") condition = true;
+    else if (!quoted && value === "]]") condition = false;
     if (heredocOperator) {
       pendingDocuments.push({ delimiter: value, quoted, stripTabs: heredocOperator === "<<-", token });
       heredocOperator = null;
@@ -485,6 +504,23 @@ function shellTokens(run) {
     } else if (character === "#") {
       const newline = run.indexOf("\n", index);
       index = newline < 0 ? run.length : newline;
+    } else if (condition && regex) {
+      readWord();
+    } else if (condition && ["&&", "||", "(", ")", "<", ">"].some((word) => run.startsWith(word, index))) {
+      const value = ["&&", "||"].find((word) => run.startsWith(word, index)) ?? character;
+      tokens.push({
+        type: "word",
+        value,
+        dynamic: false,
+        quoted: false,
+        unprotected: false,
+        pattern: false,
+        index,
+        raw: value,
+      });
+      index += value.length;
+    } else if (condition && character === "\n") {
+      index += 1;
     } else if (run.startsWith("((", index)) {
       const end = shellGroupEnd(run, index + 1);
       if (run[end + 1] === ")") {
@@ -754,6 +790,1304 @@ function resolveCommandWords(command, commands, tokens) {
   return { ...command, words };
 }
 
+// ---------------------------------------------------------------------------
+// F4 operand leads. A dynamic word in a terminal-operand, forwarding-resource
+// or find start-path position is admitted only when its leading expansion is
+// proved at that exact site, from the actual run (its statement tree and
+// every lexical writer of each name it reads) and the step/job/workflow env
+// declarations. A proved lead cannot begin with `-`. L3-T/L4-T/LX/LR prove
+// provenance only: R owns that residual, which `residual` names. Labels, IDs,
+// hashes and names grant nothing; anything unsupported refuses.
+
+const isOperator = (token, value) => token?.type === "operator" && token.value === value;
+const isReserved = (token, value) => token?.type === "word" && !token.quoted && token.value === value;
+
+// Statement tree over lexed tokens: lists of and-or statements of pipelines
+// of simple or compound commands. Unsupported structure returns null.
+function shellTree(tokens) {
+  let index = 0;
+  const fail = () => {
+    throw new Error("unsupported shell structure");
+  };
+  const expectWord = (value) => {
+    if (!isReserved(tokens[index], value)) fail();
+    index += 1;
+  };
+  const skipNewlines = () => {
+    while (isOperator(tokens[index], "\n")) index += 1;
+  };
+  const redirected = (node) => {
+    node.redirects = [];
+    while (tokens[index]?.type === "operator" && redirections.has(tokens[index].value)) {
+      node.redirects.push({ operator: tokens[index].value, target: tokens[index + 1] });
+      index += 2;
+    }
+    return node;
+  };
+  const list = (parent, role, terminators) => {
+    const node = { kind: "list", parent, role, items: [] };
+    for (;;) {
+      while (isOperator(tokens[index], "\n") || isOperator(tokens[index], ";")) index += 1;
+      const token = tokens[index];
+      if (!token) break;
+      if (token.type === "word" && !token.quoted && terminators.has(token.value)) break;
+      if (token.type === "operator" && [")", ";;", ";&", ";;&"].includes(token.value)) break;
+      const statement = {
+        kind: "statement",
+        parent: node,
+        list: node,
+        index: node.items.length,
+        chain: [],
+        async: false,
+      };
+      node.items.push(statement);
+      statement.chain.push({ operator: null, pipeline: pipeline(statement) });
+      while (isOperator(tokens[index], "&&") || isOperator(tokens[index], "||")) {
+        const operator = tokens[index].value;
+        index += 1;
+        skipNewlines();
+        statement.chain.push({ operator, pipeline: pipeline(statement) });
+      }
+      if (isOperator(tokens[index], "&")) {
+        statement.async = true;
+        index += 1;
+      }
+    }
+    return node;
+  };
+  const pipeline = (parent) => {
+    const node = { kind: "pipeline", parent, negated: false, elements: [] };
+    if (isReserved(tokens[index], "!")) {
+      node.negated = true;
+      index += 1;
+    }
+    node.elements.push(compound(node));
+    while (isOperator(tokens[index], "|") || isOperator(tokens[index], "|&")) {
+      index += 1;
+      skipNewlines();
+      node.elements.push(compound(node));
+    }
+    return node;
+  };
+  const functionBody = (parent, name) => {
+    skipNewlines();
+    const node = { kind: "function", parent, name };
+    node.body = compound(node);
+    if (node.body.kind === "simple") fail();
+    return node;
+  };
+  const compound = (parent) => {
+    const token = tokens[index];
+    if (!token) fail();
+    if (isOperator(token, "(")) {
+      index += 1;
+      const node = { kind: "subshell", parent };
+      node.body = list(node, "subshell", new Set());
+      if (!isOperator(tokens[index], ")")) fail();
+      index += 1;
+      return redirected(node);
+    }
+    if (token.type === "word" && !token.quoted) {
+      if (token.value === "if") {
+        index += 1;
+        const node = { kind: "if", parent, clauses: [], otherwise: null };
+        for (;;) {
+          const condition = list(node, "condition", new Set(["then"]));
+          expectWord("then");
+          const body = list(node, "then", new Set(["elif", "else", "fi"]));
+          node.clauses.push({ condition, body });
+          if (isReserved(tokens[index], "elif")) {
+            index += 1;
+            continue;
+          }
+          if (isReserved(tokens[index], "else")) {
+            index += 1;
+            node.otherwise = list(node, "else", new Set(["fi"]));
+          }
+          expectWord("fi");
+          return redirected(node);
+        }
+      }
+      if (token.value === "while" || token.value === "until") {
+        index += 1;
+        const node = { kind: token.value, parent };
+        node.condition = list(node, "condition", new Set(["do"]));
+        expectWord("do");
+        node.body = list(node, "body", new Set(["done"]));
+        expectWord("done");
+        return redirected(node);
+      }
+      if (token.value === "for") {
+        index += 1;
+        const name = tokens[index];
+        if (name?.type !== "word" || name.quoted || !/^[A-Za-z_]\w*$/.test(name.value)) fail();
+        index += 1;
+        const node = { kind: "for", parent, name: name.value, nameToken: name, items: null };
+        if (isReserved(tokens[index], "in")) {
+          index += 1;
+          node.items = [];
+          while (tokens[index]?.type === "word") node.items.push(tokens[index++]);
+        }
+        while (isOperator(tokens[index], ";") || isOperator(tokens[index], "\n")) index += 1;
+        expectWord("do");
+        node.body = list(node, "body", new Set(["done"]));
+        expectWord("done");
+        return redirected(node);
+      }
+      if (token.value === "case") {
+        index += 1;
+        const node = { kind: "case", parent, subject: tokens[index], arms: [] };
+        index += 1;
+        skipNewlines();
+        expectWord("in");
+        for (;;) {
+          skipNewlines();
+          if (isReserved(tokens[index], "esac")) {
+            index += 1;
+            return redirected(node);
+          }
+          if (isOperator(tokens[index], "(")) index += 1;
+          const patterns = [];
+          do {
+            if (tokens[index]?.type !== "word") fail();
+            patterns.push(tokens[index++]);
+          } while (isOperator(tokens[index], "|") && ++index);
+          if (!isOperator(tokens[index], ")")) fail();
+          index += 1;
+          node.arms.push({ patterns, body: list(node, "arm", new Set(["esac"])) });
+          if ([";;", ";&", ";;&"].some((value) => isOperator(tokens[index], value))) index += 1;
+          else if (!isReserved(tokens[index], "esac")) fail();
+        }
+      }
+      if (token.value === "{") {
+        index += 1;
+        const node = { kind: "group", parent };
+        node.body = list(node, "group", new Set(["}"]));
+        expectWord("}");
+        return redirected(node);
+      }
+      if (token.value === "function") {
+        const name = tokens[index + 1];
+        if (name?.type !== "word" || name.quoted) fail();
+        index += 2;
+        if (isOperator(tokens[index], "(") && isOperator(tokens[index + 1], ")")) index += 2;
+        return functionBody(parent, name.value);
+      }
+      if (
+        /^[A-Za-z_][\w-]*$/.test(token.value) &&
+        isOperator(tokens[index + 1], "(") &&
+        isOperator(tokens[index + 2], ")")
+      ) {
+        index += 3;
+        return functionBody(parent, token.value);
+      }
+    }
+    const start = index;
+    while (index < tokens.length) {
+      const current = tokens[index];
+      if (current.type === "operator") {
+        if (redirections.has(current.value)) {
+          index += 2;
+          continue;
+        }
+        if (current.value === "(" && index > start && emptyAssignment(tokens[index - 1]?.value)) {
+          let depth = 0;
+          for (; index < tokens.length; index += 1) {
+            if (isOperator(tokens[index], "(")) depth += 1;
+            else if (isOperator(tokens[index], ")") && --depth === 0) break;
+          }
+          index += 1;
+          continue;
+        }
+        break;
+      }
+      index += 1;
+    }
+    if (index === start) fail();
+    const slice = tokens.slice(start, index);
+    const [command = { words: [], redirects: [], assignments: [] }] = commandsFromTokens(slice);
+    return { kind: "simple", parent, tokens: slice, command, start: slice[0].index };
+  };
+  try {
+    const root = list(null, "root", new Set());
+    return index === tokens.length ? root : null;
+  } catch {
+    return null;
+  }
+}
+
+function* treeNodes(node) {
+  if (!node) return;
+  yield node;
+  switch (node.kind) {
+    case "list":
+      for (const statement of node.items) yield* treeNodes(statement);
+      break;
+    case "statement":
+      for (const { pipeline } of node.chain) yield* treeNodes(pipeline);
+      break;
+    case "pipeline":
+      for (const element of node.elements) yield* treeNodes(element);
+      break;
+    case "if":
+      for (const clause of node.clauses) {
+        yield* treeNodes(clause.condition);
+        yield* treeNodes(clause.body);
+      }
+      yield* treeNodes(node.otherwise);
+      break;
+    case "while":
+    case "until":
+      yield* treeNodes(node.condition);
+      yield* treeNodes(node.body);
+      break;
+    case "case":
+      for (const arm of node.arms) yield* treeNodes(arm.body);
+      break;
+    case "for":
+    case "group":
+    case "subshell":
+    case "function":
+      yield* treeNodes(node.body);
+      break;
+  }
+}
+
+// The statement holding `node`, or null.
+const statementOf = (node) => {
+  let current = node;
+  while (current && current.kind !== "statement") current = current.parent;
+  return current;
+};
+
+// The simple command at a statement's list level when the statement always
+// runs it whenever its list runs: first in its and-or chain, a lone
+// non-negated pipeline element and not asynchronous.
+function unconditionalSimple(statement) {
+  const [{ pipeline } = {}] = statement?.chain ?? [];
+  if (!pipeline || pipeline.negated || pipeline.elements.length !== 1 || statement.async) return null;
+  return pipeline.elements[0];
+}
+
+// The ancestor statement of `node` that lies directly in `list`, or null.
+function statementIn(list, node) {
+  let current = node;
+  while (current) {
+    if (current.kind === "statement" && current.list === list) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+// A writer at a list's statement level dominates a use that lies in a later
+// statement of that same list (same invocation, iteration, arm or group).
+function dominates(writerStatement, useNode) {
+  const later = statementIn(writerStatement.list, useNode);
+  return Boolean(later) && later.index > writerStatement.index;
+}
+
+const declarationBuiltins = new Set(["local", "declare", "typeset", "export", "readonly"]);
+const readValuedOptions = new Set(["-a", "-d", "-i", "-n", "-N", "-p", "-t", "-u"]);
+const mapfileValuedOptions = new Set(["-d", "-n", "-O", "-s", "-u", "-C", "-c"]);
+const nameWord = /^[A-Za-z_]\w*$/;
+
+// Every write one simple command makes, normalized across quoted builtins
+// and command/builtin prefixes. `kind` is assign, append, array, prefix,
+// local, declare, read, mapfile, unset, printf, getopts, positional or opaque.
+function commandWrites(command) {
+  const writes = [];
+  for (const assignment of command.assignments) {
+    const name = assignment.name.replace(/\+$/, "").replace(/\[.*$/, "");
+    const append = assignment.name.endsWith("+");
+    let kind = "assign";
+    if (command.words.length) kind = "prefix";
+    else if (assignment.array) kind = append ? "array-append" : "array";
+    else if (append || assignment.name.includes("[")) kind = "append";
+    writes.push({ name, kind, assignment });
+  }
+  let words = command.words;
+  while (["builtin", "command"].includes(words[0]?.value) && !words[0].dynamic) words = words.slice(1);
+  const selector = words[0]?.dynamic ? null : words[0]?.value;
+  const operands = words.slice(1);
+  if (declarationBuiltins.has(selector)) {
+    for (const word of operands) {
+      if (word.value.startsWith("-")) {
+        if (/n/.test(word.value) || word.dynamic) writes.push({ name: null, kind: "opaque" });
+        continue;
+      }
+      const separator = word.value.indexOf("=");
+      const name = (separator < 0 ? word.value : word.value.slice(0, separator)).replace(/\+$/, "");
+      if (!nameWord.test(name)) {
+        writes.push({ name: null, kind: "opaque" });
+        continue;
+      }
+      writes.push({
+        name,
+        kind: selector === "local" ? "local" : "declare",
+        word,
+        value: separator < 0 ? null : word.value.slice(separator + 1),
+      });
+    }
+  } else if (selector === "read" || selector === "mapfile" || selector === "readarray") {
+    const valued = selector === "read" ? readValuedOptions : mapfileValuedOptions;
+    const targets = [];
+    for (let index = 0; index < operands.length; index += 1) {
+      const word = operands[index];
+      if (word.value.startsWith("-") && !word.dynamic) {
+        if (valued.has(word.value)) {
+          if (word.value === "-a") targets.push(operands[index + 1]);
+          index += 1;
+        }
+      } else targets.push(word);
+    }
+    for (const word of targets)
+      writes.push(
+        word && !word.dynamic && nameWord.test(word.value)
+          ? { name: word.value, kind: selector === "read" ? "read" : "mapfile", word, command }
+          : { name: null, kind: "opaque" },
+      );
+  } else if (selector === "unset") {
+    for (const word of operands)
+      if (!word.value.startsWith("-")) writes.push({ name: word.dynamic ? null : word.value, kind: "unset" });
+  } else if (selector === "printf" && operands[0]?.value === "-v") {
+    writes.push({ name: operands[1]?.dynamic ? null : operands[1]?.value, kind: "printf" });
+  } else if (selector === "getopts") {
+    writes.push({ name: operands[1]?.dynamic ? null : operands[1]?.value, kind: "getopts" });
+  } else if (selector === "shift" || (selector === "set" && operands.some((word) => word.value === "--"))) {
+    writes.push({ name: "@positional", kind: "positional" });
+  } else if (selector === "trap" || selector === "eval") {
+    // A pinned action is inventoried by runAnalysis; a dynamic one is opaque.
+    if (!operands[0] || operands[0].dynamic) writes.push({ name: null, kind: "opaque" });
+  } else if (["source", ".", "let"].includes(selector)) {
+    writes.push({ name: null, kind: "opaque" });
+  }
+  for (const word of [...command.words, ...command.assignments.map(({ token }) => token)])
+    for (const [, name] of (word.raw ?? word.value).matchAll(/\$\{([A-Za-z_]\w*):?[=?]/g))
+      writes.push({ name, kind: "default-assign" });
+  return writes;
+}
+
+// One lexical scope: a run block or a substitution inside one, with its
+// statement tree, simple commands by first token index and child scopes.
+// Offsets are absolute in the outermost run.
+function lexicalScope(run, offset = 0, outer = null) {
+  const lexed = shellTokens(run);
+  const tree = lexed.errors.length ? null : shellTree(lexed.tokens);
+  const scope = { run, offset, outer, lexed, tree, nodes: new Map(), children: [] };
+  for (const node of treeNodes(tree)) {
+    if (node.kind !== "simple") continue;
+    const first = node.command.words[0] ?? node.command.assignments[0]?.token;
+    if (first) scope.nodes.set(first.index, node);
+  }
+  for (const substitution of lexed.substitutions) {
+    const start = substitution.index + (run[substitution.index] === "`" ? 1 : 2);
+    scope.children.push({
+      index: substitution.index,
+      scope: lexicalScope(substitution.run, offset + start, scope),
+    });
+  }
+  return scope;
+}
+
+const rootOf = (scope) => (scope.outer ? rootOf(scope.outer) : scope);
+const scopesOf = (scope) => [scope, ...scope.children.flatMap(({ scope: child }) => scopesOf(child))];
+
+// The simple command node in `scope` whose words or redirects own the
+// character at `index` (a substitution site), or null.
+function ownerNode(scope, index) {
+  for (const node of scope.nodes.values()) {
+    const { words, assignments, redirects } = node.command;
+    const spans = [
+      ...words.map((word) => [word.index, word.index + word.raw.length]),
+      ...assignments.map(({ token }) => [token.index, token.index + token.raw.length]),
+      ...redirects.flatMap(({ target }) => {
+        if (!target) return [];
+        const spans = [[target.index, target.index + target.raw.length]];
+        if (typeof target.body === "string") {
+          const at = scope.run.indexOf(target.body, target.index);
+          if (at >= 0) spans.push([at, at + target.body.length]);
+        }
+        return spans;
+      }),
+    ];
+    if (spans.some(([start, end]) => start <= index && index < end)) return node;
+  }
+  for (const node of treeNodes(scope.tree)) {
+    if (node.kind === "for" && node.items?.some((word) => word.index <= index && index < word.index + word.raw.length))
+      return node;
+    if (
+      node.kind === "case" &&
+      node.subject &&
+      node.subject.index <= index &&
+      index < node.subject.index + node.subject.raw.length
+    )
+      return node;
+  }
+  return null;
+}
+
+// Whole-run analysis shared by every site in one run block: the writer
+// inventory over every scope (function bodies, substitutions, here-document
+// substitutions), function definitions and calls.
+function runAnalysis(root) {
+  if (root.analysis) return root.analysis;
+  const writers = new Map();
+  const definitions = new Map();
+  const calls = new Map();
+  let opaque = !root.tree;
+  for (const scope of scopesOf(root)) {
+    if (!scope.tree) opaque = true;
+    for (const node of treeNodes(scope.tree)) {
+      if (node.kind === "function") {
+        if (!definitions.has(node.name)) definitions.set(node.name, []);
+        definitions.get(node.name).push({ scope, node });
+      }
+      if (node.kind === "for") {
+        if (!writers.has(node.name)) writers.set(node.name, []);
+        writers.get(node.name).push({ name: node.name, kind: "for", scope, node });
+      }
+      if (node.kind !== "simple") continue;
+      const selector = node.command.words[0]?.dynamic ? null : node.command.words[0]?.value;
+      if (selector) {
+        if (!calls.has(selector)) calls.set(selector, []);
+        calls.get(selector).push({ scope, node });
+      }
+      for (const write of commandWrites(node.command)) {
+        if (write.kind === "opaque" || write.name === null) {
+          opaque = true;
+          continue;
+        }
+        if (!writers.has(write.name)) writers.set(write.name, []);
+        writers.get(write.name).push({ ...write, scope, node });
+      }
+      // Trap and eval actions run at other points: every name their pinned
+      // text writes gets a non-dominating `deferred` writer.
+      if (["trap", "eval"].includes(selector) && node.command.words[1] && !node.command.words[1].dynamic) {
+        const action = lexicalScope(node.command.words[1].value);
+        if (!action.tree) opaque = true;
+        for (const inner of scopesOf(action))
+          for (const actionNode of treeNodes(inner.tree)) {
+            if (actionNode.kind !== "simple") continue;
+            for (const write of commandWrites(actionNode.command)) {
+              if (write.kind === "opaque" || write.name === null) opaque = true;
+              else {
+                if (!writers.has(write.name)) writers.set(write.name, []);
+                writers.get(write.name).push({ ...write, kind: "deferred", scope: inner, node: actionNode });
+              }
+            }
+          }
+      }
+    }
+  }
+  for (const [name, list] of definitions)
+    for (const { node } of list)
+      if ((calls.get(name) ?? []).some(({ node: call }) => enclosingFunction(call) === node)) opaque = true;
+  if (/\bexport\s+-f\b|\bdeclare\s+-[a-zA-Z]*f/.test(root.run)) opaque = true;
+  root.analysis = { writers, definitions, calls, opaque };
+  return root.analysis;
+}
+
+function enclosingFunction(node) {
+  let current = node?.parent;
+  while (current && current.kind !== "function") current = current.parent;
+  return current ?? null;
+}
+
+// The nearest enclosing loop or function boundary node.
+function enclosing(node, kinds) {
+  let current = node?.parent;
+  while (current && !kinds.includes(current.kind)) current = current.parent;
+  return current ?? null;
+}
+
+// Runner-captured roots: absolute paths the runner or shell sets, never
+// option-shaped ($! and $$ are leadOf "process"). Declaring one in env voids
+// the root.
+const capturedRoots = new Set(["RUNNER_TEMP", "GITHUB_WORKSPACE", "GITHUB_STEP_SUMMARY", "PWD"]);
+// Enumerated fixed-shape runner fields: provenance, not lead proof.
+const capturedProvenance = new Set([
+  "GITHUB_REPOSITORY",
+  "GITHUB_SHA",
+  "GITHUB_RUN_ID",
+  "GITHUB_RUN_ATTEMPT",
+  "GITHUB_SERVER_URL",
+]);
+
+// Enumerated fixed-shape GitHub expression roots (L4-T provenance), the
+// exact alternative set the LC clause admits, and the input roots H guards.
+const githubProvenance = new Set([
+  "github.sha",
+  "github.repository",
+  "github.repository_owner",
+  "github.run_id",
+  "github.run_number",
+  "github.run_attempt",
+  "github.server_url",
+  "github.workflow",
+  "github.event.merge_group.head_sha",
+  "github.event.pull_request.head.sha",
+  "github.event.pull_request.base.sha",
+]);
+
+// The roots of a GitHub expression body: each `||` alternative must be one
+// enumerated context path or a quoted literal. Returns { roots, inputs } or
+// null when any alternative is a secret, input outside a guard, unknown
+// event field, function or operator.
+function expressionRoots(body) {
+  const alternatives = body.split("||").map((part) => part.trim());
+  const roots = [];
+  const inputs = [];
+  for (const alternative of alternatives) {
+    if (/^'[^']*'$/.test(alternative)) {
+      if (alternatives.length === 1 || alternative.startsWith("'-")) return null;
+      roots.push(alternative === "''" ? "''" : alternative);
+      continue;
+    }
+    if (/^(?:needs\.[\w-]+|steps\.[\w-]+)\.outputs\.[\w-]+$/.test(alternative)) roots.push(alternative);
+    else if (/^vars\.\w+$/.test(alternative)) roots.push(alternative);
+    else if (/^job\.(?:status|container\.id|services\.[\w-]+\.id)$/.test(alternative)) roots.push(alternative);
+    else if (githubProvenance.has(alternative)) roots.push(alternative);
+    else if (/^(?:inputs|github\.event\.inputs)\.[\w-]+$/.test(alternative)) inputs.push(alternative);
+    else return null;
+  }
+  if (inputs.length && (inputs.length !== 1 || alternatives.length !== 1)) return null;
+  return { roots, inputs };
+}
+
+// The leading segment of a word or assignment value after quote removal.
+function leadOf(text) {
+  if (!text) return { kind: "empty" };
+  if (text.startsWith("${{")) {
+    const end = text.indexOf("}}");
+    return end < 0
+      ? { kind: "unsupported" }
+      : { kind: "expression", body: text.slice(3, end).trim(), rest: text.slice(end + 2) };
+  }
+  if (text.startsWith("$((")) return { kind: "unsupported" };
+  if (text.startsWith("$(") || text.startsWith("`")) {
+    const end = text.startsWith("`") ? text.indexOf("`", 1) : shellGroupEnd(text, 1);
+    return { kind: "substitution", rest: text.slice(end + 1), text: text.slice(0, end + 1) };
+  }
+  let match = text.match(/^\$\{([A-Za-z_]\w*)\[@\]\}/);
+  if (match) return { kind: "array", name: match[1], rest: text.slice(match[0].length) };
+  match = text.match(/^\$\{([A-Za-z_]\w*)\}/) ?? text.match(/^\$([A-Za-z_]\w*)/);
+  if (match) return { kind: "name", name: match[1], rest: text.slice(match[0].length) };
+  if (/^\$(?:\$|!|\{\$\}|\{!\})/.test(text))
+    return { kind: "process", rest: text.replace(/^\$(?:\$|!|\{\$\}|\{!\})/, "") };
+  match = text.match(/^\$([1-9])/) ?? text.match(/^\$\{([1-9])\}/);
+  if (match) return { kind: "positional", position: Number(match[1]), rest: text.slice(match[0].length) };
+  if (text.startsWith("$")) return { kind: "unsupported" };
+  return { kind: "literal", safe: !text.startsWith("-") };
+}
+
+const refused = (reason) => ({ proved: false, reason });
+const leadProof = (premise, dependencies = []) => ({ proved: true, lead: true, premise, dependencies, residual: [] });
+const provenanceProof = (premise, residual, dependencies = []) => ({
+  proved: true,
+  lead: false,
+  premise,
+  dependencies,
+  residual,
+});
+// A proof that keeps every constituent: lead only when all are lead.
+function joined(premise, proofs) {
+  const refusal = proofs.find((proof) => !proof.proved);
+  if (refusal) return refusal;
+  const dependencies = proofs.flatMap((proof) => proof.dependencies);
+  const residual = proofs.flatMap((proof) => proof.residual);
+  return proofs.every((proof) => proof.lead)
+    ? leadProof(premise, dependencies)
+    : provenanceProof(premise, residual, dependencies);
+}
+
+// A use site: the scope and statement-tree node of the command that reads the
+// name, or the binding whose value reads it.
+function siteOf(scope, node) {
+  return { scope, node };
+}
+
+// Lifts a site inside a substitution to the command owning that substitution
+// in the enclosing scope.
+function liftSite(site) {
+  const { scope } = site;
+  if (!scope.outer) return null;
+  const child = scope.outer.children.find((entry) => entry.scope === scope);
+  const owner = child && ownerNode(scope.outer, child.index);
+  return owner ? siteOf(scope.outer, owner) : null;
+}
+
+// Proves the lead of `text` (a word value or assignment value) at `site`.
+function proveText(text, site, context, seen) {
+  const lead = leadOf(text);
+  switch (lead.kind) {
+    case "literal":
+      return lead.safe ? leadProof("L1") : refused("option-shaped literal lead");
+    case "process":
+      return leadProof("L3");
+    case "expression": {
+      const roots = expressionRoots(lead.body);
+      if (!roots || roots.inputs.length) return refused(`unproved expression root ${lead.body}`);
+      // Every name the suffix expands is separately proved at the site.
+      const suffix = [...lead.rest.matchAll(/\$\{?([A-Za-z_]\w*)\}?/g)].map(([, name]) => name);
+      if (/[`]|\$\(|\$\{\{|\$[^A-Za-z_{]/.test(lead.rest)) return refused("unsupported expression suffix");
+      const proofs = suffix.map((name) => (site ? proveName(name, site, context, seen) : refused("unsited suffix")));
+      const own = provenanceProof("LX", [`\${{ ${lead.body} }}`], roots.roots);
+      const failed = proofs.find((proof) => !proof.proved);
+      return (
+        failed ?? { ...own, dependencies: [...own.dependencies, ...proofs.flatMap((proof) => [...proof.dependencies])] }
+      );
+    }
+    case "substitution":
+      return substitutionProof(lead.text, site, context, seen);
+    case "name": {
+      const proof = proveName(lead.name, site, context, seen);
+      if (!proof.proved || !proof.nullable) return proof;
+      if (!lead.rest) return proof.nonemptyUse ? proof : refused(`${lead.name} may be empty`);
+      return joined(proof.premise, [proof, proveText(lead.rest, site, context, seen)]);
+    }
+    default:
+      return refused(`unsupported lead ${text.slice(0, 24)}`);
+  }
+}
+
+// BS: `$(basename "$X")` whose input X is one proved binding ending in a
+// nonempty literal non-option component. Otherwise an admitted command
+// substitution proves provenance (L3-T).
+function substitutionProof(text, site, context, seen) {
+  const scope = scopeAt(site.scope, text);
+  const basenameCall = text.match(/^\$\(basename "\$\{?([A-Za-z_]\w*)\}?"\)$/);
+  if (basenameCall && !runAnalysis(rootOf(site.scope)).definitions.has("basename")) {
+    const writers = runAnalysis(rootOf(site.scope)).writers.get(basenameCall[1]) ?? [];
+    const value = writers.length === 1 && writers[0].kind === "assign" ? writers[0].assignment.value : "";
+    const component = value.match(/\/([^/$`"'\\\n*?[]+)$/)?.[1];
+    const input = component && !component.startsWith("-") ? proveName(basenameCall[1], site, context, seen) : null;
+    if (input?.proved) return leadProof("BS", [basenameCall[1], ...input.dependencies]);
+  }
+  if (!scope) return refused("unlocated substitution");
+  return substitutionAdmitted(scope, context, seen)
+    ? provenanceProof("L3-T", [text], [])
+    : refused("unadmitted substitution output");
+}
+
+// The child scope of `scope` whose substitution text is `text` and that the
+// site's command owns.
+function scopeAt(scope, text) {
+  const body = text.startsWith("`") ? text.slice(1, -1) : text.slice(2, -1);
+  return scope.children.find((child) => child.scope.run === body)?.scope ?? null;
+}
+
+// The origin witness a substitution scope carries: only the proved
+// occurrence substitution of a run that is exactly a witness block.
+function witnessOccurrence(scope) {
+  const witness = scope.outer && !scope.outer.outer ? runOriginWitness(scope.outer.run) : null;
+  const child = witness && scope.outer.children.find((entry) => entry.scope === scope);
+  return child?.index === witness?.occurrence ? witness : null;
+}
+// Every command in the substitution scope (and its nested substitutions)
+// classifies as admitted benign or non-destructive HANDLED at its own site.
+function substitutionAdmitted(scope, context, seen) {
+  if (!scope.tree || !context.grammar) return false;
+  for (const inner of scopesOf(scope)) {
+    if (!inner.tree) return false;
+    for (const node of inner.nodes.values()) {
+      if (!node.command.words.length) continue;
+      const command = resolveCommandWords(node.command, commandsFromTokens(inner.lexed.tokens), inner.lexed.tokens);
+      const result = classifyCommand(command, context.grammar, {
+        ...context,
+        origin: witnessOccurrence(inner),
+        site: siteOf(inner, node),
+        seen,
+      });
+      if (result && (result.operation || result.disposition === "INDETERMINATE")) return false;
+    }
+  }
+  return true;
+}
+
+const envScopes = ["step", "job", "workflow"];
+
+// The innermost env declaration of `name`: { scope, value } or null.
+function declaration(name, env) {
+  for (const scope of envScopes) {
+    const declared = env?.[scope];
+    if (declared && typeof declared === "object" && Object.hasOwn(declared, name))
+      return { scope, value: String(declared[name] ?? "") };
+  }
+  return null;
+}
+
+// An unwritten name: env-declared literal (L4-L) or trusted expression root
+// (L4-T), a guarded input root (L3-G) or a captured runner root (L4).
+function proveDeclared(name, site, context) {
+  const declared = declaration(name, context.env);
+  if (!declared) {
+    if (capturedRoots.has(name)) return leadProof("L4", [name]);
+    if (capturedProvenance.has(name)) return provenanceProof("L4-T", [name], [name]);
+    return refused(`undeclared ${name}`);
+  }
+  if (capturedRoots.has(name) || name === "PATH" || name === "TMPDIR")
+    return refused(`${name} declaration voids its root`);
+  const { value } = declared;
+  if (!value.startsWith("${{")) {
+    if (!value) return refused(`${name} is declared empty`);
+    return value.startsWith("-") ? refused(`${name} literal is option-shaped`) : leadProof("L4-L", [name]);
+  }
+  const end = value.indexOf("}}");
+  if (end < 0) return refused(`${name} expression is unterminated`);
+  const roots = expressionRoots(value.slice(3, end).trim());
+  if (!roots) return refused(`${name} has an unproved expression root`);
+  const rest = value.slice(end + 2);
+  if (roots.inputs.length) {
+    if (rest) return refused(`${name} input is not the whole declaration`);
+    return guardedInput(name, site, context);
+  }
+  const proof = provenanceProof("L4-T", [`${name}=${value}`], [name, ...roots.roots]);
+  return roots.roots.includes("''") ? { ...proof, nullable: true, nonemptyUse: false } : proof;
+}
+
+// L3-G: an unwritten input-rooted name used only after a dominating
+// whole-language guard whose every nonempty accepted string has a safe lead.
+// A nullable language additionally needs a nonempty-use condition.
+function guardedInput(name, site, context) {
+  const root = rootOf(site.scope);
+  const use = liftToRoot(site);
+  if (!use) return refused(`${name} guard cannot reach the use`);
+  for (const node of treeNodes(root.tree)) {
+    if (node.kind !== "statement") continue;
+    const guard = guardOf(node, name, root);
+    if (!guard || !dominates(node, use.node)) continue;
+    if (guard.language.dash) return refused(`${name} guard accepts an option lead`);
+    if (!guard.language.nullable) return leadProof("L3-G", [name]);
+    return nonemptyUse(name, use.node)
+      ? leadProof("L3-G", [name])
+      : { ...leadProof("L3-G", [name]), nullable: true, nonemptyUse: false };
+  }
+  return refused(`${name} has no dominating whole-language guard`);
+}
+
+// The site lifted through substitutions to the root scope.
+function liftToRoot(site) {
+  let current = site;
+  while (current && current.scope.outer) current = liftSite(current);
+  return current;
+}
+
+// A simple command that always exits nonzero: `exit N` (N a literal >= 1) or
+// a call to a once-defined function whose body group ends in one.
+function exitsNonzero(node, root, depth = 0) {
+  if (node?.kind !== "simple" || depth > 1) return false;
+  const words = node.command.words;
+  if (literal(words[0], "exit")) return words.length === 2 && !words[1].dynamic && /^[1-9]\d*$/.test(words[1].value);
+  const helper = !words[0]?.dynamic && runAnalysis(root).definitions.get(words[0]?.value);
+  return (
+    helper?.length === 1 &&
+    helper[0].node.body.kind === "group" &&
+    endsWithExit(helper[0].node.body.body, root, depth + 1)
+  );
+}
+
+// The list's last statement unconditionally exits nonzero.
+const endsWithExit = (list, root, depth = 0) => {
+  const last = list?.items.at(-1);
+  return Boolean(last) && last.chain.length === 1 && exitsNonzero(unconditionalSimple(last), root, depth);
+};
+
+// `[[ "$N" =~ RE ]] || <exit>` or `if ! [[ "$N" =~ RE ]]; then ... <exit>; fi`.
+function guardOf(statement, name, root) {
+  const test = (pipeline, negated) => {
+    const [element] = pipeline.elements;
+    if (pipeline.elements.length !== 1 || pipeline.negated !== negated || element.kind !== "simple") return null;
+    const words = element.command.words;
+    const subject = words[1];
+    if (words.length !== 5 || !literal(words[0], "[[") || !literal(words[2], "=~") || !literal(words[4], "]]"))
+      return null;
+    if (!subject?.quoted || !new RegExp(`^"\\$(?:${name}|\\{${name}\\})"$`).test(subject.raw)) return null;
+    if (words[3].quoted || words[3].dynamic) return null;
+    return regexLanguage(words[3].value);
+  };
+  const [first, second] = statement.chain;
+  if (statement.chain.length === 2 && second.operator === "||" && !statement.async) {
+    const language = test(first.pipeline, false);
+    const [handler] = second.pipeline.elements;
+    if (!language || second.pipeline.elements.length !== 1 || second.pipeline.negated) return null;
+    const exits = handler.kind === "group" ? endsWithExit(handler.body, root) : exitsNonzero(handler, root);
+    return exits ? { language } : null;
+  }
+  const command = unconditionalSimple(statement);
+  if (statement.chain.length !== 1 || command?.kind !== "if" || command.clauses.length !== 1 || command.otherwise)
+    return null;
+  const [{ condition, body }] = command.clauses;
+  if (condition.items.length !== 1 || condition.items[0].chain.length !== 1) return null;
+  const language = test(condition.items[0].chain[0].pipeline, true);
+  return language && endsWithExit(body, root) ? { language } : null;
+}
+
+// A use inside the then-arm of `if [ -n "$N" ]` / `[[ -n "$N" ]]`.
+function nonemptyUse(name, node) {
+  let current = node;
+  while (current) {
+    if (current.kind === "list" && current.role === "then" && current.parent.kind === "if") {
+      const clause = current.parent.clauses.find(({ body }) => body === current);
+      const [statement] = clause.condition.items;
+      const test =
+        clause.condition.items.length === 1 && statement.chain.length === 1 && unconditionalSimple(statement);
+      const words = test?.kind === "simple" ? test.command.words : [];
+      const quotedName = new RegExp(`^"\\$(?:${name}|\\{${name}\\})"$`);
+      if (
+        (words.length === 4 &&
+          literal(words[0], "[") &&
+          literal(words[1], "-n") &&
+          quotedName.test(words[2].raw) &&
+          literal(words[3], "]")) ||
+        (words.length === 4 &&
+          literal(words[0], "[[") &&
+          literal(words[1], "-n") &&
+          quotedName.test(words[2].raw) &&
+          literal(words[3], "]]"))
+      )
+        return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+// Whole-language first-character analysis of an anchored POSIX ERE: `dash`
+// when a nonempty accepted string may begin with `-`, `nullable` when the
+// empty string is accepted. Unanchored, top-level alternation, interior
+// anchors and unsupported syntax refuse as `dash`.
+function regexLanguage(pattern) {
+  const unsafe = { dash: true, nullable: true };
+  if (!pattern.startsWith("^") || !pattern.endsWith("$") || pattern.endsWith("\\$")) return unsafe;
+  const body = pattern.slice(1, -1);
+  let index = 0;
+  const atom = () => {
+    const character = body[index];
+    if (character === "(") {
+      index += 1;
+      const inner = alternation();
+      if (body[index] !== ")") throw new Error("unbalanced group");
+      index += 1;
+      return inner;
+    }
+    if (character === "[") {
+      const end = body.indexOf("]", index + (body[index + 1] === "^" ? 3 : 2));
+      if (end < 0) throw new Error("unterminated bracket");
+      const set = body.slice(index + 1, end);
+      index = end + 1;
+      if (set.startsWith("^")) return { dash: !set.slice(1).includes("-"), nullable: false };
+      const ranges = [...set.matchAll(/(.)-(.)/g)].some(([, low, high]) => low <= "-" && "-" <= high);
+      return { dash: set.startsWith("-") || set.endsWith("-") || ranges, nullable: false };
+    }
+    if (character === "\\") {
+      index += 2;
+      return { dash: body[index - 1] === "-", nullable: false };
+    }
+    if (character === ".") {
+      index += 1;
+      return { dash: true, nullable: false };
+    }
+    if (character === undefined || "|)^$*+?{".includes(character)) throw new Error("unsupported atom");
+    index += 1;
+    return { dash: character === "-", nullable: false };
+  };
+  const quantified = () => {
+    let node = atom();
+    for (;;) {
+      const character = body[index];
+      if (character === "?" || character === "*") {
+        node = { dash: node.dash, nullable: true };
+        index += 1;
+      } else if (character === "+") index += 1;
+      else if (character === "{") {
+        const match = body.slice(index).match(/^\{(\d+)(,\d*)?\}/);
+        if (!match) throw new Error("unsupported bound");
+        if (Number(match[1]) === 0) node = { dash: node.dash, nullable: true };
+        index += match[0].length;
+      } else return node;
+    }
+  };
+  const sequence = () => {
+    let node = { dash: false, nullable: true };
+    while (index < body.length && body[index] !== "|" && body[index] !== ")") {
+      const next = quantified();
+      node = { dash: node.dash || (node.nullable && next.dash), nullable: node.nullable && next.nullable };
+    }
+    return node;
+  };
+  const alternation = () => {
+    let node = sequence();
+    while (body[index] === "|") {
+      index += 1;
+      const next = sequence();
+      node = { dash: node.dash || next.dash, nullable: node.nullable || next.nullable };
+    }
+    return node;
+  };
+  try {
+    let topLevel = 0;
+    for (let position = 0, depth = 0; position < body.length; position += 1) {
+      if (body[position] === "\\") position += 1;
+      else if (body[position] === "(") depth += 1;
+      else if (body[position] === ")") depth -= 1;
+      else if (body[position] === "|" && depth === 0) topLevel += 1;
+    }
+    if (topLevel) return unsafe;
+    const language = alternation();
+    return index === body.length ? language : unsafe;
+  } catch {
+    return unsafe;
+  }
+}
+
+// Proves name `name` read at `site`.
+function proveName(name, site, context, seen = new Set()) {
+  if (seen.has(name)) return refused(`cyclic binding of ${name}`);
+  const next = new Set(seen).add(name);
+  const root = rootOf(site.scope);
+  const analysis = runAnalysis(root);
+  if (analysis.opaque) return refused("opaque, nameref, recursive or unsupported writer in run");
+  const writers = analysis.writers.get(name) ?? [];
+  if (!writers.length) return proveDeclared(name, site, context);
+  const use = useNode(site, writers);
+  if (!use) return refused(`${name} use is outside every binding scope`);
+  const [writer] = writers;
+  if (writers.length === 1 && writer.kind === "read") return readTarget(name, writer, use, context, next);
+  if (writers.length === 1 && writer.kind === "for") return iterator(writer, use, context, next);
+  if (writers.length === 1 && writer.kind === "local") return localBinding(name, writer, use, context, next);
+  if (writers.every(({ kind }) => kind === "assign")) return plainBindings(name, writers, use, context, next);
+  return refused(`${name} has an unsupported writer set (${writers.map(({ kind }) => kind).join(", ")})`);
+}
+
+// The use as a node in the scope that holds every writer: the site itself,
+// or the site lifted through substitutions to the enclosing scope.
+function useNode(site, writers) {
+  let current = site;
+  while (current) {
+    if (writers.every((writer) => writer.scope === current.scope)) return current;
+    current = liftSite(current);
+  }
+  return null;
+}
+
+// The writer statement dominates the use, and every function body crossed
+// between them is defined exactly once.
+function dominatedUse(writerStatement, use, root) {
+  if (!writerStatement || !dominates(writerStatement, use.node)) return false;
+  for (let current = use.node.parent; current && current !== writerStatement.list; current = current.parent)
+    if (current.kind === "function" && runAnalysis(root).definitions.get(current.name)?.length !== 1) return false;
+  return true;
+}
+
+// The statement whose lone unconditional element is the writer's command.
+function writerStatement(writer) {
+  const statement = statementOf(writer.node);
+  return statement && unconditionalSimple(statement) === writer.node ? statement : null;
+}
+
+const loopOf = (node) => enclosing(node, ["for", "while", "until"]);
+
+// One or more plain scalar assignments of `name`.
+function plainBindings(name, writers, use, context, seen) {
+  const root = rootOf(use.scope);
+  const statements = writers.map(writerStatement);
+  if (statements.some((statement) => !statement)) return refused(`${name} binding is not a lone statement`);
+  const proofs = writers.map((writer) =>
+    proveText(writer.assignment.value, siteOf(writer.scope, writer.node), context, seen),
+  );
+  if (writers.length > 1) return conditionalBindings(name, statements, proofs, use, context);
+  const [statement] = statements;
+  const [proof] = proofs;
+  if (!dominatedUse(statement, use, root)) return refused(`${name} binding does not dominate its use`);
+  if (!proof.proved) return proof;
+  const { role, parent: owner } = statement.list;
+  if (role === "root") return { ...proof, premise: use.scope === root ? "L3" : "LS" };
+  if (owner.kind === "for") {
+    if (!finiteIterator(owner, use.scope, context, seen)) return refused(`${name} loop is not a finite literal loop`);
+    return proof.lead ? { ...proof, premise: "LB" } : refused(`${name} loop binding proves provenance only`);
+  }
+  if (owner.kind === "while" && role === "body") {
+    const header = readLoop(owner);
+    if (!header || header.ifs !== "IFS=" || header.targets.length !== 1)
+      return refused(`${name} loop header is not LI`);
+    return proof.premise === "L3-T" || proof.premise === "LI"
+      ? { ...proof, premise: "LI" }
+      : refused(`${name} read-loop binding is not admitted output`);
+  }
+  if (["then", "else", "arm", "group"].includes(role)) return { ...proof, premise: "LS" };
+  return refused(`${name} binding context is unsupported`);
+}
+
+// LC / LC-B: an initial binding that dominates the use (one unconditional
+// statement, or an exhaustive if/elif/else binding once per arm) plus finite
+// replacements at the arm level of later if statements in the same list.
+// Every writer is proved; the union keeps the writers that can reach the use.
+// A replacement after the use, or in the if whose condition holds the use,
+// cannot reach it: the initial binding precedes the use on every path.
+function conditionalBindings(name, statements, proofs, use, context) {
+  const root = rootOf(use.scope);
+  const armBound = (holder) =>
+    holder?.kind === "if" &&
+    holder.otherwise &&
+    [...holder.clauses.map(({ body }) => body), holder.otherwise].every(
+      (arm) => statements.filter((statement) => statement.list === arm).length === 1,
+    );
+  const single = statements.filter((statement) => dominatedUse(statement, use, root));
+  const holders = [...new Set(statements.map((statement) => statement.list.parent))].filter(
+    (holder) => armBound(holder) && dominatedUse(statementOf(holder), use, root),
+  );
+  let base;
+  let initial;
+  if (single.length === 1 && !holders.length) {
+    [base] = single;
+    initial = [base];
+  } else if (!single.length && holders.length === 1) {
+    base = statementOf(holders[0]);
+    initial = statements.filter((statement) => statement.list.parent === holders[0]);
+  } else return refused(`${name} has no single initial binding`);
+  const reaching = [...initial];
+  for (const statement of statements) {
+    if (initial.includes(statement)) continue;
+    const holder = statement.list.parent;
+    const holderStatement =
+      holder?.kind === "if" && ["then", "else"].includes(statement.list.role) && statementOf(holder);
+    if (!holderStatement || holderStatement.list !== base.list || holderStatement.index <= base.index)
+      return refused(`${name} has an unsupported replacement`);
+    const useStatement = statementIn(base.list, use.node);
+    if (dominatedUse(holderStatement, use, root)) reaching.push(statement);
+    else if (useStatement !== holderStatement && useStatement.index < holderStatement.index) continue;
+    else if (
+      useStatement === holderStatement &&
+      holder.clauses.some(({ condition }) => statementIn(condition, use.node))
+    )
+      continue;
+    else return refused(`${name} replacement may reach its use inside the conditional`);
+  }
+  const loop = base.list.parent;
+  if (base.list.role === "body" && loop?.kind === "for") {
+    if (!finiteIterator(loop, use.scope, context, new Set())) return refused(`${name} loop is not finite`);
+    if (!proofs.every((proof) => proof.proved && proof.lead)) return refused(`${name} loop writer is not a safe lead`);
+    return joined(
+      "LC-B",
+      proofs.filter((_, index) => reaching.includes(statements[index])),
+    );
+  }
+  if (loopOf(base)) return refused(`${name} conditional binding is inside an unsupported loop`);
+  const refusal = proofs.find((proof) => !proof.proved);
+  return (
+    refusal ??
+    joined(
+      "LC",
+      proofs.filter((_, index) => reaching.includes(statements[index])),
+    )
+  );
+}
+// The literal word list or proved array of a finite `for` header.
+function finiteIterator(loop, scope, context, seen) {
+  if (!loop.items?.length) return false;
+  if (loop.items.every((word) => !word.dynamic && !filenamePattern(word) && !word.value.startsWith("-"))) return true;
+  const [item] = loop.items;
+  const array = loop.items.length === 1 && item.quoted && item.raw.match(/^"\$\{([A-Za-z_]\w*)\[@\]\}"$/);
+  return Boolean(array) && finiteArray(array[1], siteOf(scopeHolding(rootOf(scope), loop), loop), context, seen).proved;
+}
+
+// The scope whose tree holds `node`.
+function scopeHolding(root, node) {
+  for (const scope of scopesOf(root))
+    for (const candidate of treeNodes(scope.tree)) if (candidate === node) return scope;
+  return root;
+}
+
+// The iterator of a finite loop, read in that loop's body (LB literal words,
+// LE proved array).
+function iterator(writer, use, context, seen) {
+  const loop = writer.node;
+  if (statementIn(loop.body, use.node) === null) return refused(`${loop.name} is read outside its loop`);
+  if (!loop.items?.length) return refused(`${loop.name} iterates positionals`);
+  if (loop.items.every((word) => !word.dynamic && !filenamePattern(word) && !word.value.startsWith("-")))
+    return leadProof("LB", [loop.name]);
+  const [item] = loop.items;
+  const array = loop.items.length === 1 && item.quoted && item.raw.match(/^"\$\{([A-Za-z_]\w*)\[@\]\}"$/);
+  if (!array) return refused(`${loop.name} iterates an unproved list`);
+  const proof = finiteArray(array[1], siteOf(writer.scope, loop), context, seen);
+  return proof.proved ? { ...proof, premise: "LE", dependencies: [loop.name, ...proof.dependencies] } : proof;
+}
+
+// LE: an indexed array built once by a dominating finite constructor plus
+// finite single-word appends at the arm level of later if statements, every
+// element a proved safe lead.
+function finiteArray(name, site, context, seen = new Set()) {
+  const root = rootOf(site.scope);
+  const writers = runAnalysis(root).writers.get(name) ?? [];
+  const constructors = writers.filter(({ kind }) => kind === "array");
+  if (constructors.length !== 1 || writers.some(({ kind }) => kind !== "array" && kind !== "array-append"))
+    return refused(`${name} array has an unsupported writer`);
+  const [constructor] = constructors;
+  const base = writerStatement(constructor);
+  if (!base || !dominates(base, site.node)) return refused(`${name} array does not dominate its use`);
+  const proofs = [];
+  for (const writer of writers) {
+    const statement = writerStatement(writer);
+    if (writer !== constructor) {
+      const holder = statement?.list.parent;
+      const holderStatement = holder?.kind === "if" && statementOf(holder);
+      if (!holderStatement || holderStatement.list !== base.list || holderStatement.index <= base.index)
+        return refused(`${name} append is unsupported`);
+      if (!dominates(holderStatement, site.node)) return refused(`${name} append does not precede its use`);
+    }
+    for (const element of writer.assignment.array)
+      proofs.push(
+        variadicWord(element)
+          ? refused(`${name} element may split`)
+          : proveText(element.value, siteOf(writer.scope, writer.node), context, seen),
+      );
+  }
+  const proof = joined("LE", proofs);
+  return proof.proved && !proof.lead ? refused(`${name} element proves provenance only`) : proof;
+}
+
+// `while <IFS assignment> read -r TARGET...` as the whole loop condition.
+function readLoop(loop) {
+  if (loop.kind !== "while" || loop.condition.items.length !== 1) return null;
+  const [statement] = loop.condition.items;
+  const command = statement.chain.length === 1 && unconditionalSimple(statement);
+  if (command?.kind !== "simple") return null;
+  const { words, assignments, redirects } = command.command;
+  if (redirects.length || !literal(words[0], "read") || !literal(words[1], "-r")) return null;
+  if (assignments.length !== 1 || assignments[0].name !== "IFS") return null;
+  return { command, ifs: assignments[0].token.raw, targets: words.slice(2) };
+}
+
+// LR: the first target N of exactly `while IFS=$'\t' read -r N T; do ... done
+// <<< "${P}"`, read inside that iteration, where P is one top-level binding of
+// one quoted substitution holding only an admitted gh issue list with the
+// exact number,title projection. Provenance only: both fields stay residual.
+function readTarget(name, writer, use, context, seen) {
+  const loop = enclosing(writer.node, ["while", "until"]);
+  const header = loop && readLoop(loop);
+  if (!header || header.command !== writer.node) return refused(`${name} read is not a loop header`);
+  if (header.ifs !== "IFS=$'\\t'" || header.targets.length !== 2) return refused(`${name} read is not the LR header`);
+  const [first, second] = header.targets;
+  if ([first, second].some((word) => word.dynamic || word.quoted || !nameWord.test(word.value)))
+    return refused(`${name} read targets are not plain names`);
+  if (first.value !== name || second.value === name) return refused(`${name} is not the first LR target`);
+  if (statementIn(loop.body, use.node) === null) return refused(`${name} is read outside its iteration`);
+  const root = rootOf(use.scope);
+  const analysis = runAnalysis(root);
+  if (analysis.definitions.has("read")) return refused("read is shadowed");
+  const [input] = loop.redirects;
+  const source =
+    loop.redirects.length === 1 &&
+    input.operator === "<<<" &&
+    input.target?.raw.match(/^"\$\{?([A-Za-z_]\w*)\}?"$|^\$([A-Za-z_]\w*)$/);
+  const producerName = source && (source[1] ?? source[2]);
+  if (!producerName || producerName === name || producerName === second.value)
+    return refused(`${name} loop input is unsupported`);
+  if ((analysis.writers.get(second.value) ?? []).length !== 1) return refused(`${second.value} has another writer`);
+  const producers = analysis.writers.get(producerName) ?? [];
+  if (producers.length !== 1 || producers[0].kind !== "assign" || producers[0].scope !== root)
+    return refused(`${producerName} has another writer`);
+  const [producer] = producers;
+  const statement = writerStatement(producer);
+  if (statement?.list.role !== "root" || !dominates(statement, loop))
+    return refused(`${producerName} is not one top-level binding before the loop`);
+  const raw = producer.assignment.token.raw.slice(producer.assignment.token.raw.indexOf("=") + 1);
+  const scope = /^"\$\([\s\S]*\)"$/.test(raw) && scopeAt(root, producer.assignment.value);
+  if (!scope?.tree || scope.children.length || scope.tree.items.length !== 1)
+    return refused(`${producerName} is not one quoted substitution of one command`);
+  const [producerStatement] = scope.tree.items;
+  const element = producerStatement.chain.length === 1 && unconditionalSimple(producerStatement);
+  if (element?.kind !== "simple" || element.command.redirects.length || element.command.assignments.length)
+    return refused(`${producerName} producer is not one plain command`);
+  const words = element.command.words;
+  const jq = words.findIndex((word) => literal(word, "--jq"));
+  const json = words.findIndex((word) => literal(word, "--json"));
+  const filter = words[jq + 1];
+  const projection =
+    jq >= 0 &&
+    filter.quoted &&
+    !filter.dynamic &&
+    /^\.\[\] \| select\(\.title \| startswith\("[^"\\]*"\)\) \| \[\.number, \.title\] \| @tsv$/.test(filter.value);
+  if (!literal(words[0], "gh") || !literal(words[1], "issue") || !literal(words[2], "list"))
+    return refused(`${producerName} producer is not gh issue list`);
+  if (json < 0 || !literal(words[json + 1], "number,title") || !projection)
+    return refused(`${producerName} producer projection is not the LR form`);
+  if (words.filter((word) => ["--jq", "--json"].includes(word.value)).length !== 2)
+    return refused(`${producerName} producer repeats a projection option`);
+  const admitted = classifyCommand(element.command, context.grammar, {
+    ...context,
+    site: siteOf(scope, element),
+    seen,
+  });
+  if (admitted) return refused(`${producerName} producer is not admitted`);
+  return provenanceProof("LR", [`${producerName}: gh issue list .number`], [name, producerName, ".number", ".title"]);
+}
+
+// LL / LP: `local NAME=value` alone at its function body's statement level,
+// dominating the use; a "$n" value inherits every direct call's nth actual.
+function localBinding(name, writer, use, context, seen) {
+  const root = rootOf(use.scope);
+  const statement = writerStatement(writer);
+  const functionNode = enclosingFunction(writer.node);
+  if (!statement || !functionNode || functionNode.body.kind !== "group" || statement.list !== functionNode.body.body)
+    return refused(`${name} local is not at function statement-list level`);
+  const declarations = writer.node.command.words.slice(1);
+  if (writer.value === null || declarations.some((word) => word.dynamic && !/^[A-Za-z_]\w*=/.test(word.raw)))
+    return refused(`${name} local is not a plain binding`);
+  if (!dominates(statement, use.node)) return refused(`${name} local does not dominate its use`);
+  if (runAnalysis(root).definitions.get(functionNode.name)?.length !== 1)
+    return refused(`${functionNode.name} is redefined`);
+  const positional = writer.word.raw.match(/^[A-Za-z_]\w*="\$\{?([1-9])\}?"$/);
+  if (positional) return positionalActuals(functionNode, Number(positional[1]), root, context, seen);
+  const proof = proveText(writer.value, siteOf(writer.scope, writer.node), context, seen);
+  if (!proof.proved) return proof;
+  return proof.lead ? { ...proof, premise: "LL" } : refused(`${name} local proves provenance only`);
+}
+
+// LP: the nth single-word actual of every direct same-run call, each proved a
+// safe lead at its own call site; positional rebinding refuses.
+function positionalActuals(functionNode, position, root, context, seen) {
+  const analysis = runAnalysis(root);
+  if (analysis.writers.has("@positional")) return refused("positional parameters are rebound");
+  const calls = analysis.calls.get(functionNode.name) ?? [];
+  if (!calls.length) return refused(`${functionNode.name} has no direct call`);
+  const proofs = calls.map(({ scope, node }) => {
+    const words = node.command.words;
+    if (words.slice(1, position + 1).some((word) => !word || variadicWord(word)))
+      return refused("missing or variadic actual");
+    const actual = words[position];
+    if (!actual.dynamic) return actual.value.startsWith("-") ? refused("option-shaped actual") : leadProof("L1");
+    return proveText(actual.value, siteOf(scope, node), context, seen);
+  });
+  const proof = joined("LP", proofs);
+  return proof.proved && !proof.lead ? refused("positional actual proves provenance only") : proof;
+}
+
+// The F4 lead proof for `word` at the context's site. The shared trace
+// records an unsited attempt (a stored entry needs its origin) and every
+// proof, whose premise and residual feed the R handoff inventory.
+function proveOperand(word, context) {
+  if (variadicWord(word)) return false;
+  // Literal, expression and process leads need no binding, hence no site.
+  const lead = leadOf(word.value);
+  const sitelessLead =
+    ["literal", "process"].includes(lead.kind) || (lead.kind === "expression" && !/[$`]/.test(lead.rest));
+  if (!context?.site && !sitelessLead) {
+    if (context?.trace) context.trace.unsited = true;
+    return false;
+  }
+  const proof = proveText(word.value, context?.site ?? null, context ?? {}, context?.seen ?? new Set());
+  const proved = proof.proved && !(proof.nullable && !proof.nonemptyUse);
+  context?.trace?.proofs.push({
+    entry: context.entry,
+    word: word.raw ?? word.value,
+    index: word.index,
+    ...proof,
+    proved,
+  });
+  return proved;
+}
+
 const blockOpeners = {
   if: ["fi", "if_command"],
   case: ["esac", "case_command"],
@@ -943,6 +2277,10 @@ function optionEnd(words, index, table) {
 // { options, operands, variadic }: `operands` bounds the non-option data
 // words and `variadic` proves multi-argument expansions to be data. `global`
 // options precede the path. A literal `--` that a shape lists ends the checks.
+// `values` marks shapes whose operands are L2 data values (pinned git-config
+// keys, same-block function arguments), not option-capable F4 operands. Every
+// other dynamic operand needs its proved lead (proveOperand); a quoted
+// "${ARRAY[@]}" operand is re-walked once per finite alternative (AV).
 function terminal({ global = "", shapes = { "": "" } } = {}) {
   const globals = optionTable(global);
   const table = Object.entries(shapes).map(([path, shape]) => {
@@ -950,10 +2288,11 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
       options = "",
       operands = Infinity,
       variadic = false,
+      values = false,
     } = typeof shape === "string" ? { options: shape } : shape;
-    return { path: path ? path.split(" ") : [], options: optionTable(options), operands, variadic };
+    return { path: path ? path.split(" ") : [], options: optionTable(options), operands, variadic, values };
   });
-  const admit = (words, at) => {
+  const admit = (words, at, next, context) => {
     let index = at + 1;
     while (literalOption(words[index]) && globals.has(words[index].value.split("=")[0])) {
       index = optionEnd(words, index, globals);
@@ -970,14 +2309,56 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
       if (word.value.startsWith("-") && word.value !== "-") {
         index = optionEnd(words, index, shape.options);
         if (index < 0) return false;
+      } else if (variadicWord(word) && !shape.variadic) {
+        const alternatives = context?.arrays === false ? null : arrayAlternatives(word, context);
+        if (!alternatives) return false;
+        const flat = { ...context, arrays: false };
+        return alternatives.every((elements) =>
+          admit([...words.slice(0, index), ...elements, ...words.slice(index + 1)], at, next, flat),
+        );
       } else {
-        if (variadicWord(word) ? !shape.variadic : ++operands > shape.operands) return false;
+        if (!variadicWord(word) && ++operands > shape.operands) return false;
+        if (word.dynamic && !variadicWord(word) && !shape.values && !proveOperand(word, context)) return false;
         index += 1;
       }
     }
     return true;
   };
   return Object.assign(admit, { global: globals, shapes: table });
+}
+
+// AV: the finite alternatives of a quoted "${NAME[@]}" operand: one
+// constructor dominating the use plus single appends at the arm level of later
+// if statements before it; each element a single word. Null refuses.
+function arrayAlternatives(word, context) {
+  const name = word.quoted && word.dynamic && word.value.match(/^\$\{([A-Za-z_]\w*)\[@\]\}$/)?.[1];
+  if (!name || !context?.site) {
+    if (context?.trace && name) context.trace.unsited = true;
+    return null;
+  }
+  const root = rootOf(context.site.scope);
+  const analysis = runAnalysis(root);
+  if (analysis.opaque) return null;
+  const writers = analysis.writers.get(name) ?? [];
+  const constructors = writers.filter(({ kind }) => kind === "array");
+  const appends = writers.filter(({ kind }) => kind === "array-append");
+  if (constructors.length !== 1 || constructors.length + appends.length !== writers.length || appends.length > 3)
+    return null;
+  const use = useNode(context.site, writers);
+  const base = writerStatement(constructors[0]);
+  if (!use || !base || !dominatedUse(base, use, root)) return null;
+  for (const writer of appends) {
+    const holder = writerStatement(writer)?.list.parent;
+    const holderStatement = holder?.kind === "if" && statementOf(holder);
+    if (!holderStatement || holderStatement.list !== base.list || holderStatement.index <= base.index) return null;
+    if (!dominatedUse(holderStatement, use, root)) return null;
+  }
+  const elements = [constructors[0], ...appends].map(({ assignment }) => assignment.array);
+  if (elements.flat().some((element) => !singleArgument(element))) return null;
+  const alternatives = [];
+  for (let mask = 0; mask < 2 ** appends.length; mask += 1)
+    alternatives.push([elements[0], ...appends.map((_, bit) => (mask & (2 ** bit) ? elements[bit + 1] : []))].flat());
+  return alternatives;
 }
 
 // Prefix commands. Each one requires a further executable and redispatches it.
@@ -1217,11 +2598,12 @@ function runOriginWitness(run) {
 // Origin-bound directories: the only corpus sed file operands that are
 // dynamic. Each record names its corpus step, the operand and the assignment
 // chain deriving its directory from a non-option root (`mktemp -d` prints an
-// absolute path; the runner sets RUNNER_TEMP to one), so the operand cannot
-// begin with `-`. directoryWitness re-proves the chain from the stored text.
+// absolute path under TMPDIR; the runner sets RUNNER_TEMP to one), so the
+// operand cannot begin with `-`. directoryWitness re-proves the chain from the
+// stored text. Each root lists the names its value depends on.
 const directoryRoots = new Map([
-  ["$(mktemp -d)", "mktemp"],
-  ["${RUNNER_TEMP}", "RUNNER_TEMP"],
+  ["$(mktemp -d)", ["mktemp", "TMPDIR"]],
+  ["${RUNNER_TEMP}", ["RUNNER_TEMP"]],
 ]);
 const originDirectories = [
   {
@@ -1270,7 +2652,7 @@ function directoryWitness(record) {
       commands[0].assignments.length === 1 &&
       assignment.token.raw === text;
     if (!plain || root === undefined) return null;
-    if (!names.length) names.push(directoryRoots.get(root), "PATH");
+    if (!names.length) names.push(...directoryRoots.get(root), "PATH");
     names.push(assignment.name);
   }
   const fixed =
@@ -1286,9 +2668,9 @@ const entryDirectories = (entry) =>
 
 // The directories a run proves, each with the index its last binding ends at.
 // A run proves one only when it makes each assignment exactly once, by that
-// text, as an unconditional top-level statement, and otherwise only reads the
-// witness's names.
-function runDirectories(run, tokens) {
+// text, as an unconditional top-level statement, otherwise only reads the
+// witness's names, and no step, job or workflow env declares any of them.
+function runDirectories(run, tokens, env = {}) {
   // Tokens that make a later statement conditional, grouped or a subshell.
   const control = (token) =>
     token.type === "operator"
@@ -1317,6 +2699,7 @@ function runDirectories(run, tokens) {
       tokens[position].index + tokens[position].raw.length,
     ]);
     if (!names.every((name) => onlyReads(run, name, spans))) return [];
+    if (names.some((name) => declaration(name, env))) return [];
     return [{ operand, after: tokens[positions.at(-1)].index }];
   });
 }
@@ -1340,14 +2723,13 @@ function pnpmRoles(words, at, next, context) {
   return false;
 }
 
-// find: one origin-proved start path, then exactly `-type f -name <pattern>`
-// with an optional `! -name <pattern>`; no action or other predicate.
-function findRoles(words, at) {
+// find: one start path (pinned, or a dynamic path with a proved lead), then
+// exactly `-type f -name <pattern>` with an optional `! -name <pattern>`; no
+// action or other predicate.
+function findRoles(words, at, next, context) {
   const start = words[at + 1];
-  // Origin: EVIDENCE_DIR is the workflow's fixed artifacts/wake-drills path.
-  const originEvidenceDirectory =
-    Boolean(start) && start.dynamic && start.value === "$EVIDENCE_DIR" && singleArgument(start);
-  if (!pinnedOperand(start) && !originEvidenceDirectory) return false;
+  const provedStart = Boolean(start) && start.dynamic && singleArgument(start) && proveOperand(start, context);
+  if (!pinnedOperand(start) && !provedStart) return false;
   const head = literal(words[at + 2], "-type") && literal(words[at + 3], "f") && literal(words[at + 4], "-name");
   if (!head || !pinnedText(words[at + 5])) return false;
   if (words.length === at + 6) return true;
@@ -1390,8 +2772,12 @@ function interpreterRoles(words, at, next, context) {
   return pinnedOperand(first) && argv(at + 2);
 }
 
+// A shell runs exactly one pinned program: `-c <pinned text>`, or one pinned
+// non-option `.sh` script with no arguments, whose body is not interpreted
+// here (like the other pinned script modes).
 const shellProgram = (words, at) =>
-  literal(words[at + 1], "-c") && pinnedText(words[at + 2]) && words.length === at + 3;
+  (literal(words[at + 1], "-c") && pinnedText(words[at + 2]) && words.length === at + 3) ||
+  (pinnedOperand(words[at + 1]) && /\.sh$/.test(words[at + 1].value) && words.length === at + 2);
 const evalProgram = (words, at) => words.length === at + 2 && pinnedText(words[at + 1]);
 
 // psql -c text is sent to the server unless it begins with a backslash
@@ -1425,6 +2811,7 @@ function dockerRoles(words, at, next, context) {
   if (literal(words[at + 1], "exec")) {
     const container = words[at + 2];
     if (!singleArgument(container) || (!container.dynamic && container.value.startsWith("-"))) return false;
+    if (container.dynamic && !proveOperand(container, context)) return false;
     return next(at + 3);
   }
   if (literal(words[at + 1], "run")) {
@@ -1436,14 +2823,15 @@ function dockerRoles(words, at, next, context) {
     }
     const image = words[index];
     if (!singleArgument(image) || (!image.dynamic && image.value.startsWith("-"))) return false;
+    if (image.dynamic && !proveOperand(image, context)) return false;
     const entrypoint = image.dynamic ? null : pinnedImages.get(image.value);
     if (!entrypoint) return next(index + 1);
     const argv = [{ value: entrypoint, dynamic: false, quoted: false }, ...words.slice(index + 1)];
     return programRules.get(entrypoint)(argv, 0, () => false, context);
   }
   // compose is its own command path: `-f <file>` precedes the pinned subcommand.
-  if (literal(words[at + 1], "compose")) return composeTerminal(words, at + 1);
-  return dockerTerminal(words, at);
+  if (literal(words[at + 1], "compose")) return composeTerminal(words, at + 1, next, context);
+  return dockerTerminal(words, at, next, context);
 }
 
 const dockerTerminal = terminal({
@@ -1492,7 +2880,7 @@ const kubectlTerminal = terminal({
 });
 
 // kubectl exec and create job forward the argv after `--` into a pod.
-function kubectlRoles(words, at, next) {
+function kubectlRoles(words, at, next, context) {
   const remoteAfterSeparator = (index, valued) => {
     while (index < words.length && !literal(words[index], "--")) {
       const word = words[index];
@@ -1510,6 +2898,7 @@ function kubectlRoles(words, at, next) {
   if (literal(words[at + 1], "exec")) {
     const { resource, index } = remoteAfterSeparator(at + 2, spaced("--namespace --container"));
     if (!singleArgument(resource) || (!resource.dynamic && resource.value.startsWith("-"))) return false;
+    if (resource.dynamic && !proveOperand(resource, context)) return false;
     return literal(words[index + 1], "--") && next(index + 2);
   }
   if (literal(words[at + 1], "create") && literal(words[at + 2], "job")) {
@@ -1526,7 +2915,7 @@ function kubectlRoles(words, at, next) {
     }
     return literal(words[index], "--") && next(index + 1);
   }
-  return kubectlTerminal(words, at);
+  return kubectlTerminal(words, at, next, context);
 }
 
 function trapRoles(words, at) {
@@ -1573,11 +2962,28 @@ function declarationRoles(words, at) {
 // Forwarding and program rules list the modes they admit; terminals list their
 // command shapes. benignAdmissionInventory publishes both.
 const modes = (list, admit) => Object.assign((...args) => admit(...args), { modes: list.split(", ") });
-const workflowFunction = terminal();
+// L2: a call of a function defined exactly once in the same run; its
+// arguments are data values for that body, whose own operands prove leads.
+const functionArguments = terminal({ shapes: { "": { values: true } } });
+const workflowFunction = Object.assign(
+  (words, at, next, context) => {
+    if (!context?.site) {
+      if (context?.trace) context.trace.unsited = true;
+      return false;
+    }
+    const definitions = runAnalysis(rootOf(context.site.scope)).definitions.get(hopSelector(words[at]));
+    return definitions?.length === 1 && functionArguments(words, at, next, context);
+  },
+  { global: functionArguments.global, shapes: functionArguments.shapes },
+);
 const programRules = new Map([
   // Prefixes and forwarders.
   ["timeout", modes("duration", timeoutPrefix)],
   ["nohup", modes("forward", (words, at, next) => next(at + 1))],
+  [
+    "xvfb-run",
+    modes("--auto-servernum", (words, at, next) => literal(words[at + 1], "--auto-servernum") && next(at + 2)),
+  ],
   ["npx", modes("forward", (words, at, next) => next(at + 1))],
   ["env", modes("assignments", envPrefix)],
   ["exec", modes("forward", execPrefix)],
@@ -1595,7 +3001,7 @@ const programRules = new Map([
   ["kubectl", Object.assign(modes("exec, create job", kubectlRoles), { terminals: [["kubectl", kubectlTerminal]] })],
   ["find", modes("-type f -name", findRoles)],
   ["eval", modes("program", evalProgram)],
-  ...[...shellInterpreters].map((name) => [name, modes("-c", shellProgram)]),
+  ...[...shellInterpreters].map((name) => [name, modes("-c, script", shellProgram)]),
   ...Object.entries(interpreterModes).map(([name, mode]) => [
     name,
     modes([mode.program, mode.stdin && "-", mode.query, "script"].filter(Boolean).join(", "), interpreterRoles),
@@ -1620,6 +3026,7 @@ const programRules = new Map([
     }),
   ],
   ["kubeconform", terminal({ shapes: { "": "-schema-location:1 -strict -summary -ignore-missing-schemas" } })],
+  ["vitest", terminal({ shapes: { run: "--config:1" } })],
   [
     "helm",
     terminal({
@@ -1639,9 +3046,9 @@ const programRules = new Map([
       shapes: {
         "cat-file": "-e",
         checkout: "--detach -B:1",
-        "config --global init.defaultBranch": { operands: 1 },
-        "config user.email": { operands: 1 },
-        "config user.name": { operands: 1 },
+        "config --global init.defaultBranch": { operands: 1, values: true },
+        "config user.email": { operands: 1, values: true },
+        "config user.name": { operands: 1, values: true },
         fetch: "--quiet --no-tags --no-recurse-submodules --tags",
         init: { options: "--quiet", operands: 0 },
         "ls-files": "",
@@ -1664,7 +3071,7 @@ const programRules = new Map([
         api: "--method:1 -f:1 --paginate --slurp --jq:1",
         "issue close": "--repo:1 --comment:1",
         "issue comment": "--repo:1 --body:1",
-        "issue create": { options: "--repo:1 --title:1 --body:1 --label:1", variadic: true },
+        "issue create": "--repo:1 --title:1 --body:1 --label:1 --milestone:1",
         "issue edit": "--repo:1 --body:1",
         "issue list": { options: "--repo:1 --state:1 --search:1 --limit:1 --json:1 --jq:1", operands: 0 },
         "run download": "--repo:1 --dir:1",
@@ -1712,7 +3119,7 @@ const programRules = new Map([
   ["set", terminal({ shapes: { "": "-Eeuo:1 -euo:1 -o:1 -e" } })],
   ["read", terminal({ shapes: { "": "-r" } })],
   ["mapfile", terminal({ shapes: { "": "-t" } })],
-  ["exit", terminal({ shapes: { "": { variadic: true } } })],
+  ["exit", terminal({ shapes: { "": { variadic: true, values: true } } })],
   ...[
     "basename",
     "dirname",
@@ -1742,6 +3149,7 @@ const programRules = new Map([
     "require_job",
     "restore_remote_states",
     "restore_state_on_error",
+    "trimmed_env",
     "verify_plan",
     "wait_for_domain",
   ].map((name) => [name, workflowFunction]),
@@ -1759,7 +3167,7 @@ function admitsProgramAt(words, at, context) {
 // Tests bind their behavior matrix to it; admission itself never reads it.
 export function benignAdmissionInventory() {
   const terminalRows = (selector, rule) =>
-    rule.shapes.map(({ path, options, operands, variadic }) => ({
+    rule.shapes.map(({ path, options, operands, variadic, values }) => ({
       selector,
       kind: "terminal",
       path: path.join(" "),
@@ -1767,11 +3175,13 @@ export function benignAdmissionInventory() {
       options: Object.fromEntries(options),
       operands,
       variadic,
+      values,
     }));
   return [...programRules].flatMap(([selector, rule]) => [
+    ...(rule === workflowFunction ? [{ selector, kind: "function" }] : []),
     ...(rule.modes ?? []).map((mode) => ({ selector, kind: "program", mode })),
     ...(rule.terminals ?? []).flatMap(([prefix, terminalRule]) => terminalRows(prefix, terminalRule)),
-    ...(rule.shapes ? terminalRows(selector, rule) : []),
+    ...(rule.shapes && rule !== workflowFunction ? terminalRows(selector, rule) : []),
   ]);
 }
 
@@ -1826,10 +3236,103 @@ function benignAdmissionViolations(entry, grammar) {
   const shape = benignShapeViolation(entry);
   if (shape) return [shape];
   if (entry.dataOperands) return [];
-  return roleViolations(entry, entry.words, grammar, {
-    origin: entryOriginWitness(entry),
-    directories: entryDirectories(entry),
-  });
+  // An origin transition keeps its immutable pre-transition record: the same
+  // shape must occur there, and both run hashes are pinned. The transition
+  // itself admits nothing; the proof below runs at the current origin.
+  if (entry.transition) {
+    const { from, beforeRunSha256, afterRunSha256 } = entry.transition;
+    const before = from && originRecord(grammar, from);
+    const after = originRecord(grammar, entry.origin);
+    const intact =
+      before &&
+      after &&
+      before.runSha256 === beforeRunSha256 &&
+      after.runSha256 === afterRunSha256 &&
+      originKey(from) !== originKey(entry.origin) &&
+      originSites({ ...entry, origin: from, transition: undefined }, grammar).length > 0;
+    if (!intact) return [`${entry.id}: incomplete benign form proof or corpus identity.`];
+  }
+  const base = { origin: entryOriginWitness(entry), directories: entryDirectories(entry), grammar };
+  const trace = { unsited: false, proofs: [] };
+  const stored = roleViolations(entry, entry.words, grammar, { ...base, trace });
+  if (!trace.unsited) return stored;
+  const sites = originSites(entry, grammar);
+  return sites.length && sites.every((context) => !roleViolations(entry, context.words, grammar, context).length)
+    ? []
+    : [`${entry.id}: benign payload admits an unpinned program.`];
+}
+
+// Each occurrence of a stored entry at its stored origin with its own
+// violations and F4 proofs: the validator's per-occurrence evidence.
+export function storedOccurrenceProofs(entry, grammar = DESTRUCTIVE_GRAMMAR) {
+  return originSites(entry, grammar).map((context) => ({
+    index: (context.words[0]?.index ?? 0) + (context.site?.scope.offset ?? 0),
+    violations: roleViolations(entry, context.words, grammar, context),
+    proofs: context.trace.proofs,
+  }));
+}
+
+const originKey = ({ sha, path, job, step }) => `${sha}\u0000${path}\u0000${job}\u0000${step}`;
+const originScopes = new WeakMap();
+
+// The stored origin record of an entry: its LF run text and the step, job
+// and workflow env maps at that origin, self-hashed. Absent or altered
+// records prove nothing.
+function originRecord(grammar, origin) {
+  const record = (grammar.origins ?? []).find((candidate) => originKey(candidate) === originKey(origin ?? {}));
+  if (!record || typeof record.run !== "string") return null;
+  const env = { workflow: record.env?.workflow ?? {}, job: record.env?.job ?? {}, step: record.env?.step ?? {} };
+  return record.runSha256 === sha256(record.run) && record.envSha256 === sha256(JSON.stringify(env))
+    ? { ...record, env }
+    : null;
+}
+
+// Every occurrence of the entry's exact shape in its stored origin run (and
+// the run's substitutions), each with its own site context.
+function originSites(entry, grammar) {
+  const record = originRecord(grammar, entry.origin);
+  if (!record) return [];
+  const stored = (grammar.origins ?? []).find((candidate) => originKey(candidate) === originKey(record));
+  if (!originScopes.has(stored)) originScopes.set(stored, lexicalScope(record.run));
+  const root = originScopes.get(stored);
+  const sites = [];
+  const witness = entryOriginWitness(entry);
+  const input = JSON.stringify(entry.input ?? []);
+  const directories = runDirectories(record.run, root.lexed.tokens, record.env);
+  for (const scope of scopesOf(root)) {
+    const commands = commandsFromTokens(scope.lexed.tokens);
+    for (const command of commands) {
+      let { words } = resolveCommandWords(command, commands, scope.lexed.tokens);
+      while (["command", "exec", "env"].includes(words[0]?.value) && !words[0].dynamic && words[1])
+        words = words.slice(1);
+      const body = JSON.stringify(
+        command.redirects.filter(({ target }) => target?.body !== undefined).map(({ target }) => target.body),
+      );
+      const exact =
+        words.length === entry.words.length &&
+        body === input &&
+        entry.words.every(
+          (word, index) =>
+            word.value === words[index].value &&
+            word.dynamic === words[index].dynamic &&
+            word.quoted === words[index].quoted,
+        );
+      if (!exact) continue;
+      sites.push({
+        ...siteContext(scope, command, {
+          origin: witness,
+          directories: directories
+            .filter(({ after }) => after < (command.words[0]?.index ?? -1) + scope.offset)
+            .map(({ operand }) => operand),
+          env: record.env,
+          grammar,
+          trace: { unsited: false, proofs: [] },
+        }),
+        words,
+      });
+    }
+  }
+  return sites;
 }
 
 // Covered-token and role admission over `words`: the stored entry words when
@@ -1845,7 +3348,10 @@ function roleViolations(entry, words, grammar, context) {
       return Boolean(result?.operation) || result?.disposition === "INDETERMINATE";
     });
   if (covered) return [`${entry.id}: benign payload contains a covered invocation.`];
-  if (!admitsProgramAt(words, 0, { input: entry.input, ...context }) || shellOrEvalAnywhereUnpinned(words))
+  if (
+    !admitsProgramAt(words, 0, { ...context, input: entry.input, entry: entry.id }) ||
+    shellOrEvalAnywhereUnpinned(words)
+  )
     return [`${entry.id}: benign payload admits an unpinned program.`];
   return [];
 }
@@ -1863,15 +3369,54 @@ function dataOperandsMatch(selector, words) {
   if (selector === "install")
     return words.length === 5 && words[1]?.value === "-m" && /^0?[0-7]{3}$/.test(words[2]?.value);
   if (selector === "printf") return !words[1]?.dynamic && !words[1]?.value.startsWith("-");
-  if (selector === "[[") {
-    if (words.at(-1)?.value !== "]]") return false;
-    const comparison = (word) => ["==", "!=", "=~"].includes(word?.value);
-    return (
-      (words.length === 5 && comparison(words[2])) ||
-      (words.length === 6 && words[1]?.value === "!" && comparison(words[3]))
-    );
-  }
+  if (selector === "[[") return words.at(-1)?.value === "]]" && conditionalExpression(words.slice(1, -1));
   return true;
+}
+
+// `[[` operands: unary and binary primaries, `!` and parentheses joined by &&
+// and ||. Every operator is a literal conditional word; operands are data.
+const conditionalUnary = spaced("-z -n -f -d -e -s -r -w -x -L -h -v");
+const conditionalBinary = spaced("== != =~ = < > -eq -ne -lt -le -gt -ge -nt -ot");
+function conditionalExpression(words) {
+  let index = 0;
+  const operator = (value) => literal(words[index], value);
+  const operand = () => {
+    const word = words[index];
+    if (!word || (!word.dynamic && ["&&", "||", "(", ")", "!"].includes(word.value))) return false;
+    index += 1;
+    return true;
+  };
+  const primary = () => {
+    if (operator("!")) {
+      index += 1;
+      return primary();
+    }
+    if (operator("(")) {
+      index += 1;
+      if (!disjunction() || !operator(")")) return false;
+      index += 1;
+      return true;
+    }
+    if (!words[index]?.dynamic && conditionalUnary.has(words[index]?.value) && words[index + 1]) {
+      index += 1;
+      return operand();
+    }
+    if (!operand()) return false;
+    if (!words[index]?.dynamic && conditionalBinary.has(words[index]?.value)) {
+      index += 1;
+      return operand();
+    }
+    return true;
+  };
+  const disjunction = () => {
+    if (!primary()) return false;
+    while (operator("&&") || operator("||")) {
+      index += 1;
+      if (!primary()) return false;
+    }
+    return true;
+  };
+  return words.length > 0 && disjunction() && index === words.length;
 }
 
 // The first matching entry that admits the actual command, or the named
@@ -2032,53 +3577,73 @@ const defaultGrammarProof = validateGrammarPartition();
 const grammarProof = (grammar) =>
   grammar === DESTRUCTIVE_GRAMMAR ? defaultGrammarProof : validateGrammarPartition(grammar);
 
-export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR } = {}) {
-  if (typeof run !== "string") return { invocations: [], operations: [], indeterminate: [] };
-  return classifyRun(run, grammar, grammarProof(grammar));
+// `env` holds the step/job/workflow env declarations the run executes under;
+// operands rooted in a name it does not declare and the run does not bind
+// prove nothing.
+export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR, env = {} } = {}) {
+  if (typeof run !== "string") return { invocations: [], operations: [], indeterminate: [], proofs: [] };
+  return classifyRun(run, grammar, grammarProof(grammar), env);
 }
 
 // A complete run block. Only a block that is exactly an origin witness carries
 // that witness, and only into its proved substitution occurrence.
-function classifyRun(run, grammar, proof) {
+function classifyRun(run, grammar, proof, env = {}) {
   const witness = runOriginWitness(run);
-  return classifyProvedRun(witness?.run ?? run, grammar, proof, witness);
+  const text = witness?.run ?? run;
+  const trace = { unsited: false, proofs: [] };
+  const result = classifyProvedRun(text, grammar, proof, witness, null, lexicalScope(text), env, trace);
+  return { ...result, proofs: trace.proofs };
+}
+
+// The site context of one command in `scope`.
+function siteContext(scope, command, extra) {
+  const first = command.words[0] ?? command.assignments[0]?.token;
+  const node = first ? scope.nodes.get(first.index) : null;
+  return { ...extra, site: node ? siteOf(scope, node) : null };
 }
 
 // One grammar proof covers a run and every substitution nested in it.
-function classifyProvedRun(run, grammar, proof, witness = null, origin = null) {
+function classifyProvedRun(run, grammar, proof, witness, origin, scope, env, trace) {
   if (!proof.passed) {
     const unknown = { tool: "grammar", index: 0, disposition: "INDETERMINATE", reason: proof.violations.join("; ") };
     return { invocations: [unknown], operations: [], indeterminate: [unknown] };
   }
-  const lexed = shellTokens(run);
+  const lexed = scope.lexed;
+  const errors = [...lexed.errors];
   const commands = commandsFromTokens(lexed.tokens);
   for (const production of lexed.productions) {
     const handled = grammar.partition.some(
       (member) =>
         member.surface === "shell" && member.form.production === production && member.disposition === "HANDLED",
     );
-    if (!handled) lexed.errors.push(`INDETERMINATE shell production ${production}`);
+    if (!handled) errors.push(`INDETERMINATE shell production ${production}`);
   }
-  lexed.errors.push(...shellSyntaxErrors(lexed.tokens, commands, grammar));
-  const directories = runDirectories(run, lexed.tokens);
+  errors.push(...shellSyntaxErrors(lexed.tokens, commands, grammar));
+  const directories = runDirectories(rootOf(scope).run, rootOf(scope).lexed.tokens, env);
   // A directory operand is proved only for commands after its last binding.
-  const context = (command) => ({
-    origin,
-    directories: directories
-      .filter(({ after }) => after < (command.words[0]?.index ?? -1))
-      .map(({ operand }) => operand),
-  });
+  const context = (command) =>
+    siteContext(scope, command, {
+      origin,
+      directories: directories
+        .filter(({ after }) => after < (command.words[0]?.index ?? -1) + scope.offset)
+        .map(({ operand }) => operand),
+      env,
+      grammar,
+      trace,
+    });
   const invocations = commands
     .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar, context(command)))
     .filter(Boolean);
   for (const substitution of lexed.substitutions) {
     const bound = witness !== null && substitution.index === witness.occurrence ? witness : null;
-    for (const invocation of classifyProvedRun(substitution.run, grammar, proof, null, bound).invocations)
+    const child = scope.children.find(({ index }) => index === substitution.index)?.scope;
+    for (const invocation of classifyProvedRun(substitution.run, grammar, proof, null, bound, child, env, trace)
+      .invocations)
       invocations.push({ ...invocation, index: substitution.index + invocation.index });
   }
-  if (lexed.errors.length) {
+  if (errors.length) {
     if (!invocations.length) invocations.push({ tool: "shell", index: 0 });
-    const reason = lexed.errors.join(", ");
+    const reason = errors.join(", ");
     for (const invocation of invocations) {
       invocation.disposition = "INDETERMINATE";
       invocation.reason = reason;
@@ -2091,7 +3656,6 @@ function classifyProvedRun(run, grammar, proof, witness = null, origin = null) {
     indeterminate: invocations.filter((invocation) => invocation.disposition === "INDETERMINATE"),
   };
 }
-
 // ---------------------------------------------------------------------------
 // Workflow shape contract. These are shape proofs over the cleanup workflows,
 // not dataflow, ownership or reachability proofs.
@@ -2407,7 +3971,8 @@ function parseWorkflow(source) {
 
 function classifyStep(workflow, job, step, grammar, proof) {
   const shell = step.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell ?? "bash";
-  if (/^bash(?:\s|$)/.test(shell)) return classifyRun(step.run, grammar, proof);
+  const env = { workflow: workflow.env ?? {}, job: job.env ?? {}, step: step.env ?? {} };
+  if (/^bash(?:\s|$)/.test(shell)) return classifyRun(step.run, grammar, proof, env);
   return { operations: [], indeterminate: [{ tool: shell, reason: "unproved non-Bash run step" }] };
 }
 
