@@ -79,6 +79,7 @@ export async function runCountCaptureJourney(
       stoppedAt: now(),
       phase,
       reason,
+      sends: [],
       evidence: {},
       classification: {
         verdict,
@@ -135,7 +136,9 @@ export async function runCountCaptureJourney(
     const frozen = await action("capture-freeze", { collection: JSON.stringify(freezeCollection) });
     const raw = (frozen as { receipt?: unknown })?.receipt ?? frozen;
     const stopped = countLifecycleStopReceiptSchema.safeParse(raw);
-    if (stopped.success && validateCountLifecycleReceipt(stopped.data).valid) return stopped.data;
+    // Return the server envelope unchanged; schema defaults are validation-only
+    // and must not rewrite a retained stop receipt on the runner path.
+    if (stopped.success && validateCountLifecycleReceipt(raw).valid) return raw as CountLifecycleStopReceipt;
     const parsed = countLifecycleReceiptSchema.parse(raw);
     if (
       parsed.authority.runnerSha !== identity.sha ||

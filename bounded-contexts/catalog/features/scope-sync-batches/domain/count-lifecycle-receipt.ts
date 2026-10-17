@@ -462,6 +462,9 @@ export const countLifecycleStopReceiptSchema = z
     stoppedAt: instant,
     phase: z.enum(capturePhases),
     reason: z.enum(countLifecycleStopReasons),
+    // Retain the durable send ledger at the stop envelope as well as inside
+    // evidence so callers can account for debits without unpacking evidence.
+    sends: receiptFields.sends.default([]),
     evidence: z.object(receiptFields).strict().partial(),
     classification: classificationSchema,
   })
