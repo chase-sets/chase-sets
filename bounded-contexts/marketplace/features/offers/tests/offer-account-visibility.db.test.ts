@@ -55,6 +55,7 @@ describeDb("Offer account visibility on Postgres", () => {
   async function status(
     eventType: "identity.account.suspended" | "identity.account.reactivated" | "identity.account.closed",
     version: number,
+    globalPosition = String(version),
   ) {
     const services = createMarketplaceServices(pool);
     const subscription = marketplaceModule.buildSubscriptions!(services).find(
@@ -70,7 +71,7 @@ describeDb("Offer account visibility on Postgres", () => {
           id: `evt_${version}`,
           streamId: "identity.account-acc_buyer",
           streamVersion: version,
-          globalPosition: String(version),
+          globalPosition,
           timing: { occurredAt: `2026-10-17T00:00:0${version}.000Z`, recordedAt: `2026-10-17T00:00:0${version}.000Z` },
         },
       ),
@@ -121,6 +122,8 @@ describeDb("Offer account visibility on Postgres", () => {
     expect((await patchRows()).length).toBe(suspendedPatchCount);
     await status("identity.account.reactivated", 3);
     expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });
+    expect(await getOfferMatch(pool, "off_one", "acc_seller")).toMatchObject({ offer_id: "off_one" });
+    expect((await listOfferMatchesForSellers(pool, "off_one", ["acc_seller"])).size).toBe(1);
     expect(await patchRows()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -132,5 +135,18 @@ describeDb("Offer account visibility on Postgres", () => {
     );
     await status("identity.account.closed", 4);
     expect(await getPublicOffer(pool, "off_one")).toBeNull();
+    expect(await getOfferMatch(pool, "off_one", "acc_seller")).toBeNull();
+    expect((await listOfferMatchesForSellers(pool, "off_one", ["acc_seller"])).size).toBe(0);
+    await status("identity.account.suspended", 1, "11");
+    await status("identity.account.closed", 3, "30");
+    expect(
+      (
+        await pool.query<{ status: string; status_stream_version: number }>(
+          `SELECT status, status_stream_version FROM marketplace_account_pages WHERE account_id = 'acc_buyer'`,
+        )
+      ).rows[0],
+    ).toEqual({ status: "closed", status_stream_version: 4 });
+    expect((await patchRows()).some((row) => row.sourceGlobalPosition === "11")).toBe(false);
+    expect((await patchRows()).some((row) => row.sourceGlobalPosition === "30")).toBe(false);
   });
 });

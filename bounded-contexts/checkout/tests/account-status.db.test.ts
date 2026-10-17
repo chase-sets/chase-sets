@@ -156,66 +156,111 @@ describeDb("Checkout account status visibility on Postgres", () => {
     const project = async (type: string, streamId: string, version: number, data: Record<string, unknown>) => {
       await handlers[type]!(identityEvent(type, streamId, version, data));
     };
-    const emptyAccount = "acc_empty_replay";
-    const emptyStream = `identity.account-${emptyAccount}`;
-    await project("identity.account.created", emptyStream, 1, { accountId: emptyAccount, displayName: "Empty Buyer" });
-    await project(
-      "identity.shipping-address.added",
-      `identity.shipping-address-book-${emptyAccount}`,
-      1,
-      addressData(emptyAccount, "addr_empty", "1 Main Street"),
-    );
-    await project("identity.account.suspended", emptyStream, 3, {});
-    await project("identity.account.profile-updated", emptyStream, 4, { displayName: "Renamed Empty Buyer" });
-    await project("identity.account.reactivated", emptyStream, 5, {});
-    await project("identity.account.closed", emptyStream, 6, {});
-    expect(
-      (
-        await pool.query<{
-          status: string;
-          status_stream_version: number;
-          display_name: string;
-          last_stream_version: number;
-        }>(
-          `SELECT status, status_stream_version, display_name, last_stream_version
-           FROM checkout_seller_accounts WHERE account_id = $1`,
-          [emptyAccount],
-        )
-      ).rows[0],
-    ).toMatchObject({
-      status: "closed",
-      status_stream_version: 6,
-      display_name: "Renamed Empty Buyer",
-      last_stream_version: 4,
-    });
-    const emptyAddress = await pool.query(
-      `SELECT line1, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_empty'`,
-    );
-    expect(emptyAddress.rows[0]).toEqual({ line1: "1 Main Street", last_stream_version: 1 });
+    const displayName = "Replay Buyer";
+    const lifecycle = async (accountId: string, addressId: string) => {
+      const stream = `identity.account-${accountId}`;
+      const addressStream = `identity.shipping-address-book-${accountId}`;
+      await project("identity.account.created", stream, 1, { accountId, displayName });
+      expect(
+        (
+          await pool.query(`SELECT status, status_stream_version FROM checkout_seller_accounts WHERE account_id = $1`, [
+            accountId,
+          ])
+        ).rows[0],
+      ).toEqual({ status: "active", status_stream_version: 1 });
+      await project("identity.account.suspended", stream, 2, {});
+      expect(
+        (
+          await pool.query(`SELECT status, status_stream_version FROM checkout_seller_accounts WHERE account_id = $1`, [
+            accountId,
+          ])
+        ).rows[0],
+      ).toEqual({ status: "suspended", status_stream_version: 2 });
+      await project("identity.account.profile-updated", stream, 3, { displayName });
+      expect(
+        (
+          await pool.query(
+            `SELECT status, status_stream_version, display_name FROM checkout_seller_accounts WHERE account_id = $1`,
+            [accountId],
+          )
+        ).rows[0],
+      ).toEqual({ status: "suspended", status_stream_version: 2, display_name: displayName });
+      await project("identity.account.reactivated", stream, 4, {});
+      expect(
+        (
+          await pool.query(`SELECT status, status_stream_version FROM checkout_seller_accounts WHERE account_id = $1`, [
+            accountId,
+          ])
+        ).rows[0],
+      ).toEqual({ status: "active", status_stream_version: 4 });
+      await project(
+        "identity.shipping-address.added",
+        addressStream,
+        1,
+        addressData(accountId, addressId, "1 Main Street"),
+      );
+      await project("identity.shipping-address.updated", addressStream, 2, {
+        ...addressData(accountId, addressId, "2 Main Street"),
+        updatedAt: "2026-10-17T00:00:02.000Z",
+      });
+      expect(
+        (
+          await pool.query(
+            `SELECT line1, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = $1`,
+            [addressId],
+          )
+        ).rows[0],
+      ).toEqual({ line1: "2 Main Street", last_stream_version: 2 });
+      await project("identity.account.closed", stream, 5, {});
+      expect(
+        (
+          await pool.query(`SELECT status, status_stream_version FROM checkout_seller_accounts WHERE account_id = $1`, [
+            accountId,
+          ])
+        ).rows[0],
+      ).toEqual({ status: "closed", status_stream_version: 5 });
+    };
+
+    await lifecycle("acc_empty_replay", "addr_empty");
+    const emptyTuple = (
+      await pool.query(
+        `SELECT status, status_stream_version, display_name, slug, last_stream_version FROM checkout_seller_accounts WHERE account_id = 'acc_empty_replay'`,
+      )
+    ).rows[0];
 
     const advancedAccount = "acc_advanced_replay";
     const advancedStream = `identity.account-${advancedAccount}`;
-    await project("identity.account.created", advancedStream, 1, {
-      accountId: advancedAccount,
-      displayName: "Advanced Buyer",
-    });
-    await project("identity.account.profile-updated", advancedStream, 10, { displayName: "Latest Buyer" });
+    const advancedAddressStream = `identity.shipping-address-book-${advancedAccount}`;
+    await project("identity.account.created", advancedStream, 1, { accountId: advancedAccount, displayName });
+    await project("identity.account.profile-updated", advancedStream, 3, { displayName });
     await project(
       "identity.shipping-address.added",
-      `identity.shipping-address-book-${advancedAccount}`,
-      10,
-      addressData(advancedAccount, "addr_advanced", "99 Current Street"),
+      advancedAddressStream,
+      1,
+      addressData(advancedAccount, "addr_advanced", "1 Main Street"),
     );
-    const beforeReplay = (
+    await project("identity.shipping-address.updated", advancedAddressStream, 2, {
+      ...addressData(advancedAccount, "addr_advanced", "2 Main Street"),
+      updatedAt: "2026-10-17T00:00:02.000Z",
+    });
+    const advancedAddress = (
       await pool.query(
         `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
       )
     ).rows[0];
+    for (const [type, version, data] of [
+      ["identity.account.created", 1, { accountId: advancedAccount, displayName }],
+      ["identity.account.suspended", 2, {}],
+      ["identity.account.profile-updated", 3, { displayName }],
+      ["identity.account.reactivated", 4, {}],
+      ["identity.account.closed", 5, {}],
+    ] as const)
+      await project(type, advancedStream, version, data);
     for (const [version, line1] of [
-      [1, "1 Replay Street"],
-      [2, "2 Replay Street"],
+      [1, "1 Main Street"],
+      [2, "2 Main Street"],
     ] as const) {
-      await project("identity.shipping-address.updated", `identity.shipping-address-book-${advancedAccount}`, version, {
+      await project("identity.shipping-address.updated", advancedAddressStream, version, {
         ...addressData(advancedAccount, "addr_advanced", line1),
         updatedAt: `2026-10-17T00:00:0${version}.000Z`,
       });
@@ -225,35 +270,21 @@ describeDb("Checkout account status visibility on Postgres", () => {
             `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
           )
         ).rows[0],
-      ).toEqual(beforeReplay);
+      ).toEqual(advancedAddress);
     }
-    await project("identity.account.suspended", advancedStream, 3, {});
     expect(
       (
         await pool.query(`SELECT status, status_stream_version FROM checkout_seller_accounts WHERE account_id = $1`, [
           advancedAccount,
         ])
       ).rows[0],
-    ).toEqual({
-      status: "suspended",
-      status_stream_version: 3,
-    });
-    await project("identity.account.reactivated", advancedStream, 5, {});
-    await project("identity.account.closed", advancedStream, 6, {});
-    expect(
-      (
-        await pool.query(
-          `SELECT status, status_stream_version, display_name, last_stream_version FROM checkout_seller_accounts WHERE account_id = $1`,
-          [advancedAccount],
-        )
-      ).rows[0],
-    ).toEqual({ status: "closed", status_stream_version: 6, display_name: "Latest Buyer", last_stream_version: 10 });
-    expect(
-      (
-        await pool.query(
-          `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
-        )
-      ).rows[0],
-    ).toEqual(beforeReplay);
+    ).toEqual({ status: "closed", status_stream_version: 5 });
+    const advancedTuple = (
+      await pool.query(
+        `SELECT status, status_stream_version, display_name, slug, last_stream_version FROM checkout_seller_accounts WHERE account_id = $1`,
+        [advancedAccount],
+      )
+    ).rows[0];
+    expect(advancedTuple).toEqual(emptyTuple);
   });
 });

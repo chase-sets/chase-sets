@@ -50,6 +50,11 @@ describeDb("Discovery Listing and Offer visibility parity on Postgres", () => {
          item_title, price_amount, price_currency_code, listing_stream_version, quantity_cap, supply_total_quantity,
          active_held_quantity, product_measure_snapshot, status)
       VALUES ('lst_seller', 'seller-listing', 'item-one', 'acc_active', 'inv_seller', 'cat_one', 'cat_one::', 'Item', '9.00', 'USD', 2, 1, 1, 0, '{}'::jsonb, 'active');
+      INSERT INTO discovery_market_listings
+        (listing_id, listing_slug, product_slug, account_id, inventory_item_id, catalog_catalog_item_id, product_id,
+         item_title, price_amount, price_currency_code, listing_stream_version, quantity_cap, supply_total_quantity,
+         active_held_quantity, product_measure_snapshot, status)
+      VALUES ('lst_missing', 'missing', 'item-one', 'acc_missing', 'inv_missing', 'cat_one', 'cat_one::', 'Item', '11.00', 'USD', 2, 1, 1, 0, '{}'::jsonb, 'active');
       INSERT INTO discovery_offer_demand_matches
         (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code,
          offer_stream_version, quantity_requested, status)

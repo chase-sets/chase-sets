@@ -66,6 +66,7 @@ describeDb("Discovery account status visibility on Postgres", () => {
   async function status(
     eventType: "identity.account.suspended" | "identity.account.reactivated" | "identity.account.closed",
     version: number,
+    globalPosition = String(version),
   ) {
     const handlers = buildDiscoveryMarketProjectionHandlers(pool);
     await handlers[eventType]!(
@@ -76,7 +77,7 @@ describeDb("Discovery account status visibility on Postgres", () => {
           id: `evt_${version}`,
           streamId: "identity.account-acc_seller",
           streamVersion: version,
-          globalPosition: String(version),
+          globalPosition,
           timing: { occurredAt: `2026-10-17T00:00:0${version}.000Z`, recordedAt: `2026-10-17T00:00:0${version}.000Z` },
         },
       ),
@@ -128,6 +129,16 @@ describeDb("Discovery account status visibility on Postgres", () => {
     };
   }
 
+  async function listingReads() {
+    const search = await searchDiscoveryItems(pool, { marketActivity: "listings", includeTotal: true });
+    return {
+      searchTotal: search.total,
+      accountListings:
+        (await getDiscoveryPublicAccountBySlug(pool, "seller-one"))?.listings.map((row) => row.listing_id) ?? [],
+      summary: (await getDiscoveryItemDetail(pool, "item-one"))?.market_summary,
+    };
+  }
+
   async function outboxRows() {
     const result = await pool.query<{ source_global_position: string; patch_key: string; payload_json: string }>(
       `SELECT source_global_position::text, patch_key, payload_json
@@ -146,6 +157,7 @@ describeDb("Discovery account status visibility on Postgres", () => {
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toMatchObject({ listing_id: "lst_one" });
     expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one"))!.listings).toHaveLength(1);
     expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toMatchObject({ active_listing_count: 1 });
+    expect(await listingReads()).toMatchObject({ searchTotal: 1, accountListings: ["lst_one"] });
     expect(
       (await getDiscoveryItemDetailSellerOverlay(pool, { accountId: "acc_seller", catalogItemId: "cat_one" }))
         .accountOfferMatches,
@@ -154,6 +166,29 @@ describeDb("Discovery account status visibility on Postgres", () => {
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toBeNull();
     expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one"))!.listings).toHaveLength(0);
     expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toBeNull();
+    expect(await listingReads()).toMatchObject({ searchTotal: 0, accountListings: [] });
+    expect(await outboxRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceGlobalPosition: "2",
+          patchKey: "listing:lst_one",
+          changes: [
+            { op: "remove", entity: "discovery.marketListing", id: "lst_one" },
+            { op: "remove", entity: "discovery.publicListingDetail", id: "lst_one" },
+            expect.objectContaining({
+              op: "summary",
+              entity: "discovery.marketSummary",
+              id: "cat_one",
+              value: expect.objectContaining({
+                active_listing_count: 0,
+                lowest_price_amount: null,
+                total_visible_quantity: 0,
+              }),
+            }),
+          ],
+        }),
+      ]),
+    );
     expect(
       (await getDiscoveryItemDetailSellerOverlay(pool, { accountId: "acc_seller", catalogItemId: "cat_one" }))
         .accountOfferMatches,
@@ -165,7 +200,7 @@ describeDb("Discovery account status visibility on Postgres", () => {
     ).rows[0].count;
     expect(Number(suspendedOutboxCount)).toBeGreaterThan(0);
     await status("identity.account.suspended", 2);
-    await status("identity.account.reactivated", 1);
+    await status("identity.account.reactivated", 1, "11");
     expect(
       (
         await pool.query<{ status: string; status_stream_version: number }>(
@@ -173,17 +208,41 @@ describeDb("Discovery account status visibility on Postgres", () => {
         )
       ).rows[0],
     ).toEqual({ status: "suspended", status_stream_version: 2 });
-    expect(
-      (
-        await pool.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM realtime_projection_outbox WHERE projection_name = 'discovery-market-projection'`,
-        )
-      ).rows[0].count,
-    ).toBe(suspendedOutboxCount);
+    expect((await outboxRows()).some((row) => row.sourceGlobalPosition === "11")).toBe(false);
     await status("identity.account.reactivated", 3);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toMatchObject({ listing_id: "lst_one" });
+    expect(await listingReads()).toMatchObject({ searchTotal: 1, accountListings: ["lst_one"] });
+    expect(await outboxRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceGlobalPosition: "3",
+          patchKey: "listing:lst_one",
+          changes: [
+            expect.objectContaining({ op: "upsert", entity: "discovery.marketListing", id: "lst_one" }),
+            expect.objectContaining({ op: "upsert", entity: "discovery.publicListingDetail", id: "lst_one" }),
+            expect.objectContaining({
+              op: "summary",
+              value: expect.objectContaining({
+                active_listing_count: 1,
+                lowest_price_amount: "10.00",
+                total_visible_quantity: 4,
+              }),
+            }),
+          ],
+        }),
+      ]),
+    );
     await status("identity.account.closed", 4);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toBeNull();
+    await status("identity.account.closed", 3, "30");
+    expect(
+      (
+        await pool.query<{ status: string; status_stream_version: number }>(
+          `SELECT status, status_stream_version FROM discovery_market_accounts WHERE account_id = 'acc_seller'`,
+        )
+      ).rows[0],
+    ).toEqual({ status: "closed", status_stream_version: 4 });
+    expect((await outboxRows()).some((row) => row.sourceGlobalPosition === "30")).toBe(false);
   });
 
   it("hides and restores buyer Offers through every read and emits exact lifecycle patches", async () => {
