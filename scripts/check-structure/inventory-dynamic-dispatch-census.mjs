@@ -262,6 +262,15 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           parent.left === current &&
           parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
         ) {
+          const owner = parent.parent;
+          if (
+            (ts.isBindingElement(owner) && owner.initializer === parent) ||
+            (ts.isPropertyAssignment(owner) && owner.initializer === parent) ||
+            (ts.isArrayLiteralExpression(owner) && owner.elements.some((element) => element === parent))
+          )
+            return mutant === "assignment-unresolved-open" || mutant === "assignment-default-trusted"
+              ? NOT_ASSIGNMENT_PATTERN
+              : UNRESOLVED_ASSIGNMENT_PATTERN;
           try {
             return mutant === "assignment-source-syntactic"
               ? typeOf(pattern)
