@@ -86,7 +86,12 @@ const postagePolicyWriteSchema = objectSchema(
 
 const postagePolicyPreviewSchema = objectSchema(
   {
-    policy: objectSchema(postagePolicyProperties),
+    policy: {
+      type: "object",
+      description: "Postage policy values to evaluate.",
+      additionalProperties: false,
+      properties: postagePolicyProperties,
+    },
     shippingOption: stringProperty("Shipping option.", ["standard", "expedited", "priority"]),
     itemSubtotalAmount: stringProperty("Item subtotal amount."),
     quantity: { type: "number", description: "Item quantity." },
