@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { OperatorAuthorityDecision } from "@chase-sets/auth-context";
-import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createMcpRoutes, type McpAuditRecord, type McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { orderingService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/ordering";
 import type { McpToolDescriptor } from "@chase-sets/platform-runtime/mcp-contracts";
@@ -585,6 +585,50 @@ describe("ordering postage policy MCP handlers", () => {
     ).rejects.toThrow("Postage policy not found.");
     expect(fakeServices.commandHandler).not.toHaveBeenCalled();
     expect(fakeServices.clonePolicy).not.toHaveBeenCalled();
+  });
+
+  it("kills permission and conditional-source bypass mutants with the same effect oracle", async () => {
+    const fake = { ...services(), getPolicy: vi.fn(async () => null) };
+    const handlers = createOrderingPostagePolicyMcpHandlers(fake);
+    const assertRefused = async (run: () => unknown) => {
+      await expect(Promise.resolve().then(run)).rejects.toThrow();
+      expect(fake.createPolicy).not.toHaveBeenCalled();
+      expect(fake.clonePolicy).not.toHaveBeenCalled();
+    };
+    await assertRefused(() => handlers.toolHandlers["ordering.create-postage-policy"]!(request(createArguments, null)));
+    await assertRefused(() =>
+      handlers.toolHandlers["ordering.clone-postage-policy"]!(
+        request({ id: policyId, label: "Clone", effectiveFrom: createArguments.effectiveFrom }),
+      ),
+    );
+    const context = createActorEventStoreContext(actor);
+    const permissionBypass = () =>
+      fake.createPolicy(
+        {
+          label: createArguments.label,
+          payload,
+          effectiveFrom: createArguments.effectiveFrom,
+          effectiveUntil: null,
+          createdByUserId: actor.userId,
+        },
+        context,
+      );
+    await expect(assertRefused(permissionBypass)).rejects.toThrow();
+    expect(fake.createPolicy).toHaveBeenCalledOnce();
+    vi.mocked(fake.createPolicy).mockClear();
+    const sourceBypass = () =>
+      fake.clonePolicy(
+        policyId,
+        {
+          label: "Clone",
+          effectiveFrom: createArguments.effectiveFrom,
+          effectiveUntil: null,
+          createdByUserId: actor.userId,
+        },
+        context,
+      );
+    await expect(assertRefused(sourceBypass)).rejects.toThrow();
+    expect(fake.clonePolicy).toHaveBeenCalledOnce();
   });
 
   it("preserves an active lifecycle status when revising an active policy", async () => {
