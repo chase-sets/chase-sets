@@ -251,6 +251,7 @@ export function captureUploadIdentity(identity) {
 
 export async function validateCaptureUpload(env = process.env, workspace = process.cwd()) {
   const identity = captureRunnerIdentity(env);
+  if (credentialNames.some((key) => !env[key])) throw refused();
   const files = paths(env, workspace);
   const info = await lstat(files.seal);
   if (!info.isFile() || info.isSymbolicLink() || info.size > 2048) throw refused();

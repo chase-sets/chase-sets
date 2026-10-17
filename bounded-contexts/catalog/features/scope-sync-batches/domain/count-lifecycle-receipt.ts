@@ -446,25 +446,12 @@ const failedStopReasons = new Set<string>(["capture-stopped", "send-uncertain", 
 export const countLifecycleStopReceiptSchema = z
   .object({
     schemaVersion: z.literal("scope-sync-count-lifecycle-stop/v1"),
-    // A runner can stop before admission, so no server attribution exists yet.
-    // Once the server has sealed a run it fills every field and retains the
-    // phases it observed.
     attribution: receiptFields.attribution
-      .extend({
-        dispatchId: id.nullable(),
-        runnerRunId: githubId.nullable(),
-        runnerRunAttempt: attempt.nullable(),
-        runnerSha: sha.nullable(),
-        packetHash: hash.nullable(),
-        reviewReceiptHash: hash.nullable(),
-      })
+      .extend({ dispatchId: id.nullable(), packetHash: hash.nullable(), reviewReceiptHash: hash.nullable() })
       .strict(),
     stoppedAt: instant,
     phase: z.enum(capturePhases),
     reason: z.enum(countLifecycleStopReasons),
-    // Retain the durable send ledger at the stop envelope as well as inside
-    // evidence so callers can account for debits without unpacking evidence.
-    sends: receiptFields.sends.default([]),
     evidence: z.object(receiptFields).strict().partial(),
     classification: classificationSchema,
   })

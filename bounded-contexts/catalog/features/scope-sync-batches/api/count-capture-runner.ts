@@ -62,36 +62,14 @@ export async function runCountCaptureJourney(
   collectDeployment?: CountCaptureDeploymentCollection,
 ) {
   let phase: CountLifecycleStopReceipt["phase"] = "baseline";
-  const stop = (reason: CountLifecycleStopReceipt["reason"]): CountLifecycleStopReceipt => {
-    const verdict = ["capture-stopped", "send-uncertain", "unexpected-effects", "receipt-leak"].includes(reason)
-      ? "FAILED"
-      : "INCOMPLETE";
-    return {
+  const stop = (reason: CountLifecycleStopReceipt["reason"]): CountLifecycleStopReceipt =>
+    ({
       schemaVersion: "scope-sync-count-lifecycle-stop/v1",
-      attribution: {
-        dispatchId: null,
-        runnerRunId: null,
-        runnerRunAttempt: null,
-        runnerSha: null,
-        packetHash: null,
-        reviewReceiptHash: null,
-        phases: [],
-      },
       stoppedAt: now(),
       phase,
       reason,
-      sends: [],
       evidence: {},
-      classification: {
-        verdict,
-        reasons: [reason],
-        acceptance: {
-          "9431-ac7": { verdict, reasons: [reason] },
-          "9424-ac5": { verdict, reasons: [reason] },
-        },
-      },
-    };
-  };
+    }) as CountLifecycleStopReceipt;
   if (!identitySchema.safeParse(identity).success) return stop("authority-unbound");
   try {
     const baseline = baselineSchema.parse(await action("capture-baseline", identity));
@@ -139,7 +117,7 @@ export async function runCountCaptureJourney(
     const stopped = countLifecycleStopReceiptSchema.safeParse(raw);
     // Return the server envelope unchanged; schema defaults are validation-only
     // and must not rewrite a retained stop receipt on the runner path.
-    if (stopped.success) return raw as CountLifecycleStopReceipt;
+    if (stopped.success && validateCountLifecycleReceipt(stopped.data).valid) return stopped.data;
     const parsed = countLifecycleReceiptSchema.parse(raw);
     if (
       parsed.authority.runnerSha !== identity.sha ||
@@ -154,7 +132,6 @@ export async function runCountCaptureJourney(
         stoppedAt: parsed.frozenAt,
         phase: "freeze",
         reason: "missing-observation",
-        sends: parsed.sends,
         evidence: {
           startedAt: parsed.startedAt,
           frozenAt: parsed.frozenAt,
@@ -167,7 +144,6 @@ export async function runCountCaptureJourney(
           stoppedAt: parsed.frozenAt,
           phase: "freeze",
           reason: "missing-observation",
-          sends: parsed.sends,
           evidence: {
             startedAt: parsed.startedAt,
             frozenAt: parsed.frozenAt,

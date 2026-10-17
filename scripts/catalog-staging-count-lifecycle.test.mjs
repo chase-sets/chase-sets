@@ -12,6 +12,7 @@ import {
 } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-lifecycle";
 import {
   captureExitCode,
+  capture,
   captureActionDeadlineMs,
   captureResponseByteCap,
   addCookieMarkers,
@@ -24,6 +25,7 @@ import {
   completeStopReceipt,
   validateCaptureUpload,
 } from "./catalog-staging-count-lifecycle.mjs";
+import { runCountCaptureJourney } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-runner.ts";
 import { writeCountCaptureArtifact } from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-artifact.ts";
 import {
   syntheticCountCaptureAuthority,
@@ -44,8 +46,13 @@ describe("isolates capture", () => {
     });
     const run = job.steps.find((step) => step.id === "capture");
     expect(run.run).toContain("catalog-staging-count-lifecycle");
+    const credentialKeys = ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"];
+    expect(Object.keys(run.env ?? {}).sort()).toEqual(credentialKeys.slice().sort());
     const validate = job.steps.find((step) => step.id === "capture-receipt");
     expect(validate.run).toContain("validate");
+    expect(Object.keys(validate.env ?? {}).sort()).toEqual(credentialKeys.slice().sort());
+    expect(Object.keys(job.env ?? {})).not.toEqual(expect.arrayContaining(credentialKeys));
+    expect(Object.keys(document.env ?? {})).not.toEqual(expect.arrayContaining(credentialKeys));
     const uploads = job.steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
     expect(uploads).toHaveLength(1);
     expect(uploads[0].if).toContain("steps.capture-receipt.outcome == 'success'");
@@ -74,6 +81,16 @@ describe("isolates capture", () => {
       const mutant = parse(source);
       mutant.jobs["scope-sync-count-lifecycle"].if = `inputs.journey_scope == '${scope}'`;
       expect(() => assertIsolated(mutant)).toThrow();
+    }
+  });
+  it("rejects withheld-credential mutants on both steps", () => {
+    for (const id of ["capture", "capture-receipt"]) {
+      for (const key of ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"]) {
+        const mutant = parse(source);
+        const step = mutant.jobs["scope-sync-count-lifecycle"].steps.find((candidate) => candidate.id === id);
+        delete step.env[key];
+        expect(() => assertIsolated(mutant)).toThrow();
+      }
     }
   });
 });
@@ -217,6 +234,54 @@ describe("capture receipt contracts", () => {
     ];
     schemas.forEach((schema, index) => expect(schema.safeParse(requests[index]).success).toBe(true));
   });
+  const freezeArgs = (fetchImpl, deadlineMs = 1_000) => ({
+    apiPath: "/api/catalog/scope-sync-batches",
+    intent: "capture-freeze",
+    fields: { collection: "{}" },
+    authority: null,
+    runId: "123",
+    runAttempt: "1",
+    deadlineMs,
+    byteCap: captureResponseByteCap,
+    fetchImpl,
+  });
+  const streamed =
+    (text, { endless = false } = {}) =>
+    async (_url, init) => {
+      const bytes = new TextEncoder().encode(text);
+      const body = new ReadableStream({
+        start(controller) {
+          for (let at = 0; at < bytes.byteLength; at += 65_536) controller.enqueue(bytes.slice(at, at + 65_536));
+          if (endless)
+            init.signal?.addEventListener("abort", () => controller.error(init.signal.reason), { once: true });
+          else controller.close();
+        },
+      });
+      return { ok: true, headers: new Headers({ "cache-control": "no-store" }), body };
+    };
+  const wrapped = (n) => `{"receipt":"${"x".repeat(n)}"}`;
+  it("accepts the largest valid freeze response", async () => {
+    const text = wrapped(captureResponseByteCap - 14);
+    expect(Buffer.byteLength(text)).toBe(captureResponseByteCap);
+    await expect(captureActionInPage(freezeArgs(streamed(text)))).resolves.toEqual(JSON.parse(text));
+  });
+  it("refuses a response one byte over the cap", async () => {
+    const text = wrapped(captureResponseByteCap + 1 - 14);
+    expect(Buffer.byteLength(text)).toBe(captureResponseByteCap + 1);
+    await expect(captureActionInPage(freezeArgs(streamed(text)))).rejects.toThrow("capture-stopped");
+  });
+  it("stops headers followed by an endless body within the deadline", async () => {
+    const started = performance.now();
+    const outcome = await Promise.race([
+      captureActionInPage(freezeArgs(streamed('{"receipt":', { endless: true }), 50)).then(
+        () => "resolved",
+        () => "rejected",
+      ),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 2_000)),
+    ]);
+    expect(outcome).toBe("rejected");
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
 });
 
 const roots = [];
@@ -297,4 +362,80 @@ describe("runner-owned upload proof", () => {
       expect(() => captureRunnerIdentity({ ...env, [key]: "invalid" })).toThrow("count-capture-runner-refused");
     },
   );
+  it("stamps the run identity on every uploaded runner stop", async () => {
+    const identity = captureRunnerIdentity(env);
+    const authority = JSON.parse(env.CATALOG_CAPTURE_AUTHORITY);
+    const bound = { sha: identity.sha, dispatchId: identity.dispatchId, scopeRecordId: identity.scopeRecordId };
+    const stops = [
+      await runCountCaptureJourney({ ...bound, sha: "not-a-sha" }, vi.fn()),
+      await runCountCaptureJourney(
+        bound,
+        vi.fn(async () => {
+          throw new Error("synthetic-refusal");
+        }),
+      ),
+    ];
+    expect(stops.map((stop) => stop.reason)).toEqual(["authority-unbound", "capture-stopped"]);
+    for (const stop of stops) {
+      const root = await mkdtemp(join(tmpdir(), "count-capture-upload-"));
+      roots.push(root);
+      const completed = completeStopReceipt(stop, identity);
+      const files = {
+        artifact: join(root, "artifacts/catalog-count-lifecycle/receipt.json"),
+        seal: join(root, "catalog-count-capture-upload.json"),
+      };
+      await persistCaptureReceipt(completed, new Set(), files, root, identity);
+      const uploaded = JSON.parse(await readFile(files.artifact, "utf8"));
+      expect(uploaded.attribution).toEqual({
+        dispatchId: env.CATALOG_CAPTURE_DISPATCH_ID,
+        runnerRunId: env.GITHUB_RUN_ID,
+        runnerRunAttempt: Number(env.GITHUB_RUN_ATTEMPT),
+        runnerSha: env.GITHUB_SHA,
+        packetHash: authority.packetHash,
+        reviewReceiptHash: authority.review.receiptHash,
+        phases: [],
+      });
+      await expect(
+        validateCaptureUpload(
+          {
+            ...env,
+            CATALOG_ADMIN_E2E_EMAIL: "email",
+            CATALOG_ADMIN_E2E_PASSWORD: "password",
+            GH_TOKEN: "token",
+            RUNNER_TEMP: root,
+          },
+          root,
+        ),
+      ).resolves.toBeDefined();
+    }
+  });
+  it("rejects withheld-credential mutants on validation", async () => {
+    const { root, boundEnv } = await fixture();
+    for (const key of ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"])
+      await expect(
+        validateCaptureUpload(
+          {
+            ...boundEnv,
+            CATALOG_ADMIN_E2E_EMAIL: "email",
+            CATALOG_ADMIN_E2E_PASSWORD: "password",
+            GH_TOKEN: "token",
+            [key]: undefined,
+          },
+          root,
+        ),
+      ).rejects.toThrow("count-capture-runner-refused");
+  });
+  it("rejects withheld-credential mutants on capture before browser launch", async () => {
+    for (const key of ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"])
+      await expect(
+        capture({
+          ...env,
+          RUNNER_TEMP: tmpdir(),
+          CATALOG_ADMIN_E2E_EMAIL: "email",
+          CATALOG_ADMIN_E2E_PASSWORD: "password",
+          GH_TOKEN: "token",
+          [key]: undefined,
+        }),
+      ).rejects.toThrow("count-capture-runner-refused");
+  });
 });

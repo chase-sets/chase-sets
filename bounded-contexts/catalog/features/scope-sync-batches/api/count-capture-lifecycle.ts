@@ -589,8 +589,7 @@ export function createCountCaptureLifecycle(deps: {
       const run = await deps.store.seal(owner(session));
       return local(run, async () => {
         const receipt = await closedReceipt(run, parsed, run.stopped);
-        // The sealed server result is authoritative. Retain and return it
-        // unchanged; the runner validates full receipts and preserves stops.
+        if (!validateCountLifecycleReceipt(receipt).valid) throw new CountCaptureStopped();
         return { receipt: await deps.store.retainReceipt(run.runId, receipt) };
       });
     },
@@ -662,7 +661,6 @@ export function createCountCaptureLifecycle(deps: {
         stoppedAt: frozenAt,
         phase: "freeze",
         reason: stopped ? "capture-stopped" : "missing-observation",
-        sends,
         evidence: { startedAt: base.startedAt, frozenAt, sends, ...(effects ? { effects } : {}) },
         classification: {
           verdict: "INCOMPLETE",
