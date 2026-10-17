@@ -16,7 +16,7 @@ import {
   mcpServiceCatalog,
   validateMcpServiceCatalog,
 } from "@chase-sets/platform-runtime/mcp-contracts";
-import contextManifest from "../../../context.json" with { type: "json" };
+import { contextManifest } from "../../../index";
 import { createGoogleShoppingMcpHandlers } from "./mcp";
 import {
   toGoogleShoppingFullSyncJobStatus,
