@@ -150,7 +150,7 @@ export async function expectRenderedCopyWitness(
     return;
   }
   // Checkout seed.ts:327-371 produces no Sell List lines. Existing component:
-  // sell-list-page.tsx:242-249; locales/en/checkout.ts:374-376,822.
+  // sell-list-page.tsx:243-250; locales/en/checkout.ts:376-378,824.
   const empty = root.locator("section").filter({
     has: page.getByRole("heading", { name: "Your Sell List is empty", exact: true }),
   });

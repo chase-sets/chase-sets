@@ -13,7 +13,7 @@ import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSellerCrede
 
 type SweepPage = Readonly<{ persona: "collector" | "demo"; key: string; witness: RenderedCopyWitness; root?: string }>;
 const pages: readonly SweepPage[] = [
-  // Fulfillment seed.ts:185 supplies the review-eligible tracking identifier; notification-intents.ts:125 renders it.
+  // Fulfillment seed.ts:185 supplies the review-eligible tracking identifier; notification-intents.ts:130 renders it.
   {
     persona: "collector",
     key: "/account/notifications",
@@ -31,7 +31,7 @@ const pages: readonly SweepPage[] = [
     key: "/account/sessions",
     witness: { kind: "populated", selector: "table tbody tr", text: "Collector Zero" },
   },
-  // Platform Operations support/runtime-support/seed.ts:269-284 creates the not-received request with one of two required evidence items.
+  // Platform Operations support/runtime-support/seed.ts:270-285 creates the not-received request with one of two required evidence items.
   {
     persona: "collector",
     key: "/account/support",
@@ -68,7 +68,7 @@ const pages: readonly SweepPage[] = [
     key: "/account/listings",
     witness: { kind: "populated", selector: "table tbody tr", text: "Charizard" },
   },
-  // Checkout seed.ts:327-371 seeds no Sell List lines; sell-list-page.tsx:242-249 owns the healthy empty state.
+  // Checkout seed.ts:327-371 seeds no Sell List lines; sell-list-page.tsx:243-250 owns the healthy empty state.
   { persona: "demo", key: "/account/sell-list", witness: { kind: "sell-list-empty" } },
   // Fulfillment support/runtime-support/seed.ts:175 creates the exception card's tracking identifier.
   {

@@ -17,14 +17,14 @@ type SweepPage = Readonly<{
   resolvedPath?: string;
 }>;
 const pages: readonly SweepPage[] = [
-  // Identity support/runtime-support/seed.ts:444 creates this account's audit event.
+  // Identity support/runtime-support/seed.ts:391 creates this account's audit event.
   {
     persona: "owner",
     tag: "@admin-access",
     key: "/access/accounts/acc_seed_demo_account?tab=audit",
     witness: { kind: "populated", selector: '[role="tabpanel"]', text: "account · created" },
   },
-  // Auth seed.ts:86 and Identity seed.ts:446 bind the seeded demo session's account name.
+  // Auth seed.ts:86 and Identity seed.ts:393 bind the seeded demo session's account name.
   {
     persona: "owner",
     tag: "@admin-access",
@@ -84,7 +84,7 @@ const pages: readonly SweepPage[] = [
     key: "/growth/google-shopping",
     witness: { kind: "populated", selector: "table tbody tr", text: "lst_seed_card_vault_pikachu_low_margin" },
   },
-  // Identity seed.ts:471-482 creates and suspends this distinct account; cross-account audit requires platform admin.
+  // Identity seed.ts:418-429 creates and suspends this distinct account; cross-account audit requires platform admin.
   {
     persona: "platform-admin",
     tag: "@admin-access",
@@ -116,7 +116,7 @@ const pages: readonly SweepPage[] = [
       text: "Manual credit adjustment for seeded balance coverage",
     },
   },
-  // Platform Operations seed.ts:270 creates this populated support queue row. Section home redirects to the queue.
+  // Platform Operations seed.ts:271 creates this populated support queue row. Section home redirects to the queue.
   {
     persona: "platform-admin",
     tag: "@admin-support",
@@ -124,7 +124,7 @@ const pages: readonly SweepPage[] = [
     resolvedPath: "/support/requests",
     witness: { kind: "populated", selector: "table tbody tr", text: "1/2 required" },
   },
-  // Platform Operations seed.ts:157 creates this feedback comment, shown in the list row and detail panel.
+  // Platform Operations seed.ts:158 creates this feedback comment, shown in the list row and detail panel.
   {
     persona: "platform-admin",
     tag: "@admin-support",
