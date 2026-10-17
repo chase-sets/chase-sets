@@ -569,13 +569,19 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       );
       const original = counted.listings.applyBulkListingPriceUpdates;
       let completed = 0;
-      counted.listings.applyBulkListingPriceUpdates = async (...args: Parameters<typeof original>) => {
-        const result = await original(...args);
-        completed += 1;
-        if (completed === 1) throw new Error("synthetic interruption between owner calls");
-        return result;
-      };
-      await expect(marketplaceModule.seed!(pools.marketplace, counted)).rejects.toThrow(
+      const interrupted = {
+        ...counted,
+        listings: {
+          ...counted.listings,
+          applyBulkListingPriceUpdates: async (...args: Parameters<typeof original>) => {
+            const result = await original(...args);
+            completed += 1;
+            if (completed === 1) throw new Error("synthetic interruption between owner calls");
+            return result;
+          },
+        },
+      } as typeof counted;
+      await expect(marketplaceModule.seed!(pools.marketplace, interrupted)).rejects.toThrow(
         "synthetic interruption between owner calls",
       );
       expect(counter.calls).toBe(1);
@@ -583,7 +589,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
         updatesBefore + 7,
       );
-      await marketplaceModule.seed!(pools.marketplace, counted);
+      await marketplaceModule.seed!(pools.marketplace, interrupted);
       expect(counter.calls).toBe(2);
       await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
         updatesBefore + 10,
@@ -593,7 +599,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
           countListingEvents(pools.marketplace, row.stream_id, "marketplace.listing.price-updated"),
         ).resolves.toBe(perStreamBefore[index]! + 1);
       }
-      await marketplaceModule.seed!(pools.marketplace, counted);
+      await marketplaceModule.seed!(pools.marketplace, interrupted);
       expect(counter.calls).toBe(2);
       await runMarketplaceSeed(pools);
       await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
