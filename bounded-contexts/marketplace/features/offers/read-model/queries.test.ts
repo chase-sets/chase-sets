@@ -33,6 +33,8 @@ describe("marketplace offer read-model queries", () => {
       expect(sql).toContain("listing.price_currency_code = offer.price_currency_code");
       expect(sql).toContain("policy.state->>'status' IS DISTINCT FROM 'active'");
       expect(sql).toContain("marketplace_supply_items");
+      expect(sql).not.toContain("itemCommitmentAllowance");
+      expect(sql).not.toContain("consumedItemAmount");
     }
   });
   it.each([null, "unavailable", "held", "refresh_required"] as const)(
