@@ -175,6 +175,7 @@
     "bounded-contexts/collections/features/saved-lists/read-model/queries.ts",
     "bounded-contexts/collections/features/saved-lists/read-model/shared-page-projection.ts",
     "bounded-contexts/collections/features/saved-lists/read-model/shared-page-queries.ts",
+    "bounded-contexts/collections/support/runtime-support/anonymous-owner-activation.ts",
     "bounded-contexts/commercial-terms/features/agreements/read-model/queries.ts",
     "bounded-contexts/commercial-terms/features/resolutions/integrations/account-source/account-projection.ts",
     "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.ts",
