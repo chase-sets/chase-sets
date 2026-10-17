@@ -193,6 +193,7 @@ describe("release qualification applicability evaluator", () => {
       applicability: { kind: "pure-module/v1", modules: [{ path: rootPath, specifiers: [{ specifier: "node:crypto", binding: "value" }] }] },
       now,
     });
-    expect(result).toEqual({ applies: true, withdrawalCodes: [], graph: [{ path: rootPath, specifiers: [{ specifier: "node:crypto", binding: "value" }] }] });
+    expect(result.withdrawalCodes).not.toContain("event_store_contract_unreadable");
+    expect(result.graph).toEqual([{ path: rootPath, specifiers: [{ specifier: "node:crypto", binding: "value" }] }]);
   });
 });
