@@ -82,10 +82,15 @@ describe("staging count capture lifecycle", () => {
       if (!response.ok) throw new Error(`action-${intent}-${response.status}`);
       return response.json();
     };
-    const result = await runCountCaptureJourney(identity, action, fixture.clock.now, async () => ({
-      ...authority.collection,
-      collectedAt: fixture.clock.now,
-    }));
+    const result = await runCountCaptureJourney(
+      identity,
+      action,
+      () => fixture.clock.now,
+      async () => ({
+        ...authority.collection,
+        collectedAt: fixture.clock.now,
+      }),
+    );
     const receipt = result;
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification.verdict).toBe("CONFORMING");

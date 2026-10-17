@@ -160,10 +160,8 @@ describe("isolates the count capture runner", () => {
 
   it("preserves a freeze-time drift as the server's incomplete stop", async () => {
     const { action: original, collect, receipt } = journey();
-    const drifted = {
-      ...receipt.freezeCollection,
-      collectedAt: "2026-10-13T08:05:00.000Z",
-    } as typeof receipt.freezeCollection;
+    const drifted = structuredClone(receipt.freezeCollection);
+    drifted.collectedAt = "2026-10-13T08:05:00.000Z";
     collect.mockResolvedValueOnce(receipt.freezeCollection).mockResolvedValueOnce(drifted);
     const stopReceipt = {
       schemaVersion: "scope-sync-count-lifecycle-stop/v1",
