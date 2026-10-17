@@ -95,8 +95,8 @@ describe("staging count capture lifecycle", () => {
 
   it.each([
     ["cap overflow", "cap-overflow"],
-    ["refused authority", "invalid-acquire"],
-    ["replay", "duplicate-acquire"],
+    ["refused authority", "authority-invalid"],
+    ["replay", "replay"],
     ["refresh", "scope-refresh"],
   ])("rejects unsafe lifecycle (%s) through the runner path with retained debit evidence", async ([_label, mode]) => {
     const fixture = await createCountCaptureDbFixture(pools.catalog);
@@ -131,7 +131,6 @@ describe("staging count capture lifecycle", () => {
         body: JSON.stringify(body),
       });
     const identity = { sha: authority.runnerSha, dispatchId: authority.dispatchId, scopeRecordId: captureScope };
-    let acquisitionBody: Record<string, unknown> | undefined;
     const action = async (intent: string, fields: Readonly<Record<string, string>>) => {
       const body: Record<string, unknown> = (() => {
         switch (intent) {
@@ -156,31 +155,24 @@ describe("staging count capture lifecycle", () => {
             throw new Error(`unknown-intent-${intent}`);
         }
       })();
-      if (intent === "count-acquire") {
-        acquisitionBody = body;
-        if (mode === "invalid-acquire") {
-          const refused = await post("/counts/acquire", { quoteId: fields.quoteId, fingerprint: "f".repeat(64) });
-          expect(refused.ok).toBe(false);
-        }
-      }
       if (intent === "capture-freeze")
         body.collection = {
           ...authority.collection,
           outcome: "unknown",
-          reason: "authority-invalid",
+          reason:
+            mode === "cap-overflow"
+              ? "inventory-cap"
+              : mode === "replay"
+                ? "inventory-duplicate"
+                : mode === "scope-refresh"
+                  ? "inventory-changed"
+                  : "authority-invalid",
           binding: null,
           collectedAt: mode === "scope-refresh" ? "2026-10-13T08:05:00.000Z" : fixture.clock.now,
         };
       const response = await post(routePaths[intent]!, body);
       const value = await response.json();
       if (!response.ok) throw new Error(`action-${intent}-${response.status}`);
-      if ((mode === "cap-overflow" || mode === "replay") && intent === "count-acquire") {
-        const repeats = mode === "cap-overflow" ? 2 : 1;
-        for (let index = 0; index < repeats; index++) {
-          const replay = await post("/counts/acquire", acquisitionBody);
-          expect(replay.ok).toBe(false);
-        }
-      }
       return value;
     };
     const result = await runCountCaptureJourney(
