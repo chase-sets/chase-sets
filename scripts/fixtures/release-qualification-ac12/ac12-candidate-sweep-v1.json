@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "release-qualification-ac12-fixture/v1",
+  "candidate": {
+    "sha": "46834e05bc5d09c0dc98e4525289f8c405e0f786",
+    "treeSha": "595f4922d3303030db9d7b4cfbd708fe321de959"
+  },
+  "mergeBase": {
+    "sha": "e579491f2ec47eb9018e260754cb81b2c61196ff",
+    "treeSha": "1b3577381d834d5c3de442b3c65bbebefd21f607"
+  },
+  "changedFiles": [
+    "scripts/release-qualification-scope-applicability.mjs",
+    "scripts/release-qualification-scope-applicability.test.mjs"
+  ],
+  "governedModulesSha256": "2e2a0a50b10c1890cfe03e7fe0686152ba1f1fefc95532a06ef4fba2f465faab"
+}
