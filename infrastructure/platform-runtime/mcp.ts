@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
-import { AGENT_OAUTH_SUPPORTED_SCOPES, type AgentOAuthScope } from "@chase-sets/auth-context";
+import {
+  AGENT_OAUTH_COMMERCE_SCOPES,
+  type AgentOAuthScope,
+  type OperatorAuthority,
+  type OperatorAuthorityDecision,
+} from "@chase-sets/auth-context";
 import type { BcApiModule, BcMcpCapabilities, BcMcpHandlers } from "@chase-sets/bounded-context-module";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
@@ -14,13 +19,16 @@ import {
   getMcpCapabilityAvailability,
   getMcpToolConfirmationExpectedValue,
   isAvailableMcpCapability,
+  isOperatorToolAllowed,
   mcpServiceCatalog,
   type McpJsonSchema,
+  type McpPermissionBoundary,
   type McpJsonSchemaProperty,
   type McpActor,
   type McpResourceDescriptor,
   type McpServiceDescriptor,
   type McpToolDescriptor,
+  type McpToolRisk,
 } from "./mcp-contracts";
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
 import type { ResolvedActor } from "./auth";
@@ -111,6 +119,8 @@ export type CreateMcpRoutesOptions = Readonly<{
   toolCallLimiter?: McpToolCallLimiter;
   agentGrantRateLimiter?: AgentGrantRateLimiter;
   allowInMemoryIdempotencyStoreForTests?: boolean;
+  /** Admits `operator` capabilities; absent, every operator capability is hidden and refused. */
+  operatorAuthority?: OperatorAuthority;
 }>;
 
 export type McpModuleRuntimeEntry = Readonly<{
@@ -151,7 +161,8 @@ const JSON_RPC_VERSION = "2.0";
 const IDEMPOTENCY_PENDING_TTL_MS = 2 * 60 * 1000;
 const CANONICAL_OWNER_UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
-export const MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED = AGENT_OAUTH_SUPPORTED_SCOPES;
+export const MCP_OAUTH_DEFAULT_SCOPES_SUPPORTED = AGENT_OAUTH_COMMERCE_SCOPES;
+const MCP_OPERATOR_CAPABILITY_UNAVAILABLE = "This MCP capability is not available to the authenticated actor.";
 export const MCP_OAUTH_BEARER_METHODS_SUPPORTED = ["header"] as const;
 
 export type McpOAuthProtectedResourceMetadataRoutesOptions = Readonly<{
@@ -335,36 +346,100 @@ function requireMcpDiscoveryActor(actor: ResolvedActor | null | undefined) {
   return actor ? null : mcpProtectedInvocationAuthenticationRequiredResponse();
 }
 
-function mcpServicesVisibleToActor(
+type RequestOperatorAuthority = () => Promise<OperatorAuthorityDecision>;
+
+type McpCapabilityBoundary = Readonly<{ risk: McpToolRisk; permissionBoundary: McpPermissionBoundary }>;
+
+type McpCapabilityAdmission =
+  | Readonly<{ allowed: true; actor: ResolvedActor | null }>
+  | Readonly<{ allowed: false; reason: string }>;
+
+async function evaluateOperatorAuthority(
+  port: OperatorAuthority | undefined,
+  actor: ResolvedActor | null,
+): Promise<OperatorAuthorityDecision> {
+  if (!actor) return { kind: "denied", reason: "no-membership" };
+  if (!port) return { kind: "denied", reason: "authority-unavailable" };
+  try {
+    return await port(actor);
+  } catch {
+    return { kind: "denied", reason: "authority-unavailable" };
+  }
+}
+
+// Evaluated lazily and at most once per request, however many operator capabilities the request touches.
+function createRequestOperatorAuthority(
+  port: OperatorAuthority | undefined,
+  actor: ResolvedActor | null,
+): RequestOperatorAuthority {
+  let decision: Promise<OperatorAuthorityDecision> | undefined;
+  return () => (decision ??= evaluateOperatorAuthority(port, actor));
+}
+
+// An admitted operator capability runs with a per-call actor whose role and permissions come from the operator
+// authority (the agent grant is kept); it is never cached or returned. Other capabilities keep the request actor.
+async function admitMcpCapability(
+  capability: McpCapabilityBoundary,
+  actor: ResolvedActor | null,
+  operatorAuthority: RequestOperatorAuthority,
+): Promise<McpCapabilityAdmission> {
+  if (capability.permissionBoundary.scope !== "operator") {
+    return { allowed: true, actor };
+  }
+  const admission = await isOperatorToolAllowed(capability, toMcpActor(actor), operatorAuthority);
+  if (!admission.allowed || !actor) {
+    return { allowed: false, reason: admission.allowed ? "operator-actor-required" : admission.reason };
+  }
+  return {
+    allowed: true,
+    actor: { ...actor, roleKey: admission.authority.roleKey, permissions: admission.authority.rolePermissions },
+  };
+}
+
+function resourceCapability(resource: McpResourceDescriptor): McpCapabilityBoundary {
+  return { risk: "read", permissionBoundary: resource.permissionBoundary };
+}
+
+async function filterVisible<T>(items: readonly T[], isVisible: (item: T) => Promise<boolean>): Promise<T[]> {
+  const visible = await Promise.all(items.map(isVisible));
+  return items.filter((_, index) => visible[index]);
+}
+
+async function mcpServicesVisibleToActor(
   services: readonly McpServiceDescriptor[],
   actor: ResolvedActor | null | undefined,
-): readonly McpServiceDescriptor[] {
+  operatorAuthority: RequestOperatorAuthority,
+): Promise<readonly McpServiceDescriptor[]> {
   if (!actor) {
     return publicAvailableMcpServices(services);
   }
-  if (!actor.agentGrant) {
-    return services;
-  }
 
-  const grantedScopes = new Set(actor.agentGrant.scopes);
-  const visible = services
-    .map((serviceDescriptor) => ({
+  const grantedScopes = actor.agentGrant ? new Set(actor.agentGrant.scopes) : null;
+  const isVisible = async (capability: McpCapabilityBoundary) => {
+    if (capability.permissionBoundary.scope === "operator") {
+      return (await admitMcpCapability(capability, actor, operatorAuthority)).allowed;
+    }
+    return (
+      grantedScopes === null ||
+      (capability.permissionBoundary.requiredPermissions.every((permission) =>
+        actor.permissions.includes(permission),
+      ) &&
+        (capability.permissionBoundary.requiredScopes ?? []).every((scope) => grantedScopes.has(scope)))
+    );
+  };
+  const visible = await Promise.all(
+    services.map(async (serviceDescriptor) => ({
       ...serviceDescriptor,
-      tools: serviceDescriptor.tools.filter(
-        (tool) =>
-          tool.permissionBoundary.requiredPermissions.every((permission) => actor.permissions.includes(permission)) &&
-          (tool.permissionBoundary.requiredScopes ?? []).every((scope) => grantedScopes.has(scope)),
+      tools: await filterVisible(serviceDescriptor.tools, isVisible),
+      resources: await filterVisible(serviceDescriptor.resources, (resource) =>
+        isVisible(resourceCapability(resource)),
       ),
-      resources: serviceDescriptor.resources.filter(
-        (resource) =>
-          resource.permissionBoundary.requiredPermissions.every((permission) =>
-            actor.permissions.includes(permission),
-          ) && (resource.permissionBoundary.requiredScopes ?? []).every((scope) => grantedScopes.has(scope)),
-      ),
-    }))
-    .filter((serviceDescriptor) => serviceDescriptor.tools.length > 0 || serviceDescriptor.resources.length > 0);
+    })),
+  );
 
-  return visible;
+  return visible.filter(
+    (serviceDescriptor) => serviceDescriptor.tools.length > 0 || serviceDescriptor.resources.length > 0,
+  );
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -697,6 +772,7 @@ function toToolListItem(tool: McpToolDescriptor) {
       accountScoped: tool.permissionBoundary.accountScoped,
       confirmationRequired: tool.guardrails.confirmation.required,
       confirmationMatchInputField: tool.guardrails.confirmation.matchInputField ?? null,
+      confirmationMatchInputValue: tool.guardrails.confirmation.matchInputValue ?? null,
       confirmationExpectedValue,
       idempotencyKey: tool.guardrails.idempotencyKey,
       dryRunSupported: tool.guardrails.dryRunSupported,
@@ -1071,12 +1147,15 @@ export function buildMcpHandlersFromModules(
 
 async function callTool(
   request: Request,
-  actor: ResolvedActor | null,
+  requestActor: ResolvedActor | null,
   protocol: McpRequestProtocolContext,
   params: McpToolCallParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers" | "idempotencyStore">> &
     Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter" | "agentGrantRateLimiter"> &
-    Readonly<{ onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void }>,
+    Readonly<{
+      operatorAuthority: RequestOperatorAuthority;
+      onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void;
+    }>,
 ) {
   if (typeof params.name !== "string") {
     return jsonRpcError(null, -32602, "Tool name is required.");
@@ -1086,6 +1165,22 @@ async function callTool(
   if (!tool) {
     return jsonRpcError(null, -32602, `Unknown MCP tool '${params.name}'.`);
   }
+
+  const admission = await admitMcpCapability(tool, requestActor, options.operatorAuthority);
+  if (!admission.allowed) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "tools/call",
+      toolName: tool.name,
+      ...mcpAuditActor(requestActor),
+      auditEventName: tool.audit.eventName,
+      targetType: tool.audit.targetType,
+      reason: admission.reason,
+      sensitiveInputFields: tool.audit.sensitiveInputFields,
+    });
+    return mcpToolErrorResult(MCP_OPERATOR_CAPABILITY_UNAVAILABLE);
+  }
+  const actor = admission.actor;
 
   const validationIssues = validateToolArguments(tool.inputSchema, params.arguments);
   if (validationIssues.length > 0) {
@@ -1395,12 +1490,15 @@ function enforceMcpAgentGrantRateLimit(
 
 async function readResource(
   request: Request,
-  actor: ResolvedActor | null,
+  requestActor: ResolvedActor | null,
   protocol: McpRequestProtocolContext,
   params: McpResourceReadParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "resourceHandlers">> &
     Pick<CreateMcpRoutesOptions, "audit"> &
-    Readonly<{ onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void }>,
+    Readonly<{
+      operatorAuthority: RequestOperatorAuthority;
+      onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void;
+    }>,
 ) {
   if (typeof params.uri !== "string") {
     return jsonRpcError(null, -32602, "Resource URI is required.");
@@ -1450,6 +1548,20 @@ async function readResource(
     },
     expectedUsage: resource.expectedUsage,
   };
+  const admission = await admitMcpCapability(pseudoTool, requestActor, options.operatorAuthority);
+  if (!admission.allowed) {
+    await audit(options.audit, {
+      outcome: "denied",
+      method: "resources/read",
+      resourceUri: params.uri,
+      ...mcpAuditActor(requestActor),
+      auditEventName: pseudoTool.audit.eventName,
+      targetType: pseudoTool.audit.targetType,
+      reason: admission.reason,
+    });
+    return jsonRpcError(null, -32001, MCP_OPERATOR_CAPABILITY_UNAVAILABLE);
+  }
+  const actor = admission.actor;
   const authorization = authorizeMcpToolInvocation(pseudoTool, toMcpActor(actor));
 
   if (!authorization.allowed) {
@@ -1553,26 +1665,29 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
   const extensionCapabilities = options.extensionCapabilities ?? {};
   const idempotencyStore = resolveMcpIdempotencyStore(options);
 
+  const servicesVisibleTo = (actor: ResolvedActor | null) =>
+    mcpServicesVisibleToActor(services, actor, createRequestOperatorAuthority(options.operatorAuthority, actor));
+
   app.use("*", createMcpHttpOriginPolicyMiddleware(options.originPolicy));
 
-  app.get("/services", (c) => {
-    const visibleServices = mcpServicesVisibleToActor(services, c.get("actor"));
+  app.get("/services", async (c) => {
+    const visibleServices = await servicesVisibleTo(c.get("actor") ?? null);
 
     return c.json({
       services: visibleServices,
     });
   });
 
-  app.get("/tools", (c) => {
-    const visibleServices = mcpServicesVisibleToActor(services, c.get("actor"));
+  app.get("/tools", async (c) => {
+    const visibleServices = await servicesVisibleTo(c.get("actor") ?? null);
 
     return c.json({
       tools: flattenAvailableMcpTools(visibleServices).map(toToolListItem),
     });
   });
 
-  app.get("/resources", (c) => {
-    const visibleServices = mcpServicesVisibleToActor(services, c.get("actor"));
+  app.get("/resources", async (c) => {
+    const visibleServices = await servicesVisibleTo(c.get("actor") ?? null);
 
     return c.json({
       resources: flattenAvailableMcpResources(visibleServices).map(toResourceListItem),
@@ -1606,6 +1721,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
     }
 
     const protocol = protocolResolution.protocol;
+    const operatorAuthority = createRequestOperatorAuthority(options.operatorAuthority, actor);
 
     switch (request.method) {
       case "server/discover": {
@@ -1637,7 +1753,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "tools/list": {
-        const visibleServices = mcpServicesVisibleToActor(services, actor);
+        const visibleServices = await mcpServicesVisibleToActor(services, actor, operatorAuthority);
 
         return c.json(
           jsonRpcResult(request.id, {
@@ -1646,7 +1762,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
         );
       }
       case "resources/list": {
-        const visibleServices = mcpServicesVisibleToActor(services, actor);
+        const visibleServices = await mcpServicesVisibleToActor(services, actor, operatorAuthority);
 
         return c.json(
           jsonRpcResult(request.id, {
@@ -1669,6 +1785,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           idempotencyStore,
           toolCallLimiter: options.toolCallLimiter,
           agentGrantRateLimiter: options.agentGrantRateLimiter,
+          operatorAuthority,
           onScopeChallenge: (scopes) => {
             scopeChallenge = scopes;
           },
@@ -1691,6 +1808,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
           services,
           resourceHandlers,
           audit: options.audit,
+          operatorAuthority,
           onScopeChallenge: (scopes) => {
             scopeChallenge = scopes;
           },
