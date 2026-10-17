@@ -434,6 +434,7 @@ describe("marketplace offer runtime", () => {
           {
             offer_id: "off_1",
             buyer_account_id: "acc_buyer",
+            account_status: "active",
             catalog_catalog_item_id: "cat_charizard",
             product_id: "cat_charizard::",
             item_title: "Charizard",
@@ -507,6 +508,57 @@ describe("marketplace offer runtime", () => {
       ),
     ).rejects.toThrow("Seller does not have enough active supply to accept this offer.");
     expect(commercialTermsResolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects a suspended buyer before managed pricing or allowance work", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "marketplace.offer-off_suspended",
+      expectedVersion: 0,
+      context: {
+        tenantId: "tnt_marketplace" as never,
+        audit: { performedByUserId: "usr_buyer" as never, forAccountId: "acc_buyer" as never },
+      },
+      events: [
+        {
+          eventType: "marketplace.offer.submitted",
+          payload: {
+            offerId: "off_suspended",
+            buyerAccountId: "acc_buyer",
+            catalogItemId: "cat_charizard",
+            productId: "cat_charizard::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            shippingDestinationSnapshot: acceptedOfferMatch.shipping_destination_snapshot,
+            priceAmount: "350.00",
+            priceCurrencyCode: "USD",
+            quantityRequested: 1,
+          },
+        },
+      ],
+    });
+    const evaluateTargets = vi.fn(async () => []);
+    const services = createMarketplaceOfferRuntime({
+      eventStore,
+      db: { query: vi.fn(async () => ({ rows: [{ account_status: "suspended" }] })) },
+      checkpointStore: {} as never,
+      managedOfferPricing: { evaluateTargets },
+      commercialTermsResolver: {} as never,
+    });
+    await expect(
+      services.acceptOffer(
+        {
+          offerId: "off_suspended" as never,
+          sellerAccountId: "acc_seller" as never,
+          listingId: "lst_1",
+          feeQuoteFingerprint: "x",
+        },
+        {} as never,
+      ),
+    ).rejects.toMatchObject({ code: "offer_not_open" });
+    expect(evaluateTargets).not.toHaveBeenCalled();
   });
 
   it("rejects same-account offer acceptance before quoting terms", async () => {

@@ -879,7 +879,7 @@ export async function getCheckoutSellOfferMatch(
   return row ? mapOfferMatch(row) : null;
 }
 
-async function listCheckoutSellOfferMatches(
+export async function listCheckoutSellOfferMatches(
   db: PgQueryable,
   params: Readonly<{
     sellerAccountId: string;
