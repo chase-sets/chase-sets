@@ -1,6 +1,7 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const anonymousOwnerExpandSql = `ALTER TABLE collections_anonymous_saved_list_intents
+  ALTER COLUMN anonymous_owner_id DROP NOT NULL,
   ADD COLUMN IF NOT EXISTS anonymous_owner_fingerprint text NULL,
   ADD COLUMN IF NOT EXISTS owner_revision integer NOT NULL DEFAULT 0 CHECK (owner_revision >= 0);
 

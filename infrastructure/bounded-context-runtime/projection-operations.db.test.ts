@@ -2424,11 +2424,25 @@ describeDb("projection operations Postgres integration", () => {
       ],
     });
 
-    // The first (batch) attempt dispatches ord_1 and fails after dispatch; its
-    // transaction rolls back and the pass re-executes the event individually
-    // with a fresh transaction (issue #4751), dispatching ord_2. Atomicity is
-    // proven by what is durably visible: ONLY ord_2 exists — the rolled-back
-    // ord_1 dispatch never leaked a row or an event.
+    // The failed pass rolls back ord_1 without advancing the checkpoint.
+    // Prove the rollback before the next pass retries and dispatches ord_2.
+    await expect(runner.runOnce(createProjectionRunContext())).rejects.toThrow(
+      "reaction failed after command dispatch",
+    );
+    await expect(readReactionOrders()).resolves.toEqual([]);
+    await expect(readReactionOrderEvents()).resolves.toEqual([]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "transient" },
+    ]);
+    const failedApplication = await pools.target.query<{ output_global_positions: string[] | null }>(
+      `SELECT output_global_positions
+       FROM event_subscription_applications
+       WHERE projection_key = $1`,
+      [runner.checkpointKey],
+    );
+    expect(failedApplication.rows).toEqual([{ output_global_positions: null }]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+
     await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
       processed: 1,
       lastGlobalPosition: "1",

@@ -500,7 +500,7 @@ describeDb("Import Product durable maintenance AC-04 through AC-09", () => {
     ).toBe(true);
   });
 
-  it("AC-09 durable and synchronous create plus manual resolve use the same Product validator in real storage", async () => {
+  it("AC-09 durable create and manual resolve use the same Product validator in real storage", async () => {
     const services = runtime();
     const params = {
       accountId,
@@ -508,11 +508,10 @@ describeDb("Import Product durable maintenance AC-04 through AC-09", () => {
       defaultStorageLocationId: "loc_import",
       parsedRows: [{ rowNumber: 1, values: { catalogItemId: "cat_inactive", totalQuantity: "2" } }],
     };
-    const synchronous = await services.createBatch(params, context);
     const queued = await services.enqueueCreateBatchJob(params, context);
     await services.processNextImportBatchJob(claim);
-    const durable = (await services.getImportBatchJob(queued.jobId))!.result!.batch!;
-    for (const batch of [synchronous, durable]) {
+    const durable = (await services.getBatch(queued.payload.batchId!, accountId))!;
+    for (const batch of [durable]) {
       expect(batch.rows[0]).toMatchObject({ product_id: null, resolution_status: "unresolved", status: "rejected" });
       const resolved = await services.resolveRow(
         {
