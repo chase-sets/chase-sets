@@ -99,7 +99,7 @@ describe("Access Admin detail pages", () => {
     expect(html).toContain('name="accountId"');
     expect(html).toContain('value="acc_card_vault"');
     expect(html).not.toContain("Remove Founding Account badge");
-    expect(html).toContain("Assign Manual Payout Review badge");
+    expect(html).not.toContain("Assign Manual Payout Review badge");
     expect(html).toContain("Assign Trusted Seller badge");
     expect(html).not.toMatch(/<h1[^>]*><div/);
     expect(html).not.toContain("/commerce/wallet-workbench/");

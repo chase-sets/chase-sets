@@ -13,7 +13,13 @@ export type RiskAlertServices = Readonly<{
   getRiskAlertQueueItem: (alertId: string) => ReturnType<typeof getRiskAlertQueueItem>;
   getRiskAlertQueueMetrics: () => ReturnType<typeof getRiskAlertQueueMetrics>;
   recordRiskAlertAction: (
-    params: Readonly<{ alertId: string; action: RiskAlertAction; note: string | null; operatorUserId: string | null; actorPermissions?: readonly string[] }>,
+    params: Readonly<{
+      alertId: string;
+      action: RiskAlertAction;
+      note: string | null;
+      operatorUserId: string | null;
+      actorPermissions?: readonly string[];
+    }>,
     context: EventStoreContext,
   ) => Promise<{ actionId: string; recordedAt: string }>;
   projectors: readonly ProjectionHandlerSet[];
@@ -38,7 +44,12 @@ export function createRiskAlertRuntime(
         const reason = params.note?.trim() || `Risk alert ${params.alertId}`;
         if (reason.length > 500) throw new Error("Risk alert note must be 500 characters or fewer.");
         await deps.payoutReviewHoldCrossContext.placeRiskAlertHold(
-          { accountId: alert.account_id, reason, sourceReference: params.alertId, actorPermissions: params.actorPermissions ?? [] },
+          {
+            accountId: alert.account_id,
+            reason,
+            sourceReference: params.alertId,
+            actorPermissions: params.actorPermissions ?? [],
+          },
           context,
         );
       }

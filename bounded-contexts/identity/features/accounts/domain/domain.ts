@@ -240,7 +240,10 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
       requireCreatedAccount(state);
       assert(state.status !== "closed", "Closed accounts cannot receive badges.");
       assertValidAccountBadge(command.badgeKey);
-      assert(command.badgeKey !== "manual-payout-review", "Manual payout review is now a Settlement payout review hold.");
+      assert(
+        command.badgeKey !== "manual-payout-review",
+        "Manual payout review is now a Settlement payout review hold.",
+      );
       if (command.badgeKey === "founding-account") {
         assert(
           Number.isInteger(command.founderNumber) && (command.founderNumber ?? 0) > 0,
@@ -262,7 +265,10 @@ export const decideAccount: AggregateDecider<AccountState, AccountCommand, Accou
     case "RemoveAccountBadge":
       requireCreatedAccount(state);
       assertValidAccountBadge(command.badgeKey);
-      assert(command.badgeKey !== "manual-payout-review", "Manual payout review is now a Settlement payout review hold.");
+      assert(
+        command.badgeKey !== "manual-payout-review",
+        "Manual payout review is now a Settlement payout review hold.",
+      );
       assert(command.badgeKey !== "founding-account", "Founding Account badges are permanent.");
       if (!state.badges.includes(command.badgeKey)) {
         return [];

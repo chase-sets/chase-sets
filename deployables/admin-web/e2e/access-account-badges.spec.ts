@@ -90,7 +90,9 @@ test.describe("access admin account badges", () => {
     }
   });
 
-  test("platform admin assigns and removes the remaining operator-managed account badge @admin-access", async ({ page }) => {
+  test("platform admin assigns and removes the remaining operator-managed account badge @admin-access", async ({
+    page,
+  }) => {
     test.setTimeout(300_000);
     test.skip(
       skipDeployedAdminE2e,

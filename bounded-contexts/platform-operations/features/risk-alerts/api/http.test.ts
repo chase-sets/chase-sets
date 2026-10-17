@@ -47,7 +47,12 @@ describe("risk-alerts HTTP authorization", () => {
           "actor",
           granted
             ? actor
-            : { ...actor, permissions: actor.permissions.filter((key) => key !== "reported-content.view" && key !== "payout-review-holds.manage") },
+            : {
+                ...actor,
+                permissions: actor.permissions.filter(
+                  (key) => key !== "reported-content.view" && key !== "payout-review-holds.manage",
+                ),
+              },
         );
         c.set("context", context);
         await next();

@@ -204,6 +204,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
 | `settlement:platform-policy-document-projection` | Settlement | **settlement** | push-enabled | 1/1 |
 | `settlement:settlement-account-risk-source-projection` | Settlement | **identity**, **marketplace**, **payments** | push-enabled | 3/3 |
+| `settlement:settlement-payout-review-hold-migration` | Settlement | **identity** | push-enabled | 1/1 |
 | `settlement:settlement-fulfillment-source-projection` | Settlement | fulfillment | push-eligible | 0/1 |
 | `settlement:settlement-liability-allocation-reserve-projection` | Settlement | **platform-operations** | push-enabled | 1/1 |
 | `settlement:settlement-inventory-recovery-workflow` | Settlement | **inventory** | push-enabled | 1/1 |
