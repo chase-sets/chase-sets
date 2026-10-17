@@ -699,7 +699,16 @@ describe("MCP runtime routes", () => {
         }>;
       };
     };
-    const descriptorsByName = new Map(flattenAvailableMcpTools().map((tool) => [tool.name, tool]));
+    const operatorPermissions = new Set(["insights-dashboards.view"]);
+    const descriptorsByName = new Map(
+      flattenAvailableMcpTools()
+        .filter(
+          (tool) =>
+            tool.permissionBoundary.scope !== "operator" ||
+            tool.permissionBoundary.requiredPermissions.every((permission) => operatorPermissions.has(permission)),
+        )
+        .map((tool) => [tool.name, tool]),
+    );
 
     expect(response.status).toBe(200);
     expect(body.result.tools).toHaveLength(descriptorsByName.size);

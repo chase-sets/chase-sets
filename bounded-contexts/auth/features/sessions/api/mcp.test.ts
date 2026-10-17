@@ -7,7 +7,7 @@ import { createMcpRoutes, type McpRuntimeEnv, type McpToolHandler } from "@chase
 import { findMcpTool, mcpServiceCatalog } from "@chase-sets/platform-runtime/mcp-contracts";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import contextManifest from "../../../context.json" with { type: "json" };
+import { contextManifest } from "@chase-sets/auth";
 import { toSessionStreamId } from "../domain/auth-flow";
 import { createAuthSessionMcpHandlers } from "./mcp";
 import { createSessionRuntime } from "./runtime";

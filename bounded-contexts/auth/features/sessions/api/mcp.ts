@@ -1,7 +1,7 @@
 import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import type { McpResourceHandler, McpToolHandler } from "@chase-sets/platform-runtime/mcp";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { toSessionStreamId } from "../domain/auth-flow";
 import type { SessionServices } from "./runtime";
 
@@ -97,7 +97,7 @@ export function createAuthSessionMcpHandlers(services: SessionServices): AuthSes
     const { actor: scopedActor } = await loadManagedSession(services, actor, sessionId);
     const result = await services.commandHandler({
       streamId: toSessionStreamId(sessionId),
-      command: { type: "SwitchSessionAccount", accountId: accountId as AccountId },
+      command: { type: "SwitchSessionAccount", accountId: parseTypedId(accountId, "acc") },
       context: createActorEventStoreContext(scopedActor),
     });
 

@@ -146,6 +146,10 @@ describe("MCP service catalog", () => {
         .map((tool) => tool.name)
         .sort(),
     ).toEqual([
+      "auth.get-session",
+      "auth.list-sessions",
+      "auth.revoke-session",
+      "auth.switch-session-account",
       "authenticity.get-case-status",
       "checkout.add-cart-line",
       "checkout.cancel-session",
