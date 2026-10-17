@@ -764,8 +764,24 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
     await seedRepresentativeIdentityAccounts(services, context);
   }
   if (shouldSeedAdminQaActorFixtures) {
-    await provisionAdminQaActorFixtures(services);
+    await provisionAdminQaActorFixtures(services, adminQaActorFixtureContactsFromEnvironment());
   }
+}
+
+function adminQaActorFixtureContactsFromEnvironment() {
+  const keys = [
+    "ADMIN_QA_PLATFORM_ADMIN_EMAIL",
+    "ADMIN_QA_OWNER_EMAIL",
+    "ADMIN_QA_MANAGER_EMAIL",
+    "ADMIN_QA_FULFILLMENT_EMAIL",
+    "ADMIN_QA_VIEWER_EMAIL",
+    "ADMIN_QA_CATALOG_ADMIN_EMAIL",
+  ] as const;
+  const contacts = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) {
+    if (typeof contacts[key] !== "string" || contacts[key].trim() === "") throw new Error(`Missing ${key}.`);
+  }
+  return contacts as Parameters<typeof provisionAdminQaActorFixtures>[1];
 }
 
 function profileEnabled(options: BcSeedOptions | undefined, profile: EnvironmentDataProfile): boolean {
