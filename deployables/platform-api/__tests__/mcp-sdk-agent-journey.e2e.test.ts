@@ -475,13 +475,13 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     expect(settlementServices.payouts.requestPayout).toHaveBeenCalledTimes(1);
   });
 
-  it("asserts native MCP agent grant rate-limit and checkout spend-cap guardrail rejections", async () => {
+  it("asserts native MCP rate-limit rejection and read-only UCP payment handoff", async () => {
     type CheckoutSession = Awaited<
       ReturnType<Parameters<typeof createCheckoutUcpHandlers>[0]["sessions"]["resumeOrderCartCleanup"]>
     >["session"];
 
     const buyNowSession: CheckoutSession = {
-      session_id: "chk_1",
+      session_id: "chk_0123456789abcdefghijklmnop",
       buyer_account_id: "acc_1",
       source_type: "buy-now",
       optimization_goal: "lowest-total",
@@ -713,7 +713,8 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
     );
     const paymentsFetch = stubPaymentsCheckoutStatusFetch(paymentServices.getCheckoutStatus);
     try {
-      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_1/complete", {
+      // Brief M1 complete replaces the retired stored-PM spend path with a read-only handoff.
+      const spendCapResponse = await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop/complete", {
         method: "POST",
         body: checkoutBody,
         headers: signedUcpHeaders(checkoutBody),
@@ -724,29 +725,17 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
         ucp: {
           status: "requires_action",
         },
-        messages: [
-          {
-            code: "agent_grant_spending_mandate_blocked",
-            message: "This agent grant exceeded its platform spend cap.",
-          },
-        ],
+        checkout: {
+          status: "requires_escalation",
+          messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
+        },
       });
-      expect(paymentsFetch).toHaveBeenCalledTimes(1);
-      expect(grantOwner.isActiveGrant).toHaveBeenCalledWith("acc_1", "grant_full_journey");
-      expect(paymentServices.getCheckoutStatus).toHaveBeenCalledWith(
-        expect.objectContaining({
-          orderIds: ["order_1"],
-        }),
-      );
-      expect(spendPolicy.authorize).toHaveBeenCalledWith(
-        expect.objectContaining({
-          operation: "complete_checkout",
-          amountCents: 2_605,
-          rail: "stored-pm",
-          humanPresent: false,
-          humanNotPresentAuthorized: true,
-        }),
-      );
+      expect(paymentsFetch).not.toHaveBeenCalled();
+      // The synthetic legacy actor has no agentGrant; no spend reservation is requested.
+      expect(grantOwner.isActiveGrant).not.toHaveBeenCalled();
+      expect(paymentServices.getCheckoutStatus).not.toHaveBeenCalled();
+      expect(spendPolicy.authorize).not.toHaveBeenCalled();
+      expect(checkoutSessions.resumeOrderCartCleanup).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }

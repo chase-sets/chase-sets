@@ -468,7 +468,18 @@ describeDb("checkout preview lifecycle", () => {
     caseName = test.task.name;
     if (!pools) throw new Error("Probe databases are not initialized.");
     await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(checkoutModule, pools.checkout);
+    await bootstrapContextDatabase(
+      test.task.name.startsWith("AC7")
+        ? {
+            ...checkoutModule,
+            schemaSql: checkoutModule.schemaSql.replace("  handoff_expires_at timestamptz NULL,", ""),
+            schemaMigrations: checkoutModule.schemaMigrations.filter(
+              (migration) => migration.migrationId !== "20261016_checkout_session_handoff_expiry",
+            ),
+          }
+        : checkoutModule,
+      pools.checkout,
+    );
     await bootstrapContextDatabase(orderingModule, pools.ordering);
     for (const module of sourceModules) {
       await bootstrapContextDatabase(module, pools[module.contextName as (typeof sourceNames)[number]]);
@@ -555,6 +566,59 @@ describeDb("checkout preview lifecycle", () => {
 
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("AC7 migrates existing rows and projects expiry through reads and replay, null for old/web events", async () => {
+    if (!pools) throw new Error("Probe databases are not initialized.");
+    const oldId = createId("chk");
+    await pools.checkout.query(
+      `INSERT INTO checkout_session_pages (session_id, buyer_account_id, source_type, shipping_option, created_at, updated_at) VALUES ($1, $2, 'buy-now', 'standard', now(), now())`,
+      [oldId, actor.accountId],
+    );
+    await bootstrapContextDatabase(checkoutModule, pools.checkout);
+    expect((await getCheckoutSession(pools.checkout, oldId, actor.accountId))?.handoff_expires_at).toBeNull();
+    const eventStore = createPostgresEventStore({ pool: pools.checkout });
+    const ids = [createId("chk"), createId("chk"), createId("chk")];
+    const createdAt = "2026-10-16T00:00:00.000Z";
+    const expiresAt = "2026-10-16T06:00:00.000Z";
+    for (const [index, sessionId] of ids.entries()) {
+      await eventStore.appendToStream({
+        streamId: `checkout.session-${sessionId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "checkout.session.started",
+            payload: {
+              sessionId,
+              buyerAccountId: actor.accountId,
+              sourceType: "buy-now",
+              shippingOption: "standard",
+              lines: [],
+              createdAt,
+              ...(index === 0 ? { handoffExpiresAt: expiresAt } : index === 2 ? { handoffExpiresAt: null } : {}),
+            },
+          },
+        ],
+      });
+    }
+    await syncProjectionGroup(sessionGroup);
+    const check = async () => {
+      for (const [index, sessionId] of ids.entries())
+        expect((await getCheckoutSession(pools!.checkout, sessionId, actor.accountId))?.handoff_expires_at).toBe(
+          index === 0 ? expiresAt : null,
+        );
+    };
+    await check();
+    await rebuildProjectionGroup(sessionGroup);
+    await check();
+    const history = await readCompleteStream(eventStore, { streamId: `checkout.session-${ids[0]}` });
+    const state = history.reduce(
+      (state, event) =>
+        evolveCheckoutSession(state, { type: event.eventType, data: event.payload } as CheckoutSessionEvent),
+      initialCheckoutSessionState,
+    );
+    expect(state.handoffExpiresAt).toBe(expiresAt);
   });
 
   it("discriminates unresolved source terms from the priced source fixture through real Ordering", async () => {

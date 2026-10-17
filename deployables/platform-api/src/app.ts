@@ -8,7 +8,6 @@ import {
   createUcpOAuthRoutes,
   createPostgresAgentWebhookOutbox,
   fenceAgentGrantActor,
-  fenceAgentGrantSpendPolicy,
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
@@ -983,7 +982,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     ? createCheckoutUcpHandlers(checkoutServices, {
         checkoutClosed: options.checkoutClosed,
         paymentHandoff,
-        getPublicListingById: discoveryServices?.items?.market?.getPublicListingById,
+        getPublicListingById: (id) =>
+          discoveryServices?.items?.market?.getPublicListingById(id) ?? Promise.resolve(null),
         getOrderFacts: orderingServices?.orders
           ? async (orderIds, accountId) => {
               const facts = await Promise.all(
@@ -999,11 +999,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
                   permalinkUrl: `/account/purchases/${fact.order_id}`,
                 }));
             }
-          : undefined,
-        agentGrantSpendPolicy: fenceAgentGrantSpendPolicy(
-          options.agentGrantSpendPolicy,
-          identityServices.identity?.agentGrantRevocations,
-        ),
+          : async () => [],
       })
     : undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
@@ -1041,6 +1037,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
             ...checkoutUcpHandlers?.mcpToolHandlers,
             ...orderingUcpHandlers?.mcpToolHandlers,
             ...options.ucp?.mcpToolHandlers,
+          },
+          preflight: {
+            ...checkoutUcpHandlers?.preflight,
+            ...options.ucp?.preflight,
           },
         }
       : options.ucp;

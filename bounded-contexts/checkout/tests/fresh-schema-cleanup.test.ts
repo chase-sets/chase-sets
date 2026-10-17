@@ -126,10 +126,6 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaSql).not.toContain("ADD COLUMN IF NOT EXISTS checkout_reservations");
     expect(checkoutSessionSchemaMigrations).toEqual([
       expect.objectContaining({
-        migrationId: "20261016_checkout_session_handoff_expiry",
-        statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL")],
-      }),
-      expect.objectContaining({
         migrationId: "20260707_checkout_session_reservations",
         // A single metadata-only ADD COLUMN ... NOT NULL DEFAULT avoids the ACCESS EXCLUSIVE
         // full-table scan that hung bootstrap under live traffic (#4638).
@@ -145,9 +141,13 @@ describe("fresh checkout read-model schemas", () => {
         migrationId: "20260711_checkout_session_authenticity_opt_in",
         statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS authenticity_check_opt_in jsonb NULL")],
       }),
+      expect.objectContaining({
+        migrationId: "20261016_checkout_session_handoff_expiry",
+        statements: [expect.stringContaining("ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL")],
+      }),
     ]);
-    expect(checkoutSessionSchemaMigrations[1]?.statements).toHaveLength(1);
-    expect(checkoutSessionSchemaMigrations[1]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
+    expect(checkoutSessionSchemaMigrations[0]?.statements).toHaveLength(1);
+    expect(checkoutSessionSchemaMigrations[0]?.statements.join("\n")).not.toMatch(/SET NOT NULL/);
   });
 
   it("creates the Cart Claim alias from one shared definition on fresh boot and on existing databases", () => {

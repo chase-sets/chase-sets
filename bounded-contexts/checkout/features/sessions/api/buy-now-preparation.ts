@@ -18,16 +18,26 @@ export type BuyNowPreparationListing = Readonly<{
 export async function prepareBuyNowCheckout(
   params: Readonly<{
     request: Request;
-    services: Pick<CheckoutSessionServices, "createBuyNow">;
+    services: Pick<CheckoutSessionServices, "createBuyNow" | "recordFulfillmentPreview">;
     accountId: AccountId;
     listing: BuyNowPreparationListing;
     quantity: number;
     context: EventStoreContext;
     sessionIdOverride?: CheckoutSessionId;
     handoffExpiresAt?: string | null;
+    createdAt?: string;
+    preflightSessionId?: string;
+    lockedListingId?: string;
+    sellerPreferenceId?: string | null;
     shippingOption?: "standard" | "expedited" | "priority";
+    optimizationGoal?: "fewest-shipments" | "lowest-total";
   }>,
-): Promise<{ sessionId: CheckoutSessionId; fulfillmentPreview: CheckoutFulfillmentPreview }> {
+): Promise<
+  Awaited<ReturnType<CheckoutSessionServices["createBuyNow"]>> & {
+    fulfillmentPreview: CheckoutFulfillmentPreview;
+    writeSources: readonly unknown[];
+  }
+> {
   if (!Number.isInteger(params.quantity) || params.quantity < 1) {
     throw new CheckoutDomainError("Quantity must be a positive integer.", "invalid_quantity");
   }
@@ -42,17 +52,18 @@ export async function prepareBuyNowCheckout(
     productSummary: params.listing.productSummary,
     quantity: params.quantity,
     fulfillmentMode: "locked-listing" as const,
-    lockedListingId: params.listing.listingId,
-    sellerPreferenceId: null,
+    lockedListingId: params.lockedListingId ?? params.listing.listingId,
+    sellerPreferenceId: params.sellerPreferenceId ?? null,
   };
   const fulfillmentPreview = await previewBuyNowCheckoutSupplyThroughOrdering(params.request, {
-    checkoutSessionId: params.sessionIdOverride ?? `chk_preflight_${params.listing.listingId}`,
+    checkoutSessionId:
+      params.sessionIdOverride ?? params.preflightSessionId ?? `chk_preflight_${params.listing.listingId}`,
     shippingOption: params.shippingOption ?? "standard",
-    optimizationGoal: "lowest-total",
+    optimizationGoal: params.optimizationGoal ?? "lowest-total",
     line,
   });
   if (fulfillmentPreview.readyLineKeys.length === 0) {
-    throw new CheckoutDomainError("This item is no longer available.", "item_unavailable");
+    throw unresolvedFulfillment(fulfillmentPreview);
   }
   const result = await params.services.createBuyNow(
     {
@@ -66,14 +77,48 @@ export async function prepareBuyNowCheckout(
       productSummary: params.listing.productSummary,
       quantity: params.quantity,
       fulfillmentMode: "locked-listing",
-      lockedListingId: params.listing.listingId,
-      sellerPreferenceId: null,
+      lockedListingId: line.lockedListingId,
+      sellerPreferenceId: line.sellerPreferenceId,
+      shippingOption: params.shippingOption,
+      optimizationGoal: params.optimizationGoal,
       fulfillmentPreviewRevision: fulfillmentPreview.revision,
       fulfillmentPreviewSnapshot: fulfillmentPreview,
       handoffExpiresAt: params.handoffExpiresAt,
+      createdAt: params.createdAt,
       sessionIdOverride: params.sessionIdOverride,
     },
     params.context,
   );
-  return { sessionId: result.sessionId, fulfillmentPreview };
+  if (params.sessionIdOverride && result.sessionId !== params.sessionIdOverride) {
+    const replacementPreview = await previewBuyNowCheckoutSupplyThroughOrdering(params.request, {
+      checkoutSessionId: result.sessionId,
+      shippingOption: params.shippingOption ?? "standard",
+      optimizationGoal: params.optimizationGoal ?? "lowest-total",
+      line,
+    });
+    if (replacementPreview.readyLineKeys.length === 0) {
+      throw unresolvedFulfillment(replacementPreview);
+    }
+    const previewResult = await params.services.recordFulfillmentPreview(
+      {
+        sessionId: result.sessionId,
+        accountId: params.accountId,
+        fulfillmentPreviewRevision: replacementPreview.revision,
+        fulfillmentPreviewSnapshot: replacementPreview,
+      },
+      params.context,
+    );
+    return { ...result, fulfillmentPreview: replacementPreview, writeSources: [result, previewResult] };
+  }
+  return { ...result, fulfillmentPreview, writeSources: [result] };
+}
+
+function unresolvedFulfillment(preview: CheckoutFulfillmentPreview) {
+  const reason = preview.unavailableLines[0]?.reason?.trim();
+  return new CheckoutDomainError(
+    reason && reason !== "Locked listing is unavailable."
+      ? reason
+      : "This listing is still becoming available for checkout. Try again shortly.",
+    "unresolved_fulfillment",
+  );
 }

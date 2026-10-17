@@ -544,6 +544,14 @@ function hasCommittedCheckoutSideEffects(session: CheckoutSessionForReviewedPrev
   );
 }
 
+function isExpiredCheckoutHandoff(session: CheckoutSessionForReviewedPreview, now: number) {
+  return (
+    !(Array.isArray(session.order_ids) && session.order_ids.length > 0) &&
+    typeof session.handoff_expires_at === "string" &&
+    Date.parse(session.handoff_expires_at) <= now
+  );
+}
+
 function requestWithoutReadAfterWrite(request: Request) {
   const url = new URL(request.url);
   const hadAfterWrite = url.searchParams.has("afterWrite");
@@ -725,10 +733,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (session.submitted_offer_id) {
     throw redirect(`/account/offers/submitted/${session.submitted_offer_id}`);
   }
-  const expiredCheckout =
-    session.order_ids.length === 0 &&
-    typeof session.handoff_expires_at === "string" &&
-    Date.parse(session.handoff_expires_at) <= Date.now();
+  const expiredCheckout = isExpiredCheckoutHandoff(session, Date.now());
 
   const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
   const wallet =
@@ -898,15 +903,8 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         requestedSavePaymentMethodForFuture && actor?.roleKey !== "guest-buyer" && !selectedSavedPaymentInstrumentId;
       const session =
         typeof readApi.getCheckoutSession === "function" ? await readApi.getCheckoutSession(params.sessionId) : null;
-      if (
-        session &&
-        session.order_ids.length === 0 &&
-        typeof session.handoff_expires_at === "string" &&
-        Date.parse(session.handoff_expires_at) <= Date.now()
-      ) {
-        throw new CheckoutApiError(400, {
-          error: { code: "checkout_expired", message: CHECKOUT_HANDOFF_EXPIRED_MESSAGE },
-        });
+      if (session && isExpiredCheckoutHandoff(session, Date.now())) {
+        return { code: "checkout_expired", error: CHECKOUT_HANDOFF_EXPIRED_MESSAGE };
       }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
       const shippingOptionResult = hasCommittedSideEffects
@@ -1073,6 +1071,7 @@ export default function CheckoutSessionRoute() {
 
   return (
     <CheckoutSessionPage
+      expiredCheckout={data.expiredCheckout}
       session={data.session}
       wallet={data.wallet}
       walletUnavailable={data.walletUnavailable}
@@ -1088,9 +1087,7 @@ export default function CheckoutSessionRoute() {
       canSavePaymentMethods={data.canSavePaymentMethods}
       isSignedInBuyer={data.isSignedInBuyer}
       errorMessage={
-        actionData?.error ??
-        (data.expiredCheckout ? "This checkout has expired. Start a new checkout." : data.previewError) ??
-        null
+        actionData?.error ?? (data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE : data.previewError) ?? null
       }
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}

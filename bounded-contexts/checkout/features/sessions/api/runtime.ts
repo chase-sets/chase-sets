@@ -140,6 +140,7 @@ export type CheckoutSessionServices = Readonly<{
       fulfillmentPreviewRevision: string;
       fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
       handoffExpiresAt?: string | null;
+      createdAt?: string;
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
@@ -769,6 +770,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       fulfillmentPreviewRevision?: string | null;
       fulfillmentPreviewSnapshot?: CheckoutFulfillmentPreview | null;
       handoffExpiresAt?: string | null;
+      createdAt?: string;
       cartReadinessSnapshot?: CartReadinessSnapshot | null;
       presentedAnonymousCartId?: string | null;
       shippingOption: ShippingOption;
@@ -844,7 +846,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           shippingOption: params.shippingOption,
           lines: params.lines,
           handoffExpiresAt: params.handoffExpiresAt,
-          createdAt: new Date().toISOString(),
+          createdAt: params.createdAt ?? new Date().toISOString(),
         },
         context,
       });
@@ -954,6 +956,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
           fulfillmentPreviewSnapshot: params.fulfillmentPreviewSnapshot,
           handoffExpiresAt: params.handoffExpiresAt,
+          createdAt: params.createdAt,
           sessionIdOverride: params.sessionIdOverride,
           lines: [
             {

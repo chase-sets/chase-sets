@@ -42,20 +42,9 @@ ALTER TABLE checkout_session_pages
 
 ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS fulfillment_preview_snapshot jsonb NULL;
-
-ALTER TABLE checkout_session_pages
-  ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;
 `;
 
 export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
-  {
-    migrationId: "20261016_checkout_session_handoff_expiry",
-    description: "Add optional UCP checkout handoff expiry timestamps.",
-    statements: [
-      `ALTER TABLE checkout_session_pages
-  ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;`,
-    ],
-  },
   {
     migrationId: "20260707_checkout_session_reservations",
     description: "Add checkout session reservation snapshots for checkout inventory holds.",
@@ -84,6 +73,14 @@ export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
     statements: [
       `ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS authenticity_check_opt_in jsonb NULL;`,
+    ],
+  },
+  {
+    migrationId: "20261016_checkout_session_handoff_expiry",
+    description: "Add optional UCP checkout handoff expiry timestamps.",
+    statements: [
+      `ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;`,
     ],
   },
 ];
