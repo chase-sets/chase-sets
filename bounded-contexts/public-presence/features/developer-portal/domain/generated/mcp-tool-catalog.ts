@@ -3144,7 +3144,16 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "offerId", "listingId", "feeQuoteFingerprint", "idempotencyKey", "confirmationText"],
+      required: [
+        "accountId",
+        "offerId",
+        "listingId",
+        "feeQuoteFingerprint",
+        "idempotencyKey",
+        "confirmationText",
+        "attemptId",
+        "requestHash",
+      ],
       properties: {
         accountId: {
           type: "string",
@@ -3162,9 +3171,13 @@ export const mcpToolCatalog = [
           type: "string",
           description: "Current marketplace sales-fee quote fingerprint.",
         },
-        sourceActionKey: {
+        attemptId: {
           type: "string",
-          description: "Optional source action key for semantic handoffs.",
+          description: "Marketplace attempt identity, consumed as sourceActionKey; never actor authority.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace acceptance command.",
         },
         reason: {
           type: "string",
@@ -3259,6 +3272,8 @@ export const mcpToolCatalog = [
       type: "object",
       additionalProperties: false,
       required: [
+        "attemptId",
+        "requestHash",
         "accountId",
         "catalogItemId",
         "productId",
@@ -3272,6 +3287,14 @@ export const mcpToolCatalog = [
         "counteredOfferId",
       ],
       properties: {
+        attemptId: {
+          type: "string",
+          description: "Opaque Marketplace attempt id (22-128 base64url characters), retained across retries.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace command, excluding rail and actor identity.",
+        },
         accountId: {
           type: "string",
           description: "Authenticated buyer account scope.",
@@ -3609,7 +3632,7 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "offerId", "reason", "idempotencyKey", "confirmationText"],
+      required: ["accountId", "offerId", "reason", "idempotencyKey", "confirmationText", "attemptId", "requestHash"],
       properties: {
         accountId: {
           type: "string",
@@ -3635,6 +3658,14 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        attemptId: {
+          type: "string",
+          description: "Opaque Marketplace attempt identity retained across retries.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace decline command.",
         },
       },
     },
@@ -4292,6 +4323,8 @@ export const mcpToolCatalog = [
       type: "object",
       additionalProperties: false,
       required: [
+        "attemptId",
+        "requestHash",
         "accountId",
         "catalogItemId",
         "productId",
@@ -4304,6 +4337,14 @@ export const mcpToolCatalog = [
         "confirmationText",
       ],
       properties: {
+        attemptId: {
+          type: "string",
+          description: "Opaque Marketplace attempt id (22-128 base64url characters), retained across retries.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace command, excluding rail and actor identity.",
+        },
         accountId: {
           type: "string",
           description: "Authenticated buyer account scope.",
@@ -4704,7 +4745,15 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "offerId", "priceAmount", "priceCurrencyCode", "confirmationText"],
+      required: [
+        "accountId",
+        "offerId",
+        "priceAmount",
+        "priceCurrencyCode",
+        "confirmationText",
+        "attemptId",
+        "requestHash",
+      ],
       properties: {
         accountId: {
           type: "string",
@@ -4713,6 +4762,14 @@ export const mcpToolCatalog = [
         offerId: {
           type: "string",
           description: "Submitted Offer identifier.",
+        },
+        attemptId: {
+          type: "string",
+          description: "Opaque Marketplace attempt identity retained across retries.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace command.",
         },
         priceAmount: {
           type: "string",

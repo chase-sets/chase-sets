@@ -14,16 +14,21 @@ describe("managed Offer application and commitment", () => {
       const append = vi.spyOn(f.store, "appendToStreams");
       const params = await f.acceptance();
       await runWithEventCommitMetadata(async () => {
-        if (operation === "acceptance") await f.offers.acceptOffer(params, context);
+        if (operation === "acceptance")
+          await f.offers.acceptOffer(params, {
+            ...context,
+            audit: { ...context.audit, forAccountId: params.sellerAccountId },
+          });
         else
           await f.offers.updateOfferPrice(
             {
+              attemptId: "test_attempt_1058_identity",
               offerId: "off_one" as never,
               buyerAccountId: "acc_buyer" as never,
               priceAmount: "11.00",
               priceCurrencyCode: "USD",
             },
-            context,
+            { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
           );
         const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
         const returned = results.flatMap((batch) => batch.storedEvents);
@@ -35,8 +40,13 @@ describe("managed Offer application and commitment", () => {
                 "marketplace.listing.evidence-requirements-refreshed",
                 "marketplace.listing.offer-commitment-recorded",
                 "marketplace.seller-listing-availability.commitment-checked",
+                "marketplace.mutation-attempt.completed",
               ]
-            : ["marketplace.offer.price-updated", "marketplace.offer.managed-evaluated"],
+            : [
+                "marketplace.offer.price-updated",
+                "marketplace.offer.managed-evaluated",
+                "marketplace.mutation-attempt.completed",
+              ],
         );
         const eventIds = returned.map((event) => String(event.eventId));
         const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
@@ -49,20 +59,25 @@ describe("managed Offer application and commitment", () => {
       });
       append.mockClear();
       await runWithEventCommitMetadata(async () => {
-        if (operation === "acceptance") await f.offers.acceptOffer(params, context);
+        if (operation === "acceptance")
+          await f.offers.acceptOffer(params, {
+            ...context,
+            audit: { ...context.audit, forAccountId: params.sellerAccountId },
+          });
         else
           await f.offers.updateOfferPrice(
             {
+              attemptId: "test_attempt_1058_identity",
               offerId: "off_one" as never,
               buyerAccountId: "acc_buyer" as never,
               priceAmount: "11.00",
               priceCurrencyCode: "USD",
             },
-            context,
+            { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
           );
         expect(getEventCommitMetadata().eventIds).toEqual([]);
       });
-      expect(append).toHaveBeenCalledTimes(operation === "acceptance" ? 0 : 1);
+      expect(append).not.toHaveBeenCalled();
     },
   );
 
@@ -76,15 +91,19 @@ describe("managed Offer application and commitment", () => {
       await runWithEventCommitMetadata(async () => {
         await expect(
           operation === "acceptance"
-            ? f.offers.acceptOffer(params, context)
+            ? f.offers.acceptOffer(params, {
+                ...context,
+                audit: { ...context.audit, forAccountId: params.sellerAccountId },
+              })
             : f.offers.updateOfferPrice(
                 {
+                  attemptId: "test_attempt_3646_identity",
                   offerId: "off_one" as never,
                   buyerAccountId: "acc_buyer" as never,
                   priceAmount: "11.00",
                   priceCurrencyCode: "USD",
                 },
-                context,
+                { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
               ),
         ).rejects.toThrow("injected append failure");
         expect(getEventCommitMetadata().eventIds).toEqual([]);
@@ -103,7 +122,12 @@ describe("managed Offer application and commitment", () => {
       throw Object.assign(new Error("concurrent duplicate committed"), { code: "concurrency_conflict" });
     });
     await runWithEventCommitMetadata(async () => {
-      expect(await f.offers.acceptOffer(params, context)).toMatchObject({ offerId: "off_one", version: 3 });
+      expect(
+        await f.offers.acceptOffer(params, {
+          ...context,
+          audit: { ...context.audit, forAccountId: params.sellerAccountId },
+        }),
+      ).toMatchObject({ offerId: "off_one", version: 3 });
       expect(getEventCommitMetadata().eventIds).toEqual([]);
     });
   });
@@ -135,6 +159,7 @@ describe("managed Offer application and commitment", () => {
       const preview = await f.policies.execute(
         "bop_one",
         {
+          attemptId: String("revision_preview").padEnd(22, "_"),
           type: "PreviewBuyerOfferPolicy",
           expectedVersion: 3,
           operationId: "revision_preview",
@@ -148,6 +173,7 @@ describe("managed Offer application and commitment", () => {
       await f.policies.execute(
         "bop_one",
         {
+          attemptId: String("revision").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: 4,
           operationId: "revision",
@@ -168,7 +194,10 @@ describe("managed Offer application and commitment", () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     const params = await f.acceptance();
     f.evaluateTargets.mockImplementationOnce(async () => {
-      await f.offers.acceptOffer(params, context);
+      await f.offers.acceptOffer(params, {
+        ...context,
+        audit: { ...context.audit, forAccountId: params.sellerAccountId },
+      });
       return [{ status: "target", unitItemAmount: "12.00", evidence: {} }];
     });
     await expect(f.offers.applyManagedOffer("off_one" as never, "late_evaluation", context)).rejects.toMatchObject({
@@ -189,7 +218,11 @@ describe("managed Offer application and commitment", () => {
       },
     });
     const params = await Promise.all([f.acceptance("one"), f.acceptance("two")]);
-    const results = await Promise.allSettled(params.map((p) => f.offers.acceptOffer(p, context)));
+    const results = await Promise.allSettled(
+      params.map((p) =>
+        f.offers.acceptOffer(p, { ...context, audit: { ...context.audit, forAccountId: p.sellerAccountId } }),
+      ),
+    );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("20.00");
     const events = await memory.readAll();
@@ -200,9 +233,15 @@ describe("managed Offer application and commitment", () => {
       ["marketplace.offer-off_two", 2],
       ["marketplace.listing-lst_two", 2],
       ["marketplace.seller-listing-availability-acc_two", "no_stream"],
+      [expect.stringMatching(/^marketplace\.offer-acceptance-attempt-v1-/), "no_stream"],
     ]);
     const loser = results[0]!.status === "rejected" ? 0 : 1;
-    await expect(f.offers.acceptOffer(params[loser]!, context)).rejects.toMatchObject({ code: "managed_offer_held" });
+    await expect(
+      f.offers.acceptOffer(params[loser]!, {
+        ...context,
+        audit: { ...context.audit, forAccountId: params[loser]!.sellerAccountId },
+      }),
+    ).rejects.toMatchObject({ code: "managed_offer_held" });
   });
 
   it("replays a timeout-after-commit and concurrent duplicate acceptance once even after pause", async () => {
@@ -221,13 +260,23 @@ describe("managed Offer application and commitment", () => {
     });
     const params = await f.acceptance();
     timeout = true;
-    await expect(f.offers.acceptOffer(params, context)).rejects.toThrow("timeout after commit");
+    await expect(
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ).rejects.toThrow("timeout after commit");
     await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 4, operationId: "pause" },
+      {
+        attemptId: String("pause").padEnd(22, "_"),
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 4,
+        operationId: "pause",
+      },
       context,
     );
-    const replay = await Promise.all([f.offers.acceptOffer(params, context), f.offers.acceptOffer(params, context)]);
+    const replay = await Promise.all([
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ]);
     expect(replay[0]).toEqual(replay[1]);
     expect(
       (await memory.readAll()).filter((e) => e.eventType === "marketplace.offer-policy.commitment-consumed"),
@@ -250,8 +299,15 @@ describe("managed Offer application and commitment", () => {
         },
       });
       const params = await f.acceptance();
-      interleave = () => f.policies.execute("bop_one", { type, expectedVersion: 3, operationId: "stop" }, context);
-      await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "managed_offer_conflict" });
+      interleave = () =>
+        f.policies.execute(
+          "bop_one",
+          { attemptId: String("stop").padEnd(22, "_"), type, expectedVersion: 3, operationId: "stop" },
+          context,
+        );
+      await expect(
+        f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+      ).rejects.toMatchObject({ code: "managed_offer_conflict" });
       await expect(f.offers.applyManagedOffer("off_one" as never, "work", context)).rejects.toThrow("active");
       expect((await memory.readAll()).filter((e) => e.eventType === "marketplace.offer.accepted")).toHaveLength(0);
       expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("0.00");
@@ -273,7 +329,9 @@ describe("managed Offer application and commitment", () => {
         evidence: { estimateVersion: "7" },
       },
     });
-    await expect(f.offers.acceptOffer(await f.acceptance(), context)).rejects.toMatchObject({
+    await expect(
+      f.offers.acceptOffer(await f.acceptance(), { ...context, audit: { ...context.audit, forAccountId: "acc_one" } }),
+    ).rejects.toMatchObject({
       code: "managed_offer_held",
     });
   });
@@ -286,14 +344,21 @@ describe("managed Offer application and commitment", () => {
       version: 2,
     });
     f.setTarget({ status: "target", unitItemAmount: "12.00", evidence: { estimateVersion: "2" } });
-    await expect(f.offers.acceptOffer(before, context)).rejects.toMatchObject({
+    await expect(
+      f.offers.acceptOffer(before, { ...context, audit: { ...context.audit, forAccountId: before.sellerAccountId } }),
+    ).rejects.toMatchObject({
       code: "managed_offer_refresh_required",
     });
     await f.offers.applyManagedOffer("off_one" as never, "changed", context);
-    await expect(f.offers.acceptOffer(before, context)).rejects.toMatchObject({
+    await expect(
+      f.offers.acceptOffer(before, { ...context, audit: { ...context.audit, forAccountId: before.sellerAccountId } }),
+    ).rejects.toMatchObject({
       name: "MarketplaceOfferFeeQuoteStaleError",
     });
-    await f.offers.acceptOffer(await f.acceptance(), context);
+    await f.offers.acceptOffer(await f.acceptance(), {
+      ...context,
+      audit: { ...context.audit, forAccountId: "acc_one" },
+    });
     const committed = await f.store.readAll();
     f.setTarget({ status: "target", unitItemAmount: "13.00", evidence: {} });
     expect(await f.offers.applyManagedOffer("off_one" as never, "late", context)).toMatchObject({
@@ -308,12 +373,13 @@ describe("managed Offer application and commitment", () => {
     const update = (priceAmount: string, priceCurrencyCode = "USD") =>
       f.offers.updateOfferPrice(
         {
+          attemptId: crypto.randomUUID(),
           offerId: "off_one" as never,
           buyerAccountId: "acc_buyer" as never,
           priceAmount,
           priceCurrencyCode,
         },
-        context,
+        { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
       );
     await expect(update("21.00")).rejects.toThrow("maximum");
     await expect(update("10.00", "EUR")).rejects.toThrow("currency");
@@ -328,12 +394,19 @@ describe("managed Offer application and commitment", () => {
         { eventType: "marketplace.listing.price-updated", payload: { priceAmount: "12.00", priceCurrencyCode: "USD" } },
       ],
     });
-    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({
+    await expect(
+      f.offers.acceptOffer(params, { ...context, audit: { ...context.audit, forAccountId: params.sellerAccountId } }),
+    ).rejects.toMatchObject({
       name: "MarketplaceOfferFeeQuoteStaleError",
     });
     await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
+      {
+        attemptId: String("pause").padEnd(22, "_"),
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "pause",
+      },
       context,
     );
     await expect(update("10.00")).rejects.toThrow("active");

@@ -195,12 +195,12 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 20,
+      discoveredCallCandidates: 21,
       authoritativeSites: 20,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
-      insufficientReceiverContractSites: 0,
+      insufficientReceiverContractSites: 1,
       authorityAbsentCandidates: 0,
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
@@ -219,12 +219,22 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives twenty-six green grammar instances across twenty-four live locations without a registry", () => {
+  it("derives twenty-eight green grammar instances across twenty-five live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(26);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(24);
+    expect(green).toHaveLength(28);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(25);
     expect(green).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts",
+          line: 48,
+        }),
+        expect.objectContaining({
+          category: "type-position",
+          file: "bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts",
+          line: 48,
+        }),
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/identity/features/agent-grants/api/revocation.ts",

@@ -41,6 +41,7 @@ describe("Buyer Offer Policy real account routes", () => {
     const paused = await runtime.execute(
       "bop_one",
       {
+        attemptId: String("pause_route").padEnd(22, "_"),
         type: "PauseBuyerOfferPolicy",
         expectedVersion: active.version,
         operationId: "pause_route",
@@ -58,6 +59,7 @@ describe("Buyer Offer Policy real account routes", () => {
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
       post({
+        attemptId: String("stale_resume").padEnd(22, "_"),
         type: "PreviewBuyerOfferPolicy",
         expectedVersion: paused.version,
         operationId: "stale_resume",
@@ -72,7 +74,13 @@ describe("Buyer Offer Policy real account routes", () => {
     const { runtime } = await fixture();
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
-      post({ type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview_evidence", terms }),
+      post({
+        attemptId: String("preview_evidence").padEnd(22, "_"),
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "preview_evidence",
+        terms,
+      }),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -97,6 +105,7 @@ describe("Buyer Offer Policy real account routes", () => {
         await runtime.execute(
           "bop_one",
           {
+            attemptId: String("authorize").padEnd(22, "_"),
             type: "AuthorizeBuyerOfferPolicy",
             expectedVersion: 2,
             operationId: "authorize",
@@ -109,6 +118,7 @@ describe("Buyer Offer Policy real account routes", () => {
         await runtime.execute(
           "bop_one",
           {
+            attemptId: String(status).padEnd(22, "_"),
             type: status === "paused" ? "PauseBuyerOfferPolicy" : "StopBuyerOfferPolicy",
             expectedVersion: status === "paused" ? 3 : 4,
             operationId: status,
@@ -150,6 +160,7 @@ describe("Buyer Offer Policy real account routes", () => {
       const response = await app(runtime).request(
         "/policies/bop_one/commands",
         post({
+          attemptId: String("preview").padEnd(22, "_"),
           type: "PreviewBuyerOfferPolicy",
           expectedVersion: 1,
           operationId: "preview",
@@ -172,6 +183,7 @@ describe("Buyer Offer Policy real account routes", () => {
         method === "GET"
           ? undefined
           : post({
+              attemptId: String("attack").padEnd(22, "_"),
               type: "AuthorizeBuyerOfferPolicy",
               expectedVersion: 2,
               operationId: "attack",
@@ -209,7 +221,14 @@ describe("Buyer Offer Policy real account routes", () => {
     const before = await store.readAll();
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
-      post({ type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview", terms, ...changes }),
+      post({
+        attemptId: String("preview").padEnd(22, "_"),
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "preview",
+        terms,
+        ...changes,
+      }),
     );
     expect([400, 409]).toContain(response.status);
     expect(await store.readAll()).toEqual(before);
@@ -223,6 +242,7 @@ describe("Buyer Offer Policy real account routes", () => {
       const response = await app(runtime).request(
         "/policies/bop_one/commands",
         post({
+          attemptId: String("authorize").padEnd(22, "_"),
           type: "AuthorizeBuyerOfferPolicy",
           expectedVersion: p.version,
           operationId: "authorize",
@@ -240,6 +260,7 @@ describe("Buyer Offer Policy real account routes", () => {
     const response = await app(runtime).request(
       "/policies/bop_one/commands",
       post({
+        attemptId: String("authorize").padEnd(22, "_"),
         type: "AuthorizeBuyerOfferPolicy",
         expectedVersion: p.version,
         operationId: "authorize",
