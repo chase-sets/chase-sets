@@ -3,15 +3,18 @@ import { module as catalogModule } from "@chase-sets/catalog";
 import { catalogIntegrationSeedRequirements, inspectCatalogIntegrationSeedState } from "@chase-sets/catalog/server";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { ApiHostSeedOptions } from "@chase-sets/platform-runtime/api";
+import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { createPlatformApiBootstrapTestHarness } from "./bootstrap-db-test-support";
 import {
   assignCatalogSeedState,
+  databaseUrls,
   profileShapes,
   pools,
   prepareCatalog,
   catalogServices,
   ordinaryBoot,
+  directCatalogSeed,
   interruptCatalogSeed,
   requiredEventCounts,
   scenarioCatalogItemIds,
@@ -41,12 +44,48 @@ describe("Catalog integration aggregate-state seed", () => {
       environmentName: "test",
     };
     await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
+    await expectCatalogOnlyHarnessConnections();
     await expectAllRequiredAggregatesActive();
     expect((await inspectCatalogIntegrationSeedState(pools.catalog)).length).toBe(130);
     const afterBootOne = await requiredEventCounts();
 
     await catalogModule.seed(pools.catalog, catalogServices(runtime), options);
+    await expectCatalogOnlyHarnessConnections();
     expect(await requiredEventCounts()).toEqual(afterBootOne);
+  });
+
+  it("NC-9146 rejects a seed-owned connection left checked out after completion", async () => {
+    const runtime = await prepareCatalog();
+    await expectCatalogOnlyHarnessConnections();
+    const client = await pools.catalog.connect();
+    try {
+      await client.query("SELECT set_config('application_name', 'catalog-seed-leaking-connection-control', false)");
+      await directCatalogSeed(catalogServices(runtime), profileShapes[0]);
+      await expect(expectCatalogOnlyHarnessConnections()).rejects.toThrow(
+        /catalog-seed-leaking-connection-control.*"busy":\[\{/u,
+      );
+    } finally {
+      try {
+        await client.query("RESET application_name");
+      } finally {
+        client.release();
+      }
+    }
+    await expectCatalogOnlyHarnessConnections();
+  });
+
+  it("rejects an unregistered raw client and accepts the database after it closes", async () => {
+    const client = new pg.Client({ connectionString: databaseUrls.catalog });
+    await client.connect();
+    try {
+      await client.query("SELECT set_config('application_name', 'catalog-seed-unregistered-client-control', false)");
+      await expect(expectCatalogOnlyHarnessConnections()).rejects.toThrow(
+        /"usename".*catalog-seed-unregistered-client-control.*"backend_start".*"owner":null/u,
+      );
+    } finally {
+      await client.end();
+    }
+    await expectCatalogOnlyHarnessConnections();
   });
 
   it("does not re-author unchanged Product Measures facts on scenario-seed repeat", async () => {
