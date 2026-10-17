@@ -682,6 +682,16 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", { status: current.state.status });
       }
 
+      const buyerAccount = await deps.db.query<{ account_status: string }>(
+        `SELECT status AS account_status FROM marketplace_account_pages WHERE account_id = $1`,
+        [current.state.buyerAccountId],
+      );
+      if (buyerAccount.rows[0]?.account_status !== "active") {
+        throw new MarketplaceOfferAcceptanceReadinessError("offer_not_open", {
+          status: current.state.status,
+        });
+      }
+
       const listingStreamId = `marketplace.listing-${params.listingId}`;
       const commitment = current.state.buyerOfferPolicyId
         ? await managed.acceptance(current.state, current.version, context)
