@@ -30,6 +30,13 @@ describeDb("open-market Offer Matches on Postgres", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
+    await pools.marketplace.query(
+      `INSERT INTO marketplace_account_pages (account_id, display_name, status)
+       VALUES ('acc_buyer', 'Buyer', 'active'),
+              ('acc_seller_a', 'Seller A', 'active'),
+              ('acc_seller_b', 'Seller B', 'active'),
+              ('acc_seller_c', 'Seller C', 'active')`,
+    );
     for (const [seller, amount] of [
       ["acc_seller_a", "10.00"],
       ["acc_seller_b", "14.00"],

@@ -31,6 +31,10 @@ describeDb("Offer lifecycle visibility on Postgres", () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     await pools.marketplace.query(
+      `INSERT INTO marketplace_account_pages (account_id, display_name, status)
+       VALUES ('acc_seller', 'Seller', 'active'), ('acc_buyer', 'Buyer', 'active')`,
+    );
+    await pools.marketplace.query(
       `INSERT INTO marketplace_supply_items (
         item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity
       ) VALUES ('inv_seller', 'acc_seller', 'cat_one', 'cat_one::', 'loc_fixture', 10)`,
