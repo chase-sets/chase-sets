@@ -3,6 +3,7 @@ import {
   countCaptureAuthoritySchema,
   countLifecycleStopReceiptSchema,
   countLifecycleReceiptSchema,
+  classifyCountLifecycleReceipt,
   validateCountCaptureAuthority,
   validateCountLifecycleReceipt,
   type CountCaptureAuthority,
@@ -147,7 +148,35 @@ export async function runCountCaptureJourney(
       JSON.stringify(parsed.freezeCollection) !== JSON.stringify(freezeCollection) ||
       !validateCountLifecycleReceipt(parsed).valid
     )
-      return stop("missing-observation");
+      return countLifecycleStopReceiptSchema.parse({
+        schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+        attribution: parsed.attribution,
+        stoppedAt: parsed.frozenAt,
+        phase: "freeze",
+        reason: "missing-observation",
+        sends: parsed.sends,
+        evidence: {
+          startedAt: parsed.startedAt,
+          frozenAt: parsed.frozenAt,
+          sends: parsed.sends,
+          effects: parsed.effects,
+        },
+        classification: classifyCountLifecycleReceipt({
+          schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+          attribution: parsed.attribution,
+          stoppedAt: parsed.frozenAt,
+          phase: "freeze",
+          reason: "missing-observation",
+          sends: parsed.sends,
+          evidence: {
+            startedAt: parsed.startedAt,
+            frozenAt: parsed.frozenAt,
+            sends: parsed.sends,
+            effects: parsed.effects,
+          },
+          classification: parsed.classification,
+        }),
+      });
     return parsed;
   } catch {
     // No follow-up action is safe after an uncertain send. Durable server
