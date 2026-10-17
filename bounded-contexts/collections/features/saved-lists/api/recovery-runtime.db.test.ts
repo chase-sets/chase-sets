@@ -156,6 +156,10 @@ describeDb("durable Saved List recovery", () => {
     for (let crash = 1; crash <= writeCount; crash += 1) {
       await resetMultiContextTestSchemas(pools);
       await bootstrapContextDatabase(collectionsModule, pools.collections);
+      await activateAnonymousOwnerCutover(pools.collections, {
+        gatePacketSha256: "d".repeat(64),
+        floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+      });
       const prepared = await ready();
       let current = 0;
       const injectedFailure = new Error("synthetic-write-crash");

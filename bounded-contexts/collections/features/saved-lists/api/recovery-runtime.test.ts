@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createEventStoreError } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -124,6 +124,9 @@ async function expiryHarness(row: ReturnType<typeof operationRow>, foreign = fal
 }
 
 describe("retained-recovery-expiry-fence regression proofs", () => {
+  it("recovery factory accepts no enablement option", () => {
+    expectTypeOf<Parameters<typeof createSavedListRecoveryRuntime>[0]>().not.toHaveProperty("enabled");
+  });
   it.each(["foreign receipt", "intent revision drift", "receipt fingerprint"])(
     "F1 isolates %s without blocking prepare or touching the poisoned row",
     async (poison) => {
