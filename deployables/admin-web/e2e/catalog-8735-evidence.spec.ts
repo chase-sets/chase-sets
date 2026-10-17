@@ -456,6 +456,26 @@ test("8735 exact-head evidence-only capture @catalog-admin-integrations", async 
       console.log("8735_CAPTURE_JSON " + JSON.stringify({ name, value }));
   };
   const sandbox = resolveWorktreeSandbox({ rootDir: root });
+  assert.ok(!Object.values(sandbox.ports).some((port) => [8317, 8318].includes(port)), "Fenced port");
+  const docker = (...args) => execFileSync("docker", args, { cwd: root, encoding: "utf8", timeout: 15000 }).trim();
+  const ids = docker("ps", "-q", "--filter", `label=com.docker.compose.project=${sandbox.composeProjectName}`)
+    .split(/\s+/)
+    .filter(Boolean);
+  assert.ok(ids.length, "No running seat Compose containers");
+  const containerIdentities = ids.map((id) => {
+    const labels = JSON.parse(docker("inspect", "--format", "{{json .Config.Labels}}", id));
+    assert.equal(labels["com.chase-sets.sandbox.id"], sandbox.id);
+    assert.equal(
+      labels["com.chase-sets.sandbox.worktree"].replaceAll("\\", "/").toLowerCase(),
+      root.replaceAll("\\", "/").toLowerCase(),
+    );
+    return {
+      id,
+      sandboxId: labels["com.chase-sets.sandbox.id"],
+      worktree: labels["com.chase-sets.sandbox.worktree"],
+      composeProject: labels["com.docker.compose.project"],
+    };
+  });
   save("build-identity.json", {
     immutableProductHead: head,
     executedCheckout: git("rev-parse", "HEAD"),
@@ -470,6 +490,7 @@ test("8735 exact-head evidence-only capture @catalog-admin-integrations", async 
     sandboxId: sandbox.id,
     composeProject: sandbox.composeProjectName,
     origin: sandbox.urls.adminWeb,
+    containerIdentities,
     runId: process.env.GITHUB_RUN_ID,
     runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     readiness:
