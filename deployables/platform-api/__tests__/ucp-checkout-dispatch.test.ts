@@ -74,14 +74,20 @@ type Transport = "rest" | "legacy" | "modern";
 function fixture() {
   let actor: ResolvedActor | null = buyer;
   let current = row();
+  const createdSessionIds = new Set<string>();
   const getSession = vi.fn(async (sessionId: string, accountId: string) =>
-    sessionId === id && accountId === current.buyer_account_id ? current : null,
+    (sessionId === id || createdSessionIds.has(sessionId)) && accountId === current.buyer_account_id ? current : null,
   );
   const cancelSession = vi.fn(async () => ({
     sessionId: id,
     session: (current = { ...current, cancelled_at: new Date().toISOString() }),
   }));
-  const createBuyNow = vi.fn();
+  const createBuyNow = vi.fn(async (input: { sessionIdOverride?: string }) => {
+    const sessionId = input.sessionIdOverride ?? id;
+    createdSessionIds.add(sessionId);
+    return { sessionId };
+  });
+  const recordFulfillmentPreview = vi.fn(async () => ({}));
   const recordOrdersCreated = vi.fn();
   const recordPaymentStarted = vi.fn();
   const records = new Map<string, PlatformIdempotencyRecord<UcpEnvelope>>();
@@ -119,7 +125,26 @@ function fixture() {
     services: {
       auth: {},
       identity: { agentGrantRevocations: { isActiveGrant: async () => true } },
-      checkout: { sessions: { getSession, cancelSession, createBuyNow, recordOrdersCreated, recordPaymentStarted } },
+      checkout: {
+        sessions: { getSession, cancelSession, createBuyNow, recordFulfillmentPreview, recordOrdersCreated, recordPaymentStarted },
+      },
+      discovery: {
+        items: {
+          market: {
+            getPublicListingById: async () => ({
+              listing_id: "lst_1",
+              account_id: "acc_seller",
+              catalog_catalog_item_id: "cat_1",
+              product_id: "cat_1::",
+              item_title: "Synthetic card",
+              item_subtitle: null,
+              product_summary: null,
+              selected_options: [],
+              visible_quantity: 1,
+            }),
+          },
+        },
+      },
     },
   };
   const app = buildPlatformApiApp(runtime, {
@@ -143,7 +168,12 @@ function fixture() {
   const call = async (
     transport: Transport,
     operation: string,
-    options: { id?: string; signature?: "valid" | "partial" | "bad" | "bad-digest" | "no-key"; key?: string } = {},
+    options: {
+      id?: string;
+      signature?: "valid" | "partial" | "bad" | "bad-digest" | "no-key";
+      key?: string;
+      arguments?: Record<string, unknown>;
+    } = {},
   ) => {
     const checkoutId = options.id ?? id;
     const path =
@@ -162,7 +192,7 @@ function fixture() {
             method: "tools/call",
             params: {
               name: operation,
-              arguments: checkoutId ? { id: checkoutId } : {},
+              arguments: options.arguments ?? (checkoutId ? { id: checkoutId } : {}),
               ...(transport === "modern"
                 ? { _meta: { [MCP_META_PROTOCOL_VERSION_KEY]: "2026-07-28", [MCP_META_CLIENT_CAPABILITIES_KEY]: {} } }
                 : {}),
@@ -212,6 +242,7 @@ function fixture() {
     reserve,
     cancelSession,
     createBuyNow,
+    recordFulfillmentPreview,
     recordOrdersCreated,
     recordPaymentStarted,
     getSession,
@@ -350,3 +381,30 @@ it("unsigned REST grant cannot bypass create or update signed-write gates", asyn
   expect(f.getSession).not.toHaveBeenCalled();
   expect(f.reserve).not.toHaveBeenCalled();
 });
+
+it.each(["legacy", "modern"] as const)(
+  "passes MCP argument metadata to create_checkout for the %s protocol",
+  async (transport) => {
+    const f = fixture();
+    const key = `mcp-meta-${transport}`;
+    const argumentsWithMeta = {
+      checkout: { line_items: [{ item: { id: "lst_1" }, quantity: 1 }] },
+      meta: { "idempotency-key": key },
+    };
+
+    const first = await f.call(transport, "create_checkout", { arguments: argumentsWithMeta });
+    const second = await f.call(transport, "create_checkout", { arguments: argumentsWithMeta });
+
+    expect(first.checkout).toBeDefined();
+    expect(second.checkout).toBeDefined();
+    expect(f.createBuyNow).toHaveBeenCalledTimes(2);
+    const expectedSessionId = `chk_${createHash("sha256")
+      .update(JSON.stringify([buyer.accountId, key, "lst_1"]))
+      .digest("hex")
+      .slice(0, 28)}`;
+    expect(f.createBuyNow.mock.calls.map(([input]) => input.sessionIdOverride)).toEqual([
+      expectedSessionId,
+      expectedSessionId,
+    ]);
+  },
+);

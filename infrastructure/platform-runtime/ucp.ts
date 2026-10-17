@@ -1881,7 +1881,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
             if (accessFailure) return respondResult(toolResult(tool, accessFailure));
           }
           if (unsignedAgentGrant) {
-            return respondResult(toolResult(tool, await invokeNonIdempotentMcpTool(c, options, tool, args)));
+            return respondResult(toolResult(tool, await invokeNonIdempotentMcpTool(c, options, tool, args, meta)));
           }
           emitObserver(options.observer?.signedWriteRejected, {
             transport: "mcp",
@@ -1909,7 +1909,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
 
       const result = tool.idempotencyKeyRequired
         ? await invokeMcpTool(c, options, tool, args, idempotencyStore, meta)
-        : await invokeNonIdempotentMcpTool(c, options, tool, args);
+        : await invokeNonIdempotentMcpTool(c, options, tool, args, meta);
 
       if (
         tool.idempotencyKeyRequired &&
@@ -1954,6 +1954,7 @@ async function invokeNonIdempotentMcpTool(
   options: CreateUcpRoutesOptions,
   tool: UcpMcpToolDescriptor,
   args: Readonly<Record<string, unknown>>,
+  meta: UcpRequestMeta,
 ) {
   const limit = await acquireUcpMcpToolCallLease(c, options, tool);
   if (!limit.allowed) {
@@ -1967,6 +1968,7 @@ async function invokeNonIdempotentMcpTool(
       arguments: args,
       request: c.req.raw,
       params: {},
+      requestMeta: meta,
     }) ?? unsupported(tool.name));
   } finally {
     await Promise.resolve(limit.lease?.release()).catch(() => undefined);
