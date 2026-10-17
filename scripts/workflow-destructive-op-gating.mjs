@@ -1159,7 +1159,7 @@ function commandWrites(command) {
     writes.push({ name: operands[1]?.dynamic ? null : operands[1]?.value, kind: "printf" });
   } else if (selector === "getopts") {
     writes.push({ name: operands[1]?.dynamic ? null : operands[1]?.value, kind: "getopts" });
-  } else if (selector === "shift" || (selector === "set" && operands.some((word) => word.value === "--"))) {
+  } else if (selector === "shift" || (selector === "set" && setsPositionals(operands))) {
     writes.push({ name: "@positional", kind: "positional" });
   } else if (selector === "trap" || selector === "eval") {
     // A pinned action is inventoried by runAnalysis; a dynamic one is opaque.
@@ -1168,9 +1168,20 @@ function commandWrites(command) {
     writes.push({ name: null, kind: "opaque" });
   }
   for (const word of [...command.words, ...command.assignments.map(({ token }) => token)])
-    for (const [, name] of (word.raw ?? word.value).matchAll(/\$\{([A-Za-z_]\w*):?[=?]/g))
+    for (const [, name] of (word.raw ?? word.value).matchAll(/\$\{([A-Za-z_]\w*):?=/g))
       writes.push({ name, kind: "default-assign" });
   return writes;
+}
+
+// `set` rebinds the positional parameters with `--` or any word that is not
+// an option or the argument of an `-o`/`+o` option.
+function setsPositionals(operands) {
+  for (let index = 0; index < operands.length; index += 1) {
+    const { value, dynamic } = operands[index];
+    if (dynamic || value === "--" || !/^[-+]/.test(value)) return true;
+    if (/o$/.test(value)) index += 1;
+  }
+  return false;
 }
 
 // One lexical scope: a run block or a substitution inside one, with its
@@ -1310,29 +1321,13 @@ function enclosing(node, kinds) {
 // option-shaped ($! and $$ are leadOf "process"). Declaring one in env voids
 // the root.
 const capturedRoots = new Set(["RUNNER_TEMP", "GITHUB_WORKSPACE", "GITHUB_STEP_SUMMARY", "PWD"]);
-// Enumerated fixed-shape runner fields: provenance, not lead proof.
-const capturedProvenance = new Set([
-  "GITHUB_REPOSITORY",
-  "GITHUB_SHA",
-  "GITHUB_RUN_ID",
-  "GITHUB_RUN_ATTEMPT",
-  "GITHUB_SERVER_URL",
-]);
-
-// Enumerated fixed-shape GitHub expression roots (L4-T provenance), the
-// exact alternative set the LC clause admits, and the input roots H guards.
+// The enumerated fixed-shape GitHub event/commit fields (#9003 LC clause):
+// provenance (L4-T/LX), never a lead proof. Every other github.* root,
+// including PR title/body/ref names and wildcard event fields, refuses.
 const githubProvenance = new Set([
   "github.sha",
-  "github.repository",
-  "github.repository_owner",
-  "github.run_id",
-  "github.run_number",
-  "github.run_attempt",
-  "github.server_url",
-  "github.workflow",
   "github.event.merge_group.head_sha",
   "github.event.pull_request.head.sha",
-  "github.event.pull_request.base.sha",
 ]);
 
 // The roots of a GitHub expression body: each `||` alternative must be one
@@ -1498,10 +1493,13 @@ function substitutionAdmitted(scope, context, seen) {
     for (const node of inner.nodes.values()) {
       if (!node.command.words.length) continue;
       const command = resolveCommandWords(node.command, commandsFromTokens(inner.lexed.tokens), inner.lexed.tokens);
+      // Admission proofs stay out of the caller's trace: the substitution's
+      // own commands are classified, and traced, where they stand.
       const result = classifyCommand(command, context.grammar, {
         ...context,
         origin: witnessOccurrence(inner),
         site: siteOf(inner, node),
+        trace: { unsited: false, proofs: [] },
         seen,
       });
       if (result && (result.operation || result.disposition === "INDETERMINATE")) return false;
@@ -1524,11 +1522,12 @@ function declaration(name, env) {
 
 // An unwritten name: env-declared literal (L4-L) or trusted expression root
 // (L4-T), a guarded input root (L3-G) or a captured runner root (L4).
+// Declared values are read as written, not as effective values: R owns
+// overrides.
 function proveDeclared(name, site, context) {
   const declared = declaration(name, context.env);
   if (!declared) {
     if (capturedRoots.has(name)) return leadProof("L4", [name]);
-    if (capturedProvenance.has(name)) return provenanceProof("L4-T", [name], [name]);
     return refused(`undeclared ${name}`);
   }
   if (capturedRoots.has(name) || name === "PATH" || name === "TMPDIR")
@@ -1680,6 +1679,8 @@ function regexLanguage(pattern) {
       const end = body.indexOf("]", index + (body[index + 1] === "^" ? 3 : 2));
       if (end < 0) throw new Error("unterminated bracket");
       const set = body.slice(index + 1, end);
+      // Character classes and collating elements are not parsed: refuse.
+      if (set.includes("[")) throw new Error("unsupported bracket expression");
       index = end + 1;
       if (set.startsWith("^")) return { dash: !set.slice(1).includes("-"), nullable: false };
       const ranges = [...set.matchAll(/(.)-(.)/g)].some(([, low, high]) => low <= "-" && "-" <= high);
