@@ -1,10 +1,7 @@
 import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
-import {
-  inspectMarketplaceSeedState,
-  seedMarketplaceDatabase,
-} from "../../../bounded-contexts/marketplace/support/runtime-support/seed";
 import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
@@ -216,7 +213,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await updateCreatedPayload(pools.marketplace, streamId, "priceAmount", "389.00");
     await seedRuntime.seed();
     await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.paused");
-    const reports = await inspectMarketplaceSeedState(pools.marketplace);
+    const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
     expect(reports.find((report) => report.id === listingId)).toMatchObject({ kind: "draft", status: "paused" });
   }, 300_000);
 
@@ -321,13 +318,13 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
         },
       },
     } as typeof services;
-    await expect(seedMarketplaceDatabase(pools.marketplace, wrappedServices)).rejects.toThrow(/reconciliation failed/);
+    await expect(marketplaceModule.seed!(pools.marketplace, wrappedServices)).rejects.toThrow(/reconciliation failed/);
     expect(ownerCalls).toBe(1);
     const firstListing = marketplaceReservedSeedIds.listings.charizardBaseSetNearMint;
     await expect(
       countListingEvents(pools.marketplace, listingStream(firstListing), "marketplace.listing.price-updated"),
     ).resolves.toBe(1);
-    await seedMarketplaceDatabase(pools.marketplace, services);
+    await marketplaceModule.seed!(pools.marketplace, services);
     await expect(countStreamEvents(pools.marketplace, "marketplace.offer-%")).resolves.toBe(offersBefore);
     const allUpdates = await pools.marketplace.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM event_store_events
@@ -349,7 +346,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
     await pools.inventory.query("DELETE FROM inventory_items WHERE item_id = $1", [created.rows[0]!.inventory_item_id]);
 
-    await expect(seedMarketplaceDatabase(pools.marketplace, runtime.services.marketplace)).rejects.toThrow(
+    await expect(marketplaceModule.seed!(pools.marketplace, runtime.services.marketplace)).rejects.toThrow(
       /missing inventory supply/,
     );
     await expect(countStreamEvents(pools.marketplace, streamId)).resolves.toBe(0);
