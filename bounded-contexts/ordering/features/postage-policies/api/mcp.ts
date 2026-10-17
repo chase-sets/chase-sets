@@ -99,7 +99,7 @@ function policyCommand(args: Readonly<Record<string, unknown>>) {
   return {
     label: readMcpStringArgument(args, "label") ?? "",
     payload: policyPayload(args),
-    effectiveFrom: readMcpStringArgument(args, "effectiveFrom") ?? new Date().toISOString(),
+    effectiveFrom: typeof args.effectiveFrom === "string" ? args.effectiveFrom : new Date().toISOString(),
     effectiveUntil: args.effectiveUntil === null ? null : readMcpStringArgument(args, "effectiveUntil"),
   };
 }

@@ -459,6 +459,13 @@ describe("ordering postage policy MCP handlers", () => {
   it("persists operator attribution for every lifecycle write and preserves owning domain failures", async () => {
     const { allEvents, runtime } = storedRuntime();
     const boundary = native(runtime);
+    const blankTimestamp = await boundary.call("ordering.create-postage-policy", {
+      ...createArguments,
+      effectiveFrom: "",
+      idempotencyKey: "invalid-blank-timestamp",
+    });
+    expect(blankTimestamp.result.isError).toBe(true);
+    expect(allEvents).toHaveLength(0);
     const created = await boundary.call("ordering.create-postage-policy", createArguments);
     expect(created.result.isError).not.toBe(true);
     const id = created.result.structuredContent!.policyId;
