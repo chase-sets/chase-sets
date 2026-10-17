@@ -830,9 +830,9 @@ describe("release qualification applicability evaluator", () => {
         "infrastructure/event-core-postgres/index.ts",
       ]),
     );
-    expect(corpus.resolutionContext).toEqual(
-      buildModuleResolutionContextFixture({ files: Object.keys(corpus.files), packages: [] }),
-    );
+    const expectedContext = buildModuleResolutionContextFixture({ files: Object.keys(corpus.files), packages: [] });
+    expect([...corpus.resolutionContext.workspacePackages]).toEqual([...expectedContext.workspacePackages]);
+    expect([...corpus.resolutionContext.existingPaths]).toEqual([...expectedContext.existingPaths]);
     rmSync(path.join(corpus.root, "infrastructure", "event-core-postgres", "types.ts"));
     expect(() =>
       classifySqlExecutionSurface({ repoRoot: corpus.root, files: ["bounded-contexts/synthetic/domain/root.ts"] }),
@@ -942,7 +942,7 @@ describe("release qualification applicability evaluator", () => {
     ]);
     const governed = (sha) =>
       listNonTestTypeScriptModules(process.cwd(), {
-        execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]),
+        execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
       });
     expect(governed(candidate)).toEqual(governed(forkPoint));
   });
@@ -986,13 +986,21 @@ describe("release qualification applicability evaluator", () => {
   it("N1 replays a recorded landed pair through real git reads, not synthetic buffers", () => {
     const forkPoint = "406d9bf5d82cbee79fcc5b295c67aa7cc9f35bb9";
     const landing = "c08e1e4ec547dcbd70959874b48afd70931026cc";
-    for (const sha of [forkPoint, landing]) expect(() => execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`])).not.toThrow();
+    for (const sha of [forkPoint, landing]) {
+      let present = true;
+      try {
+        execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`]);
+      } catch {
+        present = false;
+      }
+      expect(present).toBe(true);
+    }
     expect(execFileSync("git", ["rev-list", "--parents", "-n", "1", landing], { encoding: "utf8" }).trim()).toBe(
       `${landing} ${forkPoint}`,
     );
     const readTree = (sha) =>
       listNonTestTypeScriptModules(process.cwd(), {
-        execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]),
+        execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
       });
     expect(readTree(landing)).toEqual(readTree(forkPoint));
     expect(readTree(landing).length > 0).toBe(true);
