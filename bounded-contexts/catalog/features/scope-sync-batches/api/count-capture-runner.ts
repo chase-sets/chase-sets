@@ -61,14 +61,35 @@ export async function runCountCaptureJourney(
   collectDeployment?: CountCaptureDeploymentCollection,
 ) {
   let phase: CountLifecycleStopReceipt["phase"] = "baseline";
-  const stop = (reason: CountLifecycleStopReceipt["reason"]): CountLifecycleStopReceipt =>
-    ({
+  const stop = (reason: CountLifecycleStopReceipt["reason"]): CountLifecycleStopReceipt => {
+    const verdict = ["capture-stopped", "send-uncertain", "unexpected-effects", "receipt-leak"].includes(reason)
+      ? "FAILED"
+      : "INCOMPLETE";
+    return {
       schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+      attribution: {
+        dispatchId: null,
+        runnerRunId: null,
+        runnerRunAttempt: null,
+        runnerSha: null,
+        packetHash: null,
+        reviewReceiptHash: null,
+        phases: [],
+      },
       stoppedAt: now(),
       phase,
       reason,
       evidence: {},
-    }) as CountLifecycleStopReceipt;
+      classification: {
+        verdict,
+        reasons: [reason],
+        acceptance: {
+          "9431-ac7": { verdict, reasons: [reason] },
+          "9424-ac5": { verdict, reasons: [reason] },
+        },
+      },
+    };
+  };
   if (!identitySchema.safeParse(identity).success) return stop("authority-unbound");
   try {
     const baseline = baselineSchema.parse(await action("capture-baseline", identity));
