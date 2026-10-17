@@ -399,6 +399,14 @@ describeDb("durable Pricing Health Summary real-worker contract", () => {
     const completed = await resumed.getDryRun("acc_7910", run.dryRunId);
     expect(completed?.summary?.listingsEvaluated).toBe(504);
     expect(completed?.health).toBeNull();
+    expect(
+      (
+        await pools.pricing.query<{ missing: boolean }>(
+          "SELECT health IS NULL AS missing FROM pricing_repricing_dry_runs WHERE dry_run_id = $1",
+          [run.dryRunId],
+        )
+      ).rows[0]?.missing,
+    ).toBe(true);
     const counts = await pools.pricing.query<{ missing: string; present: string }>(
       `SELECT count(*) FILTER (WHERE health IS NULL)::text AS missing,
         count(*) FILTER (WHERE health IS NOT NULL)::text AS present

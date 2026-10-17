@@ -444,7 +444,14 @@ export function createRepricingDryRunServices(
            FROM summary
            WHERE run.seller_account_id = $1 AND run.dry_run_id = $2 AND run.updated_at = $3::timestamptz
              AND run.status = 'running' AND ${claimSql} RETURNING ${columns}`,
-          [sellerAccountId, dryRunId, run.updatedAt, input.claimOwnerId, claimed.attemptCount, JSON.stringify(health)],
+          [
+            sellerAccountId,
+            dryRunId,
+            run.updatedAt,
+            input.claimOwnerId,
+            claimed.attemptCount,
+            health === null ? null : JSON.stringify(health),
+          ],
         );
         requireOwned(completed.rows[0]);
         run = completed.rows[0]!;
