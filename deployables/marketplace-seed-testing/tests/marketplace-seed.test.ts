@@ -221,6 +221,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await pools.marketplace.query(
       "DELETE FROM event_store_events WHERE event_type = 'marketplace.listing.price-updated'",
     );
+    await repairListingStreamVersions(pools);
     for (const row of originalPayloads.rows) {
       await restoreCreatedPayload(pools.marketplace, row.stream_id, row.payload);
     }
@@ -606,13 +607,27 @@ async function countStreamEvents(
 }
 
 async function resetListingStream(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"], streamId: string) {
-  await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+  await pools.marketplace.query("DELETE FROM event_store_streams WHERE stream_id = $1", [streamId]);
   await runMarketplaceSeed(pools);
 }
 
 async function resetAllListingStreams(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
-  await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id LIKE 'marketplace.listing-%'");
+  await pools.marketplace.query("DELETE FROM event_store_streams WHERE stream_id LIKE 'marketplace.listing-%'");
   await runMarketplaceSeed(pools);
+}
+
+async function repairListingStreamVersions(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
+  await pools.marketplace.query(
+    `UPDATE event_store_streams AS streams
+     SET current_version = COALESCE(events.max_version, 0), updated_at = NOW()
+     FROM (
+       SELECT stream_id, MAX(stream_version) AS max_version
+       FROM event_store_events
+       WHERE stream_id LIKE 'marketplace.listing-%'
+       GROUP BY stream_id
+     ) AS events
+     WHERE streams.stream_id = events.stream_id`,
+  );
 }
 
 async function runMarketplaceSeed(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
