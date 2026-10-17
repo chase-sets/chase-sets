@@ -198,21 +198,96 @@ describe("staging count capture lifecycle", () => {
     ).rows[0]?.payload as { status: string; sends: unknown[] };
   }
 
-  it("rejects unsafe lifecycle (replay)", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
+  type Replacements = readonly (readonly [string, string])[];
+  type HostileKind = "replay" | "refresh" | "refused-authority" | "cap-overflow";
+  type HostileMutant = { lifecycle?: Replacements; store?: Replacements };
+
+  async function hostile(
+    f: Awaited<ReturnType<typeof createCountCaptureDbFixture>>,
+    kind: HostileKind,
+    mutant?: HostileMutant,
+  ) {
+    let refuse = false;
+    let raise = false;
     let fetchBefore = 0;
-    const { result, intents } = journey(f, f.lifecycle, async (intent, post) => {
+    const countAuthority =
+      kind === "refused-authority"
+        ? async () => ({ ...(await f.countStore.authority()), allowed: !refuse })
+        : undefined;
+    const counts =
+      kind === "cap-overflow"
+        ? {
+            ...f.runtime,
+            getCountQuote: async (input: Parameters<typeof f.runtime.getCountQuote>[0]) => {
+              const q = await f.runtime.getCountQuote(input);
+              return { ...q, cap: raise ? countCapturePhaseCaps.acquisition + 1 : countCapturePhaseCaps.acquisition };
+            },
+          }
+        : undefined;
+    const overrides = {
+      ...(countAuthority ? { countAuthority } : {}),
+      ...(counts ? { counts } : {}),
+    };
+    const hook = async (intent: string, post: () => Promise<Response>) => {
       if (intent === "count-acquire") {
-        expect((await post()).ok).toBe(true);
+        if (kind === "replay" || kind === "refresh") {
+          expect((await post()).ok).toBe(true);
+          fetchBefore = f.fetch.mock.calls.length;
+          return post();
+        }
+        if (kind === "refused-authority") {
+          refuse = true;
+        }
+        if (kind === "cap-overflow") {
+          raise = true;
+        }
         fetchBefore = f.fetch.mock.calls.length;
-        return post();
       }
       return post();
-    });
-    const stop = await result;
-    expect(stop).toMatchObject({ phase: "acquisition", reason: "capture-stopped", evidence: {} });
-    expect(intents.at(-1)).toBe("count-acquire");
-    expect(intents).not.toContain("capture-freeze");
+    };
+
+    if (kind === "refresh") {
+      const first = journey(f, f.lifecycle, hook);
+      await first.result;
+      const secondStore = mutant?.store ? captureStoreMutant(mutant.store)(f.pool, () => f.clock.now) : f.store;
+      const secondLifecycle = mutant?.lifecycle
+        ? captureLifecycleMutant(mutant.lifecycle)(captureDeps(f, { ...overrides, store: secondStore }))
+        : createCountCaptureLifecycle(captureDeps(f, { ...overrides, store: secondStore }));
+      const second = journey(f, secondLifecycle);
+      const stop = await second.result;
+      if (mutant) {
+        expect(second.intents).toContain("capture-baseline");
+        expect(second.intents.at(-1)).not.toBe("capture-baseline");
+      } else {
+        expect(stop).toMatchObject({ phase: "baseline", reason: "capture-stopped" });
+        expect(stop.evidence).toEqual({});
+        expect(second.intents.at(-1)).toBe("capture-baseline");
+      }
+      return { stop, intents: second.intents, fetchBefore };
+    }
+
+    const store = mutant?.store ? captureStoreMutant(mutant.store)(f.pool, () => f.clock.now) : f.store;
+    const lifecycle = mutant?.lifecycle
+      ? captureLifecycleMutant(mutant.lifecycle)(captureDeps(f, { ...overrides, store }))
+      : createCountCaptureLifecycle(captureDeps(f, { ...overrides, store }));
+    const run = journey(f, lifecycle, hook);
+    const stop = await run.result;
+    if (mutant) {
+      expect(run.intents).toContain("count-acquire");
+      expect(run.intents.at(-1)).not.toBe("count-acquire");
+    } else {
+      expect(stop).toMatchObject({ phase: "acquisition", reason: "capture-stopped" });
+      expect(stop.evidence).toEqual({});
+      expect(run.intents.at(-1)).toBe("count-acquire");
+      expect(run.intents).not.toContain("capture-freeze");
+    }
+    return { stop, intents: run.intents, fetchBefore };
+  }
+
+  it("rejects unsafe lifecycle (replay)", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    const result = await hostile(f, "replay");
+    const { fetchBefore } = result;
     expect(f.fetch).toHaveBeenCalledTimes(fetchBefore);
     expect(await f.countStore.history()).toMatchObject([
       { credits: 1, outcome: "complete" },
@@ -223,18 +298,7 @@ describe("staging count capture lifecycle", () => {
   });
   it("rejects unsafe lifecycle (refresh)", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    const first = journey(f, f.lifecycle, async (intent, post) => {
-      if (intent === "count-acquire") {
-        expect((await post()).ok).toBe(true);
-        return post();
-      }
-      return post();
-    });
-    await first.result;
-    const second = journey(f);
-    const stop = await second.result;
-    expect(stop).toMatchObject({ phase: "baseline", reason: "capture-stopped", evidence: {} });
-    expect(second.intents.at(-1)).toBe("capture-baseline");
+    await hostile(f, "refresh");
     expect(await f.countStore.history()).toMatchObject([
       { credits: 1, outcome: "complete" },
       { credits: 1, outcome: "complete" },
@@ -249,143 +313,61 @@ describe("staging count capture lifecycle", () => {
   });
   it("rejects unsafe lifecycle (refused authority)", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    let refuse = false;
-    const lifecycle = createCountCaptureLifecycle(
-      captureDeps(f, { countAuthority: async () => ({ ...(await f.countStore.authority()), allowed: !refuse }) }),
-    );
-    let fetchBefore = 0;
-    const run = journey(f, lifecycle, async (intent, post) => {
-      if (intent === "count-acquire") {
-        refuse = true;
-        fetchBefore = f.fetch.mock.calls.length;
-      }
-      return post();
-    });
-    const stop = await run.result;
-    expect(stop).toMatchObject({ phase: "acquisition", reason: "capture-stopped", evidence: {} });
-    expect(run.intents.at(-1)).toBe("count-acquire");
-    expect(run.intents).not.toContain("capture-freeze");
+    const { fetchBefore } = await hostile(f, "refused-authority");
     expect(f.fetch).toHaveBeenCalledTimes(fetchBefore);
     expect(await f.countStore.history()).toEqual([]);
     expect(await captureRunPayload(f)).toMatchObject({ status: "stopped", sends: [] });
   });
   it("rejects unsafe lifecycle (cap overflow)", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    let raise = false;
-    const raised = {
-      ...f.runtime,
-      getCountQuote: async (input: Parameters<typeof f.runtime.getCountQuote>[0]) => {
-        const q = await f.runtime.getCountQuote(input);
-        return raise ? { ...q, cap: countCapturePhaseCaps.acquisition + 1 } : q;
-      },
-    };
-    const lifecycle = createCountCaptureLifecycle(captureDeps(f, { counts: raised }));
-    let fetchBefore = 0;
-    const run = journey(f, lifecycle, async (intent, post) => {
-      if (intent === "count-acquire") {
-        raise = true;
-        fetchBefore = f.fetch.mock.calls.length;
-      }
-      return post();
-    });
-    const stop = await run.result;
-    expect(stop).toMatchObject({ phase: "acquisition", reason: "capture-stopped", evidence: {} });
-    expect(run.intents.at(-1)).toBe("count-acquire");
-    expect(run.intents).not.toContain("capture-freeze");
-    expect(f.fetch).toHaveBeenCalledTimes(fetchBefore);
+    await hostile(f, "cap-overflow");
     expect(await f.countStore.history()).toEqual([]);
     expect(await captureRunPayload(f)).toMatchObject({ status: "stopped", sends: [] });
   });
 
   it("the replay guard-disabled mutant proceeds past acquisition", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    const store = captureStoreMutant([
-      ["(last !== undefined && phaseOrder(phase) <= phaseOrder(last))", "false"],
-      ["index === 0 || phaseOrder(run.phases[index - 1]!) < phaseOrder(phase)", "true"],
-      [
-        "run.quote.fingerprint !== fingerprint ||\n          run.approvalAt ||\n          !run.finalNotice?.readBackAt",
-        "run.quote.fingerprint !== fingerprint || !run.finalNotice?.readBackAt",
+    await hostile(f, "replay", {
+      store: [
+        ["(last !== undefined && phaseOrder(phase) <= phaseOrder(last))", "false"],
+        ["index === 0 || phaseOrder(run.phases[index - 1]!) < phaseOrder(phase)", "true"],
+        [
+          "run.quote.fingerprint !== fingerprint ||\n          run.approvalAt ||\n          !run.finalNotice?.readBackAt",
+          "run.quote.fingerprint !== fingerprint || !run.finalNotice?.readBackAt",
+        ],
+        [
+          "inPhase.length >= countCapturePhaseCaps[phase]",
+          "(phase !== 'acquisition' && inPhase.length >= countCapturePhaseCaps[phase])",
+        ],
+        ["inPhase.length >= run.quote.cap", "false"],
+        ["inPhase.some((entry) => entry.category === send.category)", "false"],
       ],
-      [
-        "inPhase.length >= countCapturePhaseCaps[phase]",
-        "(phase !== 'acquisition' && inPhase.length >= countCapturePhaseCaps[phase])",
-      ],
-      ["inPhase.length >= run.quote.cap", "false"],
-      ["inPhase.some((entry) => entry.category === send.category)", "false"],
-    ])(f.pool, () => f.clock.now);
-    const lifecycle = createCountCaptureLifecycle(captureDeps(f, { store }));
-    const run = journey(f, lifecycle, async (intent, post) => {
-      if (intent === "count-acquire") {
-        await post();
-        return post();
-      }
-      return post();
     });
-    expect(run.intents.at(-1)).not.toBe("count-acquire");
   });
   it("the refresh guard-disabled mutant proceeds past baseline", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    const first = journey(f, f.lifecycle, async (intent, post) => {
-      if (intent === "count-acquire") {
-        await post();
-        return post();
-      }
-      return post();
-    });
-    await first.result;
-    const store = captureStoreMutant([
-      [
-        "if (retained.some((run) => run.host.dispatchId === input.host.dispatchId)) throw new CountCaptureStopped();",
-        "",
+    await hostile(f, "refresh", {
+      store: [
+        [
+          "if (retained.some((run) => run.host.dispatchId === input.host.dispatchId)) throw new CountCaptureStopped();",
+          "",
+        ],
       ],
-    ])(f.pool, () => f.clock.now);
-    const lifecycle = createCountCaptureLifecycle(captureDeps(f, { store }));
-    const run = journey(f, lifecycle);
-    expect(((await run.result) as { reason?: string }).reason).not.toBe("capture-stopped");
-    expect(run.intents.at(-1)).not.toBe("capture-baseline");
+    });
   });
   it("the refused authority guard-disabled mutant proceeds past acquisition", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    const lifecycle = captureLifecycleMutant([["!authority.allowed ||", ""]], {
-      countAuthority: async () => ({ ...(await f.countStore.authority()), allowed: false }),
-    })(captureDeps(f));
-    const run = journey(f, lifecycle);
-    expect(((await run.result) as { reason?: string }).reason).not.toBe("capture-stopped");
-    expect(run.intents.at(-1)).not.toBe("count-acquire");
+    await hostile(f, "refused-authority", { lifecycle: [["!authority.allowed ||", ""]] });
   });
   it("the cap overflow guard-disabled mutant proceeds past acquisition", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    let raise = false;
-    const counts = {
-      ...f.runtime,
-      getCountQuote: async (input: Parameters<typeof f.runtime.getCountQuote>[0]) => ({
-        ...(await f.runtime.getCountQuote(input)),
-        cap: raise ? countCapturePhaseCaps.acquisition + 1 : countCapturePhaseCaps.acquisition,
-      }),
-    };
-    const lifecycle = captureLifecycleMutant(
-      [["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"]],
-      { counts },
-    )(
-      captureDeps(f, {
-        counts,
-        store: captureStoreMutant([
-          ["countFingerprint(run.quote) !== countFingerprint(quote)", "false"],
-          ["result.fingerprint !== run.quote.fingerprint", "false"],
-          ["result.cap !== run.quote.cap", "false"],
-        ])(f.pool, () => f.clock.now),
-      }),
-    );
-    const run = journey(f, lifecycle, async (intent, post) => {
-      if (intent === "count-acquire") {
-        raise = true;
-        const response = await post();
-        raise = false;
-        return response;
-      }
-      return post();
+    await hostile(f, "cap-overflow", {
+      lifecycle: [["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"]],
+      store: [
+        ["countFingerprint(run.quote) !== countFingerprint(quote)", "false"],
+        ["result.fingerprint !== run.quote.fingerprint", "false"],
+        ["result.cap !== run.quote.cap", "false"],
+      ],
     });
-    expect(((await run.result) as { reason?: string }).reason).not.toBe("capture-stopped");
-    expect(run.intents.at(-1)).not.toBe("count-acquire");
   });
 });
