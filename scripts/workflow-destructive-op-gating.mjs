@@ -235,6 +235,12 @@ export function validateGrammarPartition(grammar = DESTRUCTIVE_GRAMMAR) {
       violations.push(`${member.id}: partition differs from authoritative derivation.`);
   }
   for (const id of derived.keys()) if (!listed.has(id)) violations.push(`${id}: missing partition member.`);
+  const originKeys = new Set();
+  for (const record of grammar.origins ?? []) {
+    if (originKeys.has(originKey(record)))
+      violations.push(`${originKey(record).replaceAll("\u0000", ":")}: duplicate origin record.`);
+    originKeys.add(originKey(record));
+  }
   const benignIds = new Set();
   for (const entry of grammar.benignForms ?? []) {
     if (benignIds.has(entry.id)) violations.push(`${entry.id}: duplicate benign form.`);
@@ -1747,7 +1753,16 @@ function proveName(name, site, context, seen = new Set()) {
   const root = rootOf(site.scope);
   const analysis = runAnalysis(root);
   if (analysis.opaque) return refused("opaque, nameref, recursive or unsupported writer in run");
-  const writers = analysis.writers.get(name) ?? [];
+  // A function that declares `local NAME` scopes its own writes of NAME to its
+  // invocation: they never reach a use outside that function.
+  const all = analysis.writers.get(name) ?? [];
+  const scoping = new Set(all.filter(({ kind }) => kind === "local").map(({ node }) => enclosingFunction(node)));
+  const useFunction = enclosingFunction(liftToRoot(site)?.node ?? site.node);
+  const writers = all.filter(({ node }) => {
+    const owner = enclosingFunction(node);
+    return !owner || !scoping.has(owner) || owner === useFunction;
+  });
+  if (!writers.length && all.length) return refused(`${name} is bound only in other function scopes`);
   if (!writers.length) return proveDeclared(name, site, context);
   const use = useNode(site, writers);
   if (!use) return refused(`${name} use is outside every binding scope`);
@@ -1792,6 +1807,9 @@ function plainBindings(name, writers, use, context, seen) {
   const root = rootOf(use.scope);
   const statements = writers.map(writerStatement);
   if (statements.some((statement) => !statement)) return refused(`${name} binding is not a lone statement`);
+  const owners = new Set(writers.map(({ node }) => enclosingFunction(node)).filter(Boolean));
+  if ([...owners].some(({ name: owner }) => runAnalysis(root).definitions.get(owner)?.length !== 1))
+    return refused(`${name} is bound in a redefined function`);
   const proofs = writers.map((writer) =>
     proveText(writer.assignment.value, siteOf(writer.scope, writer.node), context, seen),
   );
@@ -3290,7 +3308,7 @@ function originRecord(grammar, origin) {
 // Every occurrence of the entry's exact shape in its stored origin run (and
 // the run's substitutions), each with its own site context.
 function originSites(entry, grammar) {
-  const record = originRecord(grammar, entry.origin);
+  const record = Array.isArray(entry.words) ? originRecord(grammar, entry.origin) : null;
   if (!record) return [];
   const stored = (grammar.origins ?? []).find((candidate) => originKey(candidate) === originKey(record));
   if (!originScopes.has(stored)) originScopes.set(stored, lexicalScope(record.run));
@@ -4005,7 +4023,9 @@ export function checkWorkflowDestructiveOperationGating(
   source,
   { workflowFile = "workflow", grammar = DESTRUCTIVE_GRAMMAR } = {},
 ) {
-  return checkWorkflow(source, workflowFile, grammar);
+  const result = checkWorkflow(source, workflowFile, grammar);
+  delete result.proofs;
+  return result;
 }
 
 // `proof` lets discovery prove a grammar once for every workflow it inspects.
@@ -4022,11 +4042,13 @@ function checkWorkflow(source, workflowFile, grammar, proof) {
     };
   }
   const detected = [];
+  const proofs = [];
   const stepProof = proof ?? grammarProof(grammar);
   for (const [jobId, job] of Object.entries(workflow.jobs)) {
     for (const [index, step] of (job.steps ?? []).entries()) {
       if (typeof step?.run !== "string") continue;
       const classification = classifyStep(workflow, job, step, grammar, stepProof);
+      for (const item of classification.proofs ?? []) proofs.push({ jobId, stepIndex: index + 1, ...item });
       if (!classification.operations.length && !classification.indeterminate.length) continue;
       detected.push({ jobId, job, step, stepIndex: index + 1, classification, operations: classification.operations });
       for (const unknown of classification.indeterminate)
@@ -4081,7 +4103,7 @@ function checkWorkflow(source, workflowFile, grammar, proof) {
         `${workflowFile}: job '${entry.jobId}' step #${entry.stepIndex} cannot associate its invocation with the provable dry-run/apply resolver.`,
       );
   }
-  return { passed: violations.length === 0, checkedSteps, violations };
+  return { passed: violations.length === 0, checkedSteps, violations, proofs };
 }
 
 function stagingTripwire(workflow) {

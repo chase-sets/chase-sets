@@ -16,6 +16,7 @@ import {
   classifyShellCommands,
   deriveAuthoritativeGrammar,
   discoverWorkflowFiles,
+  storedOccurrenceProofs,
   validateGrammarPartition,
 } from "./workflow-destructive-op-gating.mjs";
 
@@ -53,13 +54,31 @@ function changeWorkflow(file, change) {
   return stringify(workflow);
 }
 
-function pushWorkflow(run = "terraform destroy", jobId = "anonymous", stepName = "ordinary task") {
+function pushWorkflow(run = "terraform destroy", jobId = "anonymous", stepName = "ordinary task", env = undefined) {
   return stringify({
     name: "Synthetic 8709 fixture",
     on: "push",
-    jobs: { [jobId]: { "runs-on": "ubuntu-latest", steps: [{ name: stepName, run }] } },
+    jobs: { [jobId]: { "runs-on": "ubuntu-latest", steps: [{ name: stepName, ...(env ? { env } : {}), run }] } },
   });
 }
+
+// A live step's run and its workflow/job/step env declarations.
+function liveStep(file, job, step) {
+  const workflow = parse(readWorkflow(file));
+  const definition = workflow.jobs[job];
+  const item = definition.steps[step - 1];
+  return { run: item.run, env: { workflow: workflow.env ?? {}, job: definition.env ?? {}, step: item.env ?? {} } };
+}
+// All three scopes flattened into one step env map (the innermost wins, as in
+// the detector's own lookup order).
+const stepEnv = (env) => ({ ...env.workflow, ...env.job, ...env.step });
+const emptyEnv = { workflow: {}, job: {}, step: {} };
+const originEnvOf = (entry) =>
+  DESTRUCTIVE_GRAMMAR.origins.find(
+    ({ sha, path, job, step }) =>
+      [sha, path, job, step].join("|") ===
+      [entry.origin.sha, entry.origin.path, entry.origin.job, entry.origin.step].join("|"),
+  )?.env;
 
 // Word helpers for synthetic, re-hashed benign entries.
 const W = (value) => ({ value, dynamic: false, quoted: false });
@@ -155,6 +174,95 @@ function expectBatch(admitted, rejected) {
   expect(
     classifyShellCommands(accepted.map(({ example }) => example).join("\n"), { grammar: positive }).indeterminate,
   ).toEqual([]);
+}
+
+// #9031 site fixtures: a stored origin record (LF run + three env maps) and
+// synthetic entries for every command of a candidate run that no entry admits
+// by shape, all stored at that synthetic origin.
+const syntheticOrigin = {
+  sha: "0".repeat(40),
+  path: ".github/workflows/synthetic-9031.yml",
+  job: "synthetic",
+  step: 1,
+};
+function storedOrigin(origin, run, env = emptyEnv) {
+  const scopes = { workflow: env.workflow ?? {}, job: env.job ?? {}, step: env.step ?? {} };
+  return { ...origin, run, env: scopes, runSha256: sha256(run), envSha256: sha256(JSON.stringify(scopes)) };
+}
+// Shapes only a bypass spells (`extras`) are stored at their own synthetic
+// origins, each recorded as that bypass run, so they validate and the
+// target's refusal stays the first one.
+function siteFixture(candidate, env = emptyEnv, extras = []) {
+  const entries = new Map();
+  const records = [];
+  [candidate, ...extras].forEach((run, position) => {
+    const origin = { ...syntheticOrigin, step: position + 1 };
+    if (position) records.push(storedOrigin(origin, run, env));
+    for (const unknown of classifyShellCommands(run, { env }).indeterminate) {
+      if (unknown.reason !== "unlisted executable form" || !unknown.command) continue;
+      const words = unknown.command.words.map(({ value, dynamic, quoted }) => ({ value, dynamic, quoted }));
+      const input = unknown.command.redirects
+        .filter(({ target }) => target?.body !== undefined)
+        .map(({ target }) => target.body);
+      const entry = { ...syntheticEntry(words, input.length ? input : undefined), origin };
+      if (!entries.has(entry.id)) entries.set(entry.id, entry);
+    }
+  });
+  const grammarFor = (run, storedEnv = env) => ({
+    ...DESTRUCTIVE_GRAMMAR,
+    benignForms: [...DESTRUCTIVE_GRAMMAR.benignForms, ...entries.values()],
+    origins: [...DESTRUCTIVE_GRAMMAR.origins, storedOrigin(syntheticOrigin, run, storedEnv), ...records],
+  });
+  return {
+    grammar: grammarFor(candidate),
+    grammarFor,
+    // The entry whose words spell `text` (values joined by spaces): a
+    // synthetic one, or the corpus entry that already admits that shape.
+    target: (text) =>
+      [...entries.values(), ...DESTRUCTIVE_GRAMMAR.benignForms].find(
+        ({ words }) => words?.map(({ value }) => value).join(" ") === text,
+      ),
+  };
+}
+
+// The candidate validates at its stored origin and classifies clean.
+function expectSiteAdmitted(fixture, run, env = emptyEnv) {
+  expect(validateGrammarPartition(fixture.grammar).violations).toEqual([]);
+  expect(classifyShellCommands(run, { grammar: fixture.grammar, env }).indeterminate, run).toEqual([]);
+}
+
+// A bypass refuses with the target's named violation first through the
+// classifier, an ungated push workflow and the exempt deploy-production job
+// (passed=false, checked > 0), and the validator refuses the same bypass as
+// the stored origin. Unrelated inputs stay frozen: the fixture's entries and
+// the corpus are unchanged.
+function expectSiteRefused(fixture, target, bypass, env = emptyEnv) {
+  const violation = unpinned(target);
+  const [refusal] = classifyShellCommands(bypass, { grammar: fixture.grammar, env }).indeterminate;
+  expect(refusal?.reason, bypass).toBe(violation);
+  const ungated = checkWorkflowDestructiveOperationGating(
+    pushWorkflow(bypass, "anonymous", "ordinary task", stepEnv(env)),
+    {
+      grammar: fixture.grammar,
+    },
+  );
+  expect(ungated.passed).toBe(false);
+  expect(ungated.checkedSteps.length).toBeGreaterThan(0);
+  expect(ungated.violations[0]).toContain(violation);
+  const source = changeWorkflow(productionFile, (workflow) => {
+    workflow.jobs["deploy-production"].steps.push({ name: "Synthetic 9031 bypass", env: stepEnv(env), run: bypass });
+  });
+  const exempt = checkWorkflowDestructiveOperationGating(source, {
+    workflowFile: productionFile,
+    grammar: fixture.grammar,
+  });
+  expect(exempt.passed).toBe(false);
+  expect(exempt.checkedSteps.length).toBeGreaterThan(0);
+  expect(exempt.violations).toContainEqual(expect.stringContaining(violation));
+  // A corpus target keeps its own stored origin; a synthetic one is stored at
+  // the fixture origin, so the validator caller sees the bypass too.
+  if (target.origin.sha === syntheticOrigin.sha)
+    expect(validateGrammarPartition(fixture.grammarFor(bypass, env)).violations).toContain(violation);
 }
 
 describe("derived destructive command positions", () => {
@@ -287,17 +395,28 @@ command -v terraform
 
 describe("closed executable admission", () => {
   it("benign forms have closed admission", () => {
-    const corpus = DESTRUCTIVE_GRAMMAR.benignForms.filter((entry) => entry.origin.sha === corpusSha);
-    const appended = DESTRUCTIVE_GRAMMAR.benignForms.filter((entry) => entry.origin.sha !== corpusSha);
-    expect(corpus).toHaveLength(674);
-    expect(appended.map(({ origin }) => [origin.path, origin.job, origin.step])).toEqual([[driftFile, "digest", 3]]);
+    expect(DESTRUCTIVE_GRAMMAR.benignForms.find(({ origin }) => origin.path === driftFile)?.origin).toEqual({
+      sha: "268a0899e8463007bb41a641ebe1b8153ecae70d",
+      path: driftFile,
+      job: "digest",
+      step: 3,
+    });
     expect(validateGrammarPartition().violations).toEqual([]);
     // The origin-bound entries are admitted only inside their full block or
     // after their directory bindings (see "origin-proved dynamic package
-    // selection" and "origin-bound sed directories").
+    // selection" and "origin-bound sed directories"). An entry whose operands
+    // need a site is proved at every occurrence in its stored origin record
+    // instead of standalone.
     const contextBound = [...originIds, ...directoryIds];
-    for (const entry of DESTRUCTIVE_GRAMMAR.benignForms.filter(({ id }) => !contextBound.includes(id)))
-      expect(classifyShellCommands(entry.example).indeterminate, entry.id).toEqual([]);
+    for (const entry of DESTRUCTIVE_GRAMMAR.benignForms.filter(({ id }) => !contextBound.includes(id))) {
+      const occurrences = storedOccurrenceProofs(entry);
+      if (occurrences.length)
+        expect(
+          occurrences.map(({ violations }) => violations),
+          entry.id,
+        ).toEqual(occurrences.map(() => []));
+      else expect(classifyShellCommands(entry.example).indeterminate, entry.id).toEqual([]);
+    }
     for (const id of directoryIds) {
       const entry = DESTRUCTIVE_GRAMMAR.benignForms.find((candidate) => candidate.id === id);
       expect(classifyShellCommands(entry.example).indeterminate).toEqual([
@@ -409,7 +528,7 @@ describe("closed executable admission", () => {
   it("quoted literal patterns stay data", () => {
     expectAdmitted(syntheticEntry(["python", Q("*.py")]));
     expectAdmitted(syntheticEntry(["find", "artifacts", "-type", "f", "-name", Q("*.json")]));
-    expectAdmitted(syntheticEntry(["grep", "-E", Q("^[0-9]+$"), D("$FILE")]));
+    expectAdmitted(syntheticEntry(["grep", "-E", Q("^[0-9]+$"), D("./$FILE")]));
   });
 
   // Inventory-bound matrix: every program mode below and every terminal shape
@@ -474,16 +593,17 @@ describe("closed executable admission", () => {
     // Exercised by its own context controls below; no entry alone admits it.
     "pnpm --filter origin": { origin: true },
     "docker exec": {
-      words: ["docker", "exec", D("$C"), "pg_isready", "-U", "postgres"],
+      words: ["docker", "exec", D("synthetic-$C"), "pg_isready", "-U", "postgres"],
       roles: [1, 3],
       data: 5,
       option: 2,
       negatives: [["docker", "exec", D("${containers[@]}"), "pg_isready"]],
     },
     "docker run": {
-      words: ["docker", "run", "--rm", D("$IMAGE"), "pnpm", "run", "start"],
+      words: ["docker", "run", "--rm", D("registry.example/$IMAGE"), "pnpm", "run", "start"],
       roles: [1, 4, 5, 6],
       data: 3,
+      dataWord: D("registry.example/$SYNTHETIC_8709_DATA"),
       option: 2,
     },
     "docker run alpine/helm:3.15.4": {
@@ -499,7 +619,7 @@ describe("closed executable admission", () => {
       option: 4,
     },
     "kubectl exec": {
-      words: ["kubectl", "exec", D("$POD"), "--", "rm", "-f", D("$P")],
+      words: ["kubectl", "exec", D("pod/$POD"), "--", "rm", "-f", D("./$P")],
       roles: [1, 3, 4],
       data: 6,
       option: 2,
@@ -527,6 +647,29 @@ describe("closed executable admission", () => {
         { words: [name, "-c", Q("echo ok")], roles: [1, 2], option: 1, negatives: [[name, "-c", Q("echo ok"), "_"]] },
       ]),
     ),
+    // One pinned .sh script and nothing after it.
+    ...Object.fromEntries(
+      ["bash", "sh", "dash", "zsh", "ksh"].map((name) => [
+        `${name} script`,
+        {
+          words: [name, "scripts/synthetic-9031.sh"],
+          roles: [1],
+          option: 1,
+          negatives: [
+            [name, "scripts/synthetic-9031.sh", "argv"],
+            [name, "scripts/synthetic-9031.py"],
+            [name, D("$SYNTHETIC_SCRIPT/x.sh")],
+          ],
+        },
+      ]),
+    ),
+    "xvfb-run --auto-servernum": {
+      words: ["xvfb-run", "--auto-servernum", "jq", "-r", Q(".x")],
+      roles: [1, 2],
+      data: 4,
+      option: 1,
+      negatives: [["xvfb-run", "jq", "-r", Q(".x")]],
+    },
     ...python("python"),
     ...python("python3"),
     "perl -e": programFlag("perl", "-e", "print 1"),
@@ -635,7 +778,7 @@ describe("closed executable admission", () => {
         pathSpelling(words),
         ["timeout", "5m", D(`$BIN/${word(words[0]).value}`), ...words.slice(1)],
         ["nohup", "timeout", "5m", ...words],
-        ...(data === undefined ? [] : [at(words, data, dataWord ?? D("$SYNTHETIC_8709_DATA"))]),
+        ...(data === undefined ? [] : [at(words, data, dataWord ?? D("./$SYNTHETIC_8709_DATA"))]),
       ].map(entry);
       const rejected = [
         ...prefixNegatives(words).map((items) => [entry(items), unpinned]),
@@ -664,7 +807,7 @@ describe("closed executable admission", () => {
   ];
   it.each(terminalRows.map((row) => [`${row.selector}${row.path ? ` ${row.path}` : ""}`, row]))(
     "terminal shape: %s",
-    (_label, { selector, path, global, options, operands, variadic }) => {
+    (_label, { selector, path, global, options, operands, variadic, values }) => {
       const head = selector.split(" ");
       const command = path ? path.split(" ") : [];
       const base = [...head, ...command];
@@ -679,7 +822,9 @@ describe("closed executable admission", () => {
         ...Object.entries(options).flatMap(([name, spec]) =>
           spellings(name, spec).map((spelling) => [...base, ...spelling]),
         ),
-        ...(operands > 0 ? [[...base, D("$SYNTHETIC_8709_DATA")]] : []),
+        ...(operands > 0 ? [[...base, D("synthetic-8709/$SYNTHETIC_8709_DATA")]] : []),
+        // L2 value shapes take any single word; F4 operands need a proved lead.
+        ...(operands > 0 && values ? [[...base, D("$SYNTHETIC_8709_DATA")]] : []),
         ...(variadic ? [[...base, U("$SYNTHETIC_8709_LIST")]] : []),
         ...(options["--"] ? [[...base, "--", U("$SYNTHETIC_8709_LIST")]] : []),
       ];
@@ -699,6 +844,12 @@ describe("closed executable admission", () => {
         ]),
         ...(Number.isFinite(operands) ? [[...base, ...Array(operands + 1).fill("synthetic-8709-data")]] : []),
         ...(variadic ? [] : [[...base, U("$SYNTHETIC_8709_LIST")]]),
+        ...(operands > 0 && !values
+          ? [
+              [...base, D("$SYNTHETIC_8709_DATA")],
+              [...base, D("-$SYNTHETIC_8709_DATA")],
+            ]
+          : []),
       ];
       expectBatch(
         admitted.map((items) => syntheticEntry(items)),
@@ -710,6 +861,29 @@ describe("closed executable admission", () => {
     },
   );
 
+  // L2: a closed workflow-function name is admitted only as a call of the one
+  // same-run definition; its arguments are data values for that body.
+  const functionRows = inventory.filter((row) => row.kind === "function");
+  it("workflow function calls need exactly one same-run definition", () => {
+    expect(functionRows.length).toBeGreaterThan(10);
+    for (const { selector } of functionRows) {
+      const entry = { ...syntheticEntry([selector, D("$SYNTHETIC_ARG")]), origin: syntheticOrigin };
+      const run = `${selector}() {\n  :\n}\n${selector} "$SYNTHETIC_ARG"\n`;
+      const stored = (text) => ({
+        ...DESTRUCTIVE_GRAMMAR,
+        benignForms: [...DESTRUCTIVE_GRAMMAR.benignForms, entry],
+        origins: [...DESTRUCTIVE_GRAMMAR.origins, storedOrigin(syntheticOrigin, text)],
+      });
+      expect(validateGrammarPartition(stored(run)).violations, selector).toEqual([]);
+      expect(classifyShellCommands(run, { grammar: stored(run) }).indeterminate, selector).toEqual([]);
+      for (const bypass of [`${selector} "$SYNTHETIC_ARG"\n`, `${run}${selector}() {\n  :\n}\n`]) {
+        expect(validateGrammarPartition(stored(bypass)).violations, bypass).toEqual([unpinned(entry)]);
+        expect(classifyShellCommands(bypass, { grammar: stored(run) }).indeterminate[0]?.reason, bypass).toBe(
+          unpinned(entry),
+        );
+      }
+    }
+  });
   it("rejects unknown utilities and multi-argument expansions in single-argument slots", () => {
     for (const items of [
       ["synthetic-8709-tool", "x"],
@@ -794,9 +968,11 @@ describe("closed executable admission", () => {
     "partial quoting cannot reuse a proved entry: %s",
     (_label, [proved, run, synthetic]) => {
       const grammar = synthetic ? withEntry(synthetic) : DESTRUCTIVE_GRAMMAR;
-      expect(classifyShellCommands(proved, { grammar }).indeterminate).toEqual([]);
+      // The corpus probes run under their origin step's job services env.
+      const env = synthetic ? emptyEnv : originEnvOf(timeoutPsql);
+      expect(classifyShellCommands(proved, { grammar, env }).indeterminate).toEqual([]);
       const entry = synthetic ?? DESTRUCTIVE_GRAMMAR.benignForms.find(({ example }) => example === proved);
-      const [refusal, ...others] = classifyShellCommands(run, { grammar }).indeterminate;
+      const [refusal, ...others] = classifyShellCommands(run, { grammar, env }).indeterminate;
       expect([refusal.reason, others]).toEqual([unpinned(entry), []]);
       const ungated = checkWorkflowDestructiveOperationGating(pushWorkflow(run), { grammar });
       expect(ungated.passed).toBe(false);
@@ -895,8 +1071,12 @@ describe("closed executable admission", () => {
       /^pnpm --filter @chase-sets\/easypost-postage run test tests\/combined-parcel-probe\.test\.ts$/,
       /^find "\$EVIDENCE_DIR" -type f -name 'staging-wake-drill-\*\.json' ! -name/,
       /^find "\$EVIDENCE_DIR" -type f -name 'staging-wake-drill-load-evaluation\.json'/,
-    ])
-      expect(classifyShellCommands(corpusExample(pattern).example).indeterminate, String(pattern)).toEqual([]);
+    ]) {
+      const entry = corpusExample(pattern);
+      expect(classifyShellCommands(entry.example, { env: originEnvOf(entry) }).indeterminate, String(pattern)).toEqual(
+        [],
+      );
+    }
     for (const run of [
       "tee artifacts/release-health/staging-terraform-diagnostics.txt",
       "rm -rf .terraform",
@@ -934,7 +1114,7 @@ describe("closed executable admission", () => {
   it("benign forwarding and fixed selectors stay green", () => {
     for (const selector of ["timeout", "nohup"]) {
       for (const entry of DESTRUCTIVE_GRAMMAR.benignForms.filter((form) => form.selector === selector)) {
-        expect(classifyShellCommands(entry.example).indeterminate).toEqual([]);
+        expect(classifyShellCommands(entry.example, { env: originEnvOf(entry) }).indeterminate).toEqual([]);
         const mutant = entry.example.replace(
           /\.\/scripts\/[^\s]+|docker/,
           "./scripts/production-db-restore-point-cleanup.mjs",
@@ -1097,7 +1277,19 @@ describe("origin-proved dynamic package selection", () => {
   ];
   // YAML-decoded, as the detector receives a step's run text.
   const blockRun = ({ file, job }) => parse(readWorkflow(file)).jobs[job].steps[6].run;
+  // The block's own env declarations prove its other operands (the image).
+  const blockEnv = ({ file, job }) => liveStep(file, job, 7).env;
   const entryOf = ({ id }) => DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.id === id);
+  // Entries in a block proved through container_id's admitted substitution.
+  const dependentsOf = (block) =>
+    DESTRUCTIVE_GRAMMAR.benignForms
+      .filter(
+        ({ origin, words }) =>
+          origin.path === block.file &&
+          origin.job === block.job &&
+          words?.some(({ value }) => value === "$container_id"),
+      )
+      .map(({ id }) => id);
   const change = (run, from, to) => {
     expect(run).toContain(from);
     return run.replace(from, to);
@@ -1148,8 +1340,10 @@ describe("origin-proved dynamic package selection", () => {
     "second filter": 'pnpm --filter "$workspace" --filter other run start',
     "unknown option": 'pnpm --filter "$workspace" --synthetic-8709-option run start',
   };
-  const expectWorkflowRefused = (run) => {
-    const ungated = checkWorkflowDestructiveOperationGating(pushWorkflow(run));
+  const expectWorkflowRefused = (run, env) => {
+    const ungated = checkWorkflowDestructiveOperationGating(
+      pushWorkflow(run, "anonymous", "ordinary task", env && stepEnv(env)),
+    );
     expect(ungated.passed).toBe(false);
     expect(ungated.checkedSteps).toEqual([expect.objectContaining({ disposition: "INDETERMINATE" })]);
   };
@@ -1161,16 +1355,19 @@ describe("origin-proved dynamic package selection", () => {
       expect(entry.origin).toEqual({ sha: corpusSha, path: block.file, job: block.job, step: 7 });
       expect(entry.id).toBe(sha256(JSON.stringify({ selector: entry.selector, words: entry.words })));
       const run = blockRun(block);
+      const env = blockEnv(block);
       expect([Buffer.byteLength(run), sha256(run)]).toEqual([block.bytes, block.sha256]);
-      expect(classifyShellCommands(run)).toMatchObject({ operations: [], indeterminate: [] });
-      expect(classifyShellCommands(run.replaceAll("\n", "\r\n")).indeterminate).toEqual([]);
-      expect(checkWorkflowDestructiveOperationGating(pushWorkflow(run))).toEqual({
+      expect(classifyShellCommands(run, { env })).toMatchObject({ operations: [], indeterminate: [] });
+      expect(classifyShellCommands(run.replaceAll("\n", "\r\n"), { env }).indeterminate).toEqual([]);
+      expect(
+        checkWorkflowDestructiveOperationGating(pushWorkflow(run, "anonymous", "ordinary task", stepEnv(env))),
+      ).toEqual({
         passed: true,
         checkedSteps: [],
         violations: [],
       });
       const source = changeWorkflow(productionFile, (workflow) => {
-        workflow.jobs["deploy-production"].steps.push({ name: "Synthetic 8709 origin block", run });
+        workflow.jobs["deploy-production"].steps.push({ name: "Synthetic 8709 origin block", env: stepEnv(env), run });
       });
       expect(checkWorkflowDestructiveOperationGating(source, { workflowFile: productionFile })).toMatchObject({
         passed: true,
@@ -1183,10 +1380,18 @@ describe("origin-proved dynamic package selection", () => {
     const filters = DESTRUCTIVE_GRAMMAR.benignForms.filter((entry) =>
       entry.words?.some(({ value }) => value === "--filter"),
     );
-    expect(filters).toHaveLength(8);
+    // Eight historical entries plus the fresh-base xvfb-run forwarding one.
+    expect(filters).toHaveLength(9);
     expect(filters.filter(({ id }) => originIds.includes(id))).toHaveLength(2);
-    for (const entry of filters.filter(({ id }) => !originIds.includes(id)))
-      expect(classifyShellCommands(entry.example).indeterminate, entry.example).toEqual([]);
+    for (const entry of filters.filter(({ id }) => !originIds.includes(id))) {
+      const occurrences = storedOccurrenceProofs(entry);
+      if (occurrences.length)
+        expect(
+          occurrences.map(({ violations }) => violations),
+          entry.example,
+        ).toEqual(occurrences.map(() => []));
+      else expect(classifyShellCommands(entry.example).indeterminate, entry.example).toEqual([]);
+    }
     expect(filters.map(({ example }) => example)).toContainEqual(
       expect.stringMatching(/--filter @chase-sets\/easypost-postage test -- /),
     );
@@ -1197,11 +1402,12 @@ describe("origin-proved dynamic package selection", () => {
     (_file, block) => {
       // The stored entry still validates; only the runtime context changed.
       expect(validateGrammarPartition().passed).toBe(true);
+      const env = blockEnv(block);
       for (const [label, run] of Object.entries(contextChanges(blockRun(block)))) {
-        expect(classifyShellCommands(run).indeterminate, label).toContainEqual(
+        expect(classifyShellCommands(run, { env }).indeterminate, label).toContainEqual(
           expect.objectContaining({ reason: unpinned(entryOf(block)) }),
         );
-        expectWorkflowRefused(run);
+        expectWorkflowRefused(run, env);
       }
     },
   );
@@ -1211,6 +1417,7 @@ describe("origin-proved dynamic package selection", () => {
     (_file, block) => {
       const entry = entryOf(block);
       const run = blockRun(block);
+      const env = blockEnv(block);
       const refusals = {
         "docker command alone": entry.example,
         "pnpm command alone": command,
@@ -1221,14 +1428,14 @@ describe("origin-proved dynamic package selection", () => {
       const sequence = [run, ...Object.values(refusals), run];
       for (const order of [sequence, [...sequence].reverse()])
         for (const candidate of order) {
-          const { indeterminate } = classifyShellCommands(candidate);
+          const { indeterminate } = classifyShellCommands(candidate, { env });
           if (candidate === run) expect(indeterminate).toEqual([]);
           else expect(indeterminate.length, candidate).toBeGreaterThan(0);
         }
-      expect(classifyShellCommands(entry.example).indeterminate).toEqual([
+      expect(classifyShellCommands(entry.example, { env }).indeterminate).toEqual([
         expect.objectContaining({ reason: unpinned(entry) }),
       ]);
-      for (const candidate of Object.values(refusals)) expectWorkflowRefused(candidate);
+      for (const candidate of Object.values(refusals)) expectWorkflowRefused(candidate, env);
     },
   );
 
@@ -1237,8 +1444,10 @@ describe("origin-proved dynamic package selection", () => {
     (_label, spelling) => {
       for (const block of originBlocks) {
         const run = change(blockRun(block), command, spelling);
-        expect(classifyShellCommands(run).indeterminate.length, block.file).toBeGreaterThan(0);
-        expectWorkflowRefused(run);
+        expect(classifyShellCommands(run, { env: blockEnv(block) }).indeterminate.length, block.file).toBeGreaterThan(
+          0,
+        );
+        expectWorkflowRefused(run, blockEnv(block));
       }
     },
   );
@@ -1282,7 +1491,9 @@ describe("origin-proved dynamic package selection", () => {
 
   // A mutant of the detector, written inside the repository so it resolves the
   // same dependencies; each replacement must occur exactly once.
-  async function importMutant(replacements) {
+  // `recordChange` edits the copied grammar's stored origin runs the same way
+  // (re-hashed), since a witness block and its origin record are one text.
+  async function importMutant(replacements, recordChange = (run) => run) {
     let source = readFileSync(join(root, "scripts/workflow-destructive-op-gating.mjs"), "utf8");
     for (const [from, to] of replacements) {
       expect(source.split(from)).toHaveLength(2);
@@ -1292,10 +1503,12 @@ describe("origin-proved dynamic package selection", () => {
     mkdirSync(cache, { recursive: true });
     const directory = mkdtempSync(join(cache, "workflow-destructive-op-gating-mutant-"));
     fixtureDirectories.push(directory);
-    copyFileSync(
-      join(root, "scripts/workflow-destructive-op-gating-grammar.json"),
-      join(directory, "workflow-destructive-op-gating-grammar.json"),
-    );
+    const grammar = JSON.parse(readFileSync(join(root, "scripts/workflow-destructive-op-gating-grammar.json"), "utf8"));
+    grammar.origins = grammar.origins.map((record) => {
+      const run = recordChange(record.run);
+      return run === record.run ? record : { ...record, run, runSha256: sha256(run) };
+    });
+    writeFileSync(join(directory, "workflow-destructive-op-gating-grammar.json"), JSON.stringify(grammar));
     writeFileSync(join(directory, "workflow-destructive-op-gating.mjs"), source);
     return import(pathToFileURL(join(directory, "workflow-destructive-op-gating.mjs")).href);
   }
@@ -1304,19 +1517,26 @@ describe("origin-proved dynamic package selection", () => {
     const bypass = await importMutant([["context.origin !== null &&", "true &&"]]);
     for (const block of originBlocks) {
       const run = blockRun(block);
-      expect(bypass.classifyShellCommands(run).indeterminate).toEqual([]);
+      const env = blockEnv(block);
+      expect(bypass.classifyShellCommands(run, { env }).indeterminate).toEqual([]);
       // Without the context check no changed-context control refuses the
       // command, so that check alone refuses them.
       const entry = entryOf(block);
       const refusal = expect.objectContaining({ reason: unpinned(entry) });
       for (const [label, changed] of Object.entries(contextChanges(run))) {
-        expect(bypass.classifyShellCommands(changed).indeterminate, label).not.toContainEqual(refusal);
-        expect(classifyShellCommands(changed).indeterminate, label).toContainEqual(refusal);
+        expect(bypass.classifyShellCommands(changed, { env }).indeterminate, label).not.toContainEqual(refusal);
+        expect(classifyShellCommands(changed, { env }).indeterminate, label).toContainEqual(refusal);
       }
-      expect(bypass.classifyShellCommands(entry.example).indeterminate).toEqual([]);
-      const forged = { ...entry, origin: { ...entry.origin, step: 8 } };
-      expect(bypass.validateGrammarPartition(alone(forged)).violations).toEqual([]);
-      expect(validateGrammarPartition(alone(forged)).violations).toEqual([unpinned(forged)]);
+      expect(bypass.classifyShellCommands(entry.example, { env }).indeterminate).toEqual([]);
+      // A forged origin with its own record: only the context check refuses it.
+      const forged = { ...entry, origin: { ...entry.origin, step: 70 } };
+      expect(DESTRUCTIVE_GRAMMAR.origins.some(({ path, step }) => path === block.file && step === 70)).toBe(false);
+      const forgedGrammar = {
+        ...alone(forged),
+        origins: [...DESTRUCTIVE_GRAMMAR.origins, storedOrigin(forged.origin, run, env)],
+      };
+      expect(bypass.validateGrammarPartition(forgedGrammar).violations).toEqual([]);
+      expect(validateGrammarPartition(forgedGrammar).violations).toEqual([unpinned(forged)]);
     }
   });
 
@@ -1327,14 +1547,22 @@ describe("origin-proved dynamic package selection", () => {
     const entry = entryOf(block);
     const run = blockRun(block);
     const comment = "# queue accepts a Docker image change.";
-    const commented = await importMutant([[`"${comment}"`, '"# synthetic 8709 comment"']]);
-    expect(commented.classifyShellCommands(change(run, comment, "# synthetic 8709 comment")).indeterminate).toEqual([]);
+    const commented = await importMutant([[`"${comment}"`, '"# synthetic 8709 comment"']], (text) =>
+      text.replace(comment, "# synthetic 8709 comment"),
+    );
+    const env = blockEnv(block);
+    expect(
+      commented.classifyShellCommands(change(run, comment, "# synthetic 8709 comment"), { env }).indeterminate,
+    ).toEqual([]);
     const binding = `"${comment}",\n      "boot_smoke() {",\n      '  component="$1"',\n      '  workspace="$2"',`;
     const rebound = await importMutant([[binding, binding.replace('"$2"', '"$3"')]]);
-    expect(rebound.classifyShellCommands(change(run, 'workspace="$2"', 'workspace="$3"')).indeterminate).toEqual([
-      expect.objectContaining({ reason: unpinned(entry) }),
-    ]);
-    expect(rebound.validateGrammarPartition().violations).toEqual([unpinned(entry)]);
+    expect(
+      rebound.classifyShellCommands(change(run, 'workspace="$2"', 'workspace="$3"'), { env }).indeterminate,
+    ).toEqual([expect.objectContaining({ tool: "grammar", reason: expect.stringContaining(unpinned(entry)) })]);
+    // The F7 entry and every entry proved through its container_id substitution.
+    expect([...rebound.validateGrammarPartition().violations].sort()).toEqual(
+      [entry.id, ...dependentsOf(block)].map((id) => `${id}: benign payload admits an unpinned program.`).sort(),
+    );
   });
 
   it("C3 rebinding inside the bound substitution voids the stored witness", async () => {
@@ -1365,8 +1593,11 @@ describe("origin-proved dynamic package selection", () => {
       const mutant = await importMutant(
         pair.map((label, index) => [header(comments[index]), header(comments[index], statements[label])]),
       );
-      expect(mutant.validateGrammarPartition().violations, pair.join(", ")).toEqual(
-        originBlocks.map((block) => unpinned(entryOf(block))),
+      expect([...mutant.validateGrammarPartition().violations].sort(), pair.join(", ")).toEqual(
+        originBlocks
+          .flatMap((block) => [block.id, ...dependentsOf(block)])
+          .map((id) => `${id}: benign payload admits an unpinned program.`)
+          .sort(),
       );
       originBlocks.forEach((block, index) => {
         const run = change(blockRun(block), nestedAt, nested(statements[pair[index]]));
@@ -1411,7 +1642,8 @@ describe("origin-bound sed directories", () => {
       }),
     },
   ];
-  const stepRun = ({ file, job, step }) => parse(readWorkflow(file)).jobs[job].steps[step - 1].run;
+  const stepRun = ({ file, job, step }) => liveStep(file, job, step).run;
+  const stepEnvOf = ({ file, job, step }) => liveStep(file, job, step).env;
   const entryOf = ({ operand }) =>
     DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.selector === "sed" && entry.words.at(-1).value === operand);
 
@@ -1423,10 +1655,10 @@ describe("origin-bound sed directories", () => {
       expect(directoryIds).toContain(entry.id);
       const run = stepRun(directory);
       expect(run).toContain(sedCommand(directory.operand));
-      expect(classifyShellCommands(run).indeterminate).toEqual([]);
+      expect(classifyShellCommands(run, { env: stepEnvOf(directory) }).indeterminate).toEqual([]);
       // CRLF leaves the bindings' tokens unchanged; other multi-line words in
       // the step need not match their stored LF spelling.
-      const crlf = classifyShellCommands(run.replaceAll("\n", "\r\n")).indeterminate;
+      const crlf = classifyShellCommands(run.replaceAll("\n", "\r\n"), { env: stepEnvOf(directory) }).indeterminate;
       expect(crlf.filter(({ tool }) => tool === "sed")).toEqual([]);
     },
   );
@@ -1437,7 +1669,7 @@ describe("origin-bound sed directories", () => {
       const entry = entryOf(directory);
       const run = stepRun(directory);
       const change = (from, to) => {
-        expect(run).toContain(from);
+        expect(run.split(from), from).toHaveLength(2);
         return run.replace(from, to);
       };
       const refusal = expect.objectContaining({ tool: "sed", reason: unpinned(entry) });
@@ -1466,6 +1698,775 @@ describe("origin-bound sed directories", () => {
         expectRejected(forged, unpinned(forged));
       }
     }
+  });
+});
+
+// #9031: every dynamic F4 operand (terminal operand, forwarding resource, find
+// start path) is admitted only with a lead proved at its own site, from the
+// actual run and env, and every stored entry is proved at every occurrence in
+// its stored origin record.
+describe("site-proved F4 operand leads", () => {
+  const curl = "curl --fail $url";
+  const literalUrl = 'url="https://example.invalid/synthetic-9031"';
+  const premiseCases = {
+    "L3 top-level binding": {
+      candidate: `${literalUrl}\ncurl --fail "$url"\n`,
+      target: curl,
+      bypasses: {
+        "option literal": 'url="-Ksynthetic"\ncurl --fail "$url"\n',
+        "input expression": 'url="${{ inputs.synthetic_url }}"\ncurl --fail "$url"\n',
+        "secret expression": 'url="${{ secrets.SYNTHETIC_URL }}"\ncurl --fail "$url"\n',
+        "pull request title": 'url="${{ github.event.pull_request.title }}"\ncurl --fail "$url"\n',
+        "top-level positional": 'url="$1"\ncurl --fail "$url"\n',
+        "unproved default": 'url="${SYNTHETIC_URL:-https://example.invalid}"\ncurl --fail "$url"\n',
+        "use before binding": `curl --fail "$url"\n${literalUrl}\n`,
+        "second writer": `${literalUrl}\nurl="$1"\ncurl --fail "$url"\n`,
+        "conditional binding": `if [ -n "$SYNTHETIC_MODE" ]; then\n  ${literalUrl}\nfi\ncurl --fail "$url"\n`,
+        "subshell binding": `(${literalUrl})\ncurl --fail "$url"\n`,
+        "piped binding": `true | ${literalUrl}\ncurl --fail "$url"\n`,
+        "read rebinding": `${literalUrl}\nread -r url\ncurl --fail "$url"\n`,
+        "quoted builtin rebinding": `${literalUrl}\n"export" url="-K"\ncurl --fail "$url"\n`,
+        "nested function rebinding": `${literalUrl}\nfail() {\n  url="-K"\n}\nfail\ncurl --fail "$url"\n`,
+        "trap rebinding": `${literalUrl}\ntrap 'url=-K' EXIT\ncurl --fail "$url"\n`,
+      },
+    },
+    "L4-L env literal": {
+      candidate: 'curl --fail "$SYNTHETIC_URL"\n',
+      env: { ...emptyEnv, step: { SYNTHETIC_URL: "https://example.invalid/synthetic-9031" } },
+      target: "curl --fail $SYNTHETIC_URL",
+      envBypasses: {
+        "bare undeclared": emptyEnv,
+        "option literal": { ...emptyEnv, job: { SYNTHETIC_URL: "-Ksynthetic" } },
+        "empty literal": { ...emptyEnv, workflow: { SYNTHETIC_URL: "" } },
+        "unguarded input": { ...emptyEnv, step: { SYNTHETIC_URL: "${{ inputs.synthetic_url }}" } },
+        "input alias": { ...emptyEnv, step: { SYNTHETIC_URL: "${{ github.event.inputs.synthetic_url }}" } },
+        secret: { ...emptyEnv, step: { SYNTHETIC_URL: "${{ secrets.SYNTHETIC_URL }}" } },
+        "unknown event field": { ...emptyEnv, step: { SYNTHETIC_URL: "${{ github.event.issue.title }}" } },
+        "expression function": { ...emptyEnv, step: { SYNTHETIC_URL: "${{ format('-{0}', github.sha) }}" } },
+      },
+    },
+    "L3-G whole-language guard": {
+      candidate:
+        '[[ "$SYNTHETIC_RUN_ID" =~ ^[0-9]+$ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+      env: { ...emptyEnv, step: { SYNTHETIC_RUN_ID: "${{ inputs.synthetic_run_id }}" } },
+      target: "gh run view $SYNTHETIC_RUN_ID --json status",
+      bypasses: {
+        "guard removed": 'gh run view "$SYNTHETIC_RUN_ID" --json status\n',
+        "guard after use":
+          'gh run view "$SYNTHETIC_RUN_ID" --json status\n[[ "$SYNTHETIC_RUN_ID" =~ ^[0-9]+$ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\n',
+        "first atom only":
+          '[[ "$SYNTHETIC_RUN_ID" =~ ^[0-9]*-e$ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+        "top-level alternation":
+          '[[ "$SYNTHETIC_RUN_ID" =~ ^a|-e$ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+        unanchored:
+          '[[ "$SYNTHETIC_RUN_ID" =~ [0-9]+ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+        "any character":
+          '[[ "$SYNTHETIC_RUN_ID" =~ ^.+$ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+        "nonterminating handler":
+          '[[ "$SYNTHETIC_RUN_ID" =~ ^[0-9]+$ ]] || {\n  echo "synthetic run id must be digits" >&2\n}\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+        "rebound after guard":
+          '[[ "$SYNTHETIC_RUN_ID" =~ ^[0-9]+$ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\nSYNTHETIC_RUN_ID="-e"\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+        "nullable without nonempty use":
+          '[[ "$SYNTHETIC_RUN_ID" =~ ^([0-9]+)?$ ]] || {\n  echo "synthetic run id must be digits" >&2\n  exit 1\n}\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+      },
+    },
+    "L3-G nullable guard with nonempty use": {
+      candidate:
+        '[[ "$SYNTHETIC_RUN_ID" =~ ^([0-9]+)?$ ]] || {\n  echo "synthetic run id must be empty or digits" >&2\n  exit 1\n}\nif [ -n "$SYNTHETIC_RUN_ID" ]; then\n  gh run view "$SYNTHETIC_RUN_ID" --json status\nfi\n',
+      env: { ...emptyEnv, step: { SYNTHETIC_RUN_ID: "${{ inputs.synthetic_run_id }}" } },
+      target: "gh run view $SYNTHETIC_RUN_ID --json status",
+      bypasses: {
+        "use outside the nonempty arm":
+          '[[ "$SYNTHETIC_RUN_ID" =~ ^([0-9]+)?$ ]] || {\n  echo "synthetic run id must be empty or digits" >&2\n  exit 1\n}\nif [ -n "$SYNTHETIC_RUN_ID" ]; then\n  :\nfi\ngh run view "$SYNTHETIC_RUN_ID" --json status\n',
+      },
+    },
+    "LB finite literal loop": {
+      candidate:
+        'for environment in staging production; do\n  synthetic_root="${RUNNER_TEMP}/${environment}"\n  cd "$synthetic_root"\ndone\n',
+      target: "cd $synthetic_root",
+      bypasses: {
+        "provenance-only binding":
+          'for environment in staging production; do\n  synthetic_root="$(mktemp -d)"\n  cd "$synthetic_root"\ndone\n',
+        "unproved iterator list":
+          'for environment in $(cat environments); do\n  synthetic_root="${RUNNER_TEMP}/${environment}"\n  cd "$synthetic_root"\ndone\n',
+        "late binding":
+          'for environment in staging production; do\n  cd "$synthetic_root"\n  synthetic_root="${RUNNER_TEMP}/${environment}"\ndone\n',
+        "use after the loop":
+          'for environment in staging production; do\n  synthetic_root="${RUNNER_TEMP}/${environment}"\ndone\ncd "$synthetic_root"\n',
+        "nested loop writer":
+          'for environment in staging production; do\n  synthetic_root="${RUNNER_TEMP}/${environment}"\n  for other in x; do\n    synthetic_root="-e"\n  done\n  cd "$synthetic_root"\ndone\n',
+      },
+    },
+    "LB literal iterator lead": {
+      candidate: 'for directory in staging production; do\n  cd "$directory"\ndone\n',
+      target: "cd $directory",
+      bypasses: {
+        "option-shaped element": 'for directory in staging -e; do\n  cd "$directory"\ndone\n',
+        "iterator rebinding": 'for directory in staging production; do\n  directory="$1"\n  cd "$directory"\ndone\n',
+      },
+    },
+    "LE finite array iterator": {
+      candidate:
+        'canary_urls=("https://example.invalid/a" "https://example.invalid/b")\nfor url in "${canary_urls[@]}"; do\n  curl --fail "$url"\ndone\n',
+      target: curl,
+      bypasses: {
+        "option-shaped element":
+          'canary_urls=("https://example.invalid/a" "-K")\nfor url in "${canary_urls[@]}"; do\n  curl --fail "$url"\ndone\n',
+        "unconditional unproved append":
+          'canary_urls=("https://example.invalid/a" "https://example.invalid/b")\ncanary_urls+=("$1")\nfor url in "${canary_urls[@]}"; do\n  curl --fail "$url"\ndone\n',
+        "mapfile rebinding":
+          'canary_urls=("https://example.invalid/a" "https://example.invalid/b")\nmapfile -t canary_urls < synthetic-urls.txt\nfor url in "${canary_urls[@]}"; do\n  curl --fail "$url"\ndone\n',
+      },
+    },
+    "LS function invocation": {
+      candidate:
+        'probe_key() {\n  response="${RUNNER_TEMP}/synthetic-9031.xml"\n  grep -qi "AccessDenied" "$response"\n}\nprobe_key\n',
+      target: "grep -qi AccessDenied $response",
+      bypasses: {
+        "use before binding":
+          'probe_key() {\n  grep -qi "AccessDenied" "$response"\n  response="${RUNNER_TEMP}/synthetic-9031.xml"\n}\nprobe_key\n',
+        "redefined function":
+          'probe_key() {\n  response="${RUNNER_TEMP}/synthetic-9031.xml"\n  grep -qi "AccessDenied" "$response"\n}\nprobe_key() {\n  :\n}\nprobe_key\n',
+        "recursive function":
+          'probe_key() {\n  response="${RUNNER_TEMP}/synthetic-9031.xml"\n  grep -qi "AccessDenied" "$response"\n  probe_key\n}\nprobe_key\n',
+        "helper writer":
+          'fail() {\n  response="-e"\n}\nprobe_key() {\n  response="${RUNNER_TEMP}/synthetic-9031.xml"\n  grep -qi "AccessDenied" "$response"\n}\nprobe_key\n',
+      },
+    },
+    "LS conditional arm and group": {
+      candidate:
+        'if [ -n "$SYNTHETIC_MODE" ]; then\n  out="${RUNNER_TEMP}/synthetic-9031"\n  {\n    grep -qi "AccessDenied" "$out"\n  }\nfi\n',
+      target: "grep -qi AccessDenied $out",
+      bypasses: {
+        "sibling arm":
+          'if [ -n "$SYNTHETIC_MODE" ]; then\n  out="${RUNNER_TEMP}/synthetic-9031"\nelse\n  grep -qi "AccessDenied" "$out"\nfi\n',
+        "after the arm":
+          'if [ -n "$SYNTHETIC_MODE" ]; then\n  out="${RUNNER_TEMP}/synthetic-9031"\nfi\ngrep -qi "AccessDenied" "$out"\n',
+      },
+    },
+    "LL local binding": {
+      candidate: 'read_field() {\n  local url="https://${1}"\n  curl --fail "$url"\n}\nread_field example.invalid\n',
+      target: curl,
+      bypasses: {
+        "provenance-only local":
+          'read_field() {\n  local url="$(cat synthetic-url)"\n  curl --fail "$url"\n}\nread_field example.invalid\n',
+        "option-shaped local":
+          'read_field() {\n  local url="-K"\n  curl --fail "$url"\n}\nread_field example.invalid\n',
+      },
+    },
+    "LP positional local": {
+      candidate: 'read_field() {\n  local url="$1"\n  curl --fail "$url"\n}\nread_field "https://example.invalid/a"\n',
+      target: curl,
+      bypasses: {
+        "unproved actual":
+          'read_field() {\n  local url="$1"\n  curl --fail "$url"\n}\nread_field "https://example.invalid/a"\nread_field "$SYNTHETIC_OPTION"\n',
+        "no direct call": 'read_field() {\n  local url="$1"\n  curl --fail "$url"\n}\n',
+      },
+    },
+    "LC exhaustive conditional": {
+      candidate:
+        'if [ -n "$SYNTHETIC_MODE" ]; then\n  url="https://example.invalid/a"\nelse\n  url="https://example.invalid/b"\nfi\ncurl --fail "$url"\n',
+      target: curl,
+      bypasses: {
+        "missing else":
+          'if [ -n "$SYNTHETIC_MODE" ]; then\n  url="https://example.invalid/a"\nfi\ncurl --fail "$url"\n',
+        "unproved arm":
+          'if [ -n "$SYNTHETIC_MODE" ]; then\n  url="https://example.invalid/a"\nelse\n  url="$1"\nfi\ncurl --fail "$url"\n',
+      },
+    },
+    "LC initial binding with replacement": {
+      candidate:
+        'url="https://example.invalid/a"\nif [ -n "$SYNTHETIC_MODE" ]; then\n  url="https://example.invalid/b"\nfi\ncurl --fail "$url"\n',
+      target: curl,
+      bypasses: {
+        "option replacement":
+          'url="https://example.invalid/a"\nif [ -n "$SYNTHETIC_MODE" ]; then\n  url="-K"\nfi\ncurl --fail "$url"\n',
+        "straight-line repeat":
+          'url="https://example.invalid/a"\nurl="https://example.invalid/b"\ncurl --fail "$url"\n',
+      },
+    },
+    "LC-B loop replacement": {
+      candidate:
+        'for name in api web; do\n  resource="deployment/${name}"\n  if ! kubectl get "$resource" --namespace synthetic >/dev/null 2>&1; then\n    resource="rollout.argoproj.io/${name}"\n  fi\n  kubectl get "$resource" --namespace synthetic\ndone\n',
+      target: "kubectl get $resource --namespace synthetic",
+      bypasses: {
+        "initial binding removed":
+          'for name in api web; do\n  if ! kubectl get "$resource" --namespace synthetic >/dev/null 2>&1; then\n    resource="rollout.argoproj.io/${name}"\n  fi\n  kubectl get "$resource" --namespace synthetic\ndone\n',
+        "option replacement":
+          'for name in api web; do\n  resource="deployment/${name}"\n  if ! kubectl get "$resource" --namespace synthetic >/dev/null 2>&1; then\n    resource="-e"\n  fi\n  kubectl get "$resource" --namespace synthetic\ndone\n',
+        "provenance-only replacement":
+          'for name in api web; do\n  resource="deployment/${name}"\n  if ! kubectl get "$resource" --namespace synthetic >/dev/null 2>&1; then\n    resource="$(cat synthetic-resource)"\n  fi\n  kubectl get "$resource" --namespace synthetic\ndone\n',
+      },
+    },
+    "LI read-loop output binding": {
+      candidate:
+        'while IFS= read -r encoded; do\n  number="$(jq -r \'.number\' <<< "${encoded}")"\n  gh issue close "$number" --comment synthetic\ndone < synthetic-issues.txt\n',
+      target: "gh issue close $number --comment synthetic",
+      bypasses: {
+        "direct read target":
+          'while IFS= read -r number; do\n  gh issue close "$number" --comment synthetic\ndone < synthetic-issues.txt\n',
+        "use after the loop":
+          'while IFS= read -r encoded; do\n  number="$(jq -r \'.number\' <<< "${encoded}")"\ndone < synthetic-issues.txt\ngh issue close "$number" --comment synthetic\n',
+        "header without IFS":
+          'while read -r encoded; do\n  number="$(jq -r \'.number\' <<< "${encoded}")"\n  gh issue close "$number" --comment synthetic\ndone < synthetic-issues.txt\n',
+      },
+    },
+    "find start path": {
+      candidate: "find \"$SYNTHETIC_DIR\" -type f -name '*.json'\n",
+      env: { ...emptyEnv, step: { SYNTHETIC_DIR: "artifacts/synthetic-9031" } },
+      target: "find $SYNTHETIC_DIR -type f -name *.json",
+      envBypasses: {
+        undeclared: emptyEnv,
+        "option literal": { ...emptyEnv, step: { SYNTHETIC_DIR: "-exec" } },
+      },
+    },
+    "forwarding resource": {
+      candidate: 'docker exec "$SYNTHETIC_CONTAINER" pg_isready -U postgres\n',
+      env: { ...emptyEnv, job: { SYNTHETIC_CONTAINER: "${{ job.services.postgres.id }}" } },
+      target: "docker exec $SYNTHETIC_CONTAINER pg_isready -U postgres",
+      envBypasses: {
+        undeclared: emptyEnv,
+        "unguarded input": { ...emptyEnv, job: { SYNTHETIC_CONTAINER: "${{ inputs.synthetic_container }}" } },
+      },
+    },
+  };
+
+  it.each(Object.entries(premiseCases))("%s: candidate proves its lead, every bypass refuses", (_label, item) => {
+    const env = item.env ?? emptyEnv;
+    const bypasses = Object.entries(item.bypasses ?? {});
+    const fixture = siteFixture(
+      item.candidate,
+      env,
+      bypasses.map(([, run]) => run),
+    );
+    const target = fixture.target(item.target);
+    expect(target, item.target).toBeDefined();
+    expectSiteAdmitted(fixture, item.candidate, env);
+    for (const [label, run] of bypasses) {
+      expect(run, label).not.toBe(item.candidate);
+      expectSiteRefused(fixture, target, run, env);
+    }
+    for (const bypassEnv of Object.values(item.envBypasses ?? {}))
+      expectSiteRefused(fixture, target, item.candidate, bypassEnv);
+  });
+
+  it("LX: a leading trusted expression proves provenance; input, secret and unknown roots refuse", () => {
+    const run = (root) => `for source_path in a.txt b.txt; do\n  git show "\${{ ${root} }}:\${source_path}"\ndone\n`;
+    const candidate = run("needs.synthetic.outputs.commit");
+    const fixture = siteFixture(candidate);
+    expectSiteAdmitted(fixture, candidate);
+    for (const root of [
+      "inputs.synthetic_commit",
+      "secrets.SYNTHETIC_COMMIT",
+      "github.event.pull_request.title",
+      "github.ref_name",
+      "format('{0}', github.sha)",
+    ]) {
+      const entry = {
+        ...syntheticEntry(["git", "show", D(`\${{ ${root} }}:\${source_path}`)]),
+        origin: syntheticOrigin,
+      };
+      const grammar = {
+        ...DESTRUCTIVE_GRAMMAR,
+        benignForms: [...DESTRUCTIVE_GRAMMAR.benignForms, entry],
+        origins: [...DESTRUCTIVE_GRAMMAR.origins, storedOrigin(syntheticOrigin, run(root))],
+      };
+      expect(validateGrammarPartition(grammar).violations, root).toEqual([unpinned(entry)]);
+      expect(classifyShellCommands(run(root), { grammar: withEntry(entry) }).indeterminate[0].reason).toContain(
+        unpinned(entry),
+      );
+    }
+    // The suffix is separately proved: an unproved suffix name refuses.
+    const unproved = 'git show "${{ needs.synthetic.outputs.commit }}:${source_path}"\n';
+    const entry = fixture.target("git show ${{ needs.synthetic.outputs.commit }}:${source_path}");
+    expect(classifyShellCommands(unproved, { grammar: fixture.grammar }).indeterminate[0].reason).toBe(unpinned(entry));
+  });
+
+  // AC1: each occurrence owns its proof. One stored ID, two live bindings:
+  // only the invalid site refuses, in either position and alongside valid hits.
+  it("same-ID two-binding fixture: only the invalid occurrence refuses", () => {
+    const valid =
+      'probe_key() {\n  local url="https://example.invalid/one"\n  curl --fail "$url"\n}\nread_field() {\n  local url="$1"\n  curl --fail "$url"\n}\nprobe_key\nread_field "https://example.invalid/two"\nread_field "$SYNTHETIC_PROBE"\n';
+    const env = { ...emptyEnv, step: { SYNTHETIC_PROBE: "https://example.invalid/three" } };
+    const second = valid.replace('read_field "$SYNTHETIC_PROBE"', 'read_field "$SYNTHETIC_OPTION"');
+    const first = valid.replace('local url="https://example.invalid/one"', 'local url="$SYNTHETIC_OPTION"');
+    const fixture = siteFixture(valid, env, [second, first]);
+    const target = fixture.target(curl);
+    expect(target.origin).toEqual(syntheticOrigin);
+    expectSiteAdmitted(fixture, valid, env);
+    const refusals = classifyShellCommands(second, { grammar: fixture.grammar, env }).indeterminate;
+    // The first site still proves; only the second curl (index after it) refuses.
+    expect(refusals).toEqual([expect.objectContaining({ tool: "curl", reason: unpinned(target) })]);
+    expect(refusals[0].index).toBeGreaterThan(second.indexOf('curl --fail "$url"'));
+    const firstRefusals = classifyShellCommands(first, { grammar: fixture.grammar, env }).indeterminate;
+    expect(firstRefusals).toEqual([expect.objectContaining({ tool: "curl", reason: unpinned(target) })]);
+    expect(firstRefusals[0].index).toBeLessThan(first.lastIndexOf('curl --fail "$url"'));
+    // Moved and renamed copies: each copy is proved where it stands.
+    const renamed = `${valid}probe_key\n`.replace(/probe_key/g, "verify_plan");
+    expectSiteAdmitted(siteFixture(renamed, env), renamed, env);
+    // The validator proves every stored occurrence: a stored second site that
+    // fails refuses the entry even though the first proves.
+    expect(validateGrammarPartition(fixture.grammarFor(second, env)).violations).toContain(unpinned(target));
+    expect(storedOccurrenceProofs(target, fixture.grammar).map(({ violations }) => violations)).toEqual([[], []]);
+  });
+
+  it("stored origins: omission, duplicate and wrong-context records refuse", () => {
+    const entry = DESTRUCTIVE_GRAMMAR.benignForms.find(({ example }) =>
+      example.startsWith('grep -qi "AccessDenied" "$root_response"'),
+    );
+    expect(storedOccurrenceProofs(entry).map(({ violations }) => violations)).toEqual([[]]);
+    const without = {
+      ...DESTRUCTIVE_GRAMMAR,
+      origins: DESTRUCTIVE_GRAMMAR.origins.filter(
+        (record) => record.step !== entry.origin.step || record.path !== entry.origin.path,
+      ),
+    };
+    expect(validateGrammarPartition(without).violations).toContain(unpinned(entry));
+    const record = DESTRUCTIVE_GRAMMAR.origins.find(
+      (item) => item.path === entry.origin.path && item.step === entry.origin.step,
+    );
+    const duplicate = { ...DESTRUCTIVE_GRAMMAR, origins: [...DESTRUCTIVE_GRAMMAR.origins, record] };
+    expect(validateGrammarPartition(duplicate).violations).toEqual([
+      `${[record.sha, record.path, record.job, record.step].join(":")}: duplicate origin record.`,
+    ]);
+    const other = DESTRUCTIVE_GRAMMAR.origins.find((item) => item !== record && !item.run.includes("root_response"));
+    const wrong = {
+      ...DESTRUCTIVE_GRAMMAR,
+      origins: DESTRUCTIVE_GRAMMAR.origins.map((item) =>
+        item === record ? storedOrigin(record, other.run, other.env) : item,
+      ),
+    };
+    expect(validateGrammarPartition(wrong).violations).toContain(unpinned(entry));
+    const tampered = {
+      ...DESTRUCTIVE_GRAMMAR,
+      origins: DESTRUCTIVE_GRAMMAR.origins.map((item) => (item === record ? { ...item, run: `${item.run}\n` } : item)),
+    };
+    expect(validateGrammarPartition(tampered).violations).toContain(unpinned(entry));
+  });
+
+  // AC1: the stored-to-live relation, measured at this base. Every live F4
+  // proof names its stored entry; every stored entry whose proof needs a site
+  // is proved at each stored occurrence; each live site is proved on its own.
+  it("the stored-to-live occurrence relation is complete in both directions", () => {
+    const discovered = checkDiscoveredWorkflows();
+    expect(discovered.passed).toBe(true);
+    const live = discovered.results.flatMap(({ workflowFile, proofs }) =>
+      proofs.map((proof) => ({ workflowFile, ...proof })),
+    );
+    expect(live.length).toBeGreaterThan(200);
+    expect(live.filter(({ proved }) => !proved)).toEqual([]);
+    const ids = new Set(DESTRUCTIVE_GRAMMAR.benignForms.map(({ id }) => id));
+    expect(live.filter(({ entry }) => !ids.has(entry))).toEqual([]);
+    const sites = new Set(
+      live.map(({ workflowFile, jobId, stepIndex, index, word }) =>
+        [workflowFile, jobId, stepIndex, index, word].join("|"),
+      ),
+    );
+    expect(sites.size).toBeLessThanOrEqual(live.length);
+    const stored = DESTRUCTIVE_GRAMMAR.benignForms
+      .map((entry) => [entry, storedOccurrenceProofs(entry)])
+      .filter(([, occurrences]) => occurrences.length);
+    expect(stored.length).toBeGreaterThan(200);
+    for (const [entry, occurrences] of stored)
+      expect(
+        occurrences.map(({ violations }) => violations),
+        entry.id,
+      ).toEqual(occurrences.map(() => []));
+    const premises = new Set(live.map(({ premise }) => premise));
+    for (const premise of [
+      "L1",
+      "L3",
+      "L3-G",
+      "L4",
+      "L4-L",
+      "L4-T",
+      "LB",
+      "LE",
+      "LS",
+      "LL",
+      "LP",
+      "LC",
+      "LC-B",
+      "LI",
+      "LR",
+      "LX",
+      "BS",
+    ])
+      expect(premises, premise).toContain(premise);
+  });
+
+  // D1: one stored ID, two live production sites, two different premises.
+  it("D1 proves its first live site by LI and its second by LR", () => {
+    const d1 = DESTRUCTIVE_GRAMMAR.benignForms.find(
+      ({ id }) => id === "9d359a5da3985b4bdf1051e39cf585a54fb5e01a57b6f9a219cdf040e647155c",
+    );
+    expect(d1).toBeDefined();
+    const live = checkDiscoveredWorkflows().results.find(({ workflowFile }) => workflowFile === productionFile).proofs;
+    const sites = live.filter(({ entry }) => entry === d1.id);
+    expect(sites.map(({ jobId, premise, lead }) => [jobId, premise, lead])).toEqual([
+      ["notify-production-deploy-incident", "LI", false],
+      ["close-resolved-deploy-incidents", "LR", false],
+    ]);
+    expect(sites.at(-1).residual).toEqual([expect.stringContaining("gh issue list .number")]);
+    expect(sites.at(-1).dependencies).toEqual(expect.arrayContaining([".number", ".title"]));
+  });
+
+  // LR premises, each mutated in the live close-resolved block with every
+  // other shape frozen.
+  it("LR refuses every producer, header, field, target, input, writer and escape change", () => {
+    const { run, env } = liveStep(productionFile, "close-resolved-deploy-incidents", 1);
+    const d1 = DESTRUCTIVE_GRAMMAR.benignForms.find(
+      ({ id }) => id === "9d359a5da3985b4bdf1051e39cf585a54fb5e01a57b6f9a219cdf040e647155c",
+    );
+    const change = (from, to) => {
+      expect(run.split(from), from).toHaveLength(2);
+      return run.replace(from, to);
+    };
+    const close =
+      'gh issue close "${issue_number}" \\\n    --repo "${GITHUB_REPOSITORY}" \\\n    --comment "${close_comment}"';
+    const mutants = {
+      "header IFS": change("while IFS=$'\\t' read -r", "while IFS=, read -r"),
+      "extra read target": change("read -r issue_number issue_title;", "read -r issue_number issue_title extra;"),
+      "read builtin shadowed": `read() {\n  :\n}\n${run}`,
+      "producer json fields": change("--json number,title \\", "--json number,title,body \\"),
+      "producer projection": change(' | select(.title | startswith("Incident: Platform Deploy "))', ""),
+      "producer field order": change("[.number, .title]", "[.title, .number]"),
+      "producer piped": change("| @tsv'\n)", "| @tsv' | head -n 5\n)"),
+      "producer second writer": change(
+        'if [ -z "${open_incidents}" ]; then',
+        'open_incidents="${SYNTHETIC_TSV}"\nif [ -z "${open_incidents}" ]; then',
+      ),
+      "input changed": change('done <<< "${open_incidents}"', 'done < "${SYNTHETIC_TSV_FILE}"'),
+      "target rebound": change("  gh issue close", '  issue_number="-e"\n  gh issue close'),
+      "use after the loop": `${run}${close}\n`,
+    };
+    const fixture = siteFixture(run, env, Object.values(mutants));
+    expectSiteAdmitted(fixture, run, env);
+    for (const [label, mutant] of Object.entries(mutants)) {
+      const refusals = classifyShellCommands(mutant, { grammar: fixture.grammar, env }).indeterminate;
+      expect(refusals[0]?.reason, label).toBe(unpinned(d1));
+    }
+  });
+
+  it("AV refuses unproved appends, dynamic options, missing values and loop appends", () => {
+    const { run, env } = liveStep(productionFile, "notify-production-deploy-incident", 3);
+    const create = DESTRUCTIVE_GRAMMAR.benignForms.find(
+      ({ id }) => id === "0d9650845498cfad724adaf87273779a05e4e6c21af8da031858b8fcd1d943c8",
+    );
+    const change = (from, to) => {
+      expect(run.split(from), from).toHaveLength(2);
+      return run.replace(from, to);
+    };
+    const use = '  gh issue create "${issue_create_args[@]}"';
+    const mutants = {
+      "unconditional unproved append": change(use, `  issue_create_args+=(--label "$SYNTHETIC_LABEL")\n${use}`),
+      "dynamic option element": change(
+        '  issue_create_args=(\n    --repo "${GITHUB_REPOSITORY}" \\',
+        '  issue_create_args=(\n    "$SYNTHETIC_OPTION" "${GITHUB_REPOSITORY}" \\',
+      ),
+      "unknown option": change('    --label "kind:ops" \\', '    --assignee "synthetic" \\'),
+      "missing value": change('    --label "area:infrastructure"\n  )', "    --label\n  )"),
+      "loop append": change(use, `  for label in a b; do\n    issue_create_args+=(--label "$label")\n  done\n${use}`),
+      "constructor removed": change("  issue_create_args=(", "  synthetic_args=("),
+    };
+    const fixture = siteFixture(run, env, Object.values(mutants));
+    expectSiteAdmitted(fixture, run, env);
+    for (const [label, mutant] of Object.entries(mutants)) {
+      const refusals = classifyShellCommands(mutant, { grammar: fixture.grammar, env }).indeterminate;
+      expect(
+        refusals.map(({ reason }) => reason),
+        label,
+      ).toContain(unpinned(create));
+    }
+  });
+
+  // AC6: L3-T/L4-T/LX/LR prove provenance only; every such admission keeps
+  // its residual and every dependency for R, never a lead claim.
+  it("R handoff inventory keeps every provenance residual and dependency", () => {
+    const live = checkDiscoveredWorkflows().results.flatMap(({ workflowFile, proofs }) =>
+      proofs.map((proof) => ({ workflowFile, ...proof })),
+    );
+    const handoff = live.filter(({ lead }) => !lead);
+    expect(handoff.length).toBeGreaterThan(50);
+    for (const item of handoff) {
+      expect(item.residual.length, `${item.workflowFile} ${item.word}`).toBeGreaterThan(0);
+      expect(item.dependencies.length + item.residual.length).toBeGreaterThan(0);
+    }
+    const counts = {};
+    for (const { premise } of handoff) counts[premise] = (counts[premise] ?? 0) + 1;
+    // Only provenance premises (and joins carrying one) reach the handoff.
+    expect(Object.keys(counts).sort()).toEqual(expect.arrayContaining(["L4-T", "LI", "LR", "LX"]));
+    for (const premise of Object.keys(counts))
+      expect(["L3", "L3-T", "L4-T", "LC", "LI", "LR", "LS", "LX"]).toContain(premise);
+    // A provenance proof is never promoted to a lead by an option-valued or
+    // empty first field: LR keeps both fields as dependencies.
+    const lr = handoff.find(({ premise }) => premise === "LR");
+    expect(lr.dependencies).toEqual(expect.arrayContaining([".number", ".title"]));
+  });
+});
+
+// #8993's published fourteen-ID handoff, applied at the landed H merge.
+describe("#8993 origin transitions at landed H", () => {
+  const landed = "ebe363d09fb1cd5084cb69a05277590750062a51";
+  const freshBase = "a460b410398b01d386b7919ef364e63d3d271b88";
+  const priorBase = "268a0899e8463007bb41a641ebe1b8153ecae70d";
+  const transitions = [
+    "9c19b252802fa93be3ab2af9dc5464f4458341b5b4fdd67f7efac1a9f646367e",
+    "63c5fac1fd6fcd76408d51a81f3acf09b8445dd15446c66c4a5d283547e541bd",
+    "68e4c8bc5fb4e8ca1699f692dcd9b0cf030ddf580b343c303d9cf22eaeb1217a",
+    "60bf4549c3894a835f6d70875b6da4a89c576aef51c868eaa028c48980fd6c5a",
+    "7a3ed764ac9994289e76b58af53fb5347d69c4d8fca26bb60383925634a4ba97",
+    "930e7e07df96e4ec78a0415c4bf05045e8d42e0934f035ba3a864ee4450abdfd",
+    "279c00822e5046894a7c702952d3a545d820c9f789dc71ffe1280eb7d1264e96",
+    "f62b51bf13b67dd0041fd38fd2f807af9d1b18d530664ca5a5e8f43a0baef5fc",
+    "353418aa54ad6a98da0d5956fe46019d90e7a1403ba3038416098d86c9b83667",
+    "16c8677abe43b1d56b949a054db2c3c53f926458cfe10aaeee59c1d6f29d84c3",
+    "d233dec2d2cf757d7f6eda546275ae8b4952957a5ade77066fc6bccaaec3a694",
+  ];
+  // Removed pre-H shapes (re-hashed here) and their published replacements;
+  // the fourth is H's derived advisory summary replacement.
+  const removals = [
+    [
+      [
+        "gh",
+        "run",
+        "view",
+        D("${{ inputs.platform_deploy_run_id }}"),
+        "--repo",
+        D("$GITHUB_REPOSITORY"),
+        "--json",
+        "databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs",
+      ],
+      "d21e2189da53488bf42770c5918f535c5d5902e3ffbd7c784953f62c1ac3271f",
+      "86d013e4d092485fd6965ec9ed24452d9de160f271defc5fa9e7362b6383dfe4",
+    ],
+    [
+      [
+        "gh",
+        "run",
+        "download",
+        D("${{ inputs.wake_drill_run_id }}"),
+        "--repo",
+        D("$GITHUB_REPOSITORY"),
+        "--dir",
+        D("$EVIDENCE_DIR/wake-primary"),
+      ],
+      "6b0e486519035fba362ed362adac5f16672b1f6b74ff62346a2729243d96c2b6",
+      "b6e18c4e58306dbc23c1647608437af4aaddcbab4325b55f0637ce38619593a4",
+    ],
+    [
+      [
+        "gh",
+        "run",
+        "download",
+        D("${{ inputs.secondary_wake_drill_run_id }}"),
+        "--repo",
+        D("$GITHUB_REPOSITORY"),
+        "--dir",
+        D("$EVIDENCE_DIR/wake-secondary"),
+      ],
+      "2f7f93df74eede25e64bad5cb61e58af20c0f91edb6d938908f7908a961a1367",
+      "283947dc6603546bfda2a97754221d6b489a1c1a3ccf930fddcca0d020706d42",
+    ],
+    [
+      [
+        "jq",
+        "-n",
+        "--arg",
+        "checkedAt",
+        D("$checked_at"),
+        "--arg",
+        "releaseCommit",
+        D("${{ inputs.release_commit }}"),
+        "--arg",
+        "platformImage",
+        D("${{ inputs.platform_image }}"),
+        "--arg",
+        "platformImageDigest",
+        D("${{ inputs.platform_image_digest }}"),
+        "--arg",
+        "scenarioSeed",
+        D("$SCENARIO_SEED_OUTCOME"),
+        "--arg",
+        "marketplaceE2e",
+        D("$MARKETPLACE_E2E_OUTCOME"),
+        "--argjson",
+        "failedPhases",
+        D("$failed_phases"),
+        Q(
+          '{schemaVersion:"staging-advisory-evidence/v2",checkedAt:$checkedAt,releaseCommit:$releaseCommit,platformImage:$platformImage,platformImageDigest:$platformImageDigest,scenarioSeed:{outcome:$scenarioSeed},marketplaceE2e:{outcome:$marketplaceE2e},failedPhases:$failedPhases}',
+        ),
+      ],
+      "08d2c94924bf1d88ceea54fafaa97be1bda8ddad2c71c8f42df1d108548711af",
+      "2c21f70f9d337dfc641377d919b9ce10c756f09cb35c1ce8f2d69d75a45c722d",
+    ],
+  ];
+  const byId = new Map(DESTRUCTIVE_GRAMMAR.benignForms.map((entry) => [entry.id, entry]));
+  const recordOf = (origin) =>
+    DESTRUCTIVE_GRAMMAR.origins.find(
+      ({ sha, path, job, step }) =>
+        [sha, path, job, step].join("|") === [origin.sha, origin.path, origin.job, origin.step].join("|"),
+    );
+
+  it("applies eleven same-ID transitions and four removal+append pairs; N reconciles", () => {
+    for (const id of transitions) {
+      const entry = byId.get(id);
+      expect(entry.origin.sha, id).toBe(landed);
+      expect(entry.transition).toMatchObject({ from: { sha: corpusSha }, issue: 8993 });
+      expect(entry.transition.from.path).toBe(entry.origin.path);
+      expect(entry.transition.beforeRunSha256).toBe(recordOf(entry.transition.from).runSha256);
+      expect(entry.transition.afterRunSha256).toBe(recordOf(entry.origin).runSha256);
+      // Same shape bytes and ID in both records; proved at landed H.
+      expect(
+        storedOccurrenceProofs({ ...entry, origin: entry.transition.from, transition: undefined }).length,
+        id,
+      ).toBeGreaterThan(0);
+      expect(
+        storedOccurrenceProofs(entry).map(({ violations }) => violations),
+        id,
+      ).toEqual([[]]);
+    }
+    for (const [words, removed, appended] of removals) {
+      expect(syntheticEntry(words).id).toBe(removed);
+      expect(byId.has(removed)).toBe(false);
+      expect(byId.get(appended)?.origin.sha).toBe(landed);
+    }
+    const bySha = {};
+    for (const { origin } of DESTRUCTIVE_GRAMMAR.benignForms) bySha[origin.sha] = (bySha[origin.sha] ?? 0) + 1;
+    // 674 historical entries + the prior fresh-base append = 675; H removes 4
+    // and appends 4 (t = 11 move in place); this base appends 36.
+    expect(bySha).toEqual({ [corpusSha]: 674 - 11 - 4, [landed]: 11 + 4, [priorBase]: 1, [freshBase]: 36 });
+    expect(DESTRUCTIVE_GRAMMAR.benignForms).toHaveLength(675 - 4 + 4 + 36);
+  });
+
+  it("every removed pre-H shape is absent from every live workflow", () => {
+    for (const file of discoverWorkflowFiles(root)) {
+      const workflow = parse(readWorkflow(file));
+      for (const [job, definition] of Object.entries(workflow.jobs ?? {}))
+        for (const [index, step] of (definition.steps ?? []).entries()) {
+          if (typeof step.run !== "string") continue;
+          const origin = { sha: "1".repeat(40), path: file, job, step: index + 1 };
+          const grammar = { ...DESTRUCTIVE_GRAMMAR, origins: [storedOrigin(origin, step.run)] };
+          for (const [words] of removals)
+            expect(
+              storedOccurrenceProofs({ ...syntheticEntry(words), origin }, grammar),
+              `${file} ${job} #${index + 1}`,
+            ).toEqual([]);
+        }
+    }
+  });
+
+  it("stale, wrong-step, unguarded, transport-removed, changed-shape and label-only transitions refuse", () => {
+    const entry = byId.get(transitions[0]);
+    const record = recordOf(entry.origin);
+    const replaced = (changes) => ({
+      ...DESTRUCTIVE_GRAMMAR,
+      benignForms: DESTRUCTIVE_GRAMMAR.benignForms.map((item) =>
+        item.id === entry.id ? { ...item, ...changes.entry } : item,
+      ),
+      origins: DESTRUCTIVE_GRAMMAR.origins.map((item) => (item === record && changes.record ? changes.record : item)),
+    });
+    const guard = '[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] ||';
+    expect(record.run).toContain(guard);
+    const otherStep = DESTRUCTIVE_GRAMMAR.origins.find(
+      (item) => item.sha === landed && item.path !== entry.origin.path,
+    );
+    const mutants = {
+      stale: { entry: { origin: entry.transition.from, transition: undefined } },
+      "wrong step": {
+        entry: { origin: { ...otherStep, run: undefined, env: undefined, runSha256: undefined, envSha256: undefined } },
+      },
+      unguarded: { record: storedOrigin(record, record.run.replace(guard, "true ||"), record.env) },
+      "transport removed": {
+        record: storedOrigin(record, record.run, {
+          ...record.env,
+          step: Object.fromEntries(Object.entries(record.env.step).filter(([name]) => name !== "TARGET_SHA")),
+        }),
+      },
+    };
+    for (const [label, changes] of Object.entries(mutants)) {
+      const { violations } = validateGrammarPartition(replaced(changes));
+      expect(
+        violations.some((violation) => violation.startsWith(entry.id)),
+        label,
+      ).toBe(true);
+    }
+    const shaped = { ...entry, words: at(entry.words, entry.words.length - 1, D("$EXPECTED_BASE_SHA")) };
+    expect(validateGrammarPartition(replaced({ entry: shaped })).violations).toContain(
+      `${entry.id}: changed benign form identity.`,
+    );
+    const labelOnly = { ...entry, origin: entry.transition.from };
+    expect(validateGrammarPartition(replaced({ entry: labelOnly })).violations).toContain(
+      `${entry.id}: incomplete benign form proof or corpus identity.`,
+    );
+    const rehashed = { ...entry, transition: { ...entry.transition, beforeRunSha256: "0".repeat(64) } };
+    expect(validateGrammarPartition(replaced({ entry: rehashed })).violations).toContain(
+      `${entry.id}: incomplete benign form proof or corpus identity.`,
+    );
+  });
+
+  it("live H workflows prove every transitioned operand through its whole-language guard", () => {
+    const results = checkDiscoveredWorkflows().results;
+    const ids = new Set([...transitions, ...removals.map(([, , appended]) => appended)]);
+    const proofs = results.flatMap(({ proofs: items }) => items).filter(({ entry }) => ids.has(entry));
+    expect(proofs.length).toBeGreaterThan(0);
+    expect(proofs.every(({ proved }) => proved)).toBe(true);
+    const inputRooted = proofs.filter(({ word }) =>
+      /TARGET_SHA|EXPECTED_BASE_SHA|RELEASE_COMMIT|target_commit|release_tag|image_ref|RUN_ID/.test(word),
+    );
+    expect(inputRooted.length).toBeGreaterThanOrEqual(transitions.length);
+    expect(inputRooted.filter(({ premise }) => premise !== "L3-G")).toEqual([]);
+  });
+});
+
+// AC4: the two sed directory chains keep exactly `mktemp -d` / RUNNER_TEMP
+// roots; every root dependency (TMPDIR, PATH, RUNNER_TEMP) and chain name is
+// protected from run writes and from step, job and workflow env declarations.
+describe("F2 directory root closure", () => {
+  const preview = liveStep(".github/workflows/platform-pr.yml", "terraform-preview-plan", 6);
+  const migration = liveStep(".github/workflows/platform-observability-state-migration.yml", "migrate", 8);
+  const sedEntry = (operand) =>
+    DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.selector === "sed" && entry.words.at(-1).value === operand);
+  const sedRefused = (run, env, operand) =>
+    classifyShellCommands(run, { env }).indeterminate.some(
+      ({ tool, reason }) => tool === "sed" && reason === unpinned(sedEntry(operand)),
+    );
+
+  it("both live chains prove their directories", () => {
+    expect(sedRefused(preview.run, preview.env, "$tmp/versions.tf")).toBe(false);
+    expect(sedRefused(migration.run, migration.env, "$local_module/versions.tf")).toBe(false);
+  });
+
+  it.each([
+    ["TMPDIR assigned", (run) => `TMPDIR=-e\n${run}`],
+    ["TMPDIR exported", (run) => `export TMPDIR=-e\n${run}`],
+    ["TMPDIR quoted builtin", (run) => `"export" TMPDIR=-e\n${run}`],
+    ["TMPDIR nested write", (run) => `reset() { TMPDIR=-e; }\n${run}`],
+    ["PATH assigned", (run) => `PATH="$SYNTHETIC_9031_DIR"\n${run}`],
+    ["mktemp redefined", (run) => `mktemp() { echo -e; }\n${run}`],
+  ])("a root dependency write refuses the mktemp chain: %s", (_label, change) => {
+    expect(sedRefused(change(preview.run), preview.env, "$tmp/versions.tf")).toBe(true);
+  });
+
+  it.each(["step", "job", "workflow"])("a %s env declaration of a root dependency refuses", (scope) => {
+    for (const name of ["TMPDIR", "PATH"]) {
+      const env = { ...preview.env, [scope]: { ...preview.env[scope], [name]: "/synthetic-9031" } };
+      expect(sedRefused(preview.run, env, "$tmp/versions.tf"), name).toBe(true);
+    }
+    for (const name of ["RUNNER_TEMP", "PATH", "migration_root"]) {
+      const env = { ...migration.env, [scope]: { ...migration.env[scope], [name]: "/synthetic-9031" } };
+      expect(sedRefused(migration.run, env, "$local_module/versions.tf"), name).toBe(true);
+    }
+  });
+
+  it("a lexical class is not a directory proof: an L3-proved name outside the chain refuses", () => {
+    const run =
+      'synthetic_dir="${RUNNER_TEMP}/synthetic-9031"\nsed -i \'/backend "s3" {}/d\' "$synthetic_dir/versions.tf"\n';
+    const entry = {
+      ...syntheticEntry(["sed", "-i", Q('/backend "s3" {}/d'), D("$synthetic_dir/versions.tf")]),
+      example: run,
+    };
+    expectRejected(entry, unpinned(entry));
   });
 });
 
