@@ -307,8 +307,26 @@ describe("platform worker projection wake interest graph", () => {
     expect(listingDirectiveRunners.map((runner) => runner.checkpointKey)).toEqual([
       "marketplace-listing-moderation-reaction:platform-operations:v1",
     ]);
+    const checkoutIdentityRunner = runtime.subscriptionRunners.find(
+      (runner) =>
+        runner.targetContextName === "checkout" &&
+        runner.projectionName === "checkout-seller-accounts-projection" &&
+        runner.sourceContextName === "identity",
+    );
+    expect(checkoutIdentityRunner).toMatchObject({
+      checkpointKey: "checkout-seller-accounts-projection:identity:v2",
+      subscriptionVersion: 2,
+      eventTypes: expect.arrayContaining([
+        "identity.account.suspended",
+        "identity.account.reactivated",
+        "identity.account.closed",
+      ]),
+    });
     const inheritedRunners = runtime.subscriptionRunners.filter(
-      (runner) => !fundingRunners.includes(runner) && !listingDirectiveRunners.includes(runner),
+      (runner) =>
+        !fundingRunners.includes(runner) &&
+        !listingDirectiveRunners.includes(runner) &&
+        runner !== checkoutIdentityRunner,
     );
     expect(fundingRunners.map((runner) => runner.checkpointKey).sort()).toEqual([
       "payments-wallet-funding-projection:payments:v1",
