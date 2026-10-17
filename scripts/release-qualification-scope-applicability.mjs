@@ -219,6 +219,10 @@ export function deriveForbiddenEventStoreMembers({ repoRoot, readFile = null, fi
 
 function collectForbiddenMemberReferences(sourceFile, forbidden) {
   const codes = new Set();
+  const likelyContractReceiver = (node) => {
+    const text = node.getText(sourceFile);
+    return /(?:store|reader|stream)/i.test(text);
+  };
   const visit = (node, inType = false) => {
     const type = inType || Boolean(ts.isTypeNode?.(node));
     if (!type && ts.isPropertyAccessExpression(node) && forbidden.has(node.name.text))
@@ -227,7 +231,7 @@ function collectForbiddenMemberReferences(sourceFile, forbidden) {
       const key = literalText(node.argumentExpression);
       if (ts.isNumericLiteral(node.argumentExpression)) {
         // Numeric indices are statically known but cannot name a contract member.
-      } else if (key === null) codes.add("ambiguous_member_reference_key");
+      } else if (key === null && likelyContractReceiver(node.expression)) codes.add("ambiguous_member_reference_key");
       else if (forbidden.has(key)) codes.add("event_store_member_reference");
     }
     if (!type && ts.isBindingElement(node)) {
