@@ -15,7 +15,7 @@ const seedIds = {
 type MarketplaceSeedServices = NonNullable<Parameters<NonNullable<typeof marketplaceModule.seed>>[1]>;
 
 describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
-  const seedRuntime = useMarketplaceSeedRuntime("marketplace-development-seed");
+  const seedRuntime = useMarketplaceSeedRuntime("marketplace-development-seed", { resetSchemas: "beforeAll" });
 
   it("creates deterministic cross-context lifecycle coverage idempotently", async () => {
     const { pools } = seedRuntime;
@@ -257,6 +257,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       listingStream(marketplaceReservedSeedIds.listings.sealedStockroomSurgingSparksActive),
     ];
     await Promise.all(streams.map((streamId) => stripCreatedCurrency(pools.marketplace, streamId)));
+    const originalPayload = await readCreatedPayload(pools.marketplace, streams[0]);
     await pools.marketplace.query(
       `UPDATE event_store_events
        SET payload = payload || '{"feeLocks":[]}'::jsonb
@@ -269,6 +270,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
       before,
     );
+    await restoreCreatedPayload(pools.marketplace, streams[0], originalPayload);
   }, 300_000);
 
   it("keeps withdrawn legacy listings unchanged while reconciling active listings", async () => {
@@ -290,6 +292,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       [withdrawnStream],
     );
     expect(state.rows[0]?.event_type).toBe("marketplace.listing.withdrawn");
+    await replacePublishedEvent(pools.marketplace, withdrawnStream, "marketplace.listing.published");
   }, 300_000);
 
   it("survives an owner write between classify and append and converges on the next run", async () => {
@@ -382,17 +385,44 @@ async function stripCreatedCurrency(
   );
 }
 
+async function restoreCreatedPayload(
+  pool: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]["marketplace"],
+  streamId: string,
+  payload: unknown,
+) {
+  await pool.query(
+    `UPDATE event_store_events
+     SET payload = $2::jsonb
+     WHERE stream_id = $1 AND event_type = 'marketplace.listing.created'`,
+    [streamId, JSON.stringify(payload)],
+  );
+}
+
+async function readCreatedPayload(
+  pool: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]["marketplace"],
+  streamId: string,
+) {
+  const result = await pool.query<{ payload: unknown }>(
+    `SELECT payload FROM event_store_events
+     WHERE stream_id = $1 AND event_type = 'marketplace.listing.created'`,
+    [streamId],
+  );
+  return result.rows[0]?.payload;
+}
+
 async function replacePublishedEvent(
   pool: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]["marketplace"],
   streamId: string,
-  eventType: "marketplace.listing.paused" | "marketplace.listing.withdrawn",
+  eventType: "marketplace.listing.paused" | "marketplace.listing.withdrawn" | "marketplace.listing.published",
 ) {
   const payload = eventType.endsWith("paused") ? '{"reason":"seller"}' : "{}";
+  const fromType =
+    eventType === "marketplace.listing.published" ? "marketplace.listing.paused" : "marketplace.listing.published";
   await pool.query(
     `UPDATE event_store_events
      SET event_type = $2, payload = $3::jsonb
-     WHERE stream_id = $1 AND event_type = 'marketplace.listing.published'`,
-    [streamId, eventType, payload],
+     WHERE stream_id = $1 AND event_type = $4`,
+    [streamId, eventType, payload, fromType],
   );
 }
 
