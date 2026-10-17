@@ -255,7 +255,7 @@ const ebayAccountDeletionDelta = [
 // sinks, plus #9876's six retired TCGplayer cookie grants, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
 // the issue's literal sweep stays exact; parity below binds each index to the generated manifest and source fragments.
 const reviewedRetiredVerifierRemovals = new Set([
-  210, 211, 212, 263, 264, 265, 398, 428, 429, 430, 709, 710, 711, 956, 957, 958, 959, 1391, 1419, 1483,
+  210, 211, 212, 263, 264, 265, 398, 428, 429, 430, 709, 710, 711, 712, 956, 957, 958, 959, 1391, 1419, 1483,
 ]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
