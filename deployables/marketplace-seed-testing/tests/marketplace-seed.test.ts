@@ -169,6 +169,12 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const { pools } = seedRuntime;
     await seedRuntime.seed();
 
+    const originalPayloads = await pools.marketplace.query<{ stream_id: string; payload: unknown }>(
+      `SELECT DISTINCT ON (stream_id) stream_id, payload
+       FROM event_store_events
+       WHERE event_type = 'marketplace.listing.created'
+       ORDER BY stream_id, stream_version`,
+    );
     await pools.marketplace.query(
       `UPDATE event_store_events
        SET payload = payload - 'priceCurrencyCode'
@@ -197,6 +203,13 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
          AND event_type = 'marketplace.listing.price-updated'`,
     );
     expect(Number(withdrawn.rows[0]?.count ?? 0)).toBe(0);
+
+    await pools.marketplace.query(
+      "DELETE FROM event_store_events WHERE event_type = 'marketplace.listing.price-updated'",
+    );
+    for (const row of originalPayloads.rows) {
+      await restoreCreatedPayload(pools.marketplace, row.stream_id, row.payload);
+    }
   }, 300_000);
 
   it("refuses AC1 listing drift before any append and reports non-exact inspection as draft", async () => {
@@ -216,6 +229,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.paused");
     const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
     expect(reports.find((report) => report.id === listingId)).toMatchObject({ kind: "draft", status: "paused" });
+    await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.published");
   }, 300_000);
 
   it("refuses each named AC1 field drift with zero appends", async () => {
@@ -316,7 +330,9 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       listingStream(marketplaceReservedSeedIds.listings.sealedStockroomSurgingSparksActive),
     ];
     await Promise.all(streams.map((streamId) => stripCreatedCurrency(pools.marketplace, streamId)));
-    const originalPayload = await readCreatedPayload(pools.marketplace, streams[0]);
+    const originalPayloads = await Promise.all(
+      streams.map((streamId) => readCreatedPayload(pools.marketplace, streamId)),
+    );
     await pools.marketplace.query(
       `UPDATE event_store_events
        SET payload = payload || '{"feeLocks":[]}'::jsonb
@@ -329,7 +345,9 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
       before,
     );
-    await restoreCreatedPayload(pools.marketplace, streams[0], originalPayload);
+    for (const [index, streamId] of streams.entries()) {
+      await restoreCreatedPayload(pools.marketplace, streamId, originalPayloads[index]);
+    }
   }, 300_000);
 
   it("keeps withdrawn legacy listings unchanged while reconciling active listings", async () => {
@@ -337,6 +355,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await runMarketplaceSeed(pools);
     const withdrawnId = marketplaceReservedSeedIds.listings.surgingSparksWithdrawn;
     const withdrawnStream = listingStream(withdrawnId);
+    const withdrawnPayload = await readCreatedPayload(pools.marketplace, withdrawnStream);
     await stripCreatedCurrency(pools.marketplace, withdrawnStream);
     await replacePublishedEvent(pools.marketplace, withdrawnStream, "marketplace.listing.withdrawn");
     const before = await countListingEvents(pools.marketplace, withdrawnStream, "marketplace.listing.price-updated");
@@ -352,6 +371,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     expect(state.rows[0]?.event_type).toBe("marketplace.listing.withdrawn");
     await replacePublishedEvent(pools.marketplace, withdrawnStream, "marketplace.listing.published");
+    await restoreCreatedPayload(pools.marketplace, withdrawnStream, withdrawnPayload);
   }, 300_000);
 
   it("reconciles a paused legacy listing once and leaves it exact", async () => {
@@ -368,6 +388,8 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before + 1,
     );
+    await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+    await runMarketplaceSeed(pools);
   }, 300_000);
 
   it("survives an owner write between classify and append and converges on the next run", async () => {
