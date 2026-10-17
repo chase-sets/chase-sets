@@ -56,6 +56,14 @@ describeDb("Ordering supply account status on Postgres", () => {
   it("excludes suspended sellers from normal candidates but allowCommitted resolves them", async () => {
     expect(await listOrderingSupplyCandidates(pool, demand)).toEqual([]);
     expect(await getOrderingSupplyCandidateByListingId(pool, "lst_one")).toBeNull();
+    await pool.query(`UPDATE ordering_account_pages SET status = 'active' WHERE account_id = 'acc_seller'`);
+    expect((await listOrderingSupplyCandidates(pool, demand)).map((candidate) => candidate.listingId)).toEqual([
+      "lst_one",
+    ]);
+    expect(await getOrderingSupplyCandidateByListingId(pool, "lst_one")).toMatchObject({ listingId: "lst_one" });
+    await pool.query(`UPDATE ordering_account_pages SET status = 'suspended' WHERE account_id = 'acc_seller'`);
+    expect(await listOrderingSupplyCandidates(pool, demand)).toEqual([]);
+    expect(await getOrderingSupplyCandidateByListingId(pool, "lst_one")).toBeNull();
     expect(await getOrderingSupplyCandidateByListingId(pool, "lst_one", { allowCommitted: true })).toMatchObject({
       listingId: "lst_one",
     });

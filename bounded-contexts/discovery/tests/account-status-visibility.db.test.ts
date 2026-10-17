@@ -17,6 +17,7 @@ import {
   getDiscoveryItemDetail,
   getDiscoveryItemDetailSellerOverlay,
 } from "../features/item-detail/read-model/queries";
+import { searchDiscoveryItems } from "../features/search/read-model/queries";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl && process.env.CI)
@@ -39,6 +40,11 @@ describeDb("Discovery account status visibility on Postgres", () => {
       VALUES ('acc_seller', 'seller-one', 'Seller', 'active', 1);
       INSERT INTO discovery_item_detail_pages (catalog_item_id, slug, title, status, product_schema)
       VALUES ('cat_one', 'item-one', 'Item', 'published', '{}'::jsonb);
+      INSERT INTO discovery_search_items
+        (catalog_item_id, slug, title, status, category_slugs, search_text, search_text_simple, dimension_filter_values)
+      VALUES ('cat_one', 'item-one', 'Item', 'active', '["cards"]'::jsonb,
+        to_tsvector('english', 'Item'), to_tsvector('simple', 'Item'),
+        '[{"dimensionId":"finish","label":"Finish","optionId":"foil","optionLabel":"Foil"}]'::jsonb);
       INSERT INTO discovery_market_listings
         (listing_id, listing_slug, product_slug, account_id, inventory_item_id, catalog_catalog_item_id, product_id,
          item_title, price_amount, price_currency_code, listing_stream_version, quantity_cap, supply_total_quantity,
@@ -74,6 +80,65 @@ describeDb("Discovery account status visibility on Postgres", () => {
         },
       ),
     );
+  }
+
+  async function statusForAccount(
+    accountId: string,
+    eventType: "identity.account.suspended" | "identity.account.reactivated" | "identity.account.closed",
+    version: number,
+  ) {
+    const handlers = buildDiscoveryMarketProjectionHandlers(pool);
+    await handlers[eventType]!(
+      buildTransportEvent(
+        eventType,
+        {},
+        {
+          id: `evt_${accountId}_${version}`,
+          streamId: `identity.account-${accountId}`,
+          streamVersion: version,
+          globalPosition: String(version),
+          timing: { occurredAt: `2026-10-17T00:00:0${version}.000Z`, recordedAt: `2026-10-17T00:00:0${version}.000Z` },
+        },
+      ),
+    );
+  }
+
+  async function offerReads() {
+    const detail = await getDiscoveryItemDetail(pool, "item-one");
+    const overlay = await getDiscoveryItemDetailSellerOverlay(pool, {
+      accountId: "acc_seller",
+      catalogItemId: "cat_one",
+    });
+    const search = await searchDiscoveryItems(
+      pool,
+      {
+        marketActivity: "offers",
+        dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
+        includeTotal: true,
+      },
+      { loadFacets: true },
+    );
+    return {
+      detail: detail?.offer_demand_matches.map((row) => row.offer_id) ?? [],
+      overlay: overlay.accountOfferMatches.map((row) => row.offer_id),
+      total: search.total,
+      facetCount:
+        search.facets.find((group) => group.id === "finish")?.values.find((value) => value.id === "foil")?.count ?? 0,
+    };
+  }
+
+  async function outboxRows() {
+    const result = await pool.query<{ source_global_position: string; patch_key: string; payload_json: string }>(
+      `SELECT source_global_position::text, patch_key, payload_json
+       FROM realtime_projection_outbox
+       WHERE projection_name = 'discovery-market-projection'
+       ORDER BY outbox_id ASC`,
+    );
+    return result.rows.map((row) => ({
+      sourceGlobalPosition: row.source_global_position,
+      patchKey: row.patch_key,
+      changes: (JSON.parse(row.payload_json) as { changes: unknown[] }).changes,
+    }));
   }
 
   it("hides direct listing and account content, emits removal, restores on reactivation, and fences stale events", async () => {
@@ -118,5 +183,33 @@ describeDb("Discovery account status visibility on Postgres", () => {
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toMatchObject({ listing_id: "lst_one" });
     await status("identity.account.closed", 4);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toBeNull();
+  });
+
+  it("hides and restores buyer Offers through every read and emits exact lifecycle patches", async () => {
+    expect(await offerReads()).toEqual({ detail: ["off_one"], overlay: ["off_one"], total: 1, facetCount: 1 });
+    await statusForAccount("acc_buyer", "identity.account.suspended", 2);
+    expect(await offerReads()).toEqual({ detail: [], overlay: [], total: 0, facetCount: 0 });
+    expect(await outboxRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceGlobalPosition: "2",
+          patchKey: "offer:off_one",
+          changes: [expect.objectContaining({ op: "remove", entity: "discovery.buyerOffer", id: "off_one" })],
+        }),
+      ]),
+    );
+    await statusForAccount("acc_buyer", "identity.account.reactivated", 3);
+    expect(await offerReads()).toEqual({ detail: ["off_one"], overlay: ["off_one"], total: 1, facetCount: 1 });
+    expect(await outboxRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceGlobalPosition: "3",
+          patchKey: "offer:off_one",
+          changes: [expect.objectContaining({ op: "upsert", entity: "discovery.buyerOffer", id: "off_one" })],
+        }),
+      ]),
+    );
+    await statusForAccount("acc_buyer", "identity.account.closed", 4);
+    expect(await offerReads()).toEqual({ detail: [], overlay: [], total: 0, facetCount: 0 });
   });
 });

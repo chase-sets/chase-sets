@@ -9,8 +9,9 @@ import {
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { module as marketplaceModule } from "../../../index";
-import { buildMarketplaceAccountProjectionHandlers } from "../../listings/integrations/supply/supply-projection";
+import { createMarketplaceServices } from "../../../support/runtime-support/services";
 import { getOfferMatch, getPublicOffer, listOfferMatchesForSellers } from "../read-model/queries";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -26,6 +27,7 @@ describeDb("Offer account visibility on Postgres", () => {
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas({ marketplace: pool });
+    await pool.query(realtimeOutboxSchemaSql);
     await bootstrapContextDatabase(marketplaceModule, pool);
     await pool.query(`
       INSERT INTO marketplace_account_pages (account_id, display_name, status)
@@ -54,8 +56,13 @@ describeDb("Offer account visibility on Postgres", () => {
     eventType: "identity.account.suspended" | "identity.account.reactivated" | "identity.account.closed",
     version: number,
   ) {
-    const handlers = buildMarketplaceAccountProjectionHandlers(pool, { onAccountStatusChanged: async () => undefined });
-    await handlers[eventType]!(
+    const services = createMarketplaceServices(pool);
+    const subscription = marketplaceModule.buildSubscriptions!(services).find(
+      (candidate) => candidate.projectionName === "marketplace-identity-account-projection",
+    );
+    expect(subscription).toBeDefined();
+    expect(subscription!.sourceContextName).toBe("identity");
+    await subscription!.handlers[eventType]!(
       buildTransportEvent(
         eventType,
         {},
@@ -70,6 +77,20 @@ describeDb("Offer account visibility on Postgres", () => {
     );
   }
 
+  async function patchRows() {
+    const result = await pool.query<{ source_global_position: string; patch_key: string; payload_json: string }>(
+      `SELECT source_global_position::text, patch_key, payload_json
+       FROM realtime_projection_outbox
+       WHERE projection_name = 'marketplace-offer-projection'
+       ORDER BY outbox_id ASC`,
+    );
+    return result.rows.map((row) => ({
+      sourceGlobalPosition: row.source_global_position,
+      patchKey: row.patch_key,
+      changes: (JSON.parse(row.payload_json) as { changes: unknown[] }).changes,
+    }));
+  }
+
   it("hides and restores every Offer read, and stale or duplicate lifecycle events are no-ops", async () => {
     expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });
     expect(await getOfferMatch(pool, "off_one", "acc_seller")).toMatchObject({ offer_id: "off_one" });
@@ -78,6 +99,16 @@ describeDb("Offer account visibility on Postgres", () => {
     expect(await getPublicOffer(pool, "off_one")).toBeNull();
     expect(await getOfferMatch(pool, "off_one", "acc_seller")).toBeNull();
     expect((await listOfferMatchesForSellers(pool, "off_one", ["acc_seller"])).size).toBe(0);
+    expect(await patchRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceGlobalPosition: "2",
+          patchKey: "offer-match:off_one:acc_seller",
+          changes: [expect.objectContaining({ op: "remove", entity: "marketplace.offerMatch", id: "off_one" })],
+        }),
+      ]),
+    );
+    const suspendedPatchCount = (await patchRows()).length;
     await status("identity.account.suspended", 2);
     await status("identity.account.reactivated", 1);
     expect(
@@ -87,8 +118,18 @@ describeDb("Offer account visibility on Postgres", () => {
         )
       ).rows[0],
     ).toEqual({ status: "suspended", status_stream_version: 2 });
+    expect((await patchRows()).length).toBe(suspendedPatchCount);
     await status("identity.account.reactivated", 3);
     expect(await getPublicOffer(pool, "off_one")).toMatchObject({ offer_id: "off_one" });
+    expect(await patchRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceGlobalPosition: "3",
+          patchKey: "offer-match:off_one:acc_seller",
+          changes: [expect.objectContaining({ op: "upsert", entity: "marketplace.offerMatch", id: "off_one" })],
+        }),
+      ]),
+    );
     await status("identity.account.closed", 4);
     expect(await getPublicOffer(pool, "off_one")).toBeNull();
   });

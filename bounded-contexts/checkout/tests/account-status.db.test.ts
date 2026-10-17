@@ -83,6 +83,42 @@ describeDb("Checkout account status visibility on Postgres", () => {
     );
   }
 
+  function identityEvent(type: string, streamId: string, streamVersion: number, data: Record<string, unknown>) {
+    return buildTransportEvent(type, data, {
+      id: `evt_${streamId}_${streamVersion}`,
+      streamId,
+      streamVersion,
+      globalPosition: `${streamVersion}`,
+      timing: {
+        occurredAt: `2026-10-17T00:00:0${Math.min(streamVersion, 9)}.000Z`,
+        recordedAt: `2026-10-17T00:00:0${Math.min(streamVersion, 9)}.000Z`,
+      },
+    });
+  }
+
+  function addressData(accountId: string, shippingAddressId: string, line1: string) {
+    return {
+      accountId,
+      shippingAddressId,
+      label: "Home",
+      address: {
+        name: "Buyer",
+        company: null,
+        line1,
+        line2: null,
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+        phone: null,
+        email: null,
+      },
+      isDefault: true,
+      addedAt: "2026-10-17T00:00:01.000Z",
+      updatedAt: "2026-10-17T00:00:01.000Z",
+    };
+  }
+
   it("replays profile history without regressing status and hides/restores Offer matches", async () => {
     expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toMatchObject({ offer_id: "off_one" });
     expect(
@@ -113,5 +149,111 @@ describeDb("Checkout account status visibility on Postgres", () => {
     expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toMatchObject({ offer_id: "off_one" });
     await status("identity.account.closed", 5);
     expect(await getCheckoutSellOfferMatch(pool, "acc_seller", "off_one")).toBeNull();
+  });
+
+  it("replays lifecycle and shipping addresses from empty and over advanced rows", async () => {
+    const handlers = buildCheckoutIdentitySellerAccountsProjectionHandlers(pool);
+    const project = async (type: string, streamId: string, version: number, data: Record<string, unknown>) => {
+      await handlers[type]!(identityEvent(type, streamId, version, data));
+    };
+    const emptyAccount = "acc_empty_replay";
+    const emptyStream = `identity.account-${emptyAccount}`;
+    await project("identity.account.created", emptyStream, 1, { accountId: emptyAccount, displayName: "Empty Buyer" });
+    await project(
+      "identity.shipping-address.added",
+      `identity.shipping-address-book-${emptyAccount}`,
+      1,
+      addressData(emptyAccount, "addr_empty", "1 Main Street"),
+    );
+    await project("identity.account.suspended", emptyStream, 3, {});
+    await project("identity.account.profile-updated", emptyStream, 4, { displayName: "Renamed Empty Buyer" });
+    await project("identity.account.reactivated", emptyStream, 5, {});
+    await project("identity.account.closed", emptyStream, 6, {});
+    expect(
+      (
+        await pool.query<{
+          status: string;
+          status_stream_version: number;
+          display_name: string;
+          last_stream_version: number;
+        }>(
+          `SELECT status, status_stream_version, display_name, last_stream_version
+           FROM checkout_seller_accounts WHERE account_id = $1`,
+          [emptyAccount],
+        )
+      ).rows[0],
+    ).toMatchObject({
+      status: "closed",
+      status_stream_version: 6,
+      display_name: "Renamed Empty Buyer",
+      last_stream_version: 4,
+    });
+    const emptyAddress = await pool.query(
+      `SELECT line1, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_empty'`,
+    );
+    expect(emptyAddress.rows[0]).toEqual({ line1: "1 Main Street", last_stream_version: 1 });
+
+    const advancedAccount = "acc_advanced_replay";
+    const advancedStream = `identity.account-${advancedAccount}`;
+    await project("identity.account.created", advancedStream, 1, {
+      accountId: advancedAccount,
+      displayName: "Advanced Buyer",
+    });
+    await project("identity.account.profile-updated", advancedStream, 10, { displayName: "Latest Buyer" });
+    await project(
+      "identity.shipping-address.added",
+      `identity.shipping-address-book-${advancedAccount}`,
+      10,
+      addressData(advancedAccount, "addr_advanced", "99 Current Street"),
+    );
+    const beforeReplay = (
+      await pool.query(
+        `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
+      )
+    ).rows[0];
+    for (const [version, line1] of [
+      [1, "1 Replay Street"],
+      [2, "2 Replay Street"],
+    ] as const) {
+      await project("identity.shipping-address.updated", `identity.shipping-address-book-${advancedAccount}`, version, {
+        ...addressData(advancedAccount, "addr_advanced", line1),
+        updatedAt: `2026-10-17T00:00:0${version}.000Z`,
+      });
+      expect(
+        (
+          await pool.query(
+            `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
+          )
+        ).rows[0],
+      ).toEqual(beforeReplay);
+    }
+    await project("identity.account.suspended", advancedStream, 3, {});
+    expect(
+      (
+        await pool.query(`SELECT status, status_stream_version FROM checkout_seller_accounts WHERE account_id = $1`, [
+          advancedAccount,
+        ])
+      ).rows[0],
+    ).toEqual({
+      status: "suspended",
+      status_stream_version: 3,
+    });
+    await project("identity.account.reactivated", advancedStream, 5, {});
+    await project("identity.account.closed", advancedStream, 6, {});
+    expect(
+      (
+        await pool.query(
+          `SELECT status, status_stream_version, display_name, last_stream_version FROM checkout_seller_accounts WHERE account_id = $1`,
+          [advancedAccount],
+        )
+      ).rows[0],
+    ).toEqual({ status: "closed", status_stream_version: 6, display_name: "Latest Buyer", last_stream_version: 10 });
+    expect(
+      (
+        await pool.query(
+          `SELECT line1, city, last_stream_version FROM checkout_ship_from_addresses WHERE shipping_address_id = 'addr_advanced'`,
+        )
+      ).rows[0],
+    ).toEqual(beforeReplay);
   });
 });
