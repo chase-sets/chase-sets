@@ -967,7 +967,14 @@ describeDb("projection operations Postgres integration", () => {
     ]);
     const sourceEventStore = createPostgresEventStore({ pool: pools.source });
     const primaryRunner = runtime.subscriptionRunners[0];
-    const competingRunner = createSubscriptionRunner("target", pools.target, pools.source, createItemsSubscription());
+    const primarySettled = createDeferred<void>();
+    const competingClaim = createLateLedgerClaimPool(pools.target, primarySettled.promise);
+    const competingRunner = createSubscriptionRunner(
+      "target",
+      competingClaim.pool,
+      pools.source,
+      createItemsSubscription(),
+    );
     const projectionAttempts: string[] = [];
     const firstProjectionStarted = createDeferred<void>();
     const releaseFirstProjection = createDeferred<void>();
@@ -991,6 +998,10 @@ describeDb("projection operations Postgres integration", () => {
     });
 
     const primaryRun = primaryRunner.runOnce();
+    void primaryRun.then(
+      () => primarySettled.resolve(),
+      () => primarySettled.resolve(),
+    );
     await firstProjectionStarted.promise;
     const competingRun = competingRunner.runOnce();
 
@@ -2678,6 +2689,45 @@ function createQueryCapturePool(
         release: (error?: unknown) => client.release(error),
       };
     },
+  };
+}
+
+// Holds every target query of the wrapped runner until `arrival` resolves, and
+// records the backend that submits its application-ledger claim.
+function createLateLedgerClaimPool(pool: PgTransactionalPool, arrival: Promise<unknown>) {
+  const claimSubmitted = createDeferred<void>();
+  let claimBackendPid = 0;
+
+  const latePool: PgTransactionalPool = {
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+      await arrival;
+      return pool.query<Row>(sql, params);
+    },
+    connect: async () => {
+      await arrival;
+      const client = await pool.connect();
+      const pidResult = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      const backendPid = Number(pidResult.rows[0]?.pid);
+      return {
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("INSERT INTO event_subscription_applications")) {
+            claimBackendPid = backendPid;
+            claimSubmitted.resolve();
+          }
+          return client.query<Row>(sql, params);
+        },
+        release: (error?: unknown) => client.release(error),
+      };
+    },
+  };
+
+  return {
+    pool: latePool,
+    get claimBackendPid() {
+      return claimBackendPid;
+    },
+    claimSubmitted,
   };
 }
 
