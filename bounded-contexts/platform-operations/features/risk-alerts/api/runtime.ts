@@ -8,6 +8,13 @@ import { buildRiskAlertProjectionHandlers } from "../read-model/projection";
 import { getRiskAlertQueueItem, getRiskAlertQueueMetrics, listRiskAlertQueue } from "../read-model/queries";
 import type { PayoutReviewHoldCrossContextPort } from "./cross-context";
 
+export class RiskAlertNotFoundError extends Error {
+  constructor() {
+    super("Risk alert was not found.");
+    this.name = "RiskAlertNotFoundError";
+  }
+}
+
 export type RiskAlertServices = Readonly<{
   listRiskAlertQueue: (params: Parameters<typeof listRiskAlertQueue>[1]) => ReturnType<typeof listRiskAlertQueue>;
   getRiskAlertQueueItem: (alertId: string) => ReturnType<typeof getRiskAlertQueueItem>;
@@ -38,7 +45,7 @@ export function createRiskAlertRuntime(
     getRiskAlertQueueMetrics: () => getRiskAlertQueueMetrics(deps.db),
     recordRiskAlertAction: async (params, context) => {
       const alert = await getRiskAlertQueueItem(deps.db, params.alertId);
-      if (!alert) throw new Error("Risk alert was not found.");
+      if (!alert) throw new RiskAlertNotFoundError();
       if (params.action === "request-manual-payout-review") {
         if (!deps.payoutReviewHoldCrossContext) throw new Error("Settlement payout review hold is not mounted.");
         const reason = params.note?.trim() || `Risk alert ${params.alertId}`;

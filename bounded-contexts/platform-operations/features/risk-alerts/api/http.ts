@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { RiskAlertAction } from "./contracts";
-import type { RiskAlertServices } from "./runtime";
+import { RiskAlertNotFoundError, type RiskAlertServices } from "./runtime";
 
 function requireActor(c: { get(key: "actor"): AuthenticatedApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -107,6 +107,9 @@ export function createRiskAlertRoutes(services: RiskAlertServices) {
       );
       return c.json({ id: result.actionId, recordedAt: result.recordedAt });
     } catch (error) {
+      if (error instanceof RiskAlertNotFoundError) {
+        return c.json({ error: { code: "not_found", message: t("experience.api.reported.content.not.found") } }, 404);
+      }
       return c.json(
         { error: { code: "validation_failed", message: error instanceof Error ? error.message : String(error) } },
         400,
