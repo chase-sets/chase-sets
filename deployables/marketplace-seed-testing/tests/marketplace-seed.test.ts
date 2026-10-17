@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
-import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import { createMarketplaceSeedRuntime, describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
@@ -9,6 +8,21 @@ const seedIds = {
   supportRequests: {
     activeProductNotReceived: "sup_seed_active_product_not_received",
     resolvedPartialRefund: "sup_seed_resolved_partial_refund",
+  },
+} as const;
+
+const marketplaceReservedSeedIds = {
+  listings: {
+    charizardBaseSetNearMint: "lst_seed_charizard_base_set_nm",
+    cardVaultCharizardNearMint: "lst_seed_card_vault_charizard_nm",
+    cardVaultCharizardPsa8: "lst_seed_card_vault_charizard_psa_8",
+    cardVaultCharizardMarketMaker: "lst_seed_card_vault_charizard_market_maker",
+    lugiaNeoGenesisBgs95: "lst_seed_lugia_neo_genesis_bgs_95",
+    mewtwoBlackStarPromoActive: "lst_seed_mewtwo_black_star_promo_active",
+    mewtwoBlackStarPromoPremium: "lst_seed_mewtwo_black_star_promo_premium",
+    prismaticEvolutionsPaused: "lst_seed_prismatic_evolutions_paused",
+    surgingSparksWithdrawn: "lst_seed_surging_sparks_withdrawn",
+    sealedStockroomSurgingSparksActive: "lst_seed_sealed_seller_surging_sparks_active",
   },
 } as const;
 
@@ -302,6 +316,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const { pools } = seedRuntime;
     const listingId = marketplaceReservedSeedIds.listings.lugiaNeoGenesisBgs95;
     const streamId = listingStream(listingId);
+    await resetListingStream(pools, streamId);
     await stripCreatedCurrency(pools.marketplace, streamId);
     await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.photos-added");
     const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
@@ -355,6 +370,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await runMarketplaceSeed(pools);
     const withdrawnId = marketplaceReservedSeedIds.listings.surgingSparksWithdrawn;
     const withdrawnStream = listingStream(withdrawnId);
+    await resetListingStream(pools, withdrawnStream);
     const withdrawnPayload = await readCreatedPayload(pools.marketplace, withdrawnStream);
     await stripCreatedCurrency(pools.marketplace, withdrawnStream);
     await replacePublishedEvent(pools.marketplace, withdrawnStream, "marketplace.listing.withdrawn");
@@ -377,6 +393,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   it("reconciles a paused legacy listing once and leaves it exact", async () => {
     const { pools } = seedRuntime;
     const streamId = listingStream(marketplaceReservedSeedIds.listings.prismaticEvolutionsPaused);
+    await resetListingStream(pools, streamId);
     await stripCreatedCurrency(pools.marketplace, streamId);
     const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
 
@@ -396,6 +413,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const { pools } = seedRuntime;
     const runtime = createMarketplaceSeedRuntime(pools);
     const services = runtime.services.marketplace as MarketplaceSeedServices;
+    await resetAllListingStreams(pools);
     await pools.marketplace.query(
       `UPDATE event_store_events
        SET payload = payload - 'priceCurrencyCode'
@@ -585,6 +603,16 @@ async function countStreamEvents(
     [streamId],
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function resetListingStream(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"], streamId: string) {
+  await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+  await runMarketplaceSeed(pools);
+}
+
+async function resetAllListingStreams(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
+  await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id LIKE 'marketplace.listing-%'");
+  await runMarketplaceSeed(pools);
 }
 
 async function runMarketplaceSeed(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
