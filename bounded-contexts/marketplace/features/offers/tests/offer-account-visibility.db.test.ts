@@ -30,7 +30,8 @@ describeDb("Offer account visibility on Postgres", () => {
     await pool.query(`
       INSERT INTO marketplace_account_pages (account_id, display_name, status)
       VALUES ('acc_buyer', 'Buyer', 'active'), ('acc_seller', 'Seller', 'active');
-      INSERT INTO marketplace_supply_items (item_id, account_id, catalog_catalog_item_id, product_id, total_quantity)
+      INSERT INTO marketplace_supply_items
+        (item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity)
       VALUES ('inv_one', 'acc_seller', 'cat_one', 'cat_one::', 'loc_one', 10);
       INSERT INTO marketplace_listing_pages (
         listing_id, account_id, inventory_item_id, catalog_catalog_item_id, product_id,

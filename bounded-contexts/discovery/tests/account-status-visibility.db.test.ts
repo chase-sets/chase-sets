@@ -87,10 +87,7 @@ describeDb("Discovery account status visibility on Postgres", () => {
     await status("identity.account.suspended", 2);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toBeNull();
     expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one"))!.listings).toHaveLength(0);
-    expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toMatchObject({
-      active_listing_count: 0,
-      total_visible_quantity: 0,
-    });
+    expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toBeNull();
     expect(
       (await getDiscoveryItemDetailSellerOverlay(pool, { accountId: "acc_seller", catalogItemId: "cat_one" }))
         .accountOfferMatches,
