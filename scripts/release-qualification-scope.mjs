@@ -131,6 +131,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   contracts: Object.freeze({
     "auth-context": "runtime-library",
     "bounded-context-module": "runtime-library",
+    "catalog-product-line": "runtime-library",
     "catalog-seed": "seed-machinery",
     "checkout-order-source": "money-movement-contract",
     "embedded-surface-theme": "runtime-library",
