@@ -11,6 +11,15 @@ export type GoogleShoppingMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
 }>;
 
+type GoogleShoppingMcpServices = Pick<
+  GoogleShoppingSyncServices,
+  | "enqueueFullSyncJob"
+  | "enqueueMaintenanceSyncJob"
+  | "enqueueDiagnosticsRefreshJob"
+  | "getFullSyncJob"
+  | "listFeedRows"
+>;
+
 const GOOGLE_SHOPPING_PERMISSION = "google-shopping.manage";
 
 function requireOperator(actor: ResolvedActor | null): ResolvedActor {
@@ -75,7 +84,7 @@ function readFeedRowFilter(args: Readonly<Record<string, unknown>>): GoogleShopp
   return filter as GoogleShoppingFeedRowFilter;
 }
 
-export function createGoogleShoppingMcpHandlers(services: GoogleShoppingSyncServices): GoogleShoppingMcpHandlers {
+export function createGoogleShoppingMcpHandlers(services: GoogleShoppingMcpServices): GoogleShoppingMcpHandlers {
   const enqueueDiagnosticsRefresh: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = requireOperator(actor);
     const job = await services.enqueueDiagnosticsRefreshJob(
