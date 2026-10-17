@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS checkout_seller_accounts (
   average_rating numeric NULL,
   review_count integer NOT NULL DEFAULT 0,
   rating_count integer NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'active',
+  status_stream_version integer NOT NULL DEFAULT 0,
   last_stream_version integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -13,7 +15,9 @@ CREATE TABLE IF NOT EXISTS checkout_seller_accounts (
 ALTER TABLE checkout_seller_accounts
   ADD COLUMN IF NOT EXISTS average_rating numeric NULL,
   ADD COLUMN IF NOT EXISTS review_count integer NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS rating_count integer NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS rating_count integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS status_stream_version integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS checkout_ship_from_addresses (
   shipping_address_id text PRIMARY KEY,

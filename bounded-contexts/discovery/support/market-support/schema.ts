@@ -5,11 +5,13 @@ export const discoveryMarketSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_ma
   seller_slug text NOT NULL DEFAULT '',
   seller_display_name text NULL,
   status text NOT NULL DEFAULT 'active',
+  status_stream_version integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE discovery_market_accounts
-  ADD COLUMN IF NOT EXISTS seller_slug text NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS seller_slug text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS status_stream_version integer NOT NULL DEFAULT 0;
 
 ALTER TABLE discovery_market_accounts
   ADD COLUMN IF NOT EXISTS seller_listing_availability_status text NOT NULL DEFAULT 'available',
