@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
-import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
+import { createMarketplaceSeedRuntime, describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
   demoAccountId: "acc_seed_demo_account",
@@ -293,7 +293,9 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   it("survives an owner write between classify and append and converges on the next run", async () => {
     const { pools } = seedRuntime;
     const runtime = await seedRuntime.seed();
-    const services = runtime.services.marketplace;
+    const services = runtime.services.marketplace as ReturnType<
+      typeof createMarketplaceSeedRuntime
+    >["services"]["marketplace"];
     await pools.marketplace.query(
       `UPDATE event_store_events
        SET payload = payload - 'priceCurrencyCode'
@@ -336,6 +338,9 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   it("refuses missing supply without creating the absent listing and remains idempotent across boots", async () => {
     const { pools } = seedRuntime;
     const runtime = await seedRuntime.seed();
+    const services = runtime.services.marketplace as ReturnType<
+      typeof createMarketplaceSeedRuntime
+    >["services"]["marketplace"];
     const listingId = marketplaceReservedSeedIds.listings.mewtwoBlackStarPromoPremium;
     const streamId = listingStream(listingId);
     const created = await pools.marketplace.query<{ inventory_item_id: string }>(
@@ -346,9 +351,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
     await pools.inventory.query("DELETE FROM inventory_items WHERE item_id = $1", [created.rows[0]!.inventory_item_id]);
 
-    await expect(marketplaceModule.seed!(pools.marketplace, runtime.services.marketplace)).rejects.toThrow(
-      /missing inventory supply/,
-    );
+    await expect(marketplaceModule.seed!(pools.marketplace, services)).rejects.toThrow(/missing inventory supply/);
     await expect(countStreamEvents(pools.marketplace, streamId)).resolves.toBe(0);
   }, 300_000);
 });
