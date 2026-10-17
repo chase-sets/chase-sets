@@ -563,7 +563,7 @@ export function TopNav({
   // in sequential focus and reveals on focus. Every override is max-md scoped.
   const navClassName = cx(
     searchRowState !== undefined
-      ? "sticky top-0 z-sticky max-md:h-[7.75rem] max-md:pointer-events-none"
+      ? `sticky top-0 z-sticky ${searchRowState === "collapsed" ? "max-md:h-16" : "max-md:h-[7.75rem]"} max-md:pointer-events-none`
       : "sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
   );
   const slotClassName = cx(
