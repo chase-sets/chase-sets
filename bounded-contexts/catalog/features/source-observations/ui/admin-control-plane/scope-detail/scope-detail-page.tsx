@@ -15,6 +15,11 @@ import type { CatalogIntegrationsRouteData } from "../../integrations-surface-ro
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
 import { CatalogCommandFeedbackBanner } from "../../workbench-shell";
 import { CatalogIntegrationImportToPromotionWorkspace } from "../import-to-promotion/import-to-promotion-workspace";
+import {
+  CatalogScopeCandidateReviewJobsPanel,
+  candidateReviewJobsPageHref,
+  type CatalogScopeCandidateReviewJobs,
+} from "./candidate-review-jobs-panel";
 
 // Scope Detail page (v2 control-plane IA: `/scopes/:scopeId`): the whole
 // journey for one scope in place. The journey overview maps the scope's path
@@ -39,6 +44,9 @@ export type CatalogScopeDetailPageProps = Readonly<{
   coverageMatrixFailed?: boolean;
   journey?: CatalogIntegrationsRouteData | null;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  candidateReviewJobs?: CatalogScopeCandidateReviewJobs | null;
+  /** The completed candidate-review-jobs cursor this page shows; null on the newest page. */
+  candidateReviewJobsCursor?: string | null;
 }>;
 
 export function CatalogScopeDetailPage({
@@ -53,6 +61,8 @@ export function CatalogScopeDetailPage({
   coverageMatrixFailed = false,
   journey = null,
   commandFeedback = null,
+  candidateReviewJobs = null,
+  candidateReviewJobsCursor = null,
 }: CatalogScopeDetailPageProps) {
   const hasLanguageEditions = catalogScopeHasLanguageEditionsToReview(scope);
   const languageEditionsReadModel = hasLanguageEditions
@@ -103,6 +113,20 @@ export function CatalogScopeDetailPage({
             deferredScopeSyncState={journey.deferredScopeSyncState ?? null}
             commandActionPath={actionHref}
             showSourceScopeWorkset={false}
+          />
+        </PageSection>
+      ) : null}
+
+      {candidateReviewJobs ? (
+        <PageSection>
+          <CatalogScopeCandidateReviewJobsPanel
+            jobs={candidateReviewJobs}
+            nextPageHref={
+              candidateReviewJobs.completed.cursor
+                ? candidateReviewJobsPageHref(actionHref, candidateReviewJobs.completed.cursor)
+                : null
+            }
+            firstPageHref={candidateReviewJobsCursor ? actionHref : null}
           />
         </PageSection>
       ) : null}

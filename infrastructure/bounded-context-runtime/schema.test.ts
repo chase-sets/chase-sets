@@ -126,6 +126,7 @@ describe("bounded context runtime schema", () => {
         "20260628_event_store_events_concurrent_indexes",
         "20260710_event_store_write_hot_fillfactor",
         "20260710_projection_recovery_marker_backfill",
+        "20261015_subscription_reaction_output_positions",
         "20260703_example_pages_concurrent_indexes",
       ]),
     );
@@ -489,6 +490,41 @@ describe("bounded context runtime schema", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("never records a denied pg_trgm migration as applied", async () => {
+    const calls: string[] = [];
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        calls.push(sql);
+        if (sql.includes("pg_try_advisory_lock")) return { rows: [{ acquired: true }] };
+        if (sql === "CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+          throw new Error("permission denied to create extension pg_trgm");
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    await expect(
+      bootstrapContextDatabase(
+        {
+          contextName: "example",
+          schemaSql: "SELECT 1;",
+          schemaMigrations: [
+            {
+              migrationId: "denied_pg_trgm",
+              description: "test",
+              statements: ["CREATE EXTENSION IF NOT EXISTS pg_trgm;"],
+            },
+          ],
+        },
+        { query: client.query, connect: async () => client },
+      ),
+    ).rejects.toThrow("permission denied");
+    const deniedAt = calls.indexOf("CREATE EXTENSION IF NOT EXISTS pg_trgm;");
+    expect(deniedAt).toBeGreaterThan(-1);
+    expect(calls.slice(deniedAt + 1).some((sql) => sql.includes("INSERT INTO bounded_context_schema_migrations"))).toBe(
+      false,
+    );
   });
 
   it("does not retry non-lock-timeout schema failures", async () => {

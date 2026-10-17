@@ -23,6 +23,7 @@ import { catalogScopeProductDomains } from "../../scope-registry/domain/contract
 import type { ScopeSyncBatchPreview } from "../domain/batch";
 import type { HeldSetResolution } from "../domain/held-set-export";
 import type { ScopeSyncBatchSnapshot, ScopeSyncBatchUnitSnapshot } from "../read-model/store";
+import type { CountQuote } from "../domain/count-acquisition";
 
 export function ScopeSyncBatchPage({
   preview,
@@ -31,6 +32,8 @@ export function ScopeSyncBatchPage({
   error,
   heldSetSubmitting = false,
   onHeldSetSubmit,
+  countQuote = null,
+  countSubmitting = false,
 }: Readonly<{
   preview: ScopeSyncBatchPreview | null;
   heldSetResolution: HeldSetResolution | null;
@@ -38,6 +41,8 @@ export function ScopeSyncBatchPage({
   error: string | null;
   heldSetSubmitting?: boolean;
   onHeldSetSubmit?: FormEventHandler<HTMLFormElement>;
+  countQuote?: CountQuote | null;
+  countSubmitting?: boolean;
 }>) {
   return (
     <Page>
@@ -141,13 +146,109 @@ export function ScopeSyncBatchPage({
               <Button type="submit" name="intent" value="preview">
                 {t("catalog.features.scopeSyncBatches.ui.page.preview.batch")}
               </Button>
+              <TextInput
+                name="countCap"
+                type="number"
+                min={0}
+                max={10000}
+                label={t("catalog.features.scopeSyncBatches.count.cap")}
+                defaultValue="0"
+              />
+              <Button type="submit" name="intent" value="count-quote">
+                {t("catalog.features.scopeSyncBatches.count.quote")}
+              </Button>
             </Inline>
           </Stack>
         </WorkbenchForm>
       </PageSection>
       {preview ? <PreviewSection preview={preview} /> : null}
+      {countQuote ? <CountQuoteSection quote={countQuote} submitting={countSubmitting} /> : null}
       {batch ? <BatchSection batch={batch} /> : null}
     </Page>
+  );
+}
+
+function CountQuoteSection({ quote, submitting }: { quote: CountQuote; submitting: boolean }) {
+  return (
+    <PageSection title={t("catalog.features.scopeSyncBatches.count.title")}>
+      <Stack gap={3}>
+        <Banner
+          tone={
+            quote.state === "complete"
+              ? "success"
+              : quote.state === "uncertain" || quote.state === "failed"
+                ? "danger"
+                : "info"
+          }
+          title={t("catalog.features.scopeSyncBatches.count.separate")}
+          description={t("catalog.features.scopeSyncBatches.count.no.batch")}
+        />
+        <LinkText href={`/catalog/scopes/sync-batches?quoteId=${encodeURIComponent(quote.quoteId)}`}>
+          {t("catalog.features.scopeSyncBatches.count.retained")}
+        </LinkText>
+        <KeyValueList
+          items={[
+            { key: t("catalog.features.scopeSyncBatches.count.planned"), value: String(quote.plannedCredits) },
+            { key: t("catalog.features.scopeSyncBatches.count.cap"), value: String(quote.cap) },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.cards"),
+              value: String(quote.targets.filter((target) => target.query.kind === "cards" && !target.source).length),
+            },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.sealed"),
+              value: String(quote.targets.filter((target) => target.query.kind === "sealed" && !target.source).length),
+            },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.reused"),
+              value: String(quote.targets.filter((target) => target.source).length),
+            },
+            { key: t("catalog.features.scopeSyncBatches.count.expires"), value: quote.expiresAt },
+            {
+              key: t("catalog.features.scopeSyncBatches.count.state"),
+              value: <StatusPill tone={quote.state === "complete" ? "success" : "neutral"}>{quote.state}</StatusPill>,
+            },
+          ]}
+        />
+        {quote.targets.map((target) => (
+          <KeyValueList
+            key={`${target.scopeRecordId}:${target.query.kind}`}
+            items={[
+              {
+                key: t("catalog.features.scopeSyncBatches.count.kind"),
+                value: `${target.scopeRecordId} / ${target.query.kind}`,
+              },
+              { key: t("catalog.features.scopeSyncBatches.count.cost"), value: String(target.source ? 0 : 1) },
+              {
+                key: t("catalog.features.scopeSyncBatches.count.observed"),
+                value: target.source?.observedAt ?? t("catalog.features.scopeSyncBatches.count.unobserved"),
+              },
+            ]}
+          />
+        ))}
+        {quote.state === "quoted" && quote.plannedCredits > 0 ? (
+          <WorkbenchForm variant="button" method="post" action="/catalog/scopes/sync-batches">
+            <HiddenInput name="intent" value="count-acquire" />
+            <HiddenInput name="quoteId" value={quote.quoteId} />
+            <HiddenInput name="countFingerprint" value={quote.fingerprint} />
+            <Button
+              type="submit"
+              disabled={
+                submitting ||
+                !quote.authority.allowed ||
+                quote.targets.some((target) => target.blocked) ||
+                quote.cap === 0
+              }
+            >
+              {t(
+                submitting
+                  ? "catalog.features.scopeSyncBatches.count.acquiring"
+                  : "catalog.features.scopeSyncBatches.count.approve",
+              )}
+            </Button>
+          </WorkbenchForm>
+        ) : null}
+      </Stack>
+    </PageSection>
   );
 }
 
@@ -301,7 +402,6 @@ function HeldSetExportSection({
             ) : null}
             {resolution.resolved.length > 0 ? (
               <WorkbenchForm variant="button" method="post" action="/catalog/scopes/sync-batches">
-                <HiddenInput name="intent" value="preview" />
                 <HiddenInput name="selectionMode" value="ids" />
                 <HiddenInput
                   name="scopeRecordIds"
@@ -314,7 +414,20 @@ function HeldSetExportSection({
                 <HiddenInput name="scrydexRateRequestLimit" value="1000" />
                 <HiddenInput name="scrydexRequestLimit" value="0" />
                 <HiddenInput name="providerFailureThreshold" value="3" />
-                <Button type="submit">{t("catalog.features.scopeSyncBatches.ui.heldSet.preview")}</Button>
+                <Button type="submit" name="intent" value="preview">
+                  {t("catalog.features.scopeSyncBatches.ui.heldSet.preview")}
+                </Button>
+                <TextInput
+                  name="countCap"
+                  type="number"
+                  min={0}
+                  max={10000}
+                  label={t("catalog.features.scopeSyncBatches.count.cap")}
+                  defaultValue="0"
+                />
+                <Button type="submit" name="intent" value="count-quote">
+                  {t("catalog.features.scopeSyncBatches.count.quote")}
+                </Button>
               </WorkbenchForm>
             ) : null}
           </Stack>

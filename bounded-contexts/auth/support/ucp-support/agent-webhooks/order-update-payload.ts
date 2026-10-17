@@ -12,7 +12,7 @@ import type { TransportEvent, TypedTransportEvent } from "@chase-sets/event-core
  * UCP order-update semantics recognise a small status vocabulary; ChatGPT and
  * Gemini shopping surfaces expect shipped/delivered/refunded to arrive without
  * the user asking. We keep the payload deliberately thin — the agent re-reads
- * detail via `order:read` — and carry only the fields needed to route and render
+ * detail via `dev.ucp.shopping.order:read` — and carry only the fields needed to route and render
  * the update. An ACP-shaped adapter can wrap this later without reshaping it.
  */
 export type AgentOrderUpdateStatus = "created" | "shipped" | "delivered" | "cancelled" | "refunded";

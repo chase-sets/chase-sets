@@ -28,6 +28,14 @@ Both modes require the parent `DISCOVERY_SEARCH_EMBEDDINGS` control and an API-s
 
 Query embeddings use an in-process LRU with a 1,000-entry hard bound and 15-minute TTL by default. Keys are SHA-256 hashes of `(model, normalized query)`; concurrent misses share one provider request, failures are evicted, and hits refresh LRU order. `DISCOVERY_QUERY_EMBEDDING_CACHE_MAX_ENTRIES` and `DISCOVERY_QUERY_EMBEDDING_CACHE_TTL_MS` tune the bounds. No query-cache table is created, so the `BcRetentionSweep` table convention does not apply and horizontally scaled API replicas remain independent.
 
+### Query embedding deadline
+
+Live rescue and hybrid retrieval use one embedding attempt and `DISCOVERY_QUERY_EMBEDDING_TIMEOUT_MS` (800 ms by default), independently of batch `VOYAGE_EMBEDDING_TIMEOUT_MS` (15,000 ms) and `VOYAGE_EMBEDDING_MAX_ATTEMPTS` (four). The cache passes this online policy on every provider invocation, including injected providers. Fetch and response-body parsing are abortable; online rate limits never sleep or retry. Enrichment and backfill retain their batch policy.
+
+Each waiter's deadline starts when it begins awaiting the embedding, not at HTTP entry. HTTP cancellation stops only that wait; service, MCP and UCP callers without a transport signal still have the deadline. Pre-aborted calls are not attempted, even for warm entries. Shared loads have their own deadline from load start and continue after every waiter disconnects: success within that bound warms the cache, while failure or timeout evicts. Evicted or timed-out work cannot replace a newer entry on late completion. Timers and abort listeners are released on settlement.
+
+This is not a SQL or whole-request deadline. Failure preserves lexical results and metadata, rather than enabling hybrid retrieval or changing ranking. The online setting must be a positive millisecond duration within the platform timer range; the cache additionally requires integer milliseconds.
+
 The API response records `lexical | rescue | hybrid` as `retrievalMode`, and the platform API emits the same redaction-safe dimension through `DiscoverySearchQuerySignal` for #3407. Raw query text is not added to telemetry, and telemetry failure is swallowed so it cannot become a search dependency.
 
 ## Similar items

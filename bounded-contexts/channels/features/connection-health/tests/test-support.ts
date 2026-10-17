@@ -93,7 +93,7 @@ export function healthDatabase(name: string) {
     },
     async observation(
       connectionId: string,
-      reasonCode: ChannelHealthReason = "polling",
+      reasonCode: Exclude<ChannelHealthReason, "connector-liveness"> = "polling",
       overrides: Partial<ChannelHealthObservation> = {},
     ): Promise<ChannelHealthObservation> {
       const health = (await services.connectionHealth.readConnectionHealth(query(connectionId))).health;
@@ -124,6 +124,7 @@ export function healthDatabase(name: string) {
     },
     async healthy(connectionId: string) {
       for (const reason of channelHealthReasons) {
+        if (reason === "connector-liveness") continue;
         await services.connectionHealth.submitObservation(
           await this.observation(connectionId, reason, { outcome: "success" }),
           context,

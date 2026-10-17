@@ -107,6 +107,57 @@ async function seedInventoryItem(eventStore: EventStore) {
 }
 
 describe("inventory hold runtime", () => {
+  it("issue-9598 plans a hold from the loaded item version and conflicts after a concurrent stock append", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    await seedInventoryItem(eventStore);
+    let itemReads = 0;
+    const interleavedStore: EventStore = {
+      ...eventStore,
+      readStream: async (input) => {
+        if (input.streamId === "inventory.item-inv_1" && ++itemReads === 2) {
+          await eventStore.appendToStream({
+            streamId: input.streamId,
+            expectedVersion: 1,
+            context,
+            events: [
+              {
+                eventType: "inventory.item.adjusted",
+                payload: { itemId: "inv_1", quantityDelta: 3, reason: "Concurrent intake" },
+              },
+            ],
+          });
+        }
+        return eventStore.readStream(input);
+      },
+    };
+    const services = createInventoryHoldRuntime({
+      eventStore: interleavedStore,
+      db: createInventoryDb(),
+      checkpointStore: {} as never,
+    });
+    const plan = await services.planCreateHold(
+      {
+        holdId: "hld_stale" as InventoryHoldId,
+        accountId: "acc_seller" as AccountId,
+        itemId: "inv_1",
+        quantity: 1,
+        reason: "Manual hold",
+        purpose: "manual",
+        sourceRef: null,
+      },
+      context,
+    );
+    expect(itemReads).toBe(2);
+    expect(plan.kind).toBe("append");
+    if (plan.kind !== "append") throw new Error("Expected a new hold plan");
+    expect(plan.appends[0]).toMatchObject({ streamId: "inventory.item-inv_1", expectedVersion: 1 });
+    await expect(eventStore.appendToStreams!(plan.appends)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(0);
+    expect(
+      readAllEvents().filter((event) => event.eventType === "inventory.item.stock-authority-claimed"),
+    ).toHaveLength(0);
+  });
+
   it("delegates checkout lookup with the session filter and retains account-scoped lookup", async () => {
     const { eventStore } = createInMemoryEventStore();
     const db = createInventoryDb({ holdRows: [{ hold_id: "hld_1", account_id: "acc_seller" }] });
@@ -312,11 +363,30 @@ describe("inventory hold runtime", () => {
       itemRows: [],
       aggregateHoldRows: [
         {
-          hold_id: "hld_existing",
-          account_id: "acc_seller",
-          item_id: "inv_1",
-          quantity: 1,
-          active: true,
+          stream_id: "inventory.hold-hld_existing",
+          total: "1",
+          current_version: "1",
+        },
+      ],
+    });
+    await eventStore.appendToStream({
+      streamId: "inventory.hold-hld_existing",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "inventory.hold.placed",
+          payload: {
+            holdId: "hld_existing",
+            accountId: "acc_seller",
+            itemId: "inv_1",
+            quantity: 1,
+            reason: "Existing manual hold",
+            notes: null,
+            purpose: "manual",
+            sourceRef: null,
+            expiresAt: null,
+          },
         },
       ],
     });
@@ -354,7 +424,11 @@ describe("inventory hold runtime", () => {
     expect(aggregateHoldQuery).toContain("stream_category = 'inventory.hold'");
     expect(aggregateHoldQuery).toContain("payload ->> 'accountId' = $2");
     expect(aggregateHoldQuery).toContain("payload ->> 'itemId' = $3");
-    expect(readAllEvents().filter((event) => event.eventType === "inventory.hold.placed")).toHaveLength(0);
+    expect(
+      readAllEvents()
+        .filter((event) => event.eventType === "inventory.hold.placed")
+        .map((event) => event.payload.holdId),
+    ).toEqual(["hld_existing"]);
   });
 
   it("blocks seller release of order holds while system workflows release them with audit context", async () => {

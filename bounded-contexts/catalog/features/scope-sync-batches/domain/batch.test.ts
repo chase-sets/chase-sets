@@ -124,6 +124,40 @@ describe("Scope Sync Batch", () => {
     );
   });
 
+  it.each([0, 256, 1_000_000])("#9424 AC3/AC4 mixed known/unknown estimates refuse at budget %i", (limit) => {
+    const preview = buildScopeSyncBatchPreview({
+      selection: { mode: "ids", scopeRecordIds: ["scope-1", "scope-2"] },
+      budget: { creditedProviderRequestLimits: { scrydex: limit } },
+      plans: [
+        plan({ providerKeys: ["scrydex"], creditedProviderRequestEstimates: { scrydex: 2 } }),
+        plan({
+          scopeRecordId: "scope-2",
+          providerKeys: ["scrydex"],
+          estimatedRequestCount: null,
+          creditedProviderRequestEstimates: { scrydex: null },
+          blockers: [
+            {
+              code: "credited-provider-estimate-unavailable",
+              scopeRecordId: "scope-2",
+              providerKey: "scrydex",
+              message: "Synthetic missing sealed count",
+            },
+          ],
+        }),
+      ],
+      resolvedAt: "2026-07-14T00:00:00.000Z",
+    });
+    expect(preview.counts).toMatchObject({ readyScopes: 1, blockedScopes: 1 });
+    expect(preview.confirmAllowed).toBe(false);
+    expect(preview.blockers.map((blocker) => blocker.code)).toContain("credited-provider-estimate-unavailable");
+    expect(preview.blockers.find((blocker) => blocker.scopeRecordId === null)?.code).toBe(
+      "credited-provider-estimate-unavailable",
+    );
+    expect(() => assertScopeSyncBatchPreviewCurrent(preview.planFingerprint, preview)).toThrow(
+      ScopeSyncBatchBlockedPreviewError,
+    );
+  });
+
   it("blocks a provider independently when its estimated requests exceed the rate budget", () => {
     const base = plan();
     const preview = buildScopeSyncBatchPreview({

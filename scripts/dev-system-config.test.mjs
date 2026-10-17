@@ -12,7 +12,6 @@ import {
   browserE2ePlatformWorkerCiCommand,
   browserE2ePlatformWorkerEnv,
   browserE2eProductionBuilds,
-  browserE2eProductionCommands,
   browserE2eProductionIngressEnv,
   browserE2eProductionTarget,
   browserE2eRateLimitEnv,
@@ -269,14 +268,33 @@ describe("dev system target env overrides", () => {
       },
     ];
 
-    const productionProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, { ci: true });
+    const productionProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, {
+      ci: true,
+      platform: "linux",
+    });
+    const windowsProcesses = applyDevTargetEnvOverrides(browserE2eProductionTarget, processes, {
+      ci: true,
+      platform: "win32",
+    });
+    const workspaces = [
+      "@chase-sets/app-platform-api",
+      "@chase-sets/app-platform-worker",
+      "@chase-sets/app-admin-web",
+      "@chase-sets/app-marketplace-web",
+    ];
 
-    for (const processDefinition of productionProcesses) {
+    productionProcesses.forEach((processDefinition, index) => {
       expect(processDefinition).toMatchObject({
-        ...browserE2eProductionCommands[processDefinition.name],
+        command: "pnpm",
+        args: ["--filter", workspaces[index], "run", "start"],
       });
+      expect(processDefinition).not.toHaveProperty("script");
       expect(processDefinition.env).not.toHaveProperty("NODE_ENV");
       expect(processDefinition.args.join(" ")).not.toContain("watch");
+    });
+    for (const processDefinition of windowsProcesses) {
+      expect(processDefinition).toMatchObject({ command: undefined, args: undefined, script: "start" });
+      expect(processDefinition.env).not.toHaveProperty("NODE_ENV");
     }
     expect(productionProcesses[0].env).toMatchObject(browserE2eProductionIngressEnv);
     expect(productionProcesses[0]).not.toHaveProperty("publicPort");

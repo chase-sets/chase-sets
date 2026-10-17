@@ -34,6 +34,20 @@ kubectl --namespace chase-sets-platform get events --sort-by=.lastTimestamp
 
 The deploy helper renders the checked-in runtime contract, applies the environment Secret, runs the Helm upgrade, waits for bootstrap and workload readiness, verifies ingress, and emits release-health evidence. Do not hand-edit generated values or live Deployments.
 
+### Admission-Webhook Transient Retry (#9662)
+
+The DOKS control plane can briefly lose its konnectivity bridge to an admission webhook in the middle of a production `helm upgrade --atomic`. Helm then reports `UPGRADE FAILED` with a Certificate patch whose `webhook.cert-manager.io` call ends `No agent available`, and its atomic rollback usually fails the same way. Production retries that one cause once, in the same job:
+
+1. The production deploy step always writes `artifacts/release-health/production-kubernetes-deploy-attempts.json` (`platform-kubernetes-deploy-attempts/v1`). The record holds one terminal result, the attempts, the probe outcomes, the recovery revisions, and the history observed before the retry. That history keeps each revision's number and status and only a SHA-256 fingerprint of its Helm description, because a retained description can carry earlier error text. The record's only text is Helm's bounded, redacted `UPGRADE FAILED` line, at most 500 characters. A failed attempt whose complete original error was recognized also carries `admissionWebhookTransientCode: doks-admission-webhook-unreachable`; every other attempt carries neither the line nor the code. The record never carries Helm arguments, values, runtime env overrides, or history descriptions.
+2. The retry is offered only when the workflow rollback itself would run: rollback readiness is `success` and `agent-grant-revocation-release.mjs check-rollback` passes for the last-known-good commit. Staging and previews never retry.
+3. The retry is refused, and the original error stands, for any other error and for any unexpected Helm history: a pending revision, an extra or different revision, a missing source, an interior gap, or a changed retained revision. Helm's history limit may prune only the oldest revisions before the captured source.
+4. The deploy runs `kubectl annotate certificate/chase-sets-platform-doks-tls --dry-run=server` in the deploy namespace every 10 seconds. It needs two consecutive successes inside one fixed 180-second window. A probe still running when the window ends is killed and counts as a timeout.
+5. The deploy restores the captured source with the exact workflow rollback, unless Helm's atomic rollback already left a deployed `Rollback to <source>`. It confirms that no Helm hook operation is active, then runs the byte-identical upgrade, `--atomic` included, exactly once.
+
+After a recovered retry, `verify-deployment-transition --deploy-attempts` checks the whole chain from the original rollback target. It rebuilds each recorded description from the observed Helm history, or from the rollback target for a revision pruned since, and refuses any whose fingerprint differs. It then emits the ordinary transition for the final hop, from the recorded pre-retry head to the new deployed revision, so marker recovery is unchanged.
+
+If both attempts fail with this transient, or the transient retry was refused, the incident is classified `doks-admission-webhook-unreachable`. The classifier reads the last attempt's recorded code, not its line, because the 500-character line can end before `No agent available`. A retry that fails with any other error, or that succeeds, does not get this classification. The workflow rollback restores the captured source as for any production failure. Confirm that the cert-manager webhook answers the same server dry-run from the production context, then rerun the failed Platform Deploy run. Never raise the timeout or bypass `--atomic` to get past this failure.
+
 ## Managed Registry Pull Authority
 
 DigitalOcean's DOKS/DOCR integration is the sole owner of platform image-pull credentials. It owns the source Secret in `kube-system`, reconciles a namespace-local Secret named `chase-sets`, and adds that name to each namespace's default ServiceAccount. GitHub Actions and the platform chart select the stable name `chase-sets`; they never generate, refresh, or select a parallel Docker-config Secret. DigitalOcean owns credential refresh and distribution timing. If that contract stops reconciling, fail closed and escalate to DigitalOcean support instead of creating a fallback credential or extending a credential TTL.
@@ -366,6 +380,17 @@ kubectl --namespace chase-sets-platform get ingress
 ```
 
 The environment DNS target must equal the ingress-nginx LoadBalancer IPv4 address. A target mismatch fails Terraform checks. Production live-host certificates use DNS-01; staging live hosts use HTTP-01. Preview namespaces copy the shared wildcard Secret rather than issuing per-preview certificates.
+
+### Preview Wildcard Renewal (#9268)
+
+The shared `cert-manager/preview-wildcard` certificate renews through DNS-01, whose solver reads `cert-manager/digitalocean-dns-token`. Every staging deploy runs `node scripts/preview-wildcard-certificate.mjs converge`, which re-applies that Secret from the current `DIGITALOCEAN_ACCESS_TOKEN` over kubectl stdin. When the certificate is not Ready or expires within 14 days, the same command deletes stale non-Ready CertificateRequests, which cascades to their Orders and Challenges, and sets `Issuing=True` the same way `cmctl renew` does. Near the end of the deploy, `check --min-remaining-days 14 --wait-seconds 600` fails the staging deploy closed if renewal has not finished. Because that guard runs after the staging rollout is promoted, its failure leaves the new staging app live while `Mark staging applied` is skipped, so production promotion stays blocked; restore the certificate with the workflow below, then re-run the staging deploy. Preview deploys run a single read-only `check` that fails when the certificate is not Ready or has expired, and warns once it is inside the 14-day floor.
+
+To restore preview TLS without cutting a release, for example right after rotating the token:
+
+```bash
+gh workflow run platform-preview-wildcard-tls.yml --ref main -f confirm="restore preview wildcard tls"
+kubectl --namespace cert-manager get certificate,certificaterequest,order,challenge
+```
 
 ## Argo Rollouts
 

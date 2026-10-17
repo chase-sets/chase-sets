@@ -12,10 +12,6 @@ export const channelHealthPolicy = definePolicy({
   decodeValue: decodeChannelHealthPolicy,
 });
 
-// The downstream liveness slice owns its producer and reason admission.
-export function consecutiveFailureThreshold(
-  reason: ChannelHealthReason | "connector-liveness",
-  configured: number,
-): number {
+export function consecutiveFailureThreshold(reason: ChannelHealthReason, configured: number): number {
   return reason === "connector-liveness" ? 1 : configured;
 }

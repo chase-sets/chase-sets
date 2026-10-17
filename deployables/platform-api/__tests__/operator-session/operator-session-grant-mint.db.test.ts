@@ -1,5 +1,7 @@
 import catalogManifest from "@chase-sets/catalog/context";
 import { createHash } from "node:crypto";
+import { module as catalogModule } from "@chase-sets/catalog";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { afterEach, expect, it, vi } from "vitest";
 import { admin, adminPath, deniedOrigins, mint, mounted, operator, snapshot, transport, unpair } from "./fixture";
 import { database, describeDb } from "./db-fixture";
@@ -7,6 +9,127 @@ import { database, describeDb } from "./db-fixture";
 afterEach(() => vi.useRealTimers());
 describeDb("mounted operator grant mint authority", () => {
   const db = database("operator_grant_mint");
+  it.each([false, true])("upgrades the registered v1 grant schema with retained rows=%s", async (retained) => {
+    const migrationId = "20261013_catalog_operator_session_grant_creator_ids_text_v2";
+    const migration = catalogModule.schemaMigrations?.find((entry) => entry.migrationId === migrationId);
+    expect(migration, "forward creator-id migration is registered").toBeDefined();
+    await db().query("DROP TABLE catalog_operator_session_grants");
+    await db().query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = ANY($1::text[])", [
+      ["20261002_catalog_operator_session_grants_v1", migrationId],
+    ]);
+    await bootstrapContextDatabase(
+      { ...catalogModule, schemaMigrations: catalogModule.schemaMigrations?.filter((entry) => entry !== migration) },
+      db(),
+    );
+    if (retained) {
+      await db().query(`INSERT INTO catalog_operator_session_grants
+        VALUES ('00000000-0000-4000-8000-000000000001', decode(repeat('ab', 32), 'hex'),
+          '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000004',
+          clock_timestamp(), clock_timestamp(), clock_timestamp() + interval '30 days', NULL, NULL)`);
+    }
+    const before = await snapshot(db());
+    await bootstrapContextDatabase(catalogModule, db());
+    const after = await snapshot(db());
+    expect(after.grants.map(({ row_version: _version, ...row }) => row)).toEqual(
+      before.grants.map(({ row_version: _version, ...row }) => row),
+    );
+    expect(
+      (
+        await db().query(`SELECT data_type, is_nullable FROM information_schema.columns
+      WHERE table_name = 'catalog_operator_session_grants'
+        AND column_name IN ('creator_user_id', 'creator_membership_id')`)
+      ).rows,
+    ).toEqual([
+      { data_type: "text", is_nullable: "NO" },
+      { data_type: "text", is_nullable: "NO" },
+    ]);
+    expect(
+      (
+        await db().query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toEqual([{ migration_id: migrationId }]);
+    expect(
+      (
+        await db().query(`SELECT indisvalid, indisunique FROM pg_index
+      WHERE indexrelid = 'catalog_operator_session_one_unrevoked'::regclass`)
+      ).rows,
+    ).toEqual([{ indisvalid: true, indisunique: true }]);
+    await mint(mounted(catalogManifest, db()));
+    await expect(
+      db().query(`INSERT INTO catalog_operator_session_grants
+      SELECT gen_random_uuid(), decode(repeat('cd', 32), 'hex'), creator_user_id, creator_membership_id,
+        created_at, last_used_at, idle_expires_at, NULL, NULL FROM catalog_operator_session_grants
+      WHERE revoked_at IS NULL`),
+    ).rejects.toMatchObject({ code: "23505" });
+    for (const column of ["creator_user_id", "creator_membership_id"]) {
+      for (const value of ["x", "x".repeat(128)]) {
+        await db().query(`UPDATE catalog_operator_session_grants SET ${column} = $1`, [value]);
+      }
+      for (const value of ["", "x".repeat(129)]) {
+        await expect(
+          db().query(`UPDATE catalog_operator_session_grants SET ${column} = $1`, [value]),
+        ).rejects.toMatchObject({ code: "23514" });
+      }
+      await expect(db().query(`UPDATE catalog_operator_session_grants SET ${column} = NULL`)).rejects.toMatchObject({
+        code: "23502",
+      });
+    }
+    await bootstrapContextDatabase(catalogModule, db());
+    expect(
+      (
+        await db().query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+    const migrated = await snapshot(db());
+    // A lost acknowledgement after DDL but before the ledger INSERT must be recoverable.
+    await db().query("DELETE FROM bounded_context_schema_migrations WHERE migration_id = $1", [migrationId]);
+    await bootstrapContextDatabase(catalogModule, db());
+    expect((await snapshot(db())).grants.map(({ row_version: _version, ...row }) => row)).toEqual(
+      migrated.grants.map(({ row_version: _version, ...row }) => row),
+    );
+    expect(
+      (
+        await db().query("SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = $1", [
+          migrationId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
+  });
+  it("mints for Identity-shaped user and membership ids with an idle expiry", async () => {
+    const actor = operator();
+    expect(actor.userId).toMatch(/^usr_[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(actor.membershipId).toMatch(/^mbr_[0-9A-HJKMNP-TV-Z]{26}$/);
+    const response = await admin(mounted(catalogManifest, db(), { actor }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      grant: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      idleExpiresAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+  });
+  it("warns once with only the SQLSTATE and operation while returning a custody 503", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const wire = transport(db());
+      wire.controls.before = async (sql) => {
+        if (sql.includes("INSERT INTO catalog_operator_session_grants")) {
+          throw Object.assign(new Error("synthetic-token cookie hash SQL values"), {
+            code: "22P02",
+            detail: "synthetic-sensitive-session-material",
+          });
+        }
+      };
+      const response = await admin(mounted(catalogManifest, wire.pool));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: "custody-unavailable" });
+      expect(warn.mock.calls).toEqual([[JSON.stringify({ operation: "operator-session.query", sqlstate: "22P02" })]]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
   it.each([
     ["anonymous", null, 401],
     ["wrong role", operator({ roleKey: "account-admin" }), 403],

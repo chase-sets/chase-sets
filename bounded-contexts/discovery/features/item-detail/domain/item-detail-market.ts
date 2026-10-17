@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import type {
   DiscoveryItemDetail,
   DiscoveryMarketListing,
@@ -155,11 +156,15 @@ export function getLowestPrice(listings: readonly DiscoveryMarketListing[]): str
     return null;
   }
   return listings.reduce<string | null>((lowest, listing) => {
+    const price = toPriceNumber(listing.price_amount);
+    if (price === null) {
+      return lowest;
+    }
     if (lowest === null) {
       return listing.price_amount;
     }
 
-    return Number.parseFloat(listing.price_amount) < Number.parseFloat(lowest) ? listing.price_amount : lowest;
+    return comparePriceValues(listing.price_amount, lowest, "asc") < 0 ? listing.price_amount : lowest;
   }, null);
 }
 
@@ -168,11 +173,15 @@ export function getHighestOfferPrice(offers: readonly DiscoveryOffer[]): string 
     return null;
   }
   return offers.reduce<string | null>((highest, offer) => {
+    const price = toPriceNumber(offer.price_amount);
+    if (price === null) {
+      return highest;
+    }
     if (highest === null) {
       return offer.price_amount;
     }
 
-    return Number.parseFloat(offer.price_amount) > Number.parseFloat(highest) ? offer.price_amount : highest;
+    return comparePriceValues(offer.price_amount, highest, "desc") < 0 ? offer.price_amount : highest;
   }, null);
 }
 
@@ -188,10 +197,8 @@ export function getCommonPriceCurrencyCode(entries: readonly { price_currency_co
   return entries[0]?.price_currency_code ?? null;
 }
 
-function toPriceNumber(value: string): number | null {
-  const parsed = Number.parseFloat(value);
-
-  return Number.isFinite(parsed) ? parsed : null;
+function toPriceNumber(value: string): bigint | null {
+  return tryMoneyToCents(value);
 }
 
 function comparePriceValues(left: string, right: string, direction: "asc" | "desc"): number {
@@ -210,7 +217,8 @@ function comparePriceValues(left: string, right: string, direction: "asc" | "des
     return -1;
   }
 
-  return direction === "asc" ? leftPrice - rightPrice : rightPrice - leftPrice;
+  const comparison = leftPrice < rightPrice ? -1 : leftPrice > rightPrice ? 1 : 0;
+  return direction === "asc" ? comparison : -comparison;
 }
 
 export function sortListingsByBuyerPrice(listings: readonly DiscoveryMarketListing[]): DiscoveryMarketListing[] {
@@ -281,7 +289,7 @@ export function sortAccountOfferMatchesForReview(
       return currencyDelta;
     }
 
-    const priceDelta = Number.parseFloat(right.price_amount) - Number.parseFloat(left.price_amount);
+    const priceDelta = comparePriceValues(left.price_amount, right.price_amount, "desc");
     if (priceDelta !== 0) {
       return priceDelta;
     }

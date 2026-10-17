@@ -194,10 +194,16 @@ describe("exact-target provenance assertions execute from the real workflow bloc
   it.each([
     ["missing target_sha", { target: "" }, "target_sha is required and cannot be empty."],
     ["malformed target_sha", { target: "A".repeat(40) }, "target_sha must be a lowercase 40-character"],
+    ["multiline target_sha", { target: `${"a".repeat(40)}\n-e` }, "target_sha must be a lowercase 40-character"],
     ["missing expected_base_sha", { base: "" }, "expected_base_sha is required and cannot be empty."],
     [
       "malformed expected_base_sha",
       { base: "not-an-immutable-commit" },
+      "expected_base_sha must be a lowercase 40-character",
+    ],
+    [
+      "multiline expected_base_sha",
+      { base: `${"b".repeat(40)}\n--help` },
       "expected_base_sha must be a lowercase 40-character",
     ],
     ["nonexistent target_sha object", { target: "e".repeat(40) }, "target_sha object does not exist in the repository"],
@@ -269,6 +275,9 @@ describe("exact-target extraction and trigger/caller structure", () => {
     const provenance = findStepByShape(
       (step) =>
         step.env?.TARGET_SHA === "${{ inputs.target_sha }}" &&
+        step.env?.EXPECTED_BASE_SHA === "${{ inputs.expected_base_sha }}" &&
+        step.run?.includes('[[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || {') &&
+        step.run?.includes('[[ "$EXPECTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {') &&
         step.run?.includes('git cat-file -e "${TARGET_SHA}^{commit}"') &&
         step.run?.includes('git cat-file -e "${EXPECTED_BASE_SHA}^{commit}"') &&
         step.run?.includes('git merge-base --is-ancestor "$EXPECTED_BASE_SHA" "$TARGET_SHA"'),
@@ -278,6 +287,9 @@ describe("exact-target extraction and trigger/caller structure", () => {
     );
 
     expect(checkouts).toHaveLength(1);
+    for (const name of ["TARGET_SHA", "EXPECTED_BASE_SHA"]) {
+      expect(provenance.run.indexOf(`[[ "$${name}" =~`)).toBeLessThan(provenance.run.indexOf("git init --quiet"));
+    }
     expect(receiverSteps.indexOf(provenance)).toBeLessThan(receiverSteps.indexOf(checkouts[0]));
     expect(checkouts[0].with).toEqual({
       ref: "${{ inputs.target_sha }}",

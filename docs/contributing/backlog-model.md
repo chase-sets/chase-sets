@@ -30,9 +30,16 @@ claim, or an ongoing-monitoring result. Each Probe acceptance criterion names
 its exact authority, captured artifact, lifecycle moment, and bounded
 unknown/failure behavior; post-landing evidence is not collected before the
 landed/deployed state it observes exists. A marked evidence comment plus
-independent operator acceptance may close a Probe without a pull request only
-after that Probe's own acceptance criteria are met; operator acceptance is a
-closure control, not evidence authority.
+independent acceptance by the authorized host/reviewer may close a Probe without
+a pull request only after that Probe's own acceptance criteria are met;
+acceptance is a closure control, not evidence authority. It does not require
+Todd to perform or accept an agent-owned Probe. Agents own preparation,
+execution, monitoring, evidence, cleanup, and reporting under the
+[delivery operator boundary](../../.agents/skills/delivery/SKILL.md#operator-boundary).
+Preserve external approvals at their ruled lifecycle and unrelated reserved
+authority. Explicit performer-specific acceptance needs prospective repair and
+independent validation before agent execution; never relabel agent evidence as
+human evidence. This grants no provider or production authorization.
 `kind:*` remains the *nature* of the work (`product`, `tech-debt`, `security`,
 `test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The legacy
 `kind:epic` label is kept only as a fallback for tooling that predates types;
@@ -93,8 +100,8 @@ insertion without renaming outcomes. The stable GitHub milestone identity owns
 membership; titles, due dates and creation numbers do not determine priority.
 The shared parser and comparator in `scripts/milestone-policy.mjs` own this
 contract. Malformed or duplicate metadata is an explicit error, never a
-fallback to title interpretation. Untagged `Wave N` and `Mobile N` are temporary
-migration compatibility; new outcomes always carry metadata.
+fallback to title interpretation. A milestone without outcome metadata is not
+an outcome, regardless of its title.
 
 Terminal gate references remain in the description's `Exit gates:` clause,
 ending at `Canonical sequencing:`. List current terminal evidence issues there;
@@ -258,8 +265,11 @@ native **Epic** projects to `Epic` and a non-Epic carrying `status:tracking-only
 projects to `Tracking`.
 
 The derivation is total — every issue on the board resolves to exactly one
-status. The sync is scheduled hourly every day, including nights and weekends,
-but GitHub may delay scheduled runs by hours. Newly added board items receive
+status. Closing or reopening an issue triggers the sync. An hourly schedule runs
+every day, including nights and weekends, as a fallback for other board changes,
+but GitHub may delay scheduled runs by hours. The workflow can also be dispatched
+manually. All triggers share one concurrency group with cancellation disabled:
+at most one run is running and one is pending. Newly added board items receive
 their status on the next successful run. The orchestrator's `board-reconcile.ps1`
 also dispatches the workflow after clearing lane-owned statuses or finding blank
 ones.
@@ -340,32 +350,7 @@ size.
 
 ### Derived completion forecast
 
-Managed outcomes report `unavailable (managed order)` until the gate-chain
-forecast owned by #7465 can represent their ordering and evidence. Candidate
-outcomes receive no delivery forecast. Never use the legacy global inventory
-rate to invent a date for an agent-managed or reordered outcome.
-
-For untagged migration-compatible milestones only, the roadmap status generator
-reports the existing derived forecast, not a commitment.
-Milestone exit gates remain the sole closure authority. It counts eligible
-terminal completions across the complete open and closed Wave/Mobile catalog in
-the 14 completed UTC days immediately before the current UTC day. A raw
-`closures14 / 14` rate is admitted only when all four safety gates hold:
-
-- `closures14 >= 14` (`FORECAST_SAMPLE_BELOW_14`);
-- at least 7 of the 14 days are active (`FORECAST_ACTIVE_DAYS_BELOW_7`);
-- `maxDailyClosures * 4 <= closures14`
-  (`FORECAST_DAY_SHARE_ABOVE_25_PERCENT`); and
-- `abs(2 * closures7 - closures14) * 4 <= closures14`
-  (`FORECAST_7D_14D_RATE_DISAGREEMENT_ABOVE_25_PERCENT`).
-
-If any gate fails, the estimator and every positive-open forecast are `?`; a
-zero-open gate-bound row remains `—`. Every determinate Drift cell is visible,
-including changes below the alert threshold. Only absolute changes of at least
-7 days enter `Drift alert (≥7d)`. A positive row with an unavailable retained or
-current horizon, or an unobservable identity transition in its cumulative
-prefix, is `?` and is reconciled separately by unavailable-row and distinct
-unobservable-identity counts.
+Completion forecasting is owned by #7465.
 
 ## Scheduling mechanisms
 

@@ -26,7 +26,7 @@ import {
   type CatalogIntegrationRolloutControlPolicy,
 } from "./catalog-integration-rollout-controls";
 import { ProviderAdapterRegistry } from "../provider-adapters/registry";
-import type { ProviderTransportDiagnostic } from "../provider-adapters/provider-adapter";
+import type { ProviderTransportDiagnostic, ProviderUsageSnapshot } from "../provider-adapters/provider-adapter";
 import { resolveCatalogProviderDuplicatePrevention } from "../promotion/provider-duplicate-prevention-resolver";
 import type {
   CatalogIntegrationControlPlaneReadiness,
@@ -47,15 +47,18 @@ export async function buildCatalogIntegrationControlPlaneReadiness(
   rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(),
 ): Promise<CatalogIntegrationControlPlaneReadiness> {
   const units: CatalogIntegrationControlPlaneUnitReadiness[] = [];
+  const providerUsage: ProviderUsageSnapshot[] = [];
   const rolloutControls = rolloutControlPolicy.snapshot();
 
   for (const providerKey of providerAdapterRegistry.listProviderKeys()) {
     const adapter = providerAdapterRegistry.require(providerKey);
-    const [descriptors, transportDiagnostics, credentialReadiness] = await Promise.all([
+    const [descriptors, transportDiagnostics, credentialReadiness, usageSnapshot] = await Promise.all([
       adapter.listIntegrationUnits(),
       adapter.getTransportDiagnostics(),
       adapter.getCredentialReadiness(),
+      adapter.getUsageSnapshot?.() ?? null,
     ]);
+    if (usageSnapshot) providerUsage.push(usageSnapshot);
 
     for (const descriptor of descriptors) {
       const dryRun = (await dryRunProofRegistry.get(descriptor.unitKey)?.()) ?? null;
@@ -134,6 +137,7 @@ export async function buildCatalogIntegrationControlPlaneReadiness(
     generatedAt: new Date().toISOString(),
     rolloutControls,
     units,
+    providerUsage,
   };
 }
 

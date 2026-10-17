@@ -93,14 +93,6 @@ export const action = defineFormAction({
           telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
         },
       ),
-    "mute-offer-buyer": async ({ request, params }) =>
-      formActionRedirect(
-        await createMarketplaceRequestApiClient(request).muteOfferBuyer(params.offerId!),
-        "/account/offers/matches",
-        {
-          telemetry: OFFER_MATCH_POST_WRITE_TELEMETRY,
-        },
-      ),
   },
   onUnknownIntent: () => null,
   onError: (error) => {

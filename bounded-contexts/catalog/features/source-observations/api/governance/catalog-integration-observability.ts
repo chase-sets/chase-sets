@@ -190,7 +190,7 @@ export type CatalogIntegrationOptionQueryTelemetryEvent = Readonly<{
 }>;
 
 export type CatalogIntegrationJobTelemetryEvent = Readonly<{
-  jobKind: "import" | "reapply" | "promote" | "reject" | "defer";
+  jobKind: "import" | "reapply" | "promote" | "reject" | "defer" | "merge-candidate-promote" | "merge-candidate-defer";
   result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled";
 }>;
 

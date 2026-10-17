@@ -59,6 +59,17 @@ describe("Catalog integration aggregate-state seed", () => {
       productMeasuresResolved: await productMeasuresResolvedEventCount(),
     };
     expect(afterCleanAuthoringBoot.productMeasuresResolved).toBe(scenarioCatalogItemIds.length);
+    const publications = await pools.catalog.query<{ event_type: string; payload: unknown }>(
+      `SELECT event_type, payload FROM event_store_events
+       WHERE stream_id LIKE 'catalog.product-measures-%'`,
+    );
+    expect(publications.rows).toHaveLength(afterCleanAuthoringBoot.productMeasuresResolved);
+    expect(
+      publications.rows.every(({ event_type }) => event_type === "catalog.catalog-item.product-measures-resolved"),
+    ).toBe(true);
+    expect(publications.rows.every(({ payload }) => Buffer.byteLength(JSON.stringify(payload), "utf8") <= 64_512)).toBe(
+      true,
+    );
 
     await ordinaryBoot(runtime, profile);
     const afterCompletedStateBoot = {
@@ -73,6 +84,18 @@ describe("Catalog integration aggregate-state seed", () => {
       productMeasuresResolved: await productMeasuresResolvedEventCount(),
     };
     expect(afterNextOrdinaryBoot).toEqual(afterCompletedStateBoot);
+    console.info(
+      "[8396-seed-delta]",
+      JSON.stringify({
+        before: afterCleanAuthoringBoot,
+        after: afterNextOrdinaryBoot,
+        productMeasureEventDelta:
+          afterNextOrdinaryBoot.productMeasuresResolved - afterCleanAuthoringBoot.productMeasuresResolved,
+        largestLegacyPayloadBytes: Math.max(
+          ...publications.rows.map(({ payload }) => Buffer.byteLength(JSON.stringify(payload), "utf8")),
+        ),
+      }),
+    );
   });
 
   it("NC-1 resumes an undrained Dimension seed without duplicate creation", async () => {

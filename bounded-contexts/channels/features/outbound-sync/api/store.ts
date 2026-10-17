@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { withPgTransaction, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
-import { resolveConnectionExecutionAdmission } from "../domain/admission";
+import { assertAdditionalOutboundHold, resolveConnectionExecutionAdmission } from "../domain/admission";
 import {
   OutboundSyncError,
+  connectorClaimCapabilities,
   type ClaimedOperationReservation,
+  type ClaimedSubjectOperation,
   type EnqueueOutboundOperation,
   type EnqueueOutboundReconciliationRepair,
   type EnqueueOutboundRepush,
@@ -14,8 +16,12 @@ import {
   type OutboundOperationStatusRecord,
   type OutboundSyncRuntimeDependencies,
   type ReserveClaimedOutboundOperationsInput,
+  type ReserveConnectorClaimedOperationsInput,
 } from "../domain/contracts";
-import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs, payloadDigest } from "../domain/validation";
+import { assertEnqueueOutboundOperation, assertOutboundClaimLeaseMs } from "../domain/validation";
+import { payloadDigest } from "./payload-digest";
+import { reserveOrderPull } from "./order-pull";
+import { reserveLiveExport } from "./live-export";
 
 type OperationRow = Readonly<{
   operation_id: string;
@@ -385,7 +391,9 @@ export function createOutboundOperationStore(
       input: ReserveClaimedOutboundOperationsInput,
     ): Promise<ClaimedOperationReservation | null> => {
       assertReserveClaimedOutboundOperationsInput(input);
-      return withPgTransaction(dependencies.db, (db) => reserveClaimedOutboundOperations(dependencies, db, input, now));
+      return withPgTransaction(dependencies.db, (db) =>
+        reserveClaimedOutboundOperations(dependencies, db, input, now, false),
+      );
     },
 
     reserveClaimedOutboundOperationsInTransaction: async (
@@ -393,7 +401,34 @@ export function createOutboundOperationStore(
       db: PgQueryable,
     ): Promise<ClaimedOperationReservation | null> => {
       assertReserveClaimedOutboundOperationsInput(input);
-      return reserveClaimedOutboundOperations(dependencies, db, input, now);
+      return reserveClaimedOutboundOperations(dependencies, db, input, now, false);
+    },
+
+    reserveConnectorClaimedOperations: async (
+      input: ReserveConnectorClaimedOperationsInput,
+    ): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null> => {
+      const { capabilities, ...reservation } = input;
+      assertReserveClaimedOutboundOperationsInput(reservation);
+      if (
+        reservation.claimant.claimantKind !== "connector" ||
+        !Array.isArray(capabilities) ||
+        new Set(capabilities).size !== capabilities.length ||
+        capabilities.some((capability) => !connectorClaimCapabilities.includes(capability))
+      ) {
+        throw new OutboundSyncError("invalid-input", "connector claim capabilities are invalid.");
+      }
+      // An incapable connector excludes connection-subject pulls before anything is reserved.
+      const orderPull = capabilities.includes("tcgplayer-order-pull");
+      return withPgTransaction(dependencies.db, (db) =>
+        reserveClaimedOutboundOperations(
+          dependencies,
+          db,
+          reservation,
+          now,
+          orderPull,
+          capabilities.includes("tcgplayer-live-export"),
+        ),
+      );
     },
   };
 }
@@ -413,7 +448,24 @@ async function reserveClaimedOutboundOperations(
   db: PgQueryable,
   input: ReserveClaimedOutboundOperationsInput,
   now: () => string,
-): Promise<ClaimedOperationReservation | null> {
+  orderPull: false,
+): Promise<ClaimedOperationReservation | null>;
+async function reserveClaimedOutboundOperations(
+  dependencies: OutboundSyncRuntimeDependencies,
+  db: PgQueryable,
+  input: ReserveClaimedOutboundOperationsInput,
+  now: () => string,
+  orderPull: boolean,
+  liveExport?: boolean,
+): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null>;
+async function reserveClaimedOutboundOperations(
+  dependencies: OutboundSyncRuntimeDependencies,
+  db: PgQueryable,
+  input: ReserveClaimedOutboundOperationsInput,
+  now: () => string,
+  orderPull: boolean,
+  liveExport = false,
+): Promise<ClaimedOperationReservation<ClaimedSubjectOperation> | null> {
   const connection = await readConnection(db, input.connectionId, true);
   if (!connection) throw new OutboundSyncError("connection-not-found");
   if (connection.status !== "active") throw new OutboundSyncError("connection-not-active");
@@ -425,6 +477,43 @@ async function reserveClaimedOutboundOperations(
   });
   assertAdditionalOutboundHold(additionalHold);
   if (additionalHold.held) return null;
+  const reservationId = `cor_${randomUUID()}`;
+  const reservedAt = now();
+  const leaseExpiresAt = new Date(Date.parse(reservedAt) + input.leaseMs).toISOString();
+  const live = liveExport
+    ? await reserveLiveExport(db, {
+        connectionId: input.connectionId,
+        providerIdentity: admission.providerIdentity,
+        claimant: input.claimant,
+        reservationId,
+        reservedAt,
+        leaseExpiresAt,
+        attemptId: `coa_${randomUUID()}`,
+      })
+    : null;
+  // Live exports have precedence and reserve alone; otherwise preserve the existing pull/listing shape.
+  if (live)
+    return {
+      reservationId,
+      connectionId: input.connectionId,
+      providerIdentity: admission.providerIdentity,
+      claimant: input.claimant,
+      reservedAt,
+      leaseExpiresAt,
+      operations: [live],
+    };
+  const pull = orderPull
+    ? await reserveOrderPull(db, dependencies, {
+        connectionId: input.connectionId,
+        providerIdentity: admission.providerIdentity,
+        claimant: input.claimant,
+        reservationId,
+        reservedAt,
+        leaseExpiresAt,
+        attemptId: `coa_${randomUUID()}`,
+      })
+    : null;
+  const listingLimit = input.maxOperations - (pull ? 1 : 0);
   const selected = await db.query<OperationRow>(
     `SELECT ${operationColumns.replaceAll(/\b([a-z][a-z0-9_]*)\b/g, "operation.$1")}
            FROM channel_outbound_operations AS operation
@@ -454,13 +543,10 @@ async function reserveClaimedOutboundOperations(
            ORDER BY operation.enqueued_at, operation.operation_id
            LIMIT $3
            FOR UPDATE OF operation SKIP LOCKED`,
-    [input.connectionId, now(), input.maxOperations],
+    [input.connectionId, reservedAt, listingLimit],
   );
-  if (selected.rows.length === 0) return null;
-  const reservationId = `cor_${randomUUID()}`;
-  const reservedAt = now();
-  const leaseExpiresAt = new Date(Date.parse(reservedAt) + input.leaseMs).toISOString();
-  const operations = [];
+  if (selected.rows.length === 0 && !pull) return null;
+  const operations: ClaimedSubjectOperation[] = pull ? [pull] : [];
   for (const selectedRow of selected.rows) {
     const attemptId = `coa_${randomUUID()}`;
     const updated = await db.query<OperationRow>(
@@ -510,24 +596,6 @@ async function reserveClaimedOutboundOperations(
     leaseExpiresAt,
     operations,
   };
-}
-
-function assertAdditionalOutboundHold(value: unknown): asserts value is Readonly<{
-  held: boolean;
-  sources: readonly ("health" | "operator-kill")[];
-}> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new OutboundSyncError("invalid-input");
-  const record = value as Record<string, unknown>;
-  if (
-    Object.keys(record).some((key) => key !== "held" && key !== "sources") ||
-    typeof record.held !== "boolean" ||
-    !Array.isArray(record.sources) ||
-    record.sources.some((source) => source !== "health" && source !== "operator-kill") ||
-    new Set(record.sources).size !== record.sources.length ||
-    record.held !== record.sources.length > 0
-  ) {
-    throw new OutboundSyncError("invalid-input", "Additional outbound hold result is invalid.");
-  }
 }
 
 async function readConnection(

@@ -3,6 +3,7 @@ import type { ChannelPublicationSettings } from "../domain/contracts";
 
 export function parseChannelPublicationSettingsForm(formData: FormData): ChannelPublicationSettings {
   const cap = text(formData, "publishQuantityCap").trim();
+  const withhold = text(formData, "lowStockWithholdUnits").trim();
   const settings: ChannelPublicationSettings = {
     titlePrefix: text(formData, "titlePrefix"),
     titleSuffix: text(formData, "titleSuffix"),
@@ -10,6 +11,7 @@ export function parseChannelPublicationSettingsForm(formData: FormData): Channel
     categoryAllowlist: lines(formData, "categoryAllowlist"),
     excludedListingIds: lines(formData, "excludedListingIds"),
     publishQuantityCap: cap === "" ? null : Number(cap),
+    lowStockWithholdUnits: withhold === "" ? null : Number(withhold),
   };
   assertChannelPublicationSettingsPayload(settings);
   return settings;

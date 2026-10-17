@@ -21,6 +21,7 @@ const expectedPaths = [
   NOTIFICATIONS_EMAIL_WEBHOOK_PATH,
   NOTIFICATIONS_MOBILE_MESSAGING_WEBHOOK_PATH,
 ];
+expectedPaths.push(readProviderWebhookPathConstant("CHANNELS_EBAY_ACCOUNT_DELETION_PATH"));
 
 const scannedRoots = ["docs/runbooks", ".github/workflows"];
 

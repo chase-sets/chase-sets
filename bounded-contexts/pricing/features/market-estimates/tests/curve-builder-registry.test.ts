@@ -13,6 +13,7 @@ describe("CurveBuilder registry", () => {
       load: async () => [
         {
           price: 10,
+          currencyCode: "USD",
           soldAt: "2026-09-01T00:00:00Z",
           condition: "Near Mint",
           variant: "Normal",

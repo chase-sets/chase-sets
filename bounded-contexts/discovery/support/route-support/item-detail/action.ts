@@ -191,7 +191,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
   }
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const inventoryApi = createInventoryRequestApiClient(request);
+  const inventoryApi = createInventoryRequestApiClient(request, {
+    mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+  });
   const checkoutApi = createCheckoutRequestApiClient(request);
 
   try {

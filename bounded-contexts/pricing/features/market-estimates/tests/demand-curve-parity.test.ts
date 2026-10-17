@@ -31,6 +31,7 @@ describe("the app-recorded post-hygiene ninety-day fixture", () => {
         Number(PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.freeShippingThreshold),
       ),
       soldAt: sale.soldAt,
+      currencyCode: capture.header.currency!.toUpperCase(),
       condition: sale.providerCondition,
       variant: sale.providerVariant,
       language: sale.providerLanguage,

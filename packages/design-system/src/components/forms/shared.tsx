@@ -2,6 +2,7 @@ import { type HTMLAttributes, type ReactNode } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { Text } from "../../primitives/typography";
 import { cx } from "../../utils/cx";
+import { useFormContext } from "./form";
 import {
   compoundControlInsetClass,
   controlHeightClasses,
@@ -118,6 +119,7 @@ export function FieldChrome({
   children,
   ...rest
 }: FieldFrameProps) {
+  const { errorAnnouncement } = useFormContext();
   const descriptionId = fieldDescriptionId(htmlFor);
   const errorId = fieldErrorId(htmlFor);
   const statusId = fieldStatusId(htmlFor);
@@ -141,7 +143,12 @@ export function FieldChrome({
         </BaseField.Description>
       ) : null}
       {error ? (
-        <BaseField.Error id={errorId} match role="alert" className="text-xs font-medium text-danger">
+        <BaseField.Error
+          id={errorId}
+          match
+          role={errorAnnouncement === "inline" ? "alert" : undefined}
+          className="text-xs font-medium text-danger"
+        >
           {error}
         </BaseField.Error>
       ) : null}

@@ -1,0 +1,69 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { connectorInboundSchemaMigrations, connectorInboundSchemaSql } from "../read-model/inbound-schema";
+import { connectorFeedSchemaMigrations } from "../read-model/schema";
+
+describe("connector-feed-bootstrap-and-manifest", () => {
+  it("publishes the same liveness readers from the server surface", () => {
+    const source = readFileSync(new URL("../../../server.ts", import.meta.url), "utf8");
+    expect(source.replaceAll("\r\n", "\n")).toContain(
+      [
+        "export {",
+        "  readConnectorLivenessAuthority,",
+        "  readConnectorLivenessAuthorityInTransaction,",
+        "  listConnectorLivenessCandidates,",
+        '} from "./features/connector-feed/read-model/liveness";',
+      ].join("\n"),
+    );
+  });
+  it("ships every boot statement in an ordered migration, including the separately retained identity and payload", () => {
+    const migrations = connectorInboundSchemaMigrations.flatMap((migration) => migration.statements);
+    expect(connectorInboundSchemaSql).toBe(
+      migrations.map((statement) => statement.replace("INDEX CONCURRENTLY", "INDEX")).join(";\n") + ";",
+    );
+    for (const statement of migrations)
+      expect(connectorInboundSchemaSql).toContain(statement.replace("INDEX CONCURRENTLY", "INDEX"));
+    expect(
+      connectorInboundSchemaMigrations[0]?.migrationId.localeCompare(
+        connectorFeedSchemaMigrations.find(
+          (migration) => migration.migrationId === "20261007_channels_connector_actor_code_index",
+        )?.migrationId ?? "",
+      ),
+    ).toBeGreaterThan(0);
+    expect(connectorInboundSchemaSql).toContain("channel_connector_inbound_events");
+    expect(connectorInboundSchemaSql).toContain("channel_connector_inbound_payloads");
+    expect(connectorInboundSchemaSql).toContain("(connection_id, event_kind, admitted_sequence)");
+    expect(connectorInboundSchemaSql).toContain("(inbound_kind, received_at, provider_event_id)");
+    expect(connectorInboundSchemaSql).toContain("served_poll_window_seconds");
+    const kindMigration = connectorInboundSchemaMigrations.find(
+      (migration) => migration.migrationId === "20261008_channels_fulfillment_inbound_kind",
+    )!;
+    expect(kindMigration.statements.filter((statement) => statement.includes("DROP"))).toEqual([
+      "ALTER TABLE channel_connector_inbound_events DROP CONSTRAINT IF EXISTS channel_connector_inbound_events_event_kind_check",
+      "ALTER TABLE channel_connector_inbound_payloads DROP CONSTRAINT IF EXISTS channel_connector_inbound_payloads_inbound_kind_check",
+    ]);
+    expect(
+      connectorInboundSchemaSql.replaceAll(
+        /DROP CONSTRAINT IF EXISTS channel_connector_inbound_(?:events_event_kind|payloads_inbound_kind)_check/g,
+        "",
+      ),
+    ).not.toMatch(/DELETE|TRUNCATE|DROP/);
+  });
+  it("enrolls each new persisted proof in Channels DB only and imports the existing inbox helper", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
+    expect(manifest.dependencies["@chase-sets/provider-webhook-inbox"]).toBe("workspace:*");
+    for (const file of [
+      "connector-inbound",
+      "connector-steady-state",
+      "connector-producer",
+      "connector-liveness-authority-write",
+      "connector-liveness-authority-read",
+      "connector-liveness-candidates",
+      "connector-liveness-policy-identity",
+    ]) {
+      const path = `features/connector-feed/tests/${file}.db.test.ts`;
+      expect(manifest.scripts["test:db"].split(" ")).toContain(path);
+      expect(manifest.scripts["test:unit"]).toContain(`--exclude ${path}`);
+    }
+  });
+});

@@ -1,3 +1,7 @@
+import {
+  assertMeasurePublicationConsumer,
+  withMeasurePublicationStaging,
+} from "@chase-sets/event-core-postgres/measure-publication-test-support";
 import { describe, expect, it, vi } from "vitest";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
@@ -448,5 +452,27 @@ describe("marketplace inventory supply projection", () => {
       1,
       "2026-05-09T00:00:00.000Z",
     ]);
+  });
+});
+
+it("stages the complete 85-Product Catalog mirror replacement without partial visibility", async () => {
+  let products: unknown = [];
+  let updatedAt: unknown = null;
+  const db: PgQueryable = {
+    async query(sql: string, values: readonly unknown[] = []) {
+      if (sql.includes("UPDATE marketplace_catalog_items") && sql.includes("product_measure_snapshots")) {
+        products = JSON.parse(String(values[1]));
+        updatedAt = values[2];
+        return { rows: [] };
+      }
+      throw new Error(`Unexpected serving SQL: ${sql}`);
+    },
+  };
+  const staging = withMeasurePublicationStaging(db);
+  await assertMeasurePublicationConsumer({
+    handlers: buildMarketplaceCatalogProjectionHandlers(staging.db),
+    staging,
+    visible: () => ({ products, updatedAt }),
+    assertProducts: (expected) => expect(products).toEqual(expected),
   });
 });

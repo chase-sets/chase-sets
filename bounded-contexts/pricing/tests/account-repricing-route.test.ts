@@ -80,7 +80,10 @@ describe("marketplace repricing route", () => {
             slot,
             actor,
           );
-          expect(items.some((item) => item.href === "/account/repricing")).toBe(roleKey !== "platform-admin");
+          // Marketplace never rendered Pricing in its bottom bar, so #9551 removed that dead declaration.
+          expect(items.some((item) => item.href === "/account/repricing")).toBe(
+            slot === "top-nav" && roleKey !== "platform-admin",
+          );
         }
         fetch.mockClear();
         const body = new FormData();

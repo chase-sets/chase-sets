@@ -16,6 +16,8 @@ type SearchResultSetIdentity = Readonly<{
   inStock: boolean;
   sort: string;
   dynamicFilters: readonly Readonly<{ kind: string; id: string; value: string }>[];
+  // Whether the request carries the interpretation marker, which selects its retrieval policy.
+  interpreted: boolean;
 }>;
 
 type SearchPageStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -44,6 +46,9 @@ export function buildSearchResultSetKey(identity: SearchResultSetIdentity): stri
     identity.inStock,
     identity.sort,
     identity.dynamicFilters,
+    // A marked request has its own retrieval policy, so it is a different Result Set. Only a
+    // marked key gains the entry, so every unmarked key and its stored restoration is unchanged.
+    ...(identity.interpreted ? ["interpreted"] : []),
   ]);
 }
 

@@ -347,6 +347,7 @@ describe("staging refresh overlap and CLI posture", () => {
       "Platform Staging Wake Drills",
       "Platform Staging Mixed-Version Wake Evidence",
       "Platform Database Restore Drill",
+      "Catalog Staging Count Preparation",
       "Catalog Staging Provider UAT",
       "Catalog Integration Staging Reset",
       "Platform Staging Representative Commerce State",

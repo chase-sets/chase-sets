@@ -9,18 +9,19 @@ import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE as observationPolicy } from ".
 import { effectiveSaleAmountExact } from "../../price-signals/domain/effective-sale-price";
 import { generateSyntheticProviderObservationFixture } from "../../price-signals/tests/fixtures/provider-observations/generate-fixture";
 import type { CurveSale } from "../domain/demand-curve/curve-builder-registry";
+import type { writeDemandCurve } from "../read-model/demand-curve-writes";
 
-const sink = vi.hoisted(() => ({ written: [] as WrittenCurve[] }));
-vi.mock("../read-model/demand-curve-writes", () => ({
+const sink = vi.hoisted(() => ({ written: [] as WrittenCurve[], supersede: vi.fn(async () => true) }));
+vi.mock("../read-model/demand-curve-writes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../read-model/demand-curve-writes")>()),
   getDemandCurveCursor: async () => null,
   saveDemandCurveCursor: async () => true,
-  supersedeDemandCurve: async () => true,
+  supersedeDemandCurve: sink.supersede,
   writeDemandCurve: async (_pool: unknown, _store: unknown, input: WrittenCurve) => {
     sink.written.push(input);
     return "built";
   },
   curveFingerprint: (input: unknown) => JSON.stringify(input),
-  demandCurveModelVersion: "pooled-supply-v1",
 }));
 
 const fixture = generateSyntheticProviderObservationFixture();
@@ -42,20 +43,7 @@ type OraclePoint = {
 };
 
 type RawSale = ReturnType<typeof fixtureRows>[number];
-type WrittenCurve = {
-  fingerprint: string;
-  supplyStatus: string;
-  exposureStartReason: string;
-  salesCoverage: string;
-  points: readonly {
-    priceAmount: string;
-    buyerArrivalIntervalDays: number | null;
-    medianSellDays: number | null;
-    competingSellerCount: number | null;
-    qualifyingSaleCount: number;
-    historyCapped: boolean;
-  }[];
-};
+type WrittenCurve = Parameters<typeof writeDemandCurve>[2];
 
 function fixtureRows() {
   return capture.sales.map((sale) => ({
@@ -71,7 +59,7 @@ function fixtureRows() {
     order_shipping: sale.orderShipping,
     capture_id: capture.header.captureId,
     capture_started_at: now,
-    currency: "USD",
+    currency: "USD" as string | null,
     observation_policy_revision_id: "synthetic-boundary-regression",
     sales_coverage: "complete",
   }));
@@ -113,6 +101,8 @@ async function run(
   options: {
     platform?: RawSale[];
     emptySupply?: boolean;
+    captureCurrency?: string | null;
+    askCoverage?: string;
     configure?: (closer: ReturnType<typeof createDemandCurveCloser>) => void;
     passes?: number;
     policyRuntime?: PolicyRuntime;
@@ -162,6 +152,7 @@ async function run(
             .slice(0, Number(parameters?.[4]))
             .map((row) => ({
               unit_price_amount: row.unit_price,
+              currency_code: row.currency,
               sold_at: new Date(row.sold_at),
               verified: false,
               buyer_account_id: row.sale_fingerprint,
@@ -192,7 +183,7 @@ async function run(
             anonymous_capture_seller_ordinal: ask.anonymousCaptureSellerOrdinal,
             provider_condition: ask.providerCondition,
             delivered_amount: ask.deliveredAmount,
-            coverage: "complete",
+            coverage: options.askCoverage ?? "complete",
           })),
         );
       if (statement.includes("FROM pricing_external_market_captures"))
@@ -201,6 +192,7 @@ async function run(
             ? [
                 {
                   capture_id: capture.header.captureId,
+                  currency: "captureCurrency" in options ? options.captureCurrency : "usd",
                   capture_started_at: now,
                   listings_status: "observed",
                   listings_coverage: "complete",
@@ -223,7 +215,11 @@ async function run(
   for (let pass = 1; pass < (options.passes ?? 1); pass++)
     outcome = await closer.runDemandCurveCloser({ now, limit: 10 });
   const written = sink.written.at(-1)!;
-  return { outcome, written, selected: (JSON.parse(written.fingerprint) as { sales: CurveSale[] }).sales };
+  return {
+    outcome,
+    written,
+    selected: written ? (JSON.parse(written.fingerprint) as { sales: CurveSale[] }).sales : [],
+  };
 }
 
 function expectedSelection(rows: RawSale[]) {
@@ -254,6 +250,7 @@ function expectedSelection(rows: RawSale[]) {
           Number(observationPolicy.freeShippingThreshold),
         ),
         soldAt: row.sold_at,
+        currencyCode: row.currency!.toUpperCase(),
         condition: row.provider_condition,
         variant: row.provider_variant,
         language: row.provider_language,
@@ -267,6 +264,7 @@ function expectedSelection(rows: RawSale[]) {
 describe("demand-curve closer production boundary", () => {
   beforeEach(() => {
     sink.written.length = 0;
+    sink.supersede.mockClear();
   });
 
   it("matches the unchanged app oracle at the provider-builder write boundary", async () => {
@@ -274,6 +272,9 @@ describe("demand-curve closer production boundary", () => {
     const output = await run(rows, true);
     expect(output.outcome.built).toBe(1);
     expect(output.written.supplyStatus).toBe("observed");
+    expect(output.written.currencyCode).toBe("USD");
+    expect(output.written.freshUntil).toBe(new Date(Date.parse(now) + 48 * 3_600_000).toISOString());
+    expect(output.written.builtAt).toBe(now);
     for (const [index, expected] of oracle.points.entries()) {
       const actual = output.written.points[index]!;
       expect(
@@ -286,6 +287,111 @@ describe("demand-curve closer production boundary", () => {
       expect(actual.qualifyingSaleCount).toBe(expected.qualifyingSaleCount);
     }
     expect(output.selected).toEqual(expectedSelection(rows));
+  });
+
+  it.each(["mixed", "none", "missing"])(
+    "supersedes and counts mixedCurrency for %s contributing codes",
+    async (kind) => {
+      const rows = syntheticRows(10);
+      const output = await run(kind === "none" ? [] : rows, false, {
+        configure:
+          kind === "none"
+            ? undefined
+            : (closer) =>
+                closer.registerCurveBuilder({
+                  id: "synthetic-currency",
+                  version: "1",
+                  weightSource: "external-comp",
+                  load: async () => [
+                    {
+                      price: 10,
+                      soldAt: now,
+                      condition: "Near Mint",
+                      variant: "Normal",
+                      language: "English",
+                      source: "external-comp",
+                      coverage: "complete",
+                      currencyCode: kind === "mixed" ? "EUR" : (undefined as unknown as string),
+                    },
+                  ],
+                }),
+      });
+      expect(output.outcome).toMatchObject({ built: 0, unchanged: 0, superseded: 1, mixedCurrency: 1 });
+      expect(sink.written).toHaveLength(0);
+      expect(sink.supersede).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["complete", "ceiling-truncated"])(
+    "refuses EUR trades against usd capture asks with %s coverage",
+    async (askCoverage) => {
+      const output = await run([], true, {
+        platform: syntheticRows(10).map((row) => ({ ...row, currency: "EUR" })),
+        captureCurrency: "usd",
+        askCoverage,
+      });
+      expect(output.outcome).toMatchObject({ built: 0, superseded: 1, mixedCurrency: 1 });
+      expect(sink.written).toHaveLength(0);
+      expect(sink.supersede).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("refuses asks with no capture currency", async () => {
+    const output = await run(syntheticRows(10), true, { captureCurrency: null });
+    expect(output.outcome).toMatchObject({ built: 0, superseded: 1, mixedCurrency: 1 });
+    expect(sink.written).toHaveLength(0);
+  });
+
+  it("normalizes recorded provider currency and drops null-currency sales without inventing a default", async () => {
+    const rows = syntheticRows(10).map((row) => ({ ...row, currency: "eur" }));
+    const output = await run(rows);
+    expect(output.written.currencyCode).toBe("EUR");
+    expect(output.selected.every((sale) => sale.currencyCode === "EUR")).toBe(true);
+    sink.written.length = 0;
+    const absent = await run(rows.map((row) => ({ ...row, currency: null })));
+    expect(absent.outcome).toMatchObject({ built: 0, superseded: 1, mixedCurrency: 1 });
+    expect(sink.written).toHaveLength(0);
+  });
+
+  it("builds non-USD platform curves with matching asks and includes denomination in the fingerprint", async () => {
+    const output = await run([], true, {
+      platform: syntheticRows(10).map((row) => ({ ...row, currency: "EUR" })),
+      captureCurrency: "eur",
+    });
+    expect(output.outcome.built).toBe(1);
+    expect(output.written.currencyCode).toBe("EUR");
+    expect(JSON.parse(output.written.fingerprint).currencyCode).toBe("EUR");
+  });
+
+  it("derives currency only from the canonical known sales, not unknown conditions or invalid dates/prices", async () => {
+    const output = await run(syntheticRows(10), false, {
+      configure: (closer) =>
+        closer.registerCurveBuilder({
+          id: "synthetic-irrelevant-currency",
+          version: "1",
+          weightSource: "external-comp",
+          load: async () =>
+            [
+              { condition: "Unopened" },
+              { price: 0 },
+              { soldAt: "invalid" },
+              { soldAt: new Date(Date.parse(now) + 1).toISOString() },
+              { soldAt: new Date(Date.parse(now) - 91 * 86_400_000).toISOString() },
+            ].map((override) => ({
+              price: 10,
+              soldAt: now,
+              condition: "Near Mint",
+              variant: "Normal",
+              language: "English",
+              source: "external-comp",
+              coverage: "complete",
+              currencyCode: "EUR",
+              ...override,
+            })),
+        }),
+    });
+    expect(output.outcome).toMatchObject({ built: 1, mixedCurrency: 0 });
+    expect(output.written.currencyCode).toBe("USD");
   });
 
   it.each([
@@ -441,6 +547,7 @@ describe("demand-curve closer production boundary", () => {
       async (): Promise<readonly CurveSale[]> => [
         {
           price: 12.34,
+          currencyCode: "USD",
           soldAt: now,
           condition: "Near Mint",
           variant: "Normal",

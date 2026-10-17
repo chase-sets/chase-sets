@@ -18,6 +18,7 @@ import {
   type ClaimedOperationClaimant,
   type ClaimedOperationOutcome,
   type ClaimedReservationRunSettlement,
+  type ClaimedSubjectOutcome,
   type BoundClaimedReservationRun,
   type OutboundConnection,
   type OutboundOperationLane,
@@ -27,7 +28,26 @@ import {
   type OutboundOperationSummary,
   type OutboundSyncRuntimeDependencies,
 } from "../domain/contracts";
-import { assertClaimedOperationClaimant, assertClaimedOperationOutcome, canonicalJson } from "../domain/validation";
+import { isClaimedOrderPullOutcome } from "../domain/order-pull";
+import { isClaimedLiveExportOutcome } from "../domain/live-export-codec";
+import {
+  assertLiveExportReportFence,
+  lockReservedLiveExports,
+  recoverExpiredLiveExports,
+  scheduleDueLiveExports,
+  settleLiveExportMember,
+} from "./live-export";
+import { assertClaimedOperationClaimant, canonicalJson } from "../domain/validation";
+import { assertClaimedSubjectOutcome } from "../domain/subject-outcome-validation";
+import {
+  assertOrderPullReportFence,
+  createOrderPullScanCursor,
+  lockReservedOrderPulls,
+  readOrderPullOperations,
+  recoverExpiredOrderPulls,
+  scheduleDueOrderPulls,
+  settleOrderPullMember,
+} from "./order-pull";
 import {
   createOutboundOperationStore,
   mapOutboundLaneRow,
@@ -74,9 +94,20 @@ export function createOutboundSyncRuntime(
 ) {
   const store = createOutboundOperationStore(dependencies, options);
   const now = () => (dependencies.clock?.now() ?? new Date()).toISOString();
+  const orderPullScan = createOrderPullScanCursor();
+  const liveExportScan = createOrderPullScanCursor();
 
   return {
     ...store,
+
+    scheduleDueLiveExports: (input: Readonly<{ registry: ChannelProviderRegistry }>) =>
+      scheduleDueLiveExports(dependencies, input, now, liveExportScan),
+
+    scheduleDueOrderPulls: (input: Readonly<{ registry: ChannelProviderRegistry }>) =>
+      scheduleDueOrderPulls(dependencies, input, now, orderPullScan),
+
+    readOrderPullOperations: (input: Readonly<{ connectionId: string }>) =>
+      readOrderPullOperations(dependencies.db, input),
 
     processNextInlineOperation: async (input: {
       registry: ChannelProviderRegistry;
@@ -108,7 +139,7 @@ export function createOutboundSyncRuntime(
     reportClaimedOperationOutcomes: async (input: {
       reservationId: string;
       claimant: ClaimedOperationClaimant;
-      outcomes: readonly ClaimedOperationOutcome[];
+      outcomes: readonly ClaimedSubjectOutcome[];
       runSettlement?: ClaimedReservationRunSettlement;
     }): Promise<void> => {
       if (!dependencies.recordOutcome) {
@@ -118,8 +149,13 @@ export function createOutboundSyncRuntime(
       if (!input.reservationId || input.reservationId.length > 512 || !Array.isArray(input.outcomes)) {
         throw new OutboundSyncError("invalid-input");
       }
-      for (const outcome of input.outcomes) assertClaimedOperationOutcome(outcome);
+      for (const outcome of input.outcomes) assertClaimedSubjectOutcome(outcome);
       assertRunSettlement(input.runSettlement);
+      const listingOutcomes = input.outcomes.filter(isListingOutcome);
+      // A downstream run binds listing members only; a pull report never carries a run settlement.
+      if (input.runSettlement && listingOutcomes.length !== input.outcomes.length) {
+        throw new OutboundSyncError("invalid-input", "Order-pull outcomes never bind a run settlement.");
+      }
       await withPgTransaction(dependencies.db, async (db) => {
         const receipt = await db.query<{
           claimant: unknown;
@@ -142,7 +178,9 @@ export function createOutboundSyncRuntime(
            FOR UPDATE`,
           [input.reservationId],
         );
-        if (members.rows.length === 0) {
+        const pullMembers = await lockReservedOrderPulls(db, input.reservationId);
+        const liveMembers = await lockReservedLiveExports(db, input.reservationId);
+        if (members.rows.length === 0 && pullMembers.length === 0 && liveMembers.length === 0) {
           const concurrentlySettled = await db.query<{
             claimant: unknown;
             outcomes: unknown;
@@ -163,9 +201,17 @@ export function createOutboundSyncRuntime(
           }
           membershipMismatch();
         }
-        if (members.rows.length !== input.outcomes.length) membershipMismatch();
-        const reports = new Map(input.outcomes.map((outcome) => [outcome.operationId, outcome]));
-        if (reports.size !== input.outcomes.length) membershipMismatch();
+        if (members.rows.length + pullMembers.length + liveMembers.length !== input.outcomes.length)
+          membershipMismatch();
+        if (input.runSettlement && (pullMembers.length > 0 || liveMembers.length > 0)) membershipMismatch();
+        const reports = new Map(listingOutcomes.map((outcome) => [outcome.operationId, outcome]));
+        const pullReports = new Map(
+          input.outcomes.filter(isClaimedOrderPullOutcome).map((outcome) => [outcome.operationId, outcome]),
+        );
+        const liveReports = new Map(
+          input.outcomes.filter(isClaimedLiveExportOutcome).map((outcome) => [outcome.operationId, outcome]),
+        );
+        if (reports.size + pullReports.size + liveReports.size !== input.outcomes.length) membershipMismatch();
         const port = dependencies.claimedReservationRunSettlement;
         if (input.runSettlement && !port) {
           throw new OutboundSyncError(
@@ -173,17 +219,37 @@ export function createOutboundSyncRuntime(
             "The downstream run settlement port is not installed.",
           );
         }
+        if (!port) {
+          const table = await db.query<{ run_table: string | null }>(
+            "SELECT to_regclass('channel_sync_runs')::text AS run_table",
+          );
+          if (table.rows[0]?.run_table === "channel_sync_runs") {
+            const bound = await db.query(
+              `SELECT 1 FROM channel_sync_runs WHERE reservation_id=$1
+               AND state IN ('composed','claimed','awaiting-verification') FOR UPDATE`,
+              [input.reservationId],
+            );
+            if (bound.rows.length > 0) throw new OutboundSyncError("run-settlement-unavailable");
+          }
+        }
         const currentInstant = now();
-        const expired = members.rows.every(
-          (row) => Date.parse(timestamp(row.claimed_until)!) <= Date.parse(currentInstant),
-        );
-        let boundRun: BoundClaimedReservationRun | null = null;
+        const expired = [
+          ...members.rows.map((row) => timestamp(row.claimed_until)!),
+          ...pullMembers.map((member) => member.claimedUntil!),
+          ...liveMembers.map((member) => member.claimedUntil!),
+        ].every((claimedUntil) => Date.parse(claimedUntil) <= Date.parse(currentInstant));
+        const boundRun = port
+          ? await port.lockBoundRun(db, {
+              reservationId: input.reservationId,
+              ...(input.runSettlement
+                ? { runId: input.runSettlement.runId, expectedRunRevision: input.runSettlement.expectedRunRevision }
+                : {}),
+            })
+          : null;
+        if (boundRun && boundRun.state !== "terminal" && !input.runSettlement) {
+          throw new OutboundSyncError("run-settlement-unavailable", "The bound run requires a settlement.");
+        }
         if (input.runSettlement) {
-          boundRun = await port!.lockBoundRun(db, {
-            reservationId: input.reservationId,
-            runId: input.runSettlement.runId,
-            expectedRunRevision: input.runSettlement.expectedRunRevision,
-          });
           if (!boundRun) throw new OutboundSyncError("stale-fence", "The bound run fence did not match.");
           assertBoundRunIdentity(boundRun, input.claimant, members.rows);
           if (
@@ -208,6 +274,22 @@ export function createOutboundSyncRuntime(
             throw new OutboundSyncError("reservation-expired");
           }
         }
+        for (const member of pullMembers) {
+          const report = pullReports.get(member.operationId);
+          if (!report) membershipMismatch();
+          assertOrderPullReportFence(member, report, input.claimant);
+          if (expired) throw new OutboundSyncError("reservation-expired");
+        }
+        for (const member of pullMembers) {
+          await settleOrderPullMember(db, dependencies, member, pullReports.get(member.operationId)!, currentInstant);
+        }
+        for (const member of liveMembers) {
+          const report = liveReports.get(member.operationId);
+          if (!report) membershipMismatch();
+          assertLiveExportReportFence(member, report, input.claimant);
+          if (expired) throw new OutboundSyncError("reservation-expired");
+          await settleLiveExportMember(db, member, report, currentInstant);
+        }
         for (const row of members.rows) {
           await settleClaimedMember(
             dependencies,
@@ -221,7 +303,7 @@ export function createOutboundSyncRuntime(
           await port!.settleBoundRun(db, {
             ...input.runSettlement,
             reservationId: input.reservationId,
-            outcomes: input.outcomes,
+            outcomes: listingOutcomes,
           });
         }
         await writeSettlementReceipt(
@@ -237,6 +319,13 @@ export function createOutboundSyncRuntime(
 
     recoverExpiredClaimedOperations: async (): Promise<number> => {
       const currentInstant = now();
+      // Connection-subject pulls expire independently of listing lanes and bound runs.
+      const recoveredPulls = await withPgTransaction(dependencies.db, (db) =>
+        recoverExpiredOrderPulls(db, currentInstant),
+      );
+      const recoveredExports = await withPgTransaction(dependencies.db, (db) =>
+        recoverExpiredLiveExports(db, currentInstant),
+      );
       const recoveredInline = dependencies.recordOutcome
         ? await recoverExpiredInlineAttempts(dependencies, currentInstant)
         : 0;
@@ -244,9 +333,16 @@ export function createOutboundSyncRuntime(
         if (!dependencies.recordOutcome) {
           throw new OutboundSyncError("invalid-input", "The canonical publication outcome writer is not bound.");
         }
-        return recoveredInline + (await recoverExpiredReservationsWithBoundRuns(dependencies, currentInstant));
+        return (
+          recoveredPulls +
+          recoveredExports +
+          recoveredInline +
+          (await recoverExpiredReservationsWithBoundRuns(dependencies, currentInstant))
+        );
       }
       return (
+        recoveredPulls +
+        recoveredExports +
         recoveredInline +
         (await withPgTransaction(dependencies.db, async (db) => {
           const table = await db.query<{ run_table: string | null }>(
@@ -1364,6 +1460,10 @@ function qualifiedOperationColumns(): string {
     .join(", ");
 }
 
+function isListingOutcome(outcome: ClaimedSubjectOutcome): outcome is ClaimedOperationOutcome {
+  return !isClaimedOrderPullOutcome(outcome) && !isClaimedLiveExportOutcome(outcome);
+}
+
 function membershipMismatch(): never {
   throw new OutboundSyncError("reservation-membership-mismatch");
 }
@@ -1377,7 +1477,7 @@ function settlementReceiptRunIdentity(settlement: ClaimedReservationRunSettlemen
 function assertSettlementReceiptMatches(
   receipt: Readonly<{ claimant: unknown; outcomes: unknown; run_settlement: unknown }>,
   claimant: ClaimedOperationClaimant,
-  outcomes: readonly ClaimedOperationOutcome[],
+  outcomes: readonly ClaimedSubjectOutcome[],
   runSettlement: ClaimedReservationRunSettlement | undefined,
 ): void {
   if (
@@ -1393,7 +1493,7 @@ async function writeSettlementReceipt(
   db: PgQueryable,
   reservationId: string,
   claimant: ClaimedOperationClaimant,
-  outcomes: readonly ClaimedOperationOutcome[],
+  outcomes: readonly ClaimedSubjectOutcome[],
   runSettlement: ClaimedReservationRunSettlement | undefined,
   settledAt: string,
 ): Promise<void> {

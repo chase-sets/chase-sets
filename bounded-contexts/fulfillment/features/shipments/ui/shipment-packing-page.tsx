@@ -511,6 +511,11 @@ export function FulfillmentShipmentPackingPage({
           target="_blank"
           tone="secondary"
           leadingIcon="externalLink"
+          aria-label={
+            packingSlipOpened
+              ? t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.again.new.tab")
+              : t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.new.tab")
+          }
           onClick={() => setPackingSlipOpened(true)}
         >
           {packingSlipOpened
@@ -686,6 +691,7 @@ export function FulfillmentShipmentPackingPage({
                     target="_blank"
                     tone="secondary"
                     leadingIcon="externalLink"
+                    aria-label={t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.new.tab")}
                     onClick={() => setPackingSlipOpened(true)}
                   >
                     {t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip")}

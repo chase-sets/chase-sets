@@ -85,7 +85,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "Connected Account Agreement, without naming the selected agreement type or its mechanics.",
         decisionRefs: [5685, 5924, 5923],
         productTruthRefs: [
-          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
           "infrastructure/stripe-connect/index.ts:879-917 (embedded Account Session onboarding surface)",
           "infrastructure/stripe-connect/index.ts:991-1010 (hosted Account Link onboarding surface)",
@@ -124,7 +124,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [5685],
         productTruthRefs: [
           ...paymentChargeTimingAndCaptureProductTruthRefs,
-          "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+          "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376",
         ],
         openQuestions: [
           "What, if anything, may the policy say about the descriptor a card or bank statement will display? Sending a suffix does not establish issuer display.",
@@ -143,7 +143,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Checkout creates and records Orders before requesting Payment; neither Order creation nor Payment creation proves nonzero capture.",
             evidenceRef:
-              "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437; bounded-contexts/payments/features/payments/api/runtime.ts:2097-2104",
+              "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376; bounded-contexts/payments/features/payments/api/runtime.ts:2099-2106",
           },
         ],
         canonicalClaims: [
@@ -176,7 +176,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         productTruthRefs: [
           "bounded-contexts/settlement/GLOSSARY.md:117-125",
           "bounded-contexts/settlement/features/payouts/domain/reason-codes.ts",
-          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
+          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:610-635",
         ],
         openQuestions: [agreementSpecificGateOpenQuestion],
         assumptions: [
@@ -185,7 +185,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Chase Sets already models a payout-readiness status distinguishing account clearance, " +
               "outstanding provider requirements, and active holds, without publishing a numeric clearance SLA.",
-            evidenceRef: "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
+            evidenceRef: "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:610-635",
           },
         ],
       },
@@ -344,7 +344,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         decisionRefs: [5685],
         productTruthRefs: [
           "infrastructure/stripe-connect/index.ts:390-425",
-          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
+          "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:610-635",
         ],
         openQuestions: [],
         assumptions: [
@@ -496,9 +496,10 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         "dispute fee from your account; if a " +
         "bank-withdrawal option is enabled, a withdrawal carries the processor's payout cost as a fee. Chase " +
         "Sets does not pay interest on a Prepaid Balance, and a Prepaid Balance does not expire in this " +
-        "version. Adding funds is available only to accounts in the " +
-        "United States, requests 3D Secure authentication on every funding, requires your account to be in " +
-        "good standing, and requires you to have accepted the current Payments Terms. Chase Sets may set and " +
+        "version. Chase Sets offers adding funds as part of its United States marketplace rollout, covering " +
+        "all 50 states and the District of Columbia. For each funding, Chase Sets requests 3D Secure " +
+        "authentication and requires your account to be in good standing and to have accepted the current " +
+        "Payments Terms. Chase Sets may set and " +
         "change the minimum, per-funding, and rolling-period maximum amounts for adding funds; the amounts in " +
         "effect when the funding feature launches are a minimum of $5.00 and a maximum of $500.00 per funding, " +
         "and a maximum of $2,000.00 within any rolling thirty-day period. A Prepaid Balance is not Marketplace " +
@@ -509,14 +510,20 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         scopeNote:
           "State that Prepaid Balance is funded by card, spends before available balance, refunds unspent " +
           "value to the source card within the processor refund window with the funding fee non-refundable, " +
-          "parks bank withdrawal behind a future disclosure, and states the ruled limits and eligibility " +
-          "gates including the ruled no-interest, no-expiry-in-v1 product terms, without inventing a " +
-          "refund-window duration, a bank-withdrawal launch date, or a Stripe/counsel position, without " +
-          "describing Prepaid Balance as Marketplace Credit, and without resolving the sibling Wallet's " +
-          "separate, still-unresolved corpus-wide wallet-no-interest claim, which governs the general Wallet " +
-          "ledger balance (terms-of-service.ts), not the ruled Prepaid Balance product term stated here.",
-        decisionRefs: [7807, 7808],
-        productTruthRefs: ["bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53"],
+          "parks bank withdrawal behind a future disclosure, and states the ruled limits, nongeographic " +
+          "eligibility gates and US marketplace rollout including the ruled no-interest, no-expiry-in-v1 " +
+          "product terms, without inventing a refund-window duration, a bank-withdrawal launch date, or a " +
+          "Stripe/counsel position, without describing Prepaid Balance as Marketplace Credit, and without " +
+          "resolving the sibling Wallet's separate, still-unresolved corpus-wide wallet-no-interest claim, " +
+          "which governs the general Wallet ledger balance (terms-of-service.ts), not the ruled Prepaid " +
+          "Balance product term stated here.",
+        decisionRefs: [7807, 7808, 5678, 9039],
+        productTruthRefs: [
+          "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
+          "bounded-contexts/identity/features/accounts/api/wallet-funding-eligibility.ts:6-23",
+          "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:39-43",
+          "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:99-128",
+        ],
         openQuestions: [
           "Bank withdrawal of older unspent Prepaid Balance is parked: it stays gated behind a written Stripe " +
             "permission-probe answer and qualified counsel's money-transmitter read per the ruled Prepaid " +
@@ -547,10 +554,22 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "The ruled Prepaid Balance decision and the ruled terms/consent-key decision together establish " +
               "that prepaid funding is drafted in place into Payments Terms v2, staying counsel-review-required: " +
               "spent before available balance, refunded to source for the unspent portion with the funding fee " +
-              "non-refundable, bank withdrawal parked, no interest, no expiry in v1, US-only, a minimum of " +
-              "$5.00 and maximum of $500.00 per funding and $2,000.00 per rolling thirty-day period, 3D Secure " +
-              "requested, good standing and current Payments Terms acceptance required.",
+              "non-refundable, bank withdrawal parked, no interest, no expiry in v1, US marketplace rollout (all " +
+              "50 states plus DC) without geographic eligibility checks, a minimum of $5.00 and maximum of " +
+              "$500.00 per funding and $2,000.00 per rolling thirty-day period, 3D Secure requested, good standing " +
+              "and current Payments Terms acceptance required.",
             evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+          },
+          {
+            assertion:
+              "US-only describes the #5678 marketplace rollout, interpreted by #9039 within #7808. It is not an " +
+              "application-enforced eligibility predicate based on account-holder residence, card issuing country, " +
+              "shipping address or access location. The funding eligibility resolver supplies only good standing " +
+              "and Payments Terms status; the separate funding limits and production controls remain in force. " +
+              "Counsel must assess at GA whether this rollout and the absence of geographic eligibility verification " +
+              "require jurisdictional restrictions, licensing, disclosures or an enforced predicate; this " +
+              "interpretation is not counsel approval.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/9039",
           },
           {
             assertion:

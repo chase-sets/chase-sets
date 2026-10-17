@@ -86,6 +86,14 @@ export async function fixture(enforcement = true, wrap: (store: EventStore) => E
   const runtime = createBuyerOfferPolicyRuntime({
     eventStore: store,
     db,
+    managedOfferPricing: {
+      evaluateTargets: async (requests) =>
+        requests.map(() => ({
+          status: "held" as const,
+          reason: "market-price-unavailable",
+          evidence: { marketPrice: null },
+        })),
+    },
     ...(enforcement ? { enforcement: { assertInstalled() {} } } : {}),
   });
   await seedOffer(store);

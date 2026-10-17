@@ -276,7 +276,7 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
     await expectRow("channels_listing_reconciliation_runs", "restart_required", false);
   });
 
-  it("channel-listing-link-reason-persistence writes and clears every one of the 31 reasons", async () => {
+  it("channel-listing-link-reason-persistence writes and clears every one of the 32 reasons", async () => {
     const handlers = buildChannelListingStateProjectionHandlers(pools.channels);
     for (const [index, reason] of channelPublicationBlockingReasons.entries()) {
       const listingId = `listing-reason-${index}`;
@@ -303,7 +303,7 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       `SELECT listing_id,blocking_reason_codes FROM channels_channel_listing_links
        WHERE connection_id='connection-reasons' ORDER BY listing_id`,
     );
-    expect(blocked.rows).toHaveLength(31);
+    expect(blocked.rows).toHaveLength(32);
     expect(new Set(blocked.rows.flatMap((row) => row.blocking_reason_codes))).toEqual(
       new Set(channelPublicationBlockingReasons),
     );
@@ -324,7 +324,7 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       `SELECT publish_state,blocking_reason_codes FROM channels_channel_listing_links
        WHERE connection_id='connection-reasons'`,
     );
-    expect(cleared.rows).toHaveLength(31);
+    expect(cleared.rows).toHaveLength(32);
     expect(cleared.rows.every((row) => row.publish_state === "pending" && row.blocking_reason_codes.length === 0)).toBe(
       true,
     );

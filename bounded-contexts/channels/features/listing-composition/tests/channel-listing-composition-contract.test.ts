@@ -256,11 +256,11 @@ describe("channel-listing-id-derivation", () => {
 });
 
 describe("channel-listing-blocking-reason-matrix", () => {
-  it("derives the exact disjoint 31-member partition and all four reference absence codes", () => {
+  it("derives the exact disjoint 32-member partition and all four reference absence codes", () => {
     expect(channelPublicationConfigurationBlockingReasons).toHaveLength(8);
-    expect(channelPublicationListingBlockingReasons).toHaveLength(23);
-    expect(channelPublicationBlockingReasons).toHaveLength(31);
-    expect(new Set(channelPublicationBlockingReasons).size).toBe(31);
+    expect(channelPublicationListingBlockingReasons).toHaveLength(24);
+    expect(channelPublicationBlockingReasons).toHaveLength(32);
+    expect(new Set(channelPublicationBlockingReasons).size).toBe(32);
     const expected = [
       ["providerProductReference", { kind: "unlinked" }, "provider-product-reference-unlinked"],
       ["providerProductReference", { kind: "ambiguous", candidateCount: 2 }, "provider-product-reference-ambiguous"],

@@ -3,8 +3,9 @@ import type { ApiKey, OneTimeApiKeySecret } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import {
   HiddenInput,
-  Form,
+  LinkButton,
   Button,
+  Banner,
   MarketplaceDashboardPanel,
   ModalDialog,
   NativeSelect,
@@ -18,6 +19,7 @@ import {
   TextInput,
 } from "@chase-sets/design-system";
 import { ApiKeySecretReveal } from "./api-key-secret-reveal";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
 import {
   apiKeyStatusLabel,
   identityAuthenticationMethodLabel,
@@ -28,10 +30,12 @@ export function SecurityPage({
   user,
   apiKeys,
   oneTimeSecret,
+  errorMessage,
 }: {
   user: User;
   apiKeys: readonly ApiKey[];
   oneTimeSecret?: OneTimeApiKeySecret | null;
+  errorMessage?: string;
 }) {
   const enabledMethods = user.auth_methods.length
     ? user.auth_methods.map((method) => identityAuthenticationMethodLabel(method)).join(", ")
@@ -102,6 +106,7 @@ export function SecurityPage({
           </Stack>
         }
       />
+      {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
       <ApiKeySecretReveal secret={oneTimeSecret} />
       <MarketplaceDashboardPanel
         title={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection")}
@@ -131,6 +136,11 @@ export function SecurityPage({
       <PageSection
         title={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals")}
         description={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals.description")}
+        actions={
+          <LinkButton href="/account/sessions" tone="secondary">
+            {t("identity.features.apiKeys.ui.accountSecurityPage.manage.sessions")}
+          </LinkButton>
+        }
       >
         <Stack>
           <SecurePaymentCue label={t("identity.features.apiKeys.ui.accountSecurityPage.sign.in.methods.verified")} />

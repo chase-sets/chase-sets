@@ -1,5 +1,11 @@
 import type { PublicChannelConnection } from "../../connections/domain/contracts";
-import type { ChannelSyncRun } from "../../tcgplayer-csv/domain/contracts";
+import {
+  tcgplayerRowRefusalReasons,
+  type ChannelExportSurface,
+  type ChannelSyncRun,
+  type TcgplayerRowRefusalReason,
+} from "../../tcgplayer-csv/domain/contracts";
+import { isChannelSyncRunTerminalState } from "../../tcgplayer-csv/domain/lifecycle";
 
 export const channelInboundCoverageStates = ["live", "dark"] as const;
 export type ChannelInboundCoverageState = (typeof channelInboundCoverageStates)[number];
@@ -29,6 +35,14 @@ export const manualSyncActionIds = [
 ] as const;
 export type ManualSyncActionId = (typeof manualSyncActionIds)[number];
 
+export type ManualSyncVerificationCandidate = Readonly<{
+  snapshotId: string;
+  snapshotGeneration: number;
+  parsedRowCount: number;
+  capturedAt: string;
+  ingestedAt: string;
+}>;
+
 export type ManualSyncPanel = Readonly<{
   connection: PublicChannelConnection;
   inboundCoverage: ChannelInboundCoverage;
@@ -38,6 +52,7 @@ export type ManualSyncPanel = Readonly<{
   requestedListingCount: number;
   composedListingCount: number;
   attentionReason: "ready" | "unknown" | "recovery" | null;
+  verificationCandidate: ManualSyncVerificationCandidate | null;
 }>;
 
 export type FounderExportIngestProbe = Readonly<{
@@ -46,6 +61,14 @@ export type FounderExportIngestProbe = Readonly<{
   logicalRows: number;
   headerSha256: string;
   observedAt: string;
+}>;
+
+export type ManualSyncIngestReceipt = Readonly<{
+  surface: ChannelExportSurface;
+  probe: FounderExportIngestProbe;
+  outcome:
+    | Readonly<{ kind: "ingested"; snapshotId: string; snapshotGeneration: number; parsedRowCount: number }>
+    | Readonly<{ kind: "refused"; reason: TcgplayerRowRefusalReason }>;
 }>;
 
 export const manualSyncIngestContract = Object.freeze({
@@ -82,7 +105,7 @@ export function resolveManualSyncActions(
   run: ChannelSyncRun | null,
   attentionReason: ManualSyncPanel["attentionReason"] = null,
 ): readonly ManualSyncActionId[] {
-  if (!run) return ["ingest-live", "ingest-staged", "compose"];
+  if (!run || isChannelSyncRunTerminalState(run.state)) return ["ingest-live", "ingest-staged", "compose"];
   if (run.claimant.claimantKind !== "manual") return [];
   if (attentionReason === "recovery") return run.state === "composed" ? ["retry-clamp"] : [];
   switch (run.state) {
@@ -92,12 +115,59 @@ export function resolveManualSyncActions(
       return ["record-upload-attempt", "record-validation-cancellation", "release"];
     case "awaiting-verification":
       return ["ingest-staged", "verify"];
-    case "applied":
-    case "validation-rejected":
-    case "application-unknown":
-    case "superseded":
-    case "stale-basis":
-    case "abandoned":
-      return [];
   }
+}
+
+export function decodeManualSyncIngestReceipt(value: unknown): ManualSyncIngestReceipt | null {
+  if (!isRecord(value)) return null;
+  const { surface, probe, outcome } = value;
+  if (surface !== "live" && surface !== "staged") return null;
+  if (
+    !isRecord(probe) ||
+    !isRecord(outcome) ||
+    typeof probe.fileName !== "string" ||
+    !isCount(probe.byteSize) ||
+    !isCount(probe.logicalRows) ||
+    typeof probe.headerSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/.test(probe.headerSha256) ||
+    typeof probe.observedAt !== "string"
+  ) {
+    return null;
+  }
+  const bounded: Pick<ManualSyncIngestReceipt, "surface" | "probe"> = {
+    surface,
+    probe: {
+      fileName: probe.fileName,
+      byteSize: probe.byteSize,
+      logicalRows: probe.logicalRows,
+      headerSha256: probe.headerSha256,
+      observedAt: probe.observedAt,
+    },
+  };
+  if (
+    outcome.kind === "ingested" &&
+    typeof outcome.snapshotId === "string" &&
+    isCount(outcome.snapshotGeneration) &&
+    isCount(outcome.parsedRowCount)
+  ) {
+    return {
+      ...bounded,
+      outcome: {
+        kind: "ingested",
+        snapshotId: outcome.snapshotId,
+        snapshotGeneration: outcome.snapshotGeneration,
+        parsedRowCount: outcome.parsedRowCount,
+      },
+    };
+  }
+  const reason = tcgplayerRowRefusalReasons.find((candidate) => candidate === outcome.reason);
+  return outcome.kind === "refused" && reason ? { ...bounded, outcome: { kind: "refused", reason } } : null;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
 }

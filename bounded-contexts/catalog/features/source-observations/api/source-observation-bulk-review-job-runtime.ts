@@ -11,7 +11,10 @@ import {
   listSourceObservationIdsForPromotion,
   type SourceObservationFilterScope,
 } from "../read-model/queries";
-import { type CatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
+import {
+  assertCatalogIntegrationProfileUnitAllowed,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./governance/catalog-integration-rollout-controls";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   BulkSourceObservationProgress,
@@ -65,6 +68,17 @@ import {
 } from "./source-observation-promotion-execution";
 import type { SourceObservationPromotionReapplyRuntime } from "./source-observation-promotion-reapply-runtime";
 
+const sourceObservationBulkJobKinds: readonly SourceObservationBulkJobAction[] = [
+  "promote",
+  "reject",
+  "defer",
+  "reapply",
+];
+
+function isSourceObservationBulkJobKind(jobKind: string): boolean {
+  return (sourceObservationBulkJobKinds as readonly string[]).includes(jobKind);
+}
+
 export type SourceObservationBulkReviewJobRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
   profileVersions: CatalogProviderIntegrationProfileVersionReader;
@@ -75,6 +89,8 @@ export type SourceObservationBulkReviewJobRuntimeDeps = Readonly<{
     SourceObservationPromotionReapplyRuntime,
     "promoteObservationIds" | "reapplyObservationIds" | "rejectObservationIds" | "deferObservationIds"
   >;
+  /** Additive Catalog Merge Candidate scope jobs, claimed when no observation unit is claimable. */
+  processNextMergeCandidateBulkJob?: BulkReviewJobServices["processNextBulkReviewJob"];
 }>;
 
 /**
@@ -89,6 +105,7 @@ export function createSourceObservationBulkReviewJobRuntime({
   bulkReviewJobStore,
   bulkReviewWorkUnitStore,
   promotionReapply,
+  processNextMergeCandidateBulkJob,
 }: SourceObservationBulkReviewJobRuntimeDeps) {
   const { promoteObservationIds, reapplyObservationIds, rejectObservationIds, deferObservationIds } = promotionReapply;
 
@@ -121,13 +138,20 @@ export function createSourceObservationBulkReviewJobRuntime({
       input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "ids"
         ? await snapshotSelectedReapplyProfiles(unitObservationIds)
         : new Map<string, SourceObservationIntegrationProfileSnapshot | null>();
+    // Id selections may span units, so each work unit enforces its own resolved
+    // profile unit at execution; a filter reapply applies one active profile.
+    const filterReapplyProfileVersion =
+      input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "filter"
+        ? await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider, null)
+        : null;
+    if (filterReapplyProfileVersion) {
+      assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", filterReapplyProfileVersion);
+    }
     const profileSnapshot =
       input.action === "reapply" && reapplyProfileMode === "current-active-profile"
-        ? selectionMode === "ids"
-          ? commonProfileSnapshot([...unitProfileSnapshots.values()])
-          : snapshotCatalogReapplyProfileVersion(
-              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider, null),
-            )
+        ? filterReapplyProfileVersion
+          ? snapshotCatalogReapplyProfileVersion(filterReapplyProfileVersion)
+          : commonProfileSnapshot([...unitProfileSnapshots.values()])
         : null;
     // The explicit draft choice binds only to promote jobs; it is never inferred.
     const promoteAsDraft = input.action === "promote" && input.promoteAsDraft === true;
@@ -212,10 +236,14 @@ export function createSourceObservationBulkReviewJobRuntime({
       claimTtlMs: input.claimTtlMs,
       workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
       jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
-      jobKinds: ["promote", "reject", "defer", "reapply"],
+      jobKinds: sourceObservationBulkJobKinds,
       laneName: input.laneName ?? null,
     });
     if (!claimResult.claim) {
+      const mergeCandidateProcessed = (await processNextMergeCandidateBulkJob?.(input)) ?? 0;
+      if (mergeCandidateProcessed > 0) {
+        return mergeCandidateProcessed;
+      }
       const reconciled = await reconcileTerminalBulkReviewJobs();
       return reconciled > 0 ? reconciled : 0;
     }
@@ -328,7 +356,7 @@ export function createSourceObservationBulkReviewJobRuntime({
   }
 
   async function reconcileTerminalBulkReviewJobs(): Promise<number> {
-    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] });
+    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: sourceObservationBulkJobKinds });
     let reconciled = 0;
     for (const rawJob of activeJobs) {
       const summary = await bulkReviewWorkUnitStore.summarize({ jobId: rawJob.jobId });
@@ -468,7 +496,9 @@ export function createSourceObservationBulkReviewJobRuntime({
     enqueueBulkReviewJob,
     getBulkReviewJob: async (jobId, context) => {
       const job = await bulkReviewJobStore.get(jobId);
-      if (job && context && !jobMatchesContext(job, context)) {
+      // The tables also hold Catalog Merge Candidate scope jobs, whose payload is
+      // not an observation job; those read through their own service.
+      if (job && (!isSourceObservationBulkJobKind(job.jobKind) || (context && !jobMatchesContext(job, context)))) {
         return null;
       }
       return job ? toSourceObservationBulkJob(job) : null;
@@ -482,7 +512,7 @@ export function createSourceObservationBulkReviewJobRuntime({
       ),
     waitForBulkReviewJobEvents: (jobId, signal) => bulkReviewJobStore.waitForEvents({ jobId, signal }),
     listActiveBulkReviewJobs: async ({ context }) =>
-      (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] }))
+      (await bulkReviewJobStore.listActive({ jobKinds: sourceObservationBulkJobKinds }))
         .filter((job) => jobMatchesContext(job, context))
         .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,

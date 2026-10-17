@@ -1,5 +1,7 @@
 # Agent Connector Packaging
 
+Every valid `GET /ucp/oauth/authorize` opens interactive OAuth Consent or sign-in, never a code callback. Invalid authorization requests retain their JSON 400 responses. Signed-out, agent-bearer, and guest-checkout actors are sent through sign-in. The browser shows the client-provided name, redirect origin, active account, and requested scopes. Only a same-origin native `POST /ucp/oauth/authorize` with a valid session-bound, single-use consent token and `decision=approve` returns a code. Deny returns `error=access_denied` with the original state. Consent expires after ten minutes; switching accounts starts a new authorization request. Token exchange, refresh, introspection, and revocation are unchanged.
+
 Chase Sets publishes connector packaging for the native MCP endpoint from the source-of-truth MCP registry in `infrastructure/platform-runtime/mcp-contracts.ts`.
 
 Generated artifacts:

@@ -203,7 +203,7 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H6018dee4d9e7#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST Hbb197db09eed#1",
         "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H8f7de280cfe0#1",
         "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H889f0611e195#1",
         "api-route:bounded-contexts/collections/features/saved-lists/api/route.ts:POST /account/list-additions",
@@ -215,10 +215,38 @@
         "description": "Search and item detail remain visible after the command and render the Saved List aggregate snapshot, line result, and List title returned by Collections. Guest capture returns the durable anonymous intent and claim returns the same command snapshot without requiring the recent-List projection to catch up."
       },
       "proof": {
-        "authoritativeResponse": "Direct add and guest claim responses carry the #5016 Saved List command snapshot and receipt. Claim retries retain the exact attempted version and completed response, while recent Lists remain picker input only.",
+        "authoritativeResponse": "Direct add and guest claim responses carry the #5016 Saved List command snapshot and receipt. Claimed retries validate aggregate receipts against the original semantic payload; claimed_response is compatibility data only. Recent Lists remain picker input only.",
         "tests": [
           "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts",
           "bounded-contexts/collections/features/saved-lists/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "collections.saved-list-durable-recovery",
+      "owner": "collections",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H1c67c07f06b0#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H95dafcbea2e8#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST H8ddb0e177e2f#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST Ha1637960d3f4#1",
+        "api-client:bounded-contexts/collections/features/saved-lists/api/client.ts:POST Hb958ac3d51f6#1",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/:id/apply",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/:id/begin-send",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/:id/confirm",
+        "api-route:bounded-contexts/collections/features/saved-lists/api/recovery-route.ts:POST /account/list-operations/anonymous"
+      ],
+      "visibleDestination": {
+        "description": "No UI is activated by this slice. Recovery returns bounded canonical operational data directly, independent of picker projections."
+      },
+      "proof": {
+        "authoritativeResponse": "An operation row is durable intent, not success authority. Exact operation GET returns success only after complete semantic aggregate receipt validation; absence is unknown and only explicit resubmission can send a command. Production activation remains disabled pending #8934.",
+        "tests": [
+          "bounded-contexts/collections/features/saved-lists/api/recovery-route.test.ts",
+          "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.db.test.ts"
         ]
       }
     }
@@ -391,7 +419,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide the Collections event-store schema and runtime service composition seam without taking Saved List behavior out of its slice.",
-      "expectedConsumers": ["Root Collections module composition"]
+      "expectedConsumers": ["saved-lists"]
     },
     "routes": {
       "classification": "routes",

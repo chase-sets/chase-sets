@@ -136,16 +136,22 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Social Login Link | [Identity](../bounded-contexts/identity/GLOSSARY.md) | Identity-owned User fact linking one external provider identity to one User. |
 | UCP Profile | [Architecture](./architecture/ucp-agent-commerce.md) | Public `/.well-known/ucp` document that advertises supported Universal Commerce Protocol services and capabilities. |
 | UCP Capability | [Architecture](./architecture/ucp-agent-commerce.md) | Standards-facing protocol capability such as catalog search, checkout, or order read; maps to existing bounded-context behavior instead of owning domain state. |
+| Agent Coverage | [Architecture](./architecture/ucp-agent-commerce.md#native-mcp-bridge) | Per-route declaration in a context manifest's `agentCoverage` key: the native MCP tools that cover an admin route, a closed exemption code with a note, or the pending issue that owns the gap. |
 | Linked Platform Authorization | [Identity](../bounded-contexts/identity/GLOSSARY.md) | User/account consent that lets an external platform act through UCP scopes. |
 | Payment Handler | [Payments](../bounded-contexts/payments/GLOSSARY.md) | UCP-facing payment method declaration and instrument-processing contract owned by Payments. |
 | Shared Payment Token | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Provider-scoped agent payment credential grant processed without raw card handling. |
-| AP2 Mandate | [Payments](../bounded-contexts/payments/GLOSSARY.md) | Verifiable autonomous-payment authority required before headless checkout completion can bypass trusted UI handoff. |
+| AP2 Mandate | Removed | Retired with the UCP `2026-04-08` mandate scaffold; no context defines it. Headless checkout completion uses a Saved Checkout Instrument under the agent grant spending mandate. |
 | Authenticity Case | [Authenticity](../bounded-contexts/authenticity/GLOSSARY.md) | Judgment record for one authenticity-checked order; forwarded on a passed verdict, returned on a failed or inconclusive verdict. |
 | Offer Economics Summary | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Live-computed founders 0%-locked-fee cohort report aggregated from Marketplace, Pricing, and Commercial Terms; substantiation source for public campaign fee claims (#4075). |
 | Locked-Fee Listing Cohort | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Marketplace listings whose listing-time fee snapshot locked a 0% fee via a Commercial Terms agreement; membership read from Marketplace's `marketplace_listing_pages` snapshot fields. |
 | Foregone Fee Estimate | [Platform Operations](../bounded-contexts/platform-operations/GLOSSARY.md) | Offer-economics monitor projection of what the Locked-Fee Listing Cohort's GMV would have cost under Commercial Terms' current published standard schedule. |
 
 ## Cross-Context Disambiguation
+
+Channel Sale Observations are Channels' PII-free sale-recording inputs to Inventory.
+Channel Order Fulfillment Observations are Channels' shipping facts joined to those
+committed sales, not another sale or Fulfillment record. Both definitions and
+External Order Reference are owned by the [Channels glossary](../bounded-contexts/channels/GLOSSARY.md).
 
 | Term | Source of truth | Other context use |
 | --- | --- | --- |
@@ -157,6 +163,8 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Adjustment and correction family | [Settlement](../bounded-contexts/settlement/GLOSSARY.md) owns Wallet Adjustment (operator-requested-and-approved cash-equivalent correction), Rebate, and Chargeback Clawback as distinct ledger-entry kinds and posting paths; [ADR 0020](./adr/0020-wallet-adjustment-authority-and-balance-types.md) is the authority. | [Payments](../bounded-contexts/payments/GLOSSARY.md) owns Refund as the external processor-rail reversal of captured buyer funds — a Wallet Adjustment coded `refund-correction` only supplements its wallet-side consequence, never the external transaction itself. The future Marketplace Credit (#4891) is non-withdrawable and must not reuse the Wallet Adjustment command, lifecycle, or available-balance total. |
 
 ## Planned Term Ownership
+
+Wallet Funding Payment, Wallet Funding Fee and Wallet Funding Refund belong to [Payments](../bounded-contexts/payments/GLOSSARY.md). Prepaid Balance and its lots belong to Settlement. A Refund Reservation is Settlement money authority consumed by Payments; the external charge workflow does not own or write the wallet ledger.
 
 These sections pre-register upcoming milestone vocabulary so future slices have one canonical term and owning context before implementation. Planned terms do not imply shipped behavior; they reserve language for the owning context and prevent drift in issues, docs, APIs, and UI copy.
 

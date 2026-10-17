@@ -10,7 +10,7 @@ import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import type { ListingPhotoStorage } from ".";
+import type { ListingPhotoStorage } from "./index";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
@@ -26,12 +26,14 @@ import { createOfferResponseAttentionSourceFromReadModel } from "../../features/
 import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
 import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
 import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
+import type { MarketplaceOfferLifecycleAdmission } from "../../features/offers/api/lifecycle-admission";
 import { createManagedOfferWork } from "../../features/offers/integrations/managed-work";
 import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-model/managed-projection";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 export type MarketplaceServiceOptions = Readonly<{
   managedOfferPricing?: ManagedOfferPricing;
+  offerLifecycleAdmission?: MarketplaceOfferLifecycleAdmission;
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
@@ -84,6 +86,7 @@ export function createMarketplaceServices(
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
     ...(options.managedOfferPricing ? { managedOfferPricing: options.managedOfferPricing } : {}),
+    ...(options.offerLifecycleAdmission ? { offerLifecycleAdmission: options.offerLifecycleAdmission } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
@@ -94,6 +97,7 @@ export function createMarketplaceServices(
     db,
     ...(options.managedOfferPricing
       ? {
+          managedOfferPricing: options.managedOfferPricing,
           enforcement: {
             assertInstalled() {
               if (!eventStore.appendToStreams) throw new Error("Managed Offer atomic enforcement is unavailable.");

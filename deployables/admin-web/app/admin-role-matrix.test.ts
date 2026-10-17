@@ -55,6 +55,15 @@ function visibleSectionKeys(roleKey: RoleKey) {
 }
 
 describe("admin RBAC matrix (role fixtures)", () => {
+  it("exposes reported-content operator surfaces only to platform-admin", () => {
+    for (const roleKey of ROLE_KEYS) {
+      const items = resolveAdminWebNavItems(actorForRole(roleKey), { section: "support" });
+      for (const href of ["/support/reported-content", "/support/risk-alerts"]) {
+        expect(items.filter((item) => item.href === href)).toHaveLength(roleKey === "platform-admin" ? 1 : 0);
+      }
+    }
+    expect(resolveAdminWebNavItems({ permissions: [] }, { section: "support" })).toEqual([]);
+  });
   it.each([
     ["platform-admin", ["access", "catalog", "commerce", "growth", "platform", "support"]],
     ["owner", ["access", "catalog", "commerce", "growth", "platform", "support"]],

@@ -156,6 +156,38 @@
       "resetStrategy": "truncate-owned-tables"
     }
   ],
+  "agentCoverage": {
+    "blueprints": { "pending": "#9238" },
+    "blueprints-detail": { "pending": "#9238" },
+    "catalog-items": { "pending": "#9238" },
+    "catalog-items-detail": { "pending": "#9238" },
+    "categories": { "pending": "#9238" },
+    "categories-detail": { "pending": "#9238" },
+    "components": { "pending": "#9238" },
+    "components-detail": { "pending": "#9238" },
+    "dimensions": { "pending": "#9238" },
+    "dimensions-detail": { "pending": "#9238" },
+    "display-templates": { "pending": "#9238" },
+    "display-templates-detail": { "pending": "#9238" },
+    "fields": { "pending": "#9238" },
+    "fields-detail": { "pending": "#9238" },
+    "reference-types": { "pending": "#9238" },
+    "reference-types-detail": { "pending": "#9238" },
+    "reference-records": { "pending": "#9238" },
+    "reference-records-detail": { "pending": "#9238" },
+    "integrations": { "pending": "#9238" },
+    "provider-detail": { "pending": "#9236" },
+    "integrations-governance": { "pending": "#9238" },
+    "integrations-settings": { "pending": "#9238" },
+    "integrations-health": { "pending": "#9238" },
+    "integrations-observation-evidence": { "pending": "#9238" },
+    "source-observations-detail": { "pending": "#9238" },
+    "scope-coverage": { "pending": "#9236" },
+    "scope-coverage-detail": { "pending": "#9236" },
+    "scope-landing": { "pending": "#9236" },
+    "scope-sync-batches": { "pending": "#9236" },
+    "scope-detail": { "pending": "#9236" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -687,6 +719,7 @@
         "blueprints",
         "catalog-items",
         "categories",
+        "completion-report",
         "components",
         "dimensions",
         "display-templates",
@@ -698,6 +731,7 @@
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
+        "scope-sync-batches",
         "source-observations"
       ]
     },
@@ -849,6 +883,15 @@
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /preview",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /resolve-held-sets",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /counts/quote",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /counts/acquire",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/baseline",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/initial-notice",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/usage",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/quote-readback",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/final-notice",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/pre-confirm",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /count-capture/freeze",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /confirm",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/cancel",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/resume",
@@ -858,12 +901,17 @@
       ],
       "visibleDestination": {
         "routeId": "scope-sync-batches",
-        "description": "Held-set resolution returns a read-only resolution snapshot, preview returns the server-resolved plan snapshot, and confirm and recovery commands return the directly persisted Scope Sync Batch snapshot before the route redirects to the same batch page, whose loader reads those same Catalog-owned batch tables."
+        "description": "Held-set resolution returns a read-only resolution snapshot, preview returns the server-resolved plan snapshot, and confirm and recovery commands return the directly persisted Scope Sync Batch snapshot before the route redirects to the same batch page, whose loader reads those same Catalog-owned batch tables. Count quote/acquire return their authoritative quote/outcome directly to the page; retained quote reload reads the same append-only count history. Staging count-capture steps return the run stage they appended, read back from the same append-only capture history."
       },
       "proof": {
-        "authoritativeResponse": "The held-set route performs no write and returns the complete batched observation/mapping resolution directly. Other API paths respond from the freshly resolved preview or the batch/unit rows written by the command. The admin route uses those responses directly and reloads the same direct read model after confirm, cancel, resume, or retry; no projection-backed read is involved.",
+        "authoritativeResponse": "The held-set route performs no write and returns the complete batched observation/mapping resolution directly. Other API paths respond from the freshly resolved preview or the batch/unit rows written by the command. The admin route uses those responses directly and reloads the same direct read model after confirm, cancel, resume, or retry; no projection-backed read is involved. Count quote responds after persistence; acquire commits its debit before send and returns complete only after result persistence, or a failed/uncertain outcome. The count action renders that response directly; reload derives outcomes and cross-quote reuse from the same authoritative history. Each capture step responds with the stage it committed, and the initial notice is read back from the capture history after its append.",
         "tests": [
           "bounded-contexts/catalog/features/scope-sync-batches/api/route.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/runtime.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/count-acquisition.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/count-acquisition.db.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-lifecycle.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-lifecycle.db.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/worker.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-resolution.db.test.ts",
           "bounded-contexts/catalog/support/route-support/admin-scope-sync-batches/scope-sync-batches-route.test.ts",
@@ -1056,6 +1104,7 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-promote/jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-reject",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /bulk-reject/jobs",
+        "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /merge-candidate-bulk-jobs",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts:POST /reapply",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /catalog-sync-scope/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/integration-job-routes.ts:POST /catalog-sync-scope/runs",
@@ -1098,6 +1147,7 @@
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
+          "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-modules/route-integration-jobs.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-modules/route-provider-profile-admin.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/route-modules/route-review-controls.test.ts",
@@ -1133,6 +1183,7 @@
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H4713b23308ae#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5916ed4aed53#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5951cf447e8c#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5f1753bd561a#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6646e478f939#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6c60f0691cb7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H7503ecdfed3e#1",

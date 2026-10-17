@@ -542,6 +542,43 @@ describe("shared CI gate plan", () => {
     }
   });
 
+  it.each(["pull-request", "merge-group"])(
+    "requires Public Presence unit coverage for every nonempty diff in %s plans",
+    (mode) => {
+      const membership = (changedFiles) => {
+        const scope = classifyChanges({ changedFiles });
+        const plan = createCiGatePlan({ mode, provenance: "same-repository", labels: [], scope });
+        const unitGate = plan.gates.find(({ id }) => id === "unit-tests");
+        return {
+          selection: unitGate.selection,
+          publicPresence: unitGate.affectedWorkspaces.filter((name) => name === "@chase-sets/public-presence").length,
+        };
+      };
+      for (const file of [
+        "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
+        "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
+        "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.test.ts",
+        "scripts/verify-static-surfaces.mjs",
+        "bounded-contexts/identity/api.ts",
+        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts",
+        "bounded-contexts/identity/GLOSSARY.md",
+        "bounded-contexts/authenticity/README.md",
+        "bounded-contexts/marketplace/features/listings/api/runtime.test.ts",
+        "scripts/clean-logs.mjs",
+        "README.md",
+      ]) {
+        expect(membership([file]), file).toEqual({ selection: "REQUIRED", publicPresence: 1 });
+      }
+      // Controls: an empty diff selects nothing, and the platform-pr workflow's
+      // all-DB sweep keeps its empty workspace list.
+      expect(membership([])).toEqual({ selection: "NOT_REQUIRED", publicPresence: 0 });
+      expect(membership([".github/workflows/platform-pr.yml"])).toEqual({
+        selection: "NOT_REQUIRED",
+        publicPresence: 0,
+      });
+    },
+  );
+
   it("requires DB tests for platform-pr workflow alone without narrowing the all-DB workspace list", () => {
     const scope = classifyChanges({ changedFiles: [".github/workflows/platform-pr.yml"] });
     const plan = createCiGatePlan({ mode: "pull-request", provenance: "same-repository", labels: [], scope });

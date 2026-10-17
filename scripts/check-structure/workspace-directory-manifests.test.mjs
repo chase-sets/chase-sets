@@ -32,17 +32,17 @@ describe("workspace directory manifest guard", () => {
 
     await expect(findWorkspaceDirectoryManifestViolations({ repoRoot })).resolves.toContainEqual({
       path: "contracts/ghost-contract/package.json",
-      message: "workspace directory must declare package.json or be added to the retired-path list",
+      message: "workspace directory must declare package.json",
     });
   });
 
-  it("fails retired workspace names when they reappear", async () => {
+  it("checks ordinary manifest requirements regardless of a workspace's former name", async () => {
     const repoRoot = await createTempRepo();
     await mkdir(path.join(repoRoot, "bounded-contexts", "support"));
 
     await expect(findWorkspaceDirectoryManifestViolations({ repoRoot })).resolves.toContainEqual({
-      path: "bounded-contexts/support",
-      message: "retired workspace directory should not exist",
+      path: "bounded-contexts/support/package.json",
+      message: "workspace directory must declare package.json",
     });
   });
 

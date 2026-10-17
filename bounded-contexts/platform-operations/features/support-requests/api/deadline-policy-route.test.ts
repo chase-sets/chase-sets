@@ -4,6 +4,7 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { SupportApiEnv } from "./http";
 import { createSupportDeadlinePolicyRoutes } from "./deadline-policy-route";
 import { SUPPORT_DEADLINE_LAUNCH_POLICY_VALUE } from "../domain/support-deadline-policy";
+import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -17,12 +18,12 @@ function createApp(policies: Partial<PolicyRuntime>, permissions: readonly strin
   const app = new Hono<SupportApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", {
+      ...evidenceActor("admin", permissions),
       sessionId: "ses_test",
       tenantId: "tnt_test",
       userId: "usr_admin",
       accountId: "acc_admin",
       membershipId: "mem_test",
-      roleKey: "admin",
       permissions,
     });
     c.set("context", context);

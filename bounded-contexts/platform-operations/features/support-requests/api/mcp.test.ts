@@ -3,14 +3,15 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createSupportRequestMcpHandlers } from "./mcp";
 import type { SupportRequestServices } from "./runtime";
+import { evidenceActor } from "../domain/evidence-access-policy.test-support";
 
 const actor = {
+  ...evidenceActor("manager", ["support.view"]),
   sessionId: "sess_1",
   tenantId: "tnt_1",
   userId: "usr_1",
   accountId: "acc_buyer",
   membershipId: "mem_1",
-  roleKey: "manager",
   permissions: ["support.view"],
 } satisfies ResolvedActor;
 

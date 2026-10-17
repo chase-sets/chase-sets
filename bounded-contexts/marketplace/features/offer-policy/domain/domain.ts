@@ -2,7 +2,7 @@ import type { DomainEvent } from "@chase-sets/event-core";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
 import type { MarketplaceOfferState } from "../../offers/domain/domain";
-import { buyerOfferPolicyTermsSchema, type BuyerOfferPolicyTerms } from "./contracts";
+import { buyerOfferPolicyTermsSchema, type BuyerOfferPolicyTerms, type BuyerOfferPolicyOutcome } from "./contracts";
 
 export type BuyerOfferPolicyStatus = "draft" | "active" | "paused" | "stopped";
 export type BuyerOfferPolicyAudit = Readonly<{
@@ -18,6 +18,7 @@ export type BuyerOfferPolicyPreview = Readonly<{
   previewId: string;
   policyVersion: number;
   terms: BuyerOfferPolicyTerms;
+  outcomes?: readonly BuyerOfferPolicyOutcome[];
 }>;
 export type BuyerOfferPolicyState = Readonly<{
   policyId: string | null;
@@ -132,7 +133,12 @@ export function assertBuyerOfferPolicySelection(
       "Offer scope and quantity must match exactly.",
     );
     assertPolicy(
-      JSON.stringify(state.selectedOptions) === JSON.stringify(selected.selectedOptions),
+      state.selectedOptions.length === selected.selectedOptions.length &&
+        state.selectedOptions.every(
+          (option, index) =>
+            option.dimensionId === selected.selectedOptions[index]?.dimensionId &&
+            option.optionId === selected.selectedOptions[index]?.optionId,
+        ),
       "Offer options must match exactly.",
     );
     assertPolicy(
@@ -216,7 +222,12 @@ export function evolveBuyerOfferPolicy(
     case "marketplace.offer-policy.previewed":
       return {
         ...state,
-        preview: { previewId: event.data.previewId, policyVersion: event.data.policyVersion, terms: event.data.terms },
+        preview: {
+          previewId: event.data.previewId,
+          policyVersion: event.data.policyVersion,
+          terms: event.data.terms,
+          ...(event.data.outcomes ? { outcomes: event.data.outcomes } : {}),
+        },
       };
     case "marketplace.offer-policy.authorized":
       return {

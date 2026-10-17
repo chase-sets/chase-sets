@@ -6,20 +6,18 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { ChannelConnectionServices, PublicChannelConnection } from "../../connections/domain/contracts";
 import type { TcgplayerCsvServices } from "../../tcgplayer-csv/api/runtime";
+import type { ConnectorFeedServices } from "../../connector-feed/api/runtime";
+import { resolveChannelInboundCoverage } from "../domain/inbound-coverage";
 import { planStagedImportBatches } from "../../tcgplayer-csv/domain/composition";
-import type {
-  ChannelSyncRun,
-  StagedImportBatch,
-  TcgplayerExportParseResult,
-  TcgplayerImportSummary,
-} from "../../tcgplayer-csv/domain/contracts";
+import type { ChannelSyncRun, StagedImportBatch, TcgplayerImportSummary } from "../../tcgplayer-csv/domain/contracts";
 import { tcgplayerStagedImportPolicy } from "../../tcgplayer-csv/domain/policy";
 import {
   ManualSyncError,
   manualSyncIngestContract,
   resolveManualSyncActions,
-  type FounderExportIngestProbe,
+  type ManualSyncIngestReceipt,
   type ManualSyncPanel,
+  type ManualSyncVerificationCandidate,
 } from "../domain/contracts";
 import { founderExportIngestProbe, inspectTcgplayerExportBytes } from "../domain/ingest";
 import { freezeManualClaimLeasePolicySnapshot, tcgplayerManualClaimLeasePolicy } from "../domain/policy";
@@ -28,6 +26,7 @@ export type ManualSyncRuntimeDependencies = Readonly<{
   db: PgTransactionalPool;
   connections: ChannelConnectionServices;
   tcgplayerCsv: TcgplayerCsvServices;
+  connectorFeed: Pick<ConnectorFeedServices, "readAuthority">;
   policies: Pick<PolicyRuntime, "resolvePolicy">;
   marketplaceClamp: MarketplaceChannelInboundClampCapability;
   now?: () => string;
@@ -76,9 +75,7 @@ export interface ManualSyncServices {
     input: Readonly<{ accountId: string; connectionId: string; runId: string; expectedRevision: number }>,
     context: EventStoreContext,
   ): Promise<ChannelSyncRun>;
-  ingest(
-    input: ManualSyncIngestInput,
-  ): Promise<Readonly<{ result: TcgplayerExportParseResult; probe: FounderExportIngestProbe }>>;
+  ingest(input: ManualSyncIngestInput): Promise<ManualSyncIngestReceipt>;
   verify(
     input: Readonly<{
       accountId: string;
@@ -118,7 +115,7 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
     const connection = await dependencies.connections.getConnection(input);
     if (!connection) return null;
     const run = await readLatestRun(dependencies.db, dependencies.tcgplayerCsv, input.connectionId);
-    return buildPanel(dependencies.db, connection, run, now());
+    return buildPanel(dependencies, input.accountId, connection, run, now());
   }
 
   return {
@@ -144,7 +141,7 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
         context,
       );
       if (!composed) throw new ManualSyncError("invalid-action", "No claimed publication work is available.");
-      return buildPanel(dependencies.db, connection, composed.run, now());
+      return buildPanel(dependencies, input.accountId, connection, composed.run, now());
     },
     claimAndDownload: async (input, context) => {
       const { run } = await authorizeRun(input);
@@ -168,7 +165,7 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
       const { connection, run } = await authorizeRun(input);
       assertManualRunAction(run, input.expectedRevision, "composed");
       await engageRunClamp(dependencies, input, run, context);
-      return buildPanel(dependencies.db, connection, run, now());
+      return buildPanel(dependencies, input.accountId, connection, run, now());
     },
     release: async (input, context) => {
       const { run } = await authorizeRun(input);
@@ -235,7 +232,20 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
         capturedAt: input.capturedAt,
         capturedAtSource: input.capturedAtSource,
       });
-      return { result: ingested, probe };
+      if (ingested.kind === "refused") {
+        return { surface: input.surface, probe, outcome: { kind: "refused", reason: ingested.reason } };
+      }
+      if (!ingested.snapshot) throw new Error("Ingested Channel Inventory Snapshot is unavailable.");
+      return {
+        surface: input.surface,
+        probe,
+        outcome: {
+          kind: "ingested",
+          snapshotId: ingested.snapshot.snapshotId,
+          snapshotGeneration: ingested.snapshot.snapshotGeneration,
+          parsedRowCount: ingested.snapshot.parsedRowCount,
+        },
+      };
     },
     verify: async (input, context) => {
       const { run } = await authorizeRun(input);
@@ -280,23 +290,66 @@ async function readLatestRun(
 }
 
 async function buildPanel(
-  db: PgQueryable,
+  dependencies: ManualSyncRuntimeDependencies,
+  accountId: string,
   connection: PublicChannelConnection,
   run: ChannelSyncRun | null,
   currentAt: string,
 ): Promise<ManualSyncPanel> {
-  const attentionReason = run ? await readAttentionReason(db, run) : null;
+  const input = { accountId, connectionId: connection.connectionId };
+  const authority = await dependencies.connectorFeed.readAuthority(input).catch(() => {
+    throw new ManualSyncError("manual-sync-unavailable");
+  });
+  const inboundCoverage = resolveChannelInboundCoverage(authority, input);
+  const [attentionReason, verificationCandidate] = run
+    ? await Promise.all([readAttentionReason(dependencies.db, run), readVerificationCandidate(dependencies.db, run)])
+    : [null, null];
   const available = connection.providerKey === "tcgplayer" && connection.status === "active";
   return {
     connection,
-    inboundCoverage: { state: "dark", reason: "no-inbound-authority" },
+    inboundCoverage,
     run,
     actions: available ? resolveManualSyncActions(run, attentionReason) : [],
     leaseCountdownMs: run ? Math.max(0, Date.parse(run.leaseExpiresAt) - Date.parse(currentAt)) : null,
     requestedListingCount: run?.members.length ?? 0,
     composedListingCount: run?.members.filter((member) => member.memberKind === "composed").length ?? 0,
     attentionReason,
+    verificationCandidate,
   };
+}
+
+async function readVerificationCandidate(
+  db: PgQueryable,
+  run: ChannelSyncRun,
+): Promise<ManualSyncVerificationCandidate | null> {
+  if (run.state !== "awaiting-verification" || run.uploadAttemptedAt === null) return null;
+  const result = await db.query<{
+    snapshot_id: string;
+    snapshot_generation: string | number;
+    parsed_row_count: number;
+    captured_at: string | Date;
+    ingested_at: string | Date;
+  }>(
+    `SELECT snapshot_id,snapshot_generation,parsed_row_count,captured_at,ingested_at
+       FROM channel_inventory_snapshots
+      WHERE connection_id=$1 AND surface='staged' AND snapshot_generation > $2 AND ingested_at >= $3::timestamptz
+      ORDER BY snapshot_generation DESC LIMIT 1`,
+    [run.connectionId, run.basisSnapshotGeneration, run.uploadAttemptedAt],
+  );
+  const row = result.rows[0];
+  return row
+    ? {
+        snapshotId: row.snapshot_id,
+        snapshotGeneration: Number(row.snapshot_generation),
+        parsedRowCount: row.parsed_row_count,
+        capturedAt: instant(row.captured_at),
+        ingestedAt: instant(row.ingested_at),
+      }
+    : null;
+}
+
+function instant(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : value;
 }
 
 async function engageRunClamp(

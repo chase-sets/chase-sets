@@ -15,6 +15,27 @@ const base = {
 } as const;
 
 describe("channel-reconciliation-health-outcome-table", () => {
+  it("claimed-row-authority-retained-runtime row availability does not settle retained members without clean authority", () => {
+    const sourceAuthority: ChannelSourceAuthority = { kind: "present-rows", collectedCount: 1, snapshotRowTotal: 1 };
+    expect(sourceAuthority).not.toHaveProperty("authorityTotal");
+    for (const classification of ["in-sync", "foreign-edit", "source-unavailable"] as const) {
+      expect(mapChannelDriftToHealthObservation({ ...base, classification, sourceAuthority })).toMatchObject({
+        outcome: classification === "in-sync" ? "success" : "failure",
+      });
+    }
+    const member: DriftGenerationMember = {
+      identity: "listing:SYNTHETIC-present",
+      kind: "foreign-edit",
+      expectedFingerprint: "e".repeat(64),
+      observedFingerprint: "a".repeat(64),
+      settlement: "open",
+      decisionRevision: 0,
+      recoveryRequested: false,
+    };
+    const opening = retainDriftGeneration(null, [member], false)!;
+    expect(retainDriftGeneration(opening, [], false)).toEqual(opening);
+    expect(retainDriftGeneration(opening, [{ ...member, settlement: "accepted" }], false)?.resolution).toBeNull();
+  });
   it("claimed-snapshot-age attention authorizes only a claimed failure, never completeness or unrelated absence", () => {
     expect(
       mapChannelDriftToHealthObservation({

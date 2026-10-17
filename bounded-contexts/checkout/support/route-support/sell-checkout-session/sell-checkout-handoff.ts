@@ -13,6 +13,7 @@ import type {
 import { objectValue, stringValue } from "./sell-checkout-form";
 import { reviewedListingId } from "./sell-checkout-readiness";
 import {
+  staleManagedOfferReviewError,
   staleReviewPlanError,
   type MarketplaceRequestApiClient,
   type SellListMarketplaceHandoff,
@@ -130,6 +131,7 @@ function marketplaceErrorCode(error: unknown): string {
  */
 const OFFER_ACCEPTANCE_STALE_CODES = new Set([
   "fee_quote_stale",
+  "offer_not_open",
   "listing_evidence_incomplete",
   "listing_seller_trust_incomplete",
   "listing_not_eligible",
@@ -162,6 +164,13 @@ async function acceptOfferMatchWithRecovery(
       return null;
     }
     if (OFFER_ACCEPTANCE_STALE_CODES.has(code)) {
+      if (
+        code === "managed_offer_held" ||
+        code === "managed_offer_refresh_required" ||
+        code === "managed_offer_conflict"
+      ) {
+        throw staleManagedOfferReviewError(itemTitle);
+      }
       throw staleReviewPlanError(itemTitle);
     }
     throw error;

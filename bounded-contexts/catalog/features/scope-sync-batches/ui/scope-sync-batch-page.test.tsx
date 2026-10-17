@@ -1,12 +1,39 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ScopeSyncBatchPage } from "./scope-sync-batch-page";
 import ScopeSyncBatchesRoute from "../../../routes/admin/scope-sync-batches";
 
 describe("Scope Sync Batch admin page", () => {
+  afterEach(cleanup);
+  it("AC1 shows count cost/cap apart from batch approval before sending", () => {
+    renderPage(
+      <ScopeSyncBatchPage
+        batch={null}
+        preview={null}
+        error={null}
+        heldSetResolution={null}
+        countQuote={{
+          quoteId: "synthetic",
+          fingerprint: "fingerprint",
+          membershipFingerprint: "membership",
+          selection: {},
+          authority: { allowed: true, headroom: 10, fingerprint: "authority" },
+          targets: [],
+          plannedCredits: 2,
+          cap: 1,
+          expiresAt: "2026-10-12T12:15:00Z",
+          state: "quoted",
+        }}
+      />,
+    );
+    expect(screen.getByText("Planned credits")).toBeTruthy();
+    expect(screen.getByLabelText("Count credit cap")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Approve count acquisition" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm batch" })).toBeNull();
+  });
   it("renders blocked preview evidence before confirmation", () => {
     renderPage(
       <ScopeSyncBatchPage

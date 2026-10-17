@@ -491,9 +491,10 @@ describe("public policy corpus compiler", () => {
     ).toBe("sha256:c527cca70b8e0f5055e8fc480f2deefc61629a422af3249dd452a192b06c5c98");
     // Baseline: current Terms with the electronic-agents-and-automated-access developer-manifest ref reverted.
     // Re-derived for #8667, the first Terms content edit since #7429; prior pin was on-disk Terms at bb85cc7a24^.
+    // Re-derived again for the #9721 byte-identical Stripe payment citation relocations.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:c0cd736b87c12444ea15b3bea16cf88f097968d1eb8272dc9a01dce4154a42ad");
+    ).toBe("sha256:8aa7afdf9f23267096e0a155fbe69dc4ffa4278be267cbd6af03955ed40f9c52");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
@@ -569,7 +570,7 @@ describe("public policy corpus compiler", () => {
         policyKey: "terms-of-service",
         sectionId: "effective-date-notice-and-acceptance",
         carrier: "productTruthRef",
-        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:12-13",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:39-40",
         after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
         module: "terms-of-service-publication.ts",
       },
@@ -578,7 +579,7 @@ describe("public policy corpus compiler", () => {
         policyKey: "terms-of-service",
         sectionId: "changes-notice-and-acceptance",
         carrier: "productTruthRef",
-        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:26-28",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:53-55",
         after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
         module: "terms-of-service-publication.ts",
       },
@@ -587,7 +588,7 @@ describe("public policy corpus compiler", () => {
         policyKey: "terms-of-service",
         sectionId: "changes-notice-and-acceptance",
         carrier: "assumptionEvidenceRef",
-        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:19-30",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:46-57",
         after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
         module: "terms-of-service-publication.ts",
       },

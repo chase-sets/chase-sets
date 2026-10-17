@@ -99,6 +99,7 @@ export {
   resolveModuleProjectionGroups,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
+  syncLocalProjectionGroups,
   syncProjectionGroup,
 } from "./projection-groups";
 

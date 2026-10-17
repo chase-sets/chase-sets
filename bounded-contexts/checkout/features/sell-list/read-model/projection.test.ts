@@ -428,3 +428,53 @@ describe("checkout Sell List projection", () => {
     expect(db.getLine("acc_seller", "sll_selected")).toBeUndefined();
   });
 });
+
+describe("checkout Sell List Offer lifecycle", () => {
+  it("mirrors Pause, Resume and Withdraw into the Offer status and ignores stale redelivery", async () => {
+    const offers = new Map<string, { status: string; version: number }>();
+    const db: PgQueryable = {
+      async query<Row = Record<string, unknown>>(sql: string, values: readonly unknown[] = []) {
+        if (sql.includes("INSERT INTO checkout_sell_offer_pages")) {
+          offers.set(String(values[0]), { status: "submitted", version: Number(values[12]) });
+        } else if (sql.includes("UPDATE checkout_sell_offer_pages") && sql.includes("SET status = $2")) {
+          const current = offers.get(String(values[0]));
+          if (current && current.version < Number(values[2]))
+            offers.set(String(values[0]), { status: String(values[1]), version: Number(values[2]) });
+        }
+        return { rows: [] as Row[], rowCount: 0 };
+      },
+    };
+    const handlers = buildCheckoutSellListProjectionHandlers(db);
+    const streamId = "marketplace.offer-off_1";
+    const lifecycle = (type: string, streamVersion: number) =>
+      buildTransportEvent(
+        type,
+        { offerId: "off_1", buyerAccountId: "acc_buyer", at: "2026-10-14T00:00:00.000Z" },
+        { streamId, streamVersion },
+      );
+    await handlers["marketplace.offer.submitted"]!(
+      buildTransportEvent(
+        "marketplace.offer.submitted",
+        {
+          offerId: "off_1",
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          priceAmount: "10.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 1,
+        },
+        { streamId, streamVersion: 1 },
+      ),
+    );
+
+    await handlers["marketplace.offer.paused"]!(lifecycle("marketplace.offer.paused", 2));
+    expect(offers.get("off_1")).toEqual({ status: "paused", version: 2 });
+    await handlers["marketplace.offer.resumed"]!(lifecycle("marketplace.offer.resumed", 3));
+    await handlers["marketplace.offer.paused"]!(lifecycle("marketplace.offer.paused", 2));
+    expect(offers.get("off_1")).toEqual({ status: "submitted", version: 3 });
+    await handlers["marketplace.offer.withdrawn"]!(lifecycle("marketplace.offer.withdrawn", 4));
+    expect(offers.get("off_1")).toEqual({ status: "withdrawn", version: 4 });
+  });
+});

@@ -3,6 +3,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -35,6 +36,7 @@ import type {
   ProcessorPaymentReconciliationResult,
 } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
+import type { WalletFundingServices } from "../../wallet-funding/api/runtime";
 import { listPaymentOrderInputs, type PaymentOrderInputRow } from "../integrations/order-input/order-input-queries";
 import {
   submitPaymentDisputeEvidence,
@@ -68,6 +70,7 @@ import {
   getPaymentAccountRiskSource,
   completeSavedCheckoutSetupSession,
   markSavedCheckoutInstrumentRemoved,
+  removeSavedCheckoutInstrumentForAgentGrant,
   markPaymentCreationReservationInactive,
   recordSavedCheckoutInstrumentAudit,
   recordRevokedAgentGrant,
@@ -127,6 +130,7 @@ import {
 type PaymentRuntimeDeps = Readonly<{
   cardDeclineStore: CardDeclineStore;
   runWebhookTransaction: PaymentWebhookRunner;
+  walletFunding?: WalletFundingServices;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   eventStore: EventStore;
@@ -956,7 +960,7 @@ export type PaymentServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<SavedCheckoutInstrumentRow | null>;
   revokeSavedCheckoutInstrumentsForAgentGrant: (
-    params: Readonly<{ accountId: AccountId; agentGrantId: string; revokedAt?: string }>,
+    params: Readonly<{ accountId: AccountId; agentGrantId: string; revokedAt?: string; operationId?: string }>,
     context: EventStoreContext,
   ) => Promise<Readonly<{ detached: number; alreadyRemoved: number; instrumentIds: readonly string[] }>>;
   reconcileSavedCheckoutInstruments: (
@@ -1607,40 +1611,133 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const agentGrantId = normalizeRequiredText(params.agentGrantId, "Agent grant is required.");
       const revokedAt = params.revokedAt ?? new Date().toISOString();
+      const owner = params.operationId !== undefined;
+      const streamId = `payments.agent-grant-cleanup-${createHash("sha256")
+        .update(JSON.stringify([accountId, agentGrantId]))
+        .digest("hex")}`;
+      const completionPayload = { accountId, agentGrantId, revokedAt, operationId: params.operationId };
+      const completed = async () => {
+        const events = await readCompleteStream(deps.eventStore, { streamId, maxEvents: 500 });
+        if (!events.length) return false;
+        if (
+          events.length !== 1 ||
+          events[0].streamVersion !== 1 ||
+          events[0].eventType !== "payments.agent-grant-cleanup.completed" ||
+          Object.keys(events[0].payload).sort().join() !== "accountId,agentGrantId,operationId,revokedAt" ||
+          Object.entries(completionPayload).some(([key, value]) => events[0].payload[key] !== value) ||
+          events[0].tenantId !== context.tenantId ||
+          events[0].forAccountId !== accountId
+        )
+          throw new Error("agent_grant_cleanup_history_invalid");
+        return true;
+      };
+      if (owner) {
+        if (
+          !params.operationId ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.operationId) ||
+          !params.revokedAt ||
+          !Number.isFinite(Date.parse(revokedAt)) ||
+          new Date(revokedAt).toISOString() !== revokedAt ||
+          !context?.tenantId ||
+          !context.audit?.performedByUserId ||
+          context.audit.forAccountId !== accountId
+        )
+          throw new Error("agent_grant_cleanup_binding_invalid");
+        if (!deps.eventStore.appendToStreams) throw new Error("agent_grant_cleanup_wiring_missing");
+        if (await completed()) return { detached: 0, alreadyRemoved: 0, instrumentIds: [] };
+      }
       await recordRevokedAgentGrant(deps.db, { accountId, agentGrantId, revokedAt });
-      const instruments = await listSavedCheckoutInstrumentsForAgentGrant(deps.db, { accountId, agentGrantId });
-      const alreadyRemoved = instruments.filter((instrument) => instrument.readiness === "removed").length;
+      const instrumentIds: string[] = [];
+      let alreadyRemoved = 0;
       let detached = 0;
-
-      for (const instrument of instruments) {
-        if (instrument.provider_reference) {
-          await deps.processorGateway.detachSavedPaymentMethod(instrument.provider_reference);
-          detached += 1;
+      let afterInstrumentId = "";
+      for (;;) {
+        const instruments = await listSavedCheckoutInstrumentsForAgentGrant(deps.db, {
+          accountId,
+          agentGrantId,
+          ...(owner ? { revokedAt, afterInstrumentId } : {}),
+        });
+        if (owner && Buffer.byteLength(JSON.stringify(instruments), "utf8") > 1024 * 1024)
+          throw new Error("agent_grant_cleanup_page_over_limit");
+        for (const instrument of instruments) {
+          if (owner) {
+            const wasRemoved = instrument.readiness === "removed";
+            if (
+              await removeSavedCheckoutInstrumentForAgentGrant(deps.db, {
+                accountId,
+                agentGrantId,
+                instrumentId: instrument.instrument_id,
+                revokedAt,
+              })
+            ) {
+              instrumentIds.push(instrument.instrument_id);
+              if (wasRemoved) alreadyRemoved += 1;
+            }
+            continue;
+          }
+          if (instrument.provider_reference) {
+            await deps.processorGateway.detachSavedPaymentMethod(instrument.provider_reference);
+            detached += 1;
+          }
+          await markSavedCheckoutInstrumentRemoved(deps.db, {
+            accountId,
+            instrumentId: instrument.instrument_id,
+            timestamp: revokedAt,
+          });
+          await recordSavedCheckoutInstrumentAudit(deps.db, {
+            auditId: `audit_agent_grant_revoked_${agentGrantId}_${instrument.instrument_id}`,
+            instrumentId: instrument.instrument_id,
+            accountId,
+            action: "agent-grant-revoked",
+            reason: agentGrantId,
+            performedByAccountId: accountId,
+            createdAt: revokedAt,
+          });
+          instrumentIds.push(instrument.instrument_id);
         }
-        await markSavedCheckoutInstrumentRemoved(deps.db, {
-          accountId,
-          instrumentId: instrument.instrument_id,
-          timestamp: revokedAt,
-        });
-        await recordSavedCheckoutInstrumentAudit(deps.db, {
-          auditId: `audit_agent_grant_revoked_${agentGrantId}_${instrument.instrument_id}`,
-          instrumentId: instrument.instrument_id,
-          accountId,
-          action: "agent-grant-revoked",
-          reason: agentGrantId,
-          performedByAccountId: accountId,
-          createdAt: revokedAt,
-        });
+        if (!owner || instruments.length < 500) break;
+        const next = instruments.at(-1)!.instrument_id;
+        if (next <= afterInstrumentId) throw new Error("agent_grant_cleanup_cursor_invalid");
+        afterInstrumentId = next;
       }
 
-      if (instruments.length > 0) {
+      if (owner) {
+        const allInstruments = await listSavedCheckoutInstruments(deps.db, accountId);
+        try {
+          await deps.eventStore.appendToStreams!([
+            {
+              streamId: `payments.checkout-affordances-${accountId}`,
+              expectedVersion: "any",
+              context,
+              events: [
+                {
+                  eventType: "payments.checkout-affordances-published",
+                  payload: {
+                    accountId,
+                    savedCheckoutInstruments: allInstruments.map(mapCheckoutAffordanceInstrument),
+                    publishedAt: revokedAt,
+                  },
+                },
+              ],
+            },
+            {
+              streamId,
+              expectedVersion: 0,
+              context,
+              events: [{ eventType: "payments.agent-grant-cleanup.completed", payload: completionPayload }],
+            },
+          ]);
+        } catch (error) {
+          if (!(await completed())) throw error;
+        }
+      } else if (instrumentIds.length > 0) {
         await publishCheckoutAffordances(accountId, context);
       }
 
       return {
         detached,
         alreadyRemoved,
-        instrumentIds: instruments.map((instrument) => instrument.instrument_id),
+        instrumentIds,
       };
     },
     async reconcileSavedCheckoutInstruments(params, context) {
@@ -2496,6 +2593,9 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
               });
             }
             return { received: true, ignored: !instrument };
+          }
+          if (deps.walletFunding && (await deps.walletFunding.processWebhook(webhookEvent, context))) {
+            return { received: true, ignored: false };
           }
 
           if (webhookEvent.internalPaymentId) await transaction.lock(`payment:${webhookEvent.internalPaymentId}`);

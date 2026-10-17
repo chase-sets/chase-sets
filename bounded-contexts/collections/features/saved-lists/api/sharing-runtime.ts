@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler, applyEvents, type EventStore } from "@chase-sets/event-core";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { SavedListServices } from "./runtime";
 import { createSavedListSharingEventCodec } from "../domain/sharing-codec";
 import type { SavedListCommandId, SavedListId, SavedListOwnerSnapshot } from "../domain/contracts";
 import {
@@ -24,12 +26,7 @@ import {
   type SavedListSharingState,
 } from "../domain/sharing-domain";
 
-export type SavedListOwnerSnapshotReader = Readonly<{
-  getOwnerSnapshot: (
-    input: Readonly<{ listId: SavedListId; ownerAccountId: AccountId }>,
-    context: EventStoreContext,
-  ) => Promise<SavedListOwnerSnapshot | null>;
-}>;
+export type SavedListOwnerSnapshotReader = Pick<SavedListServices, "getOwnerSnapshot">;
 
 export type SavedListSharingRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -214,6 +211,7 @@ export function createSavedListSharingRuntime(deps: SavedListSharingRuntimeDeps)
         events,
         metadata: { savedListSharingReceipt: storedReceipt as unknown as JsonValue },
       });
+      recordCommittedEvents(storedEvents, "collections");
       const state = applyEvents(loaded.state, evolveSavedListSharing, events);
       const version = storedEvents.at(-1)?.streamVersion ?? loaded.version;
       const secret =

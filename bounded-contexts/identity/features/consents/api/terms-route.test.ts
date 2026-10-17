@@ -2,16 +2,19 @@ import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { createGuestCheckoutActor } from "../../../../auth/support/runtime-support/runtime";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createEventStoreError } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { IdentityApiEnv } from "../../../api";
-import { recordingAuthorityReader } from "../../../tests/consent-activation-authority-fixtures";
+import { activeSnapshot, recordingAuthorityReader } from "../../../tests/consent-activation-authority-fixtures";
+import { identityConsentPolicyPublications } from "../domain/consent-bundle";
+import { initialConsentState } from "../domain/domain";
 import type { ConsentActivationAuthorityReader } from "../domain/consent-bundle";
 import { termsOfServiceConsentRoutes, type TermsRouteDeps } from "./terms-route";
-import { createConsentRuntime } from "./runtime";
+import { createConsentRuntime, type ConsentServices } from "./runtime";
 
 const actor: ResolvedActor = {
   sessionId: "ses_1",
@@ -34,12 +37,12 @@ function buildContext(currentActor: ResolvedActor): EventStoreContext {
   };
 }
 
-function buildApp(deps: TermsRouteDeps, currentActor: ResolvedActor | null = actor) {
+function buildApp(deps: TermsRouteDeps, currentActor: ResolvedActor | null = actor, context?: EventStoreContext) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", currentActor);
     if (currentActor) {
-      c.set("context", buildContext(currentActor));
+      c.set("context", context ?? buildContext(currentActor));
     }
     await next();
   });
@@ -59,22 +62,23 @@ function buildDeps(
   consentRows: readonly Record<string, unknown>[],
   authority: ConsentActivationAuthorityReader = recordingAuthorityReader({}),
 ) {
-  const commandHandler = vi.fn(async () => ({
+  const commandHandler = vi.fn<ConsentServices["recordTermsConsent"]>(async () => ({
     version: 1,
-    state: { id: "cns_new" },
+    state: initialConsentState,
     newEvents: [],
     storedEvents: [],
   }));
-  const db = { query: vi.fn(async () => ({ rows: consentRows, rowCount: consentRows.length })) };
+  const db = { query: vi.fn(async () => ({ rows: [...consentRows], rowCount: consentRows.length })) };
   const resolvePolicy = vi.fn(async () => {
     throw new Error("resolvePolicy must never be reached by the terms acceptance route.");
   });
   const policies = { consentActivation: authority, resolvePolicy };
-  return { consents: { commandHandler }, db, policies, commandHandler, resolvePolicy } as unknown as TermsRouteDeps & {
-    commandHandler: typeof commandHandler;
-    db: typeof db;
-    resolvePolicy: typeof resolvePolicy;
-  };
+  const deps = {
+    consents: { recordTermsConsent: commandHandler },
+    db,
+    policies,
+  } satisfies TermsRouteDeps;
+  return { ...deps, commandHandler, resolvePolicy };
 }
 
 describe("terms of service consent route", () => {
@@ -224,6 +228,76 @@ describe("terms of service consent route", () => {
       error: { code: "consent_shared_principal_forbidden" },
     });
     expect(appendToStream).not.toHaveBeenCalled();
+    expect(deps.db.query).not.toHaveBeenCalled();
     expect(memory.readAllEvents()).toHaveLength(0);
+  });
+
+  it("rejects actor/context mismatch before authority and read-model I/O", async () => {
+    const authority = recordingAuthorityReader({});
+    const deps = buildDeps([], authority);
+    const response = await buildApp(deps, actor, buildContext({ ...actor, userId: "usr_foreign" })).request(
+      "/consents/terms-of-service/accept",
+      { method: "POST" },
+    );
+    expect(response.status).toBe(403);
+    expect(authority.reads).toEqual([]);
+    expect(deps.db.query).not.toHaveBeenCalled();
+    expect(deps.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("re-resolves conflict attempts with a two-attempt ceiling (exhaust=%s)", async (exhaust) => {
+    const key = "identity.terms-of-service-active-version";
+    const authority = recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v1") });
+    const deps = {
+      ...buildDeps([], authority),
+      publication: {
+        ...identityConsentPolicyPublications["terms-of-service"],
+        consentActivatable: true,
+        version: "v1" as const,
+      },
+    };
+    const conflict = createEventStoreError("concurrency_conflict", "authority moved");
+    deps.commandHandler.mockRejectedValueOnce(conflict);
+    if (exhaust) deps.commandHandler.mockRejectedValueOnce(conflict);
+    const response = await buildApp(deps).request("/consents/terms-of-service/accept", { method: "POST" });
+    expect(response.status).toBe(exhaust ? 409 : 201);
+    if (exhaust) await expect(response.json()).resolves.toMatchObject({ error: { code: "conflict" } });
+    expect(deps.commandHandler).toHaveBeenCalledTimes(2);
+    expect(authority.reads).toHaveLength(exhaust ? 2 : 3);
+    for (const [input] of deps.commandHandler.mock.calls) {
+      expect(input.activationAuthority).toBe(authority);
+      expect(input).not.toHaveProperty("command");
+      expect(input).not.toHaveProperty("guards");
+      expect(input).not.toHaveProperty("policyVersion");
+    }
+  });
+
+  it("returns 200 without recording an already-current active acceptance", async () => {
+    const key = "identity.terms-of-service-active-version";
+    const deps = {
+      ...buildDeps(
+        [
+          {
+            consent_id: "cns_existing",
+            subject_type: "user",
+            user_id: actor.userId,
+            account_id: actor.accountId,
+            policy_key: "terms-of-service",
+            policy_version: "v1",
+            status: "recorded",
+            recorded_at: "2026-06-01T00:00:00.000Z",
+          },
+        ],
+        recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v1") }),
+      ),
+      publication: {
+        ...identityConsentPolicyPublications["terms-of-service"],
+        consentActivatable: true,
+        version: "v1" as const,
+      },
+    };
+    const response = await buildApp(deps).request("/consents/terms-of-service/accept", { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(deps.commandHandler).not.toHaveBeenCalled();
   });
 });

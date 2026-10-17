@@ -77,3 +77,32 @@ export type { CatalogItemDetail } from "./features/catalog-items/ui/contracts";
 export { createCatalogProviderConnectionsReadSource } from "./features/source-observations/api/admin/provider-connections-read-source";
 export type { CatalogServices } from "./support/authoring-support/services";
 export { createOperatorTransport } from "./features/operator-session/domain/extension/transport";
+export {
+  buildScopeSyncBatchPreviewProbeReceipt,
+  classifyScopeSyncBatchPreviewProbeRefresh,
+  classifyScopeSyncBatchPreviewProbeRequest,
+  deriveScopeSyncBatchPreviewProbeRoster,
+  readScopeSyncBatchPreviewProbeDeployedRoster,
+  scopeSyncBatchPreviewProbeArtifactPath,
+  scopeSyncBatchPreviewProbeCredentialGate,
+  scopeSyncBatchPreviewProbeFormIntent,
+  scopeSyncBatchPreviewProbeJourneyScope,
+  scopeSyncBatchPreviewProbeOriginGate,
+  scopeSyncBatchPreviewProbeRows,
+  summarizeScopeSyncBatchPreviewProbeInbox,
+  summarizeScopeSyncBatchPreviewProbePreview,
+  supportSafeText as scopeSyncBatchPreviewProbeSupportSafeText,
+  validateScopeSyncBatchPreviewProbeReceipt,
+} from "./features/scope-sync-batches/domain/preview-probe-receipt";
+export type {
+  ScopeSyncBatchPreviewProbeIdentity,
+  ScopeSyncBatchPreviewProbeInboxObservation,
+  ScopeSyncBatchPreviewProbeReceipt,
+  ScopeSyncBatchPreviewProbeRefreshResult,
+  ScopeSyncBatchPreviewProbeRoster,
+  ScopeSyncBatchPreviewProbeRowCapture,
+  ScopeSyncBatchPreviewProbeRowDefinition,
+  ScopeSyncBatchPreviewProbeScheduleState,
+} from "./features/scope-sync-batches/domain/preview-probe-receipt";
+export type { ScopeSyncBatchPreview } from "./features/scope-sync-batches/domain/batch";
+export { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./features/source-observations/ui/primary-workbench-read-model";

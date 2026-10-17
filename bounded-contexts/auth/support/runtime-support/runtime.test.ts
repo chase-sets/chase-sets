@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import { createIdentityOperatorAuthority } from "@chase-sets/identity/server";
+import { createMcpRoutes, type McpToolHandlerInput } from "@chase-sets/platform-runtime/mcp";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
-import type { AuthServices } from "./services";
+import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
+import { createAuthServices, type AuthServices } from "./services";
 import {
   AUTH_GUEST_CHECKOUT_PERMISSIONS,
   AUTH_GUEST_CHECKOUT_ROLE_KEY,
@@ -61,6 +66,47 @@ function toAuthenticatedSessionRead(
 }
 
 describe("Auth request actor resolution", () => {
+  it.each([
+    // retired scope fixture: old authority is not upgraded to capability scopes or defaults.
+    { scopes: ["checkout:write", "order:read"], expectedScopes: [], permissions: [] },
+    {
+      scopes: ["checkout:write", "inventory:read"],
+      expectedScopes: ["inventory:read"],
+      permissions: ["inventory.view"],
+    },
+  ])("stored buyer grants keep only registered scopes: $scopes", async ({ scopes, expectedScopes, permissions }) => {
+    const services = createServices({
+      membership: {
+        membership_id: "mem_retired",
+        user_id: "usr_retired",
+        account_id: "acc_retired",
+        role_key: "owner",
+        role_permissions: ["catalog.view", "orders.view", "orders.manage", "inventory.view"],
+        status: "active",
+        updated_at: "2026-10-12T00:00:00.000Z",
+      },
+    });
+    const actor = await resolveActorFromRequest(
+      services,
+      new Request("https://platform.test/mcp", {
+        headers: { authorization: "Bearer ucp_at_retired" },
+      }),
+      {
+        linkedPlatformAuthorizations: {
+          resolveAccessToken: vi.fn(async () => ({
+            authorization_id: "lpa_retired",
+            platform_profile_url: "https://agent.example/.well-known/ucp",
+            user_id: "usr_retired",
+            account_id: "acc_retired",
+            scopes,
+          })),
+        },
+      },
+    );
+    expect(actor?.permissions).toEqual(permissions);
+    expect(actor?.agentGrant?.scopes).toEqual(expectedScopes);
+  });
+
   it.each(["owner", "manager"])("applies pricing email boundaries for %s", async (roleKey) => {
     for (const emailState of [
       "unverified",
@@ -401,9 +447,10 @@ describe("Auth request actor resolution", () => {
     const linkedPlatformAuthorizations = {
       resolveAccessToken: vi.fn(async () => ({
         authorization_id: "lpa_1",
+        platform_profile_url: "https://agent.example/.well-known/ucp",
         user_id: "usr_1",
         account_id: "acc_1",
-        scopes: ["catalog:read", "checkout:write"],
+        scopes: ["catalog:read", "dev.ucp.shopping.checkout:manage"],
       })),
     };
 
@@ -422,10 +469,11 @@ describe("Auth request actor resolution", () => {
       accountId: "acc_1",
       membershipId: "mem_1",
       roleKey: "owner",
-      permissions: ["catalog.view", "orders.manage"],
+      permissions: ["catalog.view", "orders.manage", "orders.view"],
       agentGrant: {
         grantId: "lpa_1",
-        scopes: ["catalog:read", "checkout:write"],
+        platformProfileUrl: "https://agent.example/.well-known/ucp",
+        scopes: ["catalog:read", "dev.ucp.shopping.checkout:manage"],
         rolePermissions: ["accounts.view", "catalog.view", "listings.view", "orders.manage", "orders.view"],
       },
     });
@@ -449,6 +497,7 @@ describe("Auth request actor resolution", () => {
     const linkedPlatformAuthorizations = {
       resolveAccessToken: vi.fn(async () => ({
         authorization_id: "lpa_precedence",
+        platform_profile_url: "https://agent.example/.well-known/ucp",
         user_id: "usr_ucp_precedence",
         account_id: "acc_ucp_precedence",
         scopes: ["catalog:read"],
@@ -489,6 +538,7 @@ describe("Auth request actor resolution", () => {
         user_id: "usr_1",
         account_id: "acc_1",
         scopes: ["payouts:request"],
+        platform_profile_url: "https://agent.example/.well-known/ucp",
       })),
     };
 
@@ -510,5 +560,97 @@ describe("Auth request actor resolution", () => {
         rolePermissions: ["payouts.view"],
       },
     });
+  });
+});
+
+describe("operator authority reads aggregate", () => {
+  const offerEconomicsTool = "platform-operations.get-offer-economics-summary";
+  const linkedPlatformAuthorizations = {
+    resolveAccessToken: vi.fn(async () => ({
+      authorization_id: "lpa_operator",
+      platform_profile_url: "https://agent.example/.well-known/ucp",
+      user_id: "usr_op",
+      account_id: "acc_op",
+      scopes: ["catalog:read", "operations:write"],
+    })),
+  };
+
+  async function resolveOperatorBearer(aggregateRoleKey: "platform-admin" | "owner") {
+    const services = createServices({
+      // The projection is stale: it still says platform-admin after the aggregate changed.
+      membership: {
+        membership_id: "mem_op",
+        user_id: "usr_op",
+        account_id: "acc_op",
+        role_key: "platform-admin",
+        role_permissions: [...AUTH_ROLE_PERMISSIONS["platform-admin"]],
+        status: "active",
+        updated_at: new Date().toISOString(),
+      },
+    });
+    const getMembershipState = vi.fn(async () => ({
+      id: "mem_op",
+      userId: "usr_op",
+      accountId: "acc_op",
+      roleKey: aggregateRoleKey,
+      status: "active",
+    }));
+    const operatorAuthority = createIdentityOperatorAuthority({ getMembershipState } as never);
+    const actor = await resolveActorFromRequest(
+      { ...services, identity: { ...services.identity, operatorAuthority } } as AuthServices,
+      new Request("https://platform.test/mcp", { headers: { authorization: "Bearer ucp_at_operator" } }),
+      { linkedPlatformAuthorizations },
+    );
+    return { actor: actor!, operatorAuthority, getMembershipState };
+  }
+
+  async function callOfferEconomics(
+    actor: ResolvedActor,
+    operatorAuthority: AuthServices["identity"]["operatorAuthority"],
+  ) {
+    const handler = vi.fn(async (_input: McpToolHandlerInput) => ({ snapshot: {} }));
+    const app = new Hono<{ Variables: { actor: ResolvedActor } }>();
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      await next();
+    });
+    app.route("/", createMcpRoutes({ operatorAuthority, toolHandlers: { [offerEconomicsTool]: handler } }));
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: offerEconomicsTool } }),
+    });
+    return { text: await response.text(), handler };
+  }
+
+  it("refuses the next operator call once the aggregate is demoted, whatever the projection says", async () => {
+    const { actor, operatorAuthority, getMembershipState } = await resolveOperatorBearer("owner");
+
+    // The same bearer on an HTTP route holds only its commerce scopes' permissions.
+    expect(actor.roleKey).toBe("platform-admin");
+    expect(actor.permissions).toEqual(["catalog.view"]);
+    expect(actor.agentGrant?.scopes).toEqual(["catalog:read", "operations:write"]);
+
+    const refused = await callOfferEconomics(actor, operatorAuthority);
+    expect(refused.text).toContain("This MCP capability is not available to the authenticated actor.");
+    expect(refused.handler).not.toHaveBeenCalled();
+    expect(getMembershipState).toHaveBeenCalledWith("mem_op");
+  });
+
+  it("admits the same bearer while the aggregate is platform-admin, without widening its HTTP actor", async () => {
+    const { actor, operatorAuthority } = await resolveOperatorBearer("platform-admin");
+
+    expect(actor.permissions).toEqual(["catalog.view"]);
+    const admitted = await callOfferEconomics(actor, operatorAuthority);
+    expect(admitted.handler).toHaveBeenCalledTimes(1);
+    expect(admitted.handler.mock.calls[0]![0]).toMatchObject({
+      actor: { permissions: expect.arrayContaining(["insights-dashboards.view"]), roleKey: "platform-admin" },
+    });
+  });
+
+  it("carries the host-supplied operator authority on Auth's identity port", () => {
+    const operatorAuthority = vi.fn();
+    const pool = { query: vi.fn(), connect: vi.fn() } as never;
+    expect(createAuthServices(pool, { operatorAuthority }).identity.operatorAuthority).toBe(operatorAuthority);
+    expect(createAuthServices(pool).identity.operatorAuthority).toBeUndefined();
   });
 });

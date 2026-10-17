@@ -22,6 +22,31 @@ const fixtureNow = new Date("2026-06-22T00:00:00.000Z");
 
 describe("Scrydex One Piece provider adapter", () => {
   it.each([
+    { page_size: 2147483648, total_count: 0 },
+    { page_size: 100, total_count: 0, totalCount: 1 },
+  ])(
+    "preserves full-pagination numeric bounds and snake-case precedence outside count acquisition",
+    async (metadata) => {
+      const adapter = createScrydexOnePieceProviderAdapter({
+        credentials: fixtureCredentials,
+        baseUrl: fixtureBaseUrl,
+        now: () => fixtureNow,
+        fetch: async (input) =>
+          Response.json(
+            new URL(String(input)).pathname.endsWith("/usage")
+              ? scrydexUsageResponse
+              : { data: [], page: 1, count: 0, ...metadata },
+          ),
+      });
+      const plan = await adapter.planImport({
+        unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        scopeKey: "expansion",
+        values: { expansionId: "OP01" },
+      });
+      expect(await collectPayloads(adapter.fetchPayloads(plan))).toEqual([]);
+    },
+  );
+  it.each([
     ["snake", 121],
     ["camel", 121],
     ["snake", 100],
@@ -435,7 +460,7 @@ describe("Scrydex One Piece provider adapter", () => {
         estimateState: "estimate-unavailable",
         estimatedRequestCount: null,
         estimateReason:
-          "Card page count requires a fresh completed exact-query Scrydex count observation; set imports use q=printings:<set> to include reprints.",
+          "Card page count requires fresh exact-query Scrydex count evidence; set imports use q=printings:<set> to include reprints.",
         pageSize: 250,
         selectedFields: [
           "id",
@@ -467,7 +492,7 @@ describe("Scrydex One Piece provider adapter", () => {
         requestStrategy: "bulk-first",
         estimateState: "estimate-unavailable",
         estimatedRequestCount: null,
-        estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+        estimateReason: "Sealed-product page count requires fresh exact-query Scrydex count evidence.",
         pageSize: 100,
         selectedFields: ["id", "name", "type", "images", "language", "language_code", "expansion"],
         perRecordFallbackReason: null,
@@ -1034,12 +1059,16 @@ function scrydexResponseFixtureFetch(responses: Readonly<Record<string, unknown>
   };
 }
 
+// Synthetic values in the real Scrydex usage envelope; the period covers fixtureNow.
 const scrydexUsageResponse = {
-  total_credits: 1000,
-  remaining_credits: 875,
-  used_credits: 125,
-  overage_credit_rate: "0.01",
-  updated_at: "2026-06-22T00:00:00.000Z",
+  data: {
+    total_credits_consumed: 125,
+    overage_credits_consumed: 0,
+    credits_remaining: 875,
+    period_start: "2026-06-01T00:00:00.000Z",
+    period_end: "2026-07-01T00:00:00.000Z",
+    daily_usage: [{ date: "2026-06-21", credits_consumed: 125 }],
+  },
 };
 
 function endpoint(url: string): string {

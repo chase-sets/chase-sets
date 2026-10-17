@@ -262,7 +262,7 @@ describe("design system panels, navigation, and shells", () => {
   it("renders sticky checkout CTAs without hiding context", () => {
     const markup = renderToString(
       <StickyCtaBar
-        price="$472.19"
+        total="$472.19"
         context="Final total before payment"
         primaryAction={<Button>Continue to payment</Button>}
         secondaryAction={<Button tone="secondary">Edit cart</Button>}

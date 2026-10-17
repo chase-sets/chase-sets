@@ -1,6 +1,8 @@
 import { editedSnapshotFromFormData } from "../../../features/source-observations/api/catalog-merge-candidate-edit";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
+import type { CatalogCommandJobResponse } from "./integrations-command-context";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
+import { stringValue } from "./integrations-form-values";
 
 type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
@@ -33,8 +35,8 @@ export async function handleCandidateCommand(input: {
 }): Promise<CatalogIntegrationsCommandResult> {
   const { api, intent, context, formData, selectedObservationIds } = input;
 
-  if (formData.has("bulkCandidateIds")) {
-    return handleCandidateSetCommand(api, intent, context, formData, selectedObservationIds);
+  if (formData.get("candidateSelection") === "scope") {
+    return handleCandidateScopeCommand(api, intent, context, formData, selectedObservationIds);
   }
 
   const candidateId = String(formData.get("candidateId") ?? "").trim();
@@ -99,7 +101,11 @@ export async function handleCandidateCommand(input: {
   });
 }
 
-async function handleCandidateSetCommand(
+// The scope toolbar's promote-all-ready and defer-remainder actions: the same
+// candidate verbs applied to every matching candidate in the scope. The page
+// submits only the scope; the server enqueues one durable job that selects the
+// candidates itself when it starts.
+async function handleCandidateScopeCommand(
   api: Api,
   intent: CandidateCommandIntent,
   context: RouteContext,
@@ -110,38 +116,28 @@ async function handleCandidateSetCommand(
     return candidateResult(intent, "error", "invalid-intent", { ...context, selectedObservationIds });
   }
 
-  const candidateIds = candidateIdList(formData);
-  if (candidateIds.length === 0) {
+  const scopeRecordId = stringValue(formData.get("scopeRecordId")) ?? context.scopeRecordId;
+  if (!scopeRecordId) {
     return candidateResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
   }
 
-  const reason =
-    String(formData.get("reason") ?? "").trim() ||
-    (intent === "candidate.promote" ? "Promote all ready candidates in the current scope." : "");
-  if (!reason) {
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (intent === "candidate.defer" && !reason) {
     return candidateResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
   }
 
-  for (const candidateId of candidateIds) {
-    if (intent === "candidate.promote") {
-      await api.promoteCatalogMergeCandidate(candidateId, { reason });
-    } else {
-      await api.deferCatalogMergeCandidate(candidateId, { reason });
-    }
-  }
+  const job = await api.enqueueCatalogMergeCandidateBulkJob<CatalogCommandJobResponse>(
+    intent === "candidate.promote" ? "merge-candidate-promote" : "merge-candidate-defer",
+    scopeRecordId,
+    reason || null,
+  );
 
-  return candidateResult(intent, "success", "job-queued", { ...context, selectedObservationIds });
-}
-
-function candidateIdList(formData: FormData): readonly string[] {
-  return [
-    ...new Set(
-      String(formData.get("bulkCandidateIds") ?? "")
-        .split(",")
-        .map((candidateId) => candidateId.trim())
-        .filter(Boolean),
-    ),
-  ];
+  return candidateResult(intent, "success", "job-queued", {
+    ...context,
+    selectedObservationIds,
+    jobId: stringValue(job.jobId) ?? context.jobId,
+    promotionPreviewId: null,
+  });
 }
 
 function mergeCandidateCommandBody(formData: FormData): Record<string, unknown> | null {

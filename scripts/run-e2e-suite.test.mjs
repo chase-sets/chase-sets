@@ -18,11 +18,6 @@ import {
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
   TCGPLAYER_CONNECTOR_REDIRECT_URI,
 } from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
-import {
-  extensionIdCandidate,
-  extensionKeyCandidate,
-  extensionRedirectUriCandidate,
-} from "../deployables/tcgplayer-connector-extension/src/authority-candidate.ts";
 
 function walkFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -113,16 +108,34 @@ describe("run e2e suite", () => {
     ]);
   });
 
-  it("pins the probe candidate to the Channels client contract", () => {
+  it("pins the product identity to the Channels client contract", () => {
     expect(Object.keys(channelsClient).sort()).toEqual([
       "TCGPLAYER_CONNECTOR_EXTENSION_ID",
       "TCGPLAYER_CONNECTOR_EXTENSION_KEY",
       "TCGPLAYER_CONNECTOR_REDIRECT_URI",
+      "assertConnectorRunSettlement",
+      "assertTcgplayerOrderRecord",
+      "buildConnectorManifest",
+      "composeChannelOrderFulfillmentInbound",
+      "composeChannelOrderFulfillmentReference",
+      "composeTcgplayerOrderInbound",
+      "composeTcgplayerOrderObservation",
+      "createConnectorBackground",
+      "createConnectorOperationCoordinator",
+      "createConnectorRetentionStore",
+      "createTcgplayerLiveExportExecutor",
+      "isLiveExportAuthorityRequest",
+      "stagedImportMembershipDigest",
+      "tcgplayerLiveExportAuthority",
+      "tcgplayerOrderLimits",
+      "tcgplayerSaleKey",
+      "translateOrderShippingType",
+      "translateOrderStatus",
     ]);
-    expect({ extensionIdCandidate, extensionKeyCandidate, extensionRedirectUriCandidate }).toEqual({
-      extensionIdCandidate: TCGPLAYER_CONNECTOR_EXTENSION_ID,
-      extensionKeyCandidate: TCGPLAYER_CONNECTOR_EXTENSION_KEY,
-      extensionRedirectUriCandidate: TCGPLAYER_CONNECTOR_REDIRECT_URI,
+    expect(channelsClient).toMatchObject({
+      TCGPLAYER_CONNECTOR_EXTENSION_ID,
+      TCGPLAYER_CONNECTOR_EXTENSION_KEY,
+      TCGPLAYER_CONNECTOR_REDIRECT_URI,
     });
   });
 
@@ -202,6 +215,20 @@ describe("run e2e suite", () => {
       "admin_commerce,admin_access",
       "marketplace_seller,admin_growth",
     ]);
+  });
+
+  it.each([
+    "docker-compose.dev.yml",
+    "scripts/lib/sandbox.mjs",
+    "scripts/dev-system.mjs",
+    "scripts/dev-system-config.mjs",
+  ])("shared sandbox runtime %s covers account and seller in normal suite batches", (file) => {
+    const selected = e2eSuiteIdsForChangedFile(file);
+    const batched = batchE2eSuiteIds(selected).flatMap((batch) => batch.split(","));
+    expect(selected).toContain("marketplace_account");
+    expect(selected).toContain("marketplace_seller");
+    expect(batched).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(new Set(batched).size).toBe(selected.length);
   });
 
   it("routes the marketplace index route to browse coverage", () => {
@@ -520,6 +547,9 @@ describe("run e2e suite", () => {
   });
 
   it("channels-e2e-suite-ownership", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx")).toEqual([
+      "admin_support",
+    ]);
     // Both Channels ownership keys must independently resolve to marketplace_account,
     // so deleting either one fails here with an unexpected empty array instead of
     // silently letting `e2eSuiteIdsForChangedFile` fall through to `?? []`.

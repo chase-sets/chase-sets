@@ -27,6 +27,7 @@ import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processin
 // same way this file already inlines `requiredDraftListingId`. Each inlined id
 // is guarded by an assertion that fails loudly if the seed renames it.
 import { identitySeedIds } from "@chase-sets/identity/server";
+import { createSupportEvidenceSeedContext } from "@chase-sets/platform-operations/server";
 import { expect } from "vitest";
 import { createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
@@ -445,12 +446,6 @@ export const frozenSeedIdentityCorpus: readonly string[] = [
   "identity|Account|acc_seed_support_account|Support Ops",
   "identity|Account|acc_seed_suspended_account|Dormant Account",
   "identity|Account|acc_seed_value_trader_account|Value Trader",
-  "identity|Consent|cns_seed_card_vault_terms|terms-of-service usr_seed_card_vault_user",
-  "identity|Consent|cns_seed_collector_terms|terms-of-service usr_seed_collector_user",
-  "identity|Consent|cns_seed_demo_terms|terms-of-service usr_seed_demo_user",
-  "identity|Consent|cns_seed_high_roller_trader_terms|terms-of-service usr_seed_high_roller_trader_user",
-  "identity|Consent|cns_seed_sealed_stockroom_terms|terms-of-service usr_seed_sealed_stockroom_user",
-  "identity|Consent|cns_seed_value_trader_terms|terms-of-service usr_seed_value_trader_user",
   "identity|Invitation|ivt_seed_cancelled|cancelled@chasesets.test",
   "identity|Invitation|ivt_seed_declined|declined@chasesets.test",
   "identity|Invitation|ivt_seed_expired|expired@chasesets.test",
@@ -1490,6 +1485,7 @@ export function createHost(runtimeProfile: PlatformApiRuntimeProfile = "public")
     runtimeProfile,
     pools,
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       listingPhotoStorage,
     },
@@ -1668,7 +1664,7 @@ export async function replaceResolvedSeedRequestWithCancelled(
       submittedAt: "2026-03-25T10:04:00.000Z",
       attachments: ["seed://support/damaged-card-corner"],
     },
-    context: seedActorContext,
+    context: createSupportEvidenceSeedContext(seedActorContext),
   });
   await supportRequests.commandHandler({
     streamId,

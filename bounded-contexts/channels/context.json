@@ -2,6 +2,7 @@
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
   "ownedNouns": [
+    "eBay-account-deletion-receipt",
     "channel-connection",
     "channel-health",
     "channel-publication-facts",
@@ -21,12 +22,17 @@
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
   "slices": [
+    "ebay-account-deletion",
+    "connector-feed",
     "connections",
     "credentials",
     "connector-client",
     "publication-port",
     "listing-composition",
     "tcgplayer-csv",
+    "tcgplayer-orders",
+    "live-export-snapshot",
+    "order-fulfillment-observations",
     "outbound-sync",
     "connection-health",
     "connection-attention",
@@ -34,10 +40,30 @@
     "reconciliation"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./client", "./context", "./server", "./routes/*", "./seed-support/*"],
-  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
+  "publicExports": [".", "./client", "./context", "./server", "./test-support", "./routes/*", "./seed-support/*"],
+  "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
+    {
+      "portName": "ebayAccountDeletionConfiguration",
+      "providedBy": "platform-api",
+      "purpose": "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET."
+    },
+    {
+      "portName": "webhookTelemetry",
+      "providedBy": "platform-api",
+      "purpose": "Record bounded provider webhook outcomes without request or configuration values."
+    },
+    {
+      "portName": "storageLocationAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume."
+    },
+    {
+      "portName": "connectorOAuth",
+      "providedBy": "platform-api",
+      "purpose": "Use Auth's separate connection-bound connector grant mechanism without resolving agent authority."
+    },
     {
       "portName": "marketplaceChannelInboundClamp",
       "providedBy": "platform-api, platform-worker",
@@ -55,6 +81,15 @@
     }
   ],
   "eventSubscriptions": [
+    {
+      "sourceContextName": "inventory",
+      "projectionName": "channel-fulfillment-item-facts",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.item.created"],
+      "order": 31,
+      "projectionHandlerSetNames": ["channel-fulfillment-item-facts"]
+    },
     {
       "sourceContextName": "marketplace",
       "projectionName": "channel-marketplace-publication-facts",
@@ -143,6 +178,33 @@
     }
   ],
   "eventReactions": [
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "channel-fulfillment-observation-retry",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.external-channel-sale.recorded"],
+      "order": 64,
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "channels",
+      "reactionName": "channel-fulfillment-observation-retry",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "channels.channel-listing.desired-state-changed",
+        "channels.channel-publication-configuration.mapping-review-decided"
+      ],
+      "order": 65,
+      "reactionHandlerSetNames": ["channel-fulfillment-observation-retry"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
     {
       "sourceContextName": "marketplace",
       "reactionName": "channel-listing-desired-state-reaction",
@@ -234,6 +296,22 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "channel-fulfillment-observation-retry",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["inventory", "channels"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "channel-fulfillment-item-facts",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["channel_fulfillment_item_facts"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "channel-connection-projection",
       "sourceContextNames": ["channels"],
       "ownedTables": ["channel_connections"],
@@ -322,6 +400,20 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
+          "routePath": "/connections/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "channel_connections" }]
+        },
+        {
+          "routePath": "/connections/:connectionId/manual-sync",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "channel_connections" },
+            { "readModelTable": "channel_sync_runs" },
+            { "readModelTable": "channel_sync_run_rows" }
+          ]
+        },
+        {
           "routePath": "/publication/:connectionId",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -331,9 +423,22 @@
           ]
         }
       ]
+    },
+    {
+      "mountPath": "/channel-connector/oauth",
+      "kind": "additional",
+      "requiresAuth": false
+    },
+    {
+      "mountPath": "/api/channels-webhooks",
+      "kind": "additional",
+      "requiresAuth": false
     }
   ],
   "workerRuntimeProfiles": ["proof", "public"],
+  "agentCoverage": {
+    "ebay-account-deletion-lookup": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -430,23 +535,93 @@
           }
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "ebay-account-deletion-lookup",
+          "routePath": "ebay-account-deletion",
+          "fileExport": "./routes/admin/ebay-account-deletion",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "section": "support"
+        }
+      ]
     }
   ],
   "shellContributions": [
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
       "key": "channels-publication",
       "label": "Channels",
       "icon": "store",
       "href": "/account/channels",
       "order": 150,
       "visibility": "signed-in",
-      "requiredPermissions": ["channels.view"]
+      "requiredPermissions": ["channels.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "ebay-account-deletion-lookup",
+      "label": "eBay Deletion Lookup",
+      "icon": "search",
+      "href": "/ebay-account-deletion",
+      "section": "support",
+      "order": 7,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
     }
   ],
   "readAfterWriteRouteInventory": [
+    {
+      "id": "channels.activation-to-manual-sync",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "source": {
+        "routeId": "channels-connection-detail",
+        "actions": ["Activate"],
+        "command": "ActivateChannelConnection"
+      },
+      "destination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:connectionId/manual-sync",
+        "readModelTables": ["channel_connections", "channel_sync_runs", "channel_sync_run_rows"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The detail resource route renders the canonical loading state for exact-receipt projection lag; activation is never replayed."
+        }
+      }
+    },
+    {
+      "id": "channels.connect-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "source": {
+        "routeId": "channels-connections",
+        "actions": ["Connect a channel"],
+        "command": "ConnectChannel",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:id",
+        "readModelTables": ["channel_connections"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Fresh connection projection lag renders the canonical loading state rather than a missing connection."
+        }
+      }
+    },
     {
       "id": "channels.publication-settings-to-detail",
       "owner": "channels",
@@ -475,6 +650,50 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "channels.ebay-account-deletion-lookup-snapshot",
+      "owner": "channels",
+      "risk": "internal",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/staff-route.ts:POST /staff/ebay-account-deletion/lookup",
+        "route-action:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-route-adapter.tsx",
+        "post-form:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-lookup-page.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "routeId": "ebay-account-deletion-lookup",
+        "description": "Staff receives the current exact-match receipt metadata directly; POST keeps the sensitive user ID out of URLs and performs no mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "The Channels store selects unexpired matching metadata without projections, subject echo or decryption; the admin action validates that closed response and returns it directly.",
+        "tests": [
+          "deployables/platform-api/__tests__/ebay-account-deletion-staff-composition.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-receipt-lookup.db.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-lookup-page.test.tsx"
+        ]
+      }
+    },
+    {
+      "id": "channels.connect-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:id",
+        "readModelTables": ["channel_connections"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The create receipt follows the redirect; the detail loader renders loading while the connection projection catches up."
+        }
+      }
+    },
     {
       "id": "channels.drift-decision-snapshots",
       "owner": "channels",
@@ -519,12 +738,38 @@
       }
     },
     {
+      "id": "channels.connector-pairing-command-snapshots",
+      "owner": "channels",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "post-form:bounded-contexts/channels/features/connector-feed/ui/pairing-panel.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/connector-feed/ui/pairing-panel.tsx:Hb08a81ecfd73#2",
+        "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "description": "Pairing actions return the committed one-use code or redirect to a current authority read; no optimistic paired status or last-seen is invented."
+      },
+      "proof": {
+        "authoritativeResponse": "Code creation returns the committed pairing identity and expiry. Unpair compares identity/revision before cleanup and the loader revalidates from the locked connection and pairing state. Malformed pairing DTOs render unavailable.",
+        "tests": [
+          "bounded-contexts/channels/features/connector-feed/tests/connector-pairing-lifecycle.db.test.ts",
+          "bounded-contexts/channels/features/connector-feed/tests/connector-pairing-surface.test.tsx",
+          "bounded-contexts/channels/features/connector-feed/tests/connector-contracts.test.ts",
+          "deployables/platform-api/__tests__/connector-mount-gate-isolation.db.test.ts"
+        ]
+      }
+    },
+    {
       "id": "channels.connection-command-snapshots",
       "owner": "channels",
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/pause",
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/activate",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#2",
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/resume",
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H542755c24d1e#1",
@@ -589,7 +834,7 @@
       ],
       "visibleDestination": {
         "routeId": "channels-connection-detail",
-        "description": "Every manual sync API mutation returns the committed producer run/panel, exact CSV, ingest receipt, or verification snapshot; failures return a closed error without claiming projected success."
+        "description": "Every manual sync API mutation returns the committed producer run/panel, exact CSV, bounded ingest receipt (surface, server probe, and the ingested snapshot identity or refusal reason, never export rows or header), or verification snapshot; failures return a closed error without claiming projected success."
       },
       "proof": {
         "authoritativeResponse": "The route returns the exact result from the imported TCGplayer run service and Marketplace clamp port. Run revisions fence every lifecycle write, and bounded upload refusal occurs before the producer parser/write call.",
@@ -607,10 +852,11 @@
       "strategy": "optimistic-with-correction",
       "surfaces": [
         "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#1",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#2",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#3",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#4",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#5",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#3",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#4",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#5",
         "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
       ],
       "visibleDestination": {
@@ -618,9 +864,10 @@
         "description": "The connection page exposes only actions admitted by the exact loaded run revision, keeps action errors visible, and revalidates the account-scoped panel after successful writes."
       },
       "proof": {
-        "correction": "Successful actions redirect to the same connection route so its authenticated loader replaces the panel with the latest producer revision; failures render a canonical error banner and stale or unlisted actions write nothing.",
+        "correction": "Successful run actions redirect to the same connection route so its authenticated loader replaces the panel with the latest producer revision; ingest returns its bounded receipt as action data while the route revalidates the panel; Staged-basis Compose refusals render ingest guidance, other failures render a canonical error banner, and stale or unlisted actions write nothing.",
         "tests": [
           "bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.test.tsx",
+          "bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.test.tsx",
           "bounded-contexts/channels/features/manual-sync/api/manual-sync-route.test.ts",
           "bounded-contexts/channels/features/manual-sync/domain/manual-sync-contracts.test.ts"
         ]
@@ -628,6 +875,23 @@
     }
   ],
   "directoryIntent": {
+    "ebay-account-deletion": {
+      "classification": "slice",
+      "purpose": "Channels owns ebay-account-deletion challenge GET, deployment configuration, encrypted receipt custody, stable subject matching, expiry and staff exact lookup.",
+      "expectedConsumers": [
+        "Channels public webhook mount",
+        "platform-api configuration loader",
+        "Channels webhook receipt caller",
+        "Channels subject binding and deletion consumers",
+        "Scheduled worker",
+        "Staff admin lookup"
+      ]
+    },
+    "order-fulfillment-observations": {
+      "classification": "slice",
+      "purpose": "Own the order-fulfillment-observations slice's shared versioned Channel Order Fulfillment Observation reference composer.",
+      "expectedConsumers": ["Channel fulfillment interpreter (#7795)", "Connector fulfillment producer (#8613)"]
+    },
     "credentials": {
       "classification": "slice",
       "purpose": "Own the credentials slice canonical codecs, transactional custody, bound secret resolution, and explicit key rotation.",
@@ -637,6 +901,15 @@
       "classification": "slice",
       "purpose": "Own the connection-attention generation lifecycle, resolution facts, and combined channel-action source and detail panel.",
       "expectedConsumers": ["Channels health producers, connection detail, and Seller Desk"]
+    },
+    "connector-feed": {
+      "classification": "slice",
+      "purpose": "Own Channel Connection pairing, current operation authority, claim/report transport, durable write-only inbound admission and safe request audit.",
+      "expectedConsumers": [
+        "Channels connection detail",
+        "Connector clients",
+        "Channels inbound interpreters and retention sweeps"
+      ]
     },
     "connection-health": {
       "classification": "slice",
@@ -666,7 +939,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Compose authenticated Channels publication requests and adapt request-time Marketplace capabilities at the context boundary.",
-      "expectedConsumers": ["connections", "manual-sync"],
+      "expectedConsumers": ["connections", "manual-sync", "connector-feed"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
@@ -693,6 +966,16 @@
       "classification": "slice",
       "purpose": "The tcgplayer-csv slice owns TCGplayer export snapshots, staged CSV composition, and replayable Channel Sync Runs.",
       "expectedConsumers": ["Channels manual and connector sync workflows"]
+    },
+    "tcgplayer-orders": {
+      "classification": "slice",
+      "purpose": "The tcgplayer-orders slice owns recoverable Channel Sale Observations and complete pull accounting through the admitted connector reader.",
+      "expectedConsumers": ["Channels connector consumers and platform worker"]
+    },
+    "live-export-snapshot": {
+      "classification": "slice",
+      "purpose": "The live-export-snapshot slice persists each admitted connector export payload as one Live Channel Inventory Snapshot through the tcgplayer-csv owner.",
+      "expectedConsumers": ["Channels module composition and platform worker"]
     },
     "reconciliation": {
       "classification": "slice",

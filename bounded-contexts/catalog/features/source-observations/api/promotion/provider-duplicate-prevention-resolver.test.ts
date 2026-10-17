@@ -52,7 +52,7 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
     expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
   });
 
-  it("uses the normalized language-prefixed source-observation key", async () => {
+  it("looks up the language-prefixed source-observation key in the Catalog Item's trimmed lowercase form", async () => {
     const db = duplicatePreventionDb({ sourceProductCatalogItemId: "cat_source_link" });
 
     const result = await resolveCatalogProviderDuplicatePrevention({
@@ -69,7 +69,7 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
       catalogItemId: "cat_source_link",
       ruleKey: "source-observation-link",
     });
-    expect(db.values).toContainEqual(["tcgdex", "en-US:provider:CaseSensitive"]);
+    expect(db.values).toContainEqual(["tcgdex", "en-us:provider:casesensitive"]);
   });
 
   it("blocks automatic promotion when reusable external references are ambiguous", async () => {
@@ -102,8 +102,9 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
   });
 
   it("matches deterministic Pokemon card evidence when external references are absent", async () => {
+    const db = duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_deterministic"] });
     const result = await resolveCatalogProviderDuplicatePrevention({
-      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_deterministic"] }),
+      db,
       profile: tcgdexPokemonTcgProviderProfile,
       providerKey: "tcgdex",
       externalKey: "swsh1-001",
@@ -119,6 +120,59 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
         matchKind: "deterministic-pokemon-card-field-match",
       },
     });
+    expect(fieldContainmentOperands(db, "item.status NOT IN")).toEqual([
+      [{ fieldId: "field_card_number", value: "1" }],
+      [{ fieldId: "field_card_name", value: { defaultLocale: "en", values: { en: "Pikachu" } } }],
+      [{ fieldId: "field_card_variant", value: "Standard Set Foil" }],
+      [{ fieldId: "field_expansion", value: { referenceId: "ref_expansion_swsh1" } }],
+    ]);
+  });
+
+  it("reuses a partial Pokemon draft through draft status, required tags, and array-wrapped field operands", async () => {
+    const db = duplicatePreventionDb({ partialCatalogItemId: "cat_partial_draft" });
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: tcgdexPokemonTcgProviderProfile,
+      providerKey: "tcgdex",
+      externalKey: "swsh1-001",
+      normalized: pokemonCardObservation(),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_partial_draft",
+      ruleKey: "pokemon-card-partial-draft-retry",
+    });
+    const partialQuery = db.queries.findIndex((query) => query.includes("item.status = 'draft'"));
+    expect(db.queries[partialQuery]).toContain("AND reference.catalog_item_id IS NULL");
+    expect(JSON.parse(String(db.values[partialQuery][1]))).toEqual(["tcgdex", "expansion:swsh1", "variant:holofoil"]);
+    expect(fieldContainmentOperands(db, "item.status = 'draft'")).toEqual([
+      [{ fieldId: "field_card_number", value: "1" }],
+      [{ fieldId: "field_card_name", value: { defaultLocale: "en", values: { en: "Pikachu" } } }],
+      [{ fieldId: "field_card_variant", value: "Standard Set Foil" }],
+    ]);
+  });
+
+  it("skips Pokemon field rules when a configured field is unavailable instead of widening the match", async () => {
+    const db = duplicatePreventionDb({
+      deterministicCatalogItemIds: ["cat_deterministic"],
+      partialCatalogItemId: "cat_partial_draft",
+    });
+    const mapping = catalogMapping();
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: tcgdexPokemonTcgProviderProfile,
+      providerKey: "tcgdex",
+      externalKey: "swsh1-001",
+      normalized: pokemonCardObservation(),
+      catalog: { ...mapping, fieldIds: { ...mapping.fieldIds, cardVariant: undefined as unknown as FieldId } },
+    });
+
+    expect(result.status).toBe("none");
+    expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
   });
 
   it("does not apply single-card deterministic identity to sealed provider products", async () => {
@@ -288,8 +342,12 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
         evidenceText: "deterministic One Piece catalog item identity",
       },
     });
-    expect(db.values.flat().join("\n")).toContain('"fieldId":"field_card_variant","value":"parallel"');
-    expect(db.values.flat().join("\n")).toContain('"referenceId":"ref_expansion_swsh1"');
+    expect(fieldContainmentOperands(db, "item.status NOT IN")).toEqual([
+      [{ fieldId: "field_card_number", value: "OP01-001" }],
+      [{ fieldId: "field_card_name", value: { defaultLocale: "en", values: { en: "Monkey.D.Luffy" } } }],
+      [{ fieldId: "field_card_variant", value: "parallel" }],
+      [{ fieldId: "field_set", value: { referenceId: "ref_expansion_swsh1" } }],
+    ]);
   });
 
   it("reuses One Piece sealed packaging variants through product name, set, and sealed form", async () => {
@@ -399,8 +457,9 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
   });
 
   it("reuses Magic card prints through deterministic set, collector number, language, and name evidence", async () => {
+    const db = duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_print"] });
     const result = await resolveCatalogProviderDuplicatePrevention({
-      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_print"] }),
+      db,
       profile: scryfallMtgCardPrintProviderProfile,
       providerKey: "scryfall",
       externalKey: "card:0000579f-7b35-4ed3-b44c-db2a538066fe",
@@ -417,6 +476,11 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
         evidenceText: "deterministic Magic catalog item identity",
       },
     });
+    expect(fieldContainmentOperands(db, "item.status NOT IN")).toEqual([
+      [{ fieldId: "field_card_number", value: "157" }],
+      [{ fieldId: "field_card_name", value: { defaultLocale: "en", values: { en: "Fury Sliver" } } }],
+      [{ fieldId: "field_set", value: { referenceId: "ref_expansion_swsh1" } }],
+    ]);
   });
 
   it("blocks ambiguous Magic deterministic card-print candidates", async () => {
@@ -486,8 +550,9 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
   });
 
   it("reuses Magic sealed products through provider set identity when SKU evidence is absent", async () => {
+    const db = duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_booster_pack"] });
     const result = await resolveCatalogProviderDuplicatePrevention({
-      db: duplicatePreventionDb({ deterministicCatalogItemIds: ["cat_magic_booster_pack"] }),
+      db,
       profile: tcgplayerMtgSealedProductProviderProfile,
       providerKey: "tcgplayer",
       externalKey: "96601",
@@ -503,8 +568,22 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
         evidenceText: "Magic sealed product provider set identity",
       },
     });
+    expect(fieldContainmentOperands(db, "item.status NOT IN")).toEqual([
+      [{ fieldId: "field_card_name", value: { defaultLocale: "en", values: { en: "Time Spiral Booster Pack" } } }],
+      [{ fieldId: "field_pack_count", value: 1 }],
+      [{ fieldId: "field_set", value: { referenceId: "ref_expansion_swsh1" } }],
+    ]);
   });
 });
+
+/** Parsed `item.field_values @>` operands of the first recorded query containing `marker`. */
+function fieldContainmentOperands(db: { queries: string[]; values: readonly unknown[][] }, marker: string) {
+  const index = db.queries.findIndex((query) => query.includes("item.field_values @>") && query.includes(marker));
+  expect(index).toBeGreaterThanOrEqual(0);
+  return [...db.queries[index].matchAll(/item\.field_values @> \$(\d+)::jsonb/g)].map(([, parameter]) =>
+    JSON.parse(String(db.values[index][Number(parameter) - 1])),
+  );
+}
 
 function duplicatePreventionDb(input: {
   externalCatalogItemIds?: readonly string[];

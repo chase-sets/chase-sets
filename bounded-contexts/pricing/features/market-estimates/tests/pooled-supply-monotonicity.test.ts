@@ -6,6 +6,7 @@ import type { CurveSale } from "../domain/demand-curve/curve-builder-registry";
 const asOf = "2026-09-01T15:00:00.000Z";
 const sales: CurveSale[] = Array.from({ length: 30 }, (_, index) => ({
   price: index % 2 ? 6 : 10,
+  currencyCode: "USD",
   condition: index % 2 ? "Lightly Played" : "Near Mint",
   soldAt: new Date(Date.parse(asOf) - index * 86_400_000).toISOString(),
   variant: "Normal",

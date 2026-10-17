@@ -68,6 +68,16 @@ Multiple values for the same Field, Reference Type, or Dimension use repeated qu
 
 Labels, display order, and localized copy must not be used as durable filter identifiers.
 
+## Search Interpretation
+
+When a fresh relevance search with no cursor or offset has no lexical matches and was not resolved structurally, Discovery interprets its words once before correcting the original spelling. Active Condition, Grading Company, and Grade option labels and codes (by stable Catalog Dimension id) and the supported language names English and Japanese become Filter State. Matches are complete, longest, non-overlapping, left-to-right phrases of at most three words, compared case- and accent-insensitively; a phrase that names options in more than one dimension, a served set code, Finish or holo words, title words, collector numbers, and bare numbers stay literal. A bare number names a Grade only immediately after a consumed Grading Company or the word "grade", and only by exact numeric equality, so `psa 10` means PSA and Gem Mint 10 while Pristine 10 needs its full label. An option label or code made only of numbers never matches words on its own. Equal-valued Grade options are ORed; the company and the Grade are ANDed.
+
+Explicit filters win. A selected group or language blocks a different typed value, which stays literal; a typed value already selected is consumed silently and is not newly applied.
+
+The remaining words are searched lexically, then corrected, under the explicit plus inferred filters. Interpretation never reaches semantic rescue. Zero rows or an empty remainder discard it; Discovery then corrects and rescues the original text under only the explicit filters. Both corrections share one invocation budget of three candidate lookups, and only the original text may load or wait for one embedding.
+
+The HTTP API returns the final rows and an `interpretation` object (`remainingQuery` and the newly applied `applied` values); interpreted rows never page. MCP and UCP receive the same rows without the metadata. The marketplace loader redirects such a response once to its canonical URL: `q` holds the remaining words, each newly applied value uses its stable filter param, other params are preserved, and `interpreted=<param keys>` marks the newly applied keys. A marked request is never interpreted again and, like the interpreted result it continues, is retrieved lexically or corrected only: it adds no semantic rescue or hybrid rows, its load-more requests carry the marker, and a hybrid cursor restarts it. It is its own Result Set: pages the browser loaded or restored for the unmarked search with the same words and filters never join it, and its pages never join that search. The notice lists marked filters that are still applied; dismissing it keeps the filters, removing a marked chip keeps the marker, and a new query or any other filter change drops it.
+
 ## Detail Page Handoff
 
 Search Result links preserve selected Dimension filters on item detail URLs so a buyer who narrows search by Product-defining Options lands on the Detail Page with the same Product Options selected. This keeps the path from filter to listing purchase short: matching listings, add-to-cart, buy-now, offer, and Product Alert affordances all receive the selected Product context immediately.

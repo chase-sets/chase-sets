@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  evolveChannelPublicationConfiguration,
+  initialChannelPublicationConfigurationState,
+} from "../domain/configuration";
+import {
   assertChannelPublicationSettingsPayload,
   channelListingEventCodec,
   channelListingReconciliationEventCodec,
@@ -26,7 +30,7 @@ describe("channel-listing-closed-event-history", () => {
   });
 
   it.each([null, 1, 2, 1_000])("round-trips publish quantity cap %s", (publishQuantityCap) => {
-    const settings = { ...legacySettings, publishQuantityCap };
+    const settings = { ...legacySettings, publishQuantityCap, lowStockWithholdUnits: null };
     const original = {
       type: "channels.channel-publication-configuration.settings-replaced" as const,
       data: { connectionId: "connection-1", settings },
@@ -45,6 +49,40 @@ describe("channel-listing-closed-event-history", () => {
         payload: { connectionId: "connection-1", settings } as never,
       }),
     ).toThrow();
+  });
+
+  it("replays old settings-replaced events with low-stock withhold off without rewriting history", () => {
+    const stored = {
+      eventType: "channels.channel-publication-configuration.settings-replaced",
+      payload: { connectionId: "connection-1", settings: { ...legacySettings, publishQuantityCap: 2 } },
+    };
+    const decoded = channelPublicationConfigurationEventCodec.decode(stored);
+    expect(
+      evolveChannelPublicationConfiguration(initialChannelPublicationConfigurationState, decoded).settings,
+    ).toEqual({ ...legacySettings, publishQuantityCap: 2, lowStockWithholdUnits: null });
+    expect(stored.payload.settings).not.toHaveProperty("lowStockWithholdUnits");
+  });
+
+  it.each([null, 1, 1_000])("round-trips low-stock withhold %s", (lowStockWithholdUnits) => {
+    const original = {
+      type: "channels.channel-publication-configuration.settings-replaced" as const,
+      data: {
+        connectionId: "connection-1",
+        settings: { ...legacySettings, publishQuantityCap: null, lowStockWithholdUnits },
+      },
+    };
+    expect(
+      channelPublicationConfigurationEventCodec.decode(channelPublicationConfigurationEventCodec.encode(original)),
+    ).toEqual(original);
+  });
+
+  it.each([0, 1_001, 1.5, -1, "1", undefined])("rejects invalid low-stock withhold %s", (lowStockWithholdUnits) => {
+    expect(() =>
+      channelPublicationConfigurationEventCodec.decode({
+        eventType: "channels.channel-publication-configuration.settings-replaced",
+        payload: { connectionId: "connection-1", settings: { ...legacySettings, lowStockWithholdUnits } } as never,
+      }),
+    ).toThrow("Invalid closed Channels desired-state event.");
   });
 
   it("rejects unsupported event types in every retained aggregate", () => {

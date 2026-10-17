@@ -49,181 +49,219 @@ describeDb("channel-publication-configuration-commands real DB", () => {
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 
-  it("publish quantity cap replacement updates only changed published quantities and unchanged saves enqueue nothing", async () => {
-    const services = createChannelListingCompositionRuntime({
-      db: pools.channels,
-      eventStore: createPostgresEventStore({ pool: pools.channels }),
-      profiles: createChannelCompositionProfileRegistry([
-        {
-          ...syntheticProfile,
-          requiresProviderProductReference: false,
-          requiresProviderCatalogItemReference: false,
-          category: { mode: "snapshot-preserved", maxKeyLength: 100, snapshotField: "category" },
-          condition: { mode: "snapshot-preserved", maxKeyLength: 100, snapshotField: "condition" },
-        },
-      ]),
-    });
-    const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
-    const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
-    const projection = buildChannelListingStateProjectionHandlers(pools.channels);
-    const reactions = buildChannelOwnedDesiredStateReactionHandlers(services, {
-      enqueueDesiredState: async () => null,
-    });
-    let cursor = "0";
-    async function drain() {
-      for (let pass = 0; pass < 20; pass += 1) {
-        const rows = await pools.channels.query<{
-          event_type: string;
-          payload: Record<string, unknown>;
-          stream_id: string;
-          stream_version: string | number;
-          global_position: string;
-        }>(
-          "SELECT event_type,payload,stream_id,stream_version,global_position::text FROM event_store_events AS events WHERE events.global_position > $1::bigint ORDER BY events.global_position LIMIT 100",
-          [cursor],
-        );
-        if (rows.rows.length === 0) return;
-        for (const row of rows.rows) {
-          const event = buildTransportEvent(row.event_type, row.payload, {
-            streamId: row.stream_id,
-            streamVersion: Number(row.stream_version),
-            globalPosition: row.global_position,
-          });
-          await projection[row.event_type]?.(event);
-          if (
-            row.event_type === "channels.channel-publication-configuration.settings-replaced" ||
-            row.event_type.startsWith("channels.channel-listing-reconciliation.")
-          )
-            await reactions[row.event_type]?.(event);
-          cursor = row.global_position;
+  it.each(["publish quantity cap", "low-stock withhold"] as const)(
+    "%s replacement changes only its connection and unchanged saves enqueue nothing",
+    async (setting) => {
+      await pools.channels.query(
+        `INSERT INTO channels_connection_facts
+       (connection_id,account_id,provider_key,environment,status,updated_at,connection_stream_version)
+       VALUES ('connection-other','account-1','synthetic-provider','sandbox','active',now(),1)`,
+      );
+      const services = createChannelListingCompositionRuntime({
+        db: pools.channels,
+        eventStore: createPostgresEventStore({ pool: pools.channels }),
+        profiles: createChannelCompositionProfileRegistry([
+          {
+            ...syntheticProfile,
+            requiresProviderProductReference: false,
+            requiresProviderCatalogItemReference: false,
+            category: { mode: "snapshot-preserved", maxKeyLength: 100, snapshotField: "category" },
+            condition: { mode: "snapshot-preserved", maxKeyLength: 100, snapshotField: "condition" },
+          },
+        ]),
+      });
+      const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+      const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+      const projection = buildChannelListingStateProjectionHandlers(pools.channels);
+      const reactions = buildChannelOwnedDesiredStateReactionHandlers(services, {
+        enqueueDesiredState: async () => null,
+      });
+      let cursor = "0";
+      async function drain() {
+        for (let pass = 0; pass < 20; pass += 1) {
+          const rows = await pools.channels.query<{
+            event_type: string;
+            payload: Record<string, unknown>;
+            stream_id: string;
+            stream_version: string | number;
+            global_position: string;
+          }>(
+            "SELECT event_type,payload,stream_id,stream_version,global_position::text FROM event_store_events AS events WHERE events.global_position > $1::bigint ORDER BY events.global_position LIMIT 100",
+            [cursor],
+          );
+          if (rows.rows.length === 0) return;
+          for (const row of rows.rows) {
+            const event = buildTransportEvent(row.event_type, row.payload, {
+              streamId: row.stream_id,
+              streamVersion: Number(row.stream_version),
+              globalPosition: row.global_position,
+            });
+            await projection[row.event_type]?.(event);
+            if (
+              row.event_type === "channels.channel-publication-configuration.settings-replaced" ||
+              row.event_type.startsWith("channels.channel-listing-reconciliation.")
+            )
+              await reactions[row.event_type]?.(event);
+            cursor = row.global_position;
+          }
         }
+        throw new Error("Synthetic reconciliation did not settle.");
       }
-      throw new Error("Synthetic reconciliation did not settle.");
-    }
-    for (const [listingId, totalQuantity] of [
-      ["listing-4", 4],
-      ["listing-1", 1],
-    ] as const) {
-      await marketplace["marketplace.listing.created"]!(
-        buildTransportEvent(
-          "marketplace.listing.created",
-          {
-            listingId,
-            accountId: "account-1",
-            inventoryItemId: `item-${listingId}`,
-            catalogItemId: "catalog-1",
-            priceAmount: "20.00",
-            priceCurrencyCode: "USD",
-            quantityCap: 10,
-            selectedOptions: [],
-            itemTitle: "Synthetic card",
-            itemSubtitle: null,
-            productSummary: "Synthetic description",
-            gradedCard: null,
-          },
-          { streamId: `marketplace.listing-${listingId}`, streamVersion: 1 },
-        ),
-      );
-      await marketplace["marketplace.listing.published"]!(
-        buildTransportEvent(
-          "marketplace.listing.published",
-          {},
-          { streamId: `marketplace.listing-${listingId}`, streamVersion: 2 },
-        ),
-      );
-      await inventory["inventory.item.created"]!(
-        buildTransportEvent(
-          "inventory.item.created",
-          {
-            itemId: `item-${listingId}`,
-            accountId: "account-1",
-            catalogItemId: "catalog-1",
-            totalQuantity,
-          },
-          { streamId: `inventory.item-item-${listingId}`, streamVersion: 1 },
-        ),
-      );
-    }
-    const settings = {
-      titlePrefix: "",
-      titleSuffix: "",
-      descriptionFooter: "",
-      categoryAllowlist: [],
-      excludedListingIds: [],
-      publishQuantityCap: null,
-    };
-    await expect(
-      services.replaceChannelConnectionPublicationSettings(
-        { accountId: "account-1", connectionId: "connection-1", settings, expectedStreamVersion: 0 },
-        testContext,
-      ),
-    ).resolves.toMatchObject({ kind: "applied", streamVersion: 1 });
-    await drain();
-    const initial = await pools.channels.query<{ payload: ChannelListingDesiredStateChangedData }>(
-      "SELECT payload FROM event_store_events WHERE event_type='channels.channel-listing.desired-state-changed' ORDER BY global_position",
-    );
-    expect(initial.rows).toHaveLength(2);
-    for (const { payload } of initial.rows) {
-      if (payload.intent === "delist") throw new Error("Expected a publish draft.");
+      for (const [listingId, totalQuantity] of [
+        ["listing-4", 4],
+        ["listing-1", 1],
+      ] as const) {
+        await marketplace["marketplace.listing.created"]!(
+          buildTransportEvent(
+            "marketplace.listing.created",
+            {
+              listingId,
+              accountId: "account-1",
+              inventoryItemId: `item-${listingId}`,
+              catalogItemId: "catalog-1",
+              priceAmount: "20.00",
+              priceCurrencyCode: "USD",
+              quantityCap: 10,
+              selectedOptions: [],
+              itemTitle: "Synthetic card",
+              itemSubtitle: null,
+              productSummary: "Synthetic description",
+              gradedCard: null,
+            },
+            { streamId: `marketplace.listing-${listingId}`, streamVersion: 1 },
+          ),
+        );
+        await marketplace["marketplace.listing.published"]!(
+          buildTransportEvent(
+            "marketplace.listing.published",
+            {},
+            { streamId: `marketplace.listing-${listingId}`, streamVersion: 2 },
+          ),
+        );
+        await inventory["inventory.item.created"]!(
+          buildTransportEvent(
+            "inventory.item.created",
+            {
+              itemId: `item-${listingId}`,
+              accountId: "account-1",
+              catalogItemId: "catalog-1",
+              totalQuantity,
+            },
+            { streamId: `inventory.item-item-${listingId}`, streamVersion: 1 },
+          ),
+        );
+      }
+      const settings = {
+        titlePrefix: "",
+        titleSuffix: "",
+        descriptionFooter: "",
+        categoryAllowlist: [],
+        excludedListingIds: [],
+        publishQuantityCap: null,
+        lowStockWithholdUnits: null,
+      };
       await expect(
-        services.recordChannelListingPublicationOutcome(
-          {
-            connectionId: payload.connectionId,
-            channelListingId: payload.channelListingId,
-            operationId: `synthetic-${payload.listingId}`,
-            reportedDesiredStateSequence: payload.desiredStateSequence,
-            reportedListingRevision: payload.listingRevision,
-            reportedDesiredStateHash: payload.desiredStateHash,
-            expectedStreamVersion: payload.desiredStateSequence,
-            outcome: { kind: "succeeded", externalListingId: `external-${payload.listingId}` },
-          },
+        services.replaceChannelConnectionPublicationSettings(
+          { accountId: "account-1", connectionId: "connection-1", settings, expectedStreamVersion: 0 },
           testContext,
         ),
-      ).resolves.toMatchObject({ kind: "applied" });
-    }
-    await drain();
-    expect(
-      (
-        await pools.channels.query(
-          "SELECT last_pushed_quantity FROM channels_channel_listing_links WHERE listing_id='listing-4' AND publish_state='published'",
-        )
-      ).rows,
-    ).toEqual([{ last_pushed_quantity: 4 }]);
-    const capped = { ...settings, publishQuantityCap: 2 };
-    await expect(
-      services.replaceChannelConnectionPublicationSettings(
-        { accountId: "account-1", connectionId: "connection-1", settings: capped, expectedStreamVersion: 1 },
-        testContext,
-      ),
-    ).resolves.toMatchObject({ kind: "applied", streamVersion: 2 });
-    await drain();
-    const updates = await pools.channels.query<{ payload: ChannelListingDesiredStateChangedData }>(
-      "SELECT payload FROM event_store_events WHERE event_type='channels.channel-listing.desired-state-changed' AND payload->>'intent'='update'",
-    );
-    expect(updates.rows).toHaveLength(1);
-    expect(updates.rows[0]?.payload).toMatchObject({
-      listingId: "listing-4",
-      intent: "update",
-      draft: { quantity: 2 },
-    });
-    const beforeSave = await pools.channels.query(
-      "SELECT event_type,count(*)::text AS count FROM event_store_events GROUP BY event_type ORDER BY event_type",
-    );
-    await expect(
-      services.replaceChannelConnectionPublicationSettings(
-        { accountId: "account-1", connectionId: "connection-1", settings: capped, expectedStreamVersion: 2 },
-        testContext,
-      ),
-    ).resolves.toMatchObject({ kind: "unchanged", streamVersion: 2 });
-    await drain();
-    expect(
-      (
-        await pools.channels.query(
-          "SELECT event_type,count(*)::text AS count FROM event_store_events GROUP BY event_type ORDER BY event_type",
-        )
-      ).rows,
-    ).toEqual(beforeSave.rows);
-  });
+      ).resolves.toMatchObject({ kind: "applied", streamVersion: 1 });
+      await expect(
+        services.replaceChannelConnectionPublicationSettings(
+          { accountId: "account-1", connectionId: "connection-other", settings, expectedStreamVersion: 0 },
+          testContext,
+        ),
+      ).resolves.toMatchObject({ kind: "applied", streamVersion: 1 });
+      await drain();
+      const initial = await pools.channels.query<{ payload: ChannelListingDesiredStateChangedData }>(
+        "SELECT payload FROM event_store_events WHERE event_type='channels.channel-listing.desired-state-changed' ORDER BY global_position",
+      );
+      expect(initial.rows).toHaveLength(4);
+      for (const { payload } of initial.rows) {
+        if (payload.intent === "delist") throw new Error("Expected a publish draft.");
+        await expect(
+          services.recordChannelListingPublicationOutcome(
+            {
+              connectionId: payload.connectionId,
+              channelListingId: payload.channelListingId,
+              operationId: `synthetic-${payload.connectionId}-${payload.listingId}`,
+              reportedDesiredStateSequence: payload.desiredStateSequence,
+              reportedListingRevision: payload.listingRevision,
+              reportedDesiredStateHash: payload.desiredStateHash,
+              expectedStreamVersion: payload.desiredStateSequence,
+              outcome: { kind: "succeeded", externalListingId: `external-${payload.listingId}` },
+            },
+            testContext,
+          ),
+        ).resolves.toMatchObject({ kind: "applied" });
+      }
+      await drain();
+      expect(
+        (
+          await pools.channels.query(
+            "SELECT last_pushed_quantity FROM channels_channel_listing_links WHERE connection_id='connection-1' AND listing_id='listing-4' AND publish_state='published'",
+          )
+        ).rows,
+      ).toEqual([{ last_pushed_quantity: 4 }]);
+      const capped =
+        setting === "publish quantity cap"
+          ? { ...settings, publishQuantityCap: 2 }
+          : { ...settings, lowStockWithholdUnits: 1 };
+      const otherBefore = await pools.channels.query(
+        "SELECT * FROM channels_channel_listing_links WHERE connection_id='connection-other' ORDER BY listing_id",
+      );
+      await expect(
+        services.replaceChannelConnectionPublicationSettings(
+          { accountId: "account-1", connectionId: "connection-1", settings: capped, expectedStreamVersion: 1 },
+          testContext,
+        ),
+      ).resolves.toMatchObject({ kind: "applied", streamVersion: 2 });
+      await drain();
+      const updates = await pools.channels.query<{ payload: ChannelListingDesiredStateChangedData }>(
+        "SELECT payload FROM event_store_events WHERE event_type='channels.channel-listing.desired-state-changed' AND payload->>'intent' IN ('update','delist')",
+      );
+      expect(updates.rows).toHaveLength(1);
+      expect(updates.rows[0]?.payload).toMatchObject(
+        setting === "publish quantity cap"
+          ? {
+              connectionId: "connection-1",
+              listingId: "listing-4",
+              intent: "update",
+              draft: { quantity: 2 },
+            }
+          : {
+              connectionId: "connection-1",
+              listingId: "listing-1",
+              intent: "delist",
+              delist: { delistReasons: ["low-stock-withheld"] },
+            },
+      );
+      expect(
+        (
+          await pools.channels.query(
+            "SELECT * FROM channels_channel_listing_links WHERE connection_id='connection-other' ORDER BY listing_id",
+          )
+        ).rows,
+      ).toEqual(otherBefore.rows);
+      const beforeSave = await pools.channels.query(
+        "SELECT event_type,count(*)::text AS count FROM event_store_events GROUP BY event_type ORDER BY event_type",
+      );
+      await expect(
+        services.replaceChannelConnectionPublicationSettings(
+          { accountId: "account-1", connectionId: "connection-1", settings: capped, expectedStreamVersion: 2 },
+          testContext,
+        ),
+      ).resolves.toMatchObject({ kind: "unchanged", streamVersion: 2 });
+      await drain();
+      expect(
+        (
+          await pools.channels.query(
+            "SELECT event_type,count(*)::text AS count FROM event_store_events GROUP BY event_type ORDER BY event_type",
+          )
+        ).rows,
+      ).toEqual(beforeSave.rows);
+    },
+  );
 
   it("keeps versioned settings and review decisions idempotent and enqueues once per successful append", async () => {
     const services = createChannelListingCompositionRuntime({
@@ -238,6 +276,7 @@ describeDb("channel-publication-configuration-commands real DB", () => {
       categoryAllowlist: ["cards"],
       excludedListingIds: [],
       publishQuantityCap: null,
+      lowStockWithholdUnits: null,
     };
     await expect(
       services.replaceChannelConnectionPublicationSettings(

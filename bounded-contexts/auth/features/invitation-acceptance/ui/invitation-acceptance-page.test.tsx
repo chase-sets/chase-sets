@@ -1,8 +1,25 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { InvitationAcceptancePage } from "./invitation-acceptance-page";
+import MarketplaceInviteRoute from "../../../routes/marketplace/invite";
+import {
+  renderAuthRoute,
+  safeFailure,
+  mockNativeRequestSubmit,
+  successfulPasskey,
+  pendingPasskey,
+} from "../../../tests/auth-form-route-test-support";
+import { createPasskeyCredential } from "../../../support/ui-support/passkey-browser";
+import { redirect } from "react-router";
+
+vi.mock("../../../support/ui-support/passkey-browser", () => ({ createPasskeyCredential: vi.fn() }));
+vi.mock("../../../support/route-support/auth-host.server", async () => {
+  const { defineAuthHost } = await import("../../../support/route-support/auth-host");
+  const { marketplaceAuthHostConfig } = await import("../../../support/route-support/host-config");
+  return { marketplaceAuthHost: defineAuthHost(marketplaceAuthHostConfig) };
+});
 
 afterEach(cleanup);
 
@@ -39,11 +56,239 @@ describe("invitation acceptance page", () => {
     ["expired", "This invitation has expired"],
     ["revoked", "This invitation was revoked"],
     ["accepted", "This invitation was already accepted"],
+    ["unavailable", "This invitation is unavailable"],
   ] as const)("shows clear %s copy", (status, copy) => {
     render(<InvitationAcceptancePage invitation={{ status }} token="invite_token" />);
 
     expect(screen.getByText(copy)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /accept/i })).toBeNull();
     expect(elevatedCardCount()).toBe(0);
+  });
+});
+
+describe("routed invitation errors", () => {
+  const invitation = {
+    status: "pending" as const,
+    invitationId: "synthetic-invite",
+    email: "seller@example.com",
+    accountName: "Cards",
+    invitedByName: "Avery",
+    roleLabel: "Member",
+  };
+  const route = {
+    path: "/invite/:invitationId",
+    Component: MarketplaceInviteRoute,
+    loader: () => ({ invitation, token: "synthetic-token" }),
+  };
+
+  it("F2 scope: retains failure across hashes but drops it on another invitation pathname", async () => {
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    const button = screen.getByRole("button", { name: "Accept with password" });
+    fireEvent.submit(button.closest("form")!);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.settle(safeFailure("invitation-accept"));
+    const summary = screen.getByRole("alert");
+    const focus = vi.spyOn(summary, "focus");
+    button.focus();
+    await act(async () => {
+      await rendered.router.navigate("/invite/synthetic-invite#password");
+    });
+    expect(rendered.router.state.actionData).toBeNull();
+    expect(screen.getByRole("alert")).toBe(summary);
+    expect(document.activeElement).toBe(button);
+    expect(focus).not.toHaveBeenCalled();
+    await act(async () => {
+      await rendered.router.navigate("/invite/another-synthetic-invite");
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      await rendered.router.navigate("/invite/synthetic-invite#password");
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("focus lifecycle: a retired browser ceremony cannot clear a new form's loading or warning owner", async () => {
+    const oldCeremony = pendingPasskey();
+    const newCeremony = pendingPasskey();
+    vi.mocked(createPasskeyCredential)
+      .mockReturnValueOnce(oldCeremony.promise)
+      .mockReturnValueOnce(newCeremony.promise);
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    const oldForm = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    fireEvent.submit(oldForm);
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+    const button = screen.getByRole("button", { name: "Accept with passkey" });
+    expect(button.closest("form")).not.toBe(oldForm);
+    fireEvent.submit(button.closest("form")!);
+    await act(async () => {
+      oldCeremony.reject(new Error("RAW_OLD_PASSKEY_MARKER"));
+    });
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      newCeremony.reject(new Error("RAW_NEW_PASSKEY_MARKER"));
+    });
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    expect(document.body.textContent).not.toMatch(/RAW_.*MARKER/);
+    expect(rendered.requests).not.toHaveBeenCalled();
+  });
+
+  it("passkey auto-submit waits for the committed payload", async () => {
+    const originalSetTimeout = window.setTimeout.bind(window);
+    vi.spyOn(window, "setTimeout").mockImplementation(((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay === 0 && typeof handler === "function" && String(handler).includes("requestSubmit")) {
+        queueMicrotask(() => handler(...args));
+        return 0;
+      }
+      return originalSetTimeout(handler, delay, ...args);
+    }) as typeof window.setTimeout);
+    const ceremony = pendingPasskey();
+    vi.mocked(createPasskeyCredential).mockReset().mockReturnValueOnce(ceremony.promise);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.submit(screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!);
+    ceremony.resolve(successfulPasskey);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    expect(createPasskeyCredential).toHaveBeenCalledOnce();
+    expect(rendered.requests).toHaveBeenCalledWith("POST", "/invite/synthetic-invite");
+    expect(rendered.submittedFields).toHaveLength(1);
+    expect(Object.keys(rendered.submittedFields[0]!)).toEqual(
+      expect.arrayContaining([
+        "credentialMethod",
+        "challengeId",
+        "challenge",
+        "externalCredentialId",
+        "label",
+        "webauthnResponse",
+      ]),
+    );
+    expect(rendered.submittedFields[0]).toMatchObject({ credentialMethod: "passkey", ...successfulPasskey });
+  });
+
+  it("passkey lifecycle: a retired ceremony that succeeds never fills or submits the replacement form", async () => {
+    const oldCeremony = pendingPasskey();
+    const newCeremony = pendingPasskey();
+    vi.mocked(createPasskeyCredential)
+      .mockReset()
+      .mockReturnValueOnce(oldCeremony.promise)
+      .mockReturnValueOnce(newCeremony.promise);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    const oldForm = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    fireEvent.submit(oldForm);
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+    const button = screen.getByRole("button", { name: "Accept with passkey" });
+    const freshForm = button.closest("form")!;
+    expect(freshForm).not.toBe(oldForm);
+    fireEvent.submit(freshForm);
+    await act(async () => {
+      oldCeremony.resolve({ ...successfulPasskey, challengeId: "synthetic-retired-challenge-id" });
+    });
+    expect(new FormData(freshForm).has("challengeId")).toBe(false);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(rendered.requests).not.toHaveBeenCalled();
+    await act(async () => {
+      newCeremony.resolve(successfulPasskey);
+    });
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    expect(createPasskeyCredential).toHaveBeenCalledTimes(2);
+  });
+
+  it("passkey lifecycle: method switching discards a committed credential", async () => {
+    vi.mocked(createPasskeyCredential).mockReset().mockResolvedValue(successfulPasskey);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.submit(screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.submissionCommitted();
+    await rendered.settle(safeFailure("invitation-accept"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("alert")));
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+    const freshForm = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    expect(new FormData(freshForm).has("challengeId")).toBe(false);
+    expect(rendered.requests).toHaveBeenCalledOnce();
+    fireEvent.submit(freshForm);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledTimes(2));
+    expect(createPasskeyCredential).toHaveBeenCalledTimes(2);
+  });
+
+  it("safe fields / auth parity: passkey acceptance failures stay form-only and a successful retry navigates", async () => {
+    vi.mocked(createPasskeyCredential).mockResolvedValue(successfulPasskey);
+    mockNativeRequestSubmit();
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    const form = screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.submissionCommitted();
+    await rendered.settle(safeFailure("invitation-accept"));
+    expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("alert")));
+    fireEvent.submit(form);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledTimes(2));
+    await rendered.submissionCommitted();
+    await rendered.settle(redirect("/done"));
+    expect(screen.getByText("Authenticated destination")).toBeTruthy();
+  });
+
+  it("safe fields: credential and unknown targets remain form-only", async () => {
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.submit(screen.getByRole("button", { name: "Accept with password" }).closest("form")!);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledOnce());
+    await rendered.settle(
+      safeFailure("invitation-accept", 400, {
+        error: {
+          code: "validation_failed",
+          message: "RAW_AUTH_MARKER",
+          details: [{ field: "password", code: "phone_required", message: "RAW_AUTH_MARKER" }],
+        },
+      }),
+    );
+    expect(screen.getByRole("alert").querySelector("a")).toBeNull();
+    expect(screen.getByLabelText("Enter or create a password").getAttribute("aria-invalid")).toBeNull();
+    expect(document.body.textContent).not.toContain("RAW_AUTH_MARKER");
+    rendered.router.dispose();
+  });
+
+  it("focus lifecycle: repeated failures, retry/loading and success obey occurrence ownership", async () => {
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    const button = screen.getByRole("button", { name: "Accept with password" });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      button.focus();
+      fireEvent.submit(button.closest("form")!);
+      await waitFor(() => expect(rendered.requests).toHaveBeenCalledTimes(attempt));
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(document.activeElement).toBe(button);
+      await rendered.settle(safeFailure("invitation-accept"), true);
+      expect(screen.queryByRole("alert")).toBeNull();
+      await rendered.finishLoading();
+      expect(document.activeElement).toBe(screen.getByRole("alert"));
+      button.focus();
+      await rendered.revalidate();
+      expect(document.activeElement).toBe(button);
+    }
+    fireEvent.submit(button.closest("form")!);
+    await waitFor(() => expect(rendered.requests).toHaveBeenCalledTimes(3));
+    await rendered.settle(redirect("/done"));
+    expect(screen.getByText("Authenticated destination")).toBeTruthy();
+    rendered.router.dispose();
+  });
+
+  it("auth parity: passkey exceptions are safe and method change clears warnings", async () => {
+    vi.mocked(createPasskeyCredential).mockRejectedValueOnce(new Error("RAW_PASSKEY_SECRET_MARKER"));
+    const rendered = await renderAuthRoute(route, "/invite/synthetic-invite");
+    fireEvent.submit(screen.getByRole("button", { name: "Accept with passkey" }).closest("form")!);
+    expect((await screen.findByRole("alert")).textContent).toContain("Passkey registration failed.");
+    expect(document.body.textContent).not.toContain("RAW_PASSKEY_SECRET_MARKER");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("alert")));
+    expect(rendered.requests).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    rendered.router.dispose();
   });
 });

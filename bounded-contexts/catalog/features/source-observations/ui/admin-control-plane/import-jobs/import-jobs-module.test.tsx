@@ -59,6 +59,92 @@ describe("CatalogIntegrationImportJobsModule", () => {
     });
   });
 
+  it("shows the preflight estimate reason, usage-check state, and degraded diagnostic", async () => {
+    const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${unitKey}&importScope=en:one-piece:op-01`,
+      scopes: { items: [sourceObservationScope({ provider_key: "scrydex" })], total: 1, count: 1 },
+      profileReviews: {
+        items: [profileReview({ active: true, lifecycle: "active", providerKey: "scrydex" })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+    const routeScope = readModel.routeContext.scope;
+    const usageEstimate = {
+      requestStrategy: "bulk-first" as const,
+      pageSize: 100,
+      selectedFields: ["id"],
+      perRecordFallbackReason: null,
+      usageCheckState: "unavailable" as const,
+      creditDiagnostic: null,
+      degradedDiagnostic: "Synthetic provider appears degraded with HTTP 503.",
+    };
+    const deferredImportPreview = Promise.resolve({
+      action: "import" as const,
+      providerKey: "scrydex",
+      scope: {
+        provider: "scrydex",
+        ingestionUnitKey: unitKey,
+        language: routeScope?.languageCode ?? undefined,
+        productLineId: routeScope?.productLineId ?? undefined,
+        seriesId: routeScope?.seriesId ?? undefined,
+        setId: routeScope?.expansionId ?? undefined,
+      },
+      profileSnapshot: null,
+      targetCount: 2,
+      targets: [
+        {
+          targetId: "synthetic-cards",
+          name: "Synthetic cards",
+          languageCode: "en",
+          scopeKey: "expansion-cards",
+          planKey: "synthetic:cards",
+          estimatedPayloads: null,
+          transportSteps: ["Synthetic card search"],
+          usageEstimate: {
+            ...usageEstimate,
+            estimateState: "estimated" as const,
+            estimatedRequestCount: 3,
+            estimateReason: null,
+          },
+        },
+        {
+          targetId: "synthetic-sealed",
+          name: "Synthetic sealed",
+          languageCode: "en",
+          scopeKey: "expansion-sealed-products",
+          planKey: "synthetic:sealed",
+          estimatedPayloads: null,
+          transportSteps: ["Synthetic sealed search"],
+          usageEstimate: {
+            ...usageEstimate,
+            estimateState: "estimate-unavailable" as const,
+            estimatedRequestCount: null,
+            estimateReason: "Synthetic page count is available only after the first paged response.",
+          },
+        },
+      ],
+    });
+
+    await act(async () => {
+      render(
+        <CatalogIntegrationImportJobsModule readModel={readModel} deferredImportPreview={deferredImportPreview} />,
+      );
+    });
+
+    await waitFor(() => {
+      const panel = document.querySelector('[data-catalog-import-preview="ready"]');
+      expect(panel?.getAttribute("data-catalog-import-preview-usage-state")).toBe("unavailable");
+      expect(panel?.textContent).toContain("Estimate unavailable");
+      expect(panel?.textContent).toContain("Estimate reason");
+      expect(panel?.textContent).toContain("Synthetic page count is available only after the first paged response.");
+      expect(panel?.textContent).toContain("Synthetic provider appears degraded with HTTP 503.");
+    });
+  });
+
   it("keeps secondary job timestamps out of the mobile card presentation", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:

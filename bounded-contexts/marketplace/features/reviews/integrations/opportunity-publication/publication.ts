@@ -94,50 +94,54 @@ export function createReviewOpportunityPublication(deps: {
     async run(context) {
       let published = 0;
       for (let count = 0; count < 100; count += 1) {
-        const processed = await withPgTransaction(deps.pool, async (db) => {
-          await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
-          await db.query(`LOCK TABLE marketplace_review_order_sources, marketplace_review_eligibility_pages,
+        const processed = await withPgTransaction(
+          deps.pool,
+          async (db) => {
+            await db.query(`LOCK TABLE marketplace_review_order_sources, marketplace_review_eligibility_pages,
             marketplace_review_pages IN ACCESS SHARE MODE`);
-          const proof = await readOpportunitySourceProof(db);
-          if (!proof) return false;
-          const work = (
-            await db.query<Work>(
-              `SELECT order_id, generation::text AS generation, published_stream_version, last_fact
+            const proof = await readOpportunitySourceProof(db);
+            if (!proof) return false;
+            const work = (
+              await db.query<Work>(
+                `SELECT order_id, generation::text AS generation, published_stream_version, last_fact
              FROM marketplace_review_opportunity_work AS work WHERE generation > published_generation
                AND (last_fact IS NOT NULL OR EXISTS (SELECT 1 FROM marketplace_review_order_sources AS source WHERE source.order_id = work.order_id))
              ORDER BY order_id LIMIT 1 FOR UPDATE SKIP LOCKED`,
-            )
-          ).rows[0];
-          if (!work) return false;
-          const snapshot = await readSnapshot(db, work);
-          if (!snapshot) return false;
-          const fact: ReviewOpportunityChangedV1 = {
-            factSchemaVersion: 1,
-            orderId: work.order_id,
-            generation: work.generation,
-            ...proof,
-            generatedAt: now().toISOString(),
-            buyerAccountId: snapshot.buyerAccountId,
-            sellerAccountId: snapshot.sellerAccountId,
-            buyerToSeller: snapshot.buyerToSeller ? opportunitySlot(snapshot.buyerToSeller) : null,
-            sellerToBuyer: snapshot.sellerToBuyer ? opportunitySlot(snapshot.sellerToBuyer) : null,
-          };
-          if (!isReviewOpportunityChangedV1(fact)) throw new Error("Invalid canonical review opportunity snapshot.");
-          const events = await deps.eventStore.appendToStreamInTransaction(db, {
-            streamId: `marketplace.review-opportunity-${work.order_id}`,
-            expectedVersion: work.published_stream_version === 0 ? "no_stream" : work.published_stream_version,
-            context,
-            events: [{ eventType: reviewOpportunityFactType, payload: fact }],
-          });
-          const acknowledged = await db.query(
-            `UPDATE marketplace_review_opportunity_work SET published_generation = $2,
+              )
+            ).rows[0];
+            if (!work) return false;
+            const snapshot = await readSnapshot(db, work);
+            if (!snapshot) return false;
+            const fact: ReviewOpportunityChangedV1 = {
+              factSchemaVersion: 1,
+              orderId: work.order_id,
+              generation: work.generation,
+              ...proof,
+              generatedAt: now().toISOString(),
+              buyerAccountId: snapshot.buyerAccountId,
+              sellerAccountId: snapshot.sellerAccountId,
+              buyerToSeller: snapshot.buyerToSeller ? opportunitySlot(snapshot.buyerToSeller) : null,
+              sellerToBuyer: snapshot.sellerToBuyer ? opportunitySlot(snapshot.sellerToBuyer) : null,
+            };
+            if (!isReviewOpportunityChangedV1(fact)) throw new Error("Invalid canonical review opportunity snapshot.");
+            const events = await deps.eventStore.appendToStreamInTransaction(db, {
+              streamId: `marketplace.review-opportunity-${work.order_id}`,
+              expectedVersion: work.published_stream_version === 0 ? "no_stream" : work.published_stream_version,
+              context,
+              events: [{ eventType: reviewOpportunityFactType, payload: fact }],
+            });
+            const acknowledged = await db.query(
+              `UPDATE marketplace_review_opportunity_work SET published_generation = $2,
                published_stream_version = $3, last_fact = $4::jsonb
              WHERE order_id = $1 AND generation = $2`,
-            [work.order_id, work.generation, events[0]!.streamVersion, JSON.stringify(fact)],
-          );
-          if (acknowledged.rowCount !== 1) throw new Error("Review opportunity publication lost its generation fence.");
-          return true;
-        }).catch((error: unknown) => {
+              [work.order_id, work.generation, events[0]!.streamVersion, JSON.stringify(fact)],
+            );
+            if (acknowledged.rowCount !== 1)
+              throw new Error("Review opportunity publication lost its generation fence.");
+            return true;
+          },
+          { isolationLevel: "repeatable read" },
+        ).catch((error: unknown) => {
           if (typeof error === "object" && error !== null && "code" in error && error.code === "40001") return false;
           throw error;
         });

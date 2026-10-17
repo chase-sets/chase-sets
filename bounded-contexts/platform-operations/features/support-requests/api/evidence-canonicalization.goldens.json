@@ -1,0 +1,80 @@
+{
+  "profile": "support-evidence-raster/v1",
+  "provenance": {
+    "baseSha": "de788287c6e81887d0173aab333afd83ed69d467",
+    "host": "node:24-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 linux/amd64 (Node 24.19.0, glibc 2.36)",
+    "sharpPackages": "sharp@0.34.5 sha512-Ou9I5Ft9WNcCbXrU9cMgPBcCK8LiwLqcbywW3t4oDV37n1pzpuNLsYiAV8eODnjbtQlSDwZ2cUEeQz4E54Hltg==, @img/sharp-linux-x64@0.34.5 sha512-MEzd8HPKxVxVenwAa+JRPwEC7QFjoPWuS5NZnBt6B3pu7EG2Ge0id1oLHZpPJdn3OQK+BQDiw9zStiHBTJQQQQ==, @img/sharp-libvips-linux-x64@1.2.4 sha512-tJxiiLsmHc9Ax1bz3oaOYBURTXGIRDODBqhveVHonrHJ9/+k89qbLl0bcJns+e4t4rvaNBxaEZsFtSfAdquPrw== (matching pnpm-lock.yaml)",
+    "method": "canonicalizeSupportEvidenceImage run unmodified under tsx@4.21.0 on the tree rebased onto baseSha; three runs per fixture in each of three fresh containers were byte-identical"
+  },
+  "fixtures": [
+    {
+      "file": "photo-orientation-6-p3-xmp.jpg",
+      "declaredContentType": "image/jpeg",
+      "sha256": "31f4818a480bec447a45635231942eda1ad23430c4fc165344b2db205ae065a8"
+    },
+    {
+      "file": "screenshot-alpha-orientation-6-p3-xmp.png",
+      "declaredContentType": "image/png",
+      "sha256": "4dacecede49dae0879f1e68593e760618cb401e336cf4ff53505801e0dd0d9dc"
+    },
+    {
+      "file": "palette-transparency.png",
+      "declaredContentType": "image/png",
+      "sha256": "cf24a8efaa2f8559490f99976a6edfc45d0e563382877ff5caade8bbded0ebab"
+    },
+    {
+      "file": "rgb-16-bit-p3.png",
+      "declaredContentType": "image/png",
+      "sha256": "069263b39ef11fba0aeb406148f176a7389854667713a510a742a1c1c6769134"
+    },
+    {
+      "file": "photo-alpha-orientation-6-p3-xmp.webp",
+      "declaredContentType": "image/webp",
+      "sha256": "66378e3c51dd7ee6414fbd043fe5d85973bff4ab45605e6491c6e1dfc4a75d66"
+    }
+  ],
+  "fingerprints": [
+    {
+      "fingerprint": {
+        "profile": "support-evidence-raster/v1",
+        "sharp": "0.34.5",
+        "libvips": "8.17.3",
+        "platform": "linux",
+        "arch": "x64",
+        "libc": "glibc"
+      },
+      "outputs": [
+        {
+          "file": "photo-orientation-6-p3-xmp.jpg",
+          "contentType": "image/jpeg",
+          "sha256": "984fca34fddbec4dfb7cba5d0e476f146818cd11472cafd7adef9399c62b9a89",
+          "byteSize": 682
+        },
+        {
+          "file": "screenshot-alpha-orientation-6-p3-xmp.png",
+          "contentType": "image/png",
+          "sha256": "5016fd33762a8552d5eb20e2a6b2cc239cd37b54148f916f3b4402ea4ecf7eec",
+          "byteSize": 177
+        },
+        {
+          "file": "palette-transparency.png",
+          "contentType": "image/png",
+          "sha256": "bedd618d1292be204247c5cbadafe4243ba0245f94342a47dcb028ef31308e42",
+          "byteSize": 133
+        },
+        {
+          "file": "rgb-16-bit-p3.png",
+          "contentType": "image/png",
+          "sha256": "4893b765370602b1ec403ea4d732f2f4c035eb195d2ee2c56c2052ec34c505f3",
+          "byteSize": 100
+        },
+        {
+          "file": "photo-alpha-orientation-6-p3-xmp.webp",
+          "contentType": "image/webp",
+          "sha256": "81487d85a90109330cd310a778a3973efdedb4bdbe6daabc7e7e1ed8fe205598",
+          "byteSize": 258
+        }
+      ]
+    }
+  ]
+}

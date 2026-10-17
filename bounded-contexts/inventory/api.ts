@@ -9,6 +9,8 @@ import { inventoryRestockDecisionRoutes } from "./features/restock-decisions/api
 import { inventoryStorageLocationRoutes } from "./features/storage-locations/api/route";
 import { inventoryRecoveredItemRoutes } from "./features/recovered-items/api/route";
 import { inventoryChannelStockAllocationRoutes } from "./features/channel-allocations/api/route";
+import { inventoryMutationReadRoutes } from "./support/runtime-support/mutation-read-route";
+import { inventoryMutationBoundary } from "./support/runtime-support/mutation-boundary";
 
 export type InventoryActor = Readonly<{
   accountId: string;
@@ -44,6 +46,7 @@ function requiredPermissionForMethod(method: string, path: string) {
 
 export function buildInventoryApi(services: InventoryServices) {
   const app = new Hono<InventoryApiEnv>();
+  const mutationBoundary = inventoryMutationBoundary();
 
   app.use("*", async (c, next) => {
     const actor = c.get("actor");
@@ -62,7 +65,12 @@ export function buildInventoryApi(services: InventoryServices) {
     const requiredPermission = requiredPermissionForMethod(c.req.method, c.req.path);
     if (
       !actor.permissions.includes(requiredPermission) &&
-      !(requiredPermission === "orders.manage" && actor.permissions.includes("guest-checkout.manage"))
+      !(requiredPermission === "orders.manage" && actor.permissions.includes("guest-checkout.manage")) &&
+      !(
+        c.req.method === "GET" &&
+        c.req.path.includes("/mutation-attempts/") &&
+        (actor.permissions.includes("orders.manage") || actor.permissions.includes("guest-checkout.manage"))
+      )
     ) {
       return c.json(
         {
@@ -75,10 +83,11 @@ export function buildInventoryApi(services: InventoryServices) {
       );
     }
 
-    await next();
+    return mutationBoundary(c, next);
   });
 
   app.route("/catalog-items", inventoryCatalogItemRoutes(services.catalogItems));
+  app.route("/mutation-attempts", inventoryMutationReadRoutes(services.mutations));
   app.route("/storage-locations", inventoryStorageLocationRoutes(services.storageLocations));
   app.route("/import-batches", inventoryImportBatchRoutes(services.importBatches));
   app.route("/items", inventoryItemRoutes(services.items, services.holds, services.holdCollisions));
@@ -86,7 +95,10 @@ export function buildInventoryApi(services: InventoryServices) {
   app.route("/restock-decisions", inventoryRestockDecisionRoutes(services.restockDecisions));
   app.route("/recovered-items", inventoryRecoveredItemRoutes(services.recoveredItems));
   app.route("/holds", inventoryHoldRoutes(services.holds));
-  app.route("/checkout-reservations", inventoryCheckoutReservationRoutes(services.holds));
+  app.route(
+    "/checkout-reservations",
+    inventoryCheckoutReservationRoutes(services.holds, services.checkoutReservationAuthority, services.mutations),
+  );
 
   return app;
 }

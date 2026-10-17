@@ -13,6 +13,7 @@ import { AGENT_WEBHOOK_SIGNATURE_HEADER, verifyAgentWebhookSignature } from "./w
 
 const signingSecret = "whsec_lifecycle_fixture";
 const target: AgentWebhookTarget = {
+  grantIds: ["grant_active"],
   clientId: "ocl_lifecycle",
   accountId: "acc_buyer",
   callbackUrl: "https://agent.example/hooks",
@@ -45,6 +46,7 @@ describe("agent webhook lifecycle", () => {
     }
 
     const dispatcher = createAgentWebhookDispatcher({
+      withActiveGrants: async (_account, _client, ids, work) => work(ids),
       outbox,
       resolveSigningSecret: async () => signingSecret,
       send: async (request: AgentWebhookSendRequest) => {
@@ -80,6 +82,7 @@ describe("agent webhook lifecycle", () => {
 
 function createInProcessOutbox(enqueued: EnqueueAgentWebhookDeliveryInput[]): AgentWebhookOutbox {
   return {
+    excludeRevokedGrant: async () => true,
     enqueueDelivery: async (input) => {
       enqueued.push(input);
     },
@@ -87,6 +90,7 @@ function createInProcessOutbox(enqueued: EnqueueAgentWebhookDeliveryInput[]): Ag
       enqueued.map(
         (input, index): ClaimedAgentWebhookDelivery => ({
           outboxId: String(index + 1),
+          grantIds: input.grantIds,
           deliveryId: input.idempotencyKey,
           clientId: input.clientId,
           accountId: input.accountId,

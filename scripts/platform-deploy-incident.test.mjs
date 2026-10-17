@@ -14,6 +14,7 @@ import {
   redactDeployDiagnosticText,
   renderDeployRootCauseSummary,
 } from "./platform-deploy-incident.mjs";
+import * as platformDeployIncident from "./platform-deploy-incident.mjs";
 
 const fixtureDirectory = resolve("scripts/fixtures/platform-deploy-incidents");
 const rootCauseFixtures = readdirSync(fixtureDirectory)
@@ -165,8 +166,8 @@ describe("platform deploy incident classification", () => {
 });
 
 describe("deployment root-cause taxonomy", () => {
-  it("publishes the complete initial stable taxonomy", () => {
-    expect(DEPLOY_ROOT_CAUSE_CODES).toEqual([
+  it("keeps the initial stable taxonomy in order", () => {
+    const initial = [
       "doks-bootstrap-or-migration",
       "terraform-provider-or-state",
       "staging-dns",
@@ -175,7 +176,8 @@ describe("deployment root-cause taxonomy", () => {
       "production-verification",
       "superseded-pre-mutation",
       "unknown",
-    ]);
+    ];
+    expect(DEPLOY_ROOT_CAUSE_CODES.filter((code) => initial.includes(code))).toEqual(initial);
   });
 
   for (const fixture of rootCauseFixtures) {
@@ -329,5 +331,228 @@ describe("deployment root-cause taxonomy", () => {
       affectedComponent: "terraform",
     });
     expect(result.providerReason).toContain("state lock");
+  });
+});
+
+// Helm's stderr line 248 of Platform Deploy run 38672454609, job "Deploy Production" (2026-10-15).
+const admissionNoAgentCall =
+  'cannot patch "chase-sets-platform-doks-tls" with kind Certificate: Internal error occurred: failed calling webhook "webhook.cert-manager.io": failed to call webhook: Post "https://cert-manager-webhook.cert-manager.svc:443/validate?timeout=30s": No agent available';
+const productionAdmissionTransientLine = `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: ${admissionNoAgentCall}: ${admissionNoAgentCall}`;
+// Synthetic: the same original upgrade error after Helm's atomic rollback succeeded.
+const syntheticRolledBackAdmissionTransientLine = `Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: ${admissionNoAgentCall}`;
+
+describe("admission transient matcher", () => {
+  it("returns the bounded redacted helm line for the verbatim production failure", () => {
+    const line = platformDeployIncident.classifyAdmissionWebhookTransient(
+      `Release "chase-sets-platform" has been upgraded.\n${productionAdmissionTransientLine}\n`,
+    );
+    expect(line).toBe(productionAdmissionTransientLine.slice("Error: ".length, "Error: ".length + 500));
+    expect(line.length).toBeLessThanOrEqual(500);
+    expect(line).toContain("No agent available");
+    // The same line as GitHub's job log renders it, behind the step and timestamp columns.
+    expect(
+      platformDeployIncident.classifyAdmissionWebhookTransient(
+        `Deploy Production\tDeploy production Kubernetes release\t2026-10-15T02:58:16.8734535Z ${productionAdmissionTransientLine}`,
+      ),
+    ).toBe(line);
+  });
+
+  it("matches the synthetic successful-rollback rendition and redacts what it returns", () => {
+    expect(platformDeployIncident.classifyAdmissionWebhookTransient(syntheticRolledBackAdmissionTransientLine)).toBe(
+      syntheticRolledBackAdmissionTransientLine.slice("Error: ".length),
+    );
+    const withCredential = syntheticRolledBackAdmissionTransientLine.replace(
+      "?timeout=30s",
+      "?timeout=30s&token=planted-admission-credential",
+    );
+    const redacted = platformDeployIncident.classifyAdmissionWebhookTransient(withCredential);
+    expect(redacted).toContain("No agent available");
+    expect(redacted).not.toContain("planted-admission-credential");
+  });
+
+  it.each([
+    [
+      "kubectl logs no-agent",
+      'Error from server: Get "https://10.108.0.4:10250/containerLogs/chase-sets-platform/api-0/api": No agent available',
+    ],
+    [
+      "webhook connection refused",
+      productionAdmissionTransientLine.replaceAll(
+        "No agent available",
+        "dial tcp 10.108.83.28:443: connect: connection refused",
+      ),
+    ],
+    [
+      "webhook context deadline exceeded",
+      syntheticRolledBackAdmissionTransientLine.replace("No agent available", "context deadline exceeded"),
+    ],
+    [
+      "timed out waiting for the condition",
+      "Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: timed out waiting for the condition",
+    ],
+    [
+      "pre-upgrade hook failure",
+      `Error: UPGRADE FAILED: release chase-sets-platform failed, and has been rolled back due to atomic being set: pre-upgrade hooks failed: 1 error occurred:\n\t* ${admissionNoAgentCall}`,
+    ],
+    [
+      "post-upgrade hook failure carrying the admission call",
+      `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: post-upgrade hooks failed: ${admissionNoAgentCall}: ${admissionNoAgentCall}`,
+    ],
+    [
+      "no-agent rollback error behind a different original upgrade error",
+      `Error: UPGRADE FAILED: an error occurred while rolling back the release. original upgrade error: timed out waiting for the condition: ${admissionNoAgentCall}`,
+    ],
+    ["admission call outside helm UPGRADE FAILED", `Error: ${admissionNoAgentCall}`],
+    ["empty stderr", ""],
+  ])("returns null for %s", (_name, text) => {
+    expect(platformDeployIncident.classifyAdmissionWebhookTransient(text)).toBeNull();
+  });
+});
+
+function deployAttemptsRecord(attempts) {
+  const performed = attempts.length === 2;
+  return {
+    schemaVersion: "platform-kubernetes-deploy-attempts/v1",
+    release: "chase-sets-platform",
+    namespace: "chase-sets-platform",
+    result: attempts.at(-1).result,
+    retry: performed ? "performed" : "refused",
+    refusal: performed ? null : "probe-deadline",
+    attempts,
+    probeSamples: [
+      { outcome: "success", elapsedMs: 900 },
+      { outcome: performed ? "success" : "failure", elapsedMs: 10_900 },
+    ],
+    recovery: performed ? { sourceRevision: 692, resultingRevision: 695, rolledBack: true } : null,
+    preRetryHistory: performed
+      ? [
+          {
+            revision: 695,
+            status: "deployed",
+            // SHA-256 of "Rollback to 692": the record never carries a Helm description itself.
+            descriptionSha256: "sha256:4c8dd2a754b6178a1e0b18fd3ccbda4b144635b3da140b76dffd50586950f3d4",
+          },
+        ]
+      : null,
+  };
+}
+
+describe("admission webhook root cause", () => {
+  // The record carries the matcher's bounded line, asserted against the same text above.
+  const transientLine = productionAdmissionTransientLine.slice("Error: ".length, "Error: ".length + 500);
+  const transient = (attempt) => ({
+    attempt,
+    result: "failure",
+    admissionWebhookTransient: transientLine,
+    admissionWebhookTransientCode: "doks-admission-webhook-unreachable",
+  });
+  const untagged = (attempt, result = "failure") => ({
+    attempt,
+    result,
+    admissionWebhookTransient: null,
+    admissionWebhookTransientCode: null,
+  });
+
+  it("places doks-admission-webhook-unreachable immediately before unknown", () => {
+    expect(DEPLOY_ROOT_CAUSE_CODES.indexOf("doks-admission-webhook-unreachable")).toBe(
+      DEPLOY_ROOT_CAUSE_CODES.indexOf("unknown") - 1,
+    );
+  });
+
+  it.each([
+    ["a refused retry", [transient(1)]],
+    ["a failed retry", [transient(1), transient(2)]],
+  ])("maps the attempts record of %s whose last attempt is transient", (_name, attempts) => {
+    const result = classifyDeploymentRootCause({
+      phase: "production-deploy",
+      diagnostics: [
+        { schemaVersion: "platform-kubernetes-diagnostics/v1", commands: [] },
+        deployAttemptsRecord(attempts),
+      ],
+    });
+    expect(result).toMatchObject({
+      rootCauseCode: "doks-admission-webhook-unreachable",
+      affectedComponent: "doks-control-plane",
+      phase: "production-deploy",
+      providerReason: transientLine,
+      blocking: true,
+    });
+    expect(
+      classifyPlatformDeployRun({ deployProductionResult: "failure", productionRootCauseCode: result.rootCauseCode }),
+    ).toMatchObject({ reason: "doks-admission-webhook-unreachable", action: "create-or-update" });
+  });
+
+  it("trusts the recorded code for a bounded line cut before `No agent available`", () => {
+    // Synthetic: a webhook path long enough that the 500-character bound drops the suffix.
+    const longLine = platformDeployIncident.classifyAdmissionWebhookTransient(
+      productionAdmissionTransientLine.replaceAll("/validate", `/synthetic-${"x".repeat(250)}`),
+    );
+    expect(longLine).toHaveLength(500);
+    expect(longLine).not.toContain("No agent available");
+    expect(platformDeployIncident.classifyAdmissionWebhookTransient(longLine)).toBeNull();
+    const attempts = [1, 2].map((attempt) => ({ ...transient(attempt), admissionWebhookTransient: longLine }));
+    expect(
+      classifyDeploymentRootCause({ phase: "production-deploy", diagnostics: [deployAttemptsRecord(attempts)] }),
+    ).toMatchObject({ rootCauseCode: "doks-admission-webhook-unreachable", providerReason: longLine });
+  });
+
+  // The existing invalid line: neither its text nor an unknown code is recognition.
+  const invalidLine = "UPGRADE FAILED: timed out waiting for the condition";
+  const longInvalidLine = `${invalidLine}: ${"synthetic-".repeat(60)}`.slice(0, 500);
+
+  it.each([
+    ["a non-transient last attempt", [untagged(1)]],
+    ["a transient first attempt followed by a non-transient retry failure", [transient(1), untagged(2)]],
+    ["a recovered retry", [transient(1), untagged(2, "success")]],
+    ["an invalid line without a code", [{ ...untagged(1), admissionWebhookTransient: invalidLine }]],
+    ["a long invalid line without a code", [{ ...untagged(1), admissionWebhookTransient: longInvalidLine }]],
+    [
+      "an untagged attempt carrying a transient line",
+      [{ attempt: 1, result: "failure", admissionWebhookTransient: transientLine }],
+    ],
+    ["an unknown code", [{ ...transient(1), admissionWebhookTransientCode: "unknown" }]],
+    ["another root-cause code", [{ ...transient(1), admissionWebhookTransientCode: "production-verification" }]],
+    ["a code without its line", [{ ...transient(1), admissionWebhookTransient: null }]],
+    ["a code with an empty line", [{ ...transient(1), admissionWebhookTransient: "" }]],
+    ["a code with an unbounded line", [{ ...transient(1), admissionWebhookTransient: "x".repeat(501) }]],
+    ["a code on a successful last attempt", [transient(1), { ...transient(2), result: "success" }]],
+    ["an unknown attempt field", [{ ...transient(1), message: transientLine }]],
+  ])("leaves %s to the existing classification", (_name, attempts) => {
+    expect(
+      classifyDeploymentRootCause({ phase: "production-deploy", diagnostics: [deployAttemptsRecord(attempts)] })
+        .rootCauseCode,
+    ).toBe("unknown");
+  });
+
+  it.each([
+    ["a terminal result that is not its last attempt's", (record) => Object.assign(record, { result: "success" })],
+    ["a third attempt", (record) => record.attempts.push(transient(3))],
+    ["a misnumbered attempt", (record) => Object.assign(record.attempts[0], { attempt: 2 })],
+    [
+      "another schema version",
+      (record) => Object.assign(record, { schemaVersion: "platform-kubernetes-deploy-attempts/v2" }),
+    ],
+  ])("rejects a record with %s", (_name, mutate) => {
+    const record = deployAttemptsRecord([transient(1), transient(2)]);
+    mutate(record);
+    expect(classifyDeploymentRootCause({ phase: "production-deploy", diagnostics: [record] }).rootCauseCode).toBe(
+      "unknown",
+    );
+  });
+
+  it("reads the attempts record file the production classify step passes", () => {
+    const directory = mkdtempSync(join(tmpdir(), "platform-deploy-attempts-"));
+    const attemptsPath = join(directory, "production-kubernetes-deploy-attempts.json");
+    try {
+      writeFileSync(attemptsPath, `${JSON.stringify(deployAttemptsRecord([transient(1)]))}\n`);
+      expect(
+        classifyDeploymentRootCause({
+          phase: "production-deploy",
+          diagnostics: readDeployDiagnostics([join(directory, "absent-terraform.txt"), attemptsPath]),
+        }).rootCauseCode,
+      ).toBe("doks-admission-webhook-unreachable");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

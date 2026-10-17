@@ -44,6 +44,7 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
         nextCursor: null,
         retrievalMode: "lexical" as const,
         lexicalCount: 0,
+        cursorState: "fresh" as const,
         queryHash: "",
         resultSetKey: "",
       })),
@@ -76,6 +77,56 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
 }
 
 describe("Discovery UCP catalog handlers", () => {
+  it("keeps corrected rows mode-free in REST and MCP search_catalog", async () => {
+    const items = buildItems();
+    const original = await items.search.searchItems();
+    vi.mocked(items.search.searchItems).mockResolvedValue({
+      ...original,
+      retrievalMode: "corrected",
+      lexicalCount: 0,
+      nextCursor: null,
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const result = await handlers.restHandlers.search_catalog({
+      request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
+        method: "POST",
+        body: JSON.stringify({ query: "chraizard" }),
+      }),
+      params: {},
+    } as never);
+    expect(result).toMatchObject({ products: [{ id: "cat_1" }], count: 1, total: 1, next_cursor: null });
+    expect(JSON.stringify(result)).not.toMatch(/retrievalMode|lexicalCount|corrected/);
+    const mcp = await handlers.mcpToolHandlers.search_catalog({
+      request: new Request("https://marketplace.example/mcp", {
+        method: "POST",
+        body: JSON.stringify({ query: "chraizard" }),
+      }),
+      params: {},
+    } as never);
+    expect(mcp).toEqual(result);
+  });
+  it("returns interpreted final rows without interpretation metadata in REST and MCP search_catalog", async () => {
+    const items = buildItems();
+    const original = await items.search.searchItems();
+    vi.mocked(items.search.searchItems).mockResolvedValue({
+      ...original,
+      nextCursor: null,
+      interpretation: {
+        remainingQuery: "charizard",
+        applied: [{ param: "dimension.dim_seed_grade", optionId: "chc_seed_grade_gem_mint_10", label: "Gem Mint 10" }],
+      },
+    });
+    const handlers = createDiscoveryUcpHandlers(items);
+    const input = (url: string) =>
+      ({
+        request: new Request(url, { method: "POST", body: JSON.stringify({ query: "charizard psa 10" }) }),
+        params: {},
+      }) as never;
+    const rest = await handlers.restHandlers.search_catalog(input("https://marketplace.example/ucp/v1/catalog/search"));
+    expect(rest).toMatchObject({ products: [{ id: "cat_1" }], count: 1, next_cursor: null });
+    expect(JSON.stringify(rest)).not.toMatch(/interpretation|remainingQuery|Gem Mint|retrievalMode/);
+    expect(await handlers.mcpToolHandlers.search_catalog(input("https://marketplace.example/mcp"))).toEqual(rest);
+  });
   it("maps discovery search rows to UCP product envelopes", async () => {
     const items = buildItems();
     const handlers = createDiscoveryUcpHandlers(items);
@@ -135,6 +186,36 @@ describe("Discovery UCP catalog handlers", () => {
         component: "marketplace-results",
       },
     });
+  });
+
+  it("forwards opaque cursors and keeps the search envelope unchanged when a cursor restarts", async () => {
+    const items = buildItems();
+    const handlers = createDiscoveryUcpHandlers(items);
+    const search = (body: Record<string, unknown>) =>
+      handlers.restHandlers.search_catalog({
+        request: new Request("https://marketplace.example/ucp/v1/catalog/search", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+        params: {},
+      } as never);
+    const fresh = await search({ query: "charizard" });
+    const restartedPage = await vi.mocked(items.search.searchItems).getMockImplementation()?.();
+    if (!restartedPage) throw new Error("Expected the default search fixture.");
+    vi.mocked(items.search.searchItems).mockResolvedValueOnce({
+      ...restartedPage,
+      nextCursor: "cursor_v2",
+      cursorState: "restarted",
+    });
+
+    const restarted = await search({ query: "charizard", cursor: "legacy-cursor" });
+
+    expect(items.search.searchItems).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: "charizard", cursor: "legacy-cursor", includeTotal: true }),
+    );
+    expect(Object.keys(restarted).sort()).toEqual(Object.keys(fresh).sort());
+    expect(restarted).toMatchObject({ ucp: { status: "ok" }, count: 1, total: 1, next_cursor: "cursor_v2" });
+    expect(JSON.stringify(restarted)).not.toContain("restart");
   });
 
   it("returns a UCP not-found message when get_product cannot resolve an item", async () => {

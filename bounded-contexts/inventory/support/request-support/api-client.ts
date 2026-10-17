@@ -23,7 +23,10 @@ import { createInventoryApiClient, type InventoryApiClientOptions } from "../../
 
 export function createInventoryRequestApiClient(
   request: Request,
-  options: Pick<InventoryApiClientOptions, "requestTimeoutMs" | "recoverTransportErrorsAsGatewayTimeout"> = {},
+  options: Pick<
+    InventoryApiClientOptions,
+    "requestTimeoutMs" | "recoverTransportErrorsAsGatewayTimeout" | "mutationAttemptId"
+  > = {},
 ) {
   return createInventoryApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/inventory"),

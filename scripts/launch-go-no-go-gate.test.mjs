@@ -33,6 +33,13 @@ import { RELEASE_HEALTH_REPORT_VERSION } from "./release-health-report.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
 const checkedAt = "2026-07-13T12:00:00.000Z";
+
+it("registers Wallet Funding approval and its paired reference in the production gate", () => {
+  expect(REQUIRED_PRODUCTION_APPROVAL_CATEGORIES).toContain("PRODUCTION_WALLET_FUNDING_APPROVED");
+  const workflow = readFileSync(path.join(repoRoot, ".github/workflows/platform-production.yml"), "utf8");
+  expect(workflow).toContain("vars.PRODUCTION_WALLET_FUNDING_REFERENCE");
+  expect(workflow).toContain("Production marketplace promotion requires approved Wallet Funding evidence.");
+});
 const validCommit = "a".repeat(40);
 const SYNTHETIC_PACKET_SHA256 = `sha256:${"a".repeat(64)}`;
 
@@ -675,8 +682,10 @@ describe("launch go/no-go gate: promotion-evidence legal-corpus revalidation", (
     ]) {
       expect(promotionRow(override).status, JSON.stringify(override)).toBe("pending");
     }
-    for (const version of ["v1", "v2"]) {
+    for (const version of ["v1", "v2", "v3"]) {
       expect(promotionRow({}, { schemaVersion: `marketplace-promotion-evidence/${version}` }).status).toBe("pending");
+    }
+    for (const version of ["v1", "v2"]) {
       expect(
         promotionRow({ publicPresenceCopyAuditVersion: `marketplace-public-presence-copy-audit/${version}` }).status,
       ).toBe("pending");

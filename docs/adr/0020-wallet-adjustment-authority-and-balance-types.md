@@ -143,6 +143,22 @@ Removal of the legacy `workflow`-string branch is tracked as in-scope follow-up 
 
 This decision adds no new automated structure guard. The existing `check:structure` glossary-coverage guard and `business-literal-guard.mjs` already apply once #4998 adds `wallet-adjustment` as an owned noun to Settlement's `context.json` and #5000 adds the `settlement.wallet-adjustment-controls` policy file — no separate enforcement mechanism is introduced here.
 
+## Staging-only operator-proof credit exception
+
+For #7806 AC6, [Todd's 2026-10-07 ruling](https://github.com/chase-sets/chase-sets/issues/7806#issuecomment-6041721954) selects a governed staging-only operator-proof credit naming the founder Wallet, rather than a two-operator proof seller or zero-clearance sale proceeds. The USD25 cap, one-use limit and disabled default below are the #9051 design constraints, not numerical terms of Todd's ruling.
+
+The dedicated **Staging Proof Credit** credits ordinary available Wallet balance. It is not Prepaid Balance, Marketplace Credit, sale proceeds, evidence of external funds received, a counsel ruling or production authority. The ordinary Wallet Adjustment lifecycle and its self-approval, self-benefit, elevated-approval and common-control prohibitions are unchanged.
+
+Only the trusted host deployment environment `staging` admits writes. Missing, unknown and all other environments refuse; request fields, headers and hostname never supply that authority. Policy `settlement.staging-proof-credit` is closed `{enabled:boolean,proofAccountId:AccountId|null}`, default disabled/null. Its sole authoritative document is `settlement-staging-proof-credit-7806-ac6`. Settlement revision-guards the first pin and refuses clearing or changing it. Disable and expiry retain it; console fallback creation revises this same document, never replacement authority. Todd verifies the founder AccountId before pinning. Posting reads this exact event-sourced document state/version, not its cached projection, and guards that version in the Wallet transaction.
+
+One operator with both `wallet-adjustments.create` and `wallet-adjustments.approve`, a real session and Auth recent authentication may credit that named account, including their own. The existing controls policy supplies the recent-auth window; `haltNewActions` and policy-resolution failures refuse. Session and CSRF controls remain mandatory. This path never invokes ordinary approval or invents a second approver.
+
+The closed request supplies only target account and canonical USD cents, 0.01 through 25.00. Fixed proof `7806-ac6` and account derive the ledger identity independently of actor or retry key. Exact-money replay returns the original receipt; conflicts and partial/mismatched retained history refuse. Keys, actors, restarts, projection rebuilds, spending, refunds, policy toggles and expiry never replenish it. An unopened Wallet opens in the same atomic append; no Identity account is created, and wrong existing currency refuses.
+
+One transaction appends an `adjustment`-kind available credit and internal `settlement.wallet.staging-proof-credit-posted` audit. The audit records actor, immutable account pin, staging environment, proof, amount/currency/cap, exact policy document/version, recent-auth result and timestamp/window, reason `staging-operator-proof`, ruling URL, UTC posting time and ledger ID. It has no extra balance effect or Wallet Adjustment lifecycle rows. Append failure leaves neither effect. Revision conflict reloads and redecides, including concurrent holds/debits.
+
+Pending balance, holds, Negative Balance recovery and payout-readiness rules remain unchanged; the credit need not be spendable. Disabled policy permits authorized receipt reads but no writes. Enabled/uncredited admits once; credited remains inert. Disable after the proof window. No SQL, seed, import, bootstrap, replenishment, reversal bypass, provider operation, payout or AC6 execution is authorized by this exception. Corrections still require ordinary governed controls. The receipt, not the generic statement label, identifies this proof path.
+
 ## Reopening Criteria
 
 Revisit this ADR before:

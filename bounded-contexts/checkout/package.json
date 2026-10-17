@@ -21,6 +21,7 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",

@@ -1,8 +1,16 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData } from "react-router";
+import { data, useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
-import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chase-sets/platform-runtime/http";
+import { parseStrictTypedUlid } from "@chase-sets/primitives/typed-ids";
+import { defineFormAction, defineResourceRoute } from "@chase-sets/platform-runtime/http";
+import { navigateAfterWrite } from "@chase-sets/http/responses";
+import {
+  accountMutationResponse,
+  requireInterruptionSafeClient,
+} from "../../features/account-management/api/marketplace-action";
+import type { MutationResult } from "../../features/account-management/api/runtime";
+import { AccountMutationBoundary } from "../../features/account-management/ui/controller";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createIdentityRequestApiClient,
@@ -12,8 +20,28 @@ import { IdentityApiError, type ShippingAddress } from "../../support/request-su
 import { ShippingAddressPage } from "../../features/shipping-addresses/ui/shipping-address-page";
 import contextManifest from "../../context.json";
 import { identityApiErrorAdapter } from "../../support/request-support/route-api-error";
+import { classifyAccountActionError } from "../../support/route-support/account-action-errors";
+import { shippingAddressActionErrors } from "../../features/shipping-addresses/ui/action-errors";
 
-type ActionData = Readonly<{ error?: string }>;
+function addressIdentity(value: string) {
+  try {
+    return parseStrictTypedUlid(value, "adr");
+  } catch {
+    return undefined;
+  }
+}
+
+function unknownAction() {
+  const message = t("identity.routes.marketplace.accountShippingAddresses.unknown.action");
+  return {
+    failure: {
+      message,
+      intent: "unknown",
+      classification: "INDETERMINATE",
+      errors: { fieldErrors: {}, formErrors: [message] },
+    },
+  } as const;
+}
 
 function text(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
@@ -38,6 +66,7 @@ function addressBody(formData: FormData) {
     phone: nullableText(formData, "phone"),
     email: nullableText(formData, "email"),
     makeDefault: text(formData, "makeDefault") === "true",
+    addressVerificationDecision: text(formData, "addressVerificationDecision") || null,
   };
 }
 
@@ -52,8 +81,13 @@ export const loader = defineResourceRoute({
   errorAdapter: identityApiErrorAdapter,
   load: ({ request, actor }) =>
     createIdentityRequestApiClient(request).listShippingAddresses<ListResponse<ShippingAddress>>(actor!.accountId),
-  map: (response) => ({ addresses: response.items, loadError: null }),
-  onPending: () => ({
+  map: (response, { actor }) => ({
+    addresses: response.items,
+    loadError: null,
+    mutationActor: { tenantId: actor!.tenantId, userId: actor!.userId, accountId: actor!.accountId },
+  }),
+  onPending: (_result, { actor }) => ({
+    mutationActor: { tenantId: actor!.tenantId, userId: actor!.userId, accountId: actor!.accountId },
     addresses: emptyAddressList().items,
     loadError: t("identity.routes.marketplace.accountShippingAddresses.addresses.updating"),
   }),
@@ -66,58 +100,89 @@ async function handleShippingAddressAction(intent: string, request: Request, for
 
   try {
     if (intent === "create") {
-      return formActionRedirect(
-        await api.createShippingAddress(accountId, addressBody(formData)),
+      const result = await api.createShippingAddress<MutationResult>(accountId, addressBody(formData));
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
     if (intent === "update" && shippingAddressId) {
-      return formActionRedirect(
-        await api.updateShippingAddress(accountId, shippingAddressId, addressBody(formData)),
+      const result = await api.updateShippingAddress<MutationResult>(
+        accountId,
+        shippingAddressId,
+        addressBody(formData),
+      );
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
     if (intent === "default" && shippingAddressId) {
-      return formActionRedirect(
-        await api.setDefaultShippingAddress(accountId, shippingAddressId),
+      const result = await api.setDefaultShippingAddress<MutationResult>(accountId, shippingAddressId);
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
     if (intent === "archive" && shippingAddressId) {
-      return formActionRedirect(
-        await api.archiveShippingAddress(accountId, shippingAddressId),
+      const result = await api.archiveShippingAddress<MutationResult>(accountId, shippingAddressId);
+      return accountMutationResponse(
+        result,
         "/account/shipping-addresses",
+        navigateAfterWrite(result, "/account/shipping-addresses"),
       );
     }
-    return { error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") };
+    return unknownAction();
   } catch (error) {
-    return {
-      error:
-        error instanceof Error
-          ? error.message
-          : t("identity.routes.marketplace.accountShippingAddresses.request.failed"),
-    } satisfies ActionData;
+    if (!(error instanceof IdentityApiError)) throw error;
+    const code = identityApiErrorAdapter.getErrorCode(error);
+    const failure =
+      classifyAccountActionError(error) ??
+      (error.status === 400 && code === "shipping_address_undeliverable"
+        ? ({
+            kind: "validation",
+            status: 400,
+            code,
+            message: t("identity.features.shippingAddresses.errors.undeliverable"),
+          } as const)
+        : error.status === 409 && code === "address_standardization_suggested"
+          ? ({
+              kind: "domain",
+              status: 409,
+              code,
+              message: t("identity.features.shippingAddresses.api.route.address.standardization.suggested"),
+            } as const)
+          : null);
+    if (!failure) throw error;
+    const normalized = shippingAddressActionErrors(error, intent, failure.message);
+    const message = Object.values(normalized.errors.fieldErrors)[0]?.[0] ?? failure.message;
+    const identity = intent === "update" ? addressIdentity(shippingAddressId) : undefined;
+    return data(
+      { failure: { ...failure, ...normalized, message, intent, ...(identity ? { shippingAddressId: identity } : {}) } },
+      { status: failure.status },
+    );
   }
 }
 
-export const action = defineFormAction({
-  authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
-  intents: {
-    create: ({ request, formData, actor }) =>
-      handleShippingAddressAction("create", request, formData, actor!.accountId),
-    update: ({ request, formData, actor }) =>
-      handleShippingAddressAction("update", request, formData, actor!.accountId),
-    default: ({ request, formData, actor }) =>
-      handleShippingAddressAction("default", request, formData, actor!.accountId),
-    archive: ({ request, formData, actor }) =>
-      handleShippingAddressAction("archive", request, formData, actor!.accountId),
-  },
-  onUnknownIntent: () => ({ error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") }),
-  onError: (error) => ({
-    error:
-      error instanceof Error ? error.message : t("identity.routes.marketplace.accountShippingAddresses.request.failed"),
+export const action = requireInterruptionSafeClient(
+  defineFormAction({
+    authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "accounts.manage" }),
+    intents: {
+      create: ({ request, formData, actor }) =>
+        handleShippingAddressAction("create", request, formData, actor!.accountId),
+      update: ({ request, formData, actor }) =>
+        handleShippingAddressAction("update", request, formData, actor!.accountId),
+      default: ({ request, formData, actor }) =>
+        handleShippingAddressAction("default", request, formData, actor!.accountId),
+      archive: ({ request, formData, actor }) =>
+        handleShippingAddressAction("archive", request, formData, actor!.accountId),
+    },
+    onUnknownIntent: unknownAction,
   }),
-});
+);
 
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
@@ -126,6 +191,14 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountShippingAddressesRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as ActionData | undefined;
-  return <ShippingAddressPage addresses={data.addresses} errorMessage={actionData?.error ?? data.loadError ?? null} />;
+  const actionData = useActionData<Readonly<{ failure: Readonly<{ message: string }> }>>();
+  const failure = actionData && "failure" in actionData ? actionData.failure : null;
+  return (
+    <AccountMutationBoundary
+      key={`${data.mutationActor.tenantId}:${data.mutationActor.userId}:${data.mutationActor.accountId}`}
+      actor={data.mutationActor}
+    >
+      <ShippingAddressPage addresses={data.addresses} errorMessage={failure?.message ?? data.loadError ?? null} />
+    </AccountMutationBoundary>
+  );
 }

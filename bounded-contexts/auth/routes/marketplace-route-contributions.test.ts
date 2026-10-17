@@ -97,6 +97,14 @@ describe("Auth marketplace route contributions", () => {
           sourceContext: "auth",
         }),
         expect.objectContaining({
+          routeId: "account-agents-consent",
+          routePath: "account/agents/consent",
+          fileExport: "./routes/marketplace/account-agents-consent",
+          sourceContext: "auth",
+          delivery: "server-only",
+          authorization: { kind: "authenticated", requiredPermissions: [] },
+        }),
+        expect.objectContaining({
           routeId: "account-agents-detail",
           routePath: "account/agents/:id",
           fileExport: "./routes/marketplace/account-agents-detail",

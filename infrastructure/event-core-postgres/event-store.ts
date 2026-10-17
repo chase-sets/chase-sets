@@ -157,6 +157,21 @@ export type PostgresEventStoreConfig = Readonly<{
 
 export interface PostgresEventStore extends EventStore {
   appendToStreamInTransaction(client: PgQueryable, input: AppendToStreamInput): Promise<readonly StoredEvent[]>;
+  /**
+   * The all-or-nothing multi-stream append (`appendToStreams`) on a
+   * transaction the caller already owns. Every input's expected version is
+   * enforced, including zero-event guards, and a batch names each stream at
+   * most once. This method never begins, commits, rolls back, savepoints or
+   * acquires a pool client: every validation or append error propagates so
+   * the owner rolls the whole transaction back, including a guard that fails
+   * after an earlier stream's rows were inserted. Wake notifications enqueue
+   * on the supplied transaction, so they surface only after the owner's
+   * COMMIT and never after its ROLLBACK.
+   */
+  appendToStreamsInTransaction(
+    client: PgQueryable,
+    inputs: readonly AppendToStreamInput[],
+  ): Promise<readonly AppendToStreamsResult[]>;
   readStreamInTransaction(client: PgQueryable, input: ReadStreamInput): Promise<readonly StoredEvent[]>;
 }
 
@@ -280,6 +295,55 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
               });
             }
             return storedEvents;
+          } catch (error) {
+            throw normalizeEventStoreError(error, "Failed to append events in a caller-owned Postgres transaction.");
+          }
+        },
+      );
+    },
+    appendToStreamsInTransaction: async (client, inputs) => {
+      if (inputs.length === 0) {
+        return [];
+      }
+
+      assertUniqueStreamIds("appendToStreamsInTransaction", inputs);
+      assertEventPayloadSizes(inputs);
+
+      return observeEventStoreOperation(
+        "append_to_streams_in_transaction",
+        {
+          event_count: inputs.reduce((count, input) => count + input.events.length, 0),
+          event_type: "multiple",
+        },
+        async () => {
+          try {
+            const results = await appendEventsToStreams({
+              client,
+              inputs,
+              now,
+              createEventId,
+              upsertStreamSql,
+              readCurrentVersionSql,
+              eventsTable,
+              readEventsByIdsSql,
+              updateStreamVersionSql,
+            });
+            if (wakeNotifications) {
+              for (let index = 0; index < inputs.length; index += 1) {
+                const input = inputs[index];
+                if (!input) {
+                  continue;
+                }
+                await enqueueEventStoreWakeNotificationInTransaction({
+                  client,
+                  config: wakeNotifications,
+                  input,
+                  storedEvents: results[index]?.storedEvents ?? [],
+                  emittedAt: now(),
+                });
+              }
+            }
+            return results;
           } catch (error) {
             throw normalizeEventStoreError(error, "Failed to append events in a caller-owned Postgres transaction.");
           }
@@ -1505,6 +1569,13 @@ function assertSafeWakeNotificationRecord(value: unknown, path: string): void {
 
 function byteLengthUtf8(value: string): number {
   return typeof Buffer !== "undefined" ? Buffer.byteLength(value, "utf8") : new TextEncoder().encode(value).length;
+}
+
+function assertUniqueStreamIds(operation: string, inputs: readonly AppendToStreamInput[]): void {
+  const uniqueStreamIds = new Set(inputs.map((input) => input.streamId));
+  if (uniqueStreamIds.size !== inputs.length) {
+    throw new Error(`${operation} does not support the same stream id more than once per batch.`);
+  }
 }
 
 function assertEventPayloadSizes(inputs: readonly AppendToStreamInput[]): void {

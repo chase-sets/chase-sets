@@ -1,9 +1,9 @@
 import { formatDate, t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   ActorIdentityCue,
   Button,
+  Banner,
   InlineTextGroup,
   LinkButton,
   MarketplaceDashboardPanel,
@@ -19,6 +19,7 @@ import {
 import type { Account } from "./contracts";
 import type { CurrentActorDisplay } from "../../../support/shell-support/current-actor-display";
 import { AccountBadgeList } from "./account-badges";
+import { AccountMutationForm as Form } from "../../account-management/ui/controller";
 import {
   accountStatusLabel,
   accountTypeLabel,
@@ -54,9 +55,11 @@ function AccountNameWithBadges({
 export function AccountProfilePage({
   account,
   actorDisplay,
+  errorMessage,
 }: {
   account: Account;
   actorDisplay?: CurrentActorDisplay | null;
+  errorMessage?: string;
 }) {
   const updatedAt = account.updated_at
     ? formatDate(account.updated_at, { fallback: identityDateUnavailable() })
@@ -108,6 +111,7 @@ export function AccountProfilePage({
           </Stack>
         }
       />
+      {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
       {actorDisplay ? (
         <ActorIdentityCue
           variant="panel"

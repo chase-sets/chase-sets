@@ -425,7 +425,7 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
-  it("requests 3DS on Checkout Session PaymentIntents only for risk-based step-up", async () => {
+  it("Checkout Session step-up uses Stripe's top-level 3DS option", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -461,12 +461,33 @@ describe("Stripe payment processor gateway", () => {
       },
     });
 
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(formSnapshot(init.body)).toMatchObject({
-      "payment_intent_data[payment_method_options][card][request_three_d_secure]": "any",
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://stripe.test/v1/checkout/sessions");
+    expect(new Headers(init.headers).get("Stripe-Version")).toBe(STRIPE_API_VERSION);
+    expect(requestIdempotencyKey(init)).toBe("payments:payment:pay_3ds:create");
+    const snapshot = formSnapshot(init.body);
+    expect(
+      Object.keys(snapshot).filter((key) => key.startsWith("payment_intent_data[payment_method_options]")),
+    ).toEqual([]);
+    expect(
+      Object.keys(snapshot)
+        .filter((key) => key.includes("three_d_secure"))
+        .sort(),
+    ).toMatchInlineSnapshot(`
+      [
+        "metadata[three_d_secure_reason_codes]",
+        "metadata[three_d_secure_requested]",
+        "payment_intent_data[metadata][three_d_secure_reason_codes]",
+        "payment_intent_data[metadata][three_d_secure_requested]",
+        "payment_method_options[card][request_three_d_secure]",
+      ]
+    `);
+    expect(snapshot).toMatchObject({
+      "payment_method_options[card][request_three_d_secure]": "any",
       "payment_intent_data[metadata][three_d_secure_requested]": "any",
       "payment_intent_data[metadata][three_d_secure_reason_codes]": "high-payment-amount",
       "metadata[three_d_secure_requested]": "any",
+      "metadata[three_d_secure_reason_codes]": "high-payment-amount",
     });
 
     vi.unstubAllGlobals();
@@ -1792,8 +1813,6 @@ describe("Stripe payment processor gateway", () => {
       agenticPayment: {
         kind: "stripe-shared-payment-token",
         sharedPaymentGrantedToken: "spt_123",
-        ap2CheckoutMandateId: "ap2_checkout_1",
-        ap2PaymentMandateId: "ap2_payment_1",
       },
       marketplaceRiskMetadata: {
         seller_account_ids: "acc_seller",
@@ -1810,7 +1829,9 @@ describe("Stripe payment processor gateway", () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Headers).get("Stripe-Version")).toBe(STRIPE_API_VERSION);
     expect((init.headers as Headers).get("Idempotency-Key")).toBe("idem_agentic");
-    expect(formSnapshot(init.body)).toMatchObject({
+    const submitted = formSnapshot(init.body);
+    expect(Object.keys(submitted).filter((key) => key.includes("mandate"))).toEqual([]);
+    expect(submitted).toMatchObject({
       amount: "2000",
       currency: "usd",
       shared_payment_granted_token: "spt_123",
@@ -1820,8 +1841,6 @@ describe("Stripe payment processor gateway", () => {
       "metadata[payment_id]": "pay_agentic",
       "metadata[order_ids]": "ord_agentic",
       "metadata[ucp_payment_handler]": "stripe-shared-payment-token",
-      "metadata[ap2_checkout_mandate_id]": "ap2_checkout_1",
-      "metadata[ap2_payment_mandate_id]": "ap2_payment_1",
       "metadata[seller_account_ids]": "acc_seller",
       "metadata[high_dollar_order]": "false",
     });

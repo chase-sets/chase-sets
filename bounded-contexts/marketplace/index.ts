@@ -1,3 +1,7 @@
+import { assertSqlIdentifier } from "@chase-sets/event-core-postgres/sql-identifier";
+import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -27,6 +31,7 @@ import {
   buildReviewSupportSourceProjectionHandlers,
 } from "./features/reviews/integrations/source/source-projection";
 import { buildReviewModerationReactionHandlers } from "./features/reviews/integrations/moderation/moderation-reaction";
+import { buildListingModerationReactionHandlers } from "./features/listings/integrations/moderation/listing-moderation-reaction";
 import { buildReviewHoldReactionHandlers } from "./features/reviews/integrations/support/review-hold-reaction";
 import { buildReviewScoringReactionHandlers } from "./features/reviews/integrations/support/review-scoring-reaction";
 import {
@@ -57,7 +62,7 @@ import { buildManagedOfferMarketPriceReactions } from "./features/offers/integra
 
 const marketplaceContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions>({
+const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransactionalPool, MarketplaceServiceOptions>({
   manifest: marketplaceContextManifest,
   schemaSql: marketplaceSchemaSql,
   schemaMigrations: [
@@ -156,6 +161,8 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
         handlers: {
           "pricing.marketplace-managed-offer-reaction": () =>
             buildManagedOfferMarketPriceReactions(services.managedOfferWork),
+          "platform-operations.marketplace-listing-moderation-reaction": () =>
+            buildListingModerationReactionHandlers({ operatorUnlistListing: services.listings.operatorUnlistListing }),
           "platform-operations.marketplace-review-hold-reaction": () =>
             buildReviewHoldReactionHandlers({
               recordSupportRequestOpened: services.reviews.recordSupportRequestOpened,
@@ -178,3 +185,31 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
   seed: seedMarketplaceContextDatabase,
   inspectSeedState: (pool) => inspectMarketplaceSeedState(pool),
 });
+
+export const module = {
+  ...baseModule,
+  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
+    (baseModule.projectionGroups ?? []).map((group) =>
+      group.projectionName === "marketplace-catalog-item-projection" ||
+      group.projectionName === "marketplace-listing-projection"
+        ? {
+            ...group,
+            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+              await resetProductMeasurePublicationParts(
+                db,
+                createCheckpointKey(
+                  contextManifest.eventSubscriptions.find(
+                    (subscription) =>
+                      subscription.sourceContextName === "catalog" &&
+                      subscription.projectionName === group.projectionName,
+                  )!,
+                ),
+              );
+              if (group.resetStrategy === "truncate-owned-tables" && group.ownedTables.length > 0) {
+                await db.query(`TRUNCATE TABLE ${group.ownedTables.map(assertSqlIdentifier).join(", ")}`);
+              }
+            }),
+          }
+        : group,
+    ),
+};

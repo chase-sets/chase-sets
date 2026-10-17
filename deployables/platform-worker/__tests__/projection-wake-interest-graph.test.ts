@@ -30,6 +30,26 @@ const syntheticPricingHostPorts = {
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
 
+const OPERATOR_REMOVAL = "marketplace.listing.operator-unlisted";
+const REMOVAL_CONSUMERS = [
+  ["marketplace", "marketplace-listing-projection", 2],
+  ["platform-operations", "reported-content-queue-projection", 1],
+  ["discovery", "discovery-market-projection", 3],
+  ["discovery", "discovery-product-alert-notification-projection", 2],
+] as const;
+const OFFER_LIFECYCLE_EVENTS = [
+  "marketplace.offer.paused",
+  "marketplace.offer.resumed",
+  "marketplace.offer.withdrawn",
+] as const;
+const OFFER_LIFECYCLE_CONSUMERS = [
+  ["marketplace", "marketplace-offer-projection", 1],
+  ["discovery", "discovery-market-projection", 3],
+  ["discovery", "discovery-product-alert-notification-projection", 2],
+  ["checkout", "checkout.sell-list-projection", 3],
+  ["pricing", "pricing-market-input-projection", 2],
+] as const;
+
 const ORDERING_CREATED_INVENTORY_RESERVATION_TARGET = {
   sourceContextName: "ordering",
   eventType: "ordering.order.created",
@@ -79,6 +99,108 @@ const NOTIFICATIONS_FULFILLMENT_TARGET = {
 } as const;
 
 describe("platform worker projection wake interest graph", () => {
+  it("composes forward-only listing directive delivery independently of review checkpoints and removal consumers", () => {
+    const runtime = createPlatformWorkerHost();
+    const eventType = "platform-operations.reported-content.listing-removal-directed";
+    const name = "marketplace-listing-moderation-reaction";
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    expect(
+      lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType }).map(
+        ({ targetContextName, projectionName }) => `${targetContextName}:${projectionName}`,
+      ),
+    ).toEqual([`marketplace:${name}`]);
+    const runner = runtime.subscriptionRunners.find(({ projectionName }) => projectionName === name);
+    expect(runner).toMatchObject({
+      checkpointKey: `${name}:platform-operations:v1`,
+      subscriptionVersion: 1,
+      handlerKind: "reaction",
+      eventTypes: [eventType],
+    });
+    expect(runner?.handlers?.[eventType]).toBeTypeOf("function");
+    expect(
+      runtime.subscriptionRunners.find(
+        ({ projectionName }) => projectionName === "marketplace-review-moderation-reaction",
+      ),
+    ).toMatchObject({
+      checkpointKey: "marketplace-review-moderation-reaction:platform-operations:v1",
+      subscriptionVersion: 1,
+      eventTypes: ["platform-operations.reported-content.action-recorded"],
+    });
+    const disabled = buildPlatformWorkerProjectionWakeRelayInterestIndex([`marketplace:${name}`]);
+    expect(lookupProjectionInterests(disabled, { sourceContextName: "platform-operations", eventType })).toEqual([]);
+    expect(
+      lookupProjectionInterests(disabled, { sourceContextName: "marketplace", eventType: OPERATOR_REMOVAL }),
+    ).toEqual(lookupProjectionInterests(index, { sourceContextName: "marketplace", eventType: OPERATOR_REMOVAL }));
+  });
+
+  it("resolves operator removal to every existing visibility consumer independently", () => {
+    const runtime = createPlatformWorkerHost();
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const interests = lookupProjectionInterests(index, {
+      sourceContextName: "marketplace",
+      eventType: OPERATOR_REMOVAL,
+    });
+    expect(interests.map((entry) => `${entry.targetContextName}:${entry.projectionName}`).sort()).toEqual(
+      REMOVAL_CONSUMERS.map(([owner, name]) => `${owner}:${name}`).sort(),
+    );
+    for (const [targetContextName, projectionName, subscriptionVersion] of REMOVAL_CONSUMERS) {
+      const runners = runtime.subscriptionRunners.filter(
+        (runner) =>
+          runner.sourceContextName === "marketplace" &&
+          runner.targetContextName === targetContextName &&
+          runner.projectionName === projectionName,
+      );
+      expect(runners).toHaveLength(1);
+      expect(runners[0]).toMatchObject({
+        subscriptionVersion,
+        checkpointKey: `${projectionName}:marketplace:v${subscriptionVersion}`,
+      });
+      expect(runners[0]?.eventTypes).toContain(OPERATOR_REMOVAL);
+      expect(runners[0]?.handlers?.[OPERATOR_REMOVAL]).toBeTypeOf("function");
+      const disabled = buildPlatformWorkerProjectionWakeRelayInterestIndex([`${targetContextName}:${projectionName}`]);
+      const remaining = lookupProjectionInterests(disabled, {
+        sourceContextName: "marketplace",
+        eventType: OPERATOR_REMOVAL,
+      });
+      expect(remaining.map((entry) => `${entry.targetContextName}:${entry.projectionName}`).sort()).toEqual(
+        REMOVAL_CONSUMERS.filter(([owner, name]) => owner !== targetContextName || name !== projectionName)
+          .map(([owner, name]) => `${owner}:${name}`)
+          .sort(),
+      );
+    }
+    expect(
+      lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType: OPERATOR_REMOVAL }),
+    ).toEqual([]);
+  });
+
+  it("resolves each Offer lifecycle event to every open-Offer consumer", () => {
+    const runtime = createPlatformWorkerHost();
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    for (const eventType of OFFER_LIFECYCLE_EVENTS) {
+      const interests = lookupProjectionInterests(index, { sourceContextName: "marketplace", eventType });
+      expect(interests.map((entry) => `${entry.targetContextName}:${entry.projectionName}`).sort()).toEqual(
+        OFFER_LIFECYCLE_CONSUMERS.map(([owner, name]) => `${owner}:${name}`).sort(),
+      );
+    }
+    for (const [targetContextName, projectionName, subscriptionVersion] of OFFER_LIFECYCLE_CONSUMERS) {
+      const runners = runtime.subscriptionRunners.filter(
+        (runner) =>
+          runner.sourceContextName === "marketplace" &&
+          runner.targetContextName === targetContextName &&
+          runner.projectionName === projectionName,
+      );
+      expect(runners).toHaveLength(1);
+      expect(runners[0]).toMatchObject({
+        subscriptionVersion,
+        checkpointKey: `${projectionName}:marketplace:v${subscriptionVersion}`,
+      });
+      for (const eventType of OFFER_LIFECYCLE_EVENTS) {
+        expect(runners[0]?.eventTypes).toContain(eventType);
+        expect(runners[0]?.handlers?.[eventType]).toBeTypeOf("function");
+      }
+    }
+  });
+
   it("boots every public-profile context and creates the Checkout Session runner from its local projector", () => {
     const runtime = createPlatformWorkerHost("public");
     const mountedContextNames = runtime.mountedContexts.map((entry) => entry.contextName).sort();
@@ -119,14 +241,21 @@ describe("platform worker projection wake interest graph", () => {
     ]);
   });
 
-  it("preserves the complete manifest-built subscription fingerprint, checkpoint identities, and shared names", () => {
+  it("resolved-subscription base parity", () => {
     const runtime = createPlatformWorkerHost("public");
-    const rawSubscriptions = runtime.mountedContexts.flatMap((entry) =>
+    const allRawSubscriptions = runtime.mountedContexts.flatMap((entry) =>
       (entry.module.buildSubscriptions?.(entry.services) ?? []).map((subscription) => ({
         targetContextName: entry.contextName,
         subscription,
       })),
     );
+    const added = allRawSubscriptions.filter(
+      ({ targetContextName, subscription }) =>
+        targetContextName === "marketplace" &&
+        subscription.projectionName === "marketplace-listing-moderation-reaction",
+    );
+    expect(added).toHaveLength(1);
+    const rawSubscriptions = allRawSubscriptions.filter((entry) => !added.includes(entry));
     const sharedNames = summarizeSharedSubscriptionNames(rawSubscriptions.map(({ subscription }) => subscription));
     const rawCheckpointIdentities = rawSubscriptions
       .map(
@@ -166,36 +295,115 @@ describe("platform worker projection wake interest graph", () => {
         }),
       ]),
     );
-    expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 250,
-      sha256: "8c3c976b695f5ed421df59539f6fc6c9916953eb0b84bb182948770e8f48cedb",
+    const fundingProjectionNames = ["payments-wallet-funding-projection", "platform-policy-document-projection"];
+    const fundingRunners = runtime.subscriptionRunners.filter(
+      (runner) => runner.targetContextName === "payments" && fundingProjectionNames.includes(runner.projectionName),
+    );
+    const listingDirectiveRunners = runtime.subscriptionRunners.filter(
+      (runner) =>
+        runner.targetContextName === "marketplace" &&
+        runner.projectionName === "marketplace-listing-moderation-reaction",
+    );
+    expect(listingDirectiveRunners.map((runner) => runner.checkpointKey)).toEqual([
+      "marketplace-listing-moderation-reaction:platform-operations:v1",
+    ]);
+    const inheritedRunners = runtime.subscriptionRunners.filter(
+      (runner) => !fundingRunners.includes(runner) && !listingDirectiveRunners.includes(runner),
+    );
+    expect(fundingRunners.map((runner) => runner.checkpointKey).sort()).toEqual([
+      "payments-wallet-funding-projection:payments:v1",
+      "platform-policy-document-projection:payments:v1",
+    ]);
+    // #9392 adds exactly one runner: Platform Operations' own Support evidence cleanup locator.
+    expect(
+      inheritedRunners
+        .filter((runner) => runner.projectionName === "support-evidence-cleanup-locator-projection")
+        .map((runner) => runner.checkpointKey),
+    ).toEqual(["support-evidence-cleanup-locator-projection:platform-operations:v1"]);
+    // #9638 adds exactly one runner: Pricing's own forecast ledger.
+    expect(
+      inheritedRunners
+        .filter((runner) => runner.projectionName === "pricing-forecast-ledger-projection")
+        .map((runner) => runner.checkpointKey),
+    ).toEqual(["pricing-forecast-ledger-projection:pricing:v1"]);
+    // #9783 moves pricing-catalog-input-projection to catalog v8 (+7 Product Line event types).
+    const productLineRunner = inheritedRunners.find(
+      (runner) => runner.projectionName === "pricing-catalog-input-projection",
+    );
+    expect(productLineRunner).toMatchObject({
+      checkpointKey: "pricing-catalog-input-projection:catalog:v8",
+      subscriptionVersion: 8,
+      eventTypes: expect.arrayContaining([
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
+        "catalog.reference-record.created",
+        "catalog.reference-record.revised",
+        "catalog.reference-record.published",
+        "catalog.reference-record.deprecated",
+        "catalog.reference-record.archived",
+      ]),
+    });
+    expect(
+      fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
+    ).toEqual({
+      count: 256,
+      sha256: "b0c7fa7bedb465d117afee5a79dd688b3bb7a1351aa1afb73a0b0407e60c5002",
+    });
+    const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
+    const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
+    expect(proofCreditRunners.map((runner) => runner.checkpointKey)).toEqual([
+      "settlement-wallet-projection:settlement:v1",
+    ]);
+    expect(
+      fingerprint(
+        inheritedRunners.map((runner) =>
+          fingerprintObject(
+            proofCreditRunners.includes(runner)
+              ? {
+                  ...withoutAddedConsumerEvents(runner),
+                  eventTypes: runner.eventTypes?.filter(
+                    (eventType) => eventType !== proofCreditEventType && eventType !== OPERATOR_REMOVAL,
+                  ),
+                  handlers: Object.fromEntries(
+                    Object.entries(runner.handlers ?? {}).filter(
+                      ([eventType]) => eventType !== proofCreditEventType && eventType !== OPERATOR_REMOVAL,
+                    ),
+                  ),
+                }
+              : withoutAddedConsumerEvents(runner),
+          ),
+        ),
+      ),
+    ).toEqual({
+      count: 256,
+      sha256: "bfb7ff23b9d9cedd97470416e3ef75b9e36ab9f16d3079c570b37d72c0b2fbb6",
     });
     expect(
       fingerprint(
         rawSubscriptions.map(({ targetContextName, subscription }) => ({
           targetContextName,
-          subscription: fingerprintObject(subscription),
+          subscription: fingerprintObject(withoutAddedConsumerEvents(subscription)),
         })),
       ),
     ).toEqual({
-      count: 155,
-      sha256: "71eb8c215bed148a8fdfd2e0321e7ce69f0f1d17f3c0d6882430bd761f0bd123",
+      count: 159,
+      sha256: "0a73df217e97742ca52e075f2945f4c54726c1fb4ccc4094d039905ae3df7f68",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 155,
-      sha256: "664bd2d6f9a37a84c0e2243b8e3573ff5fb975df8f90804f490838a318b37c7d",
+      count: 159,
+      sha256: "45de3093ae018317244a6d507ea2d5e81909b31057f8e4db94699a2e5f42184e",
     });
-    expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 250,
-      sha256: "a655aa3aec7d130199810affdb7e46fb0248cc6fc259bad42b23dc80345e35ee",
+    expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
+      count: 256,
+      sha256: "cade127fa0f6ffe997a009d9ec74b15fc7363e3486a60ebbaa57d5994e409ef5",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 120,
-      distinctSharedNames: 20,
-      runnersUsingSharedNames: 55,
+      distinctNames: 123,
+      distinctSharedNames: 21,
+      runnersUsingSharedNames: 57,
     });
     expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
     expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);
@@ -219,6 +427,75 @@ describe("platform worker projection wake interest graph", () => {
         "public-presence:public-presence-waitlist-projection",
       ]),
     );
+  });
+
+  it("mounts the Payments funding and policy checkpoints with their exact interests and disable precedence", () => {
+    const index = buildPlatformWorkerProjectionWakeRelayInterestIndex();
+    const targets = [
+      {
+        projectionName: "payments-wallet-funding-projection",
+        streamPrefixes: ["payments."],
+        ownedTables: ["payments_wallet_funding_pages"],
+        eventTypes: [
+          "payments.wallet-funding-authorized",
+          "payments.wallet-funding-cancelled",
+          "payments.wallet-funding-captured",
+          "payments.wallet-funding-created",
+          "payments.wallet-funding-dispute-recorded",
+          "payments.wallet-funding-failed",
+          "payments.wallet-funding-fraud-warning-recorded",
+          "payments.wallet-funding-quoted",
+          "payments.wallet-funding-refund-attention-recorded",
+          "payments.wallet-funding-refund-operation-recorded",
+          "payments.wallet-funding-refunded",
+          "payments.wallet-funding-submission-claimed",
+        ],
+      },
+      {
+        projectionName: "platform-policy-document-projection",
+        streamPrefixes: ["platform-policy.document-"],
+        ownedTables: ["platform_policy_document_history", "platform_policy_documents"],
+        eventTypes: ["platform-policy.document.created", "platform-policy.document.revised"],
+      },
+    ];
+    const disabled = buildPlatformWorkerProjectionWakeRelayInterestIndex(
+      targets.map(({ projectionName }) => `payments:${projectionName}`),
+    );
+    for (const target of targets) {
+      const entries = index.entries.filter(
+        (entry) => entry.targetContextName === "payments" && entry.projectionName === target.projectionName,
+      );
+      expect(entries).toHaveLength(1);
+      const [entry] = entries;
+      expect(entry).toMatchObject({
+        ...target,
+        sourceContextName: "payments",
+        targetContextName: "payments",
+        checkpointKey: `${target.projectionName}:payments:v1`,
+        subscriptionName: `payments.${target.projectionName}`,
+        subscriptionVersion: 1,
+        owner: "Payments",
+        enabled: true,
+        priorityLane: "standard",
+        optOutReason: null,
+      });
+      expect(entry.eventTypes).toEqual(target.eventTypes);
+      expect(entry.streamPrefixes).toEqual(target.streamPrefixes);
+      for (const eventType of target.eventTypes) {
+        expect(lookupProjectionInterests(index, { sourceContextName: "payments", eventType })).toContain(entry);
+        expect(lookupProjectionInterests(index, { sourceContextName: "platform-operations", eventType })).not.toContain(
+          entry,
+        );
+      }
+      expect(
+        lookupProjectionInterests(index, { sourceContextName: "payments", eventType: "payments.payment-captured" }),
+      ).not.toContain(entry);
+      expect(disabled.entries.find((candidate) => candidate.entryId === entry.entryId)).toMatchObject({
+        checkpointKey: entry.checkpointKey,
+        enabled: false,
+        optOutReason: "Disabled by WORKER_WAKE_DISABLED_PROJECTIONS.",
+      });
+    }
   });
 
   it("wires ordering.order.created to the Inventory order reservation workflow checkpoint", () => {
@@ -450,6 +727,7 @@ function createPlatformWorkerHost(runtimeProfile: "landing" | "proof" | "public"
   return createWorkerHost(workerContextRegistry, "platform-worker", {
     pools: Object.fromEntries(workerContextRegistry.map((entry) => [entry.contextName, createUnusedPool()])),
     hostPorts: {
+      capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
       processorGateway: createFakePaymentProcessorGateway(),
       moneyMovementGateway: createFakeMoneyMovementGateway(),
       operationsRecorder: { record: () => undefined },
@@ -483,6 +761,28 @@ function createUnusedPool() {
 }
 
 type FingerprintRecord = Readonly<Record<string, unknown>>;
+
+function addedConsumerEventTypes(value: FingerprintRecord): readonly string[] {
+  if (value.sourceContextName !== "marketplace") return [];
+  return [
+    ...(REMOVAL_CONSUMERS.some(([, name]) => name === value.projectionName) ? [OPERATOR_REMOVAL] : []),
+    ...(OFFER_LIFECYCLE_CONSUMERS.some(([, name]) => name === value.projectionName) ? OFFER_LIFECYCLE_EVENTS : []),
+  ];
+}
+
+function withoutAddedConsumerEvents(value: FingerprintRecord) {
+  const added = addedConsumerEventTypes(value);
+  if (added.length === 0) return value;
+  return {
+    ...value,
+    ...(Array.isArray(value.eventTypes)
+      ? { eventTypes: value.eventTypes.filter((type) => !added.includes(type)) }
+      : {}),
+    ...(isRecord(value.handlers)
+      ? { handlers: Object.fromEntries(Object.entries(value.handlers).filter(([type]) => !added.includes(type))) }
+      : {}),
+  };
+}
 
 function fingerprintObject(value: FingerprintRecord) {
   const fieldNames = Object.keys(value)

@@ -4,9 +4,49 @@ import { t } from "@chase-sets/localization";
 import type { RepricingRuleCondition } from "../domain/domain";
 import { dryRunBody } from "../../repricing-engine/tests/dry-run-fixture";
 import { policyControls } from "./policy-controls";
-import { newPolicyCondition, PolicyConditionFields, PolicyDirectiveFields } from "./policy-controls-fields";
+import {
+  anchorControlItems,
+  newPolicyCondition,
+  PolicyConditionFields,
+  PolicyDirectiveFields,
+} from "./policy-controls-fields";
 
 describe("policy union control rendering", () => {
+  it("renders goal name, version and all parameters read-only without offering a goal picker", () => {
+    const html = renderToStaticMarkup(
+      <PolicyDirectiveFields
+        advanced
+        value={{
+          ...dryRunBody.rules[0]!.directive,
+          anchorChain: [
+            { source: "curve-objective", goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 65 } },
+          ],
+        }}
+        onChange={() => {
+          throw new Error("Read-only summary must not change the goal");
+        }}
+      />,
+    );
+    for (const text of [
+      "Pricing goal",
+      "Price at the 65th market percentile",
+      "fixed-percentile",
+      "v1",
+      "percentile: 65",
+    ])
+      expect(html).toContain(text);
+    const anchorRow = html.slice(html.indexOf("<fieldset"), html.indexOf("</fieldset>") + "</fieldset>".length);
+    expect(anchorRow).not.toMatch(/<input|role="combobox"/);
+  });
+  it("offers only non-goal anchors in the Select items for an ordinary anchor", () => {
+    expect(dryRunBody.rules[0]!.directive.anchorChain[0]!.source).toBe("market-estimate");
+    expect(anchorControlItems().map(({ value }) => value)).toEqual([
+      "market-estimate",
+      "lowest-competing-ask",
+      "comp-percentile",
+      "last-sold",
+    ]);
+  });
   it.each(Object.keys(policyControls.condition) as RepricingRuleCondition["type"][])(
     "renders the %s condition's actual control and copy",
     (type) => {

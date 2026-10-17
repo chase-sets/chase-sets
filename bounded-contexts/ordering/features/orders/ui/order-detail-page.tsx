@@ -1,4 +1,5 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
+import { trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
   AddressBlock,
   AlertDialog,
@@ -141,7 +142,7 @@ export function OrderingOrderDetailPage({
   const hasMoneyTimeline =
     moneyTimeline.refunds.length > 0 ||
     moneyTimeline.support_cases.some((supportCase) => supportCase.active_hold) ||
-    Number.parseFloat(moneyTimeline.refunded_amount) > 0;
+    (trySignedMoneyToCents(moneyTimeline.refunded_amount) ?? 0n) > 0n;
   const supportLabel =
     order.cancellation_unavailable_reason === "fulfillment-started"
       ? t("ordering.features.orders.ui.orderDetailPage.ask.to.cancel")

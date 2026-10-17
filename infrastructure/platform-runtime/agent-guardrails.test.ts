@@ -12,7 +12,7 @@ const AUTONOMOUS_MANDATE: AgentSpendingMandate = {
   dailyCapCents: 5_000,
   monthlyCapCents: 20_000,
   humanPresentRequired: false,
-  allowedRails: ["ap2"],
+  allowedRails: ["stored-pm"],
 };
 
 describe("agent guardrails", () => {
@@ -46,7 +46,7 @@ describe("agent guardrails", () => {
   describe("decideAgentGrantSpend", () => {
     const base = {
       amountCents: 1_000,
-      rail: "ap2" as const,
+      rail: "stored-pm" as const,
       humanPresent: false,
       humanNotPresentAuthorized: true,
       spentDailyCents: 0,
@@ -162,7 +162,7 @@ describe("agent guardrails", () => {
       const policy = createInMemoryAgentGrantSpendPolicy({
         mandateResolver: () => ({ ...AUTONOMOUS_MANDATE, maxPerOrderCents: null, dailyCapCents: 5_000 }),
       });
-      const context = { rail: "ap2" as const, humanPresent: false, humanNotPresentAuthorized: true };
+      const context = { rail: "stored-pm" as const, humanPresent: false, humanNotPresentAuthorized: true };
 
       expect(
         await policy.authorize({
@@ -217,7 +217,7 @@ describe("agent guardrails", () => {
         now: () => current,
         mandateResolver: () => ({ ...AUTONOMOUS_MANDATE, maxPerOrderCents: null, dailyCapCents: 5_000 }),
       });
-      const context = { rail: "ap2" as const, humanPresent: false, humanNotPresentAuthorized: true };
+      const context = { rail: "stored-pm" as const, humanPresent: false, humanNotPresentAuthorized: true };
 
       expect(
         await policy.authorize({

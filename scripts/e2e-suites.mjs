@@ -119,11 +119,11 @@ export const e2eSuites = Object.freeze([
     id: "tcgplayer_connector_extension",
     label: "TCGplayer Connector Extension Chromium Authority",
     deployable: "tcgplayer-connector-extension",
-    journeys: ["extension identity", "callback authority", "action popup capability"],
+    journeys: ["extension identity", "callback authority", "popup-less action pairing"],
     grep: "@tcgplayer-connector-extension-authority",
     command: ["--filter", "@chase-sets/app-tcgplayer-connector-extension", "run", "test:chromium"],
     requiresDisplay: true,
-    estimatedDurationSeconds: 60,
+    estimatedDurationSeconds: 180,
   },
   {
     id: "tcgplayer_operator_extension",
@@ -162,6 +162,9 @@ const browserRuntimePatterns = [
   /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json|rendered-copy\.ts|rendered-copy-baseline\.json)$/,
   /^scripts\/validate-responsive-evidence-artifacts\.mjs$/,
   /^scripts\/run-e2e-suite\.mjs$/,
+  /^docker-compose\.dev\.yml$/,
+  /^scripts\/lib\/sandbox\.mjs$/,
+  /^scripts\/dev-system(?:-config)?\.mjs$/,
 ];
 
 const contextSuiteOwnership = new Map([
@@ -202,6 +205,7 @@ const marketplaceContextRouteSuiteOwnership = new Map([
 const adminContextRouteSuiteOwnership = new Map([
   ["auth", ["admin_auth", "admin_access"]],
   ["catalog", ["catalog_admin_modeling"]],
+  ["channels", ["admin_support"]],
   ["commercial-terms", ["admin_commerce"]],
   ["discovery", ["admin_growth"]],
   ["identity", ["admin_access"]],
@@ -214,6 +218,10 @@ const adminContextRouteSuiteOwnership = new Map([
 ]);
 
 const e2eSpecSuiteOwnership = [
+  {
+    pattern: /^deployables\/marketplace\/e2e\/account-management-interruption\.spec\.ts$/,
+    suites: ["marketplace_account"],
+  },
   { pattern: /^deployables\/marketplace\/e2e\/account-elevation-intent\.spec\.ts$/, suites: ["marketplace_account"] },
   { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
   { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
@@ -242,6 +250,7 @@ const e2eSpecSuiteOwnership = [
     pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
     suites: ["admin_platform"],
   },
+  { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
   {
     pattern: /^deployables\/marketplace\/e2e\/rendered-copy-sweep\.spec\.ts$/,
     suites: ["marketplace_account", "marketplace_seller"],

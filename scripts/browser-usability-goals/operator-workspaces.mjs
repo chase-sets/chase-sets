@@ -421,6 +421,11 @@ export default {
     },
   ],
   excludedRoutes: [
+    {
+      path: "bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx",
+      reason:
+        "fixture-gap: no isolated staff eBay receipt fixture; receipt seeding is test-only, not a product seed writer",
+    },
     { path: "deployables/admin-web/app/routes/access-layout.tsx", reason: "layout-only" },
     { path: "deployables/admin-web/app/routes/commerce-layout.tsx", reason: "layout-only" },
     { path: "deployables/admin-web/app/routes/growth-layout.tsx", reason: "layout-only" },

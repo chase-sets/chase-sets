@@ -1,3 +1,5 @@
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -23,6 +25,7 @@ import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runt
 import { discoverySchemaMigrations, discoverySchemaSql } from "./support/runtime-support/schema";
 import { discoveryUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { createDiscoveryItemMcpHandlers } from "./support/item-support/mcp";
+import { createGoogleShoppingMcpHandlers } from "./features/google-shopping-operations/api/mcp";
 
 const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactionalPool, DiscoveryHostPorts>({
   manifest: contextManifest,
@@ -33,7 +36,14 @@ const baseModule = defineBoundedContextModule<DiscoveryServices, PgTransactional
   buildApis: (services) => [
     { mountPath: "/api/marketplace", contextMountOrdinal: 1, router: buildDiscoveryApi(services) },
   ],
-  buildMcpHandlers: (services) => createDiscoveryItemMcpHandlers(services.items),
+  buildMcpHandlers: (services) => {
+    const itemHandlers = createDiscoveryItemMcpHandlers(services.items);
+    const googleShoppingHandlers = createGoogleShoppingMcpHandlers(services.googleShoppingSync);
+    return {
+      toolHandlers: { ...itemHandlers.toolHandlers, ...googleShoppingHandlers.toolHandlers },
+      resourceHandlers: { ...itemHandlers.resourceHandlers },
+    };
+  },
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const marketProjectionHandlers = buildDiscoveryMarketProjectionHandlers(services.db);
@@ -77,7 +87,23 @@ function buildDiscoveryProjectionGroups(services: DiscoveryServices): readonly B
           ...group,
           reset: defineBcProjectionGroupReset(services.items.search.rebuildSearchIndex),
         }
-      : group,
+      : group.projectionName === "discovery-market-projection"
+        ? {
+            ...group,
+            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+              await resetProductMeasurePublicationParts(
+                db,
+                createCheckpointKey(
+                  contextManifest.eventSubscriptions.find(
+                    (subscription) =>
+                      subscription.sourceContextName === "catalog" &&
+                      subscription.projectionName === group.projectionName,
+                  )!,
+                ),
+              );
+            }),
+          }
+        : group,
   );
 }
 

@@ -38,6 +38,7 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
     db,
     checkpointStore: {} as never,
     managedOfferPricing: pricing ?? { evaluateTargets },
+    offerLifecycleAdmission: { check: async () => ({ admitted: true }) },
     commercialTermsResolver: {
       resolveListingTerms: async ({ amount }: { amount: string }) => ({
         accountType: "personal",
@@ -70,7 +71,12 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
       }),
     },
   });
-  const policies = createBuyerOfferPolicyRuntime({ eventStore: store, db, enforcement: { assertInstalled() {} } });
+  const policies = createBuyerOfferPolicyRuntime({
+    eventStore: store,
+    db,
+    managedOfferPricing: pricing ?? { evaluateTargets },
+    enforcement: { assertInstalled() {} },
+  });
   for (const id of ["off_one", "off_two"]) await seedOffer(store, id);
   for (const suffix of ["one", "two"])
     await store.appendToStream({
@@ -111,7 +117,7 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
             evidence: [],
           },
         },
-        { eventType: "marketplace.listing.published", payload: {} },
+        { eventType: "marketplace.listing.published", payload: { listingId: `lst_${suffix}` } },
       ],
     });
   await policies.execute(

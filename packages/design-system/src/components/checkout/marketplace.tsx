@@ -337,10 +337,8 @@ export interface StickyCtaBarProps {
    * `totalLabel`/`total`/`context` triple unified with `CheckoutStickyActionBar`.
    */
   totalLabel?: ReactNode;
-  /** The headline money value. Use this over the deprecated `price` alias. */
+  /** The headline money value. */
   total?: ReactNode;
-  /** @deprecated Use {@link StickyCtaBarProps.total}. */
-  price?: ReactNode;
   context?: ReactNode;
   /** Canonical reassurance slot — pass a `SecurePaymentIndicator`. */
   reassurance?: ReactNode;
@@ -353,15 +351,12 @@ export interface StickyCtaBarProps {
 export function StickyCtaBar({
   totalLabel,
   total,
-  price,
   context,
   reassurance,
   primaryAction,
   secondaryAction,
   label = "Checkout",
 }: StickyCtaBarProps) {
-  const resolvedTotal = total ?? price;
-
   return (
     <div
       role="region"
@@ -371,7 +366,7 @@ export function StickyCtaBar({
       <div className="mx-auto grid max-w-7xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="min-w-0">
           {totalLabel ? <div className="text-xs font-medium text-secondary">{totalLabel}</div> : null}
-          {resolvedTotal ? <div className="text-lg font-bold tabular-nums text-foreground">{resolvedTotal}</div> : null}
+          {total ? <div className="text-lg font-bold tabular-nums text-foreground">{total}</div> : null}
           {context ? <div className="text-xs leading-5 text-tertiary sm:truncate">{context}</div> : null}
           {reassurance ? <div className="mt-1">{reassurance}</div> : null}
         </div>

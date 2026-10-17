@@ -194,6 +194,8 @@ const CATALOG_INTEGRATION_JOB_TABLES = [
   "catalog_source_observation_bulk_review_jobs",
 ] as const;
 
+const CATALOG_PROVIDER_PROFILE_VERSIONS_TABLE = "catalog_provider_integration_profile_versions";
+
 function sourceObservationStreamLikePattern(): string {
   return `${escapeLikePattern(CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_PREFIX)}%`;
 }
@@ -783,6 +785,10 @@ export async function resetCatalogIntegrationPreLaunchData(
   } as const satisfies Required<CatalogIntegrationDataResetOptions>;
 
   return withResetTransaction(db, async (queryable) => {
+    // First statement of the reset transaction: a SHARE-mode profile reader
+    // (a promotion validating canonical profile authority) blocks reset entry
+    // until it commits, and reset blocks such readers until it commits.
+    await queryable.query(`LOCK TABLE ${CATALOG_PROVIDER_PROFILE_VERSIONS_TABLE} IN ROW EXCLUSIVE MODE`);
     await queryable.query(`LOCK TABLE ${CATALOG_INTEGRATION_JOB_TABLES.join(", ")} IN SHARE ROW EXCLUSIVE MODE`);
     const before = await collectCatalogIntegrationDataVerificationReport(queryable);
     if (!normalizedOptions.allowActiveJobReset) {

@@ -15,6 +15,7 @@ import { createIdentityServices } from "./support/runtime-support/services";
 import { identitySchemaSql } from "./support/runtime-support/schema";
 import { identityUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { identityAccountSchemaMigrations } from "./features/accounts/read-model/schema";
+import { identityAgentGrantRevocationSchemaMigrations } from "./features/agent-grants/read-model/schema";
 import { inspectIdentitySeedState, seedIdentityDatabase } from "./support/runtime-support/seed";
 import { buildFounderClaimReactionHandlers } from "./features/founders-cohort/integrations/marketplace/founder-claim-reaction";
 
@@ -23,9 +24,13 @@ const identityContextManifest = contextManifest as BcContextManifest;
 export const module = defineBoundedContextModule<IdentityServices, PgTransactionalPool, IdentityHostPorts>({
   manifest: identityContextManifest,
   schemaSql: identitySchemaSql,
-  schemaMigrations: [...identityAccountSchemaMigrations, ...identityUnloggedProjectionSchemaMigrations],
+  schemaMigrations: [
+    ...identityAccountSchemaMigrations,
+    ...identityUnloggedProjectionSchemaMigrations,
+    ...identityAgentGrantRevocationSchemaMigrations,
+  ],
   retentionExemptions: identityRetentionExemptions,
-  createServices: (pool, options) => createIdentityServices(pool, options ?? {}),
+  createServices: (pool, options) => createIdentityServices(pool, options!),
   buildApis: (services) => [
     { mountPath: "/api/identity", contextMountOrdinal: 1, router: buildIdentityApi(services) },
     { mountPath: "/api/public/identity", contextMountOrdinal: 2, router: buildIdentityPublicApi(services) },

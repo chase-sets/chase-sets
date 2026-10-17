@@ -232,7 +232,11 @@ describe("response consistency metadata", () => {
     expect(readFreshWriteTokenState(href, 29_999)).toMatchObject({
       kind: "valid",
       ageMs: 29_998,
+      expiresAtMs: 30_001,
     });
+    expect(readFreshWriteTokenState(href, 30_001).kind).toBe("valid");
+    expect(readFreshWriteTokenState(href, 30_002).kind).toBe("expired");
+    expect(readFreshWriteTokenState(href, 999, 1_000)).toMatchObject({ expiresAtMs: 1_001 });
     expect(readFreshWriteToken(href, 29_999)).toEqual(readFreshWriteToken(href, 29_999));
   });
 

@@ -1,4 +1,11 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import {
+  decideStagingProofCredit,
+  validateProofReceipt,
+  type PostStagingProofCreditCommand,
+  type StagingProofCreditPostedEvent,
+  type StagingProofReceipt,
+} from "./staging-proof-credit";
 import type { AccountId, LedgerEntryId, OrderId, PaymentId, PayoutId } from "@chase-sets/primitives/typed-ids";
 import {
   addMoney,
@@ -69,6 +76,7 @@ export type WalletSpendHold = Readonly<{
 }>;
 
 export type WalletState = Readonly<{
+  stagingProofCredits: readonly StagingProofReceipt[];
   accountId: AccountId | null;
   currencyCode: CurrencyCode | null;
   pendingBalanceAmount: string;
@@ -87,6 +95,7 @@ export type WalletState = Readonly<{
 }>;
 
 export const initialWalletState: WalletState = {
+  stagingProofCredits: [],
   accountId: null,
   currencyCode: null,
   pendingBalanceAmount: "0.00",
@@ -177,6 +186,7 @@ export type ReleaseSpendHoldCommand = Readonly<{
 }>;
 
 export type WalletCommand =
+  | PostStagingProofCreditCommand
   | OpenWalletCommand
   | PostLedgerEntryCommand
   | CreditSellerCaptureCommand
@@ -278,6 +288,7 @@ export type WalletSpendHoldReleasedEvent = DomainEvent<
 >;
 
 export type WalletEvent =
+  | StagingProofCreditPostedEvent
   | WalletOpenedEvent
   | WalletLedgerEntryPostedEvent
   | WalletLedgerEntryAvailableEvent
@@ -334,6 +345,8 @@ function negativeBalanceTransitionEvents(
 
 export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEvent> = (state, command) => {
   switch (command.type) {
+    case "PostStagingProofCredit":
+      return decideStagingProofCredit(state, command, decideWallet, evolveWallet);
     case "OpenWallet":
       if (state.accountId !== null) {
         return [];
@@ -614,9 +627,14 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
 };
 
 export const evolveWallet: AggregateEvolver<WalletState, WalletEvent> = (state, event) => {
+  if (event.type === "settlement.wallet.staging-proof-credit-posted") {
+    validateProofReceipt(event.data);
+    return { ...state, stagingProofCredits: [...state.stagingProofCredits, event.data] };
+  }
   switch (event.type) {
     case "settlement.wallet.opened":
       return {
+        stagingProofCredits: state.stagingProofCredits,
         accountId: event.data.accountId,
         currencyCode: event.data.currencyCode,
         pendingBalanceAmount: "0.00",

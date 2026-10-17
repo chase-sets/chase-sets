@@ -364,8 +364,7 @@
             "movedDigestProbe",
             "termsOfServiceConsentRoutes > POST /accept",
             "AccessorMatrix.get authorization",
-            "neutralBox.inner.authorization",
-            "buildScenarioIdentityReconcilers > consentReconciler"
+            "neutralBox.inner.authorization"
           ]
         },
         "surface": {

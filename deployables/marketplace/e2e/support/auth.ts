@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { dirname, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, type TestInfo } from "@playwright/test";
+import { attachResponseMetadata, navigateAfterWrite } from "@chase-sets/http/responses";
 
 const marketplaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const registrationTimeoutMs = 15_000;
@@ -138,6 +139,7 @@ export async function registerSyntheticAccount(
   page: Page,
   origin: string,
   account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password">,
+  options: Readonly<{ freshReadRoute?: "/account" | "/account/security" }> = {},
 ) {
   const registrationConsent = await resolveRegistrationConsentSubmission(page, origin);
   const controller = new AbortController();
@@ -166,6 +168,14 @@ export async function registerSyntheticAccount(
       `synthetic registration status=201 bytes=${bytes} cap=${registrationResponseBodyLimitBytes} headroom-percent=${Math.floor((registrationResponseBodyLimitBytes / bytes - 1) * 100)}`,
     );
     await addSessionCookie(page, origin, sessionToken);
+    if (options.freshReadRoute) {
+      const destination = navigateAfterWrite(attachResponseMetadata({}, response), options.freshReadRoute);
+      expect(
+        new URL(destination, origin).searchParams.has("afterWrite"),
+        "registration must supply the canonical fresh-read receipt",
+      ).toBe(true);
+      await page.goto(new URL(destination, origin).toString());
+    }
     return sessionToken;
   } finally {
     clearTimeout(timeout);
