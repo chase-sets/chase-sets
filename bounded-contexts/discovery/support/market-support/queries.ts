@@ -154,6 +154,7 @@ export async function getDiscoveryPublicListingBySlug(
          item.slug AS catalog_item_slug,
          account.seller_slug,
          account.seller_display_name,
+         account.status AS seller_account_status,
          account.seller_listing_availability_status,
          account.seller_listing_availability_reason_category,
          account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
@@ -193,6 +194,7 @@ export async function getDiscoveryPublicListingBySlug(
      SELECT *
      FROM candidate_listing
      WHERE status = 'active'
+       AND seller_account_status = 'active'
        AND product_measure_snapshot IS NOT NULL
        AND visible_quantity > 0
      ORDER BY
