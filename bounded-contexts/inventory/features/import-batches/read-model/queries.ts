@@ -4,6 +4,7 @@ import type {
   InventoryImportQuantityMode,
   InventoryImportSourceKey,
 } from "../domain/import-source-adapters";
+import { INVENTORY_IMPORT_CREATE_JOB_KINDS } from "../domain/job-kinds";
 
 export type InventoryImportBatchStatus =
   | "uploaded"
@@ -85,6 +86,8 @@ type RawImportBatchRow = Omit<
     validation_errors: unknown;
   }>;
 
+const IMPORT_BATCH_CREATE_JOB_KINDS_SQL = INVENTORY_IMPORT_CREATE_JOB_KINDS.map((kind) => `'${kind}'`).join(", ");
+
 const IMPORT_BATCH_STATUS_SQL = `CASE
   WHEN status = 'expired' THEN 'expired'
   WHEN total_count > 0
@@ -94,11 +97,11 @@ const IMPORT_BATCH_STATUS_SQL = `CASE
   WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
     WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
       AND job.payload->>'accountId' = inventory_import_batches.account_id
-      AND job.job_kind = 'create' AND job.status = 'failed') THEN 'failed-safe'
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status = 'failed') THEN 'failed-safe'
   WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
     WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
       AND job.payload->>'accountId' = inventory_import_batches.account_id
-      AND job.job_kind = 'create' AND job.status IN ('queued', 'running')) THEN 'validating'
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status IN ('queued', 'running')) THEN 'validating'
   WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
     WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
       AND job.payload->>'accountId' = inventory_import_batches.account_id
@@ -107,7 +110,7 @@ const IMPORT_BATCH_STATUS_SQL = `CASE
   WHEN EXISTS (SELECT 1 FROM inventory_import_batch_jobs AS job
     WHERE job.payload->>'batchId' = inventory_import_batches.batch_id
       AND job.payload->>'accountId' = inventory_import_batches.account_id
-      AND job.job_kind = 'create' AND job.status = 'completed'
+      AND job.job_kind = ANY(ARRAY[${IMPORT_BATCH_CREATE_JOB_KINDS_SQL}]::text[]) AND job.status = 'completed'
       AND (job.progress->>'total')::integer <> inventory_import_batches.total_count) THEN 'ambiguous'
   WHEN total_count > 0 THEN 'ready-to-commit'
   ELSE 'uploaded'

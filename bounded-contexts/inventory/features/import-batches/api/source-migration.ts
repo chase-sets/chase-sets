@@ -11,9 +11,10 @@ import {
 } from "./safe-snapshot";
 import type { ImportCsvRow } from "../domain/csv";
 import type { InventoryImportSourceKey } from "../domain/import-source-adapters";
+import { INVENTORY_IMPORT_LEGACY_JOB_KIND, INVENTORY_IMPORT_SNAPSHOT_JOB_KIND } from "../domain/job-kinds";
 
-const SNAPSHOT_JOB_KIND = "create-snapshot-v1";
-const LEGACY_JOB_KIND = "create";
+const SNAPSHOT_JOB_KIND = INVENTORY_IMPORT_SNAPSHOT_JOB_KIND;
+const LEGACY_JOB_KIND = INVENTORY_IMPORT_LEGACY_JOB_KIND;
 type MigrationWarning = Readonly<{ recordType: string; recordId: string; field: string; reason: string }>;
 let savepointSequence = 0;
 
@@ -208,6 +209,24 @@ export async function contractInventoryImportSources(pool: PgTransactionalPool) 
       WHERE table_schema = current_schema() AND table_name = 'inventory_import_batch_job_inputs'
         AND column_name = 'csv_text'`);
     if (!columns.rows.length) return;
+    const state = await db.query<
+      Readonly<{ marker_exists: boolean; legacy_inputs: boolean; normalized_jobs: boolean }>
+    >(`
+      SELECT
+        EXISTS (
+          SELECT 1 FROM bounded_context_schema_migrations
+          WHERE migration_id = '20261016_inventory_import_source_contracted'
+        ) AS marker_exists,
+        EXISTS (
+          SELECT 1 FROM inventory_import_batch_job_inputs
+          WHERE csv_text IS NOT NULL OR parsed_rows IS NOT NULL OR source_filename IS NOT NULL
+        ) AS legacy_inputs,
+        EXISTS (
+          SELECT 1 FROM inventory_import_batch_jobs
+          WHERE status IN ('queued', 'running') AND payload #> '{create,normalizedRows}' IS NOT NULL
+        ) AS normalized_jobs`);
+    const current = state.rows[0];
+    if (current?.marker_exists && !current.legacy_inputs && !current.normalized_jobs) return;
     // Old writers cannot insert between the final census and source nulling.
     await db.query(`LOCK TABLE inventory_import_batch_job_inputs, inventory_import_batch_jobs,
       inventory_import_batches, inventory_import_batch_rows, inventory_import_batch_job_events IN SHARE ROW EXCLUSIVE MODE`);

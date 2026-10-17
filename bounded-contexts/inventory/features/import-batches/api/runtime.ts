@@ -35,6 +35,12 @@ import { getStorageLocation, listStorageLocations } from "../../storage-location
 import { InventoryDomainError } from "../../../support/runtime-support/common";
 import { buildNativeInventoryExportCsv, buildNativeInventoryImportCsvTemplate, type ImportCsvRow } from "../domain/csv";
 import {
+  INVENTORY_IMPORT_COMMIT_JOB_KIND,
+  INVENTORY_IMPORT_CREATE_JOB_KINDS,
+  INVENTORY_IMPORT_SNAPSHOT_JOB_KIND,
+  isInventoryImportCreateJobKind,
+} from "../domain/job-kinds";
+import {
   getInventoryImportSourceAdapter,
   type InventoryImportExternalReference,
   type InventoryImportQuantityMode,
@@ -245,15 +251,15 @@ type ExistingImportTargetItem = Readonly<{
 }>;
 
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
-const IMPORT_BATCH_JOB_KIND_CREATE = "create";
-const IMPORT_BATCH_JOB_KIND_SNAPSHOT = "create-snapshot-v1";
-const IMPORT_BATCH_JOB_KIND_COMMIT = "commit";
+const IMPORT_BATCH_JOB_KIND_CREATE = INVENTORY_IMPORT_CREATE_JOB_KINDS[0];
+const IMPORT_BATCH_JOB_KIND_SNAPSHOT = INVENTORY_IMPORT_SNAPSHOT_JOB_KIND;
+const IMPORT_BATCH_JOB_KIND_COMMIT = INVENTORY_IMPORT_COMMIT_JOB_KIND;
 export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND = PRODUCT_RESOLUTION_JOB_ID;
 export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND = PRODUCT_RESOLUTION_UNIT_ID;
 const INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION = 1;
 
 function isCreateBatchJobKind(jobKind: string): boolean {
-  return jobKind === IMPORT_BATCH_JOB_KIND_CREATE || jobKind === IMPORT_BATCH_JOB_KIND_SNAPSHOT;
+  return isInventoryImportCreateJobKind(jobKind);
 }
 
 export type InventoryImportBatchJobPayload = Readonly<{
@@ -1556,8 +1562,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
        LEFT JOIN inventory_import_batch_rows AS row ON row.batch_id = $2
          AND row.row_number = (unit.payload->>'rowNumber')::integer
          AND unit.result->>'rowId' = row.row_id AND unit.result->>'status' = row.status
-       WHERE unit.job_id = $1 AND unit.unit_kind = ANY(ARRAY['create', 'create-snapshot-v1']::text[])`,
-      [job.jobId, batchId],
+       WHERE unit.job_id = $1 AND unit.unit_kind = ANY($3::text[])`,
+      [job.jobId, batchId, INVENTORY_IMPORT_CREATE_JOB_KINDS],
     );
     const count = counts.rows[0];
     const total = job.progress.total;

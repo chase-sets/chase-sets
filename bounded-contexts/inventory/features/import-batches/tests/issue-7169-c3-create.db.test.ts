@@ -166,6 +166,14 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     ).toHaveLength(1);
     await inventory.importBatches.processNextImportBatchJob(claim);
     expect((await inventory.importBatches.getImportBatchJob(job.jobId))?.status).toBe("completed");
+    const beforeProbe = await pools.inventory.query<{ xmin: string }>(
+      "SELECT xmin::text AS xmin FROM inventory_import_batch_rows ORDER BY row_id LIMIT 1",
+    );
+    await contractInventoryImportSources(pools.inventory);
+    const afterProbe = await pools.inventory.query<{ xmin: string }>(
+      "SELECT xmin::text AS xmin FROM inventory_import_batch_rows ORDER BY row_id LIMIT 1",
+    );
+    expect(afterProbe.rows).toEqual(beforeProbe.rows);
   });
 
   it("issue-7169-c3-safe-rollout: base workers ignore fenced jobs before and after legacy conversion", async () => {
@@ -272,6 +280,47 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     expect((await inventory.importBatches.getImportBatchJob(job.jobId))?.status).toBe("completed");
   });
 
+  it("issue-7169-c3-create-status: fenced jobs derive validation, failure and ambiguity states", async () => {
+    const inventory = services();
+    const statusParams = {
+      accountId,
+      parsedRows: [
+        {
+          rowNumber: 1,
+          values: { catalogItemId: "cat_c3_synthetic", storageLocationId: "loc_c3_synthetic", totalQuantity: "1" },
+        },
+        {
+          rowNumber: 2,
+          values: { catalogItemId: "cat_c3_synthetic", storageLocationId: "loc_c3_synthetic", totalQuantity: "1" },
+        },
+      ],
+    } as const;
+    const job = await inventory.importBatches.enqueueCreateBatchJob(
+      statusParams,
+      withInventoryMutationAttempt(authority, randomUUID()),
+    );
+    expect(job.jobKind).toBe("create-snapshot-v1");
+    expect(await inventory.importBatches.processNextImportBatchJob(claim)).toBe(1);
+    expect((await inventory.importBatches.getBatch(job.payload.batchId!, accountId))?.status).toBe("validating");
+    await expect(
+      inventory.importBatches.commitBatch({ batchId: job.payload.batchId!, accountId }, authority),
+    ).rejects.toThrow("Import validation must finish before committing rows.");
+    await pools.inventory.query(
+      `UPDATE inventory_import_batch_jobs
+       SET status = 'failed', progress = jsonb_set(progress, '{phase}', '"failed"'::jsonb)
+       WHERE job_id = $1`,
+      [job.jobId],
+    );
+    expect((await inventory.importBatches.getBatch(job.payload.batchId!, accountId))?.status).toBe("failed-safe");
+    await pools.inventory.query(
+      `UPDATE inventory_import_batch_jobs
+       SET status = 'completed', progress = jsonb_set(progress, '{total}', '1'::jsonb)
+       WHERE job_id = $1`,
+      [job.jobId],
+    );
+    expect((await inventory.importBatches.getBatch(job.payload.batchId!, accountId))?.status).toBe("ambiguous");
+  });
+
   it("issue-7169-c3-safe-rollout: isolates poison retained records and continues valid work", async () => {
     await pools.inventory.query(
       `ALTER TABLE inventory_import_batch_job_inputs ADD COLUMN csv_text text, ADD COLUMN parsed_rows jsonb, ADD COLUMN source_filename text`,
@@ -303,6 +352,24 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
        VALUES ('input_poison_synthetic', $1, $2, 'legacy.csv', now())`,
       [accountId, "catalogItemId,totalQuantity\n" + "x".repeat(1_025)],
     );
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batches (batch_id, account_id, status, total_count, created_at, updated_at)
+       VALUES ('imb_poison_job_synthetic', $1, 'uploaded', 1, now(), now())`,
+      [accountId],
+    );
+    await pools.inventory.query(
+      `INSERT INTO inventory_import_batch_jobs
+       (job_id, job_kind, status, payload, progress, created_at, updated_at)
+       VALUES ('job_poison_synthetic', 'create', 'queued', $1::jsonb, $2::jsonb, now(), now())`,
+      [
+        JSON.stringify({
+          accountId,
+          batchId: "imb_poison_job_synthetic",
+          create: { inputId: "input_poison_synthetic" },
+        }),
+        JSON.stringify({ phase: "queued", total: 1 }),
+      ],
+    );
     await contractInventoryImportSources(pools.inventory);
     const poisonedInput = await pools.inventory.query(
       "SELECT csv_text, parsed_rows, source_filename FROM inventory_import_batch_job_inputs WHERE input_id = 'input_poison_synthetic'",
@@ -313,6 +380,35 @@ describeDb("issue-7169-c3-create-row-recovery", () => {
     );
     expect(JSON.stringify(retained.rows[0].raw_row)).not.toContain("https://synthetic.invalid");
     expect(JSON.stringify(retained.rows[0].raw_row)).toContain("legacy import value redacted");
+    expect(
+      (
+        await pools.inventory.query(
+          "SELECT status, error_message FROM inventory_import_batch_jobs WHERE job_id = 'job_poison_synthetic'",
+        )
+      ).rows,
+    ).toEqual([{ status: "failed", error_message: "import_job_failed_reconciliation_required" }]);
+    expect((await services().importBatches.getBatch("imb_poison_job_synthetic", accountId))?.status).toBe(
+      "failed-safe",
+    );
+    for (const table of [
+      "inventory_import_batch_job_inputs",
+      "inventory_import_batches",
+      "inventory_import_batch_rows",
+      "inventory_import_batch_jobs",
+      "inventory_import_batch_work_units",
+      "inventory_import_batch_job_events",
+      "inventory_import_snapshot_rows",
+      "inventory_import_source_cleanup",
+      "inventory_import_account_sku_mappings",
+    ]) {
+      const scan = await pools.inventory.query<{ leaked: boolean }>(
+        `SELECT to_jsonb(t)::text LIKE '%https://%' AS leaked FROM ${table} AS t`,
+      );
+      expect(
+        scan.rows.some((row) => row.leaked),
+        `${table} contains a URL`,
+      ).toBe(false);
+    }
     await inventory.importBatches.processNextImportBatchJob(claim);
     expect((await inventory.importBatches.getImportBatchJob(valid.jobId))?.status).toBe("completed");
   });
