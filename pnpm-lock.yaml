@@ -1229,9 +1229,6 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
-      '@chase-sets/catalog-product-line':
-        specifier: workspace:*
-        version: link:../../contracts/catalog-product-line
       '@chase-sets/channels':
         specifier: workspace:*
         version: link:../channels
@@ -1455,8 +1452,6 @@ importers:
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../event-core
-
-  contracts/catalog-product-line: {}
 
   contracts/catalog-seed:
     dependencies:
