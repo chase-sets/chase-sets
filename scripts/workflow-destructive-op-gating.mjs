@@ -2565,8 +2565,8 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
               entry: context.entry,
               word: word.raw ?? word.value,
               index: word.index,
-              ...(shape.values && proof.premise === "LX"
-                ? { ...proof, premise: "L4-T" }
+              ...(gitShowValues
+                ? provenanceProof("L4-T", [word.raw ?? word.value], proof.dependencies)
                 : proof.lead
                 ? provenanceProof("LX", [word.raw ?? word.value], proof.dependencies)
                 : proof),
