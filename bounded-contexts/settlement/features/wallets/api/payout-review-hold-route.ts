@@ -7,7 +7,11 @@ export function createPayoutReviewHoldRoutes(services: SettlementServices["payou
   app.get("/accounts/:accountId/payout-review-hold", async (c) => {
     const actor = c.get("actor");
     if (!actor) return c.json({ error: { code: "authentication_required" } }, 401);
-    if (!actor.permissions.includes("payouts.view") && !actor.permissions.includes("payout-review-holds.manage")) {
+    // Operator grants only: seller payouts.view is self-scoped and must not read another account's hold.
+    if (
+      !actor.permissions.includes("payout-review-holds.manage") &&
+      !actor.permissions.includes("payouts.platform.view")
+    ) {
       return c.json({ error: { code: "authorization_forbidden" } }, 403);
     }
     return c.json(await services.get(c.req.param("accountId") as never));
