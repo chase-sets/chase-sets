@@ -13,7 +13,7 @@ import {
   type RenderOptions,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactElement, ReactNode } from "react";
+import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system";
@@ -24,11 +24,14 @@ import { resolveMarketplaceAccountMenuItems, resolveMarketplaceActiveKey, resolv
 
 const preferenceDefaults = { density: "comfortable", reducedMotion: "user", locale: "en", timeZone: "UTC" };
 
-const { mockUseLocation, mockUseNavigate, mockUseRouteLoaderData } = vi.hoisted(() => ({
-  mockUseLocation: vi.fn(),
-  mockUseNavigate: vi.fn(),
-  mockUseRouteLoaderData: vi.fn(),
-}));
+const { mockUseLocation, mockUseMatches, mockUseNavigate, mockUseRouteLoaderData, marketplaceShellRouteIdentities } =
+  vi.hoisted(() => ({
+    mockUseLocation: vi.fn(),
+    mockUseMatches: vi.fn(),
+    mockUseNavigate: vi.fn(),
+    mockUseRouteLoaderData: vi.fn(),
+    marketplaceShellRouteIdentities: [] as Array<string | undefined>,
+  }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -37,13 +40,25 @@ vi.mock("react-router", async () => {
     ...actual,
     Outlet: () => <main>Marketplace content</main>,
     useLocation: mockUseLocation,
+    useMatches: mockUseMatches,
     useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
   };
 });
 
+vi.mock("@chase-sets/design-system", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/design-system")>("@chase-sets/design-system");
+  return {
+    ...actual,
+    MarketplaceShell: (props: ComponentProps<typeof actual.MarketplaceShell>) => {
+      marketplaceShellRouteIdentities.push(props.routeIdentity);
+      return <actual.MarketplaceShell {...props} />;
+    },
+  };
+});
+
 import { MemoryRouter } from "react-router";
-import MarketplaceLayoutRoute, { loader } from "./layout";
+import MarketplaceLayoutRoute, { loader, marketplaceSearchRouteId } from "./layout";
 
 // DiscoveryShellLayout registers the DS RouterLinkAdapter, so rendering it requires
 // router context — exactly as it has in the production app tree.
@@ -170,6 +185,7 @@ describe("marketplace route layout", () => {
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Preferences saved" }));
   });
   beforeEach(() => {
+    mockUseMatches.mockReturnValue([]);
     mockUseLocation.mockReturnValue({
       pathname: "/search",
       search: "",
@@ -1451,5 +1467,26 @@ describe("marketplace-thin-host source-shape check", () => {
     expect(loaderBlock(layout)).toBeDefined();
     expect(loaderBlock(layout)).toBe(loaderBlock(base));
     expect(authPrompt(layout)).toEqual(authPrompt(base));
+  });
+});
+
+describe("marketplace search-row route identity", () => {
+  it("uses the registered search match and ignores same-pathname query changes", () => {
+    mockUseRouteLoaderData.mockReturnValue({ actor: null, cartCount: 0 });
+    mockUseLocation.mockReturnValue({ pathname: "/search", search: "?q=charizard", hash: "" });
+    mockUseMatches.mockReturnValue([{ id: marketplaceSearchRouteId }]);
+    marketplaceShellRouteIdentities.length = 0;
+    const view = render(<MarketplaceLayoutRoute />);
+    expect(marketplaceShellRouteIdentities.at(-1)).toBe("/search");
+
+    mockUseLocation.mockReturnValue({ pathname: "/search", search: "?q=pikachu", hash: "#results" });
+    view.rerender(<MarketplaceLayoutRoute />);
+    expect(marketplaceShellRouteIdentities.at(-1)).toBe("/search");
+
+    mockUseMatches.mockReturnValue([{ id: "routes/not-found" }]);
+    mockUseLocation.mockReturnValue({ pathname: "/search/x", search: "", hash: "" });
+    view.rerender(<MarketplaceLayoutRoute />);
+    expect(marketplaceShellRouteIdentities.at(-1)).toBe("/search/x");
+    view.unmount();
   });
 });

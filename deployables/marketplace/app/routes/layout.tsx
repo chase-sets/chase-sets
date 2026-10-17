@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
-import { Outlet, redirect, useLocation, useRouteLoaderData, type LoaderFunctionArgs } from "react-router";
+import { Outlet, redirect, useLocation, useMatches, useRouteLoaderData, type LoaderFunctionArgs } from "react-router";
 import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
@@ -10,6 +10,9 @@ import { resolveLegacyNotificationCenterHref } from "@chase-sets/notifications/w
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceActiveKey, resolveMarketplaceNavItems } from "../host";
 
 const signOutFormId = "marketplace-account-menu-sign-out";
+
+export const marketplaceSearchRouteId = "discovery/search";
+const searchRouteIdentity = "/search";
 
 // Retired notification-sheet links (`?notifications=feed|settings`) on any page in this
 // layout now resolve to the Notifications-owned account route.
@@ -35,6 +38,7 @@ function displayRole(value: string) {
 
 export default function MarketplaceLayoutRoute() {
   const location = useLocation();
+  const matches = useMatches();
   const rootData = useRouteLoaderData<{
     actor?: ResolvedActor | null;
     actorDisplay?: CurrentActorDisplay | null;
@@ -81,6 +85,9 @@ export default function MarketplaceLayoutRoute() {
   const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor, { cartCount });
   const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
   const activeKey = resolveMarketplaceActiveKey(location.pathname, actor, { cartCount });
+  const routeIdentity = matches.some((match) => match.id === marketplaceSearchRouteId)
+    ? searchRouteIdentity
+    : location.pathname;
   const prompt = new URLSearchParams(location.search).get("authPrompt");
   const showAddPasskeyPrompt = Boolean(actor && !isGuestCheckoutActor && prompt === "add-passkey");
   return (
@@ -88,6 +95,7 @@ export default function MarketplaceLayoutRoute() {
       activeKey={activeKey}
       colorMode={colorMode}
       reducedMotion={rootData?.viewer?.preferences?.reducedMotion}
+      routeIdentity={routeIdentity}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
       actions={
