@@ -56,6 +56,8 @@ Use `projectionName` only when the route truly needs projection-level proof, suc
 
 Shared API mounts must include the target context header. Without `Chase-Sets-Read-Target-Context`, two contexts exposing similar route shapes under `/api/marketplace` can cause unrelated projections to be selected or skipped.
 
+For a reaction-dependent read, declare both the reaction and its destination projections: freshness requires the reaction's recorded committed outputs to reach those projections, not just the reaction checkpoint. Missing or NULL output records remain pending; unresolved failures on the required input or output refuse the read with non-transient `500 internal_error`.
+
 ## Route Inventory Fields
 
 Every helper use in production route modules must be represented in `readAfterWriteRouteInventory` or by a dated exception. Required fields for a normal route are:

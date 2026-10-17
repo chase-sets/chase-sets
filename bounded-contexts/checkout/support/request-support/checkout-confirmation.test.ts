@@ -708,6 +708,7 @@ function checkoutSessionForReservationTests(overrides: Partial<CheckoutSessionRo
     checkout_reservations: [],
     payment_id: null,
     submitted_offer_id: null,
+    handoff_expires_at: null,
     created_at: "2026-04-29T00:00:00.000Z",
     updated_at: "2026-04-29T00:00:00.000Z",
     ...overrides,

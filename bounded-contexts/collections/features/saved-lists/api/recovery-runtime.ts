@@ -1,4 +1,4 @@
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import * as eventCore from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   withPgTransaction,
@@ -34,6 +34,7 @@ import type {
   SavedListRecoveryOperation,
   SavedListRecoveryPage,
 } from "./recovery-contracts";
+import { readAnonymousOwnerActivation } from "../../../support/runtime-support/anonymous-owner-activation";
 
 const ttl = 30 * 24 * 60 * 60 * 1_000;
 type OperationRow = {
@@ -80,16 +81,17 @@ export function createSavedListRecoveryRuntime(
     eventStore: PostgresEventStore;
     productCatalog: SavedListProductCatalog;
     clock?: () => Date;
-    enabled?: boolean;
   }>,
 ) {
   const now = deps.clock ?? (() => new Date());
-  function account(context: EventStoreContext) {
-    if (!deps.enabled) throw new SavedListRecoveryError("disabled");
+  async function account(context: EventStoreContext) {
+    if (typeof deps.pool.query !== "function") throw new SavedListRecoveryError("disabled");
+    const activation = await readAnonymousOwnerActivation(deps.pool);
+    if (!activation.activated_at) throw new SavedListRecoveryError("disabled");
     return savedListCanonicalIdentifier(context.audit.forAccountId) as AccountId;
   }
   function boundRuntime(client: PgQueryable, productCatalog: SavedListProductCatalog) {
-    const eventStore: EventStore = {
+    const eventStore: eventCore.EventStore = {
       readStream: (input) => deps.eventStore.readStreamInTransaction(client, input),
       appendToStream: (input) => deps.eventStore.appendToStreamInTransaction(client, input),
       readAll: async () => {
@@ -264,7 +266,7 @@ export function createSavedListRecoveryRuntime(
   }
   async function expire(context: EventStoreContext) {
     context = { ...context, audit: { ...context.audit } };
-    const owner = account(context);
+    const owner = await account(context);
     return withPgTransaction(deps.pool, async (db) => {
       const due = await db.query<OperationRow>(
         `SELECT ${columns} FROM collections_saved_list_operations
@@ -373,7 +375,7 @@ export function createSavedListRecoveryRuntime(
     expire,
     async prepare(input: PrepareSavedListOperation, context: EventStoreContext) {
       context = { ...context, audit: { ...context.audit } };
-      const owner = account(context);
+      const owner = await account(context);
       const draft = canonicalDraft(input);
       await validateProduct(draft, deps.productCatalog);
       await expire(context);
@@ -381,7 +383,7 @@ export function createSavedListRecoveryRuntime(
     },
     async confirm(input: ConfirmSavedListOperation, context: EventStoreContext) {
       context = { ...context, audit: { ...context.audit } };
-      const owner = account(context);
+      const owner = await account(context);
       return withPgTransaction(deps.pool, async (db) => {
         const row = await readRow(db, input.operationId, owner, true);
         if (!row) throw new SavedListRecoveryError("not-found");
@@ -391,7 +393,7 @@ export function createSavedListRecoveryRuntime(
     },
     async beginSend(input: SavedListOperationReference, context: EventStoreContext) {
       context = { ...context, audit: { ...context.audit } };
-      const owner = account(context);
+      const owner = await account(context);
       return withPgTransaction(deps.pool, async (db) => {
         const row = await readRow(db, input.operationId, owner, true);
         if (!row) throw new SavedListRecoveryError("not-found");
@@ -410,7 +412,7 @@ export function createSavedListRecoveryRuntime(
     // The locked re-read, receipt proof, aggregate append and finalization share one transaction.
     async apply(input: SavedListOperationReference, context: EventStoreContext) {
       context = { ...context, audit: { ...context.audit } };
-      const owner = account(context);
+      const owner = await account(context);
       const before = await readRow(deps.pool, input.operationId, owner);
       if (!before) throw new SavedListRecoveryError("not-found");
       if (before.status === "expired") throw new SavedListRecoveryError("expired");
@@ -451,46 +453,51 @@ export function createSavedListRecoveryRuntime(
           },
         };
         try {
-          return await withPgTransaction(transactionPool, async (db) => {
-            const row = await readRow(db, input.operationId, owner, true);
-            if (!row) throw new SavedListRecoveryError("not-found");
-            if (row.status === "expired") throw new SavedListRecoveryError("expired");
-            if (row.send_revision !== input.revision || row.fingerprint !== before.fingerprint)
-              throw new SavedListRecoveryError("conflict");
-            const found = await receipt(db, row, context);
-            if (found) return output(row, found);
-            if (row.status !== "possible-send" || new Date(row.expires_at).getTime() <= now().getTime())
-              throw new SavedListRecoveryError("expired");
-            await lockIntent(db, row);
-            const request = row.request!;
-            const runtime = boundRuntime(db, validatedCatalog);
-            if (request.destination.kind === "new")
-              await runtime.createSavedList(
-                {
-                  commandId: request.destination.createCommandId,
-                  listId: request.destination.listId,
-                  ownerAccountId: owner,
-                  title: request.destination.title,
-                },
+          const committed = await eventCore.runWithEventCommitMetadata(async () => {
+            const result = await withPgTransaction(transactionPool, async (db) => {
+              const row = await readRow(db, input.operationId, owner, true);
+              if (!row) throw new SavedListRecoveryError("not-found");
+              if (row.status === "expired") throw new SavedListRecoveryError("expired");
+              if (row.send_revision !== input.revision || row.fingerprint !== before.fingerprint)
+                throw new SavedListRecoveryError("conflict");
+              const found = await receipt(db, row, context);
+              if (found) return output(row, found);
+              if (row.status !== "possible-send" || new Date(row.expires_at).getTime() <= now().getTime())
+                throw new SavedListRecoveryError("expired");
+              await lockIntent(db, row);
+              const request = row.request!;
+              const runtime = boundRuntime(db, validatedCatalog);
+              if (request.destination.kind === "new")
+                await runtime.createSavedList(
+                  {
+                    commandId: request.destination.createCommandId,
+                    listId: request.destination.listId,
+                    ownerAccountId: owner,
+                    title: request.destination.title,
+                  },
+                  context,
+                );
+              const snapshot = await runtime.getOwnerSnapshot(
+                { listId: request.destination.listId, ownerAccountId: owner },
                 context,
               );
-            const snapshot = await runtime.getOwnerSnapshot(
-              { listId: request.destination.listId, ownerAccountId: owner },
-              context,
-            );
-            if (!snapshot) throw new SavedListRecoveryError("not-found");
-            const result = await runtime.applyLineChanges(lineInput(row, snapshot.version), context);
-            const applied = result.receipt.lineResults.some((line) => line.status !== "rejected");
-            const terminal = await update(
-              db,
-              row,
-              applied ? "applied" : "rejected",
-              true,
-              applied ? null : (result.receipt.lineResults[0]?.error?.code ?? null),
-            );
-            await finishIntent(db, row, !applied);
-            return output(terminal, applied ? result : null);
+              if (!snapshot) throw new SavedListRecoveryError("not-found");
+              const result = await runtime.applyLineChanges(lineInput(row, snapshot.version), context);
+              const applied = result.receipt.lineResults.some((line) => line.status !== "rejected");
+              const terminal = await update(
+                db,
+                row,
+                applied ? "applied" : "rejected",
+                true,
+                applied ? null : (result.receipt.lineResults[0]?.error?.code ?? null),
+              );
+              await finishIntent(db, row, !applied);
+              return output(terminal, applied ? result : null);
+            });
+            return { result, committedEvents: eventCore.getEventCommitMetadata().committedEvents };
           });
+          eventCore.recordCommittedEvents(committed.committedEvents, "collections");
+          return committed.result;
         } catch (error) {
           if (!(error instanceof SavedListConcurrencyConflictError) || attempt === 1) throw error;
           if (!rolledBack) throw new SavedListRecoveryError("conflict");
@@ -500,12 +507,12 @@ export function createSavedListRecoveryRuntime(
     },
     async get(id: string, context: EventStoreContext) {
       context = { ...context, audit: { ...context.audit } };
-      const row = await readRow(deps.pool, id, account(context));
+      const row = await readRow(deps.pool, id, await account(context));
       return row ? output(row, await receipt(deps.pool, row, context)) : null;
     },
     async list(input: Readonly<{ cursor?: string }>, context: EventStoreContext): Promise<SavedListRecoveryPage> {
       context = { ...context, audit: { ...context.audit } };
-      const owner = account(context);
+      const owner = await account(context);
       let cursor: [string, string] | null = null;
       if (input.cursor) {
         try {
@@ -551,7 +558,7 @@ export function createSavedListRecoveryRuntime(
       context: EventStoreContext,
     ) {
       context = { ...context, audit: { ...context.audit } };
-      const owner = account(context);
+      const owner = await account(context);
       const raw = savedListCanonicalIdentifier(input.anonymousOwnerId);
       if (!raw.startsWith("anon_")) throw new SavedListRecoveryError("invalid-request");
       const hash = savedListFingerprint(["collections.anonymous-owner.v1", raw]);
