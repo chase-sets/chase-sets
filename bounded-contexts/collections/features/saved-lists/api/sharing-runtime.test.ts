@@ -98,8 +98,13 @@ describe("Saved List sharing runtime", () => {
         context,
       ),
     );
-    expect(rotated.metadata.sources[0]?.sourceContextName).toBe("collections");
-    expect(rotated.metadata.sources[0]?.eventIds).toEqual(allEvents.slice(2).map((event) => event.eventId));
+    expect(rotated.metadata.sources).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: allEvents.slice(2).map((event) => event.eventId),
+        maxGlobalPosition: allEvents.at(-1)!.globalPosition,
+      },
+    ]);
 
     const revoked = await run(() =>
       runtime.revokeUnlistedAccess(
@@ -107,8 +112,13 @@ describe("Saved List sharing runtime", () => {
         context,
       ),
     );
-    expect(revoked.metadata.sources[0]?.sourceContextName).toBe("collections");
-    expect(revoked.metadata.sources[0]?.eventIds).toEqual(allEvents.slice(3).map((event) => event.eventId));
+    expect(revoked.metadata.sources).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: allEvents.slice(3).map((event) => event.eventId),
+        maxGlobalPosition: allEvents.at(-1)!.globalPosition,
+      },
+    ]);
   });
 
   it("rotates and revokes an idempotent unlisted secret without persisting the raw secret", async () => {

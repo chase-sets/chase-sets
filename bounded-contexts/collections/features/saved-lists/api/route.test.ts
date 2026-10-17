@@ -123,7 +123,10 @@ describe("Saved List discovery routes", () => {
           sourceSurface: "search",
         }),
       });
+    const beforeFirst = store.allEvents.length;
     const first = await send(1, "new");
+    const firstEvents = store.allEvents.slice(beforeFirst);
+    const firstPosition = firstEvents.at(-1)!.globalPosition;
     expect(first.status, await first.clone().text()).toBe(200);
     const firstBody = attachResponseMetadata(await first.json(), first);
     expect(getMutationResultCommandReceipt(firstBody)).toMatchObject({
@@ -131,8 +134,13 @@ describe("Saved List discovery routes", () => {
       commitPositions: decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)),
     });
     expect(decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
-      expect.objectContaining({ sourceContextName: "collections", eventIds: expect.any(Array) }),
+      {
+        sourceContextName: "collections",
+        eventIds: firstEvents.map((event) => event.eventId),
+        maxGlobalPosition: firstPosition,
+      },
     ]);
+    expect(first.headers.get("Chase-Sets-Commit-Position")).toBe(firstPosition);
     expect(first.headers.get("Chase-Sets-Consistency")).toBe("eventual");
     expect(first.headers.get("Chase-Sets-Commit-Event-Ids")).toBe(
       decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))?.[0]?.eventIds.join(","),
@@ -141,11 +149,19 @@ describe("Saved List discovery routes", () => {
     expect(Object.keys(firstBody).sort()).toEqual(
       ["alreadyClaimed", "analyticsLabel", "command", "lineStatus", "listId", "title"].sort(),
     );
+    const beforeExisting = store.allEvents.length;
     const existing = await send(2);
+    const existingEvents = store.allEvents.slice(beforeExisting);
+    const existingPosition = existingEvents.at(-1)!.globalPosition;
     expect(existing.status).toBe(200);
     expect(decodeCommitReceipt(existing.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
-      expect.objectContaining({ sourceContextName: "collections", eventIds: expect.any(Array) }),
+      {
+        sourceContextName: "collections",
+        eventIds: existingEvents.map((event) => event.eventId),
+        maxGlobalPosition: existingPosition,
+      },
     ]);
+    expect(existing.headers.get("Chase-Sets-Commit-Position")).toBe(existingPosition);
     expect(events.map((item) => item.event)).toEqual(["list_created", "product_added", "product_added"]);
     for (let index = 3; index <= 6; index += 1) {
       const before = events.length;

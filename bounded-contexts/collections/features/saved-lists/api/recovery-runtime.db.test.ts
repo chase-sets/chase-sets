@@ -1,6 +1,11 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import {
+  getEventCommitMetadata,
+  recordCommittedEvents,
+  runWithEventCommitMetadata,
+} from "@chase-sets/event-core/consistency";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -45,6 +50,49 @@ const catalog = {
     product: selection,
   })),
 };
+
+type StoredRow = Readonly<{ event_id: string; global_position: string }>;
+
+function expectRecoveryReceipt(
+  metadata: ReturnType<typeof getEventCommitMetadata>,
+  rows: readonly StoredRow[],
+  excludedEventIds: readonly string[] = [],
+): void {
+  const eventIds = rows.map((event) => event.event_id);
+  expect(metadata.eventIds).toEqual(eventIds);
+  expect(metadata.maxGlobalPosition).toBe(rows.at(-1)?.global_position);
+  expect(metadata.sources).toEqual([
+    {
+      sourceContextName: "collections",
+      eventIds,
+      maxGlobalPosition: rows.at(-1)!.global_position,
+    },
+  ]);
+  for (const eventId of excludedEventIds) expect(metadata.eventIds).not.toContain(eventId);
+}
+
+function expectNoRecoveryReceipt(metadata: ReturnType<typeof getEventCommitMetadata>): void {
+  expect(metadata.eventIds).toEqual([]);
+  expect(metadata.maxGlobalPosition).toBeUndefined();
+  expect(metadata.sources).toEqual([]);
+}
+
+function prematureRecordingStore(
+  baseStore: ReturnType<typeof createPostgresEventStore>,
+  requestScope: (callback: () => void) => void,
+) {
+  return {
+    ...baseStore,
+    appendToStreamInTransaction: async (
+      client: Parameters<typeof baseStore.appendToStreamInTransaction>[0],
+      input: Parameters<typeof baseStore.appendToStreamInTransaction>[1],
+    ) => {
+      const stored = await baseStore.appendToStreamInTransaction(client, input);
+      requestScope(() => recordCommittedEvents(stored, "collections"));
+      return stored;
+    },
+  };
+}
 
 function runtime(pool = pools.collections) {
   return createSavedListRecoveryRuntime({
@@ -101,19 +149,14 @@ describeDb("durable Saved List recovery", () => {
       "SELECT event_id, global_position::text FROM event_store_events ORDER BY global_position",
     );
     expect(observed.result).toMatchObject({ status: "applied" });
-    expect(observed.metadata.sources).toEqual([
-      {
-        sourceContextName: "collections",
-        eventIds: stored.rows.map((event) => event.event_id),
-        maxGlobalPosition: stored.rows.at(-1)!.global_position,
-      },
-    ]);
+    expectRecoveryReceipt(observed.metadata, stored.rows);
   });
 
   it("records only the retry events when the first recovery attempt rolls back", async () => {
     const prepared = await ready();
     const baseStore = createPostgresEventStore({ pool: pools.collections });
     let appends = 0;
+    let firstAttemptEventIds: string[] = [];
     const retrying = createSavedListRecoveryRuntime({
       pool: pools.collections,
       eventStore: {
@@ -121,7 +164,8 @@ describeDb("durable Saved List recovery", () => {
         appendToStreamInTransaction: async (client, input) => {
           const stored = await baseStore.appendToStreamInTransaction(client, input);
           appends += 1;
-          if (appends === 1) throw Object.assign(new Error("synthetic concurrency"), { code: "concurrency_conflict" });
+          if (appends === 1) firstAttemptEventIds = stored.map((event) => event.eventId);
+          if (appends === 2) throw Object.assign(new Error("synthetic concurrency"), { code: "concurrency_conflict" });
           return stored;
         },
       },
@@ -135,12 +179,12 @@ describeDb("durable Saved List recovery", () => {
       );
       return { result, metadata: getEventCommitMetadata() };
     });
-    const stored = await pools.collections.query<{ event_id: string }>(
-      "SELECT event_id FROM event_store_events ORDER BY global_position",
+    const stored = await pools.collections.query<StoredRow>(
+      "SELECT event_id, global_position::text FROM event_store_events ORDER BY global_position",
     );
-    expect(appends).toBe(2);
+    expect(appends).toBe(4);
     expect(observed.result).toMatchObject({ status: "applied" });
-    expect(observed.metadata.eventIds).toEqual(stored.rows.map((event) => event.event_id));
+    expectRecoveryReceipt(observed.metadata, stored.rows, firstAttemptEventIds);
   });
 
   it("does not expose metadata when commit fails after an inner append", async () => {
@@ -174,11 +218,92 @@ describeDb("durable Saved List recovery", () => {
       return { error, metadata: getEventCommitMetadata() };
     });
     expect(observed.error).toBe(failure);
-    expect(observed.metadata.eventIds).toEqual([]);
+    expectNoRecoveryReceipt(observed.metadata);
     expect(
       (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
         .rows[0]?.count,
     ).toBe("0");
+  });
+
+  it("rejects premature request-scope recording in rollback and commit-failure controls", async () => {
+    const rollbackPrepared = await ready();
+    const rollbackBaseStore = createPostgresEventStore({ pool: pools.collections });
+    let rollbackAppends = 0;
+    let rollbackFirstAttemptEventIds: string[] = [];
+    let rollbackObserved: ReturnType<typeof getEventCommitMetadata> | undefined;
+    let rollbackError: unknown;
+    await runWithEventCommitMetadata(async () => {
+      const requestScope = AsyncLocalStorage.snapshot();
+      const retrying = createSavedListRecoveryRuntime({
+        pool: pools.collections,
+        eventStore: {
+          ...rollbackBaseStore,
+          appendToStreamInTransaction: async (client, input) => {
+            const stored = await rollbackBaseStore.appendToStreamInTransaction(client, input);
+            requestScope(() => recordCommittedEvents(stored, "collections"));
+            rollbackAppends += 1;
+            if (rollbackAppends === 1) rollbackFirstAttemptEventIds = stored.map((event) => event.eventId);
+            if (rollbackAppends === 2)
+              throw Object.assign(new Error("synthetic concurrency"), { code: "concurrency_conflict" });
+            return stored;
+          },
+        },
+        productCatalog: catalog,
+        clock: () => clock,
+      });
+      rollbackError = await retrying
+        .apply(
+          { operationId: rollbackPrepared.sending.operationId, revision: rollbackPrepared.sending.revision },
+          context,
+        )
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      rollbackObserved = getEventCommitMetadata();
+    });
+    expect(rollbackError).toBeNull();
+    const rollbackStored = await pools.collections.query<StoredRow>(
+      "SELECT event_id, global_position::text FROM event_store_events ORDER BY global_position",
+    );
+    expect(() => expectRecoveryReceipt(rollbackObserved!, rollbackStored.rows, rollbackFirstAttemptEventIds)).toThrow();
+
+    const failure = new Error("synthetic commit failure");
+    const failingPool: PgTransactionalPool = {
+      query: pools.collections.query.bind(pools.collections),
+      idleInTransactionSessionTimeoutMillis: pools.collections.idleInTransactionSessionTimeoutMillis,
+      connect: async () => {
+        const client = await pools.collections.connect();
+        return {
+          release: client.release.bind(client),
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (sql === "COMMIT") throw failure;
+            return client.query<Row>(sql, values);
+          },
+        };
+      },
+    };
+    let prematureObserved: ReturnType<typeof getEventCommitMetadata> | undefined;
+    let prematureError: unknown;
+    await runWithEventCommitMetadata(async () => {
+      const requestScope = AsyncLocalStorage.snapshot();
+      const prepared = await ready();
+      const failing = createSavedListRecoveryRuntime({
+        pool: failingPool,
+        eventStore: prematureRecordingStore(createPostgresEventStore({ pool: failingPool }), requestScope),
+        productCatalog: catalog,
+        clock: () => clock,
+      });
+      prematureError = await failing
+        .apply({ operationId: prepared.sending.operationId, revision: prepared.sending.revision }, context)
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      prematureObserved = getEventCommitMetadata();
+    });
+    expect(prematureError).toBe(failure);
+    expect(() => expectNoRecoveryReceipt(prematureObserved!)).toThrow();
   });
 
   it("recovery activation is read per request", async () => {
