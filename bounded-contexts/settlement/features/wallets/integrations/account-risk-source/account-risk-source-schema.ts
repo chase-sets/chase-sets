@@ -33,6 +33,12 @@ ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS chargeback_7d_count integer NOT NULL DEFAULT 0;
 
 ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold boolean NOT NULL DEFAULT false;
+
+ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS payout_review_hold_stream_version bigint NOT NULL DEFAULT 0;
+
+ALTER TABLE settlement_account_risk_sources
   ADD COLUMN IF NOT EXISTS chargeback_30d_count integer NOT NULL DEFAULT 0;
 
 ALTER TABLE settlement_account_risk_sources
