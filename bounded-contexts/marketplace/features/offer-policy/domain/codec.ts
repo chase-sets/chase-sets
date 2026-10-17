@@ -20,6 +20,7 @@ const eventSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("marketplace.offer-policy.paused"), data: buyerOfferPolicyAuditSchema }),
   z.strictObject({ type: z.literal("marketplace.offer-policy.stopped"), data: buyerOfferPolicyAuditSchema }),
+  // Decode-only historical event; new commands never encode this retired payload.
   z.strictObject({
     type: z.literal("marketplace.offer-policy.commitment-consumed"),
     data: buyerOfferPolicyAuditSchema.extend({

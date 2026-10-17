@@ -90,7 +90,7 @@ export function createManagedOfferAuthority(eventStore: EventStore, pricing?: Ma
   function hasSameConsentRevision(policy: Awaited<ReturnType<typeof load>>, recordedVersion: number) {
     if (!Number.isInteger(recordedVersion) || recordedVersion < 1 || recordedVersion > policy.version) return false;
     // Complete aggregate events are ordered from stream version 1. Preview and
-    // consumption move the stream fence, but do not grant a new consent revision.
+    // historical consumption events move the stream fence, but do not grant a new consent revision.
     const authorized = policy.events
       .slice(0, recordedVersion)
       .reverse()

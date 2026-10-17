@@ -390,6 +390,14 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
             price_currency_code: "USD",
             status: "active",
           });
+          // Marketplace's Listing read does not fence Ordering's independent supply inputs.
+          // Establish those inputs before acceptance can wake the Order-creation reaction.
+          const orderingFixtureRead = await seller.request.get(`/api/marketplace/account/listings/${listingId}`, {
+            headers: freshReadHeaders("ordering"),
+          });
+          expect(orderingFixtureRead.ok(), "Ordering has applied the test-owned Listing's publication receipt").toBe(
+            true,
+          );
           for (const offerId of offerIds) {
             await expect
               .poll(async () => {
