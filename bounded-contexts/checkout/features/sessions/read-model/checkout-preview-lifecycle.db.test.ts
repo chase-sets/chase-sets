@@ -611,7 +611,11 @@ describeDb("checkout preview lifecycle", () => {
     const check = async () => {
       for (const [index, sessionId] of ids.entries()) {
         const handoffExpiresAt = (await getCheckoutSession(pools!.checkout, sessionId, actor.accountId))?.handoff_expires_at;
-        expect(handoffExpiresAt instanceof Date ? handoffExpiresAt.toISOString() : handoffExpiresAt).toBe(
+        const normalizedHandoffExpiresAt =
+          (handoffExpiresAt as unknown) instanceof Date
+            ? (handoffExpiresAt as unknown as Date).toISOString()
+            : handoffExpiresAt;
+        expect(normalizedHandoffExpiresAt).toBe(
           index === 0 ? expiresAt : null,
         );
       }
