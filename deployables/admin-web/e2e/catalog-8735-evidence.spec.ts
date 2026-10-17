@@ -328,12 +328,13 @@ export async function capture({ sandbox, out, head, save, deadline, root, hosted
       await expect(dialog).toContainText(detail.sourceRecordHash);
       await expect(page.locator('[data-catalog-observation-evidence="error"]')).toHaveCount(0);
       await expect(review()).toBeAttached();
-      save("loaded-dom.json", {
+      receipt.loadedDom = {
         url: page.url(),
         dialogText: await dialog.innerText(),
         reviewMounted: await review().count(),
         errorBannerCount: await page.locator('[data-catalog-observation-evidence="error"]').count(),
-      });
+      };
+      save("loaded-dom.json", receipt.loadedDom);
       await snap("03-sheet-loaded.png");
       pass("sheetLoadedIdentity", network);
       await page.keyboard.press("Escape");
