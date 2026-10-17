@@ -37,7 +37,7 @@ export const DIRECTION_DELTA = 24;
 export const SEED_PHASE: SearchRowPhase = "collapsed";
 
 export interface SearchRowHeaderFrameProps {
-  readonly navProps: HTMLAttributes<HTMLElement>;
+  readonly navProps: HTMLAttributes<HTMLElement> & { readonly "data-shell-header-box"?: string };
   readonly width: LayoutWidth;
   readonly reducedMotion: boolean;
   readonly searchRowState: "expanded" | "collapsed";
