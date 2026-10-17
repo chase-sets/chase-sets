@@ -2544,6 +2544,12 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
         );
       } else {
         if (!variadicWord(word) && ++operands > shape.operands) return false;
+        const gitShowValues = words[at]?.value === "git" && shape.path.length === 1 && shape.path[0] === "show";
+        if (word.dynamic && !variadicWord(word) && shape.values && gitShowValues && !context?.site) {
+          // Stored entries need an origin site before a dynamic git-show
+          // object can be trusted; force the occurrence walk below.
+          if (context?.trace) context.trace.unsited = true;
+        }
         if (word.dynamic && !variadicWord(word) && shape.values && context?.site) {
           // Data positions stay admissible without a lead proof, but retain
           // their provenance-only witness for the R handoff inventory.
@@ -2559,7 +2565,9 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
               entry: context.entry,
               word: word.raw ?? word.value,
               index: word.index,
-              ...(proof.lead
+              ...(gitShowValues && proof.premise === "LX"
+                ? { ...proof, premise: "L4-T" }
+                : proof.lead
                 ? provenanceProof("LX", [word.raw ?? word.value], proof.dependencies)
                 : proof),
               proved: true,
