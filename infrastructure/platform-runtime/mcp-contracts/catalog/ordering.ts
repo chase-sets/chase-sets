@@ -1,6 +1,8 @@
 import {
   type McpServiceDescriptor,
+  arrayProperty,
   accountScopedListOutputSchema,
+  idempotencyKeyProperty,
   integerProperty,
   mutationInput,
   objectSchema,
@@ -10,6 +12,112 @@ import {
   stringProperty,
   writeTool,
 } from "@chase-sets/platform-runtime/mcp-contracts/builders";
+
+const postagePolicyProperties = {
+  policyVersion: stringProperty("Policy version."),
+  maxLetterUnits: { type: "number", description: "Maximum letter units." },
+  maxLetterWeightOunces: { type: "number", description: "Maximum letter weight in ounces." },
+  maxLetterThicknessInches: { type: "number", description: "Maximum letter thickness in inches." },
+  maxLetterDeclaredValueAmount: { type: "number", description: "Maximum letter declared value amount." },
+  letterEnvelopeWeightOunces: { type: "number", description: "Letter envelope weight in ounces." },
+  parcelPackagingWeightOunces: { type: "number", description: "Parcel packaging weight in ounces." },
+  parcelRequiredShippingOptions: arrayProperty(
+    "Shipping options that require parcel postage.",
+    stringProperty("Shipping option."),
+  ),
+  letterRequiredPhysicalFlags: arrayProperty(
+    "Physical flags that require letter postage.",
+    stringProperty("Physical flag."),
+  ),
+  parcelRequiredPhysicalFlags: arrayProperty(
+    "Physical flags that require parcel postage.",
+    stringProperty("Physical flag."),
+  ),
+  signatureRequiredShippingOptions: arrayProperty(
+    "Shipping options that require signature.",
+    stringProperty("Shipping option."),
+  ),
+  signatureRequiredDeclaredValueAmount: {
+    type: "number",
+    description: "Declared value threshold requiring signature.",
+  },
+  signatureRequiredPhysicalFlags: arrayProperty(
+    "Physical flags that require signature.",
+    stringProperty("Physical flag."),
+  ),
+  insuranceRequiredDeclaredValueAmount: {
+    type: "number",
+    description: "Declared value threshold requiring insurance.",
+  },
+} as const;
+
+const postagePolicyFields = {
+  label: stringProperty("Policy label."),
+  effectiveFrom: stringProperty("ISO timestamp when the policy becomes effective."),
+  effectiveUntil: stringProperty("Optional ISO timestamp when the policy stops being effective."),
+  ...postagePolicyProperties,
+};
+
+const postagePolicyWriteSchema = objectSchema(
+  {
+    ...postagePolicyFields,
+    idempotencyKey: idempotencyKeyProperty(),
+    confirmationText: stringProperty("Exact confirmation text."),
+  },
+  [
+    "label",
+    "effectiveFrom",
+    "policyVersion",
+    "maxLetterUnits",
+    "maxLetterWeightOunces",
+    "maxLetterThicknessInches",
+    "maxLetterDeclaredValueAmount",
+    "letterEnvelopeWeightOunces",
+    "parcelPackagingWeightOunces",
+    "parcelRequiredShippingOptions",
+    "letterRequiredPhysicalFlags",
+    "parcelRequiredPhysicalFlags",
+    "signatureRequiredShippingOptions",
+    "signatureRequiredPhysicalFlags",
+    "idempotencyKey",
+    "confirmationText",
+  ],
+);
+
+const postagePolicyPreviewSchema = objectSchema(
+  {
+    policy: objectSchema(postagePolicyProperties),
+    shippingOption: stringProperty("Shipping option.", ["standard", "expedited", "priority"]),
+    itemSubtotalAmount: stringProperty("Item subtotal amount."),
+    quantity: { type: "number", description: "Item quantity." },
+    unitLengthInches: { type: "number", description: "Unit length in inches." },
+    unitWidthInches: { type: "number", description: "Unit width in inches." },
+    unitHeightInches: { type: "number", description: "Unit height in inches." },
+    unitWeightOunces: { type: "number", description: "Unit weight in ounces." },
+    physicalFlags: arrayProperty("Product physical flags.", stringProperty("Physical flag.")),
+  },
+  [
+    "policy",
+    "shippingOption",
+    "itemSubtotalAmount",
+    "quantity",
+    "unitLengthInches",
+    "unitWidthInches",
+    "unitHeightInches",
+    "unitWeightOunces",
+    "physicalFlags",
+  ],
+);
+
+const postagePolicyReceiptOutput = objectSchema(
+  {
+    id: stringProperty("Postage policy identifier."),
+    policyId: stringProperty("Postage policy identifier."),
+    version: integerProperty("Committed aggregate version."),
+    status: stringProperty("Lifecycle write result."),
+  },
+  ["id", "policyId", "version", "status"],
+);
 
 const orderingOrderDetailOutputSchema = objectSchema(
   {
@@ -85,6 +193,196 @@ export const orderingService = {
       ),
       availability: "available",
       outputSchema: orderingOrderDetailOutputSchema,
+    },
+    {
+      ...readTool(
+        "ordering",
+        "list-postage-policies",
+        "List Postage Policies",
+        "List postage policies visible to an ordering operator.",
+        "postage-policies.view",
+        objectSchema({
+          limit: integerProperty("Maximum records to return."),
+          offset: integerProperty("Zero-based record offset."),
+        }),
+        "postage-policy",
+        ["Use before creating, revising, activating, cloning, or retiring a postage policy."],
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: objectSchema(
+        {
+          items: arrayProperty("Postage policy rows.", {
+            type: "object",
+            description: "Postage policy row.",
+            additionalProperties: true,
+            properties: {},
+          }),
+          total: integerProperty("Total matching policies."),
+          count: integerProperty("Returned policy count."),
+        },
+        ["items", "total", "count"],
+      ),
+    },
+    {
+      ...readTool(
+        "ordering",
+        "get-postage-policy",
+        "Get Postage Policy",
+        "Read one postage policy and its history.",
+        "postage-policies.view",
+        objectSchema({ id: stringProperty("Postage policy identifier.") }, ["id"]),
+        "postage-policy",
+        ["Use to inspect the policy before lifecycle actions."],
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: objectSchema(
+        {
+          policy: {
+            type: "object",
+            description: "Postage policy detail row.",
+            additionalProperties: true,
+            properties: {},
+          },
+        },
+        ["policy"],
+      ),
+    },
+    {
+      ...readTool(
+        "ordering",
+        "preview-postage-policy",
+        "Preview Postage Policy",
+        "Evaluate a postage policy against a measured item without committing it.",
+        "postage-policies.manage",
+        postagePolicyPreviewSchema,
+        "postage-policy-preview",
+        ["Use before creating or revising a postage policy."],
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: objectSchema(
+        {
+          packagePlan: {
+            type: "object",
+            description: "Evaluated package plan.",
+            additionalProperties: true,
+            properties: {},
+          },
+        },
+        ["packagePlan"],
+      ),
+    },
+    {
+      ...writeTool(
+        "ordering",
+        "create-postage-policy",
+        "Create Postage Policy",
+        "Create a postage policy draft.",
+        "postage-policies.manage",
+        postagePolicyWriteSchema,
+        "postage-policy",
+        ["Use only for an explicit postage policy administration change."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: postagePolicyReceiptOutput,
+    },
+    {
+      ...writeTool(
+        "ordering",
+        "revise-postage-policy",
+        "Revise Postage Policy",
+        "Revise a postage policy that is not retired.",
+        "postage-policies.manage",
+        objectSchema({ id: stringProperty("Postage policy identifier."), ...postagePolicyWriteSchema.properties }, [
+          "id",
+          ...postagePolicyWriteSchema.required!.filter((field) => field !== "label"),
+          "label",
+        ]),
+        "postage-policy",
+        ["Use only for an explicit postage policy administration change."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: postagePolicyReceiptOutput,
+    },
+    {
+      ...writeTool(
+        "ordering",
+        "activate-postage-policy",
+        "Activate Postage Policy",
+        "Activate a postage policy and retire the previous active policy when applicable.",
+        "postage-policies.manage",
+        objectSchema(
+          {
+            id: stringProperty("Postage policy identifier."),
+            activationReason: stringProperty("Reason for activation."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact confirmation text."),
+          },
+          ["id", "activationReason", "idempotencyKey", "confirmationText"],
+        ),
+        "postage-policy",
+        ["Use only after inspecting the candidate policy and its comparison."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: postagePolicyReceiptOutput,
+    },
+    {
+      ...writeTool(
+        "ordering",
+        "retire-postage-policy",
+        "Retire Postage Policy",
+        "Retire a postage policy.",
+        "postage-policies.manage",
+        objectSchema(
+          {
+            id: stringProperty("Postage policy identifier."),
+            retirementReason: stringProperty("Reason for retirement."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact confirmation text."),
+          },
+          ["id", "retirementReason", "idempotencyKey", "confirmationText"],
+        ),
+        "postage-policy",
+        ["Use only for an explicit postage policy administration change."],
+        "destructive",
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: postagePolicyReceiptOutput,
+    },
+    {
+      ...writeTool(
+        "ordering",
+        "clone-postage-policy",
+        "Clone Postage Policy",
+        "Clone a postage policy into a new draft.",
+        "postage-policies.manage",
+        objectSchema(
+          {
+            id: stringProperty("Source postage policy identifier."),
+            label: stringProperty("New policy label."),
+            effectiveFrom: stringProperty("ISO timestamp when the clone becomes effective."),
+            effectiveUntil: stringProperty("Optional ISO timestamp when the clone stops being effective."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact confirmation text."),
+          },
+          ["id", "label", "effectiveFrom", "idempotencyKey", "confirmationText"],
+        ),
+        "postage-policy",
+        ["Use after inspecting the source policy when preparing a replacement draft."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      outputSchema: postagePolicyReceiptOutput,
     },
     writeTool(
       "ordering",
