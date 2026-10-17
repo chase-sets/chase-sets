@@ -22,7 +22,7 @@ function fixture(extra = {}) {
     "contracts/event-core/event-store.ts":
       "export interface EventStore { appendToStream: unknown; appendToStreams: unknown; appendToStreamsIndependently: unknown; readStream: unknown; readAll: unknown }\n",
     "contracts/event-core/complete-stream.ts":
-      'export type CompleteStreamReader = Readonly<{ readStream: unknown }>;\n',
+      "export type CompleteStreamReader = Readonly<{ readStream: unknown }>;\n",
     ...extra,
   };
   for (const [file, source] of Object.entries(files)) {
@@ -59,7 +59,8 @@ describe("release qualification applicability evaluator", () => {
 
   it("admits a recursively closed graph and reports its exact edges", () => {
     const { root, files } = fixture({
-      "bounded-contexts/synthetic/domain/root.ts": 'import type { LeafType } from "./leaf";\nimport "./types";\nexport { value } from "./leaf";\n',
+      "bounded-contexts/synthetic/domain/root.ts":
+        'import type { LeafType } from "./leaf";\nimport "./types";\nexport { value } from "./leaf";\n',
       "bounded-contexts/synthetic/domain/leaf.ts": 'import crypto from "node:crypto"; export const value = crypto;\n',
       "bounded-contexts/synthetic/domain/types.ts": "export type LeafType = string;\n",
     });
@@ -73,14 +74,20 @@ describe("release qualification applicability evaluator", () => {
             { specifier: "./types", binding: "value" },
           ],
         },
-        { path: "bounded-contexts/synthetic/domain/leaf.ts", specifiers: [{ specifier: "node:crypto", binding: "value" }] },
+        {
+          path: "bounded-contexts/synthetic/domain/leaf.ts",
+          specifiers: [{ specifier: "node:crypto", binding: "value" }],
+        },
         { path: "bounded-contexts/synthetic/domain/types.ts", specifiers: [] },
       ],
     });
     expect(result.applies).toBe(true);
     expect(result.withdrawalCodes).toEqual([]);
     expect(result.graph).toEqual([
-      { path: "bounded-contexts/synthetic/domain/leaf.ts", specifiers: [{ specifier: "node:crypto", binding: "value" }] },
+      {
+        path: "bounded-contexts/synthetic/domain/leaf.ts",
+        specifiers: [{ specifier: "node:crypto", binding: "value" }],
+      },
       {
         path: "bounded-contexts/synthetic/domain/root.ts",
         specifiers: [
@@ -94,7 +101,8 @@ describe("release qualification applicability evaluator", () => {
 
   it("withdraws for graph drift, external drift, dynamic imports and forbidden members", () => {
     const { root, files } = fixture({
-      "bounded-contexts/synthetic/domain/root.ts": 'import fs from "node:fs"; export const load = (store) => store.readStream(fs);\n',
+      "bounded-contexts/synthetic/domain/root.ts":
+        'import fs from "node:fs"; export const load = (store) => store.readStream(fs);\n',
     });
     const result = evaluate(root, files, {
       kind: "pure-module/v1",
@@ -119,10 +127,15 @@ describe("release qualification applicability evaluator", () => {
   const leafCase = (name, source, code, rootPath = "bounded-contexts/synthetic/domain/root.ts") => {
     it(name, () => {
       const { root, files } = fixture({ [rootPath]: source });
-      const result = evaluate(root, files, {
-        kind: "pure-module/v1",
-        modules: [{ path: rootPath, specifiers: [] }],
-      }, rootPath);
+      const result = evaluate(
+        root,
+        files,
+        {
+          kind: "pure-module/v1",
+          modules: [{ path: rootPath, specifiers: [] }],
+        },
+        rootPath,
+      );
       if (code) {
         expect(result.applies).toBe(false);
         expect(result.withdrawalCodes).toContain(code);
@@ -133,7 +146,7 @@ describe("release qualification applicability evaluator", () => {
     });
   };
 
-  leafCase("D1 derives the shipped Readonly contracts", 'export const value = 1;');
+  leafCase("D1 derives the shipped Readonly contracts", "export const value = 1;");
 
   it("D3/D4 fail closed when either Event Store declaration is missing or malformed", () => {
     const missing = fixture({
@@ -148,7 +161,11 @@ describe("release qualification applicability evaluator", () => {
     expect(deriveForbiddenEventStoreMembers({ repoRoot: malformed.root })).toBeNull();
   });
 
-  leafCase("Y1 withdraws for a non-literal dynamic import", 'export const load = (name) => import(name);', "ambiguous_dynamic_import");
+  leafCase(
+    "Y1 withdraws for a non-literal dynamic import",
+    "export const load = (name) => import(name);",
+    "ambiguous_dynamic_import",
+  );
 
   it("Y2/Y3 read literal dynamic imports and reject undeclared external edges", () => {
     const y2 = fixture({
@@ -163,7 +180,9 @@ describe("release qualification applicability evaluator", () => {
       ],
     });
     expect(y2Result.withdrawalCodes).toContain("event_store_member_reference");
-    const y3 = fixture({ "bounded-contexts/synthetic/domain/root.ts": 'export const load = () => import("node:net");\n' });
+    const y3 = fixture({
+      "bounded-contexts/synthetic/domain/root.ts": 'export const load = () => import("node:net");\n',
+    });
     const y3Result = evaluate(y3.root, y3.files, {
       kind: "pure-module/v1",
       modules: [{ path: "bounded-contexts/synthetic/domain/root.ts", specifiers: [] }],
@@ -172,16 +191,28 @@ describe("release qualification applicability evaluator", () => {
   });
 
   for (const [name, source] of [
-    ["E10 shorthand destructuring", "export const f = (store) => { const { readStream } = store; return readStream; };"],
+    [
+      "E10 shorthand destructuring",
+      "export const f = (store) => { const { readStream } = store; return readStream; };",
+    ],
     ["E11 parameter destructuring", "export const f = ({ readStream }) => readStream(1);"],
-    ["E12 assignment destructuring", "export const f = (store) => { let read; ({ readStream: read } = store); return read; };"],
-  ]) leafCase(name, source, "event_store_member_reference");
+    [
+      "E12 assignment destructuring",
+      "export const f = (store) => { let read; ({ readStream: read } = store); return read; };",
+    ],
+  ])
+    leafCase(name, source, "event_store_member_reference");
 
   leafCase("N_numericIndex does not treat numeric keys as member names", "export const f = (xs) => xs[0];", undefined);
 
   it("U1 withdraws unknown-surface persistent classification", () => {
     const { root, files } = fixture({ "misc/unknown.ts": "export const value = 1;\n" });
-    const result = evaluate(root, files, { kind: "pure-module/v1", modules: [{ path: "misc/unknown.ts", specifiers: [] }] }, "misc/unknown.ts");
+    const result = evaluate(
+      root,
+      files,
+      { kind: "pure-module/v1", modules: [{ path: "misc/unknown.ts", specifiers: [] }] },
+      "misc/unknown.ts",
+    );
     expect(result.withdrawalCodes).toContain("persistent_dependency");
   });
 
@@ -190,7 +221,10 @@ describe("release qualification applicability evaluator", () => {
     const result = evaluateReleaseQualificationApplicability({
       repoRoot: process.cwd(),
       rootPath,
-      applicability: { kind: "pure-module/v1", modules: [{ path: rootPath, specifiers: [{ specifier: "node:crypto", binding: "value" }] }] },
+      applicability: {
+        kind: "pure-module/v1",
+        modules: [{ path: rootPath, specifiers: [{ specifier: "node:crypto", binding: "value" }] }],
+      },
       now,
     });
     expect(result.withdrawalCodes).not.toContain("event_store_contract_unreadable");
