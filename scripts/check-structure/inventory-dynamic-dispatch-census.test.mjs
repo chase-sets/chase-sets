@@ -817,20 +817,21 @@ describe("issue-7169-type-resolved-census-matrix", () => {
     await matrix(cases, ({ root, roots, program, families, fixtures }) => {
       expect(families.families.map(({ name }) => name).sort()).toEqual(familyExpressions.map(([name]) => name).sort());
       const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
-      const fixture = Object.keys(fixtures)[0];
-      const diagnostics = result.diagnostics.filter(({ file }) => file === fixture);
-      const familyIndex = Number(fixture.match(/case-(\d+)/)?.[1]);
-      const forms = formsByFamily.get(cases[familyIndex].family);
       const expectedLines = prelude.split("\n").length + 1;
-      for (const [index, form] of forms.entries()) {
-        expect(
-          diagnostics.some(({ line }) => line === expectedLines + index),
-          form,
-        ).toBe(true);
+      for (const fixture of Object.keys(fixtures)) {
+        const diagnostics = result.diagnostics.filter(({ file }) => file === fixture);
+        const familyIndex = Number(fixture.match(/case-(\d+)/)?.[1]);
+        const forms = formsByFamily.get(cases[familyIndex].family);
+        for (const [index, form] of forms.entries()) {
+          expect(
+            diagnostics.some(({ line }) => line === expectedLines + index),
+            form,
+          ).toBe(true);
+        }
+        rejectedForms += forms.length;
+        totalDiagnostics += diagnostics.length;
+        for (const { reason } of diagnostics) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
       }
-      rejectedForms += forms.length;
-      totalDiagnostics += diagnostics.length;
-      for (const { reason } of diagnostics) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
       emit(
         "family-matrix",
         familyExpressions.map(([family]) => ({ family, m16: 16, p1: 23, rejected: 39 })),
