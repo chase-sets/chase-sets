@@ -74,10 +74,6 @@ export interface InventoryApiClientOptions {
   recoverTransportErrorsAsGatewayTimeout?: boolean;
 }
 
-export interface InventoryMutationAttemptReadOptions {
-  force?: boolean;
-}
-
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
@@ -131,19 +127,6 @@ function gatewayTimeoutResponse() {
   });
 }
 
-type MutationAttemptReadMap = Map<string, Promise<InventoryMutationReceipt | null>>;
-
-function mutationAttemptReadMap(): MutationAttemptReadMap {
-  if (typeof window === "undefined") return new Map();
-  const key = Symbol.for("chase-sets.inventory.mutation-attempt-reads");
-  const global = globalThis as typeof globalThis & { [key: symbol]: unknown };
-  const existing = global[key];
-  if (existing instanceof Map) return existing as MutationAttemptReadMap;
-  const created: MutationAttemptReadMap = new Map();
-  global[key] = created;
-  return created;
-}
-
 export function createInventoryApiClient({
   mutationAttemptId,
   baseUrl = DEFAULT_BASE_URL,
@@ -187,23 +170,12 @@ export function createInventoryApiClient({
     }),
   );
   const headers = resolveHeaders(initialHeaders);
-  const mutationAttemptReads = mutationAttemptReadMap();
 
   return {
-    async getMutationAttempt(
-      id: string,
-      { force = false }: InventoryMutationAttemptReadOptions = {},
-    ): Promise<InventoryMutationReceipt | null> {
-      if (force) mutationAttemptReads.delete(id);
-      const existing = mutationAttemptReads.get(id);
-      if (existing) return existing;
-      const read = (async () => {
-        const response = await client["mutation-attempts"][":id"].$get({ param: { id }, header: headers });
-        if (response.status === 404) return null;
-        return parseJsonResponse<InventoryMutationReceipt>(response);
-      })();
-      mutationAttemptReads.set(id, read);
-      return read;
+    async getMutationAttempt(id: string): Promise<InventoryMutationReceipt | null> {
+      const response = await client["mutation-attempts"][":id"].$get({ param: { id }, header: headers });
+      if (response.status === 404) return null;
+      return parseJsonResponse<InventoryMutationReceipt>(response);
     },
     async listImportSources(): Promise<ListResponse<InventoryImportSourceProfile>> {
       return parseJsonResponse(
