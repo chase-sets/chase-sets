@@ -683,15 +683,20 @@ describe("issue-7169-destructuring-assignment-closure", () => {
     const controls = briefS3Controls.filter(({ id }) => ids.includes(id));
     await matrix(controls, ({ root, roots, program, families, fixtures }) => {
       const options = { repoRoot: root, roots, program, families };
-      const result = analyzeInventoryDynamicDispatch({ ...options, mutant });
+      const candidate = analyzeInventoryDynamicDispatch(options);
+      const bypass = analyzeInventoryDynamicDispatch({ ...options, mutant });
       for (const [index, control] of controls.entries()) {
         const file = Object.keys(fixtures)[index];
         expect(
-          result.diagnostics.some(
+          candidate.diagnostics.some(
             ({ file: diagnosticFile, reason }) => diagnosticFile === file && reason === control.reason,
           ),
-          `${mutant}:${control.id}`,
+          `candidate:${control.id}`,
         ).toBe(true);
+        expect(
+          bypass.diagnostics.some(({ file: diagnosticFile }) => diagnosticFile === file),
+          `${mutant}:${control.id}`,
+        ).toBe(false);
       }
       emit("s3-mutant", { mutant, controls: controls.map(({ id }) => id), result: "KILLED" });
     });
