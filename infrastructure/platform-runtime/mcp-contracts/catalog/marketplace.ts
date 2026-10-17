@@ -6,6 +6,7 @@ import {
   type McpServiceDescriptor,
   arrayProperty,
   booleanProperty,
+  guardrails,
   idempotencyKeyProperty,
   integerProperty,
   mutationInput,
@@ -212,6 +213,62 @@ const marketplaceOfferListOutputSchema: McpJsonSchema = {
     count: integerProperty("Returned offer count."),
   },
 };
+
+const listingEvidencePolicyRuleInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Validated Listing Evidence Policy rule.",
+  additionalProperties: false,
+  required: ["ruleId", "explanationCode", "priority", "selector", "outcome"],
+  properties: {
+    ruleId: stringProperty("Stable rule identifier."),
+    explanationCode: stringProperty("Stable explanation code."),
+    priority: integerProperty("Rule evaluation priority."),
+    selector: { type: "object", description: "Listing fact selectors.", additionalProperties: true, properties: {} },
+    outcome: {
+      type: "object",
+      description: "Evidence requirements produced by the rule.",
+      additionalProperties: true,
+      properties: {},
+    },
+  },
+};
+
+const listingEvidencePolicyOverviewOutputSchema: McpJsonSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["policyKey", "current", "documents"],
+  properties: {
+    policyKey: stringProperty("Canonical Listing Evidence Policy key."),
+    current: {
+      type: "object",
+      description: "Currently resolved policy snapshot.",
+      additionalProperties: true,
+      properties: {},
+    },
+    documents: arrayProperty("Policy document history summaries.", {
+      type: "object",
+      description: "Policy document summary.",
+      additionalProperties: true,
+      properties: {},
+    }),
+  },
+};
+
+const listingEvidencePolicyReceiptSchema = objectSchema(
+  {
+    policyId: stringProperty("Policy document identifier."),
+    documentId: stringProperty("Policy document identifier."),
+    version: integerProperty("Committed policy document version."),
+    lifecycle: stringProperty("Policy lifecycle."),
+  },
+  ["version"],
+);
+
+const operatorPolicyBoundary = (permission: string) => ({
+  ...readBoundary(permission, "operator"),
+  requiredPermissions: [permission],
+  requiredScopes: [],
+});
 
 export const marketplaceService = {
   ...service(
@@ -578,6 +635,168 @@ export const marketplaceService = {
         requiredPermissions: ["offers.manage", "listings.view"],
       },
       outputSchema: marketplaceOfferReceiptOutputSchema,
+    },
+    {
+      ...readTool(
+        "marketplace",
+        "get-listing-evidence-policy-overview",
+        "Get Listing Evidence Policy Overview",
+        "Read the current Listing Evidence Policy and its version history for platform administration.",
+        "listing-evidence-policy.view",
+        objectSchema({}, []),
+        "listing-evidence-policy",
+        ["Use before validating or activating a Listing Evidence Policy draft."],
+        "operator",
+      ),
+      availability: "available",
+      permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.view"),
+      outputSchema: listingEvidencePolicyOverviewOutputSchema,
+    },
+    {
+      ...readTool(
+        "marketplace",
+        "get-listing-evidence-policy-selectors",
+        "Get Listing Evidence Policy Selectors",
+        "Read the projected Catalog selector values accepted by Listing Evidence Policy rules.",
+        "listing-evidence-policy.view",
+        objectSchema({}, []),
+        "listing-evidence-policy-selector",
+        ["Use before authoring a Listing Evidence Policy draft."],
+        "operator",
+      ),
+      availability: "available",
+      permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.view"),
+    },
+    {
+      ...writeTool(
+        "marketplace",
+        "create-listing-evidence-policy-draft",
+        "Create Listing Evidence Policy Draft",
+        "Create an inactive Listing Evidence Policy draft for validation.",
+        "listing-evidence-policy.draft",
+        objectSchema(
+          {
+            policyName: stringProperty("Human-readable policy name."),
+            rules: arrayProperty("Validated Listing Evidence Policy rules.", listingEvidencePolicyRuleInputProperty),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact tool-title confirmation text."),
+          },
+          ["policyName", "rules", "idempotencyKey", "confirmationText"],
+        ),
+        "listing-evidence-policy",
+        ["Use after reviewing the policy selectors and intended evidence requirements."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.draft"),
+      outputSchema: listingEvidencePolicyReceiptSchema,
+    },
+    {
+      ...writeTool(
+        "marketplace",
+        "validate-listing-evidence-policy-draft",
+        "Validate Listing Evidence Policy Draft",
+        "Validate a Listing Evidence Policy draft and persist its semantic diff and impact preview.",
+        "listing-evidence-policy.validate",
+        objectSchema(
+          {
+            policyId: stringProperty("Inactive Listing Evidence Policy draft identifier."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact tool-title confirmation text."),
+          },
+          ["policyId", "idempotencyKey", "confirmationText"],
+        ),
+        "listing-evidence-policy",
+        ["Use before activation; the returned impact preview hash is required for activation."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.validate"),
+    },
+    {
+      ...writeTool(
+        "marketplace",
+        "reject-listing-evidence-policy-draft",
+        "Reject Listing Evidence Policy Draft",
+        "Reject an inactive Listing Evidence Policy draft without activating it.",
+        "listing-evidence-policy.draft",
+        objectSchema(
+          {
+            policyId: stringProperty("Inactive Listing Evidence Policy draft identifier."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact tool-title confirmation text."),
+          },
+          ["policyId", "idempotencyKey", "confirmationText"],
+        ),
+        "listing-evidence-policy",
+        ["Use when a draft should not proceed to validation or activation."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.draft"),
+      outputSchema: listingEvidencePolicyReceiptSchema,
+    },
+    {
+      ...writeTool(
+        "marketplace",
+        "create-listing-evidence-policy-rollback-draft",
+        "Create Listing Evidence Policy Rollback Draft",
+        "Create an inactive draft that restores a retained active Listing Evidence Policy version.",
+        "listing-evidence-policy.draft",
+        objectSchema(
+          {
+            policyId: stringProperty("Retained active Listing Evidence Policy identifier."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Exact tool-title confirmation text."),
+          },
+          ["policyId", "idempotencyKey", "confirmationText"],
+        ),
+        "listing-evidence-policy",
+        ["Use when a retained active policy must be restored through the normal validation workflow."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.draft"),
+      outputSchema: listingEvidencePolicyReceiptSchema,
+    },
+    {
+      ...writeTool(
+        "marketplace",
+        "activate-listing-evidence-policy-draft",
+        "Activate Listing Evidence Policy Draft",
+        "Activate a validated Listing Evidence Policy draft for an explicit effective interval.",
+        "listing-evidence-policy.activate",
+        objectSchema(
+          {
+            policyId: stringProperty("Validated Listing Evidence Policy draft identifier."),
+            effectiveFrom: stringProperty("Explicit ISO-8601 activation start time."),
+            effectiveUntil: stringProperty("Optional ISO-8601 activation end time."),
+            impactAcknowledgmentHash: stringProperty("Current validation impact preview hash."),
+            idempotencyKey: idempotencyKeyProperty(),
+            confirmationText: stringProperty("Must exactly match impactAcknowledgmentHash."),
+          },
+          ["policyId", "effectiveFrom", "impactAcknowledgmentHash", "idempotencyKey", "confirmationText"],
+        ),
+        "listing-evidence-policy",
+        ["Use only after reviewing the exact impact preview and its current hash."],
+        "sensitive",
+        "operator",
+      ),
+      availability: "available",
+      permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.activate"),
+      guardrails: {
+        ...guardrails("sensitive"),
+        confirmation: {
+          required: true,
+          prompt: "Confirm activation against the exact impact preview hash.",
+          matchInputValue: "impactAcknowledgmentHash",
+        },
+      },
+      outputSchema: listingEvidencePolicyReceiptSchema,
     },
   ],
   resources: [
