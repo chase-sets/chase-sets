@@ -115,6 +115,13 @@ describeDb("payout review hold maturity on real Postgres", () => {
       context,
     );
     await pool.query(
+      `INSERT INTO settlement_wallet_pages (
+         account_id, currency_code, pending_balance_amount, available_balance_amount,
+         total_credited_amount, total_debited_amount, opened_at, updated_at
+       ) VALUES ($1, 'USD', 40.00, 0, 40.00, 0, $2, $2)`,
+      [accountId, daysAgo(30)],
+    );
+    await pool.query(
       `INSERT INTO settlement_account_risk_sources (
          account_id, account_created_at, trusted_seller, manual_payout_review, review_count, average_rating, updated_at
        ) VALUES ($1, $2, TRUE, FALSE, 4, 4.75, $3)`,
