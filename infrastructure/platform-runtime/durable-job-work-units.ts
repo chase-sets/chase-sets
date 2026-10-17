@@ -632,11 +632,11 @@ export function createPostgresDurableJobWorkUnitStore<
           return "unit-claim-missing";
         }
 
-        const parent = await queryable.query<Readonly<{ job_id: string; status: DurableJobStatus }>>(
-          `SELECT job_id, status FROM ${jobsTable} WHERE job_id = $1 FOR UPDATE`,
+        const parent = await queryable.query<Readonly<{ job_id: string }>>(
+          `SELECT job_id FROM ${jobsTable} WHERE job_id = $1 AND status IN ('queued', 'running') FOR UPDATE`,
           [input.jobId],
         );
-        if (!parent.rows[0] || !["queued", "running"].includes(parent.rows[0].status)) return "parent-already-terminal";
+        if (!parent.rows[0]) return "parent-already-terminal";
 
         const parentUpdate = input.resolveParentUpdate ? await input.resolveParentUpdate(queryable) : input;
         const result = await queryable.query<PrefixedJobRow>(

@@ -1001,6 +1001,22 @@ describe("inventory import batch runtime", () => {
     expect(shouldDeferImportBatchParentClaimForCreateUnitMiss(undefined)).toBe(false);
   });
 
+  it("does not touch import storage or claim more work after shutdown", async () => {
+    const db = dbWithLocations();
+    const query = vi.spyOn(db, "query");
+    const services = runtime(db);
+    const controller = new AbortController();
+    controller.abort();
+    expect(
+      await services.processNextImportBatchJob({
+        claimOwnerId: "stopped",
+        claimTtlMs: 30_000,
+        signal: controller.signal,
+      }),
+    ).toBe(0);
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("compares retried staged input independently of JSON object key order", () => {
     const base = {
       accountId: "acc_1" as AccountId,

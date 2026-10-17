@@ -12,7 +12,9 @@ describe("durable job work units", () => {
         {
           query: async (sql: string) => {
             calls.push(sql);
-            return { rows: [{ job_id: "job_terminal", status }], rowCount: 1 };
+            return sql.includes("FOR UPDATE")
+              ? { rows: [], rowCount: 0 }
+              : { rows: [{ job_id: "job_terminal", status }], rowCount: 1 };
           },
         },
         { jobsTable: "jobs", eventsTable: "events", workUnitsTable: "units" },
@@ -34,7 +36,9 @@ describe("durable job work units", () => {
       ).toBe("parent-already-terminal");
       expect(written).toBe(false);
       expect(calls[0]).toContain("terminal_unit");
-      expect(calls[1]).toContain("SELECT job_id, status FROM jobs WHERE job_id = $1 FOR UPDATE");
+      expect(calls[1]).toContain(
+        "SELECT job_id FROM jobs WHERE job_id = $1 AND status IN ('queued', 'running') FOR UPDATE",
+      );
       expect(calls.some((sql) => sql.includes("UPDATE jobs AS job"))).toBe(false);
     },
   );

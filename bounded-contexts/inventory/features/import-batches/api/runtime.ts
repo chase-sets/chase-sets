@@ -2056,9 +2056,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
     },
     processNextImportBatchJob: async (input) => {
+      if (input.signal?.aborted) return 0;
       await ensureSourceCutover();
       const createUnitResult = await processNextCreateBatchWorkUnit(input);
-      if (createUnitResult.processed > 0) {
+      if (createUnitResult.processed > 0 || createUnitResult.handedOff) {
         return createUnitResult.processed;
       }
 
@@ -2200,7 +2201,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     laneName?: string | null;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
-  }): Promise<Readonly<{ processed: number; missReason?: DurableJobWorkUnitClaimOutcomeReason }>> {
+  }): Promise<Readonly<{ processed: number; missReason?: DurableJobWorkUnitClaimOutcomeReason; handedOff?: boolean }>> {
     const claimResult = await workUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
       claimTtlMs: input.claimTtlMs,
@@ -2279,7 +2280,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           claimOwnerId: claim.claimOwnerId,
           claimToken: claim.claimToken,
         });
-        return { processed: 0 };
+        return { processed: 0, handedOff: true };
       }
       await requireImportBatchJobClaim(
         workUnitStore.recordTerminal({
