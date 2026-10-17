@@ -1,9 +1,4 @@
-import type { EventStore } from "@chase-sets/event-core/event-store";
-import {
-  getEventCommitMetadata,
-  recordCommittedEvents,
-  runWithEventCommitMetadata,
-} from "@chase-sets/event-core/consistency";
+import * as eventCore from "@chase-sets/event-core";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   withPgTransaction,
@@ -94,7 +89,7 @@ export function createSavedListRecoveryRuntime(
     return savedListCanonicalIdentifier(context.audit.forAccountId) as AccountId;
   }
   function boundRuntime(client: PgQueryable, productCatalog: SavedListProductCatalog) {
-    const eventStore: EventStore = {
+    const eventStore: eventCore.EventStore = {
       readStream: (input) => deps.eventStore.readStreamInTransaction(client, input),
       appendToStream: (input) => deps.eventStore.appendToStreamInTransaction(client, input),
       readAll: async () => {
@@ -456,7 +451,7 @@ export function createSavedListRecoveryRuntime(
           },
         };
         try {
-          const committed = await runWithEventCommitMetadata(async () => {
+          const committed = await eventCore.runWithEventCommitMetadata(async () => {
             const result = await withPgTransaction(transactionPool, async (db) => {
               const row = await readRow(db, input.operationId, owner, true);
               if (!row) throw new SavedListRecoveryError("not-found");
@@ -497,9 +492,9 @@ export function createSavedListRecoveryRuntime(
               await finishIntent(db, row, !applied);
               return output(terminal, applied ? result : null);
             });
-            return { result, committedEvents: getEventCommitMetadata().committedEvents };
+            return { result, committedEvents: eventCore.getEventCommitMetadata().committedEvents };
           });
-          recordCommittedEvents(committed.committedEvents, "collections");
+          eventCore.recordCommittedEvents(committed.committedEvents, "collections");
           return committed.result;
         } catch (error) {
           if (!(error instanceof SavedListConcurrencyConflictError) || attempt === 1) throw error;
