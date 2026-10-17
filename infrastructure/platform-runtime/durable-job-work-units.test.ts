@@ -3,6 +3,45 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobWorkUnitStore, durableJobWorkUnitSchemaSql } from "./durable-job-work-units";
 
 describe("durable job work units", () => {
+  it.each(["completed", "failed"])(
+    "records the claimed unit without invoking a fact writer after the parent is %s",
+    async (status) => {
+      let written = false;
+      const calls: string[] = [];
+      const store = createPostgresDurableJobWorkUnitStore(
+        {
+          query: async (sql: string) => {
+            calls.push(sql);
+            return sql.includes("FOR UPDATE")
+              ? { rows: [], rowCount: 0 }
+              : { rows: [{ job_id: "job_terminal", status }], rowCount: 1 };
+          },
+        },
+        { jobsTable: "jobs", eventsTable: "events", workUnitsTable: "units" },
+        { workflowName: "test" },
+      );
+      expect(
+        await store.recordTerminal({
+          jobId: "job_terminal",
+          unitId: "row_1",
+          claimOwnerId: "old",
+          claimToken: "old-token",
+          state: "completed",
+          parentProgress: {},
+          resolveParentUpdate: async () => {
+            written = true;
+            return { parentProgress: {} };
+          },
+        }),
+      ).toBe("parent-already-terminal");
+      expect(written).toBe(false);
+      expect(calls[0]).toContain("terminal_unit");
+      expect(calls[1]).toContain(
+        "SELECT job_id FROM jobs WHERE job_id = $1 AND status IN ('queued', 'running') FOR UPDATE",
+      );
+      expect(calls.some((sql) => sql.includes("UPDATE jobs AS job"))).toBe(false);
+    },
+  );
   it("a missing checkpoint claim never calls the page writer or writes progress", async () => {
     const calls: string[] = [];
     let written = false;
@@ -211,8 +250,8 @@ describe("durable job work units", () => {
     >(
       {
         query: async (sql: string, values: readonly unknown[] = []) => {
-          if (sql.includes("SELECT job_id") && sql.includes("terminal_unit")) {
-            return { rows: [{ job_id: "job_1" }], rowCount: 1 };
+          if (sql.includes("SELECT job_id") && (sql.includes("terminal_unit") || sql.includes("FOR UPDATE"))) {
+            return { rows: [{ job_id: "job_1", status: "running" }], rowCount: 1 };
           }
           if (sql.includes("UPDATE catalog_source_observation_bulk_review_jobs AS job")) {
             return {

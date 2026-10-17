@@ -74,6 +74,22 @@ describe("issue-7169-c1-boundary-recovery: AC9/10/11/13 restore", () => {
     await restored.confirm(lookup);
     expect(lookup).toHaveBeenCalledTimes(1);
   });
+  it("shares one in-flight receipt read across concurrent confirmation callers", async () => {
+    const saved = storage();
+    const original = createInventoryMutationRecovery(authority, "item-create", saved.result);
+    const attemptId = original.begin("draft", randomUUID());
+    original.possibleSendLoss();
+    const restored = createInventoryMutationRecovery(authority, "item-create", saved.result);
+    let resolveRead!: (receipt: null) => void;
+    const read = vi.fn(() => new Promise<null>((resolve) => (resolveRead = resolve)));
+    const first = restored.confirm(read);
+    const second = restored.confirm(read);
+    expect(first).toBeDefined();
+    expect(read).toHaveBeenCalledExactlyOnceWith(attemptId);
+    resolveRead(null);
+    await Promise.all([first, second]);
+    expect(restored.snapshot()).toMatchObject({ state: "ambiguous", writesDisabled: true });
+  });
   it("never restores another actor/account and never stores raw input or result", () => {
     const saved = storage();
     const client = createInventoryMutationRecovery(authority, "hold-create", saved.result);
