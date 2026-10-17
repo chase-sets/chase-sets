@@ -24,12 +24,17 @@ import { addReviewWindowDays, REVIEW_WINDOW_DAYS, type ReviewRole } from "../../
 import { buildListingEvidenceSnapshot } from "../../features/listings/domain/evidence-snapshot";
 import { normalizeMarketplaceListingFeeLock, totalFeeLockedUnits } from "../../features/listings/domain/fee-lock";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
-import { quoteMarketplaceTerms } from "./fee-quotes";
+import {
+  openMarketplaceListingTermsSession,
+  quoteMarketplaceTerms,
+  requoteMarketplaceListingFeeLock,
+} from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
 import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
 import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
 import {
   activeListingPhotos,
+  decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
   type MarketplaceListingEvent,
@@ -801,7 +806,7 @@ type SeedListingClassification = Readonly<{
   context: ReturnType<typeof createSeedContextFor>;
   committed: readonly MarketplaceListingEvent[];
   state: ReturnType<typeof evolveMarketplaceListing>;
-  kind: "absent" | "exact" | "author" | "reconcile";
+  kind: "absent" | "exact" | "author" | "reconcile" | "refused";
   mismatches: readonly string[];
 }>;
 
@@ -814,7 +819,7 @@ function seedListingStatusIsOnPath(finalStatus: ListingSeed["finalStatus"], stat
     case "paused":
       return status === "draft" || status === "active" || status === "paused";
     case "withdrawn":
-      return status === "draft" || status === "active" || status === "paused" || status === "withdrawn";
+      return status === "draft" || status === "active" || status === "withdrawn";
   }
 }
 
@@ -842,14 +847,14 @@ function classifySeedListing(
   if (state.quantityCap !== listing.quantityCap) mismatches.push("quantity cap");
   if (!seedMoneyMatches(state.priceAmount, listing.priceAmount)) mismatches.push("price amount");
 
-  const currencyRequired = listing.finalStatus !== "withdrawn" || state.status !== "withdrawn";
+  const currencyRequired = listing.finalStatus !== "withdrawn";
   const currencyMatches = state.priceCurrencyCode === listing.priceCurrencyCode;
   const currencyReconcile = currencyRequired && state.priceCurrencyCode === null;
   if (currencyRequired && !currencyMatches && !currencyReconcile) mismatches.push("price currency");
 
   if (!seedListingStatusIsOnPath(listing.finalStatus, state.status)) mismatches.push("status");
   if (mismatches.length > 0) {
-    return { listing, accountId, context, committed, state, kind: "author", mismatches };
+    return { listing, accountId, context, committed, state, kind: "refused", mismatches };
   }
 
   if (state.status === listing.finalStatus && !currencyReconcile) {
@@ -921,15 +926,44 @@ async function reconcileSeedListings(
     identitySeedIds.cardVault.accountId,
     identitySeedIds.sealedStockroom.accountId,
   ] as const;
-  for (const accountId of accountOrder) {
-    const entries = updatesByAccount.get(accountId);
-    if (!entries || entries.length === 0) continue;
+
+  const entriesByAccount = accountOrder.map((accountId) => ({
+    accountId,
+    entries: updatesByAccount.get(accountId) ?? [],
+  }));
+
+  // Open every terms session and validate every candidate before the first
+  // owner call. The owner opens its own session again inside the call; that
+  // residual race is intentional and the CAS remains authoritative.
+  const termsSessions = new Map<AccountId, Awaited<ReturnType<typeof openMarketplaceListingTermsSession>>>();
+  for (const { accountId, entries } of entriesByAccount) {
+    if (entries.length === 0) continue;
+    termsSessions.set(
+      accountId,
+      await openMarketplaceListingTermsSession(services.commercialTermsResolver, { accountId }),
+    );
+  }
+
+  for (const { accountId, entries } of entriesByAccount) {
+    const termsSession = termsSessions.get(accountId);
+    if (!termsSession) continue;
     for (const entry of entries) {
       try {
         if (totalFeeLockedUnits(entry.state.feeLocks) !== entry.state.quantityCap) {
           throw new Error("fee-lock units do not cover the listing quantity cap");
         }
         entry.state.feeLocks.forEach(normalizeMarketplaceListingFeeLock);
+        const feeLocks = entry.state.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, entry.listing.priceAmount));
+        termsSession.quote(entry.listing.priceAmount);
+        const decided = decideMarketplaceListing(entry.state, {
+          type: "UpdateListingPrice",
+          priceAmount: entry.listing.priceAmount,
+          priceCurrencyCode: entry.listing.priceCurrencyCode,
+          feeLocks,
+        });
+        if (decided.length !== 1 || decided[0]?.type !== "marketplace.listing.price-updated") {
+          throw new Error("price update precheck did not produce exactly one price-updated event");
+        }
       } catch (error) {
         throw new Error(
           `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' rejected; ` +
@@ -938,6 +972,28 @@ async function reconcileSeedListings(
         );
       }
     }
+  }
+
+  const reconciliationStates = async (
+    entries: readonly SeedListingClassification[],
+    notAttempted: readonly SeedListingClassification[] = [],
+  ): Promise<string> => {
+    const attempted = await Promise.all(
+      entries.map(async (entry) => {
+        const refolded = await loadSeedListingState(services.db, entry.listing.listingId);
+        const appended = refolded.committed
+          .slice(entry.committed.length)
+          .some((event) => event.type === "marketplace.listing.price-updated");
+        return `${entry.listing.listingId} version ${refolded.committed.length} ${appended ? "applied" : "not-applied"}`;
+      }),
+    );
+    const pending = notAttempted.map((entry) => `${entry.listing.listingId} version ${entry.committed.length} not-attempted`);
+    return [...attempted, ...pending].join(", ");
+  };
+
+  for (const accountId of accountOrder) {
+    const entries = updatesByAccount.get(accountId);
+    if (!entries || entries.length === 0) continue;
     let outcomes: Awaited<ReturnType<MarketplaceServices["listings"]["applyBulkListingPriceUpdates"]>>;
     try {
       outcomes = await services.listings.applyBulkListingPriceUpdates(
@@ -955,20 +1011,29 @@ async function reconcileSeedListings(
       );
     } catch (error) {
       const first = entries[0]!;
+      const laterEntries = accountOrder
+        .slice(accountOrder.indexOf(accountId) + 1)
+        .flatMap((laterAccountId) => updatesByAccount.get(laterAccountId) ?? []);
+      const states = await reconciliationStates(entries, laterEntries);
       throw new Error(
         `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${first.listing.listingId}' reconciliation failed; ` +
           `stream '${marketplaceListingStreamId(first.listing.listingId)}', version ${first.committed.length}; ` +
-          `owner call did not apply: ${error instanceof Error ? error.message : "unknown error"}.`,
+          `owner call did not apply: ${error instanceof Error ? error.message : "unknown error"}; ` +
+          `listing states: ${states}.`,
       );
     }
 
     for (const entry of entries) {
       const outcome = outcomes.find((candidate) => candidate.listingId === entry.listing.listingId);
       if (!outcome || outcome.outcome !== "applied") {
+        const laterEntries = accountOrder
+          .slice(accountOrder.indexOf(accountId) + 1)
+          .flatMap((laterAccountId) => updatesByAccount.get(laterAccountId) ?? []);
+        const states = await reconciliationStates(entries, laterEntries);
         throw new Error(
           `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' reconciliation failed; ` +
             `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${entry.committed.length}; ` +
-            `owner outcome '${outcome?.outcome ?? "missing"}'.`,
+            `owner outcome '${outcome?.outcome ?? "missing"}'; listing states: ${states}.`,
         );
       }
       const refolded = await loadSeedListingState(services.db, entry.listing.listingId);
@@ -979,13 +1044,40 @@ async function reconcileSeedListings(
         entry.accountId,
         entry.context,
       );
-      if (checked.kind !== "exact") {
+      if (
+        checked.mismatches.length > 0 ||
+        (checked.kind !== "exact" && checked.kind !== "author") ||
+        refolded.state.priceCurrencyCode !== entry.listing.priceCurrencyCode
+      ) {
+        const laterEntries = accountOrder
+          .slice(accountOrder.indexOf(accountId) + 1)
+          .flatMap((laterAccountId) => updatesByAccount.get(laterAccountId) ?? []);
+        const states = await reconciliationStates(entries, laterEntries);
         throw new Error(
           `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' reconciliation failed; ` +
             `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${refolded.committed.length}; ` +
-            `exact re-fold did not converge.`,
+            `exact re-fold did not converge; listing states: ${states}.`,
         );
       }
+      const event = await services.db.query<{ event_id: string; stream_version: string; event_type: string }>(
+        `SELECT event_id, stream_version, event_type
+         FROM event_store_events
+         WHERE stream_id = $1 AND stream_version = $2`,
+        [marketplaceListingStreamId(entry.listing.listingId), refolded.committed.length],
+      );
+      const appendedEvent = event.rows[0];
+      if (!appendedEvent || appendedEvent.event_type !== "marketplace.listing.price-updated") {
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' reconciliation failed; ` +
+            `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${refolded.committed.length}; ` +
+            `reconciled event evidence is missing.`,
+        );
+      }
+      console.log(
+        `[marketplace-seed] Listing '${entry.listing.listingId}' reconciled; ` +
+          `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${entry.committed.length} -> ${refolded.committed.length}; ` +
+          `event '${appendedEvent.event_id}'`,
+      );
     }
   }
 }
@@ -1074,6 +1166,7 @@ export async function seedMarketplaceDatabase(
   const classificationByListingId = new Map(
     classifications.map((classification) => [classification.listing.listingId, classification]),
   );
+  const authoredOrReconciled = classifications.filter((classification) => classification.kind !== "exact");
   const context = createSeedContext();
 
   for (const listing of listings) {
@@ -1093,7 +1186,11 @@ export async function seedMarketplaceDatabase(
     if (persisted.state.listingId === null) {
       const supply = await services.listings.getInventoryItemSupply(listing.inventoryItemId, accountId);
       if (!supply) {
-        continue;
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${listing.listingId}' rejected; ` +
+            `stream '${marketplaceListingStreamId(listing.listingId)}', version 0; ` +
+            `mismatched fields: missing inventory supply.`,
+        );
       }
 
       const createdListing = await services.listings.createListing(
@@ -1164,6 +1261,24 @@ export async function seedMarketplaceDatabase(
           listingId: seededListingId,
         },
         listingContext,
+      );
+    }
+  }
+
+  for (const classification of authoredOrReconciled) {
+    const refolded = await loadSeedListingState(services.db, classification.listing.listingId);
+    const checked = classifySeedListing(
+      classification.listing,
+      refolded.committed,
+      refolded.state,
+      classification.accountId,
+      classification.context,
+    );
+    if (checked.kind !== "exact" || checked.mismatches.length > 0) {
+      throw new Error(
+        `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${classification.listing.listingId}' authoring failed; ` +
+          `stream '${marketplaceListingStreamId(classification.listing.listingId)}', version ${refolded.committed.length}; ` +
+          `exact re-fold did not converge.`,
       );
     }
   }

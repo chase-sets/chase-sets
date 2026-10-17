@@ -160,6 +160,40 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await seedRuntime.seed();
     await expect(readSeedEventCounts(pools)).resolves.toEqual(eventCountsBefore);
   }, 300_000);
+
+  it("reconciles legacy null-currency listings once and leaves the withdrawn seed untouched", async () => {
+    const { pools } = seedRuntime;
+    await seedRuntime.seed();
+
+    await pools.marketplace.query(
+      `UPDATE event_store_events
+       SET payload = payload - 'priceCurrencyCode'
+       WHERE event_type = 'marketplace.listing.created'
+         AND stream_id LIKE 'marketplace.listing-%'`,
+    );
+    const before = await pools.marketplace.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE event_type = 'marketplace.listing.price-updated'`,
+    );
+
+    await seedRuntime.seed();
+
+    const after = await pools.marketplace.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE event_type = 'marketplace.listing.price-updated'`,
+    );
+    expect(Number(after.rows[0]?.count ?? 0) - Number(before.rows[0]?.count ?? 0)).toBe(22);
+
+    const withdrawn = await pools.marketplace.query<{ count: string }>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE stream_id = 'marketplace.listing-lst_seed_surging_sparks_withdrawn'
+         AND event_type = 'marketplace.listing.price-updated'`,
+    );
+    expect(Number(withdrawn.rows[0]?.count ?? 0)).toBe(0);
+  }, 300_000);
 });
 
 async function readSeedEventCounts(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
