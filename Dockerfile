@@ -1,5 +1,5 @@
-# syntax=docker/dockerfile:1
-FROM node:24-bookworm-slim AS manifests
+# syntax=ghcr.io/chase-sets/ci-mirror-dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS manifests
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY . .
 RUN mkdir /manifests \
   && find . -mindepth 3 -maxdepth 3 -name package.json | tar -cf - -T - | tar -xf - -C /manifests
 
-FROM node:24-bookworm-slim AS build
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
 
 WORKDIR /app
 
@@ -40,7 +40,7 @@ RUN pnpm --filter @chase-sets/app-public-web run build \
   && pnpm --filter @chase-sets/app-marketplace-web run build \
   && pnpm --filter @chase-sets/app-admin-web run build
 
-FROM node:24-bookworm-slim AS runtime
+FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime
 
 WORKDIR /app
 

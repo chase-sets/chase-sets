@@ -6,6 +6,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import YAML from "yaml";
+import { checkCiImageSources, createRepoReader, formatSummary } from "./ci-image-sources-guard.mjs";
 import {
   assertTrustedPublisherContext,
   classifyDockerHubCanaryPull,
@@ -1160,5 +1161,269 @@ describe("publisher boundary", () => {
     );
     expect(imports.length).toBeGreaterThan(0);
     expect(imports.every((specifier) => specifier.startsWith("node:"))).toBe(true);
+  });
+});
+
+describe("required-CI image guard", () => {
+  const sources = loadImageSources();
+  const pinned = Object.fromEntries(sources.map((entry) => [entry.id, mirrorReference(entry)]));
+  const zeroDigest = `sha256:${"0".repeat(64)}`;
+
+  // Plants a mutation into the real file at its real path; refuses a no-op plant.
+  function plant(file, from, to) {
+    const text = readRepoFile(file);
+    if (!text.includes(from)) throw new Error(`planted control did not apply to ${file}: ${from}`);
+    return { [file]: text.replace(from, to) };
+  }
+  const check = (overrides = {}) => checkCiImageSources({ reader: createRepoReader(repoRoot, overrides), sources });
+  const expectRefused = (overrides, pattern) => {
+    const result = check(overrides);
+    expect(result.passed).toBe(false);
+    expect(result.violations.join("\n")).toMatch(pattern);
+  };
+
+  it("passes the committed repository and reports scanned and total candidates", () => {
+    const result = check();
+    expect(result.violations).toEqual([]);
+    expect(result.summary).toMatchObject({ dockerfiles: 1, composeFiles: 2, refused: 0, canary: 1, excluded: 5 });
+    expect(result.summary.requiredWorkflows).toBeGreaterThanOrEqual(2);
+    expect(result.summary.pinned).toBeGreaterThanOrEqual(15);
+    expect(result.summary.candidates).toBe(
+      result.summary.pinned + result.summary.localBuild + result.summary.excluded + result.summary.canary,
+    );
+    expect(formatSummary(result.summary)).toMatch(/scanned \d+\/\d+ required workflows.*\d+ image candidates/);
+    const kinds = new Set(result.candidates.filter((candidate) => candidate.status === "pinned").map((c) => c.kind));
+    expect([...kinds].sort()).toEqual([
+      "Compose service",
+      "Dockerfile FROM",
+      "Dockerfile syntax frontend",
+      "buildx builder",
+      "docker action",
+      "docker run",
+      "job service",
+    ]);
+  });
+
+  it.each([
+    [
+      "a Hub FROM in a real Dockerfile stage",
+      () => plant("Dockerfile", `FROM ${pinned.node} AS build`, "FROM node:24-bookworm-slim AS build"),
+      /Dockerfile \(Dockerfile FROM\): 'node:24-bookworm-slim' is refused: Docker Hub reference \(implicit docker\.io\)/,
+    ],
+    [
+      "a tag-only mirror FROM",
+      () =>
+        plant(
+          "Dockerfile",
+          `FROM ${pinned.node} AS runtime`,
+          "FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim AS runtime",
+        ),
+      /not pinned by a sha256 digest/,
+    ],
+    [
+      "a Node stage that disagrees with the pin",
+      () =>
+        plant(
+          "Dockerfile",
+          `FROM ${pinned.node} AS manifests`,
+          `FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@${zeroDigest} AS manifests`,
+        ),
+      /mirror digest differs from scripts\/ci-image-sources\.json/,
+    ],
+    [
+      "a Hub syntax frontend",
+      () => plant("Dockerfile", `# syntax=${pinned.dockerfile}`, "# syntax=docker/dockerfile:1"),
+      /Dockerfile syntax frontend\): 'docker\/dockerfile:1' is refused/,
+    ],
+    [
+      "a Hub COPY --from image",
+      () => plant("Dockerfile", "WORKDIR /app\n", "WORKDIR /app\nCOPY --from=busybox:1.36 /bin/sh /bin/sh\n"),
+      /Dockerfile --from\): 'busybox:1\.36' is refused/,
+    ],
+    [
+      "an explicit docker.io reference even with a digest",
+      () =>
+        plant(
+          "Dockerfile",
+          `FROM ${pinned.node} AS build`,
+          `FROM docker.io/library/node@sha256:${"a".repeat(64)} AS build`,
+        ),
+      /'docker\.io\/library\/node@sha256:a{64}' is refused: Docker Hub reference\./,
+    ],
+    [
+      "a Hub DB service in platform-pr.yml",
+      () => plant(".github/workflows/platform-pr.yml", `image: ${pinned.pgvector}`, "image: pgvector/pgvector:pg16"),
+      /job 'db-tests' service 'postgres' \(job service\): 'pgvector\/pgvector:pg16' is refused/,
+    ],
+    [
+      "the implicit default builder on the docker-image retry step",
+      () =>
+        plant(
+          ".github/workflows/platform-pr.yml",
+          `        if: steps.buildx.outcome == 'failure'\n        with:\n          driver-opts: image=${pinned.buildkit}\n`,
+          "        if: steps.buildx.outcome == 'failure'\n",
+        ),
+      /job 'docker-image' .*buildx builder \(implicit setup-buildx default\)\): 'moby\/buildkit:buildx-stable-1' is refused/,
+    ],
+    [
+      "the implicit default builder in the reusable Compose workflow",
+      () =>
+        plant(
+          ".github/workflows/platform-compose-boot-smoke.yml",
+          `            image=${pinned.buildkit}\n            network=host\n`,
+          "            network=host\n",
+        ),
+      /platform-compose-boot-smoke\.yml job 'verify' .*implicit setup-buildx default/,
+    ],
+    [
+      "a Hub docker action in Workflow Lint",
+      () =>
+        plant(
+          ".github/workflows/platform-pr.yml",
+          `uses: docker://${pinned.actionlint}`,
+          "uses: docker://rhysd/actionlint:1.7.12",
+        ),
+      /step 'Run Actionlint' \(docker action\): 'docker:\/\/rhysd\/actionlint:1\.7\.12' is refused/,
+    ],
+    [
+      "a Hub docker run in Workflow Lint",
+      () =>
+        plant(
+          ".github/workflows/platform-pr.yml",
+          ` ${pinned.helm} lint infrastructure/helm/platform`,
+          " alpine/helm:3.15.4 lint infrastructure/helm/platform",
+        ),
+      /step 'Lint platform Helm chart' \(docker run\): 'alpine\/helm:3\.15\.4' is refused/,
+    ],
+    [
+      "a tag-only GHCR tool",
+      () =>
+        plant(
+          ".github/workflows/platform-pr.yml",
+          "ghcr.io/yannh/kubeconform:v0.6.7@sha256:",
+          "ghcr.io/yannh/kubeconform:v0.6.7 #@sha256:",
+        ),
+      /'ghcr\.io\/yannh\/kubeconform:v0\.6\.7' is refused: not pinned by a sha256 digest/,
+    ],
+    [
+      "a Hub Compose smoke postgres",
+      () => plant("docker-compose.pr-smoke.yml", `image: ${pinned.pgvector}`, "image: pgvector/pgvector:pg16"),
+      /docker-compose\.pr-smoke\.yml service 'postgres' \(Compose service\): 'pgvector\/pgvector:pg16' is refused/,
+    ],
+    [
+      "a Hub E2E sandbox postgres launched only by scripts",
+      () => plant("docker-compose.dev.yml", `image: ${pinned.pgvector}`, "image: pgvector/pgvector:pg16"),
+      /docker-compose\.dev\.yml service 'postgres' \(Compose service\): 'pgvector\/pgvector:pg16' is refused/,
+    ],
+    [
+      "a second Hub pull hidden beside the Hub canary",
+      () =>
+        plant(
+          ".github/actions/block-docker-hub/action.yml",
+          'echo "Docker Hub is unreachable',
+          'docker pull alpine:3.20\n        echo "Docker Hub is unreachable',
+        ),
+      /block-docker-hub\/action\.yml step 'Block Docker Hub hosts' \(docker pull\): 'alpine:3\.20' is refused/,
+    ],
+  ])("refuses %s", (_label, overrides, pattern) => {
+    expectRefused(overrides(), pattern);
+  });
+
+  it("discovers the E2E sandbox Compose file through its script launchers, not a workflow", () => {
+    const launched = check().candidates.find(
+      (candidate) => candidate.location === "docker-compose.dev.yml service 'postgres'",
+    );
+    expect(launched).toMatchObject({ status: "pinned", reference: pinned.pgvector });
+    const withoutLaunchers = check({
+      "scripts/lib/sandbox.mjs": null,
+      "scripts/dev-system.mjs": null,
+      "scripts/sandbox.mjs": null,
+    });
+    expect(
+      withoutLaunchers.candidates.some((candidate) => candidate.location.startsWith("docker-compose.dev.yml")),
+    ).toBe(false);
+  });
+
+  it("refuses a dev-only profile once a non-exempt launcher enables it", () => {
+    expectRefused(
+      { "scripts/zz-arbitrary-launcher.mjs": 'spawn("docker", ["compose", "--profile", "observability", "up"]);\n' },
+      /docker-compose\.dev\.yml service 'otel-collector' \(Compose service\): 'otel\/opentelemetry-collector-contrib:0\.119\.0' is refused/,
+    );
+  });
+
+  const arbitraryWorkflow = (trigger, body) =>
+    `name: Arbitrary\non:\n  ${trigger}:\npermissions:\n  contents: read\njobs:\n${body}`;
+  const job = (lines) => `  any:\n    runs-on: ubuntu-latest\n${lines.map((line) => `    ${line}\n`).join("")}`;
+
+  it.each([
+    [
+      "a shell pull",
+      job(["steps:", "  - run: timeout 60 docker pull busybox:1.36"]),
+      /zz-arbitrary-name\.yml job 'any' step '1' \(docker pull\): 'busybox:1\.36' is refused/,
+    ],
+    [
+      "a service",
+      job(["services:", "  cache:", "    image: redis:7", "steps: []"]),
+      /service 'cache' \(job service\): 'redis:7' is refused/,
+    ],
+    ["a job container", job(["container: node:24", "steps: []"]), /container \(job container\): 'node:24' is refused/],
+    [
+      "a default builder",
+      job(["steps:", "  - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5"]),
+      /implicit setup-buildx default/,
+    ],
+    [
+      "a docker run inside a command substitution",
+      job(["steps:", "  - run: |", '      id="$(docker run -d --rm -e A=1 -p 1:1 \\', '        postgres:16)"']),
+      /\(docker run\): 'postgres:16' is refused/,
+    ],
+    [
+      "an unresolvable image variable",
+      job(["steps:", '  - run: docker run --rm "$SOME_IMAGE"']),
+      /cannot resolve image '\$SOME_IMAGE'/,
+    ],
+    [
+      "a Compose file it launches",
+      job(["steps:", "  - run: docker compose -f docker-compose.zz.yml up -d"]),
+      /docker-compose\.zz\.yml service 'cache' \(Compose service\): 'redis:7' is refused/,
+    ],
+  ])("refuses an arbitrarily named pull_request workflow with %s", (_label, body, pattern) => {
+    expectRefused(
+      {
+        ".github/workflows/zz-arbitrary-name.yml": arbitraryWorkflow("pull_request", body),
+        "docker-compose.zz.yml": "services:\n  cache:\n    image: redis:7\n",
+      },
+      pattern,
+    );
+  });
+
+  it("follows merge_group workflows into reusable workflows and ignores non-required triggers", () => {
+    const called = arbitraryWorkflow("workflow_call", job(["steps:", "  - run: docker pull busybox:1.36"]));
+    expectRefused(
+      {
+        ".github/workflows/zz-arbitrary-caller.yml": arbitraryWorkflow(
+          "merge_group",
+          "  call:\n    uses: ./.github/workflows/zz-arbitrary-called.yml\n",
+        ),
+        ".github/workflows/zz-arbitrary-called.yml": called,
+      },
+      /zz-arbitrary-called\.yml job 'any' step '1' \(docker pull\): 'busybox:1\.36' is refused/,
+    );
+    const manualOnly = check({
+      ".github/workflows/zz-arbitrary-called.yml": called.replace("workflow_call", "workflow_dispatch"),
+    });
+    expect(manualOnly.violations).toEqual([]);
+  });
+
+  it("fails when the publisher boundary is breached", () => {
+    expectRefused(
+      {
+        ".github/workflows/zz-arbitrary-name.yml": arbitraryWorkflow(
+          "pull_request",
+          job(["permissions:", "  packages: write", "steps: []"]),
+        ),
+      },
+      /zz-arbitrary-name\.yml: job 'any' must not hold packages: write/,
+    );
   });
 });
