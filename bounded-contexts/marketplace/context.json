@@ -803,6 +803,34 @@
       {
         "name": "marketplace.list-reviews",
         "ownerSlice": "reviews"
+      },
+      {
+        "name": "marketplace.activate-listing-evidence-policy-draft",
+        "ownerSlice": "listing-evidence-policy"
+      },
+      {
+        "name": "marketplace.create-listing-evidence-policy-draft",
+        "ownerSlice": "listing-evidence-policy"
+      },
+      {
+        "name": "marketplace.create-listing-evidence-policy-rollback-draft",
+        "ownerSlice": "listing-evidence-policy"
+      },
+      {
+        "name": "marketplace.get-listing-evidence-policy-overview",
+        "ownerSlice": "listing-evidence-policy"
+      },
+      {
+        "name": "marketplace.get-listing-evidence-policy-selectors",
+        "ownerSlice": "listing-evidence-policy"
+      },
+      {
+        "name": "marketplace.reject-listing-evidence-policy-draft",
+        "ownerSlice": "listing-evidence-policy"
+      },
+      {
+        "name": "marketplace.validate-listing-evidence-policy-draft",
+        "ownerSlice": "listing-evidence-policy"
       }
     ],
     "resources": [
@@ -1736,7 +1764,17 @@
     }
   ],
   "agentCoverage": {
-    "listing-evidence-policy": { "pending": "#9238" }
+    "listing-evidence-policy": {
+      "tools": [
+        "marketplace.activate-listing-evidence-policy-draft",
+        "marketplace.create-listing-evidence-policy-draft",
+        "marketplace.create-listing-evidence-policy-rollback-draft",
+        "marketplace.get-listing-evidence-policy-overview",
+        "marketplace.get-listing-evidence-policy-selectors",
+        "marketplace.reject-listing-evidence-policy-draft",
+        "marketplace.validate-listing-evidence-policy-draft"
+      ]
+    }
   },
   "deployableContributions": [
     {
