@@ -100,7 +100,7 @@ function policyCommand(args: Readonly<Record<string, unknown>>) {
     label: readMcpStringArgument(args, "label") ?? "",
     payload: policyPayload(args),
     effectiveFrom: readMcpStringArgument(args, "effectiveFrom") ?? new Date().toISOString(),
-    effectiveUntil: readMcpStringArgument(args, "effectiveUntil"),
+    effectiveUntil: args.effectiveUntil === null ? null : readMcpStringArgument(args, "effectiveUntil"),
   };
 }
 
@@ -168,12 +168,15 @@ export function createOrderingPostagePolicyMcpHandlers(
 
   const revisePolicy: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = requirePermission(actor, "postage-policies.manage");
+    const policyId = readMcpTypedIdArgument(args, "id", "opp");
+    const current = await services.getPolicy(policyId);
+    if (!current) throw new Error("Postage policy not found.");
     const result = await services.revisePolicy(
-      readMcpTypedIdArgument(args, "id", "opp"),
+      policyId,
       { ...policyCommand(args), revisedByUserId: scopedActor.userId },
       createActorEventStoreContext(scopedActor),
     );
-    return receipt(result, "draft");
+    return receipt(result, current.status === "active" ? "active" : "draft");
   };
 
   const activatePolicy: McpToolHandler = async ({ actor, arguments: args }) => {
@@ -203,7 +206,7 @@ export function createOrderingPostagePolicyMcpHandlers(
       {
         label: requiredString(args, "label"),
         effectiveFrom: requiredString(args, "effectiveFrom"),
-        effectiveUntil: readMcpStringArgument(args, "effectiveUntil"),
+        effectiveUntil: args.effectiveUntil === null ? null : readMcpStringArgument(args, "effectiveUntil"),
         createdByUserId: scopedActor.userId,
       },
       createActorEventStoreContext(scopedActor),

@@ -49,7 +49,14 @@ const actor: ResolvedActor = {
   accountId: "account_1",
   membershipId: "member_1",
   roleKey: "manager",
-  permissions: ["inventory.view", "orders.view", "payouts.request", "payouts.view"],
+  permissions: [
+    "inventory.view",
+    "orders.view",
+    "payouts.request",
+    "payouts.view",
+    "postage-policies.view",
+    "postage-policies.manage",
+  ],
 };
 
 function createRequest(method: string, params?: unknown) {

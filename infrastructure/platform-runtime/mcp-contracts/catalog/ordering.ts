@@ -2,9 +2,12 @@ import {
   type McpServiceDescriptor,
   arrayProperty,
   accountScopedListOutputSchema,
+  booleanProperty,
   idempotencyKeyProperty,
   integerProperty,
   mutationInput,
+  nullableNumberProperty,
+  nullableStringProperty,
   objectSchema,
   readTool,
   resource,
@@ -37,24 +40,22 @@ const postagePolicyProperties = {
     "Shipping options that require signature.",
     stringProperty("Shipping option."),
   ),
-  signatureRequiredDeclaredValueAmount: {
-    type: "number",
-    description: "Declared value threshold requiring signature.",
-  },
+  signatureRequiredDeclaredValueAmount: nullableNumberProperty(
+    "Nullable declared value threshold requiring signature.",
+  ),
   signatureRequiredPhysicalFlags: arrayProperty(
     "Physical flags that require signature.",
     stringProperty("Physical flag."),
   ),
-  insuranceRequiredDeclaredValueAmount: {
-    type: "number",
-    description: "Declared value threshold requiring insurance.",
-  },
+  insuranceRequiredDeclaredValueAmount: nullableNumberProperty(
+    "Nullable declared value threshold requiring insurance.",
+  ),
 } as const;
 
 const postagePolicyFields = {
   label: stringProperty("Policy label."),
   effectiveFrom: stringProperty("ISO timestamp when the policy becomes effective."),
-  effectiveUntil: stringProperty("Optional ISO timestamp when the policy stops being effective."),
+  effectiveUntil: nullableStringProperty("Nullable ISO timestamp when the policy stops being effective."),
   ...postagePolicyProperties,
 };
 
@@ -62,6 +63,7 @@ const postagePolicyWriteSchema = objectSchema(
   {
     ...postagePolicyFields,
     idempotencyKey: idempotencyKeyProperty(),
+    confirmed: { type: "boolean", description: "Explicit confirmation of the requested action." },
     confirmationText: stringProperty("Exact confirmation text."),
   },
   [
@@ -80,6 +82,7 @@ const postagePolicyWriteSchema = objectSchema(
     "signatureRequiredShippingOptions",
     "signatureRequiredPhysicalFlags",
     "idempotencyKey",
+    "confirmed",
     "confirmationText",
   ],
 );
@@ -327,9 +330,10 @@ export const orderingService = {
             id: stringProperty("Postage policy identifier."),
             activationReason: stringProperty("Reason for activation."),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Explicit confirmation of the requested action."),
             confirmationText: stringProperty("Exact confirmation text."),
           },
-          ["id", "activationReason", "idempotencyKey", "confirmationText"],
+          ["id", "activationReason", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "postage-policy",
         ["Use only after inspecting the candidate policy and its comparison."],
@@ -351,9 +355,10 @@ export const orderingService = {
             id: stringProperty("Postage policy identifier."),
             retirementReason: stringProperty("Reason for retirement."),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Explicit confirmation of the requested action."),
             confirmationText: stringProperty("Exact confirmation text."),
           },
-          ["id", "retirementReason", "idempotencyKey", "confirmationText"],
+          ["id", "retirementReason", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "postage-policy",
         ["Use only for an explicit postage policy administration change."],
@@ -375,11 +380,12 @@ export const orderingService = {
             id: stringProperty("Source postage policy identifier."),
             label: stringProperty("New policy label."),
             effectiveFrom: stringProperty("ISO timestamp when the clone becomes effective."),
-            effectiveUntil: stringProperty("Optional ISO timestamp when the clone stops being effective."),
+            effectiveUntil: nullableStringProperty("Nullable ISO timestamp when the clone stops being effective."),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Explicit confirmation of the requested action."),
             confirmationText: stringProperty("Exact confirmation text."),
           },
-          ["id", "label", "effectiveFrom", "idempotencyKey", "confirmationText"],
+          ["id", "label", "effectiveFrom", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "postage-policy",
         ["Use after inspecting the source policy when preparing a replacement draft."],

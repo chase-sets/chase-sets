@@ -77,6 +77,7 @@ describe("ordering postage policy MCP handlers", () => {
       ...payload,
       idempotencyKey: "idem-policy-1",
       confirmationText: "Create Postage Policy.",
+      confirmed: true,
     };
 
     await handlers.toolHandlers["ordering.list-postage-policies"]?.(request({ limit: 10, offset: 0 }));
@@ -137,6 +138,48 @@ describe("ordering postage policy MCP handlers", () => {
     expect(fakeServices.activatePolicy).toHaveBeenCalledOnce();
     expect(fakeServices.retirePolicy).toHaveBeenCalledOnce();
     expect(fakeServices.clonePolicy).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an omitted conditional clone source before issuing a command", async () => {
+    const fakeServices = { ...services(), getPolicy: vi.fn(async () => null) } as unknown as PostagePolicyServices;
+    const handlers = createOrderingPostagePolicyMcpHandlers(fakeServices);
+
+    await expect(
+      handlers.toolHandlers["ordering.clone-postage-policy"]?.(
+        request({
+          id: policyId,
+          label: "Clone",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+          idempotencyKey: "idem-clone-missing",
+          confirmed: true,
+          confirmationText: "Clone Postage Policy.",
+        }),
+      ),
+    ).rejects.toThrow("Postage policy not found.");
+    expect(fakeServices.commandHandler).not.toHaveBeenCalled();
+    expect(fakeServices.clonePolicy).not.toHaveBeenCalled();
+  });
+
+  it("preserves an active lifecycle status when revising an active policy", async () => {
+    const fakeServices = {
+      ...services(),
+      getPolicy: vi.fn(async () => ({ status: "active" })),
+    } as unknown as PostagePolicyServices;
+    const handlers = createOrderingPostagePolicyMcpHandlers(fakeServices);
+
+    const result = await handlers.toolHandlers["ordering.revise-postage-policy"]?.(
+      request({
+        id: policyId,
+        label: "Revised",
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        ...payload,
+        idempotencyKey: "idem-revise-active",
+        confirmed: true,
+        confirmationText: "Revise Postage Policy.",
+      }),
+    );
+
+    expect(result).toMatchObject({ status: "active" });
   });
 
   it("rejects unauthorised actors before reading or writing", async () => {

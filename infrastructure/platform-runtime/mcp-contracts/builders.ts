@@ -26,6 +26,8 @@ export type McpJsonSchema = Readonly<{
 export type McpJsonSchemaProperty = Readonly<{
   type: "string" | "number" | "integer" | "boolean" | "array" | "object";
   description: string;
+  /** Whether the property may explicitly carry null while retaining its source type. */
+  nullable?: boolean;
   enum?: readonly string[];
   items?: McpJsonSchemaProperty;
   additionalProperties?: boolean;
@@ -150,6 +152,18 @@ export const stringProperty = (description: string, values?: readonly string[]):
   type: "string",
   description,
   ...(values ? { enum: values } : {}),
+});
+
+export const nullableStringProperty = (description: string): McpJsonSchemaProperty => ({
+  type: "string",
+  description,
+  nullable: true,
+});
+
+export const nullableNumberProperty = (description: string): McpJsonSchemaProperty => ({
+  type: "number",
+  description,
+  nullable: true,
 });
 
 export const booleanProperty = (description: string): McpJsonSchemaProperty => ({
