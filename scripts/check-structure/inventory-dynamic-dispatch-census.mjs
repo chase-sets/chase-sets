@@ -146,6 +146,30 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
   const checker = program.getTypeChecker();
   families ??= resolveInventoryFamilies(program, repoRoot);
   const diagnostics = [];
+  const propertyTypeCache = new Map();
+  const indexTypeCache = new Map();
+  const propertyType = (sourceType, key) => {
+    let byKey = propertyTypeCache.get(sourceType);
+    if (!byKey) {
+      byKey = new Map();
+      propertyTypeCache.set(sourceType, byKey);
+    }
+    if (byKey.has(key)) return byKey.get(key);
+    const result = checker.getTypeOfPropertyOfType(sourceType, key);
+    byKey.set(key, result);
+    return result;
+  };
+  const indexType = (sourceType, indexKind) => {
+    let byKind = indexTypeCache.get(sourceType);
+    if (!byKind) {
+      byKind = new Map();
+      indexTypeCache.set(sourceType, byKind);
+    }
+    if (byKind.has(indexKind)) return byKind.get(indexKind);
+    const result = checker.getIndexTypeOfType(sourceType, indexKind);
+    byKind.set(indexKind, result);
+    return result;
+  };
   const isMemberFunction = (type) =>
     parts(checker, type).some(
       (part) =>
@@ -326,7 +350,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       let key;
       if (ts.isBindingElement(element)) {
         if (element.dotDotDotToken || ts.isArrayBindingPattern(parent))
-          return checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+          return indexType(sourceType, ts.IndexKind.Number) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
         const name = element.propertyName ?? element.name;
         if (ts.isComputedPropertyName(name)) {
           const keyType = typeOf(name.expression);
@@ -341,21 +365,21 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
       } else if (ts.isShorthandPropertyAssignment(element)) {
         key = element.name.text;
       } else if (ts.isSpreadAssignment(element)) {
-        return checker.getIndexTypeOfType(sourceType, ts.IndexKind.String) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+        return indexType(sourceType, ts.IndexKind.String) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
       }
       if (key === undefined) {
         const computed = element.propertyName ?? element.name;
         const keyType = computed && ts.isComputedPropertyName(computed) ? typeOf(computed.expression) : undefined;
         const numeric = keyType && Boolean(keyType.flags & ts.TypeFlags.NumberLike);
         return (
-          (numeric ? checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number) : undefined) ??
-          checker.getIndexTypeOfType(sourceType, ts.IndexKind.String) ??
+          (numeric ? indexType(sourceType, ts.IndexKind.Number) : undefined) ??
+          indexType(sourceType, ts.IndexKind.String) ??
           UNRESOLVED_ASSIGNMENT_PATTERN
         );
       }
       return (
-        checker.getTypeOfPropertyOfType(sourceType, key) ??
-        checker.getIndexTypeOfType(sourceType, /^\d+$/.test(key) ? ts.IndexKind.Number : ts.IndexKind.String) ??
+        propertyType(sourceType, key) ??
+        indexType(sourceType, /^\d+$/.test(key) ? ts.IndexKind.Number : ts.IndexKind.String) ??
         UNRESOLVED_ASSIGNMENT_PATTERN
       );
     };
@@ -439,8 +463,8 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         const member =
           sourceType === UNRESOLVED_ASSIGNMENT_PATTERN
             ? sourceType
-            : (checker.getTypeOfPropertyOfType(sourceType, String(index)) ??
-              checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number) ??
+            : (propertyType(sourceType, String(index)) ??
+              indexType(sourceType, ts.IndexKind.Number) ??
               UNRESOLVED_ASSIGNMENT_PATTERN);
         if (
           member === UNRESOLVED_ASSIGNMENT_PATTERN ||
