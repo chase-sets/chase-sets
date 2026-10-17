@@ -325,8 +325,7 @@ describe("platform worker projection wake interest graph", () => {
     const inheritedRunners = runtime.subscriptionRunners.filter(
       (runner) =>
         !fundingRunners.includes(runner) &&
-        !listingDirectiveRunners.includes(runner) &&
-        runner !== checkoutIdentityRunner,
+        !listingDirectiveRunners.includes(runner),
     );
     expect(fundingRunners.map((runner) => runner.checkpointKey).sort()).toEqual([
       "payments-wallet-funding-projection:payments:v1",
