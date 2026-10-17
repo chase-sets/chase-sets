@@ -207,8 +207,8 @@ export function createOrderingPostagePolicyMcpHandlers(
     const result = await services.clonePolicy(
       policyId,
       {
-        label: requiredString(args, "label"),
-        effectiveFrom: requiredString(args, "effectiveFrom"),
+        label: typeof args.label === "string" ? args.label : "Rollback postage policy draft",
+        effectiveFrom: typeof args.effectiveFrom === "string" ? args.effectiveFrom : new Date().toISOString(),
         effectiveUntil: args.effectiveUntil === null ? null : readMcpStringArgument(args, "effectiveUntil"),
         createdByUserId: scopedActor.userId,
       },

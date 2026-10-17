@@ -72,7 +72,6 @@ const postagePolicyWriteSchema = objectSchema(
   },
   [
     "label",
-    "effectiveFrom",
     "policyVersion",
     "maxLetterUnits",
     "maxLetterWeightOunces",
@@ -80,11 +79,6 @@ const postagePolicyWriteSchema = objectSchema(
     "maxLetterDeclaredValueAmount",
     "letterEnvelopeWeightOunces",
     "parcelPackagingWeightOunces",
-    "parcelRequiredShippingOptions",
-    "letterRequiredPhysicalFlags",
-    "parcelRequiredPhysicalFlags",
-    "signatureRequiredShippingOptions",
-    "signatureRequiredPhysicalFlags",
     "idempotencyKey",
     "confirmed",
     "confirmationText",
@@ -108,17 +102,7 @@ const postagePolicyPreviewSchema = objectSchema(
     unitWeightOunces: { type: "number", description: "Unit weight in ounces." },
     physicalFlags: arrayProperty("Product physical flags.", stringProperty("Physical flag.")),
   },
-  [
-    "policy",
-    "shippingOption",
-    "itemSubtotalAmount",
-    "quantity",
-    "unitLengthInches",
-    "unitWidthInches",
-    "unitHeightInches",
-    "unitWeightOunces",
-    "physicalFlags",
-  ],
+  ["policy"],
 );
 
 const postagePolicyReceiptOutput = objectSchema(
@@ -392,7 +376,7 @@ export const orderingService = {
             confirmed: booleanProperty("Explicit confirmation of the requested action."),
             confirmationText: stringProperty("Exact confirmation text."),
           },
-          ["id", "label", "effectiveFrom", "idempotencyKey", "confirmed", "confirmationText"],
+          ["id", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "postage-policy",
         ["Use after inspecting the source policy when preparing a replacement draft."],
