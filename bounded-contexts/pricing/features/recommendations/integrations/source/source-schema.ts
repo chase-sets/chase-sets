@@ -13,11 +13,11 @@ CREATE TABLE IF NOT EXISTS pricing_catalog_category_inputs (
 );
 `;
 
-const pricingCatalogProductLineSchemaSql = `
+const pricingCatalogProductLineTablesSql = `
 CREATE TABLE IF NOT EXISTS pricing_catalog_reference_inputs (
   catalog_item_id text NOT NULL,
   field_id text NOT NULL,
-  reference_id text NOT NULL,
+  reference_id text NULL,
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1),
   PRIMARY KEY (catalog_item_id, field_id)
@@ -32,22 +32,20 @@ CREATE TABLE IF NOT EXISTS pricing_catalog_reference_records (
   updated_at timestamptz NOT NULL,
   last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
 );
+`;
 
+const pricingCatalogProductLineBootIndexSql = `
 CREATE INDEX IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx
   ON pricing_catalog_reference_inputs (reference_id);
 `;
-
-const pricingCatalogProductLineTablesSql = pricingCatalogProductLineSchemaSql.replace(
-  /\nCREATE INDEX IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx[\s\S]*?\n`$/,
-  "\n",
-);
 
 const pricingCatalogProductLineIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx
   ON pricing_catalog_reference_inputs (reference_id)`;
 
 export const pricingRecommendationSourceSchemaSql = `
 ${pricingCatalogCategorySchemaSql}
-${pricingCatalogProductLineSchemaSql}
+${pricingCatalogProductLineTablesSql}
+${pricingCatalogProductLineBootIndexSql}
 CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   catalog_item_id text PRIMARY KEY,
   language_code text NOT NULL DEFAULT 'en',

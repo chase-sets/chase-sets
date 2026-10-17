@@ -21,6 +21,7 @@
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
+    "@chase-sets/catalog-product-line": "workspace:*",
     "@chase-sets/channels": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/design-system": "workspace:*",

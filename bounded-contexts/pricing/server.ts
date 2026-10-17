@@ -1,4 +1,8 @@
 export { getAccountRecommendation, listAccountRecommendations } from "./features/recommendations/read-model/queries";
+export {
+  readCatalogItemProductLineInputs,
+  type PricingCatalogItemProductLineInput,
+} from "./features/recommendations/read-model/catalog-product-line-inputs";
 export { evaluateBuyerOfferTarget } from "./features/offer-targets/domain/evaluate";
 export { seedSyntheticOfferMarketPrice } from "./support/runtime-support/seed";
 export type {

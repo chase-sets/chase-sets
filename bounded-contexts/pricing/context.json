@@ -302,6 +302,8 @@
       "ownedTables": [
         "pricing_catalog_item_inputs",
         "pricing_catalog_category_inputs",
+        "pricing_catalog_reference_inputs",
+        "pricing_catalog_reference_records",
         "pricing_external_product_reference_inputs",
         "pricing_external_catalog_item_reference_inputs"
       ],

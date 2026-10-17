@@ -2,7 +2,6 @@ import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { ChaseSetsEventPayloads } from "@chase-sets/event-core/public-event-payloads";
 import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogProductLineReference } from "@chase-sets/catalog-product-line";
 import { coerceLocalizedTextMap, resolveLocalizedTextMap, type LocalizedTextMap } from "@chase-sets/localization";
 import { createPricingCatalogItemSlug } from "../../../../support/runtime-support/slugs";
 
@@ -20,6 +19,13 @@ type ReferenceRecordProjectionData = Readonly<{
   relationships: unknown;
 }>;
 
+type ReferenceRecordProjectionEvent = Readonly<{
+  streamId: string;
+  streamVersion: number;
+  timing: { recordedAt: string };
+  data: ReferenceRecordProjectionData;
+}>;
+
 type ReferenceValue = Readonly<{ referenceId?: unknown; reference_record_id?: unknown }>;
 
 function referenceIdFromValue(value: unknown): string | null {
@@ -29,20 +35,37 @@ function referenceIdFromValue(value: unknown): string | null {
   return typeof referenceId === "string" && referenceId.length > 0 ? referenceId : null;
 }
 
-async function refreshProductLineInput(db: PgQueryable, catalogItemId: string): Promise<void> {
-  const candidate = await db.query<CatalogProductLineReference>(
-    `WITH RECURSIVE reference_frontier AS (
+async function refreshProductLineInputs(
+  db: PgQueryable,
+  recordedAt: string,
+  scope: Readonly<{ catalogItemId: string } | { referenceId: string }>,
+): Promise<void> {
+  await db.query(
+    `WITH RECURSIVE descendants(reference_id) AS (
+       SELECT $2::text WHERE $2::text IS NOT NULL
+       UNION
+       SELECT record.reference_id
+       FROM pricing_catalog_reference_records AS record
+       CROSS JOIN LATERAL jsonb_array_elements(record.relationships) AS relationship(value)
+       JOIN descendants ON relationship.value->>'relationshipType' = 'part-of'
+                        AND relationship.value->>'referenceId' = descendants.reference_id
+     ), affected AS (
+       SELECT catalog_item_id FROM pricing_catalog_item_inputs WHERE catalog_item_id = $1
+       UNION
+       SELECT input.catalog_item_id
+       FROM pricing_catalog_reference_inputs AS input
+       JOIN descendants ON descendants.reference_id = input.reference_id
+     ), reference_frontier AS (
        SELECT input.catalog_item_id,
               input.reference_id,
-              input.last_stream_version AS source_version,
               0 AS depth,
               ARRAY[input.reference_id]::text[] AS path
        FROM pricing_catalog_reference_inputs AS input
-       WHERE input.catalog_item_id = $1
+       JOIN affected ON affected.catalog_item_id = input.catalog_item_id
+       WHERE input.reference_id IS NOT NULL
        UNION ALL
        SELECT frontier.catalog_item_id,
               relationship.value->>'referenceId',
-              GREATEST(frontier.source_version, record.last_stream_version),
               frontier.depth + 1,
               array_append(frontier.path, relationship.value->>'referenceId')
        FROM reference_frontier AS frontier
@@ -52,57 +75,32 @@ async function refreshProductLineInput(db: PgQueryable, catalogItemId: string): 
        WHERE relationship.value->>'relationshipType' = 'part-of'
          AND relationship.value->>'referenceId' IS NOT NULL
          AND NOT (relationship.value->>'referenceId' = ANY(frontier.path))
+     ), resolved AS (
+       SELECT DISTINCT ON (frontier.catalog_item_id)
+              frontier.catalog_item_id, frontier.reference_id, record.name
+       FROM reference_frontier AS frontier
+       JOIN pricing_catalog_reference_records AS record ON record.reference_id = frontier.reference_id
+       WHERE record.type_key = 'product-line'
+       ORDER BY frontier.catalog_item_id, frontier.depth ASC, frontier.reference_id ASC
      )
-     SELECT frontier.reference_id AS "referenceId",
-            record.name,
-            GREATEST(frontier.source_version, record.last_stream_version) AS version
-     FROM reference_frontier AS frontier
-     JOIN pricing_catalog_reference_records AS record ON record.reference_id = frontier.reference_id
-     WHERE record.type_key = 'product-line'
-     ORDER BY frontier.depth ASC, frontier.reference_id ASC
-     LIMIT 1`,
-    [catalogItemId],
-  );
-  const productLine = candidate.rows[0] ?? null;
-  await db.query(
-    `UPDATE pricing_catalog_item_inputs
-     SET product_line_reference_id = $2,
-         product_line_name = $3,
-         product_line_version = $4,
-         updated_at = now()
-     WHERE catalog_item_id = $1`,
-    [catalogItemId, productLine?.referenceId ?? null, productLine?.name ?? null, productLine?.version ?? null],
+     UPDATE pricing_catalog_item_inputs AS item
+     SET product_line_reference_id = resolved.reference_id,
+         product_line_name = resolved.name,
+         product_line_version = COALESCE(item.product_line_version, 0) + 1,
+         updated_at = $3
+     FROM affected LEFT JOIN resolved ON resolved.catalog_item_id = affected.catalog_item_id
+     WHERE item.catalog_item_id = affected.catalog_item_id
+       AND (item.product_line_reference_id, item.product_line_name)
+           IS DISTINCT FROM (resolved.reference_id, resolved.name)`,
+    [
+      "catalogItemId" in scope ? scope.catalogItemId : null,
+      "referenceId" in scope ? scope.referenceId : null,
+      recordedAt,
+    ],
   );
 }
 
-async function refreshProductLineDependents(db: PgQueryable, referenceId: string): Promise<void> {
-  const affected = await db.query<{ catalog_item_id: string }>(
-    `WITH RECURSIVE descendants(reference_id) AS (
-       SELECT $1::text
-       UNION
-       SELECT record.reference_id
-       FROM pricing_catalog_reference_records AS record
-       CROSS JOIN LATERAL jsonb_array_elements(record.relationships) AS relationship(value)
-       JOIN descendants ON relationship.value->>'relationshipType' = 'part-of'
-                        AND relationship.value->>'referenceId' = descendants.reference_id
-     )
-     SELECT DISTINCT input.catalog_item_id
-     FROM pricing_catalog_reference_inputs AS input
-     JOIN descendants ON descendants.reference_id = input.reference_id`,
-    [referenceId],
-  );
-  for (const row of affected.rows) await refreshProductLineInput(db, row.catalog_item_id);
-}
-
-async function upsertReferenceRecord(
-  db: PgQueryable,
-  event: {
-    streamId: string;
-    streamVersion: number;
-    timing: { recordedAt: string };
-    data: ReferenceRecordProjectionData;
-  },
-): Promise<void> {
+async function upsertReferenceRecord(db: PgQueryable, event: ReferenceRecordProjectionEvent): Promise<void> {
   const data = event.data;
   const referenceId = data.referenceRecordId ?? extractIdFromStreamId(event.streamId, "catalog.reference-record-");
   await db.query(
@@ -125,10 +123,42 @@ async function upsertReferenceRecord(
       event.streamVersion,
     ],
   );
-  await refreshProductLineDependents(db, referenceId);
+  await refreshProductLineInputs(db, event.timing.recordedAt, { referenceId });
 }
 
 export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const referenceStatus =
+    (status: string): ProjectorHandlerMap[string] =>
+    async (event) => {
+      const referenceId = extractIdFromStreamId(event.streamId, "catalog.reference-record-");
+      await db.query(
+        `UPDATE pricing_catalog_reference_records SET status = $2, updated_at = $3, last_stream_version = $4
+         WHERE reference_id = $1 AND last_stream_version < $4`,
+        [referenceId, status, event.timing.recordedAt, event.streamVersion],
+      );
+      await refreshProductLineInputs(db, event.timing.recordedAt, { referenceId });
+    };
+  const setReferenceInput = async (
+    catalogItemId: string,
+    fieldId: string,
+    referenceId: string | null,
+    recordedAt: string,
+    streamVersion: number,
+  ): Promise<void> => {
+    // Retain null tombstones so an older set cannot resurrect a cleared field.
+    await db.query(
+      `INSERT INTO pricing_catalog_reference_inputs
+         (catalog_item_id, field_id, reference_id, updated_at, last_stream_version)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (catalog_item_id, field_id) DO UPDATE
+         SET reference_id = EXCLUDED.reference_id,
+             updated_at = EXCLUDED.updated_at,
+             last_stream_version = EXCLUDED.last_stream_version
+         WHERE pricing_catalog_reference_inputs.last_stream_version < EXCLUDED.last_stream_version`,
+      [catalogItemId, fieldId, referenceId, recordedAt, streamVersion],
+    );
+    await refreshProductLineInputs(db, recordedAt, { catalogItemId });
+  };
   const categoryStatus =
     (status: string): ProjectorHandlerMap[string] =>
     async (event) => {
@@ -209,37 +239,18 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
     "catalog.catalog-item.field-value-set": async (event) => {
       const catalogItemId = extractIdFromStreamId(event.streamId, "catalog.item-");
       const data = event.data as { fieldId: string; value: unknown };
-      const referenceId = referenceIdFromValue(data.value);
-      if (referenceId) {
-        await db.query(
-          `INSERT INTO pricing_catalog_reference_inputs
-             (catalog_item_id, field_id, reference_id, updated_at, last_stream_version)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (catalog_item_id, field_id) DO UPDATE
-             SET reference_id = EXCLUDED.reference_id,
-                 updated_at = EXCLUDED.updated_at,
-                 last_stream_version = EXCLUDED.last_stream_version
-             WHERE pricing_catalog_reference_inputs.last_stream_version < EXCLUDED.last_stream_version`,
-          [catalogItemId, data.fieldId, referenceId, event.timing.recordedAt, event.streamVersion],
-        );
-      } else {
-        await db.query(
-          `DELETE FROM pricing_catalog_reference_inputs
-           WHERE catalog_item_id = $1 AND field_id = $2 AND last_stream_version < $3`,
-          [catalogItemId, data.fieldId, event.streamVersion],
-        );
-      }
-      await refreshProductLineInput(db, catalogItemId);
+      await setReferenceInput(
+        catalogItemId,
+        data.fieldId,
+        referenceIdFromValue(data.value),
+        event.timing.recordedAt,
+        event.streamVersion,
+      );
     },
     "catalog.catalog-item.field-value-cleared": async (event) => {
       const catalogItemId = extractIdFromStreamId(event.streamId, "catalog.item-");
       const data = event.data as { fieldId: string };
-      await db.query(
-        `DELETE FROM pricing_catalog_reference_inputs
-         WHERE catalog_item_id = $1 AND field_id = $2 AND last_stream_version < $3`,
-        [catalogItemId, data.fieldId, event.streamVersion],
-      );
-      await refreshProductLineInput(db, catalogItemId);
+      await setReferenceInput(catalogItemId, data.fieldId, null, event.timing.recordedAt, event.streamVersion);
     },
     "catalog.catalog-item.display-identity-resolved": async (event) => {
       const data = event.data as CatalogItemDisplayIdentityResolvedEventData;
@@ -309,54 +320,14 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
       );
     },
     "catalog.reference-record.created": async (event) => {
-      await upsertReferenceRecord(
-        db,
-        event as unknown as {
-          streamId: string;
-          streamVersion: number;
-          timing: { recordedAt: string };
-          data: ReferenceRecordProjectionData;
-        },
-      );
+      await upsertReferenceRecord(db, event as unknown as ReferenceRecordProjectionEvent);
     },
     "catalog.reference-record.revised": async (event) => {
-      await upsertReferenceRecord(
-        db,
-        event as unknown as {
-          streamId: string;
-          streamVersion: number;
-          timing: { recordedAt: string };
-          data: ReferenceRecordProjectionData;
-        },
-      );
+      await upsertReferenceRecord(db, event as unknown as ReferenceRecordProjectionEvent);
     },
-    "catalog.reference-record.published": async (event) => {
-      const referenceId = extractIdFromStreamId(event.streamId, "catalog.reference-record-");
-      await db.query(
-        `UPDATE pricing_catalog_reference_records SET status = 'active', updated_at = $2, last_stream_version = $3
-         WHERE reference_id = $1 AND last_stream_version < $3`,
-        [referenceId, event.timing.recordedAt, event.streamVersion],
-      );
-      await refreshProductLineDependents(db, referenceId);
-    },
-    "catalog.reference-record.deprecated": async (event) => {
-      const referenceId = extractIdFromStreamId(event.streamId, "catalog.reference-record-");
-      await db.query(
-        `UPDATE pricing_catalog_reference_records SET status = 'deprecated', updated_at = $2, last_stream_version = $3
-         WHERE reference_id = $1 AND last_stream_version < $3`,
-        [referenceId, event.timing.recordedAt, event.streamVersion],
-      );
-      await refreshProductLineDependents(db, referenceId);
-    },
-    "catalog.reference-record.archived": async (event) => {
-      const referenceId = extractIdFromStreamId(event.streamId, "catalog.reference-record-");
-      await db.query(
-        `UPDATE pricing_catalog_reference_records SET status = 'archived', updated_at = $2, last_stream_version = $3
-         WHERE reference_id = $1 AND last_stream_version < $3`,
-        [referenceId, event.timing.recordedAt, event.streamVersion],
-      );
-      await refreshProductLineDependents(db, referenceId);
-    },
+    "catalog.reference-record.published": referenceStatus("active"),
+    "catalog.reference-record.deprecated": referenceStatus("deprecated"),
+    "catalog.reference-record.archived": referenceStatus("archived"),
   };
 }
 

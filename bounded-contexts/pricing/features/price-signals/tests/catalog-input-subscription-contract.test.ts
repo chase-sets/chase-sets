@@ -27,5 +27,11 @@ describe("Pricing Catalog input subscription v8", () => {
     expect(group).toMatchObject({ resetStrategy: "replay-only", requiredDuringBootstrap: true });
     expect(group?.ownedTables).toContain("pricing_external_catalog_item_reference_inputs");
     expect(group?.ownedTables).toContain("pricing_catalog_category_inputs");
+    for (const table of ["pricing_catalog_reference_inputs", "pricing_catalog_reference_records"]) {
+      expect(group?.ownedTables).toContain(table);
+      expect(
+        context.projectionGroups.filter((entry) => entry.ownedTables.some((ownedTable) => ownedTable === table)),
+      ).toHaveLength(1);
+    }
   });
 });
