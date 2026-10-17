@@ -190,7 +190,7 @@ const chargeSourceRoles = [
   },
   {
     role: "capture fact",
-    ref: "bounded-contexts/payments/features/payments/domain/domain.ts:968-1005",
+    ref: "bounded-contexts/payments/features/payments/domain/domain.ts:957-994",
     markers: ['case "RecordPaymentCapture"', 'type: "payments.payment-captured"', "capturedAt,"],
   },
 ] as const;
