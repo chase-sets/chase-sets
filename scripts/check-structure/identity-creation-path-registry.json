@@ -163,9 +163,9 @@
       "reason": "Operator-provisioned QA actors with no human registration moment; provisioning records no Consent (#6120 removed the synthetic write), so the exemption stands until the consent bundle defines an operator-acceptance surface.",
       "owningIssue": 5684,
       "sites": [
-        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 206 },
-        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 220 },
-        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 249 }
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 211 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 225 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 254 }
       ]
     },
     {

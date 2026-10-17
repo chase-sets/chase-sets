@@ -1,4 +1,9 @@
+import type { AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
+import { evolveAccount, initialAccountState } from "../../features/accounts/domain/domain";
+import { evolveMembership, initialMembershipState } from "../../features/memberships/domain/domain";
+import { evolveUser, initialUserState } from "../../features/users/domain/domain";
 import type { RoleKey } from "./common";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import type { IdentityServices } from "./services";
@@ -280,50 +285,65 @@ async function provisionAdminQaActorFixture(
   };
 }
 
-type StateRead = { kind: "missing" | "present" | "error"; value?: unknown };
+type StateRead = { kind: "missing" | "present" | "conflict" | "error"; value?: unknown };
 type FixtureInspection =
   | { kind: "readable"; account: StateRead; user: StateRead; membership: StateRead }
   | { kind: "conflict" | "error" };
 
-/** Inspects complete stream histories and rehydrated state before any append. */
+/** Inspects complete stream histories and the state they rehydrate to before any append. */
 async function inspectAdminQaActorFixture(
   services: IdentityServices,
   fixture: AdminQaActorFixtureDefinition,
   email: string,
 ): Promise<FixtureInspection> {
   const store = services.eventStore;
-  const history = store
-    ? await Promise.all([
-        inspectHistory(store, `identity.account-${fixture.accountId}`, ["identity.account.created"]),
-        inspectHistory(store, `identity.user-${fixture.userId}`, [
-          "identity.user.created",
-          "identity.user.auth-method-enabled",
-        ]),
-        inspectHistory(store, `identity.membership-${fixture.membershipId}`, ["identity.membership.granted"]),
-      ])
-    : undefined;
-  if (history?.some((entry) => entry === "error")) return { kind: "error" };
-  if (history?.some((entry) => entry === "conflict")) return { kind: "conflict" };
-  const [account, user, membership] = await Promise.all([
-    readFixtureState(
-      services.db,
-      services.accounts?.getAccountState,
-      "identity_accounts",
-      "account_id",
-      fixture.accountId,
-    ),
-    readFixtureState(services.db, services.users?.getUserState, "identity_users", "user_id", fixture.userId),
-    readFixtureState(
-      services.db,
-      services.memberships?.getMembershipState,
-      "identity_memberships",
-      "membership_id",
-      fixture.membershipId,
-    ),
-  ]);
-  if ([account, user, membership].some((read) => read.kind === "error")) return { kind: "error" };
-  if (history) {
-    if (!agreesWithHistory(history, [account, user, membership])) return { kind: "conflict" };
+  const [account, user, membership] = await Promise.all(
+    store
+      ? [
+          readCanonicalStream(
+            store,
+            `identity.account-${fixture.accountId}`,
+            ["identity.account.created"],
+            initialAccountState,
+            evolveAccount,
+          ),
+          readCanonicalStream(
+            store,
+            `identity.user-${fixture.userId}`,
+            ["identity.user.created", "identity.user.auth-method-enabled"],
+            initialUserState,
+            evolveUser,
+          ),
+          readCanonicalStream(
+            store,
+            `identity.membership-${fixture.membershipId}`,
+            ["identity.membership.granted"],
+            initialMembershipState,
+            evolveMembership,
+          ),
+        ]
+      : [
+          readFixtureState(
+            services.db,
+            services.accounts?.getAccountState,
+            "identity_accounts",
+            "account_id",
+            fixture.accountId,
+          ),
+          readFixtureState(services.db, services.users?.getUserState, "identity_users", "user_id", fixture.userId),
+          readFixtureState(
+            services.db,
+            services.memberships?.getMembershipState,
+            "identity_memberships",
+            "membership_id",
+            fixture.membershipId,
+          ),
+        ],
+  );
+  const reads = [account, user, membership];
+  if (reads.some((read) => read.kind === "error")) return { kind: "error" };
+  if (reads.some((read) => read.kind === "conflict")) return { kind: "conflict" };
+  if (store) {
     if (account.kind === "present" && !matchesAccount(account.value, fixture)) return { kind: "conflict" };
     if (user.kind === "present" && !matchesUser(user.value, fixture, email)) return { kind: "conflict" };
     if (membership.kind === "present" && !matchesMembership(membership.value, fixture)) return { kind: "conflict" };
@@ -368,23 +388,34 @@ function outcomeOnly(
   };
 }
 
-/** Canonical-looking history that rehydrates to no state is malformed, not absent. */
-function agreesWithHistory(history: readonly string[], reads: readonly StateRead[]): boolean {
-  return reads.every((read, index) => (read.kind === "present") === (history[index] === "present"));
-}
-
-async function inspectHistory(
+/**
+ * One complete read decides both the history's shape and its state, so a
+ * concurrent append cannot split them. Canonical-looking history that does
+ * not rehydrate to an identified aggregate is malformed, not absent.
+ */
+async function readCanonicalStream<State extends Readonly<{ id: unknown }>, Event extends DomainEvent>(
   eventStore: NonNullable<IdentityServices["eventStore"]>,
   streamId: string,
   allowed: readonly string[],
-): Promise<"missing" | "present" | "conflict" | "error"> {
+  initialState: State,
+  evolve: AggregateEvolver<State, Event>,
+): Promise<StateRead> {
+  let events: Awaited<ReturnType<typeof readCompleteStream>>;
   try {
-    const events = await readCompleteStream(eventStore, { streamId, maxEvents: 10_000 });
-    if (events.length === 0) return "missing";
-    if (events.length > allowed.length) return "conflict";
-    return events.every((event, index) => event.eventType === allowed[index]) ? "present" : "conflict";
+    events = await readCompleteStream(eventStore, { streamId, maxEvents: 10_000 });
   } catch {
-    return "error";
+    return { kind: "error" };
+  }
+  if (events.length === 0) return { kind: "missing" };
+  if (events.length > allowed.length || events.some((event, index) => event.eventType !== allowed[index])) {
+    return { kind: "conflict" };
+  }
+  try {
+    const codec = createPassthroughDomainEventCodec<Event>();
+    const value = events.reduce((state, event) => evolve(state, codec.decode(event)), initialState);
+    return value.id ? { kind: "present", value } : { kind: "conflict" };
+  } catch {
+    return { kind: "conflict" };
   }
 }
 
