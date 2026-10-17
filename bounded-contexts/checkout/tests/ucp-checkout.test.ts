@@ -133,7 +133,7 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
     getPaymentSummary: vi.fn(async () => null),
   } as unknown as CheckoutSessionServices;
   const getPublicListingById = vi.fn(async () => listing as CheckoutUcpListing | null);
-  const getOrderFacts = vi.fn(async () => [] as Parameters<typeof checkoutUcpState>[1]);
+  const getOrderFacts = vi.fn<Parameters<typeof createCheckoutUcpHandlers>[1]["getOrderFacts"]>(async () => []);
   const handlers = createCheckoutUcpHandlers({ sessions }, { getPublicListingById, getOrderFacts, now: () => clock });
   return {
     ...handlers,

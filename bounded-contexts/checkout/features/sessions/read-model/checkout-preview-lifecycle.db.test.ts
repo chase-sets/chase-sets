@@ -467,13 +467,15 @@ describeDb("checkout preview lifecycle", () => {
     activeStep = "setup";
     caseName = test.task.name;
     if (!pools) throw new Error("Probe databases are not initialized.");
+    const schemaMigrations = checkoutModule.schemaMigrations;
+    if (!schemaMigrations) throw new Error("Checkout migrations are required for migration coverage.");
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(
       test.task.name.startsWith("AC7")
         ? {
             ...checkoutModule,
             schemaSql: checkoutModule.schemaSql.replace("  handoff_expires_at timestamptz NULL,", ""),
-            schemaMigrations: checkoutModule.schemaMigrations.filter(
+            schemaMigrations: schemaMigrations.filter(
               (migration) => migration.migrationId !== "20261016_checkout_session_handoff_expiry",
             ),
           }
