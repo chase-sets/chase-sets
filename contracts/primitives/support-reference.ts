@@ -1,4 +1,4 @@
-import { parseTypedId } from "./typed-ids";
+import { parseStrictTypedUlid } from "./typed-ids";
 
 /**
  * The bounded contexts a support reference or raw typed ULID can route to.
@@ -87,7 +87,7 @@ export function parseSupportReference(input: string): ParsedSupportReference | n
 
     const candidate = `${typedIdPrefix}_${idSuffix.toUpperCase()}`;
     try {
-      const id = parseTypedId(candidate, typedIdPrefix);
+      const id = parseStrictTypedUlid(candidate, typedIdPrefix);
       return { kind: "typed-id", contextName: TYPED_ID_CONTEXT_BY_PREFIX[typedIdPrefix], typedIdPrefix, id };
     } catch {
       return null;

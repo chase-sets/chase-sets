@@ -582,7 +582,7 @@ export const supportEnglishTranslations = {
   "support.features.supportReferenceLookup.api.route.forbidden":
     "You do not have permission to look up support references.",
   "support.features.supportReferenceLookup.api.route.reference.required":
-    "Enter an order, shipment, payout, or checkout reference.",
+    "Enter an order, shipment, payout, support-case, or checkout reference.",
   "support.features.supportReferenceLookup.api.route.reference.not.found": "No record was found for that reference.",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.title": "Reference lookup",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.description":
@@ -604,7 +604,7 @@ export const supportEnglishTranslations = {
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.result.open": "Open record",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.notFound.title": "No record found",
   "support.features.supportReferenceLookup.ui.supportReferenceLookupPage.notFound.description":
-    "“{query}” did not match an order, shipment, payout, or checkout reference.",
+    "“{query}” did not match an order, shipment, payout, support-case, or checkout reference.",
   "support.routes.admin.supportReferenceLookup.meta.title": "Reference lookup | Admin",
   "support.routes.admin.supportReferenceLookup.request.failed": "Reference lookup request failed.",
 

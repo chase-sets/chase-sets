@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
-const supportRequestId = "sup_seed_self_service_product_damaged";
+const supportRequestId = "sup_01JZ6DKQ7S7Z4AZ5N5F6K7M8N9";
 const supportRequestPath = `/account/support/${supportRequestId}`;
 const projectionCatchUpTimeout = 60_000;
 

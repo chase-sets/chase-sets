@@ -105,6 +105,7 @@ describe("support reference routing primitive", () => {
     expect(parseSupportReference("not-a-reference")).toBeNull();
     expect(parseSupportReference("ORD-")).toBeNull();
     expect(parseSupportReference("acc_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toBeNull();
+    expect(parseSupportReference("sup_seed_resolved_partial_refund")).toBeNull();
   });
 
   it("normalizeSupportReferenceInput only trims, leaving casing to the caller", () => {

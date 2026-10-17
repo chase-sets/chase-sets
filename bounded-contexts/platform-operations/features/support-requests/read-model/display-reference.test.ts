@@ -43,11 +43,11 @@ describe("withSupportRequestDisplayReference", () => {
     expect(insert).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps legacy seed identifiers readable without retrying an unchanged fallback", async () => {
-    const seedId = "sup_seed_active_product_not_received" as SupportRequestId;
+  it("derives a stable display reference for seeded ULIDs", async () => {
+    const seedId = "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9" as SupportRequestId;
     const insert = vi.fn(async (displayReference: string) => displayReference);
 
-    await expect(withSupportRequestDisplayReference(seedId, insert)).resolves.toBe(seedId);
+    await expect(withSupportRequestDisplayReference(seedId, insert)).resolves.toBe("SUP-E6K7M8N9");
     expect(insert).toHaveBeenCalledTimes(1);
   });
 });

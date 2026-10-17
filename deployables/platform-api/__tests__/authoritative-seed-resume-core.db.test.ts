@@ -175,6 +175,46 @@ describe("authoritative seed resume", () => {
     const afterBootOne = await eligiblePrefixCounts(runtime);
     const publicPresenceAfterBootOne = await capturePublicPresenceSeedOutput();
 
+    const seededSupportRequestIds = [
+      "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+      "sup_01JZ6DKQ7S7Z4AZ5N5F6K7M8N9",
+      "sup_01JZ6DKR7S7Z4AZ5N5G6K7M8N9",
+    ] as const;
+    const supportReferenceLookup = (
+      requirePlatformOperationsContext(runtime).services as unknown as Readonly<{
+        supportReferenceLookup: { resolveSupportReference: (input: string) => Promise<unknown> };
+      }>
+    ).supportReferenceLookup;
+    const readAndResolveSeededSupportRequests = async () => {
+      const pages = await pools["platform-operations"].query<{
+        support_request_id: string;
+        display_reference: string | null;
+      }>(
+        `SELECT support_request_id, display_reference
+         FROM support_request_pages
+         WHERE support_request_id = ANY($1::text[])
+         ORDER BY support_request_id`,
+        [seededSupportRequestIds],
+      );
+      expect(pages.rows).toHaveLength(3);
+      expect(pages.rows.map((row) => row.support_request_id)).toEqual([...seededSupportRequestIds].sort());
+      const references = pages.rows.map((row) => row.display_reference);
+      expect(references.every((reference): reference is string => reference?.startsWith("SUP-") === true)).toBe(true);
+      expect(new Set(references).size).toBe(3);
+      for (const row of pages.rows) {
+        expect(await supportReferenceLookup.resolveSupportReference(row.display_reference!)).toMatchObject({
+          entityType: "support-case",
+          displayReference: row.display_reference,
+        });
+        expect(await supportReferenceLookup.resolveSupportReference(row.support_request_id)).toMatchObject({
+          entityType: "support-case",
+          displayReference: row.display_reference,
+        });
+      }
+      return pages.rows.map((row) => ({ ...row }));
+    };
+    const supportPagesAfterBootOne = await readAndResolveSeededSupportRequests();
+
     // The freeze is only as good as its column coverage, so that coverage is
     // established against the canonical table before anything is frozen against
     // it. This is the executable form of the schema-to-freeze probe: the
@@ -207,6 +247,9 @@ describe("authoritative seed resume", () => {
       repeatSeconds[lifecyclePoint] = (Date.now() - repeatStartedAt) / 1000;
       const afterRepeat = await eligiblePrefixCounts(runtime);
       expect(afterRepeat, `same-boot repeat at ${lifecyclePoint}`).toEqual(afterBootOne);
+      expect(await readAndResolveSeededSupportRequests(), `support references after ${lifecyclePoint} repeat`).toEqual(
+        supportPagesAfterBootOne,
+      );
 
       publicPresenceLatest = await capturePublicPresenceSeedOutput();
       expect(
