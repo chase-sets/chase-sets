@@ -995,7 +995,7 @@ describe("release qualification applicability evaluator", () => {
         execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]),
       });
     expect(readTree(landing)).toEqual(readTree(forkPoint));
-    expect(readTree(landing).length).toBeGreaterThan(0);
+    expect(readTree(landing).length > 0).toBe(true);
   });
 
   it.each([
