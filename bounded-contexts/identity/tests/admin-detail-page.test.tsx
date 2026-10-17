@@ -105,6 +105,17 @@ describe("Access Admin detail pages", () => {
     expect(html).not.toContain("/commerce/wallet-workbench/");
   });
 
+  it("names a frozen manual-payout-review badge without offering its controls", () => {
+    const html = renderToString(
+      <AccountDetailPage data={{ ...account, badges: ["founding-account", "manual-payout-review"] }} />,
+    );
+
+    expect(html).toContain("Founding Account, Manual Payout Review");
+    expect(html).not.toContain("manual-payout-review");
+    expect(html).not.toContain("Assign Manual Payout Review badge");
+    expect(html).not.toContain("Remove Manual Payout Review badge");
+  });
+
   it("links to the Settlement-owned wallet workbench only when the actor holds wallet-adjustments.view", () => {
     const withoutPermission = renderToString(<AccountDetailPage data={account} actorPermissions={[]} />);
     expect(withoutPermission).not.toContain("/commerce/wallet-workbench/");

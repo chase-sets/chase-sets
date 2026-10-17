@@ -214,7 +214,7 @@ export const ADMIN_WORKFLOWS_QA_ACCESS_REQUIRED_COVERAGE = Object.freeze([
   },
   {
     key: "access:accounts-payout-review-hold-place-release",
-    description: "Manual Payout Review badge add/remove",
+    description: "Payout Review Hold place/release",
     suggestedActorAlias: "admin-qa-platform-admin",
   },
   {
