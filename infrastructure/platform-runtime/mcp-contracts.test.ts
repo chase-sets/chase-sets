@@ -201,14 +201,9 @@ describe("MCP service catalog", () => {
       "inventory.list-import-sources",
       "inventory.list-items",
       "marketplace.accept-offer",
-      "marketplace.activate-listing-evidence-policy-draft",
       "marketplace.counter-offer",
       "marketplace.create-listing",
-      "marketplace.create-listing-evidence-policy-draft",
-      "marketplace.create-listing-evidence-policy-rollback-draft",
       "marketplace.decline-offer",
-      "marketplace.get-listing-evidence-policy-overview",
-      "marketplace.get-listing-evidence-policy-selectors",
       "marketplace.get-reputation-summary",
       "marketplace.get-seller-attention-queue",
       "marketplace.get-seller-insights",
@@ -216,12 +211,10 @@ describe("MCP service catalog", () => {
       "marketplace.list-offers",
       "marketplace.list-reviews",
       "marketplace.publish-listing",
-      "marketplace.reject-listing-evidence-policy-draft",
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
       "marketplace.update-offer-price",
-      "marketplace.validate-listing-evidence-policy-draft",
       "ordering.get-order",
       "ordering.list-orders",
       "payments.confirm-payment-method-setup",
@@ -1103,11 +1096,6 @@ describe("MCP input-bound confirmation", () => {
     const tool = findMcpTool("settlement.request-payout")!;
     expect(tool.guardrails.confirmation.matchInputValue).toBeUndefined();
     expect(getMcpToolConfirmationExpectedValue(tool)).toBe("Request Payout.");
-    expect(
-      flattenMcpTools()
-        .filter((candidate) => candidate.guardrails.confirmation.matchInputValue)
-        .map((candidate) => [candidate.name, candidate.guardrails.confirmation.matchInputValue]),
-    ).toEqual([["marketplace.activate-listing-evidence-policy-draft", "impactAcknowledgmentHash"]]);
     // Operator adopters are held to the catalog-validation rule below; only non-operator tools stay title-bound.
     const nonOperatorInputBoundToolNames = (services: readonly McpServiceDescriptor[] = mcpServiceCatalog) =>
       flattenMcpTools(services)
