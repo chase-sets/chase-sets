@@ -576,11 +576,7 @@ const briefS3Controls = [
     "export function route() { let a: any; ({ holds: a = undefined } = services); return a[method](context, context); }",
     "FAMILY_TYPE_ERASURE",
   ],
-  [
-    "C5",
-    "export function route(svc: H) { let a: any; [...[a]] = [svc]; return a; }",
-    "FAMILY_TYPE_ERASURE",
-  ],
+  ["C5", "export function route(svc: H) { let a: any; [...[a]] = [svc]; return a; }", "FAMILY_TYPE_ERASURE"],
   [
     "C6",
     'declare const rows: H[][]; export function route() { let fn: unknown; for ([...[{ [method as "createHold"]: fn }]] of rows); return fn; }',
@@ -642,7 +638,10 @@ const briefS3CleanControls = [
     'export function route() { let r: InventoryServices["restockDecisions"]; ({ restockDecisions: r } = services); return r; }',
   ],
   ["A17", "declare const t: number[]; export function route() { let a: any; [a] = t; return a; }"],
-  ["B9", "declare const r: { [n: number]: number }; declare const n: number; export function route() { let a: unknown; ({ [n]: a } = r); return a; }"],
+  [
+    "B9",
+    "declare const r: { [n: number]: number }; declare const n: number; export function route() { let a: unknown; ({ [n]: a } = r); return a; }",
+  ],
   [
     "E3",
     "declare const r: { [key: string]: H }; export function route() { let h: H; ({ [method]: h } = r); return h; }",
