@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
@@ -49,6 +50,7 @@ function setup(db: PgQueryable = emptyDb()) {
   });
   return {
     savedLists,
+    allEvents: store.allEvents,
     discovery: createSavedListDiscoveryRuntime({
       db,
       savedLists,
@@ -228,7 +230,7 @@ describe("Saved List discovery application", () => {
 
   it("analytics-guest-response-preserved claims one guest intent idempotently for the same account and destination", async () => {
     const memory = createIntentDb();
-    const { discovery, savedLists } = setup(memory.db);
+    const { discovery, savedLists, allEvents } = setup(memory.db);
     const targetListId = "svl_target" as SavedListId;
     await savedLists.createSavedList(
       {
@@ -255,17 +257,32 @@ describe("Saved List discovery application", () => {
       sourceSurface: "search" as const,
     };
 
-    const first = await discovery.claimAnonymousIntent(claimInput, context);
-    const replay = await discovery.claimAnonymousIntent(claimInput, context);
+    const beforeClaimEvents = allEvents.length;
+    const first = await runWithEventCommitMetadata(async () => {
+      const result = await discovery.claimAnonymousIntent(claimInput, context);
+      return { result, metadata: getEventCommitMetadata() };
+    });
+    const replay = await runWithEventCommitMetadata(async () => {
+      const result = await discovery.claimAnonymousIntent(claimInput, context);
+      return { result, metadata: getEventCommitMetadata() };
+    });
 
-    expect(first.alreadyClaimed).toBe(false);
-    expect(replay).toMatchObject({ alreadyClaimed: true, lineStatus: "added" });
-    expect(replay.command.receipt.replayed).toBe(true);
-    expect(replay.command.savedList.membership).toEqual({
+    expect(first.result.alreadyClaimed).toBe(false);
+    expect(replay.result).toMatchObject({ alreadyClaimed: true, lineStatus: "added" });
+    expect(replay.result.command.receipt.replayed).toBe(true);
+    expect(replay.result.command.savedList.membership).toEqual({
       orderedLineIds: [intent.lineId],
       lineCount: 1,
       trackedUnitCount: 1,
     });
+    expect(first.metadata.sources).toEqual([
+      {
+        sourceContextName: "collections",
+        eventIds: allEvents.slice(beforeClaimEvents).map((event) => event.eventId),
+        maxGlobalPosition: allEvents.at(-1)!.globalPosition,
+      },
+    ]);
+    expect(replay.metadata.eventIds).toEqual([]);
     expect(memory.intents.get(intent.intentId)?.status).toBe("claimed");
     expect(Object.keys(memory.intents.get(intent.intentId)?.claimed_response as object).sort()).toEqual(
       ["alreadyClaimed", "analyticsLabel", "command", "lineStatus", "listId", "title"].sort(),
