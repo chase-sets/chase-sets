@@ -370,6 +370,7 @@ describe("staging count capture lifecycle", () => {
         counts,
         store: captureStoreMutant([
           ["countFingerprint(run.quote) !== countFingerprint(quote)", "false"],
+          ["result.fingerprint !== run.quote.fingerprint", "false"],
           ["result.cap !== run.quote.cap", "false"],
         ])(f.pool, () => f.clock.now),
       }),
