@@ -696,6 +696,7 @@ export function createCountCaptureLifecycle(deps: {
         stoppedAt: frozenAt,
         phase: "freeze",
         reason: stopped ? "capture-stopped" : "missing-observation",
+        sends,
         evidence: { startedAt: base.startedAt, frozenAt, sends, ...(effects ? { effects } : {}) },
         classification: {
           verdict: "INCOMPLETE",
