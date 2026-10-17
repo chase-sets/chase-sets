@@ -40,6 +40,37 @@ export function addCookieMarkers(forbidden, cookies) {
   for (const cookie of cookies) if (cookie.value) forbidden.add(cookie.value);
 }
 
+export function watchSessionMarkers(context, forbidden) {
+  const cookieReads = new Set();
+  let cookieReadFailed = false;
+  context.on("response", () => {
+    const read = Promise.resolve()
+      .then(() => context.cookies())
+      .then((cookies) => addCookieMarkers(forbidden, cookies));
+    cookieReads.add(read);
+    void read
+      .catch(() => {
+        cookieReadFailed = true;
+      })
+      .finally(() => cookieReads.delete(read));
+  });
+  return { cookieReads, hasFailure: () => cookieReadFailed };
+}
+
+// A browser deadline can close the context before the final cookie harvest.
+// Never replace a phased server stop with a synthetic baseline receipt.
+export function settleCaptureReceipt(receipt, finalHarvest = undefined) {
+  if (receipt !== undefined) return receipt;
+  if (finalHarvest !== undefined) return finalHarvest;
+  return {
+    schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+    stoppedAt: new Date().toISOString(),
+    phase: "baseline",
+    reason: "capture-stopped",
+    evidence: {},
+  };
+}
+
 export function collectCaptureDeployment(reader, deployment, now) {
   return collectCountCaptureDeployment(reader, deployment, now);
 }
@@ -113,6 +144,91 @@ export function captureRunnerIdentity(env) {
   };
 }
 
+// Kept as a standalone browser function so every action body and bounded body
+// reader can be exercised without launching a credentialed browser.
+export async function captureActionInPage({
+  apiPath,
+  intent,
+  fields,
+  authority,
+  runId,
+  runAttempt,
+  deadlineMs,
+  byteCap,
+  fetchImpl = fetch,
+}) {
+  const routes = {
+    "capture-baseline": ["/count-capture/baseline", { scopeRecordId: fields.scopeRecordId, authority }],
+    "capture-initial-notice": ["/count-capture/initial-notice", {}],
+    "capture-usage": ["/count-capture/usage", {}],
+    "count-quote": [
+      "/counts/quote",
+      {
+        selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
+        budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+      },
+    ],
+    "capture-quote-readback": ["/count-capture/quote-readback", {}],
+    "capture-final-notice": ["/count-capture/final-notice", {}],
+    "count-acquire": ["/counts/acquire", { quoteId: fields.quoteId, fingerprint: fields.countFingerprint }],
+    preview: [
+      "/preview",
+      {
+        selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
+        budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+      },
+    ],
+    "pre-confirm-planner-read": [
+      "/count-capture/pre-confirm",
+      {
+        selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
+        budget: { creditedProviderRequestLimits: { scrydex: 10 } },
+        planFingerprint: fields.planFingerprint,
+      },
+    ],
+    "capture-freeze": [
+      "/count-capture/freeze",
+      { runnerRunId: runId, runnerRunAttempt: Number(runAttempt), collection: JSON.parse(fields.collection) },
+    ],
+  };
+  const route = routes[intent];
+  if (!route) throw new Error("capture-stopped");
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), deadlineMs);
+  try {
+    const response = await fetchImpl(`${apiPath}${route[0]}`, {
+      method: "POST",
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+      headers: { "content-type": "application/json", "x-catalog-count-capture": "1" },
+      body: JSON.stringify(route[1]),
+      signal: controller.signal,
+    });
+    if (!response.ok || response.headers.get("cache-control") !== "no-store") throw new Error("capture-stopped");
+    if (!response.body) throw new Error("capture-stopped");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    let text = "";
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        if (bytes > byteCap) throw new Error("capture-stopped");
+        text += decoder.decode(chunk.value, { stream: true });
+      }
+      return JSON.parse(text + decoder.decode());
+    } finally {
+      await reader.cancel();
+      reader.releaseLock();
+    }
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
 function paths(env, workspace) {
   if (!env.RUNNER_TEMP) throw refused();
   return {
@@ -157,9 +273,9 @@ export async function capture(env = process.env, workspace = process.cwd()) {
   // Standalone Chromium: no test-runner trace, screenshot, video or storage-state output.
   const { chromium } = await import("@playwright/test");
   const browser = await chromium.launch();
-  const cookieReads = new Set();
-  let cookieReadFailed = false;
   let receipt;
+  let contextClosed = false;
+  let harvest;
   try {
     const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
     const page = await context.newPage();
@@ -180,18 +296,8 @@ export async function capture(env = process.env, workspace = process.cwd()) {
       if (location && new URL(location, url).origin !== origin) return route.abort("blockedbyclient");
       return route.fulfill({ response });
     });
-    context.on("response", () => {
-      // Cookie values never leave this process, including values rotated at sign-in.
-      const read = context.cookies().then((cookies) => {
-        addCookieMarkers(forbidden, cookies);
-      });
-      cookieReads.add(read);
-      void read
-        .catch(() => {
-          cookieReadFailed = true;
-        })
-        .finally(() => cookieReads.delete(read));
-    });
+    // Cookie values never leave this process, including values rotated at sign-in.
+    harvest = watchSessionMarkers(context, forbidden);
     await page.goto(`${origin}/access/sign-in?returnTo=%2Fcatalog%2Fscopes%2Fsync-batches`, {
       waitUntil: "domcontentloaded",
     });
@@ -208,93 +314,19 @@ export async function capture(env = process.env, workspace = process.cwd()) {
       if (new URL(page.url()).origin !== origin) throw refused();
       let timer;
       const result = await Promise.race([
-        page.evaluate(
-          async ({ apiPath, intent, fields, authority, runId, runAttempt, deadlineMs, byteCap }) => {
-            const routes = {
-              "capture-baseline": ["/count-capture/baseline", { scopeRecordId: fields.scopeRecordId, authority }],
-              "capture-initial-notice": ["/count-capture/initial-notice", {}],
-              "capture-usage": ["/count-capture/usage", {}],
-              "count-quote": [
-                "/counts/quote",
-                {
-                  selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
-                  budget: { creditedProviderRequestLimits: { scrydex: 10 } },
-                },
-              ],
-              "capture-quote-readback": ["/count-capture/quote-readback", {}],
-              "capture-final-notice": ["/count-capture/final-notice", {}],
-              "count-acquire": ["/counts/acquire", { quoteId: fields.quoteId, fingerprint: fields.countFingerprint }],
-              preview: [
-                "/preview",
-                {
-                  selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
-                  budget: { creditedProviderRequestLimits: { scrydex: 10 } },
-                },
-              ],
-              "pre-confirm-planner-read": [
-                "/count-capture/pre-confirm",
-                {
-                  selection: { mode: "ids", scopeRecordIds: [fields.scopeRecordId] },
-                  budget: { creditedProviderRequestLimits: { scrydex: 10 } },
-                  planFingerprint: fields.planFingerprint,
-                },
-              ],
-              "capture-freeze": [
-                "/count-capture/freeze",
-                { runnerRunId: runId, runnerRunAttempt: runAttempt, collection: JSON.parse(fields.collection) },
-              ],
-            };
-            const route = routes[intent];
-            if (!route) throw new Error("capture-stopped");
-            const controller = new AbortController();
-            const deadline = setTimeout(() => controller.abort(), deadlineMs);
-            try {
-              const response = await fetch(`${apiPath}${route[0]}`, {
-                method: "POST",
-                credentials: "same-origin",
-                redirect: "error",
-                cache: "no-store",
-                headers: { "content-type": "application/json", "x-catalog-count-capture": "1" },
-                body: JSON.stringify(route[1]),
-                signal: controller.signal,
-              });
-              if (!response.ok || response.headers.get("cache-control") !== "no-store")
-                throw new Error("capture-stopped");
-              if (!response.body) throw new Error("capture-stopped");
-              const reader = response.body.getReader();
-              const decoder = new TextDecoder();
-              let bytes = 0;
-              let text = "";
-              try {
-                while (true) {
-                  const chunk = await reader.read();
-                  if (chunk.done) break;
-                  bytes += chunk.value.byteLength;
-                  if (bytes > byteCap) throw new Error("capture-stopped");
-                  text += decoder.decode(chunk.value, { stream: true });
-                }
-                return JSON.parse(text + decoder.decode());
-              } finally {
-                await reader.cancel();
-                reader.releaseLock();
-              }
-            } finally {
-              clearTimeout(deadline);
-            }
-          },
-          {
-            apiPath,
-            intent,
-            fields: { scopeRecordId: identity.scopeRecordId, ...fields },
-            authority,
-            runId: identity.run,
-            runAttempt: identity.attempt,
-            deadlineMs: captureActionDeadlineMs,
-            byteCap: captureResponseByteCap,
-          },
-        ),
+        page.evaluate(captureActionInPage, {
+          apiPath,
+          intent,
+          fields: { scopeRecordId: identity.scopeRecordId, ...fields },
+          authority,
+          runId: identity.run,
+          runAttempt: identity.attempt,
+          deadlineMs: captureActionDeadlineMs,
+          byteCap: captureResponseByteCap,
+        }),
         new Promise((_, reject) => {
           timer = setTimeout(async () => {
+            contextClosed = true;
             await context.close().catch(() => undefined);
             reject(new Error("capture-stopped"));
           }, captureActionDeadlineMs);
@@ -309,21 +341,15 @@ export async function capture(env = process.env, workspace = process.cwd()) {
       undefined,
       (deployment, now) => collectCaptureDeployment(reader, deployment, now),
     );
-    addCookieMarkers(forbidden, await context.cookies());
+    if (!contextClosed) addCookieMarkers(forbidden, await context.cookies());
   } catch {
-    receipt = {
-      schemaVersion: "scope-sync-count-lifecycle-stop/v1",
-      stoppedAt: new Date().toISOString(),
-      phase: "baseline",
-      reason: "capture-stopped",
-      evidence: {},
-    };
+    receipt = settleCaptureReceipt(receipt);
   } finally {
-    await Promise.allSettled([...cookieReads]);
+    await Promise.allSettled([...(harvest?.cookieReads ?? [])]);
     await browser.close();
-    await Promise.allSettled([...cookieReads]);
+    await Promise.allSettled([...(harvest?.cookieReads ?? [])]);
   }
-  if (cookieReadFailed) throw refused();
+  if (harvest?.hasFailure()) throw refused();
   receipt = completeStopReceipt(receipt, identity);
   // This digest binds the later upload to the bytes scanned with session markers
   // still in memory. No marker, cookie, or browser state is exported in the seal.

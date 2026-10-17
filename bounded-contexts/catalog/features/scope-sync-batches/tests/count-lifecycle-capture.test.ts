@@ -62,8 +62,7 @@ describe("staging count capture lifecycle", () => {
     const action = async (intent: string, fields: Readonly<Record<string, string>>) => {
       const [path, baseBody] = paths[intent]!;
       const body = { ...baseBody };
-      if (intent === "capture-freeze")
-        body.collection = JSON.stringify({ ...authority.collection, collectedAt: fixture.clock.now });
+      if (intent === "capture-freeze") body.collection = { ...authority.collection, collectedAt: fixture.clock.now };
       if (intent === "count-acquire") {
         const quote = fields.quoteId ? { quoteId: fields.quoteId, fingerprint: fields.countFingerprint } : {};
         Object.assign(body, quote);
@@ -94,46 +93,92 @@ describe("staging count capture lifecycle", () => {
     expect("sends" in receipt ? receipt.sends.length : 0).toBeLessThanOrEqual(11);
   });
 
-  it.each(["cap overflow", "refused authority", "replay", "refresh"])(
-    "rejects unsafe lifecycle (%s) through the route adapter with retained debit evidence",
-    async () => {
-      const fixture = await createCountCaptureDbFixture(pools.catalog);
-      const authority = captureAuthority();
-      const app = new Hono<{ Variables: { context: typeof captureContext; actor: ReturnType<typeof captureActor> } }>();
-      app.use("*", async (c, next) => {
-        c.set("context", captureContext);
-        c.set("actor", captureActor());
-        await next();
+  it.each([
+    ["cap overflow", "cap-overflow"],
+    ["refused authority", "invalid-acquire"],
+    ["replay", "duplicate-acquire"],
+    ["refresh", "scope-refresh"],
+  ])("rejects unsafe lifecycle (%s) through the runner path with retained debit evidence", async ([_label, mode]) => {
+    const fixture = await createCountCaptureDbFixture(pools.catalog);
+    const authority = captureAuthority();
+    const app = new Hono<{ Variables: { context: typeof captureContext; actor: ReturnType<typeof captureActor> } }>();
+    app.use("*", async (c, next) => {
+      c.set("context", captureContext);
+      c.set("actor", captureActor());
+      await next();
+    });
+    app.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes(fixture.runtime, fixture.lifecycle));
+    const post = (path: string, body: unknown) =>
+      app.request(`https://admin.staging.chasesets.com/api/catalog/scope-sync-batches${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://admin.staging.chasesets.com",
+          "x-catalog-count-capture": "1",
+        },
+        body: JSON.stringify(body),
       });
-      app.route("/api/catalog/scope-sync-batches", scopeSyncBatchRoutes(fixture.runtime, fixture.lifecycle));
-      const post = (path: string, body: unknown) =>
-        app.request(`https://admin.staging.chasesets.com/api/catalog/scope-sync-batches${path}`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            origin: "https://admin.staging.chasesets.com",
-            "x-catalog-count-capture": "1",
-          },
-          body: JSON.stringify(body),
-        });
-      expect((await post("/count-capture/baseline", { scopeRecordId: captureScope, authority })).status).toBe(200);
-      expect((await post("/count-capture/initial-notice", {})).status).toBe(200);
-      const response = await post("/count-capture/freeze", {
-        runnerRunId: "300",
-        runnerRunAttempt: 1,
-        collection: {
+    const identity = { sha: authority.runnerSha, dispatchId: authority.dispatchId, scopeRecordId: captureScope };
+    let acquisitionBody: Record<string, unknown> | undefined;
+    const action = async (intent: string, fields: Readonly<Record<string, string>>) => {
+      const body: Record<string, unknown> = (() => {
+        switch (intent) {
+          case "capture-baseline":
+            return { scopeRecordId: captureScope, authority };
+          case "capture-initial-notice":
+          case "capture-usage":
+          case "capture-quote-readback":
+          case "capture-final-notice":
+            return {};
+          case "count-quote":
+            return { selection: fixture.selection, budget: fixture.budget };
+          case "count-acquire":
+            return { quoteId: fields.quoteId, fingerprint: fields.countFingerprint };
+          case "preview":
+            return { selection: fixture.selection, budget: fixture.budget };
+          case "pre-confirm-planner-read":
+            return { selection: fixture.selection, budget: fixture.budget, planFingerprint: fields.planFingerprint };
+          case "capture-freeze":
+            return { runnerRunId: "300", runnerRunAttempt: 1, collection: JSON.parse(fields.collection) };
+          default:
+            throw new Error(`unknown-intent-${intent}`);
+        }
+      })();
+      if (intent === "count-acquire") {
+        acquisitionBody = body;
+        if (mode === "invalid-acquire") {
+          const refused = await post("/counts/acquire", { quoteId: fields.quoteId, fingerprint: "f".repeat(64) });
+          expect(refused.ok).toBe(false);
+        }
+      }
+      if (intent === "capture-freeze")
+        body.collection = {
           ...authority.collection,
           outcome: "unknown",
           reason: "authority-invalid",
           binding: null,
-          collectedAt: fixture.clock.now,
-        },
-      });
-      expect(response.status).toBe(200);
-      const stop = await response.json();
-      expect(validateCountLifecycleReceipt(stop.receipt).valid).toBe(true);
-      expect(stop.receipt.classification.verdict).toBe("INCOMPLETE");
-      expect("sends" in stop.receipt ? stop.receipt.sends.length : 0).toBe(0);
-    },
-  );
+          collectedAt: mode === "scope-refresh" ? "2026-10-13T08:05:00.000Z" : fixture.clock.now,
+        };
+      const response = await post(paths[intent]![0], body);
+      const value = await response.json();
+      if (!response.ok) throw new Error(`action-${intent}-${response.status}`);
+      if ((mode === "cap-overflow" || mode === "replay") && intent === "count-acquire") {
+        const repeats = mode === "cap-overflow" ? 2 : 1;
+        for (let index = 0; index < repeats; index++) {
+          const replay = await post("/counts/acquire", acquisitionBody);
+          expect(replay.ok).toBe(false);
+        }
+      }
+      return value;
+    };
+    const result = await runCountCaptureJourney(
+      identity,
+      action,
+      () => fixture.clock.now,
+      async () => countCaptureCollectionSchema.parse({ ...authority.collection, collectedAt: fixture.clock.now }),
+    );
+    expect(validateCountLifecycleReceipt(result).valid).toBe(true);
+    expect(result.classification.verdict).toBe("INCOMPLETE");
+    expect("sends" in result ? result.sends.length : 0).toBeGreaterThan(0);
+  });
 });

@@ -7,6 +7,7 @@ import {
   readCountCaptureExecutedRevision,
   readCountCaptureWorkflowCapabilities,
 } from "./catalog-count-capture-deployment.mjs";
+import { collectCaptureDeployment } from "./catalog-staging-count-lifecycle.mjs";
 
 // Recorded evidence of Platform Deploy run 38349636491 (FINAL packet E/deploy.run.json,
 // E/deploy.jobs.json, E/deploy-staging.log:5205-5239) and a reduced copy of its exact
@@ -1090,5 +1091,20 @@ describe("classifies the current head-bound workflow definitions", () => {
     expect(capabilities("catalog-staging-provider-uat.yml")).toMatchObject({ "staging-provider-uat": "non-mutating" });
     expect(capabilities("platform-pr.yml")).toMatchObject({ "compose-preview-smoke": "reusable" });
     expect(capabilities("platform-compose-boot-smoke.yml")).toMatchObject({ verify: "non-mutating" });
+  });
+});
+
+describe("count capture runner collector wiring", () => {
+  it("passes the #9583 deployment block, not its authority envelope, to the collector", async () => {
+    const value = positiveFixture();
+    const reader = fakeReader(value);
+    await expect(collectCaptureDeployment(reader, deployment, now)).resolves.toMatchObject({ outcome: "bound" });
+
+    const mutantReader = fakeReader(value);
+    await expect(collectCaptureDeployment(mutantReader, { deployment }, now)).resolves.toMatchObject({
+      outcome: "unknown",
+      reason: "authority-invalid",
+    });
+    expect(mutantReader.json).not.toHaveBeenCalled();
   });
 });

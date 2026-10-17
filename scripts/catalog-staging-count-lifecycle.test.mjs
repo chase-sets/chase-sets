@@ -3,13 +3,22 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
+import { z } from "../bounded-contexts/catalog/node_modules/zod/index.js";
+import {
+  countCaptureFreezeInputSchema,
+  countCapturePlannerInputSchema,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/api/count-capture-lifecycle";
 import {
   captureExitCode,
   captureActionDeadlineMs,
   captureResponseByteCap,
   addCookieMarkers,
+  watchSessionMarkers,
+  persistCaptureReceipt,
+  settleCaptureReceipt,
+  captureActionInPage,
   captureRunnerIdentity,
   captureUploadIdentity,
   completeStopReceipt,
@@ -76,6 +85,57 @@ describe("capture receipt contracts", () => {
     module.addCookieMarkers(markers, [{ value: "rotated-cookie" }]);
     expect(markers).toEqual(new Set(["initial-cookie", "rotated-cookie"]));
   });
+  it("harvests a rotated response cookie before upload and refuses the value-free artifact", async () => {
+    const marker = "rotated-cookie-marker";
+    let onResponse;
+    const context = {
+      on: (event, handler) => {
+        if (event === "response") onResponse = handler;
+      },
+      cookies: async () => [{ value: marker }],
+    };
+    const forbidden = new Set();
+    const harvest = watchSessionMarkers(context, forbidden);
+    onResponse();
+    await Promise.allSettled([...harvest.cookieReads]);
+    expect(forbidden).toContain(marker);
+    const identity = captureRunnerIdentity({
+      GITHUB_ACTIONS: "true",
+      ADMIN_WEB_URL: "https://admin.staging.chasesets.com",
+      GITHUB_SHA: "a".repeat(40),
+      EXPECTED_SHA: "a".repeat(40),
+      GITHUB_RUN_ID: "123",
+      GITHUB_RUN_ATTEMPT: "1",
+      CATALOG_STAGING_PROVIDER_UAT_SCOPE: "scope-sync-count-lifecycle",
+      CATALOG_CAPTURE_DISPATCH_ID: marker,
+      CATALOG_CAPTURE_SCOPE_RECORD_ID: "synthetic-scope",
+      CATALOG_CAPTURE_AUTHORITY: JSON.stringify(syntheticCountCaptureAuthority()),
+    });
+    const receipt = completeStopReceipt(
+      {
+        schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+        stoppedAt: "2026-10-13T08:06:00.000Z",
+        phase: "baseline",
+        reason: "capture-stopped",
+        evidence: {},
+      },
+      identity,
+    );
+    const root = await mkdtemp(join(tmpdir(), "count-capture-upload-"));
+    roots.push(root);
+    await expect(
+      persistCaptureReceipt(receipt, forbidden, { seal: join(root, "seal.json") }, root, identity),
+    ).rejects.toThrow();
+    await expect(readFile(join(root, "seal.json"))).rejects.toThrow();
+  });
+  it("keeps the runner phase when a deadline closes the browser context", () => {
+    const receipt = {
+      schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+      phase: "acquisition",
+      reason: "capture-stopped",
+    };
+    expect(settleCaptureReceipt(receipt)).toBe(receipt);
+  });
   it.each(["authority-unbound", "deployment-unknown", "capture-stopped", "missing-observation"])(
     "derives the classification for %s",
     (reason) => {
@@ -103,6 +163,59 @@ describe("capture receipt contracts", () => {
   it("leaves explicit headroom over the largest valid freeze receipt", () => {
     expect(captureResponseByteCap).toBeGreaterThan(128_000 + JSON.stringify({ receipt: null }).length);
     expect(captureActionDeadlineMs).toBeGreaterThan(0);
+  });
+  it("dry-validates all ten request bodies against the deployed route schemas without sending them", async () => {
+    const authority = syntheticCountCaptureAuthority();
+    const fields = {
+      scopeRecordId: "synthetic-scope",
+      quoteId: "00000000-0000-4000-8000-000000000001",
+      countFingerprint: "a".repeat(64),
+      planFingerprint: "b".repeat(64),
+      collection: JSON.stringify(authority.collection),
+    };
+    const requests = [];
+    const fetchImpl = vi.fn(async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return new Response(JSON.stringify({}), { headers: { "cache-control": "no-store" } });
+    });
+    for (const intent of [
+      "capture-baseline",
+      "capture-initial-notice",
+      "capture-usage",
+      "count-quote",
+      "capture-quote-readback",
+      "capture-final-notice",
+      "count-acquire",
+      "preview",
+      "pre-confirm-planner-read",
+      "capture-freeze",
+    ])
+      await captureActionInPage({
+        apiPath: "/api/catalog/scope-sync-batches",
+        intent,
+        fields,
+        authority,
+        runId: "123",
+        runAttempt: "1",
+        deadlineMs: 1_000,
+        byteCap: captureResponseByteCap,
+        fetchImpl,
+      });
+    expect(requests).toHaveLength(10);
+    const empty = z.object({}).strict();
+    const schemas = [
+      z.object({ scopeRecordId: z.string().min(1), authority: z.unknown() }).strict(),
+      empty,
+      empty,
+      countCapturePlannerInputSchema,
+      empty,
+      empty,
+      z.object({ quoteId: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+      countCapturePlannerInputSchema,
+      countCapturePlannerInputSchema.extend({ planFingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+      countCaptureFreezeInputSchema,
+    ];
+    schemas.forEach((schema, index) => expect(schema.safeParse(requests[index]).success).toBe(true));
   });
 });
 

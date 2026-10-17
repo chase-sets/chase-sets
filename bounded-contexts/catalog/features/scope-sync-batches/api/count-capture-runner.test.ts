@@ -186,11 +186,57 @@ describe("isolates the count capture runner", () => {
         },
       },
     };
-    const action = vi.fn(async (intent: string, fields: Readonly<Record<string, string>>) =>
-      intent === "capture-freeze" ? { receipt: stopReceipt } : original(intent),
-    );
+    const action = vi.fn(async (intent: string, fields: Readonly<Record<string, string>>) => {
+      if (intent === "capture-freeze") {
+        expect(JSON.parse(fields.collection!)).toEqual(drifted);
+        return { receipt: stopReceipt };
+      }
+      return original(intent);
+    });
     const result = await runCountCaptureJourney(identity, action, now, collect);
     expect(result).toMatchObject({ reason: "missing-observation", classification: { verdict: "INCOMPLETE" } });
+  });
+
+  it("forwards an unknown freeze-time collector result and preserves the server stop", async () => {
+    const { action: original, collect, receipt } = journey();
+    const beforeFreeze = countCaptureCollectionSchema.parse(receipt.freezeCollection);
+    const unknown = countCaptureCollectionSchema.parse({
+      ...beforeFreeze,
+      collectedAt: "2026-10-13T08:05:00.000Z",
+      outcome: "unknown",
+      reason: "authority-invalid",
+      binding: null,
+    });
+    collect.mockResolvedValueOnce(beforeFreeze).mockResolvedValueOnce(unknown);
+    const stopReceipt = {
+      schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+      attribution: receipt.attribution,
+      stoppedAt: receipt.frozenAt,
+      phase: "freeze",
+      reason: "missing-observation",
+      evidence: {
+        startedAt: receipt.startedAt,
+        frozenAt: receipt.frozenAt,
+        sends: receipt.sends,
+        effects: receipt.effects,
+      },
+      classification: {
+        verdict: "INCOMPLETE",
+        reasons: ["missing-observation"],
+        acceptance: {
+          "9431-ac7": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+          "9424-ac5": { verdict: "INCOMPLETE", reasons: ["missing-observation"] },
+        },
+      },
+    };
+    const action = vi.fn(async (intent: string, fields: Readonly<Record<string, string>>) => {
+      if (intent === "capture-freeze") {
+        expect(JSON.parse(fields.collection!)).toEqual(unknown);
+        return { receipt: stopReceipt };
+      }
+      return original(intent);
+    });
+    await expect(runCountCaptureJourney(identity, action, now, collect)).resolves.toEqual(stopReceipt);
   });
 
   it("stops after no action when the deployment collector is absent", async () => {
