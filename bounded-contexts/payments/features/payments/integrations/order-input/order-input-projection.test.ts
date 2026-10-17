@@ -21,6 +21,10 @@ describe("payments order input projection", () => {
       { sellerNetAmount: "0.00", sellerPayoutAmount: amount },
     ]);
     cases.push({ sellerNetAmount: "9999999999.99", sellerShippingPayoutAmount: "0.01" });
+    cases.push(
+      { sellerNetAmount: "-1.00", sellerShippingPayoutAmount: "2.00" },
+      { sellerNetAmount: "2.00", sellerShippingPayoutAmount: "-1.00" },
+    );
     for (const commercialTermsSnapshot of cases) {
       const db = { query: vi.fn(async () => ({ rows: [] })) };
       const handler = buildPaymentsOrderInputProjectionHandlers(db)["ordering.order.created"]!;

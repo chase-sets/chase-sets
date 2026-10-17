@@ -384,6 +384,50 @@ describe("payments support refund effect projection", () => {
     );
   });
 
+  it("AC2 skips a return refund when shipping deduction exceeds the released amount", async () => {
+    const issueRefund = vi.fn();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT requested_amount")) {
+          return {
+            rows: [
+              {
+                requested_amount: "5.00",
+                return_shipping_deduction_amount: "7.50",
+                resolution_type: "return-for-refund",
+              },
+            ],
+          };
+        }
+        if (sql.includes("FROM payments_payment_pages")) {
+          return {
+            rows: [{ payment_id: "pay_1", order_refund_caps: [], order_refunded_amounts: [] }],
+          };
+        }
+        if (sql.includes("FROM payments_order_inputs")) return { rows: [{ order_id: "ord_1", total_amount: "12.00" }] };
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund } as never);
+
+    await handlers["support.support-request.return-refund-released"]?.({
+      ...baseEvent(),
+      type: "support.support-request.return-refund-released",
+      data: {
+        supportRequestId: "sup_01ABC",
+        orderId: "ord_1",
+        releasedAt: "2026-06-06T00:00:00.000Z",
+      },
+    } as never);
+
+    expect(issueRefund).not.toHaveBeenCalled();
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("status = 'skipped'"), [
+      "sup_01ABC",
+      "Order had no remaining refundable amount when the return refund released.",
+      "2026-06-06T00:00:00.000Z",
+    ]);
+  });
+
   it("records actual buyer-paid return postage as the pending refund deduction and clears it after a refunding void", async () => {
     const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
     const handlers = buildPaymentsSupportRefundEffectHandlers(db as never, { issueRefund: vi.fn() } as never);

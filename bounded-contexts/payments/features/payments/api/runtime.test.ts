@@ -201,6 +201,16 @@ describe("payments money consolidation", () => {
       api.buildOrderRefundCaps!([{ order_id: "ord_synthetic_a", total_amount: "9999999999.99" }], "0.01"),
     ).toThrow();
     expect(() =>
+      api.buildOrderRefundCaps!(
+        [
+          { order_id: "ord_synthetic_a", total_amount: "0.02" },
+          { order_id: "ord_synthetic_b", total_amount: "0.02" },
+          { order_id: "ord_synthetic_c", total_amount: "-0.01" },
+        ],
+        "0.01",
+      ),
+    ).toThrow("Money amount must be a non-negative decimal");
+    expect(() =>
       domain.normalizeOrderMoneyAmounts!(
         [
           { orderId: "ord_synthetic_a", amount: "9999999999.99" },
