@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES,
+  AGENT_OAUTH_COMMERCE_SCOPES,
+  AGENT_OAUTH_KNOWN_SCOPE_FAMILIES,
+  AGENT_OAUTH_OPERATOR_SCOPES,
   createAuthBootstrapContext,
+  isAgentOAuthOperatorScope,
+  isAgentOAuthScope,
+  normalizeAgentOAuthScopes,
   parseCookieHeader,
   readAuthSessionToken,
   resolveRecentAuthenticationStatus,
@@ -18,6 +25,36 @@ describe("auth request context helpers", () => {
     expect(resolveAgentOAuthScopedPermissions(["dev.ucp.shopping.checkout:manage"], ["orders.view"])).toEqual([
       "orders.view",
     ]);
+  });
+
+  it("recognizes operator scopes without granting a permission or entering the commerce list", () => {
+    const everyPermission = [
+      ...new Set(
+        AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES.flatMap((family) => family.scopes.flatMap((scope) => scope.permissions)),
+      ),
+      "insights-dashboards.view",
+      "projection-operations.rebuild",
+      "catalog.manage",
+    ];
+    expect(AGENT_OAUTH_OPERATOR_SCOPES).toEqual(["operations:read", "operations:write"]);
+    for (const scope of AGENT_OAUTH_OPERATOR_SCOPES) {
+      expect(isAgentOAuthScope(scope)).toBe(true);
+      expect(isAgentOAuthOperatorScope(scope)).toBe(true);
+      expect(AGENT_OAUTH_COMMERCE_SCOPES).not.toContain(scope);
+      expect(JSON.stringify(AGENT_OAUTH_COMMERCE_SCOPE_FAMILIES)).not.toContain(scope);
+      expect(resolveAgentOAuthScopedPermissions([scope], everyPermission)).toEqual([]);
+    }
+    expect(normalizeAgentOAuthScopes("operations:write catalog:read operations:read")).toEqual([
+      "catalog:read",
+      "operations:read",
+      "operations:write",
+    ]);
+    expect(resolveAgentOAuthScopedPermissions(["operations:write", "catalog:read"], everyPermission)).toEqual([
+      "catalog.view",
+    ]);
+    expect(agentOAuthScopesForPermissions(everyPermission).filter(isAgentOAuthOperatorScope)).toEqual([]);
+    expect(AGENT_OAUTH_COMMERCE_SCOPES.some(isAgentOAuthOperatorScope)).toBe(false);
+    expect(AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map((family) => family.family)).toContain("operations");
   });
 
   it("parses cookie headers with empty and encoded values", () => {
