@@ -16,7 +16,7 @@ import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-
 import type { PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
-import { sumMoneyAmounts } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
 import {
   assert,
   compareMoney,
@@ -468,14 +468,6 @@ function buildSellerPayoutComponents(
   });
 }
 
-function moneyToCents(value: string) {
-  return Math.round(Number.parseFloat(value) * 100);
-}
-
-function centsToMoney(cents: number) {
-  return (cents / 100).toFixed(2);
-}
-
 function fraudRefundId(providerEventId: string): RefundId {
   return `rfd_fraud_${providerEventId.replaceAll(/[^a-zA-Z0-9]+/g, "_").replaceAll(/^_+|_+$/g, "")}` as RefundId;
 }
@@ -487,11 +479,19 @@ function buildOrderRefundCaps(
   }>[],
   marketplaceCheckoutFeeAmount: string,
 ) {
-  const checkoutFeeCents = moneyToCents(marketplaceCheckoutFeeAmount);
-  const orderTotals = orders.map((order) => ({
-    orderId: order.order_id as OrderId,
-    totalCents: moneyToCents(order.total_amount),
-  }));
+  // Keep the shipped number-floor plus last-order-remainder schedule.
+  // Canonical cents are at most 999999999999, so each narrowing is lossless.
+  // Exact bigint proportional division would shift valid per-order caps.
+
+  const validatedCheckoutFeeCents = moneyToCents(marketplaceCheckoutFeeAmount);
+  const checkoutFeeCents = Number(validatedCheckoutFeeCents);
+  const orderTotals = orders.map((order) => {
+    const validatedOrderTotalCents = moneyToCents(order.total_amount);
+    return {
+      orderId: order.order_id as OrderId,
+      totalCents: Number(validatedOrderTotalCents),
+    };
+  });
   const totalCents = orderTotals.reduce((sum, order) => sum + order.totalCents, 0);
   let allocatedCheckoutFeeCents = 0;
 
@@ -505,7 +505,7 @@ function buildOrderRefundCaps(
     allocatedCheckoutFeeCents += checkoutFeeAllocation;
     return {
       orderId: order.orderId,
-      amount: centsToMoney(order.totalCents + checkoutFeeAllocation),
+      amount: centsToMoneyAmount(order.totalCents + checkoutFeeAllocation),
     };
   });
 }

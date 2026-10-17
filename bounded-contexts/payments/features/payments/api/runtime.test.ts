@@ -19,6 +19,198 @@ import { createPaymentWebhookRunner } from "./webhook-transaction";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "@chase-sets/typescript-compiler-api";
+import * as money from "@chase-sets/primitives/money";
+import { normalizeMoneyAmount as normalizeDomainMoneyAmount } from "../../../support/runtime-support/common";
+
+// The high-value allocation witness cannot enter checkout: its combined payment
+// exceeds the payment maximum even though each resulting order cap is in range.
+// Execute the actual private declarations, without adding production exports.
+function privateMoneyFunctions(file: URL, names: readonly string[], bindings: Record<string, unknown> = {}) {
+  const source = ts.createSourceFile(file.pathname, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const declarations = source.statements.filter(
+    (statement) => ts.isFunctionDeclaration(statement) && statement.name && names.includes(statement.name.text),
+  );
+  expect(declarations).toHaveLength(names.length);
+  const code = ts.transpileModule(declarations.map((node) => node.getText(source)).join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  return runInNewContext(`${code}\n({ ${names.join(",")} })`, {
+    ...money,
+    ...bindings,
+    exports: {},
+  }) as Record<string, (...args: unknown[]) => unknown>;
+}
+
+describe("payments money consolidation", () => {
+  const api = privateMoneyFunctions(new URL("./runtime.ts", import.meta.url), ["buildOrderRefundCaps"]);
+  const cancellation = privateMoneyFunctions(
+    new URL("../../refunds/integrations/ordering/order-cancellation-refund-effect-projection.ts", import.meta.url),
+    ["orderMoneyAmount", "remainingRefundableOrderAmount", "orderTotalsFromInputs", "allocateCheckoutFeeCents"],
+  );
+  const support = privateMoneyFunctions(
+    new URL("../../refunds/integrations/support/support-refund-effect-projection.ts", import.meta.url),
+    ["compareMoney", "minMoney", "clampMoneyDifference", "orderMoneyAmount", "remainingRefundableOrderAmount"],
+  );
+  const domain = privateMoneyFunctions(
+    new URL("../domain/domain.ts", import.meta.url),
+    [
+      "moneyForOrder",
+      "refundableCapsForState",
+      "requestedAmountForOrder",
+      "remainingRefundableAmountForOrder",
+      "remainingRefundableAmountForOrders",
+      "allocateRefundAmountToOrders",
+      "normalizeOrderMoneyAmounts",
+      "mergeRefundedOrderAmounts",
+    ],
+    {
+      normalizeMoneyAmount: normalizeDomainMoneyAmount,
+      normalizeRequiredText: (value: string) => value,
+      assert: (condition: boolean, message: string) => {
+        if (!condition) throw new Error(message);
+      },
+    },
+  );
+
+  it("maps every domain sum, merge, allocation and unsigned comparison to an in-range value witness", () => {
+    const state = {
+      orderRefundCaps: [
+        { orderId: "ord_synthetic_a", amount: "1.00" },
+        { orderId: "ord_synthetic_b", amount: "0.30" },
+      ],
+      refundedOrderAmounts: [{ orderId: "ord_synthetic_a", amount: "0.10" }],
+      refundRequests: [
+        { refundId: "rfd_synthetic_a", orderIds: ["ord_synthetic_a"], amount: "0.20" },
+        { refundId: "rfd_synthetic_b", orderIds: ["ord_synthetic_a"], amount: "0.30" },
+      ],
+    };
+    expect(domain.requestedAmountForOrder!(state, "ord_synthetic_a")).toBe("0.50");
+    expect(domain.remainingRefundableAmountForOrder!(state, "ord_synthetic_a")).toBe("0.40");
+    expect(domain.remainingRefundableAmountForOrders!(state, ["ord_synthetic_a", "ord_synthetic_b"])).toBe("0.70");
+    expect(domain.allocateRefundAmountToOrders!(state, ["ord_synthetic_a", "ord_synthetic_b"], "1.20")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "0.90" },
+      { orderId: "ord_synthetic_b", amount: "0.30" },
+    ]);
+    expect(() =>
+      domain.mergeRefundedOrderAmounts!(
+        [{ orderId: "ord_synthetic_a", amount: "9999999999.99" }],
+        [{ orderId: "ord_synthetic_a", amount: "0.01" }],
+      ),
+    ).toThrow();
+    expect(domain.normalizeOrderMoneyAmounts!([{ orderId: "ord_synthetic_a", amount: " 01.00 " }], "cap")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "1.00" },
+    ]);
+    expect(support.compareMoney!("01.00", "1.00")).toBe(0);
+    expect(support.compareMoney!("1.00", "2.00")).toBe(-1);
+    expect(support.compareMoney!("2.00", "1.00")).toBe(1);
+    expect(support.minMoney!("01.00", "2.00")).toBe("1.00");
+  });
+
+  it("payments money consolidation preserves in-range results, clamps every subtraction schedule at zero, and preserves both proportional allocation schedules", () => {
+    const orders = [
+      { order_id: "ord_synthetic_a", total_amount: "3318766959.20" },
+      { order_id: "ord_synthetic_b", total_amount: "360965323.97" },
+    ];
+    expect(api.buildOrderRefundCaps!(orders, "7112467809.87")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "9733533401.24" },
+      { orderId: "ord_synthetic_b", amount: "1058666691.80" },
+    ]);
+    const totals = cancellation.orderTotalsFromInputs!(new Map(orders.map((order) => [order.order_id, order])));
+    expect(
+      orders.map((order) =>
+        cancellation.allocateCheckoutFeeCents!({
+          orderId: order.order_id,
+          paymentOrderIds: orders.map((row) => row.order_id),
+          orderTotals: totals,
+          checkoutFeeCents: 711246780987,
+        }),
+      ),
+    ).toEqual([641476644204, 69770136783]);
+    for (const [cap, refunded, expected] of [
+      ["1.00", "2.00", "0.00"],
+      ["12.99", "1.00", "11.99"],
+      ["1.00", "1.00", "0.00"],
+    ]) {
+      const payment = {
+        order_refund_caps: [{ orderId: "ord_synthetic_a", amount: cap }],
+        order_refunded_amounts: [{ orderId: "ord_synthetic_a", amount: refunded }],
+      };
+      expect(cancellation.remainingRefundableOrderAmount!(payment, "ord_synthetic_a", cap)).toBe(expected);
+      expect(support.remainingRefundableOrderAmount!(payment, "ord_synthetic_a", cap)).toBe(expected);
+      expect(support.clampMoneyDifference!(cap, refunded)).toBe(expected);
+      const state = {
+        orderRefundCaps: [{ orderId: "ord_synthetic_a", amount: cap }],
+        refundedOrderAmounts: [{ orderId: "ord_synthetic_a", amount: refunded }],
+        refundRequests: [],
+      };
+      expect(domain.remainingRefundableAmountForOrder!(state, "ord_synthetic_a")).toBe(expected);
+      if (expected === "0.00") {
+        expect(() => domain.allocateRefundAmountToOrders!(state, ["ord_synthetic_a"], "0.01")).toThrow(
+          "Refund amount cannot exceed",
+        );
+      } else {
+        expect(domain.allocateRefundAmountToOrders!(state, ["ord_synthetic_a"], "1.00")).toEqual([
+          { orderId: "ord_synthetic_a", amount: "1.00" },
+        ]);
+      }
+    }
+    const reserved = {
+      orderRefundCaps: [{ orderId: "ord_synthetic_a", amount: "1.00" }],
+      refundedOrderAmounts: [],
+      refundRequests: [{ refundId: "rfd_synthetic", orderIds: ["ord_synthetic_a"], amount: "2.00" }],
+    };
+    expect(domain.remainingRefundableAmountForOrder!(reserved, "ord_synthetic_a")).toBe("0.00");
+    expect(
+      domain.normalizeOrderMoneyAmounts!(
+        [
+          { orderId: "ord_synthetic_a", amount: "12.99" },
+          { orderId: "ord_synthetic_a", amount: "0.01" },
+        ],
+        "cap",
+      ),
+    ).toEqual([{ orderId: "ord_synthetic_a", amount: "13.00" }]);
+    expect(
+      domain.mergeRefundedOrderAmounts!(
+        [{ orderId: "ord_synthetic_a", amount: "12.99" }],
+        [{ orderId: "ord_synthetic_a", amount: "0.01" }],
+      ),
+    ).toEqual([{ orderId: "ord_synthetic_a", amount: "13.00" }]);
+  });
+
+  it("payments money consolidation applies the ruled rejection behavior per module class", () => {
+    for (const amount of ["1.001", "-1.00", "10000000000.00", "", "not-money", "1e2", "+1.00"]) {
+      expect(() =>
+        api.buildOrderRefundCaps!([{ order_id: "ord_synthetic_a", total_amount: amount }], "0.00"),
+      ).toThrow();
+      expect(() =>
+        api.buildOrderRefundCaps!([{ order_id: "ord_synthetic_a", total_amount: "1.00" }], amount),
+      ).toThrow();
+      expect(() => domain.normalizeOrderMoneyAmounts!([{ orderId: "ord_synthetic_a", amount }], "cap")).toThrow();
+      expect(() =>
+        cancellation.orderTotalsFromInputs!(
+          new Map([["ord_synthetic_a", { order_id: "ord_synthetic_a", total_amount: amount }]]),
+        ),
+      ).toThrow();
+      expect(() => support.compareMoney!(amount, "0.00")).toThrow();
+      expect(() => support.minMoney!("1.00", amount)).toThrow();
+    }
+    expect(() =>
+      api.buildOrderRefundCaps!([{ order_id: "ord_synthetic_a", total_amount: "9999999999.99" }], "0.01"),
+    ).toThrow();
+    expect(() =>
+      domain.normalizeOrderMoneyAmounts!(
+        [
+          { orderId: "ord_synthetic_a", amount: "9999999999.99" },
+          { orderId: "ord_synthetic_a", amount: "0.01" },
+        ],
+        "cap",
+      ),
+    ).toThrow();
+  });
+});
 
 function createPaymentRuntime(
   deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction" | "cardDeclineStore"> &
@@ -3152,3 +3344,4 @@ describe("payment runtime", () => {
     });
   });
 });
+
