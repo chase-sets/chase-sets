@@ -374,8 +374,40 @@ const listingEvidencePolicyValidationOutputSchema = objectSchema(
       },
     }),
     policyHash: stringProperty("Canonical candidate policy hash."),
+    semanticDiff: {
+      type: "object",
+      description: "Rule changes compared with the current policy.",
+      additionalProperties: false,
+      required: ["addedRuleIds", "removedRuleIds", "changedRuleIds"],
+      properties: {
+        addedRuleIds: stringListInputProperty("Added rule identifiers."),
+        removedRuleIds: stringListInputProperty("Removed rule identifiers."),
+        changedRuleIds: stringListInputProperty("Changed rule identifiers."),
+      },
+    },
+    impactPreview: {
+      type: "object",
+      description: "Complete affected-listing count and bounded sample.",
+      additionalProperties: false,
+      required: ["impactedListingCount", "sample", "previewHash"],
+      properties: {
+        impactedListingCount: integerProperty("Total affected listing count."),
+        previewHash: stringProperty("Current impact acknowledgment hash."),
+        sample: arrayProperty("Bounded affected-listing sample.", {
+          type: "object",
+          description: "One affected listing.",
+          additionalProperties: false,
+          required: ["listingId", "beforeMatchedRuleIds", "afterMatchedRuleIds"],
+          properties: {
+            listingId: stringProperty("Listing identifier."),
+            beforeMatchedRuleIds: stringListInputProperty("Previous matching rule identifiers."),
+            afterMatchedRuleIds: stringListInputProperty("Candidate matching rule identifiers."),
+          },
+        }),
+      },
+    },
   },
-  ["valid", "diagnostics", "policyHash"],
+  ["documentId", "version", "valid", "diagnostics", "policyHash", "semanticDiff", "impactPreview"],
 );
 
 const operatorPolicyBoundary = (permission: string) => ({
