@@ -76,7 +76,8 @@ describeDb("channel-connector-liveness-hold-path", () => {
     await reconcile(provider);
     expect(provider.write).not.toHaveBeenCalled();
     expect(provider.fetchChannelState).not.toHaveBeenCalled();
-    expect(provider.fetchSales).not.toHaveBeenCalled();
+    // Outbound holds admit one bounded inline sale acquisition (#9331 HC1-D1); state reads stay held.
+    expect(provider.fetchSales).toHaveBeenCalledTimes(1);
     expect(await f.operations()).toEqual(pending);
   }
 

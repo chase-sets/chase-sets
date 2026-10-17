@@ -50,7 +50,9 @@ const projects = [
 export default defineConfig({
   testDir: ".",
   metadata: {
+    platformApiUrl: sandbox.urls.platformApi,
     catalogDatabaseUrl: sandbox.contextDatabaseUrls.catalog,
+    identityDatabaseUrl: sandbox.contextDatabaseUrls.identity,
     channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels,
   },
   grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined,

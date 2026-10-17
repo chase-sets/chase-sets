@@ -23,6 +23,7 @@ import {
   type ChannelSyncRunEvent,
   type ChannelSyncRunMember,
   type ManualClaimLeasePolicySnapshot,
+  type ParsedTcgplayerExport,
   type TcgplayerExportIngestLimits,
   type TcgplayerExportParseResult,
   type TcgplayerImportSummary,
@@ -107,6 +108,16 @@ export type IngestTcgplayerExportSnapshotInput = Readonly<{
   capturedAtSource: "operator-declared" | "ingest";
 }>;
 
+export type PersistTcgplayerExportSnapshotInput = Readonly<{
+  snapshotId: string;
+  connectionId: string;
+  surface: "live" | "staged";
+  parsed: ParsedTcgplayerExport;
+  ingestedAt: string;
+  capturedAt: string;
+  capturedAtSource: ChannelInventorySnapshot["capturedAtSource"];
+}>;
+
 export type ComposeTcgplayerSyncRunInput = Readonly<{
   runId: string;
   connectionId: string;
@@ -151,93 +162,17 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
     );
     if (parsed.kind === "refused") return parsed;
     const snapshot = await withPgTransaction(dependencies.db, async (db) => {
-      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-        `tcgplayer-snapshot:${input.connectionId}:${input.surface}`,
-      ]);
-      const currentPin = input.surface === "staged" ? await readSchemaPin(db, input.connectionId, true) : null;
-      if (currentPin && !sameHeader(currentPin.header, parsed.header))
-        throw new Error("TCGplayer staged header drifted after parsing.");
-      const generationResult = await db.query<{ next_generation: string | number }>(
-        "SELECT coalesce(max(snapshot_generation),0)+1 AS next_generation FROM channel_inventory_snapshots WHERE connection_id=$1 AND surface=$2",
-        [input.connectionId, input.surface],
-      );
-      const generationRow = generationResult.rows[0];
-      if (!generationRow) throw new Error("Snapshot generation query returned no row.");
-      const snapshotGeneration = Number(generationRow.next_generation);
-      if (input.surface === "staged" && !currentPin) {
-        await db.query(
-          `INSERT INTO channel_export_schema_pins
-           (connection_id,provider_key,surface,header,condition_column,pinned_from_snapshot_id,pinned_at)
-           VALUES ($1,'tcgplayer','staged',$2::jsonb,$3,$4,$5)`,
-          [
-            input.connectionId,
-            JSON.stringify(parsed.header),
-            parsed.conditionColumn,
-            input.snapshotId,
-            input.ingestedAt,
-          ],
-        );
-      }
-      await db.query(
-        `INSERT INTO channel_inventory_snapshots
-         (snapshot_id,snapshot_generation,connection_id,provider_key,surface,parsed_row_count,completeness,ingested_at,captured_at,captured_at_source)
-         VALUES ($1,$2,$3,'tcgplayer',$4,$5,'unverified',$6,$7,$8)`,
-        [
-          input.snapshotId,
-          snapshotGeneration,
-          input.connectionId,
-          input.surface,
-          parsed.parsedRowCount,
-          input.ingestedAt,
-          input.capturedAt,
-          input.capturedAtSource,
-        ],
-      );
-      await db.query(
-        `INSERT INTO channel_inventory_snapshot_rows
-         (snapshot_id,snapshot_generation,connection_id,provider_key,surface,external_key,condition_text,total_quantity,
-          pending_quantity_delta,price_amount_text,price_amount_minor,currency,reference_columns,row_number,ingested_at,captured_at,captured_at_source)
-         SELECT $1,$2,$3,'tcgplayer',$4,row.external_key,row.condition_text,row.total_quantity,
-                row.pending_quantity_delta,row.price_amount_text,row.price_amount_minor,'USD',row.reference_columns,
-                row.row_number,$6,$7,$8
-         FROM jsonb_to_recordset($5::jsonb) AS row(
-           external_key text,condition_text text,total_quantity integer,pending_quantity_delta integer,
-           price_amount_text text,price_amount_minor bigint,reference_columns jsonb,row_number integer
-         )`,
-        [
-          input.snapshotId,
-          snapshotGeneration,
-          input.connectionId,
-          input.surface,
-          JSON.stringify(
-            parsed.rows.map((row) => ({
-              external_key: row.externalKey,
-              condition_text: row.conditionText,
-              total_quantity: row.totalQuantity,
-              pending_quantity_delta: row.pendingQuantityDelta,
-              price_amount_text: row.priceAmountText,
-              price_amount_minor: row.priceAmountMinor,
-              reference_columns: row.referenceColumns,
-              row_number: row.rowNumber,
-            })),
-          ),
-          input.ingestedAt,
-          input.capturedAt,
-          input.capturedAtSource,
-        ],
-      );
-      return {
+      const persisted = await persistTcgplayerExportSnapshot(db, {
         snapshotId: input.snapshotId,
-        snapshotGeneration,
         connectionId: input.connectionId,
-        providerKey: "tcgplayer" as const,
         surface: input.surface,
-        parsedRowCount: parsed.parsedRowCount,
-        completeness: "unverified" as const,
+        parsed,
         ingestedAt: input.ingestedAt,
         capturedAt: input.capturedAt,
         capturedAtSource: input.capturedAtSource,
-      };
+      });
+      if (!persisted) throw new Error("Snapshot id already exists.");
+      return persisted;
     });
     return { ...parsed, snapshot };
   };
@@ -537,6 +472,121 @@ export function createTcgplayerCsvRuntime(dependencies: TcgplayerCsvRuntimeDepen
     readLatestSnapshotRows: (input) => readLatestSnapshotRows(dependencies.db, input),
     readRun: (runId) => readRun(dependencies.db, runId),
     projectors,
+  };
+}
+
+/**
+ * Persists one parsed export as one Channel Inventory Snapshot inside the caller's transaction.
+ * Returns null, writing nothing, when a snapshot with this id already exists.
+ */
+export async function persistTcgplayerExportSnapshot(
+  db: PgQueryable,
+  input: PersistTcgplayerExportSnapshotInput,
+): Promise<ChannelInventorySnapshot | null> {
+  assertClosedRecord(
+    input,
+    ["snapshotId", "connectionId", "surface", "parsed", "ingestedAt", "capturedAt", "capturedAtSource"],
+    "persist snapshot input",
+  );
+  assertBoundedText(input.snapshotId, "snapshotId");
+  assertBoundedText(input.connectionId, "connectionId");
+  if (input.surface !== "live" && input.surface !== "staged") throw new Error("Snapshot surface is invalid.");
+  if (input.parsed.kind !== "parsed" || input.parsed.surface !== input.surface)
+    throw new Error("Parsed snapshot does not match its surface.");
+  assertTimezoneInstant(input.ingestedAt, "ingestedAt");
+  assertTimezoneInstant(input.capturedAt, "capturedAt");
+  if (
+    input.capturedAtSource !== "operator-declared" &&
+    input.capturedAtSource !== "ingest" &&
+    input.capturedAtSource !== "connector-captured"
+  ) {
+    throw new Error("capturedAtSource is invalid.");
+  }
+  if (input.capturedAtSource === "connector-captured" && input.surface !== "live")
+    throw new Error("Only a Live snapshot can carry a connector-captured instant.");
+  const parsed = input.parsed;
+  await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    `tcgplayer-snapshot:${input.connectionId}:${input.surface}`,
+  ]);
+  const existing = await db.query("SELECT 1 FROM channel_inventory_snapshots WHERE snapshot_id=$1", [input.snapshotId]);
+  if (existing.rows.length > 0) return null;
+  const currentPin = input.surface === "staged" ? await readSchemaPin(db, input.connectionId, true) : null;
+  if (currentPin && !sameHeader(currentPin.header, parsed.header))
+    throw new Error("TCGplayer staged header drifted after parsing.");
+  const generationResult = await db.query<{ next_generation: string | number }>(
+    "SELECT coalesce(max(snapshot_generation),0)+1 AS next_generation FROM channel_inventory_snapshots WHERE connection_id=$1 AND surface=$2",
+    [input.connectionId, input.surface],
+  );
+  const generationRow = generationResult.rows[0];
+  if (!generationRow) throw new Error("Snapshot generation query returned no row.");
+  const snapshotGeneration = Number(generationRow.next_generation);
+  if (input.surface === "staged" && !currentPin) {
+    await db.query(
+      `INSERT INTO channel_export_schema_pins
+       (connection_id,provider_key,surface,header,condition_column,pinned_from_snapshot_id,pinned_at)
+       VALUES ($1,'tcgplayer','staged',$2::jsonb,$3,$4,$5)`,
+      [input.connectionId, JSON.stringify(parsed.header), parsed.conditionColumn, input.snapshotId, input.ingestedAt],
+    );
+  }
+  await db.query(
+    `INSERT INTO channel_inventory_snapshots
+     (snapshot_id,snapshot_generation,connection_id,provider_key,surface,parsed_row_count,completeness,ingested_at,captured_at,captured_at_source)
+     VALUES ($1,$2,$3,'tcgplayer',$4,$5,'unverified',$6,$7,$8)`,
+    [
+      input.snapshotId,
+      snapshotGeneration,
+      input.connectionId,
+      input.surface,
+      parsed.parsedRowCount,
+      input.ingestedAt,
+      input.capturedAt,
+      input.capturedAtSource,
+    ],
+  );
+  await db.query(
+    `INSERT INTO channel_inventory_snapshot_rows
+     (snapshot_id,snapshot_generation,connection_id,provider_key,surface,external_key,condition_text,total_quantity,
+      pending_quantity_delta,price_amount_text,price_amount_minor,currency,reference_columns,row_number,ingested_at,captured_at,captured_at_source)
+     SELECT $1,$2,$3,'tcgplayer',$4,row.external_key,row.condition_text,row.total_quantity,
+            row.pending_quantity_delta,row.price_amount_text,row.price_amount_minor,'USD',row.reference_columns,
+            row.row_number,$6,$7,$8
+     FROM jsonb_to_recordset($5::jsonb) AS row(
+       external_key text,condition_text text,total_quantity integer,pending_quantity_delta integer,
+       price_amount_text text,price_amount_minor bigint,reference_columns jsonb,row_number integer
+     )`,
+    [
+      input.snapshotId,
+      snapshotGeneration,
+      input.connectionId,
+      input.surface,
+      JSON.stringify(
+        parsed.rows.map((row) => ({
+          external_key: row.externalKey,
+          condition_text: row.conditionText,
+          total_quantity: row.totalQuantity,
+          pending_quantity_delta: row.pendingQuantityDelta,
+          price_amount_text: row.priceAmountText,
+          price_amount_minor: row.priceAmountMinor,
+          reference_columns: row.referenceColumns,
+          row_number: row.rowNumber,
+        })),
+      ),
+      input.ingestedAt,
+      input.capturedAt,
+      input.capturedAtSource,
+    ],
+  );
+  return {
+    snapshotId: input.snapshotId,
+    snapshotGeneration,
+    connectionId: input.connectionId,
+    providerKey: "tcgplayer",
+    surface: input.surface,
+    parsedRowCount: parsed.parsedRowCount,
+    completeness: "unverified",
+    ingestedAt: input.ingestedAt,
+    capturedAt: input.capturedAt,
+    capturedAtSource: input.capturedAtSource,
   };
 }
 

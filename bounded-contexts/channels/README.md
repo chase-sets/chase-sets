@@ -46,6 +46,15 @@ clears that pause, including after unpair/re-pair. Valid unsupported operations
 are totally abandoned before `unsupported-operation` pause. No provider executor
 is supplied here. The extension composes the coordinator with an empty product
 executor registry; unsupported work is abandoned without a provider request.
+The credential mount serves a nonce-bound staged-import dispatch policy read
+without claim, heartbeat, report or ingest effects. It requires an active policy
+document and current connector/reservation authority; the compiled default is
+never dispatch authority. Executors declaring staged-import provider requests
+receive one coordinator-owned send port. Its connection-wide journal admission,
+fresh policy reads, capture-plan fit and monotonic request-start floor gate every
+hop. Ambiguous intents never replay, and a new worker receives no timing credit.
+No capture-derived product plan or provider executor is supplied: #8196 and #7334
+still own qualification and enablement. Standalone Export From Live is unchanged.
 `createConnectorRetentionStore` owns
 the raw-export sweep: AES-GCM ciphertext in versioned IndexedDB, one key per
 export in trusted session storage, revision-predicated cleanup and read refusal
@@ -375,11 +384,22 @@ queue, production key provisioning, or deletion policy is supplied here.
 9. Health never writes the seller lifecycle. `failing` is a system pause read
    through `connectionHealth.readConnectionHealth`; seller `paused` clears only
    through the seller command. Verified inbound sale availability is independent
-   of both pauses. Unknown authority holds outbound publication and polling.
+   of both pauses. `healthAvailability.pollingAllowed` describes outbound
+   eligibility, not reconciliation eligibility: unknown health reports it false,
+   but production reconciliation reads `systemPaused`, set only for `failing`.
 10. Claimed reconciliation reads persisted snapshots through #7034; it never
     invokes a claimed provider. An incomplete source never proves absence.
 11. Seller, health, and operator holds block outbound provider work only;
-    account-scoped Inventory sale recording remains admitted.
+    eligible active/paused inline reconciliation still acquires bounded sales
+    through the existing recorder. Its held completion is non-clean, retains
+    unobserved state drift and repush intent, and cannot supply healthy authority
+    or auto-resume. Unknown sale authority and exceptions retain their failure
+    paths. Held inline runs always record actual `source:sales` settlement, so a
+    held sale outage may open a new drift generation where an unheld outage would
+    not. Ordinary held sweeps reduce the lookback blind interval; they do not
+    guarantee recovery after unavailable authority or an outage beyond lookback.
+    Independent account-scoped Inventory recording and effects on other
+    connections remain admitted; claimed local snapshot processing is unchanged.
 
 ## Connection Health
 
@@ -419,13 +439,19 @@ After liveness recovery, a later series opens a new generation even on the same 
 The opening work ID, attempt and occurrence time remain available to later
 liveness closure consumers.
 
-| Connection state | Health observations | Publication/polling | Verified inbound sale |
-| --- | --- | --- | --- |
-| pending-setup | admitted for all four health states | held | available |
-| active | admitted for all four health states | allowed only for healthy/degraded with valid policy | available |
-| paused | inert for all four health states | held | available |
-| disconnected | inert for all four health states | held | available |
-| absent or unrecognized | rejected | held | unavailable |
+| Connection state | Health observations | Health availability: outbound publication/polling | Inline sale reconciliation | Independently verified inbound recording |
+| --- | --- | --- | --- | --- |
+| pending-setup | admitted for all four health states | held | ineligible | available |
+| active | admitted for all four health states | allowed only for healthy/degraded with valid policy | eligible, including outbound holds | available |
+| paused | inert for all four health states | held | eligible, sale-only | available |
+| disconnected | inert for all four health states | held | ineligible | available |
+| absent or unrecognized | rejected | held | ineligible | unavailable |
+
+The health availability columns describe `healthAvailability`, not a provider-call
+gate. Reconciliation composes seller pause, `systemPaused` and operator holds;
+provider-key/connection-ID kill switches and unavailable policy suppress inline
+state work, not sales. Pending/disconnected reconciliation makes no state or sale
+provider calls; that exclusion does not change independently verified recording.
 
 Each read/intake serializes on the canonical connection stream before loading
 its complete lifecycle, so a lagging connection projection cannot admit work.

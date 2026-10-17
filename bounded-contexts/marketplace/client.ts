@@ -45,11 +45,15 @@ export type {
 export type {
   OfferMatchDetail,
   OfferMatchListItem,
-  OfferBuyerMute,
   MarketplaceOffer,
   PublicOfferDetail,
   SubmittedOfferDetail,
+  SubmittedOfferLifecycleAction,
+  SubmittedOfferLifecycleOutcome,
   SubmittedOfferListItem,
+  SubmittedOfferStatus,
+  SubmittedOfferStatusCounts,
+  SubmittedOfferStatusFilter,
 } from "./features/offers/api/contracts";
 
 import type {
@@ -83,10 +87,14 @@ import type {
 import type {
   OfferMatchDetail,
   OfferMatchListItem,
-  OfferBuyerMute,
   PublicOfferDetail,
   SubmittedOfferDetail,
+  SubmittedOfferLifecycleAction,
+  SubmittedOfferLifecycleOutcome,
   SubmittedOfferListItem,
+  SubmittedOfferStatus,
+  SubmittedOfferStatusCounts,
+  SubmittedOfferStatusFilter,
 } from "./features/offers/api/contracts";
 
 type MarketplaceApiApp = ReturnType<typeof buildMarketplaceApi>;
@@ -621,7 +629,9 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listSubmittedOffers(query = ""): Promise<ListResponse<SubmittedOfferListItem>> {
+    async listSubmittedOffers(
+      query = "",
+    ): Promise<ListResponse<SubmittedOfferListItem> & { statusCounts?: SubmittedOfferStatusCounts }> {
       return parseJsonResponse(
         await client.account.offers.submitted.$get({
           query: queryFromString(query),
@@ -654,17 +664,33 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async listOfferMatches(query = ""): Promise<ListResponse<OfferMatchListItem>> {
+    async changeSubmittedOfferLifecycle(
+      id: string,
+      action: SubmittedOfferLifecycleAction,
+    ): Promise<{ id: string; version: number; status: string; outcome: "changed" | "unchanged" }> {
       return parseJsonResponse(
-        await client.account.offers.matches.$get({
-          query: queryFromString(query),
+        await client.account.offers.submitted[":id"][action].$post({
+          param: { id },
+          json: {},
           header: headers,
         }),
       );
     },
-    async listOfferBuyerMutes(): Promise<ListResponse<OfferBuyerMute>> {
+    async bulkChangeSubmittedOfferLifecycle(
+      action: SubmittedOfferLifecycleAction,
+      offerIds: readonly string[],
+    ): Promise<ListResponse<SubmittedOfferLifecycleOutcome>> {
       return parseJsonResponse(
-        await client.account.offers.mutes.$get({
+        await client.account.offers.submitted.bulk.$post({
+          json: { action, offerIds },
+          header: headers,
+        }),
+      );
+    },
+    async listOfferMatches(query = ""): Promise<ListResponse<OfferMatchListItem>> {
+      return parseJsonResponse(
+        await client.account.offers.matches.$get({
+          query: queryFromString(query),
           header: headers,
         }),
       );
@@ -707,24 +733,6 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.offers.matches[":id"].decline.$post({
           param: { id },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async muteOfferBuyer(id: string) {
-      return parseJsonResponse(
-        await client.account.offers.matches[":id"]["mute-buyer"].$post({
-          param: { id },
-          json: {},
-          header: headers,
-        }),
-      );
-    },
-    async unmuteOfferBuyer(listingId: string, buyerAccountId: string) {
-      return parseJsonResponse(
-        await client.account.offers.mutes[":listingId"][":buyerAccountId"].unmute.$post({
-          param: { listingId, buyerAccountId },
           json: {},
           header: headers,
         }),

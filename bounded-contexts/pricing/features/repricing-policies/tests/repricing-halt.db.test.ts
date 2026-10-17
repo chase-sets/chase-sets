@@ -14,6 +14,7 @@ import { buildRepricingHaltProjectionHandlers } from "../read-model/halt-project
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
 import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../../repricing-engine/api/runtime";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
+import { economicsNeverResolved } from "../../repricing-engine/tests/round-capture-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -35,8 +36,8 @@ describeDb("Repricing Halt steady-state lifecycle", () => {
   it("engage excludes, repeat emits nothing, release rejoins the next drift sweep without resuming an intended pause", async () => {
     const db = pools.pricing;
     const eventStore = createPostgresEventStore({ pool: db });
-    const controls = createRepricingPolicyRuntime({ db, eventStore });
-    const engine = createRepricingEngineRuntime({ db, eventStore });
+    const controls = createRepricingPolicyRuntime({ db, eventStore, goalAdoptions: async () => [] });
+    const engine = createRepricingEngineRuntime({ economics: economicsNeverResolved, db, eventStore });
     await seedDryRunListings(db, 2, 1);
     for (const [policyId, listingId, paused] of [
       ["rpp_synthetic_active", "lst_7910_00000001", false],

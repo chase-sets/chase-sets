@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { t } from "@chase-sets/localization";
+import { consentActivationGuardAppendInput } from "@chase-sets/platform-policy/consent-activation-authority";
 import { hasPermission as hasActorPermission, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { AppendToStreamsResult, EventStore } from "@chase-sets/event-core/event-store";
@@ -14,6 +15,9 @@ import type { JsonObject } from "@chase-sets/primitives/json";
 import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { getApiKeySecretByPrefix } from "./features/api-keys/api/secret-store";
+import { assertMutationPermission } from "./features/account-management/api/runtime";
+import { parseAttemptKey } from "./features/account-management/domain/contract";
+import { parseActionTarget } from "./features/account-management/domain/attempt";
 import {
   formatGrantableRoleKeys,
   IdentityDomainError,
@@ -26,11 +30,17 @@ import {
 } from "./support/runtime-support/common";
 import type { IdentityServices } from "./support/runtime-support/services";
 import { accountRoutes } from "./features/accounts/api/route";
+import { accountCapabilityRoutes } from "./features/account-capabilities/api/route";
 import { accessHubRoutes } from "./features/access-hub/api/route";
 import { userRoutes } from "./features/users/api/route";
 import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
 import { validateInvitationAcceptanceToken } from "./features/invitations/domain/domain";
+import {
+  acceptInvitationOperation,
+  parseInvitationAcceptanceOperation,
+  readInvitationAcceptanceAuthority,
+} from "./features/invitations/api/acceptance-operation";
 import {
   decideAccount,
   evolveAccount,
@@ -85,11 +95,15 @@ import {
 } from "./features/consents/domain/consent-recording-authorization";
 import {
   mintRegistrationConsentResolution,
-  resolveRegistrationConsentRequirements,
   verifyRegistrationConsentSubmission,
   type RegistrationConsentRejection,
   type RegistrationConsentSubmission,
 } from "./features/consents/domain/registration-consent";
+import {
+  assertBoundRegistrationConsentDeclaration,
+  assertRegistrationConsentDeclaration,
+  type BoundRegistrationConsentDeclaration,
+} from "./features/consents/domain/consent-bundle";
 import { resolveRegistrationConsentSigningKeys } from "./support/runtime-support/registration-consent-signing";
 import { userPreferencesRoutes } from "./features/preferences/api/route";
 import { shippingAddressRoutes } from "./features/shipping-addresses/api/route";
@@ -552,6 +566,7 @@ async function createPersonalIdentityForAuth(
      */
     registrationConsent: RegistrationConsentSubmission;
     foundersBetaAccessStartedAt?: string;
+    reservedUserId?: string;
     context: EventStoreContext;
   }>,
 ) {
@@ -569,6 +584,9 @@ async function createPersonalIdentityForAuth(
   const verifiedRegistrationConsent = verification.submission;
 
   const eventStore = requireRegistrationEventStore(services);
+  if (params.reservedUserId !== undefined && !/^usr_[A-Za-z0-9_-]{1,80}$/.test(params.reservedUserId)) {
+    throw new RegistrationOperationParticipantDisagreementError();
+  }
   // Derived here, from the contact every caller already supplies. No route,
   // client, or contract gains a field: a new required member on this command is
   // precisely how the caller-inventory defect class bites.
@@ -595,6 +613,9 @@ async function createPersonalIdentityForAuth(
     if (claimed && !registrationOperationConsentBundleAgrees(claimed.claim, requirements)) {
       throw new RegistrationOperationConsentDisagreementError();
     }
+    if (claimed && params.reservedUserId && claimed.claim.userId !== params.reservedUserId) {
+      throw new RegistrationOperationParticipantDisagreementError();
+    }
 
     const identity: RegistrationIdentity = claimed
       ? {
@@ -607,7 +628,7 @@ async function createPersonalIdentityForAuth(
         }
       : {
           accountId: createId("acc") as AccountId,
-          userId: createId("usr") as UserId,
+          userId: (params.reservedUserId ?? createId("usr")) as UserId,
           membershipId: createId("mbr") as MembershipId,
           displayName: proposedDisplayName,
           displayNameKey: normalizeAccountDisplayNameKey(proposedDisplayName),
@@ -628,6 +649,34 @@ async function createPersonalIdentityForAuth(
       phone,
     });
 
+    let registrationConsent: BoundRegistrationConsentDeclaration | null = null;
+    if (
+      plan.claimedVersion === null ||
+      plan.accountEvents.length > 0 ||
+      plan.userEvents.length > 0 ||
+      plan.membershipEvents.length > 0 ||
+      plan.consentPlans.some(({ consentEvents }) => consentEvents.length > 0)
+    ) {
+      registrationConsent = await services.registrationConsentBundles.forRegistration(identity);
+      assertBoundRegistrationConsentDeclaration(registrationConsent, identity);
+      const currentRequirements = registrationConsent.declaration.requirements;
+      if (
+        requirements.length !== currentRequirements.length ||
+        requirements.some(
+          (requirement, index) =>
+            requirement.policyKey !== currentRequirements[index].policyKey ||
+            requirement.version !== currentRequirements[index].version,
+        )
+      ) {
+        if (claimed) throw new RegistrationOperationConsentDisagreementError();
+        throw new RegistrationConsentRejectedError({
+          code: "registration_consent_expired",
+          reason: "superseded",
+          message: "The registration consent resolution no longer matches the current required bundle.",
+        });
+      }
+    }
+
     await reservePersonalAccountDisplayName(services, eventStore, {
       accountId: identity.accountId,
       displayName: identity.displayName,
@@ -642,6 +691,7 @@ async function createPersonalIdentityForAuth(
         operation,
         identity,
         plan,
+        registrationConsent,
       });
     } catch (error) {
       // Whichever way this attempt ends, it committed nothing, so the
@@ -1013,6 +1063,7 @@ async function appendPersonalIdentityRegistration(
     operation: RegistrationOperation;
     identity: RegistrationIdentity;
     plan: PersonalIdentityRegistrationPlan;
+    registrationConsent: BoundRegistrationConsentDeclaration | null;
   }>,
 ) {
   const { eventStore, identity, operation, params, plan } = args;
@@ -1042,6 +1093,9 @@ async function appendPersonalIdentityRegistration(
         params.context,
       ),
     ),
+    ...(args.registrationConsent?.declaration.guards.map(({ guard }) =>
+      consentActivationGuardAppendInput(guard, params.context),
+    ) ?? []),
   ]);
 
   const snapshots: IdentityMutationSnapshot[] = [
@@ -1580,15 +1634,17 @@ export function buildIdentityApi(
   // The mint. Anonymous by design: knowing what must be agreed to in order to
   // register is public information, and the value's authority comes from the
   // signature, not from who asked for it.
-  app.get("/internal/auth/registration-consent", (c) =>
-    c.json(
+  app.get("/internal/auth/registration-consent", async (c) => {
+    const declaration = await services.registrationConsentBundles.resolve();
+    assertRegistrationConsentDeclaration(declaration);
+    return c.json(
       mintRegistrationConsentResolution({
-        requirements: resolveRegistrationConsentRequirements(),
+        requirements: declaration.requirements,
         resolvedAt: new Date().toISOString(),
         signingKeys: resolveRegistrationConsentSigningKeys(),
       }),
-    ),
-  );
+    );
+  });
 
   app.post("/internal/auth/personal-identities", async (c) => {
     const body = await c.req.json();
@@ -1601,6 +1657,7 @@ export function buildIdentityApi(
         givenName: typeof body.givenName === "string" ? body.givenName : undefined,
         familyName: typeof body.familyName === "string" ? body.familyName : undefined,
         registrationConsent: body.registrationConsent,
+        reservedUserId: typeof body.reservedUserId === "string" ? body.reservedUserId : undefined,
         foundersBetaAccessStartedAt:
           typeof body.foundersBetaAccessStartedAt === "string" ? body.foundersBetaAccessStartedAt : undefined,
         context: getBootstrapContext(c),
@@ -1758,6 +1815,25 @@ export function buildIdentityApi(
   app.post("/internal/auth/invitations/:id/accept", async (c) => {
     const body = await c.req.json();
     try {
+      if (body.operation !== undefined) {
+        const operation = parseInvitationAcceptanceOperation(body.operation);
+        if (!services.eventStore || operation.invitationId !== c.req.param("id") || operation.userId !== body.userId) {
+          throw new IdentityDomainError("Invitation acceptance authority is unavailable.");
+        }
+        const result = await acceptInvitationOperation(services.eventStore, {
+          operation,
+          acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""),
+          context: getBootstrapContext(c),
+        });
+        await publishIdentityCsatOutcomeFact(services.eventStore, getBootstrapContext(c), {
+          outcomeCode: "onboarding.completed",
+          subjectAccountId: operation.accountId,
+          subjectKind: "account",
+          subject: { entityType: "invitation", entityId: operation.invitationId },
+          idempotencyKey: `identity:onboarding:invitation:${operation.invitationId}:${operation.userId}`,
+        });
+        return c.json(result);
+      }
       const membership = await acceptInvitationForUserFromAuth(services, {
         invitationId: c.req.param("id"),
         userId: String(body.userId ?? ""),
@@ -1773,6 +1849,63 @@ export function buildIdentityApi(
         return c.json({ error: { code: "authorization_forbidden", message: error.message } }, 403);
       }
 
+      throw error;
+    }
+  });
+
+  app.post("/internal/auth/invitations/:id/acceptance-authority", async (c) => {
+    const body = await c.req.json();
+    try {
+      if (!services.eventStore) throw new Error("Invitation authority requires the event store.");
+      const input = {
+        invitationId: c.req.param("id"),
+        acceptanceTokenHash: String(body.acceptanceTokenHash ?? ""),
+        operation: body.operation === undefined ? undefined : parseInvitationAcceptanceOperation(body.operation),
+        context: getBootstrapContext(c),
+      };
+      let authority = await readInvitationAcceptanceAuthority(services.eventStore, input);
+      if (!input.operation) {
+        const registration = deriveRegistrationOperation({ email: authority.invitation.email! });
+        const claim = registration ? await readRegistrationOperationClaim(services.eventStore, registration) : null;
+        const projected = claim ? null : await services.users.getUserByEmail(authority.invitation.email!);
+        const recipientUserId = claim?.claim.userId ?? projected?.user_id;
+        if (recipientUserId)
+          authority = await readInvitationAcceptanceAuthority(services.eventStore, { ...input, recipientUserId });
+      }
+      return c.json({
+        invitationId: authority.invitation.id!,
+        accountId: authority.invitation.accountId!,
+        email: authority.invitation.email!,
+        roleKey: authority.invitation.roleKey!,
+        expiresAt: authority.invitation.expiresAt!,
+        accepted: authority.receiptHistory.length === 1,
+        tokenExpired: authority.tokenExpired,
+        user: authority.user?.id
+          ? {
+              userId: authority.user.id!,
+              passwordCredentialId: authority.user.passwordCredentialId,
+              passkeyCredentialIds: authority.user.passkeyCredentialIds,
+              authMethods: authority.user.authMethods,
+              emailVerified: authority.user.contactMethods.some(
+                (contact) =>
+                  contact.type === "email" &&
+                  normalizeEmail(contact.value) === normalizeEmail(authority.invitation.email!) &&
+                  contact.verifiedAt !== null,
+              ),
+            }
+          : null,
+      });
+    } catch (error) {
+      if (error instanceof IdentityDomainError)
+        return c.json(
+          {
+            error: {
+              code: "invitation_authority_unavailable",
+              message: "Invitation acceptance authority is unavailable.",
+            },
+          },
+          403,
+        );
       throw error;
     }
   });
@@ -1871,17 +2004,24 @@ export function buildIdentityApi(
   app.use("/access-hub/*", requirePermission("accounts.view"));
 
   app.route("/access-hub", accessHubRoutes(services.accessHub));
-  app.route("/accounts", accountRoutes(services.accounts));
-  app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services.shippingAddresses));
-  app.route("/users", userRoutes(services.users));
-  app.route("/memberships", membershipRoutes(services.memberships, services.accounts));
-  app.route("/invitations", invitationRoutes(services.invitations, services.accounts));
+  app.route("/accounts", accountRoutes(services.accounts, services.accountManagement));
+  app.route(
+    "/accounts/:accountId/shipping-addresses",
+    shippingAddressRoutes(services.shippingAddresses, services.accountManagement),
+  );
+  app.route("/users", userRoutes(services.users, services.accountManagement));
+  app.route("/memberships", membershipRoutes(services.memberships, services.accounts, services.accountManagement));
+  app.route("/invitations", invitationRoutes(services.invitations, services.accounts, services.accountManagement));
   app.route(
     "/api-keys",
-    apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser }),
+    apiKeyRoutes(
+      { ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser },
+      services.accountManagement,
+    ),
   );
-  app.route("/consents", consentRoutes(services.consents));
+  app.route("/consents", consentRoutes(services.consents, services.accountManagement));
   app.route("/admin/consents", consentActivationRoutes(services.policies, consentActivationOptions));
+  app.route("/account-capabilities", accountCapabilityRoutes(services.accountCapabilities));
   app.route(
     "/consents/terms-of-service",
     termsOfServiceConsentRoutes({
@@ -1892,6 +2032,32 @@ export function buildIdentityApi(
     }),
   );
   app.route("/preferences", userPreferencesRoutes(services.preferences));
+
+  app.get("/account-management/attempts", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const actor = c.var.actor;
+    if (!actor || !c.var.context) return c.json({ error: { code: "authentication_required" } }, 401);
+    const notRecorded = { outcome: "not-recorded", code: "not-recorded" } as const;
+    let action;
+    let key;
+    const target = c.req.query("target") || null;
+    try {
+      const query = new URL(c.req.url).searchParams;
+      if ([...query.keys()].some((name) => !["action", "target"].includes(name) || query.getAll(name).length !== 1))
+        return c.json(notRecorded);
+      action = parseActionTarget(c.req.query("action") ?? "", target);
+      key = parseAttemptKey(c.req.header("Idempotency-Key"));
+    } catch {
+      return c.json(notRecorded);
+    }
+    try {
+      assertMutationPermission(actor, action);
+    } catch {
+      return c.json(notRecorded);
+    }
+    if (!services.accountManagement) return c.json({ outcome: "indeterminate", code: "INDETERMINATE" });
+    return c.json(await services.accountManagement.lookup({ actor, context: c.var.context, key, action, target }));
+  });
 
   app.post("/api-keys/resolve", async (c) => {
     const body = await c.req.json();
@@ -1913,7 +2079,12 @@ export function buildIdentityApi(
     try {
       result = await services.apiKeys.commandHandler({
         streamId: `identity.api-key-${apiKeySecret.api_key_id}`,
-        command: { type: "RecordApiKeyUse", usedAt: new Date().toISOString() },
+        command: {
+          type: "RecordApiKeyUse",
+          usedAt: new Date().toISOString(),
+          keyPrefix: apiKeySecret.key_prefix,
+          secretHash: apiKeySecret.secret_hash,
+        },
         context: getBootstrapContext(c),
       });
     } catch (error) {

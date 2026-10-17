@@ -37,7 +37,6 @@ describe("UCP contract profile", () => {
 
     expect(Object.keys(profile.ucp.capabilities).sort()).toEqual(
       [
-        UCP_CAPABILITIES.ap2Mandate,
         UCP_CAPABILITIES.catalogLookup,
         UCP_CAPABILITIES.catalogSearch,
         UCP_CAPABILITIES.checkout,
@@ -45,31 +44,21 @@ describe("UCP contract profile", () => {
         UCP_CAPABILITIES.order,
       ].sort(),
     );
-    expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]?.config).toEqual({
-      completion_requires_trusted_ui_without_ap2_mandate: true,
-    });
+    expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]).not.toHaveProperty("config");
   });
 
-  it("advertises only verified human-present AP2 completion when every control is ready", () => {
-    const profile = buildUcpBusinessProfile("https://marketplace.example", {
-      signingKeys: [{ kty: "EC", kid: "merchant-current" }],
-      ap2Readiness: {
-        mandateVerification: "enabled",
-        sharedPaymentToken: "enabled",
-        headlessCompletionEnabled: true,
-      },
-    });
+  it("advertises no AP2 capability", () => {
+    const signingKey = { kty: "EC", crv: "P-256", kid: "merchant-current", x: "x", y: "y" };
+    const profile = buildUcpBusinessProfile("https://marketplace.example", { signingKeys: [signingKey] });
+    const serialized = JSON.stringify(profile);
 
-    expect(profile.ucp.capabilities[UCP_CAPABILITIES.ap2Mandate]?.[0]?.config).toMatchObject({
-      status: "human_present_enabled",
-      mandate_verification: "enabled",
-      business_response_signing: "enabled",
-      shared_payment_token: "enabled",
-      supported_modes: ["human-present"],
-      headless_completion_enabled: true,
-      human_present_completion_enabled: true,
-      human_not_present_completion_enabled: false,
-    });
+    expect(Object.keys(UCP_CAPABILITIES)).not.toContain("ap2Mandate");
+    expect(Object.keys(profile.ucp.capabilities)).not.toContain("dev.ucp.shopping.ap2_mandate");
+    expect(serialized).not.toContain("shopping/ap2_mandate.json");
+    expect(serialized).not.toContain("completion_requires_trusted_ui_without_ap2_mandate");
+    expect(serialized.toLowerCase()).not.toContain("ap2");
+    expect(profile.signing_keys).toEqual([signingKey]);
+    expect(profile.ucp.signing_keys).toEqual([signingKey]);
   });
 });
 
@@ -93,14 +82,16 @@ describe("UCP MCP tools", () => {
       annotations: { readOnlyHint: true },
     });
     expect(createCheckout).toMatchObject({
-      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      securitySchemes: [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }],
       annotations: { readOnlyHint: false, destructiveHint: false },
     });
     expect(completeCheckout).toMatchObject({
-      trustedHandoffOnUnsignedMcp: true,
-      securitySchemes: [{ type: "oauth2", scopes: ["checkout:write"] }],
+      securitySchemes: [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }],
       annotations: { destructiveHint: true, openWorldHint: true },
     });
+    // The retired unsigned MCP trusted-handoff bypass is intentionally absent;
+    // complete/cancel dispatch is enforced by the composed checkout handlers.
+    expect(completeCheckout).not.toHaveProperty("trustedHandoffOnUnsignedMcp");
   });
 
   it("advertises MCP Apps resources for the agent commerce journey", () => {

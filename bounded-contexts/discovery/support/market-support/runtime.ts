@@ -4,6 +4,7 @@ import type { DiscoverySitemapEntityKind } from "../client-support/contracts";
 import { buildDiscoveryMarketProjectionHandlers } from "./projection";
 import {
   getDiscoveryPublicListingBySlug,
+  getDiscoveryPublicListingById,
   getDiscoveryPublicAccountBySlug,
   countDiscoveryPublicSitemapEntities,
   listDiscoveryPublicSitemapEntityPage,
@@ -11,6 +12,7 @@ import {
 
 export type DiscoveryMarketServices = Readonly<{
   getPublicListingBySlug: (slug: string) => ReturnType<typeof getDiscoveryPublicListingBySlug>;
+  getPublicListingById: (listingId: string) => ReturnType<typeof getDiscoveryPublicListingById>;
   getPublicAccountBySlug: (
     slug: string,
     options?: Parameters<typeof getDiscoveryPublicAccountBySlug>[2],
@@ -26,6 +28,7 @@ export type DiscoveryMarketServices = Readonly<{
 export function createDiscoveryMarketRuntime(deps: DiscoveryRuntimeDeps): DiscoveryMarketServices {
   return {
     getPublicListingBySlug: (slug) => getDiscoveryPublicListingBySlug(deps.db, slug),
+    getPublicListingById: (listingId) => getDiscoveryPublicListingById(deps.db, listingId),
     getPublicAccountBySlug: (slug, options) => getDiscoveryPublicAccountBySlug(deps.db, slug, options),
     countPublicSitemapEntities: () => countDiscoveryPublicSitemapEntities(deps.db),
     listPublicSitemapEntityPage: (kind, page) => listDiscoveryPublicSitemapEntityPage(deps.db, kind, page),

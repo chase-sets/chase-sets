@@ -1,5 +1,6 @@
 export type CurveSale = Readonly<{
   price: number;
+  currencyCode: string;
   soldAt: string;
   condition: string;
   variant: string;

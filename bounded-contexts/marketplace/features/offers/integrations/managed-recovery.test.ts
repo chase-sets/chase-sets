@@ -90,3 +90,32 @@ describe("bounded managed Offer recovery", () => {
     expect(f.cursor()).toMatchObject({ after_offer_id: "", generation: "1" });
   });
 });
+
+describe("managed Offer recovery across buyer Pause and Resume", () => {
+  it("skips a paused managed Offer and includes it in the next recovery sweep after Resume", async () => {
+    const store = createInMemoryEventStore().eventStore;
+    const apply = vi.fn<MarketplaceOfferServices["applyManagedOfferPage"]>(async () => {});
+    const rows = [
+      { offer_id: "off_a", catalog_catalog_item_id: "cat_one", product_id: "product_a", status: "paused" },
+      { offer_id: "off_b", catalog_catalog_item_id: "cat_one", product_id: "product_b", status: "submitted" },
+    ];
+    const f = managedWorkFixture(store, rows, apply);
+    const drain = async () => {
+      while ((await f.worker().run(context)) > 0) f.advance(1_000);
+    };
+    const applied = () => apply.mock.calls.flatMap((call) => call[0].map((item) => item.offerId));
+
+    expect(await f.worker().recover(context)).toBe(1);
+    await drain();
+    expect((await f.workRows()).map((row) => row.product_id)).toEqual(["product_b"]);
+    expect(applied()).toEqual(["off_b"]);
+
+    rows[0]!.status = "submitted";
+    expect(await f.worker().recover(context)).toBe(0); // Cursor tail past off_b closes this sweep.
+    expect(f.cursor()).toMatchObject({ after_offer_id: "", generation: "1" });
+    expect(await f.worker().recover(context)).toBe(2);
+    await drain();
+    expect((await f.workRows()).filter((row) => row.product_id === "product_a")).toHaveLength(1);
+    expect(applied()).toContain("off_a");
+  });
+});

@@ -46,6 +46,18 @@ one producer-owned reservation plus its poll window. Paused connections serve an
 empty reservation without calling the producer. Inbound admission is write-only
 and remains available after membership loss while the pairing and grant are live.
 
+## TCGplayer Staged Import Dispatch Policy
+
+`TcgplayerStagedImportDispatchPolicy/v1` serves the product's minimum request-start
+interval for all provider requests within a founder Staged Import Batch, including
+Live, Staged and summary reads. The initial floor is 60 seconds; 600 seconds is an
+engineering bound, not a provider capacity claim. A Staged Import Capture Plan
+binds the complete ordered maximum request sequence and enforced durations to its
+capture, executor, reservation, members and composed batch. Without that
+capture-derived plan, staged-import enablement is unavailable. The guarded send
+port supplies neither an executor nor provider qualification. Standalone Export
+From Live is a separate executor and receives no cadence authority here.
+
 ## Connector Liveness Authority
 
 **Connector Liveness Authority** is the never-deleted, lockable current row for a
@@ -158,6 +170,13 @@ only with token material; envelope revision changes on every actual rewrite.
 `ChannelOAuthTokenSet/v1` is the closed canonical plaintext format. Readability does
 not establish provider-valid authority.
 
+## eBay Account-Deletion Receipt
+
+An **eBay Account-Deletion Receipt** is a 30-day, encrypted record of one admitted
+eBay account-deletion notification. Its root-qualified subject fingerprint is
+stable across seal-key rotation. A duplicate never extends expiry or rewrites
+the envelope. A receipt is not evidence that operator-held data was erased.
+
 ## Channel Webhook
 
 A **Channel Webhook** is the inbound event subscription configured for a Sales Channel.
@@ -169,8 +188,11 @@ It is separate from the seller-owned connection lifecycle: `unknown` has no
 complete healthy authority, `healthy` has every reason closed, `degraded` has an
 open reason below its failure thresholds, and `failing` is a system pause.
 Reason generations bind a fingerprint and retain their opening work lineage.
-System pause holds outbound publication and polling while independently verified
-inbound sale observations remain available; it never clears a seller pause.
+System pause holds outbound publication and channel-state polling, not bounded
+inline sale acquisition for eligible active or paused connections. Independently
+verified inbound sale recording remains available; neither path clears a seller
+pause. Sale-only reconciliation is partial observation, never clean or healthy
+authority. Unknown health is not itself the reconciliation system-pause predicate.
 
 ## Channel Action
 
@@ -282,7 +304,12 @@ A **Channel Inventory Snapshot** is channel-reported quantity state captured for
 
 ## Snapshot Staleness
 
-**Snapshot Staleness** is the age of an operator-declared Live capture relative to
+Claimed TCGplayer reconciliation reads persisted Live snapshots and authoritative applied batch membership.
+It compares present listings and warns about stale captures and quantity drops not explained by recorded original sale facts.
+Recent sales coverage remains unverified: a listing-settled run can close drift attention and recover drift health,
+but never records a clean run, last-clean time, or a connection-level In sync result. Ready to Ship intake is unchanged.
+
+**Snapshot Staleness** is the age of an attributed (operator-declared or connector-captured) Live capture relative to
 the reconciliation run clock. Age strictly beyond the configured window is stale;
 missing, unattributed, invalid, future, or non-increasing capture evidence is unknown.
 Both require Channel Action attention. Fresh age never proves snapshot completeness.
@@ -294,6 +321,26 @@ A **Channel Outbound Operation** is one durable instruction Channels issues agai
 ## Connection-Subject Channel Outbound Operation
 
 A **connection-subject Channel Outbound Operation** is a Channel Outbound Operation whose subject is the Channel Connection itself, not a Channel Listing Link. It carries no listing identity, revision or desired-state sequence, never enters an Outbound Operation Lane, listing supersession or Link writer, and shares the claimed reservation, lease, attempt, generation and settlement receipt fences. Contract: `features/outbound-sync/domain/contracts.ts`.
+
+## Channel Live Export
+
+A **Channel Live Export** (`tcgplayer-live-export`) is one connection-subject
+Channel Outbound Operation requesting one Export From Live capture and its derived
+Channel Inventory Snapshot. Channels schedules at most one unsettled export per
+paired connection on a boundary-anchored cadence. A capable connector reserves it
+alone. Complete, unknown and abandoned reports are terminal; the next due boundary
+has a new export identity. An expired unreported attempt retains its identity under
+a new claim fence. HTTP 202 proves admission only, not consumer acceptance.
+
+A **Live Export Handoff** is the connector journal's durable record of one claimed
+export's sealed raw file: its raw export identity, file digest, download instant,
+byte length and single derived post (`tcgx.v1:` reference; planned, dispatched,
+captured202; the parsed row count from dispatch onward). It is journaled before
+parse, so recovery resumes or reports unknown and never refetches; a same-operation
+re-claim carries it unchanged. The worker GET is bound by the closed
+`TcgplayerLiveExportAuthority/v1` constant. Owners:
+`features/connector-client/domain/tcgplayer-live-export-executor.ts` and
+`features/connector-client/domain/live-export-authority.ts`.
 
 ## Channel Order Pull
 
@@ -367,7 +414,7 @@ The **Manual Sync Panel** is the authorized Channel Connection surface for compo
 A **Channel Inbound Clamp** is the Marketplace-owned, revision-fenced pause of every active account Listing represented by a genuine Channel Sync Run while Channel Inbound Coverage is dark.
 ## Channel Drift
 
-**Channel Drift** is a divergence between a Channel Listing Link's expected material state and complete channel-reported state.
+**Channel Drift** is a divergence between a Channel Listing Link's expected material state and qualified channel-reported state. Inline comparison uses complete channel-state authority. Claimed Live comparison uses present-row source authority: a current, uniquely identified USD row from one bound snapshot, fully read within local bounds, with authoritative applied membership. Provider census remains unverified; local row counts, quantity sums and all-applied presence never establish it. An absent applied claimed row is `source-unavailable`, even at expected zero, not structural or inferred zero. Present unlinked rows retain structural attention. Revisionless rows never authorize automatic repair. Exact accepted observed/full-expected pairs can remain in-sync, but clean still requires the full expected set applied, present and in-sync, current capture, independently complete sales authority and no unresolved findings.
 
 ## Channel Drift Decision
 
@@ -387,4 +434,4 @@ A **Missed-Sale Gap** is a returned external sale line whose exact external Chan
 
 ## Channel Outbound Hold
 
-A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, Channel Health, and the operator kill switch; verified inbound sale recording remains admitted.
+A **Channel Outbound Hold** is the outbound-only admission result composed from seller pause, failing Channel Health, and the operator kill switch. Eligible inline reconciliation continues bounded sale acquisition and verified recording while suppressing its own channel-state reads and repair/repush work. Independently verified inbound sale recording remains admitted.

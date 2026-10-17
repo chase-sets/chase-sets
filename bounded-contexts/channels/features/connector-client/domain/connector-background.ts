@@ -164,14 +164,17 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
     if (!(await current(profile))) return false;
     if (deleteAll && result.ok) retentionDeadline = null;
     await retention(result.nextDeadline, !result.ok, reason === "boot" && result.ok);
-    if (!result.ok && ["paired-idle", "paused"].includes(profile.state)) {
-      // An operator pause remains operator-owned even if cleanup also fails.
-      await advance(profile, "paused", profile.pauseReason ?? "cleanup-failed");
-      await ports.alarms.clear(workAlarm);
-    } else if (result.ok && profile.state === "paused" && profile.pauseReason === "cleanup-failed") {
+    if (!result.ok) await cleanupFailed(profile);
+    else if (profile.state === "paused" && profile.pauseReason === "cleanup-failed") {
       if ((await advance(profile, "paired-idle")) === "committed") await work((await read())!, reason === "boot");
     }
     return result.ok;
+  }
+  async function cleanupFailed(profile: ExtensionProfile) {
+    if (!["paired-idle", "paused"].includes(profile.state)) return;
+    // An operator pause remains operator-owned even if cleanup also fails.
+    await advance(profile, "paused", profile.pauseReason ?? "cleanup-failed");
+    await ports.alarms.clear(workAlarm);
   }
   async function cleanup(
     profile: ExtensionProfile,
@@ -493,6 +496,10 @@ export function createConnectorBackground(ports: ConnectorBackgroundPorts) {
         await ports.alarms.clear(workAlarm);
       } else if (result.outcome === "revoked" || result.outcome === "invalid-credential") {
         await cleanup(profile, "revoked", "unpair");
+      } else if (result.outcome === "cleanup-failed") {
+        // A removal that failed inside an executor takes the sweep's pause and its bounded retry, not the next wake.
+        await retention(null, true, true);
+        await cleanupFailed(profile);
       } else if (result.outcome === "ok" && result.pollWindowSeconds !== undefined) {
         const window = pollWindow(result.pollWindowSeconds);
         if ((await custody.advance(profile, { ...profile, servedPollWindowSeconds: window.seconds })) === "committed") {

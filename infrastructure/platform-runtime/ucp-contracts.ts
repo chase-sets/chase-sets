@@ -1,5 +1,4 @@
 // Universal Commerce Protocol (UCP) shopping profile for the 2026-04-08 spec.
-// AP2 support in this package follows the UCP shopping AP2 mandate capability.
 export const UCP_VERSION = "2026-04-08";
 export const UCP_SPEC_BASE_URL = `https://ucp.dev/${UCP_VERSION}`;
 export const UCP_LATEST_SPEC_BASE_URL = "https://ucp.dev/latest";
@@ -12,7 +11,6 @@ export const UCP_CAPABILITIES = {
   cart: "dev.ucp.shopping.cart",
   checkout: "dev.ucp.shopping.checkout",
   order: "dev.ucp.shopping.order",
-  ap2Mandate: "dev.ucp.shopping.ap2_mandate",
   identityLinking: "dev.ucp.common.identity_linking",
 } as const;
 
@@ -92,7 +90,6 @@ export type UcpMcpToolDescriptor = Readonly<{
   }>;
   invoking: string;
   invoked: string;
-  trustedHandoffOnUnsignedMcp?: boolean;
 }>;
 
 export type UcpMcpResourceDescriptor = Readonly<{
@@ -128,9 +125,8 @@ const UCP_ENVELOPE_OUTPUT_SCHEMA = {
 } as const;
 
 const CATALOG_READ_SECURITY = [{ type: "noauth" }] as const;
-const CHECKOUT_READ_SECURITY = [{ type: "oauth2", scopes: ["checkout:read"] }] as const;
-const CHECKOUT_WRITE_SECURITY = [{ type: "oauth2", scopes: ["checkout:write"] }] as const;
-const ORDER_READ_SECURITY = [{ type: "oauth2", scopes: ["order:read"] }] as const;
+const CHECKOUT_MANAGE_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }] as const;
+const ORDER_READ_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.order:read"] }] as const;
 
 function readAnnotations() {
   return {
@@ -185,6 +181,31 @@ export const UCP_MCP_RESOURCES = [
     mimeType: UCP_MCP_APP_RESOURCE_MIME_TYPE,
   },
 ] as const satisfies readonly UcpMcpResourceDescriptor[];
+
+const checkoutResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    line_items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          item: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+          quantity: { type: "integer", minimum: 1 },
+          quantity_unit: {
+            type: "object",
+            properties: { unit: { const: "C62" }, scale: { const: 0 } },
+            required: ["unit", "scale"],
+          },
+        },
+        required: ["item", "quantity"],
+      },
+    },
+  },
+  required: ["line_items"],
+} as const;
 
 export const UCP_MCP_TOOLS = [
   {
@@ -279,19 +300,12 @@ export const UCP_MCP_TOOLS = [
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
-      additionalProperties: true,
-      properties: {
-        source: { type: "object", additionalProperties: true },
-        intent: { type: "object", additionalProperties: true },
-        type: { type: "string", enum: ["cart", "buy-now", "offer-intent", "offer"] },
-        items: { type: "array", items: { type: "object", additionalProperties: true } },
-        line_items: { type: "array", items: { type: "object", additionalProperties: true } },
-        shipping_option: { type: "string" },
-        optimization_goal: { type: "string", enum: ["fewest-shipments", "lowest-total"] },
-      },
+      additionalProperties: false,
+      properties: { checkout: checkoutResourceSchema },
+      required: ["checkout"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Creating checkout session",
     invoked: "Checkout session created",
@@ -313,7 +327,7 @@ export const UCP_MCP_TOOLS = [
       required: ["id"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_READ_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading checkout session",
     invoked: "Checkout session loaded",
@@ -323,22 +337,20 @@ export const UCP_MCP_TOOLS = [
     title: "Update Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this to update shipping option, optimization goal, or shipping address on an existing Chase Sets checkout session. This requires a linked buyer account and does not move money.",
+      "Use this to submit unchanged line items on an existing checkout session. Line changes are not supported. This does not move money.",
     idempotencyKeyRequired: false,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
       properties: {
         id: { type: "string", description: "Checkout session id." },
-        shipping_option: { type: "string" },
-        optimization_goal: { type: "string", enum: ["fewest-shipments", "lowest-total"] },
-        shipping_address: { type: "object", additionalProperties: true },
+        checkout: checkoutResourceSchema,
       },
-      required: ["id"],
+      required: ["id", "checkout"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Updating checkout session",
     invoked: "Checkout session updated",
@@ -348,7 +360,7 @@ export const UCP_MCP_TOOLS = [
     title: "Complete Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this only after the user asks to place the order. ChatGPT OAuth callers receive a trusted checkout handoff; signed UCP/AP2 agents may continue only when Payments verifies mandate support.",
+      "Use this after the user asks to place the order to read checkout state and its trusted buyer continuation URL. This never creates orders or moves money.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
     inputSchema: {
@@ -363,11 +375,10 @@ export const UCP_MCP_TOOLS = [
       required: ["id"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, openWorld: true }),
     invoking: "Preparing trusted checkout handoff",
     invoked: "Checkout handoff ready",
-    trustedHandoffOnUnsignedMcp: true,
   },
   {
     name: "cancel_checkout",
@@ -386,7 +397,7 @@ export const UCP_MCP_TOOLS = [
       required: ["id"],
     },
     outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
-    securitySchemes: CHECKOUT_WRITE_SECURITY,
+    securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, idempotent: true }),
     invoking: "Cancelling checkout session",
     invoked: "Checkout session cancelled",
@@ -421,7 +432,6 @@ export function buildUcpBusinessProfile(
   origin: string,
   options: Readonly<{
     signingKeys?: readonly UcpSigningJsonWebKey[];
-    ap2Readiness?: UcpAp2Readiness;
   }> = {},
 ): UcpBusinessProfile {
   const baseUrl = normalizeUcpOrigin(origin);
@@ -452,31 +462,11 @@ export function buildUcpBusinessProfile(
       capabilities: {
         [UCP_CAPABILITIES.catalogSearch]: [capability("catalog/search", "shopping/catalog_search.json")],
         [UCP_CAPABILITIES.catalogLookup]: [capability("catalog/lookup", "shopping/catalog_lookup.json")],
-        [UCP_CAPABILITIES.checkout]: [
-          capability("checkout", "shopping/checkout.json", {
-            completion_requires_trusted_ui_without_ap2_mandate: true,
-          }),
-        ],
+        [UCP_CAPABILITIES.checkout]: [capability("checkout", "shopping/checkout.json")],
         [UCP_CAPABILITIES.order]: [capability("order", "shopping/order.json")],
         [UCP_CAPABILITIES.identityLinking]: [
           capability("identity-linking", "common/identity_linking.json", {
             oauth_authorization_server: `${baseUrl}/.well-known/oauth-authorization-server`,
-          }),
-        ],
-        [UCP_CAPABILITIES.ap2Mandate]: [
-          capability("ap2-mandates", "shopping/ap2_mandate.json", {
-            status: options.ap2Readiness?.headlessCompletionEnabled
-              ? "human_present_enabled"
-              : signingKeys
-                ? "merchant_authorization_available"
-                : "guarded_scaffold",
-            business_response_signing: signingKeys ? "enabled" : "not-configured",
-            mandate_verification: options.ap2Readiness?.mandateVerification ?? "not-enabled",
-            shared_payment_token: options.ap2Readiness?.sharedPaymentToken ?? "not-enabled",
-            supported_modes: ["human-present"],
-            headless_completion_enabled: options.ap2Readiness?.headlessCompletionEnabled ?? false,
-            human_present_completion_enabled: options.ap2Readiness?.headlessCompletionEnabled ?? false,
-            human_not_present_completion_enabled: false,
           }),
         ],
       },
@@ -486,12 +476,6 @@ export function buildUcpBusinessProfile(
     },
   };
 }
-
-export type UcpAp2Readiness = Readonly<{
-  mandateVerification: "enabled" | "not-enabled";
-  sharedPaymentToken: "enabled" | "not-enabled";
-  headlessCompletionEnabled: boolean;
-}>;
 
 export function createUcpEnvelope<TPayload extends Readonly<Record<string, unknown>>>(
   status: UcpResponseStatus,

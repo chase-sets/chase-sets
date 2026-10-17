@@ -9,6 +9,7 @@ export const connectorAuditRoutes = [
   "pairing-read",
   "pairing-create",
   "unpair",
+  "tcgplayer-staged-import-dispatch-policy",
   ...connectorOperations,
 ] as const;
 export type ConnectorAuditRoute = (typeof connectorAuditRoutes)[number];

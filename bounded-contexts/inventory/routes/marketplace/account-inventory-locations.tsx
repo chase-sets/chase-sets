@@ -9,6 +9,7 @@ import { InventoryApiError, type InventoryStorageLocation } from "../../support/
 import { createInventoryRequestApiClient } from "../../support/request-support/api-client";
 import { StorageLocationPage } from "../../features/storage-locations/ui/storage-location-page";
 import { inventoryApiErrorAdapter } from "../../support/request-support/route-api-error";
+import { InventoryMutationProvider } from "../../support/request-support/mutation-form";
 
 function shipFromAddressFromForm(formData: FormData) {
   return {
@@ -31,8 +32,13 @@ export const loader = defineResourceRoute({
   authorization: { permission: "inventory.view" },
   errorAdapter: inventoryApiErrorAdapter,
   load: ({ request }) => createInventoryRequestApiClient(request).listStorageLocations("includeArchived=true"),
-  map: (locations) => ({ locations, loadError: null }),
-  onPending: () => ({
+  map: (locations, { actor }) => ({
+    locations,
+    loadError: null,
+    recoveryAuthority: { accountId: actor!.accountId, actorUserId: actor!.userId },
+  }),
+  onPending: (_result, { actor }) => ({
+    recoveryAuthority: { accountId: actor!.accountId, actorUserId: actor!.userId },
     locations: { items: [], total: 0, count: 0 } satisfies ListResponse<InventoryStorageLocation>,
     loadError: "Storage locations are still updating. Reload this page in a moment.",
   }),
@@ -47,7 +53,9 @@ export const action = defineFormAction({
   intents: {
     "create-location": async ({ request, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).createStorageLocation({
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).createStorageLocation({
           name: formData.get("name"),
           description: String(formData.get("description") ?? "").trim() || null,
           shipFromCode: formData.get("shipFromCode"),
@@ -57,30 +65,28 @@ export const action = defineFormAction({
       ),
     "update-location": async ({ request, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).updateStorageLocation(
-          String(formData.get("storageLocationId") ?? ""),
-          {
-            name: formData.get("name"),
-            description: String(formData.get("description") ?? "").trim() || null,
-            shipFromCode: formData.get("shipFromCode"),
-            shipFromAddress: shipFromAddressFromForm(formData),
-            isArchived: false,
-          },
-        ),
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
+          name: formData.get("name"),
+          description: String(formData.get("description") ?? "").trim() || null,
+          shipFromCode: formData.get("shipFromCode"),
+          shipFromAddress: shipFromAddressFromForm(formData),
+          isArchived: false,
+        }),
         locationsDestination,
       ),
     "archive-location": async ({ request, formData }) =>
       formActionRedirect(
-        await createInventoryRequestApiClient(request).updateStorageLocation(
-          String(formData.get("storageLocationId") ?? ""),
-          {
-            name: formData.get("name"),
-            description: String(formData.get("description") ?? "").trim() || null,
-            shipFromCode: formData.get("shipFromCode"),
-            shipFromAddress: shipFromAddressFromForm(formData),
-            isArchived: true,
-          },
-        ),
+        await createInventoryRequestApiClient(request, {
+          mutationAttemptId: String(formData.get("inventoryMutationAttemptId") ?? ""),
+        }).updateStorageLocation(String(formData.get("storageLocationId") ?? ""), {
+          name: formData.get("name"),
+          description: String(formData.get("description") ?? "").trim() || null,
+          shipFromCode: formData.get("shipFromCode"),
+          shipFromAddress: shipFromAddressFromForm(formData),
+          isArchived: true,
+        }),
         locationsDestination,
       ),
   },
@@ -98,9 +104,14 @@ export default function MarketplaceInventoryLocationsRoute() {
   const actionData = useActionData<typeof action>();
 
   return (
-    <StorageLocationPage
-      locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
-      errorMessage={actionData?.error ?? data.loadError ?? null}
-    />
+    <InventoryMutationProvider
+      authority={data.recoveryAuthority}
+      key={`${data.recoveryAuthority.accountId}/${data.recoveryAuthority.actorUserId}`}
+    >
+      <StorageLocationPage
+        locations={(data.locations as ListResponse<InventoryStorageLocation>).items}
+        errorMessage={actionData?.error ?? data.loadError ?? null}
+      />
+    </InventoryMutationProvider>
   );
 }

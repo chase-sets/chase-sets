@@ -406,7 +406,7 @@ Initial candidate guarded capabilities:
 
 - `pricing.account-repricing`, currently the first real bounded-context consumer
 - production marketplace public checkout by account cohort after launch
-- UCP/AP2 agentic write capabilities by account or operator cohort
+- UCP agentic write capabilities by account or operator cohort
 - live payout actions by operator-controlled seller accounts
 - postage provider label purchase by operator-controlled accounts
 

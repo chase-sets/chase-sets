@@ -16,6 +16,7 @@ export type AgentGrantSpend = Readonly<{
 
 export type AgentGrant = Readonly<{
   id: string;
+  account_id?: string;
   platform_profile_url: string;
   client_id: string;
   client_name: string | null;
@@ -31,6 +32,24 @@ export type AgentGrant = Readonly<{
   updated_at: string;
   spending_mandate?: AgentGrantSpendingMandate;
   spend?: AgentGrantSpend;
+}>;
+
+export type AgentGrantRevocationState =
+  | "editing"
+  | "submitting"
+  | "confirming"
+  | "succeeded"
+  | "already-revoked-cleanup-complete"
+  | "failed-safe"
+  | "conflict"
+  | "ambiguous"
+  | "reauth-required"
+  | "route-denied";
+export type AgentGrantRevocationReceipt = Readonly<{
+  attempt_id: string;
+  operation_id?: string;
+  phase?: "admitted" | "identity-terminal" | "payments-terminal" | "webhook-excluded" | "completed";
+  state: AgentGrantRevocationState;
 }>;
 
 export type AgentGrantActivityRecord = Readonly<{
@@ -58,7 +77,7 @@ export type AgentGrantWebhook = Readonly<{
   signing_secret?: string;
 }>;
 
-// The three payment rails a mandate can allow (mirrors AGENT_GRANT_RAILS in
+// The payment rails a mandate can allow (mirrors AGENT_GRANT_RAILS in
 // infrastructure/platform-runtime/agent-guardrails.ts).
-export const AGENT_GRANT_PAYMENT_RAILS = ["handoff-only", "stored-pm", "ap2"] as const;
+export const AGENT_GRANT_PAYMENT_RAILS = ["handoff-only", "stored-pm"] as const;
 export type AgentGrantPaymentRail = (typeof AGENT_GRANT_PAYMENT_RAILS)[number];

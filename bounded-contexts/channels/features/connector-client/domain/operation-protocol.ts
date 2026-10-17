@@ -28,6 +28,21 @@ import {
   type OrderPullHandoff,
 } from "./order-pull-handoff";
 import type { OrderPullExecution } from "./order-pull-execution";
+import {
+  assertClaimedLiveExportOutcome,
+  assertLiveExportPayloadStructure,
+  liveExportOperationKind,
+  type LiveExportPayload,
+} from "../../outbound-sync/domain/live-export-codec";
+import { assertLiveExportHandoffOutcome, parseLiveExportHandoff, type LiveExportHandoff } from "./live-export-handoff";
+import type { LiveExportExecution } from "./live-export-execution";
+import type { createConnectorRetentionStore } from "./connector-retention-store";
+import {
+  parseStagedImportTiming,
+  type StagedImportTiming,
+  type StagedImportPreparation,
+  type StagedImportSend,
+} from "./staged-import-dispatch";
 import { OperationProtocolError, identifier, record, refuse } from "./operation-codec";
 export { OperationProtocolError, identifier, record, refuse } from "./operation-codec";
 
@@ -73,13 +88,22 @@ export type OperationAttempt = Readonly<{
         scheduleGeneration: number;
         handoff?: OrderPullHandoff;
       }>
+    | Readonly<{
+        operationKind: typeof liveExportOperationKind;
+        payload: LiveExportPayload;
+        scheduleGeneration: number;
+        handoff?: LiveExportHandoff;
+      }>
   );
+export type LiveExportAttempt = Extract<OperationAttempt, { operationKind: typeof liveExportOperationKind }>;
 export type OperationReservation = Readonly<{
   schemaVersion: 1;
   connectionId: string;
   revision: number;
   reservationId: string;
   executorKey: string;
+  pairingId?: string;
+  stagedImport?: StagedImportTiming;
   reservedAt: string;
   leaseExpiresAt: string;
   memberOperationIds: readonly string[];
@@ -90,17 +114,39 @@ export type OperationReservation = Readonly<{
   lastRefusal?: "transport" | "authorization" | "stale-fence" | "invalid-result";
 }>;
 export type OperationUnit = Readonly<{ reservation: OperationReservation; members: readonly OperationAttempt[] }>;
+/** Composition ports a registered executor may close over; per-claim custody arrives through dispatch. */
+export type ConnectorExecutorPorts = Readonly<{
+  retentionStore: Pick<ReturnType<typeof createConnectorRetentionStore>, "write" | "read" | "accept">;
+  request(request: Request): Promise<Response>;
+  clock: Readonly<{ now(): number }>;
+}>;
 export type ConnectorExecutor = Readonly<{
   key: string;
   accepts: readonly (readonly [
-    OutboundOperationKind | "tcgplayer-order-pull",
-    OutboundOperationPayload["kind"] | "order-pull",
+    OutboundOperationKind | "tcgplayer-order-pull" | typeof liveExportOperationKind,
+    OutboundOperationPayload["kind"] | "order-pull" | "live-export",
   ])[];
   unit: "operation" | "reservation";
   dispatchDeadlineMs: number;
-  prepare(unit: OperationUnit): Promise<Readonly<{ ready: true }> | Readonly<{ ready: false; result: ExecutorResult }>>;
-  dispatchOnce(unit: OperationUnit, signal: AbortSignal, pull?: OrderPullExecution): Promise<ExecutorResult>;
-  reconcileAmbiguous?(unit: OperationUnit, pull?: OrderPullExecution): Promise<ExecutorResult | null>;
+  providerRequests?: "tcgplayer-staged-import";
+  prepare(
+    unit: OperationUnit,
+  ): Promise<
+    | Readonly<{ ready: true; stagedImport?: StagedImportPreparation }>
+    | Readonly<{ ready: false; result: ExecutorResult }>
+  >;
+  dispatchOnce(
+    unit: OperationUnit,
+    signal: AbortSignal,
+    pull?: OrderPullExecution,
+    stagedImport?: StagedImportSend,
+    liveExport?: LiveExportExecution,
+  ): Promise<ExecutorResult>;
+  reconcileAmbiguous?(
+    unit: OperationUnit,
+    pull?: OrderPullExecution,
+    liveExport?: LiveExportExecution,
+  ): Promise<ExecutorResult | null>;
 }>;
 
 function positive(value: unknown): void {
@@ -115,16 +161,27 @@ function digest(value: unknown): void {
 function state(value: unknown): void {
   if (!operationStates.some((candidate) => candidate === value)) refuse();
 }
-function payload(value: unknown, kind: unknown): asserts value is OutboundOperationPayload | OrderPullPayload {
+function payload(
+  value: unknown,
+  kind: unknown,
+): asserts value is OutboundOperationPayload | OrderPullPayload | LiveExportPayload {
   if (kind === "tcgplayer-order-pull") {
     assertOrderPullPayloadStructure(value);
+    return;
+  }
+  if (kind === liveExportOperationKind) {
+    try {
+      assertLiveExportPayloadStructure(value);
+    } catch {
+      refuse();
+    }
     return;
   }
   if (!outboundOperationKinds.some((candidate) => candidate === kind)) refuse();
   assertOutboundOperationPayload(value, kind as OutboundOperationKind, assertChannelListingDelistDirective);
 }
 export async function browserPayloadDigest(
-  value: OutboundOperationPayload | OrderPullPayload,
+  value: OutboundOperationPayload | OrderPullPayload | LiveExportPayload,
   crypto: Crypto = globalThis.crypto,
 ): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(value)));
@@ -135,8 +192,15 @@ export function parseExecutorResult(value: unknown): ExecutorResult {
   if (!Array.isArray(row.outcomes) || row.outcomes.length < 1 || row.outcomes.length > journalLimit) refuse();
   const ids = new Set<string>();
   for (const outcome of row.outcomes) {
-    if (outcome && typeof outcome === "object" && "operationKind" in outcome) assertClaimedOrderPullOutcome(outcome);
-    else {
+    if (outcome && typeof outcome === "object" && "operationKind" in outcome) {
+      if (outcome.operationKind === liveExportOperationKind) {
+        try {
+          assertClaimedLiveExportOutcome(outcome);
+        } catch {
+          refuse();
+        }
+      } else assertClaimedOrderPullOutcome(outcome);
+    } else {
       assertClaimedOperationOutcome(outcome);
       if (new TextEncoder().encode(canonicalJson(outcome)).length > 16384) refuse();
     }
@@ -170,7 +234,7 @@ export function parseOperationAttempt(value: unknown): OperationAttempt {
   if (!safeRevision(row.revision)) refuse();
   for (const key of ["connectionId", "operationId", "attemptId", "reservationId"]) identifier(row[key]);
   positive(row.claimGeneration);
-  if (row.operationKind === "tcgplayer-order-pull") {
+  if (row.operationKind === "tcgplayer-order-pull" || row.operationKind === liveExportOperationKind) {
     if (Object.hasOwn(row, "desiredStateSequence")) refuse();
     positive(row.scheduleGeneration);
   } else {
@@ -185,6 +249,12 @@ export function parseOperationAttempt(value: unknown): OperationAttempt {
   if (row.payload.kind === "order-pull") {
     if (row.payload.connectionId !== row.connectionId) refuse();
     if (Object.hasOwn(row, "handoff")) parseOrderPullHandoff(row.handoff, row.payload);
+    if (row.state === "prepared" && row.handoff !== undefined) refuse();
+  }
+  if (row.payload.kind === "live-export") {
+    if (row.payload.connectionId !== row.connectionId || row.payload.scheduleGeneration !== row.scheduleGeneration)
+      refuse();
+    if (Object.hasOwn(row, "handoff")) parseLiveExportHandoff(row.handoff, row.payload);
     if (row.state === "prepared" && row.handoff !== undefined) refuse();
   }
   if (Object.hasOwn(row, "dispatchedAt")) instant(row.dispatchedAt);
@@ -222,11 +292,13 @@ export function parseOperationReservation(value: unknown): OperationReservation 
       "memberOperationIds",
       "phase",
     ],
-    ["reportEnvelope", "reportedAt", "ackedAt", "lastRefusal"],
+    ["reportEnvelope", "reportedAt", "ackedAt", "lastRefusal", "pairingId", "stagedImport"],
   );
   if (row.schemaVersion !== 1) throw new OperationProtocolError("upgrade-required");
   if (!safeRevision(row.revision)) refuse();
   for (const key of ["connectionId", "reservationId", "executorKey"]) identifier(row[key]);
+  if (Object.hasOwn(row, "pairingId")) identifier(row.pairingId);
+  if (Object.hasOwn(row, "stagedImport")) parseStagedImportTiming(row.stagedImport);
   instant(row.reservedAt);
   instant(row.leaseExpiresAt);
   state(row.phase);
@@ -283,6 +355,44 @@ export async function parseOperationClaim(
   if (row.operations.length > journalLimit) throw new OperationProtocolError("incomplete-authority");
   const ids = new Set<string>();
   for (const member of row.operations) {
+    if (member && typeof member === "object" && member.operationKind === liveExportOperationKind) {
+      const operation = record(member, [
+        "operationId",
+        "attemptId",
+        "claimGeneration",
+        "connectionId",
+        "providerIdentity",
+        "subject",
+        "operationKind",
+        "exportId",
+        "scheduleGeneration",
+        "payload",
+        "payloadDigest",
+        "enqueuedAt",
+      ]);
+      if (
+        row.operations.length !== 1 ||
+        operation.connectionId !== connectionId ||
+        canonicalJson(operation.providerIdentity) !== canonicalJson(row.providerIdentity)
+      )
+        refuse();
+      for (const key of ["operationId", "attemptId"]) identifier(operation[key]);
+      positive(operation.claimGeneration);
+      positive(operation.scheduleGeneration);
+      instant(operation.enqueuedAt);
+      const subject = record(operation.subject, ["kind", "connectionId"]);
+      if (subject.kind !== "connection" || subject.connectionId !== connectionId) refuse();
+      payload(operation.payload, operation.operationKind);
+      if (
+        operation.payload.kind !== "live-export" ||
+        operation.payload.connectionId !== connectionId ||
+        operation.payload.exportId !== operation.exportId ||
+        operation.payload.scheduleGeneration !== operation.scheduleGeneration ||
+        (await browserPayloadDigest(operation.payload)) !== operation.payloadDigest
+      )
+        refuse();
+      continue;
+    }
     if (member && typeof member === "object" && member.operationKind === "tcgplayer-order-pull") {
       const operation = record(member, [
         "operationId",
@@ -369,8 +479,21 @@ export function assertTotalResult(result: ExecutorResult, members: readonly Oper
     if (!outcome || outcome.attemptId !== member.attemptId || outcome.claimGeneration !== member.claimGeneration)
       refuse();
     if (member.operationKind === "tcgplayer-order-pull") {
-      if (!("operationKind" in outcome) || outcome.payloadDigest !== member.payloadDigest) refuse();
+      if (
+        !("operationKind" in outcome) ||
+        outcome.operationKind !== "tcgplayer-order-pull" ||
+        outcome.payloadDigest !== member.payloadDigest
+      )
+        refuse();
       assertHandoffOutcome(outcome, member.payload, member.handoff);
+    } else if (member.operationKind === liveExportOperationKind) {
+      if (
+        !("operationKind" in outcome) ||
+        outcome.operationKind !== liveExportOperationKind ||
+        outcome.payloadDigest !== member.payloadDigest
+      )
+        refuse();
+      assertLiveExportHandoffOutcome(outcome, member.payload, member.handoff);
     } else if ("operationKind" in outcome || outcome.desiredStateSequence !== member.desiredStateSequence) refuse();
   }
 }

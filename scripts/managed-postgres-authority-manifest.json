@@ -2,6 +2,27 @@
   "schemaVersion": 1,
   "grants": [
     {
+      "file": ".github/workflows/catalog-completion-report.yml",
+      "jobId": "completion-report",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/catalog-completion-report.yml",
+      "jobId": "completion-report",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/catalog-completion-report.yml",
+      "jobId": "completion-report",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
       "file": ".github/workflows/catalog-integration-staging-reset.yml",
       "jobId": "catalog-integration-reset",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
@@ -42,6 +63,48 @@
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-count-preparation.yml",
+      "jobId": "prepare-counts",
+      "stepAnchor": "name:Prepare governed Scrydex counts#3",
+      "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-count-preparation.yml",
+      "jobId": "prepare-counts",
+      "stepAnchor": "name:Prepare governed Scrydex counts#3",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-count-preparation.yml",
+      "jobId": "prepare-counts",
+      "stepAnchor": "name:Prepare governed Scrydex counts#3",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-count-preparation.yml",
+      "jobId": "prepare-counts",
+      "stepAnchor": "name:Validate count preparation receipt#4",
+      "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-count-preparation.yml",
+      "jobId": "prepare-counts",
+      "stepAnchor": "name:Validate count preparation receipt#4",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/catalog-staging-count-preparation.yml",
+      "jobId": "prepare-counts",
+      "stepAnchor": "name:Validate count preparation receipt#4",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/catalog-staging-provider-uat.yml",
@@ -1398,6 +1461,20 @@
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
@@ -1469,27 +1546,6 @@
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "STRIPE_SECRET_KEY",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-ephemeral-verification.yml",
-      "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
-      "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-ephemeral-verification.yml",
-      "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
-      "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-ephemeral-verification.yml",
-      "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
-      "secretName": "UCP_AP2_VERIFIER_URL",
       "purpose": "terraform-infra"
     },
     {
@@ -1776,6 +1832,20 @@
       "file": ".github/workflows/platform-merge-gate-verification.yml",
       "jobId": "verify",
       "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
@@ -1847,27 +1917,6 @@
       "jobId": "verify",
       "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
       "secretName": "STRIPE_SECRET_KEY",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-merge-gate-verification.yml",
-      "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
-      "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-merge-gate-verification.yml",
-      "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
-      "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-merge-gate-verification.yml",
-      "jobId": "verify",
-      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
-      "secretName": "UCP_AP2_VERIFIER_URL",
       "purpose": "terraform-infra"
     },
     {
@@ -2672,6 +2721,20 @@
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "FACEBOOK_SOCIAL_LOGIN_CLIENT_ID",
       "purpose": "terraform-infra"
     },
@@ -3010,27 +3073,6 @@
       "stepAnchor": "name:Validate preview configuration#3",
       "secretName": "STRIPE_WEBHOOK_SECRET",
       "purpose": "marketplace-ops"
-    },
-    {
-      "file": ".github/workflows/platform-pr.yml",
-      "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Validate preview configuration#3",
-      "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "purpose": "test-credentials"
-    },
-    {
-      "file": ".github/workflows/platform-pr.yml",
-      "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Validate preview configuration#3",
-      "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-      "purpose": "test-credentials"
-    },
-    {
-      "file": ".github/workflows/platform-pr.yml",
-      "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Validate preview configuration#3",
-      "secretName": "UCP_AP2_VERIFIER_URL",
-      "purpose": "test-credentials"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
@@ -5017,27 +5059,6 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "job",
-      "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-production",
-      "stepAnchor": "job",
-      "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-production",
-      "stepAnchor": "job",
-      "secretName": "UCP_AP2_VERIFIER_URL",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-production",
-      "stepAnchor": "job",
       "secretName": "UCP_BUSINESS_SIGNING_ALG",
       "purpose": "terraform-infra"
     },
@@ -5110,6 +5131,20 @@
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-production.yml",
@@ -6753,27 +6788,6 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-staging",
       "stepAnchor": "job",
-      "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-staging",
-      "stepAnchor": "job",
-      "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-staging",
-      "stepAnchor": "job",
-      "secretName": "UCP_AP2_VERIFIER_URL",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-production.yml",
-      "jobId": "deploy-staging",
-      "stepAnchor": "job",
       "secretName": "UCP_BUSINESS_SIGNING_ALG",
       "purpose": "terraform-infra"
     },
@@ -6867,6 +6881,20 @@
       "stepAnchor": "name:Apply staging Kubernetes runtime secrets#32",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#32",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#32",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-production.yml",

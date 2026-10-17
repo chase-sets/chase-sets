@@ -19,6 +19,7 @@ export const identityWakeRegistryEntry = registryEntry({
   expectedEventVolume: "high",
   wakeStoreLoadEstimate: "high",
   affectedProjectionNames: [
+    "auth:auth-identity-account-capability-projection",
     "auth:auth-identity-account-projection",
     "auth:auth-identity-invitation-projection",
     "auth:auth-identity-membership-projection",
@@ -49,6 +50,7 @@ export const identityWakeRegistryEntry = registryEntry({
     "settlement:settlement-account-risk-source-projection",
   ],
   routeDependencyIds: [
+    "identity.account-management-attempt-owner-history",
     "identity.account-security-api-key-fresh-read",
     "identity.account-security-user-fresh-read",
     "identity.account-team-invitation-fresh-read",

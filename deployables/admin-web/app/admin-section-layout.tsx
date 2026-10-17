@@ -26,7 +26,7 @@ type AdminSectionLoaderData = Readonly<{
 export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig }>) {
   const location = useLocation();
   const { actor, actorDisplay, viewer } = useLoaderData() as AdminSectionLoaderData;
-  const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode);
+  const { colorMode, preferences } = useUserPreferencesAccountMenu(viewer?.preferences?.colorMode, actor.userId);
 
   return (
     <ChaseRoot

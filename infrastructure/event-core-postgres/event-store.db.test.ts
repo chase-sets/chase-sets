@@ -93,6 +93,39 @@ describeDb("postgres event store real database integration", () => {
     });
   });
 
+  it("appends a whole measure publication atomically and rejects a stale multipart revision without any tail", async () => {
+    const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+    const streamId = "catalog.product-measures-cat_synthetic_occ";
+    const events = [
+      eventToStore("catalog.catalog-item.product-measures-publication-part-recorded", {
+        catalogItemId: "cat_synthetic_occ",
+        partIndex: 0,
+        products: [],
+      }),
+      eventToStore("catalog.catalog-item.product-measures-publication-part-recorded", {
+        catalogItemId: "cat_synthetic_occ",
+        partIndex: 1,
+        products: [],
+      }),
+      eventToStore("catalog.catalog-item.product-measures-publication-completed", {
+        catalogItemId: "cat_synthetic_occ",
+        partCount: 2,
+        productCount: 0,
+        productsDigest: "0".repeat(64),
+      }),
+    ];
+    await store.appendToStream({ streamId, expectedVersion: 0, context: eventContext("tenant_a"), events });
+    const before = await store.readStream({ streamId });
+    expect(before.map(({ streamVersion }) => streamVersion)).toEqual([1, 2, 3]);
+    await expect(
+      store.appendToStream({ streamId, expectedVersion: 0, context: eventContext("tenant_a"), events }),
+    ).rejects.toMatchObject({
+      code: "concurrency_conflict",
+      details: { expectedVersion: 0, currentVersion: 3 },
+    });
+    expect(await store.readStream({ streamId })).toEqual(before);
+  });
+
   it("treats a duplicate caller-supplied event id retry as an idempotent no-op", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,

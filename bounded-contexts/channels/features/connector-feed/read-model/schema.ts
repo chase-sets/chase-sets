@@ -52,4 +52,14 @@ export const connectorFeedSchemaMigrations: readonly BcSchemaMigration[] = [
         ON channel_connector_pairings (account_id, user_id, created_sequence DESC) WHERE state = 'code'`,
     ],
   },
+  {
+    migrationId: "20261010_channels_staged_import_policy_audit_route",
+    description: "Admit the staged-import policy read in the existing credential-safe audit.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s'",
+      "ALTER TABLE channel_connector_audit DROP CONSTRAINT IF EXISTS channel_connector_audit_route_check",
+      `ALTER TABLE channel_connector_audit ADD CONSTRAINT channel_connector_audit_route_check
+       CHECK (route IN (${connectorAuditRoutes.map((route) => `'${route}'`).join(",")}))`,
+    ],
+  },
 ];

@@ -25,7 +25,9 @@ describe("connector-feed-bootstrap-and-manifest", () => {
       expect(connectorInboundSchemaSql).toContain(statement.replace("INDEX CONCURRENTLY", "INDEX"));
     expect(
       connectorInboundSchemaMigrations[0]?.migrationId.localeCompare(
-        connectorFeedSchemaMigrations.at(-1)?.migrationId ?? "",
+        connectorFeedSchemaMigrations.find(
+          (migration) => migration.migrationId === "20261007_channels_connector_actor_code_index",
+        )?.migrationId ?? "",
       ),
     ).toBeGreaterThan(0);
     expect(connectorInboundSchemaSql).toContain("channel_connector_inbound_events");

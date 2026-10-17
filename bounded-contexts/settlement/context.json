@@ -15,7 +15,7 @@
     "liability-reconciliation"
   ],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
-  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
+  "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./integration/link-intents"],
   "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/identity"],
   "seedRequirements": ["identity", "payments"],
   "eventSubscriptions": [
@@ -430,6 +430,11 @@
       }
     }
   ],
+  "agentCoverage": {
+    "settlement-money-health": { "pending": "#9238" },
+    "settlement-payout-operations": { "pending": "#9238" },
+    "settlement-wallet-workbench": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -527,8 +532,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -539,6 +543,9 @@
             "owner": "settlement",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -553,8 +560,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -565,6 +571,9 @@
             "owner": "settlement",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         },
         {
@@ -657,8 +666,7 @@
             "requiredPermissions": []
           },
           "canonicalLink": {
-            "kind": "not-applicable",
-            "reason": "Canonical-link publication is deferred with mobile route extraction."
+            "kind": "route-derived"
           },
           "availability": {
             "web": true,
@@ -669,6 +677,9 @@
             "owner": "settlement",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {}
           }
         }
       ]
@@ -706,12 +717,15 @@
       "slot": "top-nav",
       "placements": ["top-nav", "bottom-nav"],
       "key": "money",
-      "label": "Money",
+      "label": "Seller money",
+      "labelKey": "settlement.shell.money.label",
       "icon": "wallet",
       "href": "/account/desk/money",
       "order": 180,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.view"]
+      "requiredPermissions": ["payouts.view"],
+      "excludedRoleKeys": ["guest-buyer"],
+      "packingPriority": 500
     }
   ],
   "directoryIntent": {

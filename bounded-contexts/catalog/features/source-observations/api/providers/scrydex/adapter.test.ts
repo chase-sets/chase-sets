@@ -254,3 +254,347 @@ describe("Scrydex usage snapshot boundary", () => {
     expect(first.fetch).toHaveBeenCalledTimes(3);
   });
 });
+import {
+  acquireScrydexPageOneCount,
+  scrydexCountQuery,
+  validateScrydexCountPage,
+  SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as sealedUnit,
+} from "./adapter";
+import type { ScrydexCountEvidence } from "../../../../scope-sync-batches/domain/count-acquisition";
+import {
+  cacheKeyForProviderOptionQuery,
+  type CatalogProviderOptionQueryCacheRecord,
+} from "../provider-option-query-cache";
+import { createServer } from "node:http";
+import { once } from "node:events";
+
+// Derived from #9431 receipt c6127099375. Items are synthetic; envelope keys/values are captured.
+const cards = { count: 100, data: Array.from({ length: 100 }, () => ({})), page: 1, page_size: 100, total_count: 121 };
+const sealed = { count: 7, data: Array.from({ length: 7 }, () => ({})), page: 1, page_size: 100, total_count: 7 };
+
+describe("#9424 exact sealed expansion estimates", () => {
+  const scope = {
+    unitKey: sealedUnit,
+    scopeKey: "expansion-sealed-products",
+    values: { expansionId: "OP01", language: "en" },
+  };
+  const query = scrydexCountQuery({
+    environment: "test",
+    accountRevision: "synthetic-revision",
+    productDomain: "one-piece",
+    profileKey: "one-piece-sealed-product-source-observation",
+    profileVersion: "2026.06.22",
+    unitKey: sealedUnit,
+    kind: "sealed",
+    languageCode: "en",
+    parentValue: "OP01",
+  });
+  const request = {
+    providerKey: "scrydex",
+    profileKey: query.profileKey,
+    profileVersion: query.profileVersion,
+    ingestionUnitKey: sealedUnit,
+    queryKind: "sealed-products",
+    languageCode: "en",
+    parentValue: "OP01",
+  };
+  function evidence(patch: Partial<ScrydexCountEvidence> = {}): ScrydexCountEvidence {
+    return {
+      query,
+      validationKind: "page-1-count",
+      sourceId: "synthetic-sealed-debit",
+      totalCount: 121,
+      pageSize: 100,
+      returnedPage: 1,
+      returnedItemCount: 100,
+      observedAt: observedAt.toISOString(),
+      expiresAt: new Date(observedAt.getTime() + 900_000).toISOString(),
+      ...patch,
+    };
+  }
+  function cache(patch: Partial<CatalogProviderOptionQueryCacheRecord> = {}): CatalogProviderOptionQueryCacheRecord {
+    return {
+      ...request,
+      cacheKey: cacheKeyForProviderOptionQuery(request),
+      items: Array.from({ length: 3 }, (_, i) => ({
+        providerKey: "scrydex",
+        queryKind: "sealed-products",
+        value: `synthetic-${i}`,
+        label: `Synthetic ${i}`,
+        parentValue: "OP01",
+        description: null,
+        imageUrl: null,
+        aliases: [],
+        metadata: {},
+      })),
+      itemCount: 3,
+      totalCount: 3,
+      pageSize: 2,
+      fetchedAt: observedAt.toISOString(),
+      expiresAt: new Date(observedAt.getTime() + 900_000).toISOString(),
+      staleUntil: new Date(observedAt.getTime() + 86_400_000).toISOString(),
+      diagnosticCode: null,
+      diagnosticText: null,
+      ...patch,
+    };
+  }
+  function fixture(
+    source: ScrydexCountEvidence | null,
+    completed: CatalogProviderOptionQueryCacheRecord | null = null,
+  ) {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(syntheticUsageBody()));
+    const read = vi.fn(async () => source);
+    const write = vi.fn();
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: syntheticCredentials,
+      baseUrl: syntheticBaseUrl,
+      fetch,
+      now: () => observedAt,
+      countReader: { read },
+      countEnvironment: "test",
+      countAccountRevision: "synthetic-revision",
+      cacheStore: { read: async () => completed, write },
+    });
+    return { adapter, fetch, read, write };
+  }
+  it.each([0, 7, 121])(
+    "AC1/AC2 estimates governed total %i from observed size without count/sealed calls",
+    async (totalCount) => {
+      const f = fixture(evidence({ totalCount, returnedItemCount: Math.min(totalCount, 100) }));
+      expect((await f.adapter.planImport(scope)).usageEstimate).toMatchObject({
+        estimatedRequestCount: Math.max(1, Math.ceil(totalCount / 100)),
+        pageSize: 100,
+        countSource: { validationKind: "page-1-count", sourceId: "synthetic-sealed-debit", query },
+      });
+      expect(f.read).toHaveBeenCalledWith(query);
+      expect(f.fetch.mock.calls.every(([url]) => String(url).includes("/usage"))).toBe(true);
+      expect(f.write).not.toHaveBeenCalled();
+    },
+  );
+  it("AC2 newest source wins without splicing metadata; complete-cache wins a tie", async () => {
+    const tied = fixture(evidence(), cache());
+    expect((await tied.adapter.planImport(scope)).usageEstimate).toMatchObject({
+      estimatedRequestCount: 2,
+      pageSize: 2,
+      countSource: { validationKind: "complete-cache", totalCount: 3 },
+    });
+    const newerCount = fixture(evidence(), cache({ fetchedAt: new Date(observedAt.getTime() - 1).toISOString() }));
+    expect((await newerCount.adapter.planImport(scope)).usageEstimate).toMatchObject({
+      estimatedRequestCount: 2,
+      pageSize: 100,
+      countSource: { validationKind: "page-1-count", totalCount: 121 },
+    });
+  });
+  it.each([
+    null,
+    evidence({ totalCount: -1 }),
+    evidence({ totalCount: 2147483648 }),
+    evidence({ pageSize: 0 }),
+    evidence({ returnedItemCount: 99 }),
+    evidence({ sourceId: "" }),
+    evidence({ observedAt: new Date(observedAt.getTime() - 900_001).toISOString() }),
+    evidence({ observedAt: new Date(observedAt.getTime() + 1).toISOString() }),
+    evidence({ expiresAt: new Date(observedAt.getTime() - 1).toISOString() }),
+    ...(
+      [
+        "environment",
+        "accountRevision",
+        "profileKey",
+        "profileVersion",
+        "unitKey",
+        "languageCode",
+        "parentValue",
+        "requestFingerprint",
+      ] as const
+    ).map((key) => evidence({ query: { ...query, [key]: "synthetic-wrong" } })),
+    evidence({ query: { ...query, kind: "cards" } }),
+    evidence({ query: { ...query, productDomain: "lorcana" } }),
+  ])("AC2/AC3 rejects unavailable, unsafe, stale, future and wrong-identity count evidence %#", async (source) => {
+    expect((await fixture(source).adapter.planImport(scope)).usageEstimate?.estimatedRequestCount).toBeNull();
+  });
+  it.each([
+    { totalCount: null },
+    { itemCount: 2 },
+    { totalCount: 121 },
+    { pageSize: 0 },
+    { parentValue: "wrong" },
+    { fetchedAt: new Date(observedAt.getTime() - 900_001).toISOString() },
+  ])("AC2 partial/count-less/capped/invalid complete rows never supply a count %#", async (patch) => {
+    expect(
+      (await fixture(null, cache(patch)).adapter.planImport(scope)).usageEstimate?.estimatedRequestCount,
+    ).toBeNull();
+  });
+  it("AC1 explicit sealed id remains one request with no count read", async () => {
+    const f = fixture(null);
+    expect(
+      (await f.adapter.planImport({ ...scope, values: { sealedProductId: "synthetic-id" } })).usageEstimate
+        ?.estimatedRequestCount,
+    ).toBe(1);
+    expect(f.read).not.toHaveBeenCalled();
+  });
+  it.each(["options", "import"] as const)(
+    "AC2 unwrapped %s observations cache only completed pagination",
+    async (surface) => {
+      for (const mode of ["complete", "partial", "mismatch", "failed", "different-query"] as const) {
+        let completed: CatalogProviderOptionQueryCacheRecord | null = null;
+        const write = vi.fn(async (record: CatalogProviderOptionQueryCacheRecord) => {
+          completed = record;
+        });
+        const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+          const url = new URL(String(input));
+          if (url.pathname.endsWith("/usage")) return Response.json(syntheticUsageBody());
+          expect(write).not.toHaveBeenCalled();
+          if (mode === "different-query" && url.pathname.includes("/OP01/")) return Response.json({}, { status: 404 });
+          if (url.pathname.endsWith("/expansions"))
+            return Response.json({ data: [{ id: "synthetic-replacement", code: "OP01", name: "Synthetic" }] });
+          const page = Number(url.searchParams.get("page"));
+          if (mode === "failed" && page === 2) throw new Error("Synthetic page failure");
+          return Response.json({
+            data: Array.from({ length: page === 1 ? 2 : 1 }, (_, i) => ({
+              id: `synthetic-${page}-${i}`,
+              name: "Synthetic sealed",
+            })),
+            ...(mode === "partial"
+              ? {}
+              : {
+                  page,
+                  page_size: 2,
+                  total_count: 3,
+                  count: mode === "mismatch" && page === 2 ? 0 : page === 1 ? 2 : 1,
+                }),
+          });
+        });
+        const subject = createScrydexOnePieceProviderAdapter({
+          fetch,
+          credentials: syntheticCredentials,
+          baseUrl: syntheticBaseUrl,
+          now: () => observedAt,
+          cacheStore: { read: async () => completed, write },
+        });
+        const run = async () => {
+          if (surface === "options")
+            return subject.listOptions({
+              unitKey: sealedUnit,
+              optionKind: "sealed-products",
+              parentValues: { expansionId: "OP01" },
+            });
+          const plan = await subject.planImport(scope);
+          for await (const _payload of subject.fetchPayloads(plan)) {
+            /* consume synthetic authorized observation */
+          }
+        };
+        if (mode === "mismatch" || mode === "failed" || (mode === "different-query" && surface === "options")) {
+          await expect(run()).rejects.toThrow();
+          expect(write).not.toHaveBeenCalled();
+        } else {
+          await run();
+          expect(write).toHaveBeenCalledOnce();
+          expect(write.mock.calls[0]?.[0]).toMatchObject({
+            totalCount: mode === "complete" ? 3 : null,
+            pageSize: mode === "complete" ? 2 : null,
+          });
+          expect((await subject.planImport(scope)).usageEstimate?.estimatedRequestCount).toBe(
+            mode === "complete" ? 2 : null,
+          );
+        }
+      }
+    },
+  );
+});
+
+describe("AC3 Scrydex page-1 count authority", () => {
+  it.each([302, 429, 404, 200])(
+    "AC2 actual loopback HTTP %s sends once with no redirects/retries/discovery/page 2",
+    async (status) => {
+      const requests: string[] = [];
+      const server = createServer((request, response) => {
+        requests.push(request.url ?? "");
+        response.writeHead(status, { "content-type": "application/json", location: "/hidden-next" });
+        response.end(JSON.stringify(status === 200 ? cards : { error: "synthetic" }));
+      });
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      try {
+        const address = server.address();
+        if (!address || typeof address === "string") throw new Error("Loopback unavailable.");
+        const query = scrydexCountQuery({
+          environment: "test",
+          accountRevision: "runtime",
+          productDomain: "one-piece",
+          profileKey: "synthetic",
+          profileVersion: "1",
+          unitKey: "scrydex:one-piece:single-card:source-observation-import",
+          kind: "cards",
+          languageCode: "en",
+          parentValue: "OP01",
+        });
+        const send = acquireScrydexPageOneCount(query, {
+          baseUrl: `http://127.0.0.1:${address.port}/onepiece/v1`,
+          credentials: { apiKey: "synthetic", teamId: "synthetic" },
+        });
+        if (status === 200) expect((await send).totalCount).toBe(121);
+        else await expect(send).rejects.toThrow();
+        expect(requests).toHaveLength(1);
+        expect(requests[0]).toContain("/cards?page=1&page_size=250");
+        expect(requests[0]).not.toContain("usage");
+      } finally {
+        await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      }
+    },
+  );
+  it.each([cards, sealed])("accepts the receipt-derived snake_case envelope", (body) => {
+    expect(Object.keys(body).sort()).toEqual(["count", "data", "page", "page_size", "total_count"]);
+    expect(validateScrydexCountPage(body, 1)).toEqual({
+      totalCount: body.total_count,
+      pageSize: 100,
+      returnedPage: 1,
+      returnedItemCount: body.count,
+    });
+  });
+  it.each([0, 1, 121])("accepts zero/single/multiple pages in camel case: %s", (totalCount) => {
+    expect(
+      validateScrydexCountPage(
+        { data: Array.from({ length: Math.min(100, totalCount) }, () => ({})), page: 1, pageSize: 100, totalCount },
+        1,
+      )?.totalCount,
+    ).toBe(totalCount);
+  });
+  it.each([
+    { ...cards, total_count: undefined },
+    { ...cards, page_size: undefined },
+    { ...cards, page: 2 },
+    { ...cards, count: 99 },
+    { ...cards, data: [] },
+    { ...cards, total_count: 2147483648 },
+    { ...cards, total_count: 1.5 },
+    { ...cards, page_size: 0 },
+    { ...cards, page_size: 2147483648 },
+    { data: [], next_page: "/page2" },
+    { ...cards, totalCount: 122 },
+  ])("refuses missing, capped, next-only, unsafe and conflicting authority", (body) => {
+    expect(() => validateScrydexCountPage(body, 1)).toThrow();
+  });
+  it("one count attempt uses observed size and never requests page 2 or usage", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(cards));
+    const query = scrydexCountQuery({
+      environment: "test",
+      accountRevision: "runtime",
+      productDomain: "one-piece",
+      profileKey: "synthetic",
+      profileVersion: "1",
+      unitKey: "scrydex:one-piece:single-card:source-observation-import",
+      kind: "cards",
+      languageCode: "en",
+      parentValue: "OP01",
+    });
+    const result = await acquireScrydexPageOneCount(query, {
+      fetch,
+      credentials: { apiKey: "synthetic", teamId: "synthetic" },
+      baseUrl: "http://127.0.0.1/onepiece/v1",
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toContain("page_size=250");
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+    expect(result.pageSize).toBe(100);
+  });
+});

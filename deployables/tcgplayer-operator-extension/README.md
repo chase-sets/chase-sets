@@ -44,6 +44,17 @@ runs in an opaque sandbox without Chrome storage/cookie APIs. It receives only
 closed status DTOs. Pairing grant input is transient and cleared on submit,
 clear, environment change, Escape, and dismissal.
 
+The Admin pair handoff is the primary pairing path; popup paste is the
+fallback. After a successful mint, the Admin `/catalog/providers/tcgplayer`
+page sends `{action:"pair-handoff", grant}` once and holds the grant unrendered
+for at most 15 seconds. A separate external receiver takes the environment
+only from the exact attested Admin origin, never from the message. That origin
+is the trust principal, not proof of a recent mint. Its `paired` reply means
+only that the grant was committed to local storage, not that a push succeeded.
+A refusal, a missing or late reply, or no runtime leaves Admin showing the
+grant as not confirmed for popup paste; that is not proof of non-receipt or a
+rollback. Neither side retries or mints again, and the grant is never recorded.
+
 The worker reads only `TCGAuthTicket_Production` at the captured pricing URL,
 `https://store.tcgplayer.com/admin/pricing`, from default store `0`. It never
 enumerates cookies, reads event values, logs secrets, or calls TCGplayer.

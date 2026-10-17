@@ -12,6 +12,7 @@ import { composeChannelListingPublication } from "../domain/compose";
 import {
   channelCompositionProgrammingErrors,
   channelPublicationBlockingReasons,
+  channelPublicationListingBlockingReasons,
   type ChannelCompositionProfile,
   type ChannelListingCompositionInput,
   type ChannelListingCompositionResult,
@@ -479,6 +480,224 @@ describe("channel-listing-blocking-reason-matrix", () => {
       expect(composeChannelListingPublication(input), reason).toEqual({ kind: "blocked", reasons: [reason] });
     }
   });
+});
+
+describe("clamp-paused-listing-composes-seller-intent", () => {
+  const clampPauseReason = "channel-inbound-dark";
+  const retainedPauseReasons = [
+    "seller",
+    "policy-input-missing",
+    null,
+    "",
+    "channel-inbound-dark ",
+    "Channel-Inbound-Dark",
+    "channel-inbound",
+    "future-pause-reason",
+  ] as const;
+  const completePublishedLink = publishedLink();
+  const incompletePublishedLinks = [
+    publishedLink({ externalListingId: null }),
+    publishedLink({ publishState: "delisted" }),
+    publishedLink({ lastPushedPriceAmountMinor: null }),
+    publishedLink({ lastPushedPriceCurrency: null }),
+    publishedLink({ lastPushedQuantity: null }),
+  ];
+
+  it("accepts any bounded pause reason text and rejects a missing, non-text or unbounded one", () => {
+    for (const pauseReason of [null, clampPauseReason, ...retainedPauseReasons, "x".repeat(128)]) {
+      expect(parseChannelListingCompositionInput(withListing({ pauseReason })), String(pauseReason)).toMatchObject({
+        kind: "valid",
+      });
+    }
+    for (const pauseReason of [1, {}, ["channel-inbound-dark"], "x".repeat(129)]) {
+      expect(parseChannelListingCompositionInput(withListing({ pauseReason }))).toEqual({
+        kind: "invalid",
+        programmingError: "bound-violation",
+      });
+    }
+    const missing = mutable(listingInput()) as unknown as { listing: Record<string, unknown> };
+    delete missing.listing.pauseReason;
+    expect(parseChannelListingCompositionInput(missing)).toEqual({
+      kind: "invalid",
+      programmingError: "bound-violation",
+    });
+    expect(
+      parseChannelListingCompositionInput({
+        ...listingInput(),
+        listing: { kind: "facts-unavailable", listingId: "listing-synthetic", pauseReason: clampPauseReason },
+      }),
+    ).toEqual({ kind: "invalid", programmingError: "unknown-key" });
+  });
+
+  it("composes publish/update from the seller's current price and publishable quantity under the exact clamp pause", () => {
+    const sellerIntent = (input: Mutable<ChannelListingCompositionInput>) => {
+      if (input.listing.kind !== "present") throw new Error("expected listing facts");
+      input.listing.offer.price = { kind: "present", amount: "31.45", currencyCode: "USD" };
+      input.listing.offer.publishableQuantity = { kind: "resolved", value: 5 };
+    };
+    const unlinked = paused(clampPauseReason, sellerIntent);
+    expect(parseChannelListingCompositionInput(unlinked)).toMatchObject({ kind: "valid" });
+    expect(composeChannelListingPublication(unlinked)).toMatchObject({
+      kind: "publishable",
+      intent: "publish",
+      draft: { listingRevision: 7, price: { amountMinor: 3_145, currency: "USD" }, quantity: 5 },
+    });
+    expect(composeChannelListingPublication(unlinked)).toEqual(composeChannelListingPublication(asActive(unlinked)));
+
+    const linked = paused(clampPauseReason, (input) => {
+      sellerIntent(input);
+      input.link = { kind: "existing", state: mutable(completePublishedLink) };
+    });
+    expect(composeChannelListingPublication(linked)).toMatchObject({
+      kind: "publishable",
+      intent: "update",
+      draft: {
+        channelListingId: completePublishedLink.channelListingId,
+        listingRevision: 7,
+        price: { amountMinor: 3_145, currency: "USD" },
+        quantity: 5,
+      },
+    });
+    expect(composeChannelListingPublication(linked)).toEqual(composeChannelListingPublication(asActive(linked)));
+  });
+
+  it("retains listing-not-active for every other pause reason: delist only with a complete published link", () => {
+    for (const pauseReason of retainedPauseReasons) {
+      const label = JSON.stringify(pauseReason);
+      expect(composeChannelListingPublication(paused(pauseReason)), label).toEqual({
+        kind: "blocked",
+        reasons: ["listing-not-active"],
+      });
+      expect(
+        composeChannelListingPublication(
+          paused(pauseReason, (input) => {
+            input.link = { kind: "existing", state: mutable(completePublishedLink) };
+          }),
+        ),
+        label,
+      ).toMatchObject({
+        kind: "publishable",
+        intent: "delist",
+        delist: {
+          channelListingId: completePublishedLink.channelListingId,
+          listingRevision: 7,
+          lastPublishedPrice: { amountMinor: 2_000, currency: "USD" },
+          lastPublishedQuantity: 3,
+          delistReasons: ["listing-not-active"],
+        },
+      });
+      for (const link of incompletePublishedLinks) {
+        expect(
+          composeChannelListingPublication(
+            paused(pauseReason, (input) => {
+              input.link = { kind: "existing", state: mutable(link) };
+            }),
+          ),
+          label,
+        ).toEqual({ kind: "blocked", reasons: ["listing-not-active"] });
+      }
+    }
+  });
+
+  it("leaves every other non-active status unchanged even when paired with the clamp reason", () => {
+    for (const listingStatus of ["draft", "withdrawn", "auto-unlisted"] as const) {
+      const unlinked = withListing({ listingStatus, pauseReason: clampPauseReason });
+      expect(composeChannelListingPublication(unlinked), listingStatus).toEqual({
+        kind: "blocked",
+        reasons: ["listing-not-active"],
+      });
+      expect(
+        composeChannelListingPublication({ ...unlinked, link: { kind: "existing", state: completePublishedLink } }),
+        listingStatus,
+      ).toMatchObject({ kind: "publishable", intent: "delist", delist: { delistReasons: ["listing-not-active"] } });
+    }
+    for (const pauseReason of [clampPauseReason, ...retainedPauseReasons]) {
+      expect(composeChannelListingPublication(withListing({ listingStatus: "active", pauseReason }))).toEqual(
+        composeChannelListingPublication(listingInput()),
+      );
+    }
+  });
+
+  it("keeps every independent guard's delist/blocked result while the exact clamp pause is held fixed", () => {
+    const cases = reasonCases();
+    const governing = channelPublicationBlockingReasons.filter(
+      (reason) => reason !== "listing-not-active" && reason !== "listing-facts-unavailable",
+    );
+    expect(governing).toEqual(
+      expect.arrayContaining([
+        "seller-unavailable",
+        "connection-not-active",
+        "listing-excluded",
+        "sold-out",
+        "low-stock-withheld",
+        "inventory-facts-unavailable",
+        "missing-price",
+        "price-out-of-range",
+        "invalid-currency",
+        "category-unmapped",
+        "condition-unmapped",
+      ]),
+    );
+    for (const reason of governing) {
+      const isListingReason = channelPublicationListingBlockingReasons.some((candidate) => candidate === reason);
+      for (const link of [{ kind: "none" }, { kind: "existing", state: completePublishedLink }] as const) {
+        const active = { ...cases[reason](), link };
+        const clampPaused = withStatus(active, "paused", clampPauseReason);
+        const sellerPaused = withStatus(active, "paused", "seller");
+        const label = `${reason} with ${link.kind} link`;
+        expect(parseChannelListingCompositionInput(clampPaused), label).toMatchObject({ kind: "valid" });
+
+        const expected =
+          link.kind === "existing" && isListingReason
+            ? { kind: "publishable", intent: "delist", delist: { delistReasons: [reason] } }
+            : { kind: "blocked", reasons: [reason] };
+        expect(composeChannelListingPublication(clampPaused), label).toMatchObject(expected);
+        expect(composeChannelListingPublication(clampPaused), label).toEqual(composeChannelListingPublication(active));
+
+        const sellerReasons = isListingReason ? orderedListingReasons(["listing-not-active", reason]) : [reason];
+        expect(composeChannelListingPublication(sellerPaused), label).toMatchObject(
+          link.kind === "existing" && isListingReason
+            ? { kind: "publishable", intent: "delist", delist: { delistReasons: sellerReasons } }
+            : { kind: "blocked", reasons: sellerReasons },
+        );
+      }
+    }
+  });
+
+  function paused(
+    pauseReason: string | null,
+    change: (input: Mutable<ChannelListingCompositionInput>) => void = () => undefined,
+  ): ChannelListingCompositionInput {
+    return mutateInput((input) => {
+      if (input.listing.kind !== "present") throw new Error("expected listing facts");
+      input.listing.listingStatus = "paused";
+      input.listing.pauseReason = pauseReason;
+      change(input);
+    });
+  }
+
+  function withListing(fields: Record<string, unknown>): ChannelListingCompositionInput {
+    return mutateInput((input) => {
+      Object.assign(input.listing, fields);
+    });
+  }
+
+  function withStatus(
+    input: ChannelListingCompositionInput,
+    listingStatus: "active" | "paused",
+    pauseReason: string | null,
+  ): ChannelListingCompositionInput {
+    if (input.listing.kind !== "present") throw new Error("expected listing facts");
+    return { ...input, listing: { ...input.listing, listingStatus, pauseReason } };
+  }
+
+  function asActive(input: ChannelListingCompositionInput): ChannelListingCompositionInput {
+    return withStatus(input, "active", null);
+  }
+
+  function orderedListingReasons(reasons: readonly ChannelPublicationBlockingReason[]) {
+    return channelPublicationListingBlockingReasons.filter((reason) => reasons.includes(reason));
+  }
 });
 
 describe("channel-listing-catalog-reference-requirement-mutant", () => {

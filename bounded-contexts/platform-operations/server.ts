@@ -34,13 +34,34 @@ export type {
   PlatformFeedbackWorkflow,
 } from "./features/platform-feedback/domain/common";
 export { createSupportRequestApiClient } from "./support/request-support/support-request-api-client";
+export {
+  openSupportEvidenceCanonicalizer,
+  createSupportEvidenceCanonicalizationQueue,
+} from "./features/support-requests/api/evidence-canonicalization";
 export type { SupportRequestDetail } from "./support/request-support/support-request-api-client";
+export {
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+} from "./features/support-requests/domain/attachment-operation";
+export {
+  assertSupportEvidenceCleanupCapability,
+  parseSupportEvidenceCleanupBinding,
+  SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+} from "./features/support-requests/api/attachment-cleanup";
+export type {
+  SupportEvidenceCleanupBinding,
+  SupportEvidenceCleanupCapability,
+  SupportEvidenceCleanupRunResult,
+  SupportEvidenceCleanupStorage,
+} from "./features/support-requests/api/attachment-cleanup";
+export type { PlatformOperationsHostPorts, PlatformOperationsServices } from "./support/runtime-support/services";
 export {
   createNoopRateLimitPolicyResolver,
   createRateLimitPolicyResolver,
 } from "./features/rate-limit-policy/api/rate-limit-policy-resolver";
 export { rateLimitPolicy } from "./features/rate-limit-policy/domain/rate-limit-policy";
 export { supportDeadlinePolicy } from "./features/support-requests/domain/support-deadline-policy";
+export { createSupportEvidenceSeedContext } from "./features/support-requests/domain/common";
 export { platformRemedyPolicy } from "./features/support-requests/domain/platform-remedy-policy";
 export type {
   PolicyConsoleCrossContextPort,

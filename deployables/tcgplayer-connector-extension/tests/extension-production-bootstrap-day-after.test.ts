@@ -59,7 +59,8 @@ describe("extension-production-bootstrap-day-after", () => {
       expect(fixture.request).toHaveBeenCalledTimes(state === "paired-idle" && index < 4 ? 1 : 0);
       for (const [request] of fixture.request.mock.calls) {
         expect(request.url).toBe(`${platformOrigin}/channel-connector/oauth/connections/connection_A/claim`);
-        expect(await request.clone().json()).toEqual({});
+        // The product registry advertises exactly its registered live-export pair.
+        expect(await request.clone().json()).toEqual({ capabilities: ["tcgplayer-live-export"] });
       }
     }
   });

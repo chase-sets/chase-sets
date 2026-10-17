@@ -251,7 +251,7 @@ describe("closed stimulus diagnostics", () => {
       expect(stimulusObservation(Buffer.from(line))).toBeNull();
   });
 
-  it("names the observed census refusal: exact orphan 198/110 versus ambiguous 198/113", () => {
+  it("names ambiguous census refusal only with its complete validated witness", () => {
     const stdout =
       "provider-boundary-cleanup-stage:remove-installation\nprovider-boundary-installer-stage:source-location\nprovider-boundary-installer-stage:remove-ownership\nprovider-boundary-cleanup-installer-status:1\n";
     const refusal = (stage) => ({
@@ -261,7 +261,12 @@ describe("closed stimulus diagnostics", () => {
       stderr: `provider-boundary-installer-refused:${stage}\nprovider-boundary-cleanup-refused:remove-installation\n`,
     });
     expect(refusalStage(refusal("remove-orphan-owner"))).toBe("remove-orphan-owner");
-    expect(refusalStage(refusal("remove-ambiguous-owner"))).toBe("remove-ambiguous-owner");
+    const ambiguous = refusal("remove-ambiguous-owner");
+    const witness =
+      "provider-boundary-removal-witness:v1;predicate=foreign-image;records=20,1,100,1,3,initial,admitted,target;start-drift=0;image-drift=0;repeated-pid=0;chain-length=0\n";
+    expect(refusalStage(ambiguous)).toBe("unknown");
+    expect(refusalStage({ ...ambiguous, stderr: witness + ambiguous.stderr })).toBe("remove-ambiguous-owner");
+    expect(refusalStage({ ...ambiguous, stderr: witness + ambiguous.stderr + "PRIVATE" })).toBe("unknown");
     expect(refusalStage({ ...refusal("remove-orphan-owner"), stderr: "PRIVATE" })).toBe("unknown");
     expect(refusalStage(undefined)).toBe("unknown");
   });

@@ -11,6 +11,20 @@
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_ACCOUNT_DELETION_ENDPOINT",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
       "purpose": "application-runtime"
     },
@@ -103,27 +117,6 @@
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "STRIPE_SECRET_KEY",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-ephemeral-verification.yml",
-      "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
-      "secretName": "UCP_AP2_VERIFIER_AUTH_TOKEN",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-ephemeral-verification.yml",
-      "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
-      "secretName": "UCP_AP2_VERIFIER_TIMEOUT_MS",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-ephemeral-verification.yml",
-      "jobId": "verify-release",
-      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
-      "secretName": "UCP_AP2_VERIFIER_URL",
       "purpose": "terraform-infra"
     },
     {

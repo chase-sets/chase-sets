@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createStripeConnectMoneyMovementGateway } from "./index";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
@@ -17,6 +18,79 @@ function stripeSignature(rawBody: string, secret: string, timestamp = 1_776_000_
 }
 
 describe("money movement adapters", () => {
+  it.each([
+    ["12.34", "1234"],
+    ["0.01", "1"],
+    ["0.00", "0"],
+    ["9999999999.99", "999999999999"],
+  ])("sends exact minor units on transfers and payouts: %s", async (amount, expectedMinorUnits) => {
+    const calls: Array<{ url: string; amount: string | null }> = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, amount: new URLSearchParams(String(init?.body)).get("amount") });
+      return Response.json({ id: url.endsWith("/transfers") ? "tr_SYNTHETIC" : "po_SYNTHETIC" });
+    });
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test_SYNTHETIC",
+      webhookSecret: "whsec_SYNTHETIC",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const input = {
+      payoutId: "pyo_SYNTHETIC" as never,
+      accountId: "acc_SYNTHETIC" as never,
+      providerReference: "acct_SYNTHETIC",
+      amount,
+      currencyCode: "usd" as const,
+      idempotencyKey: "synthetic-payout-key",
+    };
+
+    await adapter.transferPlatformBalanceToConnectedAccount(input);
+    await adapter.createConnectedAccountPayout(input);
+
+    expect(calls).toEqual([
+      { url: "https://stripe.test/v1/transfers", amount: expectedMinorUnits },
+      { url: "https://stripe.test/v1/balance_settings", amount: null },
+      { url: "https://stripe.test/v1/payouts", amount: expectedMinorUnits },
+    ]);
+    expect(readFileSync(new URL("./index.ts", import.meta.url), "utf8").match(/parseFloat/g)).toBeNull();
+  });
+
+  describe.each(["transferPlatformBalanceToConnectedAccount", "createConnectedAccountPayout"] as const)(
+    "%s",
+    (method) => {
+      it.each(["12.505", "12abc", "1e3", "-1.00", "", "10000000000.00"])(
+        "rejects non-canonical amounts before calling Stripe: %j",
+        async (amount) => {
+          const fetchMock = vi.fn(async () => Response.json({ id: "synthetic-provider-id" }));
+          globalThis.fetch = fetchMock;
+          const adapter = createStripeConnectMoneyMovementGateway({
+            secretKey: "sk_test_SYNTHETIC",
+            webhookSecret: "whsec_SYNTHETIC",
+            apiBaseUrl: "https://stripe.test",
+          });
+
+          const error = await adapter[method]({
+            payoutId: "pyo_SYNTHETIC" as never,
+            accountId: "acc_SYNTHETIC" as never,
+            providerReference: "acct_SYNTHETIC",
+            amount,
+            currencyCode: "usd",
+            idempotencyKey: "synthetic-payout-key",
+          }).then(
+            () => null,
+            (error: unknown) => error,
+          );
+
+          expect(fetchMock).not.toHaveBeenCalled();
+          expect(error).toBeInstanceOf(Error);
+          expect((error as Error).message).toBe(
+            "Money amount must be a non-negative decimal at or below 9999999999.99.",
+          );
+        },
+      );
+    },
+  );
+
   it("Stripe adapter creates Accounts v1 payout accounts with platform-held transfer readiness", async () => {
     const calls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -2,6 +2,7 @@
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
   "ownedNouns": [
+    "eBay-account-deletion-receipt",
     "channel-connection",
     "channel-health",
     "channel-publication-facts",
@@ -21,6 +22,7 @@
   "streamPrefix": "channels.",
   "apiBasePath": "/api/channels",
   "slices": [
+    "ebay-account-deletion",
     "connector-feed",
     "connections",
     "credentials",
@@ -29,6 +31,7 @@
     "listing-composition",
     "tcgplayer-csv",
     "tcgplayer-orders",
+    "live-export-snapshot",
     "order-fulfillment-observations",
     "outbound-sync",
     "connection-health",
@@ -41,6 +44,16 @@
   "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory", "@chase-sets/auth"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
+    {
+      "portName": "ebayAccountDeletionConfiguration",
+      "providedBy": "platform-api",
+      "purpose": "Supply deployment-only eBay account-deletion challenge configuration; absent configuration disables GET."
+    },
+    {
+      "portName": "webhookTelemetry",
+      "providedBy": "platform-api",
+      "purpose": "Record bounded provider webhook outcomes without request or configuration values."
+    },
     {
       "portName": "storageLocationAuthority",
       "providedBy": "platform-api, platform-worker",
@@ -415,9 +428,17 @@
       "mountPath": "/channel-connector/oauth",
       "kind": "additional",
       "requiresAuth": false
+    },
+    {
+      "mountPath": "/api/channels-webhooks",
+      "kind": "additional",
+      "requiresAuth": false
     }
   ],
   "workerRuntimeProfiles": ["proof", "public"],
+  "agentCoverage": {
+    "ebay-account-deletion-lookup": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -514,20 +535,45 @@
           }
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "ebay-account-deletion-lookup",
+          "routePath": "ebay-account-deletion",
+          "fileExport": "./routes/admin/ebay-account-deletion",
+          "routeType": "route",
+          "sourceContext": "channels",
+          "section": "support"
+        }
+      ]
     }
   ],
   "shellContributions": [
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
-      "placements": ["top-nav", "bottom-nav"],
       "key": "channels-publication",
       "label": "Channels",
       "icon": "store",
       "href": "/account/channels",
       "order": 150,
       "visibility": "signed-in",
-      "requiredPermissions": ["channels.view"]
+      "requiredPermissions": ["channels.view"],
+      "excludedRoleKeys": ["guest-buyer"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "ebay-account-deletion-lookup",
+      "label": "eBay Deletion Lookup",
+      "icon": "search",
+      "href": "/ebay-account-deletion",
+      "section": "support",
+      "order": 7,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
     }
   ],
   "readAfterWriteRouteInventory": [
@@ -604,6 +650,29 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "channels.ebay-account-deletion-lookup-snapshot",
+      "owner": "channels",
+      "risk": "internal",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/ebay-account-deletion/api/staff-route.ts:POST /staff/ebay-account-deletion/lookup",
+        "route-action:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-route-adapter.tsx",
+        "post-form:bounded-contexts/channels/features/ebay-account-deletion/ui/ebay-account-deletion-lookup-page.tsx:H1abed2c1c746#1"
+      ],
+      "visibleDestination": {
+        "routeId": "ebay-account-deletion-lookup",
+        "description": "Staff receives the current exact-match receipt metadata directly; POST keeps the sensitive user ID out of URLs and performs no mutation."
+      },
+      "proof": {
+        "authoritativeResponse": "The Channels store selects unexpired matching metadata without projections, subject echo or decryption; the admin action validates that closed response and returns it directly.",
+        "tests": [
+          "deployables/platform-api/__tests__/ebay-account-deletion-staff-composition.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-receipt-lookup.db.test.ts",
+          "bounded-contexts/channels/features/ebay-account-deletion/tests/ebay-account-deletion-lookup-page.test.tsx"
+        ]
+      }
+    },
     {
       "id": "channels.connect-to-detail",
       "owner": "channels",
@@ -765,7 +834,7 @@
       ],
       "visibleDestination": {
         "routeId": "channels-connection-detail",
-        "description": "Every manual sync API mutation returns the committed producer run/panel, exact CSV, ingest receipt, or verification snapshot; failures return a closed error without claiming projected success."
+        "description": "Every manual sync API mutation returns the committed producer run/panel, exact CSV, bounded ingest receipt (surface, server probe, and the ingested snapshot identity or refusal reason, never export rows or header), or verification snapshot; failures return a closed error without claiming projected success."
       },
       "proof": {
         "authoritativeResponse": "The route returns the exact result from the imported TCGplayer run service and Marketplace clamp port. Run revisions fence every lifecycle write, and bounded upload refusal occurs before the producer parser/write call.",
@@ -783,10 +852,11 @@
       "strategy": "optimistic-with-correction",
       "surfaces": [
         "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#1",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#2",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#3",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#4",
-        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:H1abed2c1c746#5",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#1",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#2",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#3",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#4",
+        "post-form:bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.tsx:Hb08a81ecfd73#5",
         "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
       ],
       "visibleDestination": {
@@ -794,9 +864,10 @@
         "description": "The connection page exposes only actions admitted by the exact loaded run revision, keeps action errors visible, and revalidates the account-scoped panel after successful writes."
       },
       "proof": {
-        "correction": "Successful actions redirect to the same connection route so its authenticated loader replaces the panel with the latest producer revision; failures render a canonical error banner and stale or unlisted actions write nothing.",
+        "correction": "Successful run actions redirect to the same connection route so its authenticated loader replaces the panel with the latest producer revision; ingest returns its bounded receipt as action data while the route revalidates the panel; Staged-basis Compose refusals render ingest guidance, other failures render a canonical error banner, and stale or unlisted actions write nothing.",
         "tests": [
           "bounded-contexts/channels/features/manual-sync/ui/manual-sync-panel.test.tsx",
+          "bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.test.tsx",
           "bounded-contexts/channels/features/manual-sync/api/manual-sync-route.test.ts",
           "bounded-contexts/channels/features/manual-sync/domain/manual-sync-contracts.test.ts"
         ]
@@ -804,6 +875,18 @@
     }
   ],
   "directoryIntent": {
+    "ebay-account-deletion": {
+      "classification": "slice",
+      "purpose": "Channels owns ebay-account-deletion challenge GET, deployment configuration, encrypted receipt custody, stable subject matching, expiry and staff exact lookup.",
+      "expectedConsumers": [
+        "Channels public webhook mount",
+        "platform-api configuration loader",
+        "Channels webhook receipt caller",
+        "Channels subject binding and deletion consumers",
+        "Scheduled worker",
+        "Staff admin lookup"
+      ]
+    },
     "order-fulfillment-observations": {
       "classification": "slice",
       "purpose": "Own the order-fulfillment-observations slice's shared versioned Channel Order Fulfillment Observation reference composer.",
@@ -888,6 +971,11 @@
       "classification": "slice",
       "purpose": "The tcgplayer-orders slice owns recoverable Channel Sale Observations and complete pull accounting through the admitted connector reader.",
       "expectedConsumers": ["Channels connector consumers and platform worker"]
+    },
+    "live-export-snapshot": {
+      "classification": "slice",
+      "purpose": "The live-export-snapshot slice persists each admitted connector export payload as one Live Channel Inventory Snapshot through the tcgplayer-csv owner.",
+      "expectedConsumers": ["Channels module composition and platform worker"]
     },
     "reconciliation": {
       "classification": "slice",

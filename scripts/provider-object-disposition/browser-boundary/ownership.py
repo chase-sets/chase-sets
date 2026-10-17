@@ -13,6 +13,9 @@ CENSUS = 'remove-ownership-census'
 AMBIGUOUS = 'remove-ambiguous-owner'
 ORPHAN = 'remove-orphan-owner'
 LIVE = 'remove-live-owner'
+WITNESS_PREFIX = 'provider-boundary-removal-witness:'
+WITNESS_LIMIT = 1024
+CAPTURE_LIMIT = len(AMBIGUOUS) + 1 + WITNESS_LIMIT
 
 
 class CensusError(Exception):
@@ -41,25 +44,113 @@ def parse_stat(text, pid):
             'kernel': bool(flags & 0x200000), 'exiting': bool(flags & 0x4)}
 
 
+def removal_witness(data):
+    """Validate the entire closed ASCII record, including its final newline."""
+    if not isinstance(data, bytes) or len(data) > WITNESS_LIMIT:
+        return None
+    match = re.fullmatch(
+        rb'provider-boundary-removal-witness:v1;predicate=(identity-drift|parent-order|foreign-image|member-cycle);'
+        rb'records=([^;\n]+);start-drift=([01]);image-drift=([01]);repeated-pid=([0-9]+);chain-length=([0-9]+)\n', data)
+    if not match:
+        return None
+
+    def number(value, maximum, minimum=0):
+        if not re.fullmatch(rb'0|[1-9][0-9]{0,19}', value):
+            raise ValueError()
+        result = int(value)
+        if not minimum <= result <= maximum:
+            raise ValueError()
+        return result
+
+    try:
+        records = []
+        for encoded in match[2].split(b'|'):
+            pid, parent, start, device, inode, namespace, uid, image = encoded.split(b',')
+            if namespace not in (b'initial', b'noninitial') or uid not in (b'admitted', b'other'):
+                return None
+            if image not in (b'launcher', b'target', b'other', b'none'):
+                return None
+            identity = None if image == b'none' and device == inode == b'-' else (
+                number(device, 2**64 - 1), number(inode, 2**64 - 1))
+            if image == b'none' and identity is not None:
+                return None
+            records.append((number(pid, 2**31 - 1, 1), number(parent, 2**31 - 1),
+                            number(start, 2**64 - 1), identity, namespace, uid, image))
+        predicate = match[1]
+        if len(records) != (2 if predicate in (b'identity-drift', b'parent-order') else 1):
+            return None
+        start_drift, image_drift = match[3] == b'1', match[4] == b'1'
+        repeated, length = number(match[5], 2**31 - 1), number(match[6], 4096)
+        if predicate != b'member-cycle' and (repeated or length):
+            return None
+        if predicate != b'identity-drift' and (start_drift or image_drift):
+            return None
+        first = records[0]
+        if predicate == b'identity-drift':
+            second = records[1]
+            if (first[0] != second[0] or not (start_drift or image_drift) or
+                    start_drift != (first[2] != second[2]) or image_drift != (first[3] != second[3])):
+                return None
+        elif predicate == b'parent-order':
+            if first[1] != records[1][0] or records[1][2] <= first[2]:
+                return None
+        elif predicate == b'foreign-image':
+            if first[4] != b'initial' or first[6] != b'target':
+                return None
+        elif repeated != first[0] or length == 0:
+            return None
+        return data
+    except ValueError:
+        return None
+
+
+def witness_record(predicate, records, uid, image, initial, target_device, repeated=0, length=0):
+    projected = []
+    for record in records:
+        identity = record['image']
+        identity_fields = tuple(str(value) for value in identity) if identity is not None else ('-', '-')
+        image_class = ('none' if identity is None else 'launcher' if identity == image else
+                       'target' if identity[0] == target_device and record['path'].startswith(TARGET.as_posix() + '/') else 'other')
+        projected.append(','.join((str(record['pid']), str(record['parent']), str(record['start']),
+                                   *identity_fields,
+                                   'initial' if record['namespace'] == initial else 'noninitial',
+                                   'admitted' if record['uid'] == uid else 'other', image_class)))
+    drift = predicate == 'identity-drift'
+    line = (f'{WITNESS_PREFIX}v1;predicate={predicate};records={"|".join(projected)};'
+            f'start-drift={int(drift and records[0]["start"] != records[1]["start"])};'
+            f'image-drift={int(drift and records[0]["image"] != records[1]["image"])};'
+            f'repeated-pid={repeated};chain-length={length}\n').encode('ascii')
+    return removal_witness(line)
+
+
 def classify(previous, current, uid, image, initial, target_device):
+    return _classify(previous, current, uid, image, initial, target_device, None)
+
+
+def _classify(previous, current, uid, image, initial, target_device, witness):
+    def ambiguous(predicate, records, repeated=0, length=0):
+        if witness is not None:
+            witness.append(witness_record(predicate, records, uid, image, initial, target_device, repeated, length))
+        return AMBIGUOUS
+
     for pid, record in current.items():
         before = previous.get(pid)
         if before and (before['start'] != record['start'] or before['image'] != record['image']):
-            return AMBIGUOUS
+            return ambiguous('identity-drift', (before, record))
         parent = current.get(record['parent'])
         if parent and parent['start'] > record['start']:
-            return AMBIGUOUS
+            return ambiguous('parent-order', (record, parent))
         if (record['namespace'] == initial and record['image'] != image and
                 record['image'] is not None and record['image'][0] == target_device and
                 record['path'].startswith(TARGET.as_posix() + '/')):
-            return AMBIGUOUS
+            return ambiguous('foreign-image', (record,))
     roots = {p for p, r in current.items() if r['image'] == image and r['namespace'] == initial}
     members = {p for p, r in current.items() if r['uid'] == uid and r['namespace'] != initial}
     for pid in members:
         visited = set()
         while pid not in roots:
             if pid in visited:
-                return AMBIGUOUS
+                return ambiguous('member-cycle', (current[pid],), pid, len(visited))
             visited.add(pid)
             record = current.get(pid)
             if record is None or record['parent'] == 0:
@@ -135,6 +226,10 @@ def snapshot():
 
 
 def census():
+    return _census(None)
+
+
+def _census(witness):
     started = time.monotonic()
     header = TARGET / 'source/browser-boundary/installation.h'
     launcher = TARGET / 'launcher'
@@ -155,23 +250,51 @@ def census():
     while time.monotonic() - started < 2:
         time.sleep(.02)
         current = snapshot()
-        last = classify(previous, current, uid, image, initial, identity.st_dev)
+        detail = [] if witness is not None else None
+        last = _classify(previous, current, uid, image, initial, identity.st_dev, detail)
         if time.monotonic() - started > 3:
             raise CensusError()
         if last == 'none' and classify({}, previous, uid, image, initial, identity.st_dev) == 'none':
             return 'none'
         if last == AMBIGUOUS:
+            if witness is not None:
+                witness.extend(detail)
             return last
         previous = current
     return last
 
 
-if __name__ == '__main__':
+def validate_capture(stream):
+    data = stream.read(CAPTURE_LIMIT + 1)
+    if len(data) > CAPTURE_LIMIT:
+        return None
+    if data in (b'none\n', *(f'{stage}\n'.encode() for stage in (LIVE, ORPHAN, CENSUS))):
+        return data
+    prefix = (AMBIGUOUS + '\n').encode()
+    if data.startswith(prefix) and removal_witness(data[len(prefix):]) is not None:
+        return data
+    return None
+
+
+def main():
+    if sys.argv[1:] == ['--validate-capture']:
+        validated = validate_capture(sys.stdin.buffer)
+        if validated is None:
+            return 1
+        sys.stdout.write(validated.decode('ascii'))
+        return 0
+    detail = []
     try:
         if len(sys.argv) != 1 or os.getuid() != 0:
             raise CensusError()
-        outcome = census()
+        outcome = _census(detail)
     except (CensusError, OSError, UnicodeError, ValueError):
         outcome = CENSUS
     print(outcome)
-    sys.exit(0 if outcome == 'none' else 1)
+    if outcome == AMBIGUOUS and len(detail) == 1 and detail[0] is not None:
+        sys.stdout.write(detail[0].decode('ascii'))
+    return 0 if outcome == 'none' else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

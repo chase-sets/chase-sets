@@ -16,6 +16,7 @@ import type { MarketplaceReviewScoringDispositionProjectedV1Payload } from "../r
 import type { ReviewOpportunityChangedV1 } from "../review-opportunity-facts";
 import type { EmptyEventPayload } from "./event-core";
 import type {
+  PlatformOperationsListingRemovalDirectedPayload,
   PlatformOperationsReportedContentActionRecordedPayload,
   PlatformOperationsRiskAlertActionRecordedPayload,
 } from "./platform-operations";
@@ -114,6 +115,13 @@ export type MarketplaceOfferPriceUpdatedPayload = Readonly<{
   buyerAccountId: AccountId;
   priceAmount: string;
   priceCurrencyCode: string;
+}>;
+
+/** Shared by `marketplace.offer.paused`, `.resumed` and `.withdrawn`; the event type carries the new Offer Status. */
+export type MarketplaceOfferLifecyclePayload = Readonly<{
+  offerId: string;
+  buyerAccountId: AccountId;
+  at: string;
 }>;
 
 export type MarketplaceListingOfferCommitmentRecordedPayload = Readonly<{
@@ -434,10 +442,14 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.seller-listing-availability.enabled": MarketplaceSellerListingAvailabilityPayload;
   "marketplace.report.submitted": MarketplaceReportSubmittedPayload;
   "platform-operations.reported-content.action-recorded": PlatformOperationsReportedContentActionRecordedPayload;
+  "platform-operations.reported-content.listing-removal-directed": PlatformOperationsListingRemovalDirectedPayload;
   "platform-operations.risk-alert.action-recorded": PlatformOperationsRiskAlertActionRecordedPayload;
   "marketplace.offer.accepted": MarketplaceOfferAcceptedPayload;
   "marketplace.offer.submitted": MarketplaceOfferSubmittedPayload;
   "marketplace.offer.price-updated": MarketplaceOfferPriceUpdatedPayload;
+  "marketplace.offer.paused": MarketplaceOfferLifecyclePayload;
+  "marketplace.offer.resumed": MarketplaceOfferLifecyclePayload;
+  "marketplace.offer.withdrawn": MarketplaceOfferLifecyclePayload;
   "marketplace.listing.offer-commitment-recorded": MarketplaceListingOfferCommitmentRecordedPayload;
   "marketplace.seller-listing-availability.commitment-checked": MarketplaceSellerListingAvailabilityCommitmentCheckedPayload;
   "marketplace.review-scoring.disposition-projected.v1": MarketplaceReviewScoringDispositionProjectedV1Payload;

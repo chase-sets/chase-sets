@@ -270,28 +270,22 @@ export const browserE2ePlatformWorkerCiCommand = Object.freeze(
   resolveBrowserE2ePlatformWorkerCiCommand(process.platform),
 );
 
-const packageManagerCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-
 export const browserE2eProductionTarget = "browser-e2e-production";
 
-export const browserE2eProductionCommands = Object.freeze({
-  "platform-api": Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-platform-api", "run", "start"]),
-  }),
-  "platform-worker": Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "start"]),
-  }),
-  "admin-web": Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-admin-web", "run", "start"]),
-  }),
-  marketplace: Object.freeze({
-    command: packageManagerCommand,
-    args: Object.freeze(["--filter", "@chase-sets/app-marketplace-web", "run", "start"]),
-  }),
+const browserE2eProductionWorkspaces = Object.freeze({
+  "platform-api": "@chase-sets/app-platform-api",
+  "platform-worker": "@chase-sets/app-platform-worker",
+  "admin-web": "@chase-sets/app-admin-web",
+  marketplace: "@chase-sets/app-marketplace-web",
 });
+
+function resolveBrowserE2eProductionCommand(name, platform) {
+  const workspace = browserE2eProductionWorkspaces[name];
+  if (workspace === undefined) return undefined;
+  return platform === "win32"
+    ? { command: undefined, args: undefined, script: "start" }
+    : { command: "pnpm", args: Object.freeze(["--filter", workspace, "run", "start"]) };
+}
 
 export const browserE2eProductionBuilds = Object.freeze([
   Object.freeze({ name: "admin-web", workspace: "@chase-sets/app-admin-web" }),
@@ -358,7 +352,9 @@ export function applyDevTargetEnvOverrides(
 
   return processDefinitions.map((definition) => {
     const productionCommand =
-      targetName === browserE2eProductionTarget ? browserE2eProductionCommands[definition.name] : undefined;
+      targetName === browserE2eProductionTarget
+        ? resolveBrowserE2eProductionCommand(definition.name, platform)
+        : undefined;
 
     if (definition.name === "platform-api") {
       return {

@@ -437,6 +437,15 @@ export function createConnectorFeedRuntime(
   return {
     readAuthority,
     withAuthority,
+    async withGrantAuthority<T>(
+      token: string,
+      work: (authority: ConnectorAuthority, db: PgQueryable) => Promise<T>,
+      identify: Identify = ignoreIdentity,
+    ): Promise<T> {
+      const grant = await oauth().resolveToken(connectorString(token));
+      if (!grant) throw new ConnectorPairingError("invalid-credential");
+      return withAuthority({ token, connectionId: grant.connectionId, operation: "claim" }, work, identify);
+    },
     detail,
     createPairingCode,
     authorizePairing,

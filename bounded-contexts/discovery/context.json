@@ -27,7 +27,7 @@
     "ui-support",
     "ucp-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/checkout",
     "@chase-sets/collections",
@@ -299,11 +299,15 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
         "marketplace.offer.submitted",
         "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted",
         "marketplace.review.submitted",
         "marketplace.review.updated",
@@ -344,9 +348,13 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
         "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted"
       ],
       "order": 35,
@@ -532,7 +540,21 @@
     "tools": [
       { "name": "discovery.search-market", "ownerSlice": "search" },
       { "name": "discovery.get-item-detail", "ownerSlice": "item-detail" },
-      { "name": "discovery.get-chatgpt-product-feed", "ownerSlice": "item-detail" }
+      { "name": "discovery.get-chatgpt-product-feed", "ownerSlice": "item-detail" },
+      {
+        "name": "discovery.enqueue-google-shopping-diagnostics-refresh",
+        "ownerSlice": "google-shopping-operations"
+      },
+      {
+        "name": "discovery.enqueue-google-shopping-dry-run-full-sync",
+        "ownerSlice": "google-shopping-operations"
+      },
+      {
+        "name": "discovery.enqueue-google-shopping-dry-run-maintenance-sync",
+        "ownerSlice": "google-shopping-operations"
+      },
+      { "name": "discovery.get-google-shopping-sync-job", "ownerSlice": "google-shopping-operations" },
+      { "name": "discovery.list-google-shopping-feed-rows", "ownerSlice": "google-shopping-operations" }
     ],
     "resources": [
       {
@@ -926,8 +948,8 @@
       "surfaces": [
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:H7fc0fad212ad#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/buy-sections.tsx:H7fc0fad212ad#2",
-        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#1",
-        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#2",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H2e6216228277#1",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H829df595fb75#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#2",
         "route-action:bounded-contexts/discovery/support/route-support/item-detail/action.ts"
@@ -1039,6 +1061,17 @@
       }
     }
   ],
+  "agentCoverage": {
+    "google-shopping": {
+      "tools": [
+        "discovery.enqueue-google-shopping-diagnostics-refresh",
+        "discovery.enqueue-google-shopping-dry-run-full-sync",
+        "discovery.enqueue-google-shopping-dry-run-maintenance-sync",
+        "discovery.get-google-shopping-sync-job",
+        "discovery.list-google-shopping-feed-rows"
+      ]
+    }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -1114,6 +1147,15 @@
             "owner": "discovery",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {
+              "market": {
+                "kind": "value",
+                "maxLength": 4,
+                "values": ["sell", "buy"]
+              }
+            }
           }
         },
         {
@@ -1275,7 +1317,8 @@
       "href": "/search",
       "order": 10,
       "visibility": "always",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "packingPriority": 700
     },
     {
       "deployable": "admin-web",

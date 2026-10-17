@@ -32,12 +32,24 @@ remove_installation() {
   mark remove-ownership
   local ownership status
   set +e
-  ownership="$(timeout --signal=KILL 3s /usr/bin/python3 "$source_dir/browser-boundary/ownership.py" 2>/dev/null)"
+  ownership="$(
+    timeout --signal=KILL 3s /usr/bin/python3 "$source_dir/browser-boundary/ownership.py" 2>&1 |
+      /usr/bin/python3 "$source_dir/browser-boundary/ownership.py" --validate-capture 2>/dev/null
+    statuses=("${PIPESTATUS[@]}")
+    printf '.'
+    if test "${statuses[1]}" != 0; then exit 2; fi
+    exit "${statuses[0]}"
+  )"
   status="$?"
   set -e
-  if test "$status" != 0 || test "$ownership" != none; then
+  ownership="${ownership%.}"
+  if test "$status" != 0 || test "$ownership" != $'none\n'; then
     case "$ownership:$status" in
-      remove-live-owner:1|remove-orphan-owner:1|remove-ambiguous-owner:1) refuse "$ownership" ;;
+      $'remove-live-owner\n:1') refuse remove-live-owner ;;
+      $'remove-orphan-owner\n:1') refuse remove-orphan-owner ;;
+      $'remove-ambiguous-owner\nprovider-boundary-removal-witness:'*:1)
+        printf '%s' "${ownership#*$'\n'}" >&2
+        refuse remove-ambiguous-owner ;;
       *) refuse remove-ownership-census ;;
     esac
   fi

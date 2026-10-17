@@ -65,6 +65,32 @@ describeDb("Channels reconciliation real scheduled runner", () => {
   afterAll(async () => closeMultiContextTestPools(pools));
   afterEach(() => expect(providerWrite).not.toHaveBeenCalled());
 
+  it("ticks the composed live-export consumer through the real scheduled runner", async () => {
+    const services = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory),
+    });
+    const consume = vi.spyOn(services.liveExportSnapshots, "consumeDueConnections");
+    const controlPlane = createPostgresPlatformControlPlane(pools.control);
+    const claim = vi.spyOn(controlPlane, "claimScheduledRunner");
+    const runnerName = "channels-live-export-snapshots";
+    const runner = createChannelsReconciliationRunners({ services, controlPlane }).find(
+      (candidate) => candidate.name === runnerName,
+    )!;
+    expect(runner).toBeDefined();
+    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0 });
+    expect(consume).toHaveBeenCalledTimes(1);
+    expect(claim).toHaveBeenCalledWith({ runnerName, intervalMs: 60_000 });
+    await runner.runOnce();
+    expect(consume).toHaveBeenCalledTimes(1);
+    await pools.control.query(
+      "UPDATE platform_scheduled_runners SET next_run_at=now()-interval '1 minute' WHERE runner_name=$1",
+      [runnerName],
+    );
+    await runner.runOnce();
+    expect(consume).toHaveBeenCalledTimes(2);
+    expect((await pools.channels.query("SELECT * FROM channel_live_export_consumer")).rows).toEqual([]);
+  });
+
   it.each(["tcgplayerOrders", "fulfillmentObservations"] as const)(
     "registers and executes %s on the real 60-second scheduler",
     async (serviceName) => {

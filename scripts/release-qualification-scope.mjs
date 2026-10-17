@@ -131,6 +131,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   contracts: Object.freeze({
     "auth-context": "runtime-library",
     "bounded-context-module": "runtime-library",
+    "catalog-product-line": "runtime-library",
     "catalog-seed": "seed-machinery",
     "checkout-order-source": "money-movement-contract",
     "embedded-surface-theme": "runtime-library",
@@ -240,8 +241,10 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
+    "catalog-completion-report.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
+    "catalog-staging-count-preparation.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
     "ci-image-mirrors.yml": "release",

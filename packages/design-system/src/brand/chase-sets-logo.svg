@@ -5,9 +5,9 @@
        carried by --chase-logo-start/mid/end. Distinct from "holofoil", the
        catalog finish option key owned by bounded-contexts/catalog/GLOSSARY.md. */
     :root {
-      --chase-logo-start: #8a682a;
-      --chase-logo-mid: #c9a44e;
-      --chase-logo-end: #a87e2f;
+      --chase-logo-start: #806127;
+      --chase-logo-mid: #a38132;
+      --chase-logo-end: #9a742b;
     }
 
     @media (prefers-color-scheme: dark) {

@@ -3,7 +3,11 @@ from pathlib import Path
 import unittest
 import sys
 import io
+import json
 import errno
+import os
+import re
+import subprocess
 import tempfile
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from unittest import mock
@@ -30,6 +34,164 @@ def classify(previous, current):
 
 
 class OwnershipControls(unittest.TestCase):
+    def diagnostic(self, previous, current):
+        detail = []
+        outcome = ownership._classify(previous, current, 1001, (1, 2), 'pid:[1]', 1, detail)
+        self.assertEqual(outcome, classify(previous, current))
+        return outcome, detail
+
+    def test_same_read_first_predicate_with_frozen_selection_bypass(self):
+        unrelated = record(image=(2, 3), path='/SYNTHETIC_PRIVATE/argv')
+        schedules = [
+            ('identity-drift', {20: unrelated}, {20: dict(unrelated, start=101)}),
+            ('identity-drift', {20: unrelated}, {20: dict(unrelated, image=(2, 4))}),
+            ('identity-drift', {20: unrelated}, {20: dict(unrelated, image=None)}),
+            ('identity-drift', {20: dict(unrelated, image=None)}, {20: unrelated}),
+            ('parent-order', {}, {21: record(pid=21, parent=20, start=99), 20: record()}),
+            ('foreign-image', {}, {20: record(image=(1, 3))}),
+            ('member-cycle', {}, {20: record(parent=21, namespace='pid:[2]'),
+                                  21: record(pid=21, parent=20, namespace='pid:[2]')}),
+        ]
+        for ambient in ({}, {'CI': 'true', 'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
+                            'BOUNDARY_DIAGNOSTIC': '13c-alone', 'ImageOS': 'ubuntu24'}):
+            with mock.patch.dict(os.environ, ambient, clear=True):
+                for predicate, previous, current in schedules:
+                    with self.subTest(predicate=predicate, current=current, ambient=ambient):
+                        with mock.patch.object(ownership, 'snapshot', side_effect=AssertionError('no rescan')):
+                            outcome, detail = self.diagnostic(previous, current)
+                        self.assertEqual(outcome, ownership.AMBIGUOUS)
+                        self.assertEqual(len(detail), 1)
+                        self.assertIsNotNone(ownership.removal_witness(detail[0]))
+                        self.assertIn(f';predicate={predicate};'.encode(), detail[0])
+                        self.assertNotIn(b'SYNTHETIC_PRIVATE', detail[0])
+                        with mock.patch.object(ownership, 'witness_record', return_value=None) as bypass:
+                            mutant_outcome, mutant_detail = self.diagnostic(previous, current)
+                        bypass.assert_called_once()
+                        self.assertEqual(mutant_outcome, outcome)
+                        self.assertIsNone(mutant_detail[0])
+                self.assertEqual(self.diagnostic({20: unrelated}, {20: unrelated}), ('none', []))
+
+    def test_witness_keeps_iteration_and_predicate_precedence(self):
+        previous = {21: record(pid=21)}
+        # Both records refuse; the first foreign image wins, not the later drift.
+        current = {20: record(image=(1, 3)), 21: record(pid=21, start=101)}
+        self.assertIn(b'predicate=foreign-image;', self.diagnostic(previous, current)[1][0])
+        self.assertIn(b'predicate=identity-drift;', self.diagnostic(previous, dict(reversed(list(current.items()))))[1][0])
+        # On one record drift precedes both parent inversion and foreign image.
+        current = {21: record(pid=21, parent=20, start=99, image=(1, 3)), 20: record()}
+        self.assertIn(b'predicate=identity-drift;', self.diagnostic(previous, current)[1][0])
+        self.assertIn(b'predicate=parent-order;', self.diagnostic({}, current)[1][0])
+
+    def test_witness_closed_capture_bounds_and_validation_bypass(self):
+        detail = self.diagnostic({20: record()}, {20: record(start=101)})[1][0]
+        capture = b'remove-ambiguous-owner\n' + detail
+        self.assertEqual(ownership.validate_capture(io.BytesIO(capture)), capture)
+        invalid = [detail + detail, detail[:-1], detail + b'\n', detail + b'PRIVATE',
+                   detail.replace(b'v1;', b'v2;'), detail.replace(b'records=20', b'records=020'),
+                   detail.replace(b'start-drift=1', b'start-drift=0'), detail.replace(b'initial', b'PRIVATE'),
+                   detail.replace(b';chain-length=0', b';extra=1;chain-length=0'),
+                   detail.replace(b',100,', b',18446744073709551616,'), b'x' * 1025,
+                   detail.replace(b',100,', b',1e2,'), detail.replace(b',launcher', b',none')]
+        for line in invalid:
+            with self.subTest(line=line):
+                self.assertIsNone(ownership.removal_witness(line))
+                self.assertIsNone(ownership.validate_capture(io.BytesIO(b'remove-ambiguous-owner\n' + line)))
+        for data in (b'', b'none', b'none\n\n', b'none\n' + detail, b'none\x00\n',
+                     b'remove-ambiguous-owner\n', b'PRIVATE\n' + capture, capture + b'PRIVATE'):
+            self.assertIsNone(ownership.validate_capture(io.BytesIO(data)))
+        malformed = detail.replace(b'start-drift=1', b'start-drift=0')
+        with mock.patch.object(ownership, 'removal_witness', side_effect=lambda data: data) as bypass:
+            self.assertIsNotNone(ownership.validate_capture(io.BytesIO(b'remove-ambiguous-owner\n' + malformed)))
+        bypass.assert_called_once_with(malformed)
+        maximum = record(start=2**64 - 1, image=(2**64 - 1, 2**64 - 1))
+        self.assertIsNotNone(self.diagnostic({20: record()}, {20: maximum})[1][0])
+        cycle = ownership.witness_record('member-cycle', (record(),), 1001, (1, 2), 'pid:[1]', 1, 20, 4096)
+        self.assertIsNotNone(cycle)
+        self.assertIsNone(ownership.removal_witness(cycle.replace(b'4096', b'4097')))
+
+    def test_only_propagated_ambiguity_emits_detail_and_success_is_silent(self):
+        for current, outcome in (({}, 'none'), ({20: record()}, ownership.LIVE),
+                                 ({20: record(namespace='pid:[2]')}, ownership.ORPHAN)):
+            self.assertEqual(self.diagnostic({}, current), (outcome, []))
+        detail = self.diagnostic({20: record()}, {20: record(start=101)})[1][0]
+        for outcome, records, expected in [('none', [], 'none\n'),
+                                          (ownership.AMBIGUOUS, [detail], 'remove-ambiguous-owner\n' + detail.decode()),
+                                          (ownership.AMBIGUOUS, [None], 'remove-ambiguous-owner\n'),
+                                          (ownership.CENSUS, [detail], 'remove-ownership-census\n')]:
+            def census(sink):
+                sink.extend(records)
+                return outcome
+            output, error = io.StringIO(), io.StringIO()
+            with mock.patch.object(ownership, '_census', side_effect=census), mock.patch.object(ownership.os, 'getuid', return_value=0, create=True), mock.patch.object(sys, 'argv', ['ownership.py']), redirect_stdout(output), redirect_stderr(error):
+                self.assertEqual(ownership.main(), 0 if outcome == 'none' else 1)
+            self.assertEqual(output.getvalue(), expected)
+            self.assertEqual(error.getvalue(), '')
+
+    def test_census_transports_only_first_propagated_same_read_witness(self):
+        schedules = [
+            ([{20: record()}, {20: record(start=101)}], ownership.AMBIGUOUS, 1),
+            ([{20: record(image=(1, 3))}, {}, {}], 'none', 0),
+        ]
+        for snapshots, outcome, count in schedules:
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(ownership.Path, 'is_symlink', return_value=False))
+                stack.enter_context(mock.patch.object(ownership.Path, 'stat', return_value=mock.Mock(st_mode=0o100755, st_dev=1, st_ino=2)))
+                stack.enter_context(mock.patch.object(ownership, 'bounded_read', return_value='#define ADMITTED_UID 1001\n'))
+                stack.enter_context(mock.patch.object(ownership.os, 'readlink', return_value='pid:[1]'))
+                stack.enter_context(mock.patch.object(ownership.time, 'monotonic', return_value=0))
+                stack.enter_context(mock.patch.object(ownership.time, 'sleep'))
+                read = stack.enter_context(mock.patch.object(ownership, 'snapshot', side_effect=snapshots))
+                detail = []
+                self.assertEqual(ownership._census(detail), outcome)
+                self.assertEqual(len(detail), count)
+                self.assertEqual(read.call_count, len(snapshots))
+
+    def test_installer_capture_executes_whole_shell_with_closed_detail(self):
+        # Synthetic fixed-name copies, never a production path override or process census.
+        shell = r'C:\Program Files\Git\bin\bash.exe' if os.name == 'nt' else '/bin/bash'
+        shell_path = lambda value: re.sub(r'^([A-Za-z]):', lambda m: '/' + m[1].lower(), Path(value).as_posix())
+        with tempfile.TemporaryDirectory(prefix='SYNTHETIC-witness-') as directory:
+            root = Path(directory).resolve()
+            source = root / 'browser-boundary'
+            source.mkdir()
+            target, profile, effects = root / 'target', root / 'profile', root / 'effects'
+            target.mkdir()
+            profile.write_text('SYNTHETIC_PROFILE')
+            # Match the deployed Linux stream framing when the fixture runs on Windows.
+            (source / 'ownership.py').write_text("import sys; sys.stdout.reconfigure(newline='\\n')\n" + Path(ownership.__file__).read_text())
+            installer = Path(ownership.__file__).with_name('install-ci.sh').read_text()
+            installer = installer.replace('/usr/local/lib/chase-sets-provider-window', shell_path(target))
+            installer = installer.replace('/etc/apparmor.d/chase-sets-provider-window', shell_path(profile))
+            installer = installer.replace('/usr/bin/python3', 'python' if os.name == 'nt' else 'python3')
+            sentinels = f'''
+id() {{ printf '0\\n'; }}
+timeout() {{ cat '{shell_path(root / 'output')}'; return "$(cat '{shell_path(root / 'status')}')"; }}
+rm() {{ printf 'SYNTHETIC_DELETE\\n' >> '{shell_path(effects)}'; return 91; }}
+'''
+            installer = installer.replace('set -Eeuo pipefail', 'set -Eeuo pipefail\n' + sentinels, 1)
+            script = source / 'install-ci.sh'
+            script.write_text(installer)
+            witness = self.diagnostic({}, {20: record(image=(1, 3))})[1][0]
+            capture = b'remove-ambiguous-owner\n' + witness
+            for output, status, stage in [(capture, 1, ownership.AMBIGUOUS),
+                                          (capture, 0, ownership.CENSUS), (capture, 78, ownership.CENSUS),
+                                          (capture[:-1], 1, ownership.CENSUS), (capture + b'\x00', 1, ownership.CENSUS),
+                                          (capture + b'PRIVATE', 1, ownership.CENSUS),
+                                          (capture + witness, 1, ownership.CENSUS),
+                                          (b'x' * 2048, 1, ownership.CENSUS), (b'none\n', 1, ownership.CENSUS),
+                                          (b'remove-live-owner\n', 1, ownership.LIVE),
+                                          (b'remove-orphan-owner\n', 1, ownership.ORPHAN)]:
+                with self.subTest(status=status, stage=stage, output=output):
+                    (root / 'output').write_bytes(output)
+                    (root / 'status').write_text(str(status))
+                    result = subprocess.run([shell, shell_path(script), 'remove'], capture_output=True)
+                    expected = (witness if stage == ownership.AMBIGUOUS else b'') + f'provider-boundary-installer-refused:{stage}\n'.encode()
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stderr, expected)
+                    self.assertEqual(result.stdout, b'provider-boundary-installer-stage:source-location\nprovider-boundary-installer-stage:remove-ownership\n')
+                    self.assertTrue(target.is_dir() and profile.is_file())
+                    self.assertFalse(effects.exists())
+
     def test_13g_disappeared_records_still_obey_the_pass_deadline(self):
         entries = mock.MagicMock()
         entries.__enter__.return_value = [mock.Mock(name='entry')]
@@ -162,7 +324,164 @@ class OwnershipControls(unittest.TestCase):
                     with redirect_stdout(output), redirect_stderr(error):
                         self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
-        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:census\n')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:census\nprovider-boundary-observer-detail:none:unknown\n')
+
+    def observer_read_failure(self, stage, failure, current=None, stat_error=None, image=(1, 2), image_error=None, preceding=False):
+        status = ''.join(f'{key}:\t0\n' for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp'))
+        records = {20: record(), 21: record(pid=21)}
+        if preceding:
+            records[19] = record(pid=19)
+        current = dict(start=100, parent=1, state='S') | (current or {})
+        inspected = []
+        def fail():
+            if observer.stage == stage:
+                raise failure
+        def text(path):
+            if '20' in path.parts:
+                if stage == 'status-field' and path.name == 'status':
+                    return 'PRIVATE'
+                fail()
+            return status if path.name == 'status' else 'chase-sets-provider-window (unconfined)'
+        def link(path):
+            if '20' in Path(path).parts:
+                fail()
+            return 'SYNTHETIC_NAMESPACE'
+        def scope(selected, owner):
+            if selected['pid'] == 20:
+                fail()
+            return 'launch'
+        def root(selected, census):
+            inspected.append(selected['pid'])
+            if selected['pid'] == 20:
+                fail()
+            return dict(hostHelper=False, oldRootDetached=True, rootObservation='path-checked')
+        def identity(selected):
+            if selected['pid'] == 20 and stage == 'identity-recheck':
+                if failure is None:
+                    return False
+                fail()
+            return True
+        output, error = io.StringIO(), io.StringIO()
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(observer.os, 'getuid', return_value=0, create=True))
+            stack.enter_context(mock.patch.object(sys, 'argv', ['observe.py', '1']))
+            stack.enter_context(mock.patch.object(observer, 'snapshot', return_value=records))
+            stack.enter_context(mock.patch.object(observer.Path, 'read_text', autospec=True, side_effect=text))
+            stack.enter_context(mock.patch.object(observer.os, 'readlink', side_effect=link))
+            stack.enter_context(mock.patch.object(observer, 'launch_owner', return_value=record()))
+            stack.enter_context(mock.patch.object(observer, 'user_namespace_scope', side_effect=scope))
+            stack.enter_context(mock.patch.object(observer, 'inspect_root', side_effect=root))
+            stack.enter_context(mock.patch.object(observer, 'same_identity', side_effect=identity))
+            stack.enter_context(mock.patch.object(observer, 'bounded_read', side_effect=stat_error, return_value='SYNTHETIC_STAT'))
+            stack.enter_context(mock.patch.object(observer, 'parse_stat', return_value=current))
+            stack.enter_context(mock.patch.object(observer.Path, 'stat', side_effect=image_error, return_value=mock.Mock(st_dev=image[0], st_ino=image[1])))
+            with redirect_stdout(output), redirect_stderr(error):
+                result = observer.main()
+        return result, output.getvalue(), error.getvalue(), inspected
+
+    def assert_observer_omits(self, stage, failure, **recheck):
+        result, output, error, inspected = self.observer_read_failure(stage, failure, **recheck)
+        self.assertEqual(result, 0, error)
+        self.assertEqual(error, '')
+        self.assertEqual(json.loads(output), [dict(pid=21, parent=1, start=100, image='launcher',
+                         **{key: '0' for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp')},
+                         label='expected', network='host', pidNamespace='host', userNamespace='launch',
+                         hostHelper=False, oldRootDetached=True, rootObservation='path-checked')])
+        self.assertIn(21, inspected)
+
+    def test_observer_omits_zombie_at_namespaces(self):
+        self.assert_observer_omits('namespaces', OSError(errno.ENOENT, 'PRIVATE'), current={'state': 'Z'})
+
+    def test_observer_omits_reaped_process_at_status(self):
+        for code in (errno.ENOENT, errno.ESRCH):
+            with self.subTest(code=code):
+                self.assert_observer_omits('status', OSError(errno.ENOENT, 'PRIVATE'), stat_error=OSError(code, 'PRIVATE'))
+
+    def test_observer_omits_zombie_at_identity_recheck(self):
+        self.assert_observer_omits('identity-recheck', None, current={'state': 'Z'})
+
+    def test_observer_omits_changed_start_time(self):
+        for stage in ('status', 'label', 'namespaces', 'user-namespace', 'identity-recheck'):
+            with self.subTest(stage=stage):
+                self.assert_observer_omits(stage, OSError(errno.ENOENT, 'PRIVATE'), current={'start': 101})
+
+    def test_observer_live_read_failures_keep_exact_stage_errno_and_no_partial_records(self):
+        for stage in ('status', 'label', 'namespaces', 'user-namespace', 'identity-recheck'):
+            for code, label in ((errno.EACCES, 'EACCES'), (errno.EPERM, 'EPERM'), (errno.ENOENT, 'ENOENT'),
+                                (errno.ESRCH, 'ESRCH'), (errno.ENOTDIR, 'ENOTDIR'), (errno.ELOOP, 'ELOOP'),
+                                (errno.EIO, 'EIO'), (123456, 'other')):
+                with self.subTest(stage=stage, code=code):
+                    result, output, error, _ = self.observer_read_failure(stage, OSError(code, 'PRIVATE', 'PRIVATE_PATH'))
+                    self.assertEqual(result, 1)
+                    self.assertEqual(output, '')
+                    self.assertEqual(error, f'provider-boundary-observer-refused:{stage}\nprovider-boundary-observer-detail:{label}:same\n')
+                    self.assertNotIn('PRIVATE', error)
+
+    def test_observer_live_image_and_parent_drift_still_refuse(self):
+        for recheck in ({'current': {'parent': 2}}, {'image': (1, 3)}):
+            with self.subTest(recheck=recheck):
+                result, output, error, _ = self.observer_read_failure('identity-recheck', None, **recheck)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:identity-recheck\nprovider-boundary-observer-detail:none:changed\n')
+
+    def test_observer_refusal_after_a_complete_record_emits_no_partial_records(self):
+        result, output, error, inspected = self.observer_read_failure('namespaces', OSError(errno.EACCES, 'PRIVATE'), preceding=True)
+        self.assertEqual(inspected, [19])
+        self.assertEqual(result, 1)
+        self.assertEqual(output, '')
+        self.assertEqual(error, 'provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:EACCES:same\n')
+
+    def test_observer_ambiguous_recheck_never_proves_disappearance(self):
+        for failure in (OSError(errno.EACCES, 'PRIVATE'), OSError(errno.EIO, 'PRIVATE'),
+                        ValueError('PRIVATE'), observer.CensusError('PRIVATE'), KeyError('PRIVATE')):
+            with self.subTest(failure=type(failure), code=getattr(failure, 'errno', None)):
+                result, output, error, _ = self.observer_read_failure('namespaces', OSError(errno.ENOENT, 'PRIVATE'), stat_error=failure)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:ENOENT:unknown\n')
+
+    def test_observer_non_os_errors_keep_stage_and_identity(self):
+        for failure in (ValueError('PRIVATE'), KeyError('PRIVATE'), observer.CensusError('PRIVATE')):
+            with self.subTest(failure=type(failure)):
+                result, output, error, _ = self.observer_read_failure('label', failure)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:label\nprovider-boundary-observer-detail:none:same\n')
+
+    def test_observer_unreadable_image_is_not_missing_stat_proof(self):
+        for code in (errno.ENOENT, errno.ESRCH, errno.EACCES):
+            with self.subTest(code=code):
+                result, output, error, _ = self.observer_read_failure('namespaces', OSError(errno.ENOENT, 'PRIVATE'), image_error=OSError(code, 'PRIVATE'))
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:ENOENT:unknown\n')
+
+    def test_observer_malformed_status_still_refuses_even_after_exit(self):
+        for current, identity in (({}, 'same'), ({'state': 'Z'}, 'zombie'), ({'start': 101}, 'changed')):
+            with self.subTest(current=current):
+                result, output, error, _ = self.observer_read_failure('status-field', None, current=current)
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, f'provider-boundary-observer-refused:status-field\nprovider-boundary-observer-detail:none:{identity}\n')
+
+    def test_observer_root_stage_never_omits_a_vanished_record(self):
+        for failure in (OSError(errno.ENOENT, 'PRIVATE'), ValueError('PRIVATE'), KeyError('PRIVATE'), observer.CensusError('PRIVATE')):
+            with self.subTest(failure=type(failure)):
+                result, output, error, inspected = self.observer_read_failure('root', failure, stat_error=OSError(errno.ENOENT, 'PRIVATE'))
+                self.assertEqual(result, 1)
+                self.assertEqual(output, '')
+                self.assertEqual(error, 'provider-boundary-observer-refused:root\n')
+                self.assertEqual(inspected, [20])
+
+    def test_observer_descendant_cap_refuses_without_a_selected_record(self):
+        records = {pid: record(pid=pid, parent=pid - 1) for pid in range(2, 67)}
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(observer, 'snapshot', return_value=records), mock.patch.object(observer.os, 'getuid', return_value=0, create=True), mock.patch.object(sys, 'argv', ['observe.py', '1']):
+            with redirect_stdout(output), redirect_stderr(error):
+                self.assertEqual(observer.main(), 1)
+        self.assertEqual(output.getvalue(), '')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:descendants\nprovider-boundary-observer-detail:none:unknown\n')
 
     def test_observer_argument_refusal_does_not_echo_argv(self):
         output, error = io.StringIO(), io.StringIO()
@@ -170,7 +489,7 @@ class OwnershipControls(unittest.TestCase):
             with redirect_stdout(output), redirect_stderr(error):
                 self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
-        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:arguments\n')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:arguments\nprovider-boundary-observer-detail:none:unknown\n')
 
     def test_observer_identity_drift_after_root_inspection_publishes_no_partial_records(self):
         status = ''.join(f'{key}:\t0\n' for key in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb', 'NoNewPrivs', 'Seccomp'))
@@ -185,10 +504,13 @@ class OwnershipControls(unittest.TestCase):
             stack.enter_context(mock.patch.object(observer, 'user_namespace_scope', return_value='launch'))
             stack.enter_context(mock.patch.object(observer, 'inspect_root', return_value={}))
             stack.enter_context(mock.patch.object(observer, 'same_identity', return_value=False))
+            stack.enter_context(mock.patch.object(observer, 'bounded_read', return_value='SYNTHETIC_LIVE_STAT'))
+            stack.enter_context(mock.patch.object(observer, 'parse_stat', return_value=dict(start=100, parent=1, state='S')))
+            stack.enter_context(mock.patch.object(observer.Path, 'stat', return_value=mock.Mock(st_dev=1, st_ino=3)))
             with redirect_stdout(output), redirect_stderr(error):
                 self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
-        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:identity-recheck\n')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:identity-recheck\nprovider-boundary-observer-detail:none:changed\n')
 
     def test_observer_root_error_retains_closed_identity_path_kind_and_errno(self):
         for kind in ('host-helper', 'old-root'):

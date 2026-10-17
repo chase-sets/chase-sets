@@ -63,10 +63,17 @@ describeDb("auth token store persistence boundary", () => {
       const outbox = createPostgresAgentWebhookOutbox({
         db: pool,
         now: () => new Date("2026-07-08T00:00:00.000Z"),
+        // This persistence-only fixture supplies one synthetic active binding;
+        // revocation.db.test.ts proves the real separate-pool authority fence.
+        withActiveGrants: async (accountId, clientId, grantIds, work) => {
+          expect([accountId, clientId, grantIds]).toEqual(["acc_buyer", "ocl_1", ["grant_outbox_fixture"]]);
+          return work(grantIds);
+        },
       });
       const delivery = {
         clientId: "ocl_1",
         accountId: "acc_buyer",
+        grantIds: ["grant_outbox_fixture"],
         callbackUrl: "https://agent.example/hooks",
         sourceEventId: "evt_1",
         eventType: "fulfillment.shipment.dispatched",
@@ -79,13 +86,13 @@ describeDb("auth token store persistence boundary", () => {
       await outbox.enqueueDelivery(delivery);
       await outbox.enqueueDelivery(delivery);
 
-      const persisted = await pool.query<{ status: string; attempt_count: number }>(
-        `SELECT status, attempt_count
+      const persisted = await pool.query<{ status: string; attempt_count: number; grant_ids: readonly string[] }>(
+        `SELECT status, attempt_count, grant_ids
          FROM identity_agent_webhook_deliveries
          WHERE idempotency_key = $1`,
         [delivery.idempotencyKey],
       );
-      expect(persisted.rows).toEqual([{ status: "pending", attempt_count: 0 }]);
+      expect(persisted.rows).toEqual([{ status: "pending", attempt_count: 0, grant_ids: ["grant_outbox_fixture"] }]);
     });
   });
 

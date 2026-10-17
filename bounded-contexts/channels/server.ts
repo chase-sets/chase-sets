@@ -38,6 +38,7 @@ export {
 export { connectorInboundRetentionClasses } from "./features/connector-feed/domain/retention";
 export type { ConnectorInbound, ConnectorInboundKind } from "./features/connector-feed/domain/transport";
 export { connectorTransportPolicy } from "./features/connector-feed/domain/policy";
+export { tcgplayerStagedImportDispatchPolicy } from "./features/connector-feed/domain/staged-import-policy";
 export { deriveServedPolicyIdentity } from "./features/connector-feed/domain/served-policy-identity";
 export {
   readConnectorLivenessAuthority,
@@ -124,6 +125,7 @@ export {
   type ChannelDriftObservationV1,
   type ChannelDriftObservation,
   type ChannelObservedMaterial,
+  type ChannelSourceAuthority,
   type ClaimedChannelStateRead,
   type ChannelHealthObservationV1,
   type ChannelHealthObservationIdentity,
@@ -170,3 +172,10 @@ export {
   translateOrderStatus,
   type ChannelOrderFulfillmentObservation,
 } from "./features/order-fulfillment-observations/domain/contracts";
+export {
+  parseEbayAccountDeletionConfiguration,
+  type EbayAccountDeletionConfiguration,
+} from "./features/ebay-account-deletion/domain/configuration";
+export { CHANNELS_EBAY_ACCOUNT_DELETION_PATH } from "./features/ebay-account-deletion/api/provider-webhook-paths";
+export type { EbayAccountDeletionServices } from "./features/ebay-account-deletion/api/runtime";
+export { createEbayReceiptExpiryRunner } from "./features/ebay-account-deletion/api/expiry-runner";

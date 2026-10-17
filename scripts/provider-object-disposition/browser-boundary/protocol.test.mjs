@@ -1,4 +1,7 @@
-import { expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { expect, it, vi } from "vitest";
 import {
   ADMISSION,
   TRANSITION,
@@ -9,6 +12,7 @@ import {
   observerDiagnostic,
   browserCapabilityProof,
   removalRefusal,
+  removalWitness,
 } from "./protocol.mjs";
 
 const dropped = {
@@ -39,6 +43,119 @@ const liveRemoval = {
   stderr:
     "provider-boundary-installer-refused:remove-live-owner\nprovider-boundary-cleanup-refused:remove-installation\n",
 };
+const driftWitness =
+  "provider-boundary-removal-witness:v1;predicate=identity-drift;records=20,1,100,2,3,initial,other,other|20,1,100,2,4,initial,other,other;start-drift=0;image-drift=1;repeated-pid=0;chain-length=0\n";
+
+it("SYNTHETIC closed witness grammar agrees with the helper without lossy numeric conversion", () => {
+  const good = [
+    driftWitness,
+    driftWitness.replace("2,4,initial,other,other", "-,-,initial,other,none"),
+    driftWitness.replace("2,3,initial,other,other", "-,-,initial,other,none"),
+    driftWitness
+      .replaceAll(",100,", ",18446744073709551615,")
+      .replace("2,4,", "18446744073709551615,18446744073709551615,"),
+    "provider-boundary-removal-witness:v1;predicate=parent-order;records=21,20,99,1,2,initial,admitted,launcher|20,1,100,1,2,initial,admitted,launcher;start-drift=0;image-drift=0;repeated-pid=0;chain-length=0\n",
+    "provider-boundary-removal-witness:v1;predicate=foreign-image;records=20,1,100,1,3,initial,admitted,target;start-drift=0;image-drift=0;repeated-pid=0;chain-length=0\n",
+    "provider-boundary-removal-witness:v1;predicate=member-cycle;records=20,21,100,1,2,noninitial,admitted,launcher;start-drift=0;image-drift=0;repeated-pid=20;chain-length=4096\n",
+  ];
+  const bad = [
+    "",
+    driftWitness.trimEnd(),
+    driftWitness + "\n",
+    driftWitness + driftWitness,
+    "PRIVATE" + driftWitness,
+    driftWitness + "PRIVATE",
+    driftWitness.replace("v1;", "v2;"),
+    driftWitness.replace("records=20", "records=020"),
+    driftWitness.replace("records=20", "records=2147483648"),
+    driftWitness.replace("records=20", "records=0"),
+    driftWitness.replace(",100,", ",18446744073709551616,"),
+    driftWitness.replace(",100,", ",1e2,"),
+    driftWitness.replace(",100,", ",-1,"),
+    driftWitness.replace("image-drift=1", "image-drift=0"),
+    driftWitness.replace("start-drift=0", "start-drift=1"),
+    driftWitness.replace("|20,", "|21,"),
+    driftWitness.replace("initial", "PRIVATE"),
+    driftWitness.replace("other,other", "other,none"),
+    driftWitness.replace("repeated-pid=0", "repeated-pid=20"),
+    driftWitness.replace("chain-length=0", "chain-length=1"),
+    driftWitness.replace(";start-drift", ";extra=PRIVATE;start-drift"),
+    driftWitness.replace(";start-drift", ";records=20;start-drift"),
+    driftWitness.replace("\n", "\r\n"),
+    driftWitness.replace("v1", "v\u00b1"),
+    driftWitness.replace("v1", "v\0"),
+    "x".repeat(1025),
+    good[4].replace("21,20,99", "21,20,101"),
+    good[4].replace("21,20,99", "21,19,99"),
+    good[5].replace("initial", "noninitial"),
+    good[5].replace("target", "other"),
+    good[6].replace("4096", "4097"),
+    good[6].replace("4096", "0"),
+    good[6].replace("repeated-pid=20", "repeated-pid=21"),
+    driftWitness.replace(";start-drift", "|20,1,100,2,4,initial,other,other;start-drift"),
+  ];
+  const lines = [...good, ...bad];
+  const expected = lines.map((_, index) => index < good.length);
+  expect(lines.map((line) => removalWitness(line) === line && line !== "")).toEqual(expected);
+  const helper = spawnSync(
+    process.platform === "win32" ? "python" : "python3",
+    [
+      "-B",
+      "-c",
+      "import json,sys; sys.path.insert(0,sys.argv[1]); import ownership; print(json.dumps([ownership.removal_witness(s.encode()) is not None for s in json.load(sys.stdin)]))",
+      fileURLToPath(new URL(".", import.meta.url)),
+    ],
+    { input: JSON.stringify(lines), encoding: "utf8" },
+  );
+  expect(helper.status, helper.stderr).toBe(0);
+  expect(JSON.parse(helper.stdout)).toEqual(expected);
+});
+
+it("SYNTHETIC whole I/W envelope requires witness validation even under populated ambient selectors", async () => {
+  const actual = {
+    ...liveRemoval,
+    stderr: driftWitness + liveRemoval.stderr.replace("remove-live-owner", "remove-ambiguous-owner"),
+  };
+  for (const ambient of ["", "true"]) {
+    vi.stubEnv("CI", ambient);
+    vi.stubEnv("GITHUB_ACTIONS", ambient);
+    vi.stubEnv("BOUNDARY_DIAGNOSTIC", ambient ? "13c-alone" : "");
+    try {
+      expect(removalRefusal(actual, "remove-ambiguous-owner")).toBe(true);
+      for (const change of [
+        { stderr: actual.stderr.replace(driftWitness, "") },
+        { stderr: actual.stderr + driftWitness },
+        { stderr: driftWitness + actual.stderr },
+        { stderr: actual.stderr.replace("image-drift=1", "image-drift=0") },
+        { stderr: actual.stderr + "PRIVATE" },
+        { stdout: actual.stdout + "PRIVATE" },
+        { stdout: actual.stdout.replace("installer-status:1", "installer-status:0") },
+        { code: 0 },
+        { code: 78 },
+        { code: 137 },
+        { signal: "SIGTERM" },
+        { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" },
+      ])
+        expect(removalRefusal({ ...actual, ...change }, "remove-ambiguous-owner")).toBe(false);
+      expect(removalRefusal({ ...liveRemoval, stderr: driftWitness + liveRemoval.stderr }, "remove-live-owner")).toBe(
+        false,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }
+  const source = readFileSync(new URL("protocol.mjs", import.meta.url), "utf8");
+  const clause = "witness = removalWitness(stderr.subarray(0, end + 1));";
+  expect(source.split(clause)).toHaveLength(2);
+  const bypass = await import(
+    `data:text/javascript;base64,${Buffer.from(
+      source.replace(clause, 'witness = stderr.subarray(0, end + 1).toString("ascii");'),
+    ).toString("base64")}`
+  );
+  const malformed = { ...actual, stderr: actual.stderr.replace("image-drift=1", "image-drift=0") };
+  expect(removalRefusal(malformed, "remove-ambiguous-owner")).toBe(false);
+  expect(bypass.removalRefusal(malformed, "remove-ambiguous-owner")).toBe(true);
+});
 it("control 13b compares both emitters' complete bytes with installer/wrapper status 1", () => {
   expect(removalRefusal(liveRemoval, "remove-live-owner")).toBe(true);
   for (const changed of [
@@ -74,7 +191,12 @@ it("control 13d requires its own census refusal, not live-owner or an open stage
 it.each(["remove-orphan-owner", "remove-ambiguous-owner"])(
   "common ownership proof preserves exact stage and emitter statuses: %s",
   (stage) => {
-    const actual = { ...liveRemoval, stderr: liveRemoval.stderr.replace("remove-live-owner", stage) };
+    const actual = {
+      ...liveRemoval,
+      stderr:
+        (stage === "remove-ambiguous-owner" ? driftWitness : "") +
+        liveRemoval.stderr.replace("remove-live-owner", stage),
+    };
     expect(removalRefusal(actual, stage)).toBe(true);
     expect(removalRefusal(actual, "remove-live-owner")).toBe(false);
     expect(removalRefusal({ ...actual, code: 78 }, stage)).toBe(false);
@@ -82,7 +204,7 @@ it.each(["remove-orphan-owner", "remove-ambiguous-owner"])(
   },
 );
 
-it("control 13c exact orphan refusal is 198/110 bytes; the 198/113 ambiguous shape is not orphan", () => {
+it("control 13c exact orphan refusal remains 198/110 bytes; bare ambiguity is now unknown", () => {
   const orphan = { ...liveRemoval, stderr: liveRemoval.stderr.replace("remove-live-owner", "remove-orphan-owner") };
   const ambiguous = {
     ...liveRemoval,
@@ -92,6 +214,7 @@ it("control 13c exact orphan refusal is 198/110 bytes; the 198/113 ambiguous sha
   expect([Buffer.byteLength(ambiguous.stdout), Buffer.byteLength(ambiguous.stderr)]).toEqual([198, 113]);
   expect(removalRefusal(orphan, "remove-orphan-owner")).toBe(true);
   expect(removalRefusal(ambiguous, "remove-orphan-owner")).toBe(false);
+  expect(removalRefusal(ambiguous, "remove-ambiguous-owner")).toBe(false);
 });
 
 it("CP-B distinguishes dropped launch authority from proved nested sandbox authority", () => {
@@ -238,6 +361,72 @@ it("observer status 1, native status 78, signal, and contaminated output remain 
 
 const rootRefusal =
   "provider-boundary-observer-refused:root\nprovider-boundary-observer-root:20:1:100:1:2:chrome:host-helper:EACCES:same:proc-fdinfo:directory:none\n";
+
+const observerErrnos = ["none", "EACCES", "EPERM", "ENOENT", "ESRCH", "ENOTDIR", "ELOOP", "EIO", "other"];
+const observerIdentities = ["same", "changed", "zombie", "gone", "unknown"];
+const observerDetail = "provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:EACCES:same\n";
+
+it.each(observerErrnos.flatMap((errno) => observerIdentities.map((identity) => ({ errno, identity }))))(
+  "observer detail retains closed errno $errno and identity $identity",
+  ({ errno, identity }) => {
+    const stderr = `provider-boundary-observer-refused:namespaces\nprovider-boundary-observer-detail:${errno}:${identity}\n`;
+    expect(observerDiagnostic({ code: 1, stdout: "", stderr })).toMatchObject({
+      stage: "namespaces",
+      errno,
+      identity,
+      root: null,
+      redacted: true,
+    });
+  },
+);
+
+it.each([
+  "arguments",
+  "census",
+  "descendants",
+  "status",
+  "status-field",
+  "label",
+  "namespaces",
+  "user-namespace",
+  "identity-recheck",
+])("observer preserves stage-only and detailed refusals at %s", (stage) => {
+  const stderr = `provider-boundary-observer-refused:${stage}\n`;
+  expect(observerDiagnostic({ code: 1, stdout: "", stderr })).toMatchObject({
+    stage,
+    errno: "unknown",
+    identity: "unknown",
+  });
+  expect(
+    observerDiagnostic({ code: 1, stdout: "", stderr: stderr + "provider-boundary-observer-detail:none:unknown\n" }),
+  ).toMatchObject({ stage, errno: "none", identity: "unknown" });
+});
+
+it.each([
+  { code: 78, stdout: "", stderr: observerDetail },
+  { code: 1, signal: "SIGTERM", stdout: "", stderr: observerDetail },
+  { code: 1, stdout: "PRIVATE", stderr: observerDetail },
+  ...[
+    observerDetail + "PRIVATE",
+    observerDetail + "\n",
+    observerDetail + observerDetail,
+    observerDetail.slice(0, -1),
+    observerDetail.replaceAll("\n", "\r\n"),
+    observerDetail.replace("namespaces", "PRIVATE"),
+    observerDetail.replace("EACCES", "PRIVATE"),
+    observerDetail.replace("same", "PRIVATE"),
+    observerDetail.replace("namespaces", "root"),
+    "x".repeat(513),
+    Buffer.concat([Buffer.from(observerDetail), Buffer.from([0xff])]),
+    Buffer.from(observerDetail).map((byte) => byte | 0x80),
+    Buffer.from(observerDetail.replace("same", "s\u00e1me")),
+  ].map((stderr) => ({ code: 1, stdout: "", stderr })),
+  { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", stdout: "", stderr: observerDetail },
+])("observer detail rejects contaminated, oversized or untrusted capture %#", (error) => {
+  const result = observerDiagnostic(error);
+  expect(result).toMatchObject({ stage: "unknown", errno: "unknown", identity: "unknown", root: null });
+  expect(JSON.stringify(result)).not.toContain("PRIVATE");
+});
 
 it("observer root diagnostics retain only emitter-owned closed process/image, path kind and errno", () => {
   expect(observerDiagnostic({ code: 1, stdout: "", stderr: rootRefusal })).toMatchObject({

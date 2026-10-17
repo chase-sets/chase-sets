@@ -4,6 +4,7 @@ import { cx } from "../../utils/cx";
 export type FormStatus = "idle" | "submitting" | "success" | "error";
 
 export interface FormContextValue {
+  errorAnnouncement: "inline" | "summary";
   disabled: boolean;
   submitting: boolean;
   status: FormStatus;
@@ -12,6 +13,7 @@ export interface FormContextValue {
 }
 
 const defaultFormContext: FormContextValue = {
+  errorAnnouncement: "inline",
   disabled: false,
   submitting: false,
   status: "idle",
@@ -29,6 +31,7 @@ export interface FormProviderProps extends Partial<FormContextValue> {
 
 export function FormProvider({
   children,
+  errorAnnouncement = "inline",
   disabled = false,
   submitting = false,
   status = submitting ? "submitting" : "idle",
@@ -36,6 +39,7 @@ export function FormProvider({
   validationSummaryId,
 }: FormProviderProps) {
   const contextValue: FormContextValue = {
+    errorAnnouncement,
     disabled,
     submitting,
     status,
@@ -48,6 +52,7 @@ export function FormProvider({
 
 export interface FormProps extends Omit<FormHTMLAttributes<HTMLFormElement>, "style"> {
   children?: ReactNode;
+  errorAnnouncement?: FormContextValue["errorAnnouncement"];
   disabled?: boolean;
   submitting?: boolean;
   status?: FormStatus;
@@ -65,6 +70,7 @@ const spacingClasses = {
 export const Form = forwardRef<HTMLFormElement, FormProps>(function Form(
   {
     children,
+    errorAnnouncement,
     disabled = false,
     submitting = false,
     status = submitting ? "submitting" : "idle",
@@ -81,6 +87,7 @@ export const Form = forwardRef<HTMLFormElement, FormProps>(function Form(
   const describedBy = [ariaDescribedBy, validationSummaryId].filter(Boolean).join(" ") || undefined;
   return (
     <FormProvider
+      errorAnnouncement={errorAnnouncement}
       disabled={disabled}
       submitting={submitting}
       status={status}

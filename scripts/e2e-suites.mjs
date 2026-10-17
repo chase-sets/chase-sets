@@ -205,6 +205,7 @@ const marketplaceContextRouteSuiteOwnership = new Map([
 const adminContextRouteSuiteOwnership = new Map([
   ["auth", ["admin_auth", "admin_access"]],
   ["catalog", ["catalog_admin_modeling"]],
+  ["channels", ["admin_support"]],
   ["commercial-terms", ["admin_commerce"]],
   ["discovery", ["admin_growth"]],
   ["identity", ["admin_access"]],
@@ -217,6 +218,10 @@ const adminContextRouteSuiteOwnership = new Map([
 ]);
 
 const e2eSpecSuiteOwnership = [
+  {
+    pattern: /^deployables\/marketplace\/e2e\/account-management-interruption\.spec\.ts$/,
+    suites: ["marketplace_account"],
+  },
   { pattern: /^deployables\/marketplace\/e2e\/account-elevation-intent\.spec\.ts$/, suites: ["marketplace_account"] },
   { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
   { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
@@ -245,6 +250,7 @@ const e2eSpecSuiteOwnership = [
     pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
     suites: ["admin_platform"],
   },
+  { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
 ];
 
 export const e2eNoSuiteExclusions = Object.freeze([

@@ -1,6 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import { DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY } from "../domain/offer-abuse-policy";
 
 export type MarketplaceOfferListRow = Readonly<{
   offer_id: string;
@@ -48,16 +47,6 @@ export type OfferMatchRow = MarketplaceOfferListRow &
     managed_status?: "unavailable" | "held" | "refresh_required" | null;
   }>;
 
-export type OfferBuyerMuteRow = Readonly<{
-  seller_account_id: string;
-  buyer_account_id: string;
-  buyer_display_name: string | null;
-  listing_id: string;
-  product_id: string;
-  muted_at: string;
-  updated_at: string;
-}>;
-
 type MarketplaceOfferPageRow = Readonly<{
   offer_id: string;
   buyer_account_id: string;
@@ -84,8 +73,6 @@ type MarketplaceOfferPageRow = Readonly<{
   created_at: string;
   updated_at: string;
 }>;
-
-const offerFloorBps = DEFAULT_MARKETPLACE_OFFER_ABUSE_POLICY.minimumOfferToListingPriceBps;
 
 function mapOfferRow(row: MarketplaceOfferPageRow): MarketplaceOfferListRow {
   return {
@@ -236,30 +223,13 @@ function sellerOfferControlsJoinSql(sellerAccountSql: string) {
         AND selected.value->>'offerId' = offer.offer_id
       ORDER BY consent.stream_version DESC LIMIT 1
     ) AS consent_target ON TRUE
-    LEFT JOIN marketplace_offer_seller_controls AS seller_offer_control
-      ON seller_offer_control.seller_account_id = ${sellerAccountSql}
-     AND seller_offer_control.buyer_account_id = offer.buyer_account_id
-     AND seller_offer_control.listing_id = matched_listing.listing_id
     LEFT JOIN marketplace_offer_seller_declines AS seller_offer_decline
       ON seller_offer_decline.seller_account_id = ${sellerAccountSql}
-     AND seller_offer_decline.listing_id = matched_listing.listing_id
      AND seller_offer_decline.offer_id = offer.offer_id`;
 }
 
-function sellerOfferControlsWhereSql(sellerAccountSql: string) {
-  return `
-      seller_offer_control.muted_at IS NULL
-      AND seller_offer_decline.offer_id IS NULL
-      AND offer.price_amount >= (
-        CEIL((matched_listing.listing_price_amount * 100)::numeric * ${offerFloorBps} / 10000) / 100
-      )::numeric
-      AND (
-        seller_offer_control.lowball_cooldown_until IS NULL
-        OR seller_offer_control.lowball_cooldown_until <= now()
-        OR seller_offer_control.last_lowball_declined_amount IS NULL
-        OR seller_offer_control.last_lowball_declined_currency_code IS DISTINCT FROM offer.price_currency_code
-        OR offer.price_amount >= seller_offer_control.last_lowball_declined_amount
-      )`;
+function sellerOfferControlsWhereSql() {
+  return `seller_offer_decline.offer_id IS NULL`;
 }
 
 function sellerOfferSelectSql(sellerAccountSql: string) {
@@ -366,18 +336,28 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
   };
 }
 
+export const submittedOfferStatuses = ["submitted", "paused", "withdrawn", "accepted"] as const;
+export type SubmittedOfferStatus = (typeof submittedOfferStatuses)[number];
+export type SubmittedOfferStatusCounts = Readonly<Record<SubmittedOfferStatus, number>>;
+
+export function parseSubmittedOfferStatus(value: unknown): SubmittedOfferStatus | undefined {
+  return submittedOfferStatuses.find((status) => status === value);
+}
+
 export async function listSubmittedOffers(
   db: PgQueryable,
-  params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number }>,
-): Promise<{ items: MarketplaceOfferListRow[]; total: number }> {
+  params: Readonly<{ buyerAccountId: string; limit?: number; offset?: number; status?: SubmittedOfferStatus }>,
+): Promise<{ items: MarketplaceOfferListRow[]; total: number; statusCounts: SubmittedOfferStatusCounts }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
+  const status = params.status ?? null;
 
   const [countResult, itemsResult] = await Promise.all([
-    db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
+    db.query<{ status: string; count: string }>(
+      `SELECT status, COUNT(*) AS count
        FROM marketplace_offer_pages
-       WHERE buyer_account_id = $1`,
+       WHERE buyer_account_id = $1
+       GROUP BY status`,
       [params.buyerAccountId],
     ),
     db.query<MarketplaceOfferPageRow>(
@@ -389,15 +369,21 @@ export async function listSubmittedOffers(
        LEFT JOIN marketplace_account_pages AS seller
          ON seller.account_id = offer.accepted_seller_account_id
        WHERE offer.buyer_account_id = $1
+         AND ($4::text IS NULL OR offer.status = $4)
        ORDER BY offer.updated_at DESC, offer.offer_id DESC
        LIMIT $2 OFFSET $3`,
-      [params.buyerAccountId, limit, offset],
+      [params.buyerAccountId, limit, offset, status],
     ),
   ]);
+  const counted = new Map(countResult.rows.map((row) => [row.status, Number(row.count)]));
+  const statusCounts = Object.fromEntries(
+    submittedOfferStatuses.map((value) => [value, counted.get(value) ?? 0]),
+  ) as SubmittedOfferStatusCounts;
 
   return {
     items: itemsResult.rows.map(mapOfferRow),
-    total: Number(countResult.rows[0]?.count ?? 0),
+    total: status ? statusCounts[status] : [...counted.values()].reduce((sum, count) => sum + count, 0),
+    statusCounts,
   };
 }
 
@@ -432,7 +418,8 @@ export async function getPublicOffer(db: PgQueryable, offerId: string): Promise<
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS seller
        ON seller.account_id = offer.accepted_seller_account_id
-     WHERE offer.offer_id = $1`,
+     WHERE offer.offer_id = $1
+       AND offer.status = 'submitted'`,
     [offerId],
   );
 
@@ -477,7 +464,7 @@ export async function listOfferMatches(
     LEFT JOIN marketplace_seller_listing_availability_pages AS availability
       ON availability.account_id = $1
     WHERE ${innerWhere.join("\n      AND ")}
-      AND ${sellerOfferControlsWhereSql("$1")}`;
+      AND ${sellerOfferControlsWhereSql()}`;
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
@@ -521,7 +508,7 @@ export async function getOfferMatch(
      WHERE offer.offer_id = $2
        AND offer.status = 'submitted'
        AND ${sellerVisibilitySql}
-       AND ${sellerOfferControlsWhereSql("$1")}`,
+       AND ${sellerOfferControlsWhereSql()}`,
     [sellerAccountId, offerId],
   );
 
@@ -549,7 +536,7 @@ export async function getOfferMatchForListing(
      WHERE offer.offer_id = $2
        AND offer.status = 'submitted'
        AND ${sellerVisibilitySql}
-       AND ${sellerOfferControlsWhereSql("$1")}`,
+       AND ${sellerOfferControlsWhereSql()}`,
     [sellerAccountId, offerId, listingId],
   );
 
@@ -591,63 +578,9 @@ export async function listOfferMatchesForSellers(
            AND listing.status = 'active'
            AND listing.product_id = offer.product_id
        )
-       AND ${sellerOfferControlsWhereSql("seller_account.seller_account_id")}`,
+       AND ${sellerOfferControlsWhereSql()}`,
     [offerId, uniqueSellerAccountIds],
   );
 
   return new Map(result.rows.map((row) => [row.seller_account_id, mapOfferMatchRow(row)]));
-}
-
-export async function listOfferBuyerMutes(
-  db: PgQueryable,
-  sellerAccountId: string,
-): Promise<{ items: OfferBuyerMuteRow[]; total: number }> {
-  const result = await db.query<OfferBuyerMuteRow>(
-    `SELECT
-       control.seller_account_id,
-       control.buyer_account_id,
-       buyer.display_name AS buyer_display_name,
-       control.listing_id,
-       control.product_id,
-       control.muted_at::text,
-       control.updated_at::text
-     FROM marketplace_offer_seller_controls AS control
-     LEFT JOIN marketplace_account_pages AS buyer
-       ON buyer.account_id = control.buyer_account_id
-     WHERE control.seller_account_id = $1
-       AND control.muted_at IS NOT NULL
-     ORDER BY control.updated_at DESC, control.buyer_account_id ASC, control.listing_id ASC`,
-    [sellerAccountId],
-  );
-
-  return {
-    items: result.rows,
-    total: result.rows.length,
-  };
-}
-
-export async function getOfferBuyerMute(
-  db: PgQueryable,
-  params: Readonly<{ sellerAccountId: string; buyerAccountId: string; listingId: string }>,
-): Promise<OfferBuyerMuteRow | null> {
-  const result = await db.query<OfferBuyerMuteRow>(
-    `SELECT
-       control.seller_account_id,
-       control.buyer_account_id,
-       buyer.display_name AS buyer_display_name,
-       control.listing_id,
-       control.product_id,
-       control.muted_at::text,
-       control.updated_at::text
-     FROM marketplace_offer_seller_controls AS control
-     LEFT JOIN marketplace_account_pages AS buyer
-       ON buyer.account_id = control.buyer_account_id
-     WHERE control.seller_account_id = $1
-       AND control.buyer_account_id = $2
-       AND control.listing_id = $3
-       AND control.muted_at IS NOT NULL`,
-    [params.sellerAccountId, params.buyerAccountId, params.listingId],
-  );
-
-  return result.rows[0] ?? null;
 }

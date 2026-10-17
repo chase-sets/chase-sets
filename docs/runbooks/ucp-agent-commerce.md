@@ -34,6 +34,21 @@ Invoke-RestMethod http://localhost:7712/mcp -Method Post -ContentType "applicati
 Invoke-RestMethod http://localhost:7712/mcp -Method Post -ContentType "application/json" -Headers $headers -Body '{"jsonrpc":"2.0","id":"sources","method":"tools/call","params":{"name":"inventory.list-import-sources","arguments":{"accountId":"<account-id>"}}}'
 ```
 
+## Platform Profile Negotiation
+
+REST operations read `UCP-Agent: profile="https://platform.example/profile.json"` and the `Idempotency-Key` header. MCP operations read `params.arguments.meta["ucp-agent"].profile` and `params.arguments.meta["idempotency-key"]`. MCP protocol metadata stays at `params._meta`; it is not UCP request metadata. Handlers receive arguments without `meta`. Signed MCP writes also carry `UCP-Agent`; argument and header profiles must agree, as must retry keys supplied in both locations.
+
+Negotiation runs before handlers and idempotency reservations, regardless of whether an access token is valid, invalid, or missing. Failures are `invalid_profile_url` (REST 400), `profile_unreachable` (424), `profile_malformed` (422), and `version_unsupported` (422). MCP returns `-32001` with `error.data.code`. An incompatible operation capability returns REST 200 or an MCP result with `capabilities_incompatible`, without an effect. After negotiation, an OAuth actor's claimed profile must equal its grant's profile; mismatch returns REST 403 or MCP `-32000` with `profile_mismatch`. Disagreeing retry keys return `idempotency_key_mismatch`.
+
+The shared negotiation/signature resolver uses HTTPS without redirects, validates every DNS address and pins the connection to a public address while retaining Host and SNI. It has a 5-second total deadline, a 128 KiB body limit, four concurrent resolutions and 60 fetch starts per rolling minute per process. Concurrent requests for one URL share resolution. Only valid profiles are persisted for 300 seconds; failures are not cached. Failure logs contain the kind and host, never the raw exception or full profile URL.
+
+Two intentional Chase Sets extensions allow profile-less callers:
+
+- Public, read-only catalog search and lookup work on REST and MCP. REST checkout and order operations still require a profile.
+- `/ucp/mcp` is the buyer connector: profile-less checkout/order calls follow normal OAuth handling, with `authentication_required` and `mcp/www_authenticate` for unauthenticated callers. Authenticated buyers use the business capability set without fetching a profile. A supplied or malformed profile never falls back to this extension.
+
+`pnpm run smoke:platform` checks profile-less REST checkout rejection and profile-less catalog success. Pre-merge proof belongs to exact-head hosted `Compose Boot Smoke`; the first post-merge staging smoke supplies deployed proof.
+
 ## ChatGPT App Connector
 
 ChatGPT now calls connectors "apps." Configure Chase Sets as a data-and-action ChatGPT app from the remote MCP endpoint:
@@ -51,7 +66,7 @@ $body = '{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolV
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body $body
 ```
 
-Verify the MCP protocol matrix. Native `/mcp` supports legacy `initialize` for `2025-06-18` and `2025-11-25`, plus handshakeless stateless requests for `2026-07-28`. UCP `/ucp/mcp` remains the UCP commerce facade and currently negotiates only the legacy initialize revisions.
+Verify the MCP protocol matrix. Both native `/mcp` and UCP `/ucp/mcp` support legacy `initialize` for `2025-06-18` and `2025-11-25`, plus handshakeless stateless requests for `2026-07-28`. Their request policies share `infrastructure/platform-runtime/mcp-protocol.ts`; native response contracts remain unchanged.
 
 ```powershell
 $authHeaders = @{ Authorization = "Bearer <session-token>" }
@@ -81,9 +96,12 @@ $statelessBody = @{
   params = @{ _meta = $meta20260728 }
 } | ConvertTo-Json -Depth 8
 Invoke-RestMethod http://localhost:6362/mcp -Method Post -ContentType "application/json" -Headers $statelessHeaders -Body $statelessBody
+Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Headers $statelessHeaders -Body $statelessBody
 ```
 
-Expected result: native `/mcp` initialize returns the requested legacy revision for `2025-06-18` and `2025-11-25`; UCP `/ucp/mcp` does the same for its legacy facade. Native `2026-07-28` requests must not call `initialize`; each request includes `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` for tool/resource targets, and client info/capabilities in `_meta` or the supported client headers. The platform must not require or return `Mcp-Session-Id`.
+Expected result: both endpoints' `initialize` returns the requested legacy revision for `2025-06-18` and `2025-11-25`. Stateless `2026-07-28` requests must not call `initialize`; each request includes `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` for tool/resource targets. Native `/mcp` requires client info/capabilities in `_meta` or its supported client headers. Modern `/ucp/mcp` requires protocol version and client capabilities in `_meta`, ignores the capability header, and makes client info optional. Every modern UCP result includes `_meta["io.modelcontextprotocol/serverInfo"]`; `server/discover` returns `supportedVersions` (`2026-07-28`, `2025-11-25`, `2025-06-18`) and tools/resources capabilities. The platform must not require or return `Mcp-Session-Id`.
+
+On `/ucp/mcp`, only per-request `_meta` protocol version selects modern semantics; a header alone never does. Header-only `2026-07-28` and unknown revisions keep the legacy HTTP 400 / `-32004` response, and legacy `initialize` naming `2026-07-28` still downgrades to `2025-06-18`. Keep legacy `initialize` for deployed ChatGPT and Claude connectors. **Re-open trigger:** drop it once #9459 and #9456 record that no target host uses it. The pinned MCP SDK is legacy evidence; test modern UCP with a scripted HTTP client using raw JSON-RPC.
 
 Verify ChatGPT-compatible tool metadata:
 
@@ -92,7 +110,7 @@ $tools = Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentTy
 $tools.result.tools | Select-Object name,securitySchemes,annotations
 ```
 
-MCP `2025-11-25` browser transport requirements are enforced on both MCP facades. Browser calls with a hostile `Origin` return HTTP 403; no-`Origin` server-to-server calls remain valid. Allowed Chase Sets browser origins receive explicit CORS headers for JSON-RPC, authorization, idempotency, signature, and MCP protocol/routing headers. Clients that send `MCP-Protocol-Version` after initialization must use a supported revision; native `/mcp` accepts `2025-06-18`, `2025-11-25`, and stateless `2026-07-28`, while UCP `/ucp/mcp` accepts the legacy initialize revisions only.
+MCP `2025-11-25` browser transport requirements are enforced on both MCP facades. Browser calls with a hostile `Origin` return HTTP 403; no-`Origin` server-to-server calls remain valid. Allowed Chase Sets browser origins receive explicit CORS headers for JSON-RPC, authorization, idempotency, signature, and MCP protocol/routing headers. Both endpoints accept the legacy revisions after initialization and `2026-07-28` with per-request metadata. Modern UCP decodes `=?base64?...?=` UTF-8 `Mcp-Name` values before comparing them with the tool name or resource URI; malformed encoding fails closed. Native `/mcp` retains its raw header comparison.
 
 Native and UCP tool listings include MCP standard annotations. Read-only tools set `readOnlyHint`; destructive tools set `destructiveHint`; write tools protected by platform idempotency set `idempotentHint`. The richer Chase Sets guardrail metadata remains in `annotations` for operator review and packaging.
 
@@ -102,7 +120,7 @@ Verify a public catalog call returns `structuredContent`:
 Invoke-RestMethod http://localhost:6362/ucp/mcp -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":"search","method":"tools/call","params":{"name":"search_catalog","arguments":{"query":"charizard","limit":3}}}'
 ```
 
-JSON-RPC MCP transport status convention: `/ucp/mcp` and native `/mcp` return HTTP 200 with an in-band JSON-RPC `error` object for application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Reserve non-2xx transport status for malformed JSON-RPC bodies, unsupported JSON-RPC batch arrays, authentication failures that prevent discovery, unsupported protocol revision headers, and stateless routing/header metadata failures. Native `2026-07-28` header mismatches use JSON-RPC code `-32001`; invalid stateless params and unknown tools/resources use `-32602`.
+JSON-RPC MCP transport status convention: legacy `/ucp/mcp` and native `/mcp` return HTTP 200 with an in-band JSON-RPC `error` object for application errors such as unknown methods, unknown tools/resources, missing idempotency keys, signature rejection, authorization denial, and idempotency conflicts. Modern `/ucp/mcp` returns HTTP 404 / `-32601` for unknown methods, HTTP 400 / `-32022` with `{supported, requested}` for unsupported metadata versions, HTTP 400 / `-32020` for missing or mismatched routing/protocol headers, and HTTP 400 / `-32602` for invalid per-request metadata. Native `2026-07-28` header mismatches retain `-32001`. Other application-error behavior, signed-write, OAuth, and idempotency checks are unchanged across UCP eras.
 
 MCP protocol revision decision, 2026-07-07: native `/mcp` advertises `2025-06-18`, `2025-11-25`, and `2026-07-28`. The first two revisions keep the legacy handshake path; `2026-07-28` is request-scoped and must not rely on session affinity. Extension negotiation is scaffolded through `capabilities.extensions`, but Tasks (`io.modelcontextprotocol/tasks`) and MCP Apps (`io.modelcontextprotocol/ui`) are advertised only when the owning slices provide real handlers/resources. Operator review remains required when the public final `2026-07-28` specification page is published; as of 2026-07-07, the public Model Context Protocol specification site still exposes `2025-11-25` as the latest stable revision, so this implementation follows issue #3767 and the finalized stateless/header/error-code SEPs.
 
@@ -122,7 +140,7 @@ MCP tool calls are concurrency-limited before handler execution by the platform 
 
 The platform smoke script checks native `/mcp` anonymous discovery on every run. When admin credentials produce a session with an account id, or `SMOKE_NATIVE_MCP_ACCOUNT_ID` is supplied, it performs authenticated native discovery and the safe `inventory.list-import-sources` read across the `2025-06-18`, `2025-11-25`, and `2026-07-28` native MCP matrix with the same deployment.
 
-Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or AP2 mandate effects.
+Account-scoped checkout and order calls require the OAuth access token issued by `/ucp/oauth/token`. If ChatGPT calls `complete_checkout` or `cancel_checkout` with OAuth but without UCP HTTP Message Signature headers, the runtime must return a trusted checkout handoff and must not create orders, payments, or spend authorizations.
 
 ## Signed Checkout Writes
 
@@ -136,48 +154,24 @@ Checkout write requests must include:
 
 Current runtime verifies required headers, SHA-256 body digest, and replay/idempotency before invoking checkout write handlers. Production platform-api composition must bootstrap `platformUcpRuntimeSchemaSql` and wire the Postgres-backed UCP idempotency store and profile/key cache from the platform control database. Route creation fails outside the test runtime when a UCP REST or MCP mount omits the durable idempotency store. When configured with a UCP profile/key resolver, it also verifies RFC 9421 HTTP Message Signatures against the signer's public key.
 
-## AP2 Merchant Authorization
+## Business Signing Keys
 
-Configure checkout-term signing before enabling AP2-capable external smoke:
+Configure the business signing key to publish it in `/.well-known/ucp`:
 
-- `UCP_BUSINESS_SIGNING_KEY_ID`: current merchant signing key id, for example `merchant-2026-q2`.
+- `UCP_BUSINESS_SIGNING_KEY_ID`: current business signing key id, for example `merchant-2026-q2`.
 - `UCP_BUSINESS_SIGNING_ALG`: `ES256`, `ES384`, or `ES512`; prefer `ES256`.
-- `UCP_BUSINESS_SIGNING_PRIVATE_JWK`: EC private JWK for the current signing key.
+- `UCP_BUSINESS_SIGNING_PRIVATE_JWK`: EC private JWK for the current signing key. Keep it in environment-scoped secrets.
 - `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`: JSON array of previous public JWKs retained during rotation.
-- `UCP_AP2_VERIFIER_URL`: HTTPS production verifier endpoint implementing the `chase-sets-ucp-ap2-verification/v1` request contract.
-- `UCP_AP2_VERIFIER_AUTH_TOKEN`: verifier bearer credential. Keep this and the private JWK in environment-scoped secrets.
-- `UCP_AP2_VERIFIER_TIMEOUT_MS`: fail-closed verifier timeout; defaults to 5000 ms.
 
-After restart, verify `/.well-known/ucp` includes `signing_keys` and checkout responses include `checkout.ap2.merchant_authorization`.
+After restart, verify `/.well-known/ucp` includes `signing_keys` with public JWKs only. The runtime publishes the key set and signs no UCP response with it.
 
-Rotate by adding the current public key to `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`, installing the new private JWK and key id, deploying, then removing old public keys after all AP2 mandate retention windows have expired.
-
-The verifier request includes the UCP `2026-04-08` checkout, Checkout Mandate, verification time, and only a boolean that a payment token is present. It never receives the raw Shared Payment Token. The verifier response must attest `human-present` or `human-not-present`; Chase Sets accepts only `human-present` for headless completion. A timeout, malformed response, invalid/expired mandate, or human-not-present result fails closed to `trusted_checkout_handoff` and preserves the AP2 error code in the UCP message envelope.
-
-## AP2 Direct-Mode Certification Run
-
-The implementation gate and the environment certification gate are separate. Installing verifier and signing secrets makes staging eligible to run; it does not constitute approval. Complete these steps against one immutable staging release:
-
-1. Install the seven `UCP_BUSINESS_SIGNING_*` and `UCP_AP2_VERIFIER_*` values in the staging GitHub environment. Deploy and record the full release commit without copying secret values into evidence.
-2. Fetch `/.well-known/ucp`. Require UCP `2026-04-08`, AP2 status `human_present_enabled`, `mandate_verification: enabled`, `business_response_signing: enabled`, `shared_payment_token: enabled`, and `human_not_present_completion_enabled: false`.
-3. Verify checkout discovery exposes a public merchant signing key and checkout responses carry a valid detached merchant authorization. Rehearse key rotation with the previous public-key set and the documented retention window.
-4. Through the m86/ChatGPT MCP connector, submit a valid direct-mode Checkout Mandate plus a Stripe test Shared Payment Token. Require completion without `trusted_checkout_handoff`, one PaymentIntent using `shared_payment_granted_token`, and no duplicate Ordering or Payments effects on replay.
-5. Repeat with invalid, expired, replayed, and untrusted mandates. Each response must be `requires_action`, contain a `trusted_checkout_handoff` URL, preserve the applicable AP2 error code, and create no order, payment, or mandate effects.
-6. Confirm `shared_payment.granted_token.used` and `shared_payment.granted_token.deactivated` reach the provider webhook inbox and Payments handlers. Store redacted event-type/outcome references only—never provider object ids or payment tokens.
-7. Re-run OAuth PKCE, refresh rotation, introspection, revocation, consent removal, unsigned-write no-effects, and incident-response checks. Obtain Support and Finance approval.
-8. Prepare a redacted JSON record with schema `ucp-ap2-certification/v1`, then run:
-
-```powershell
-pnpm run ops ucp:ap2-certification-evidence -- --evidence-file artifacts/ucp-ap2/staging-certification.json --out artifacts/ucp-ap2/staging-certification-result.json
-```
-
-The validator requires every direct-mode, verifier rejection, Stripe SPT/webhook, OAuth, replay, incident-response, Support, and Finance row to carry a redacted internal evidence reference. It rejects credentials, raw SPT/Stripe identifiers, personal data, human-not-present enablement, incomplete reviews, and public marketing enablement. File the approved result with the certification record. If any row is unavailable, leave certification unapproved and keep trusted handoff as the public posture.
+Rotate by adding the current public key to `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`, installing the new private JWK and key id, deploying, then removing old public keys.
 
 ## Forward Readiness Posture
 
-General UCP response signing is deferred for v1. Operators should not promise signed non-checkout UCP responses; protected writes rely on signed requests, digest verification, OAuth scope, durable idempotency, and audit evidence. Checkout responses may carry `ap2.merchant_authorization` when merchant signing keys are configured, but that is checkout-term signing, not a general response-signature contract.
+General UCP response signing is deferred for v1, and no UCP response, including checkout, is signed. Operators should not promise signed UCP responses; protected writes rely on signed requests, digest verification, OAuth scope, durable idempotency, and audit evidence.
 
-Headless AP2 checkout is closed by default and enables at runtime only when the production AP2 verifier, merchant signing keys, and Stripe shared-payment-token handler are all configured. That runtime enablement is limited to verifier-attested human-present mandates. Human-not-present AP2 v0.2 remains disabled until spending-mandate enforcement is certified. OAuth ChatGPT calls and unsupported signed-agent calls return trusted checkout handoff continuations instead of creating orders, payments, or AP2 effects.
+Headless checkout completion uses only the stored-payment-method rail: a signed agent names a saved checkout instrument, and the agent grant spending mandate gates the charge. Agent-provided payment instruments, including Stripe shared payment tokens, are never submitted headlessly. OAuth ChatGPT calls and every other completion return trusted checkout handoff continuations instead of creating orders or payments.
 
 Check OAuth metadata:
 
@@ -185,13 +179,19 @@ Check OAuth metadata:
 Invoke-RestMethod http://localhost:7712/.well-known/oauth-authorization-server
 ```
 
-OAuth identity linking requires Authorization Code with PKCE S256. Token refresh rotates the refresh token on every successful refresh. Token support endpoints:
+OAuth identity linking requires Authorization Code with PKCE S256. Token refresh rotates the refresh token on every successful refresh.
+
+Authorization GET must redirect to `/account/agents/consent` (or `/sign-in` with the authorize return path), never directly to a callback with a code. Consent displays the client-provided name, redirect origin, active account, and grouped scope labels. Approve or Deny submits a native same-origin POST; only Approve can issue a code. Deny preserves state and returns `access_denied`. A stale, used, foreign-session, or switched-account token must be rejected without a client redirect. Restart from the agent after the ten-minute expiry. Switching accounts restarts authorize and requires a new consent decision. Agent-bearer and guest-checkout actors must sign in interactively instead.
+
+Do not retain raw consent tokens, callback codes, or full token-bearing URLs in diagnostic logs. Token, refresh, introspection, and revocation behavior is unchanged.
+
+Token support endpoints:
 
 - `/ucp/oauth/token`: `authorization_code` and `refresh_token`
 - `/ucp/oauth/register`: RFC 7591 public-client registration for agent platforms
 - `/ucp/oauth/introspect`: active token, account, scope, and client/profile diagnostics
 - `/ucp/oauth/revoke`: access-token or refresh-token revocation
-- `/ucp/oauth/authorizations`: signed-in account list and consent revocation
+- `/ucp/oauth/authorizations` and its grant-management routes: interactive-session account list, detail, activity, webhook configuration/deliveries, consent revocation, and spending mandate. Agent bearer tokens and guest-checkout actors receive 401 `login_required` without management reads or writes. Token-holder revocation through `/ucp/oauth/revoke` remains available.
 
 Order reads are available through the linked account when that account is the buyer or seller on the order:
 
@@ -218,24 +218,23 @@ For suspected replay or agent abuse:
 - OAuth identity linking requires PKCE S256, rotates refresh tokens, supports token introspection, and exposes linked-platform consent revocation.
 - Signature verification resolves agent keys from UCP profile/key discovery and is enabled in production runtime composition.
 - Idempotency records are durable, survive process restarts, carry a retention expiry, and can be pruned.
-- AP2/payment-handler support is guarded: Payments declares trusted and Stripe shared-payment-token handlers, but headless completion is enabled only when a production AP2 verifier, business signing key, and provider-backed Stripe SPT PaymentIntent path are configured.
-- AP2 profile readiness reads `human_present_enabled` only when verifier, business signing, and Stripe SPT controls are wired. It always declares human-not-present completion disabled.
-- Invalid, expired, replayed, untrusted, unavailable, or human-not-present AP2 verification returns trusted checkout handoff with no money-moving side effects and the applicable UCP/AP2 error envelope.
+- Payment-handler support is guarded: Payments declares trusted, Stripe shared-payment-token, and stored-payment-method handlers. Only the stored-payment-method handler completes headlessly; the others require trusted UI.
+- A completion request without a saved checkout instrument returns trusted checkout handoff with no money-moving side effects.
 - Stripe webhook configuration includes `shared_payment.granted_token.used` and `shared_payment.granted_token.deactivated` alongside PaymentIntent, Checkout Session, refund, dispute, Connect, and payout events.
-- Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, PKCE/refresh metadata, `/ucp/v1`, `/ucp/mcp`, native `/mcp` discovery/authentication posture, linked-account order reads, and the direct-mode certification run above on the marketplace host.
+- Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, PKCE/refresh metadata, `/ucp/v1`, `/ucp/mcp`, native `/mcp` discovery/authentication posture, and linked-account order reads on the marketplace host.
 
 ## Marketing Certification Gate
 
-Do not market UCP/AP2 as launch-ready, agent-commerce capable, autonomous-payment capable, or headless-checkout capable until a separate certification record is approved. The public launch posture is trusted checkout handoff: agents may prepare or inspect supported shopping flows, but account-scoped checkout completion must move through buyer UI review unless a verified AP2 Mandate and supported Payments handoff are present.
+Do not market UCP or the Agent Payments Protocol as launch-ready, agent-commerce capable, autonomous-payment capable, or headless-checkout capable until a separate certification record is approved. The public launch posture is trusted checkout handoff: agents may prepare or inspect supported shopping flows, but account-scoped checkout completion must move through buyer UI review unless the agent completes with the buyer's saved payment method under the agent grant spending mandate.
 
 The certification record must include:
 
-- Production AP2 verifier configuration and signed-write rejection evidence for missing, expired, replayed, or untrusted signatures.
-- Merchant signing key configuration, public-key discovery, rotation rehearsal, and mandate retention/expiry handling.
+- Signed-write rejection evidence for missing, expired, replayed, or untrusted signatures.
+- Business signing key configuration, public-key discovery, and rotation rehearsal.
 - Provider-backed Stripe Shared Payment Token PaymentIntent path, including token-use webhooks and replay-safe failure behavior.
 - OAuth authorization-code plus PKCE evidence, refresh-token rotation, token introspection, revocation, and linked-platform consent removal.
-- Trusted Checkout Handoff evidence showing unsupported or unsigned ChatGPT app calls do not create orders, payments, or AP2 effects.
+- Trusted Checkout Handoff evidence showing unsupported or unsigned ChatGPT app calls do not create orders, payments, or spend authorizations.
 - Incident-response evidence covering profile/client pause, token revocation, replay search, idempotency conflict review, and duplicate-effect checks.
 - Support and Finance review for buyer consent, payment liability, refund/dispute handling, and agent-abuse escalation.
 
-Until that record exists, Public Presence, launch notes, sales collateral, and promo-bar messages must avoid UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, Shared Payment Token, and agent-commerce claims.
+Until that record exists, Public Presence, launch notes, sales collateral, and promo-bar messages must avoid UCP, Agent Payments Protocol, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, Shared Payment Token, and agent-commerce claims.

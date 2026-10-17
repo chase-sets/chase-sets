@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { EventStreamTooLongError } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { applyEvents } from "@chase-sets/event-core/domain";
 import type { EventStore, EventStoreError } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
@@ -131,6 +133,14 @@ export type SavedListServices = Readonly<{
     input: ApplySavedListLineChangesInput,
     context: EventStoreContext,
   ) => Promise<SavedListCommandResult>;
+  readLineChangesReceipt: (
+    input: ApplySavedListLineChangesInput,
+    context: EventStoreContext,
+  ) => Promise<SavedListCommandResult | null>;
+  readCreationReceipt: (
+    input: CreateSavedListInput,
+    context: EventStoreContext,
+  ) => Promise<SavedListCommandResult | null>;
   getOwnerSnapshot: (
     input: Readonly<{ listId: SavedListId; ownerAccountId: AccountId }>,
     context: EventStoreContext,
@@ -165,10 +175,20 @@ export class SavedListIdempotencyConflictError extends Error {
   }
 }
 
+export class SavedListHistoryLimitReachedError extends Error {
+  readonly code = "saved-list-history-limit-reached";
+
+  constructor() {
+    super(`Saved List history reached its ${savedListLimits.maximumHistoryEvents} event limit.`);
+    this.name = "SavedListHistoryLimitReachedError";
+  }
+}
+
 type StoredCommandReceipt = Readonly<{
   schemaVersion: typeof savedListCommandReceiptSchemaVersion;
   commandId: SavedListCommandId;
   fingerprint: string;
+  fingerprintScheme?: "semantic-v1";
   outcome: SavedListCommandOutcome;
   previousVersion: number;
   committedVersion: number;
@@ -182,7 +202,14 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
   const now = deps.clock ?? (() => new Date().toISOString());
 
   async function load(listId: SavedListId) {
-    return repository.load(savedListStreamId(listId));
+    try {
+      return await repository.load(savedListStreamId(listId));
+    } catch (error) {
+      if (error instanceof EventStreamTooLongError) {
+        throw new SavedListHistoryLimitReachedError();
+      }
+      throw error;
+    }
   }
 
   async function reloadOwnerSnapshot(listId: SavedListId, ownerAccountId: AccountId, context: EventStoreContext) {
@@ -198,6 +225,7 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
       ownerAccountId: AccountId;
       expectedVersion: number | "no_stream";
       fingerprint: string;
+      fingerprintScheme?: "semantic-v1";
       outcome: SavedListCommandOutcome;
       lineResults?: readonly SavedListLineChangeResult[];
       buildEvents: (loaded: LoadedSavedList) => readonly SavedListEvent[];
@@ -210,6 +238,19 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
       assertOwner(loaded.state, input.ownerAccountId, context);
       if (priorReceipt.fingerprint !== input.fingerprint) {
         throw new SavedListIdempotencyConflictError(input.commandId);
+      }
+      if (input.expectedVersion === "no_stream") {
+        const event = loaded.storedEvents.find((event) => event.payload.commandId === input.commandId)!;
+        const expected = createSavedListEventCodec().encode(input.buildEvents(loaded)[0]!);
+        if (
+          priorReceipt.previousVersion !== 0 ||
+          priorReceipt.committedVersion !== 1 ||
+          priorReceipt.outcome !== "created" ||
+          event.eventType !== expected.eventType ||
+          stableStringify(event.payload) !==
+            stableStringify({ ...expected.payload, createdAt: event.payload.createdAt })
+        )
+          throw new SavedListIdempotencyConflictError(input.commandId);
       }
       return commandResult(loaded.state, loaded.version, input.listId, priorReceipt, true);
     }
@@ -235,6 +276,7 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
       schemaVersion: savedListCommandReceiptSchemaVersion,
       commandId: input.commandId,
       fingerprint: input.fingerprint,
+      ...(input.fingerprintScheme ? { fingerprintScheme: input.fingerprintScheme } : {}),
       outcome: events.length === 0 ? "no-change" : input.outcome,
       previousVersion: loaded.version,
       committedVersion: loaded.version + events.length,
@@ -253,10 +295,14 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
         events,
         metadata: { savedListCommandReceipt: storedReceipt as unknown as JsonValue },
       });
+      recordCommittedEvents(storedEvents, "collections");
       const state = applyEvents(loaded.state, evolveSavedList, events);
       const version = storedEvents.at(-1)?.streamVersion ?? loaded.version;
       return commandResult(state, version, input.listId, storedReceipt, false);
     } catch (error) {
+      if (error instanceof EventStreamTooLongError) {
+        throw new SavedListHistoryLimitReachedError();
+      }
       if (isConcurrencyConflict(error)) {
         throw new SavedListConcurrencyConflictError(
           input.expectedVersion === "no_stream" ? 0 : input.expectedVersion,
@@ -356,14 +402,12 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
           `Saved List line batch must contain between 1 and ${savedListLimits.maximumBatchOperations} operations.`,
         );
       }
-      const fingerprint = fingerprintRequest("apply-line-changes", input);
+      const fingerprint = lineChangesFingerprint(input);
       const loaded = await load(input.listId);
       const priorReceipt = findStoredCommandReceipt(loaded.storedEvents, input.commandId);
       if (priorReceipt) {
         assertOwner(loaded.state, input.ownerAccountId, context);
-        if (priorReceipt.fingerprint !== fingerprint) {
-          throw new SavedListIdempotencyConflictError(input.commandId);
-        }
+        assertLineChangesReceipt(loaded.storedEvents, input, priorReceipt);
         return commandResult(loaded.state, loaded.version, input.listId, priorReceipt, true);
       }
       assertOwner(loaded.state, input.ownerAccountId, context);
@@ -444,12 +488,48 @@ export function createSavedListRuntime(deps: SavedListRuntimeDeps): SavedListSer
           ownerAccountId: input.ownerAccountId,
           expectedVersion: input.expectedVersion,
           fingerprint,
+          fingerprintScheme: "semantic-v1",
           outcome: "line-changes-applied",
           lineResults,
           buildEvents: () => events,
         },
         context,
       );
+    },
+    readCreationReceipt: async (input, context) => {
+      const loaded = await load(input.listId);
+      if (loaded.version === 0) return null;
+      assertOwner(loaded.state, input.ownerAccountId, context);
+      const receipt = findStoredCommandReceipt(loaded.storedEvents, input.commandId);
+      if (!receipt) return null;
+      const event = loaded.storedEvents.find((event) => event.payload.commandId === input.commandId)!;
+      const expected = decideSavedList(initialSavedListState, {
+        type: "CreateSavedList",
+        ...input,
+        createdAt: String(event.payload.createdAt),
+      });
+      if (
+        receipt.fingerprint !== fingerprintRequest("create", input) ||
+        receipt.previousVersion !== 0 ||
+        receipt.committedVersion !== 1 ||
+        receipt.outcome !== "created" ||
+        receipt.lineResults.length !== 0 ||
+        event.forAccountId !== input.ownerAccountId ||
+        event.eventType !== expected[0]?.type ||
+        stableStringify(event.payload) !== stableStringify(createSavedListEventCodec().encode(expected[0]!).payload)
+      ) {
+        throw new SavedListIdempotencyConflictError(input.commandId);
+      }
+      return commandResult(loaded.state, loaded.version, input.listId, receipt, true);
+    },
+    readLineChangesReceipt: async (input, context) => {
+      const loaded = await load(input.listId);
+      if (loaded.version === 0) return null;
+      assertOwner(loaded.state, input.ownerAccountId, context);
+      const receipt = findStoredCommandReceipt(loaded.storedEvents, input.commandId);
+      if (!receipt) return null;
+      assertLineChangesReceipt(loaded.storedEvents, input, receipt);
+      return commandResult(loaded.state, loaded.version, input.listId, receipt, true);
     },
     getOwnerSnapshot: async (input, context) => {
       const loaded = await load(input.listId);
@@ -468,6 +548,7 @@ function createRepository(eventStore: EventStore) {
     codec: createSavedListEventCodec(),
     initialState: () => initialSavedListState,
     evolve: evolveSavedList,
+    maxEvents: savedListLimits.maximumHistoryEvents,
     decide: decideSavedList,
   }).repository;
 }
@@ -604,17 +685,113 @@ function findStoredCommandReceipt(
   events: readonly StoredEvent[],
   commandId: SavedListCommandId,
 ): StoredCommandReceipt | null {
-  for (const event of events) {
+  for (const event of events.filter((event) => event.payload.commandId === commandId)) {
     const candidate = event.metadata.savedListCommandReceipt;
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
-      continue;
+      throw new SavedListIdempotencyConflictError(commandId);
     }
     const record = candidate as Record<string, unknown>;
     if (record.commandId === commandId && record.schemaVersion === savedListCommandReceiptSchemaVersion) {
-      return record as unknown as StoredCommandReceipt;
+      const receipt = record as unknown as StoredCommandReceipt;
+      const group = events.filter((candidate) => candidate.payload.commandId === commandId);
+      if (
+        !Number.isInteger(receipt.previousVersion) ||
+        receipt.previousVersion < 0 ||
+        !Number.isInteger(receipt.committedVersion) ||
+        receipt.committedVersion <= receipt.previousVersion ||
+        group.length !== receipt.committedVersion - receipt.previousVersion ||
+        !Array.isArray(receipt.lineResults) ||
+        typeof receipt.fingerprint !== "string" ||
+        group.some(
+          (candidate, index) =>
+            candidate.streamVersion !== receipt.previousVersion + index + 1 ||
+            candidate.forAccountId !== event.forAccountId ||
+            candidate.streamId !== event.streamId ||
+            stableStringify(candidate.metadata.savedListCommandReceipt) !== stableStringify(record),
+        )
+      ) {
+        throw new SavedListIdempotencyConflictError(commandId);
+      }
+      return receipt;
     }
+    throw new SavedListIdempotencyConflictError(commandId);
   }
   return null;
+}
+
+function lineChangesFingerprint(input: ApplySavedListLineChangesInput): string {
+  const { expectedVersion: _version, ...semantic } = input;
+  return fingerprintRequest("apply-line-changes:semantic-v1", semantic);
+}
+
+function assertLineChangesReceipt(
+  events: readonly StoredEvent[],
+  input: ApplySavedListLineChangesInput,
+  receipt: StoredCommandReceipt,
+) {
+  const expected =
+    receipt.fingerprintScheme === "semantic-v1"
+      ? lineChangesFingerprint(input)
+      : fingerprintRequest("apply-line-changes", { ...input, expectedVersion: receipt.previousVersion });
+  const fail = () => {
+    throw new SavedListIdempotencyConflictError(input.commandId);
+  };
+  if (
+    receipt.fingerprint !== expected ||
+    receipt.outcome !== "line-changes-applied" ||
+    receipt.lineResults.length !== input.operations.length
+  )
+    fail();
+  const codec = createSavedListEventCodec();
+  let state = applyEvents(
+    initialSavedListState,
+    evolveSavedList,
+    events.filter((event) => event.streamVersion <= receipt.previousVersion).map(codec.decode),
+  );
+  const group = events.filter((event) => event.payload.commandId === input.commandId);
+  let index = 0;
+  for (const [position, operation] of input.operations.entries()) {
+    const result = receipt.lineResults[position]!;
+    if (result.operationId !== operation.operationId.trim()) fail();
+    if (result.status === "rejected") {
+      if (
+        !result.error ||
+        result.lineId !== operation.lineId ||
+        ![
+          "duplicate-operation",
+          "invalid-line",
+          "invalid-product",
+          "product-not-found",
+          "product-retired",
+          "catalog-unavailable",
+          "line-not-found",
+          "line-limit-reached",
+          "quantity-limit-exceeded",
+          "list-archived",
+        ].includes(result.error.code)
+      )
+        fail();
+      continue;
+    }
+    if (result.error !== null) fail();
+    const stored = group[index];
+    if (!stored || stored.forAccountId !== input.ownerAccountId || stored.payload.listId !== input.listId) fail();
+    const decided = decideSavedList(
+      state,
+      lineOperationCommand(operation, input.commandId, String(stored!.payload.changedAt ?? stored!.payload.addedAt)),
+    );
+    if (
+      decided.length !== 1 ||
+      stableStringify(codec.encode(decided[0]!).payload) !== stableStringify(stored!.payload) ||
+      decided[0]!.type !== stored!.eventType ||
+      result.lineId !== eventLineId(decided[0]) ||
+      result.status !== lineResultStatus(operation, decided[0])
+    )
+      fail();
+    state = applyEvents(state, evolveSavedList, decided);
+    index += decided.length;
+  }
+  if (index !== group.length) fail();
 }
 
 function fingerprintRequest(kind: string, input: object): string {

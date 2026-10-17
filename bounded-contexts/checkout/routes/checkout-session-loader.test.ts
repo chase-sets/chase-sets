@@ -82,6 +82,8 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 }));
 
 import { loader as checkoutSessionLoader } from "./checkout-session";
+import { t } from "@chase-sets/localization";
+import { readFileSync } from "node:fs";
 
 class MockPaymentsApiError extends Error {
   public constructor(
@@ -148,6 +150,35 @@ function stubValidatedZeroWallet() {
 }
 
 describe("checkout web routes: checkout session loader", () => {
+  it("AC6 expired handoff has localized notice and no payment entry or preview", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    });
+    mockGetCheckoutSession.mockResolvedValue({
+      ...walletCheckoutSession("pay_unconfirmed"),
+      handoff_expires_at: "2000-01-01T00:00:00Z",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet"),
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+    expect(result.expiredCheckout).toBe(true);
+    expect(result.paymentPreview).toBeNull();
+    expect(result.preparedPayment).toBeNull();
+    expect(result.autoResumePaymentStart).toBe(false);
+    expect(mockGetCheckoutPaymentConfirmation).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
+    const source = readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8");
+    expect(source).toContain("data.expiredCheckout ? CHECKOUT_HANDOFF_EXPIRED_MESSAGE");
+    expect(source).not.toContain('"This checkout has expired. Start a new checkout."');
+    expect(t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description")).toContain(
+      "start checkout again",
+    );
+  });
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
   });

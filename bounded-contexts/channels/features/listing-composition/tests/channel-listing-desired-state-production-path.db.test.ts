@@ -7,12 +7,16 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as channelsModule } from "../../../index";
 import { createChannelListingCompositionRuntime } from "../api/runtime";
 import { createChannelCompositionProfileRegistry } from "../domain/canonical";
-import { buildChannelOwnedDesiredStateReactionHandlers } from "../integrations/reactions";
+import {
+  buildChannelMarketplaceDesiredStateReactionHandlers,
+  buildChannelOwnedDesiredStateReactionHandlers,
+} from "../integrations/reactions";
 import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
 import {
   buildChannelCatalogFactsProjectionHandlers,
@@ -514,7 +518,349 @@ describeDb("channel-listing-desired-state-production-path", () => {
       ),
     ).toMatchObject({ rows: [] });
   });
+
+  it("clamp-pause-keeps-desired-state", async () => {
+    const harness = await createClampPauseHarness();
+    await harness.applyFirstRun();
+    expect(await harness.linkEvents()).toMatchObject([
+      { event_type: "channels.channel-listing.desired-state-changed", payload: { intent: "publish" } },
+      { event_type: "channels.channel-listing.publication-recorded", payload: { outcome: { kind: "succeeded" } } },
+    ]);
+    expect(await harness.operations()).toEqual([
+      operationRow("publish", "succeeded", 2, { amountMinor: 27, quantity: 1 }, "applied"),
+    ]);
+
+    await harness.applyListingEvent("marketplace.listing.paused", { reason: "channel-inbound-dark" }, 3);
+    const clamped = await harness.linkEvents();
+    expect(clamped.slice(2)).toMatchObject([
+      {
+        event_type: "channels.channel-listing.desired-state-changed",
+        payload: {
+          intent: "update",
+          listingRevision: 3,
+          draft: { listingRevision: 3, price: { amountMinor: 27, currency: "USD" }, quantity: 1 },
+        },
+      },
+    ]);
+    expect(clamped.filter(isDelist)).toEqual([]);
+    expect(await harness.operations()).toEqual([
+      operationRow("publish", "succeeded", 2, { amountMinor: 27, quantity: 1 }, "applied"),
+      operationRow("update", "pending", 3, { amountMinor: 27, quantity: 1 }, "pending"),
+    ]);
+
+    await harness.applyListingEvent(
+      "marketplace.listing.price-updated",
+      { priceAmount: "0.31", priceCurrencyCode: "USD" },
+      4,
+    );
+    expect((await harness.linkEvents()).filter(isDelist)).toEqual([]);
+    expect((await harness.operations()).filter((row) => row.status === "pending")).toEqual([
+      operationRow("update", "pending", 4, { amountMinor: 31, quantity: 1 }, "pending"),
+    ]);
+
+    await harness.applyListingEvent("marketplace.listing.paused", { reason: "seller" }, 5);
+    expect((await harness.linkEvents()).at(-1)).toMatchObject({
+      event_type: "channels.channel-listing.desired-state-changed",
+      payload: {
+        intent: "delist",
+        listingRevision: 5,
+        delist: {
+          lastPublishedPrice: { amountMinor: 27, currency: "USD" },
+          lastPublishedQuantity: 1,
+          delistReasons: ["listing-not-active"],
+        },
+      },
+    });
+    expect((await harness.operations()).filter((row) => row.status === "pending")).toEqual([
+      { operation_kind: "delist", status: "pending", listing_revision: 5, target: null, link_write_state: "pending" },
+    ]);
+  });
+
+  it("applied-outcome-under-clamp-recomposes-draft", async () => {
+    const harness = await createClampPauseHarness();
+    await harness.applyFirstRun({
+      beforeClaim: () => harness.applyListingEvent("marketplace.listing.paused", { reason: "channel-inbound-dark" }, 3),
+    });
+
+    const events = await harness.linkEvents();
+    expect(events.map((row) => row.event_type)).toEqual([
+      "channels.channel-listing.desired-state-changed",
+      "channels.channel-listing.desired-state-changed",
+      "channels.channel-listing.publication-recorded",
+      "channels.channel-listing.desired-state-changed",
+    ]);
+    expect(events[2]).toMatchObject({
+      payload: { reportedDesiredStateSequence: 1, outcome: { kind: "succeeded" }, adoption: "identity-adopted" },
+    });
+    expect(events[3]).toMatchObject({
+      payload: {
+        intent: "update",
+        listingRevision: 3,
+        draft: { listingRevision: 3, price: { amountMinor: 27, currency: "USD" }, quantity: 1 },
+      },
+    });
+    expect(events.filter(isDelist)).toEqual([]);
+    expect(await harness.operations()).toEqual([
+      operationRow("publish", "succeeded", 2, { amountMinor: 27, quantity: 1 }, "applied"),
+      operationRow("update", "pending", 3, { amountMinor: 27, quantity: 1 }, "pending"),
+    ]);
+  });
 });
+
+async function createClampPauseHarness() {
+  const connectionId = "connection-clamp";
+  const accountId = "account-clamp";
+  const listingId = "listing-clamp";
+  const listingStream = `marketplace.listing-${listingId}`;
+  const accountContext: EventStoreContext = {
+    tenantId: testContext.tenantId,
+    audit: { performedByUserId: testContext.audit.performedByUserId, forAccountId: accountId as never },
+  };
+  const policyAuthority = createConnectionHarness().ports.policyAuthority;
+  if (!policyAuthority) throw new Error("The canonical policy authority fixture is unavailable.");
+  const rootServices = channelsModule.createServices(pools.channels, {
+    channelSaleRecorder: async (): Promise<never> => {
+      throw new Error("not reached");
+    },
+    clock: { now: () => "2026-09-09T12:00:00.000Z" },
+    policyAuthority,
+    storageLocationAuthority: {
+      resolve: async ({ storageLocationId }) => ({ accountId, storageLocationId, revision: 1, status: "active" }),
+    },
+  });
+  await rootServices.connections.connectChannel(
+    { connectionId, accountId, providerKey: "tcgplayer" },
+    { deploymentEnvironment: "local" },
+    testContext,
+  );
+  await rootServices.connections.activateChannelConnection(
+    {
+      accountId,
+      connectionId,
+      credentialReference: null,
+      bindings: [{ storageLocationId: "location-clamp", revision: 1 }],
+    },
+    testContext,
+  );
+  await projectConnectionEvents(connectionId);
+
+  const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+  const marketplaceReactions = buildChannelMarketplaceDesiredStateReactionHandlers(
+    pools.channels,
+    rootServices.listingComposition,
+  );
+  const outboundReaction = buildChannelOwnedDesiredStateReactionHandlers(
+    rootServices.listingComposition,
+    rootServices.outboundSync,
+  );
+  const listingEvent = (type: string, data: Record<string, unknown>, streamVersion: number) =>
+    buildTransportEvent(type, data, {
+      id: `${listingId}-${streamVersion}`,
+      streamId: listingStream,
+      streamVersion,
+      globalPosition: `${listingStream}:${streamVersion}`,
+      tenantId: accountContext.tenantId,
+      audit: accountContext.audit,
+    });
+  const enqueueDesiredStates = async () => {
+    const rows = await pools.channels.query<StoredOrigin>(
+      `SELECT event_id,event_type,stream_id,stream_version,global_position::text,occurred_at,recorded_at,payload
+       FROM event_store_events
+       WHERE event_type='channels.channel-listing.desired-state-changed' ORDER BY global_position`,
+    );
+    for (const row of rows.rows) {
+      await outboundReaction["channels.channel-listing.desired-state-changed"]!(transport(row));
+    }
+  };
+
+  await marketplace["marketplace.listing.created"]!(
+    listingEvent(
+      "marketplace.listing.created",
+      {
+        listingId,
+        accountId,
+        inventoryItemId: "item-clamp",
+        catalogItemId: "catalog-clamp",
+        priceAmount: "0.27",
+        priceCurrencyCode: "USD",
+        quantityCap: 10,
+        selectedOptions: [],
+        itemTitle: "Synthetic clamp card",
+        itemSubtitle: null,
+        productSummary: "Synthetic clamp proof",
+        gradedCard: null,
+      },
+      1,
+    ),
+  );
+  await marketplace["marketplace.listing.published"]!(listingEvent("marketplace.listing.published", {}, 2));
+  await buildChannelInventoryFactsProjectionHandlers(pools.channels)["inventory.item.created"]!(
+    event(
+      "inventory.item.created",
+      { itemId: "item-clamp", accountId, catalogItemId: "catalog-clamp", totalQuantity: 1 },
+      "inventory.item-item-clamp",
+      1,
+    ),
+  );
+  const catalog = buildChannelCatalogFactsProjectionHandlers(pools.channels);
+  await catalog["catalog.catalog-item.category-assigned"]!(
+    event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, "catalog.item-catalog-clamp", 1),
+  );
+  await catalog["catalog.catalog-item.external-catalog-item-reference-linked"]!(
+    event(
+      "catalog.catalog-item.external-catalog-item-reference-linked",
+      { providerKey: "tcgplayer", externalKey: "product:90000801" },
+      "catalog.item-catalog-clamp",
+      2,
+    ),
+  );
+  await buildChannelListingStateProjectionHandlers(pools.channels)[
+    "channels.channel-publication-configuration.settings-replaced"
+  ]!(
+    event(
+      "channels.channel-publication-configuration.settings-replaced",
+      {
+        connectionId,
+        settings: {
+          titlePrefix: "",
+          titleSuffix: "",
+          descriptionFooter: "",
+          categoryAllowlist: ["cards"],
+          excludedListingIds: [],
+        },
+      },
+      `channels.channel-publication-configuration-${connectionId}`,
+      1,
+    ),
+  );
+  await expect(
+    rootServices.listingComposition.recordChannelListingDesiredState({ connectionId, listingId }, accountContext),
+  ).resolves.toMatchObject({ kind: "applied", streamVersion: 1 });
+  await enqueueDesiredStates();
+
+  const stagedHeader = "TCGplayer Id,Total Quantity,Add to Quantity,TCG Marketplace Price";
+  return {
+    applyListingEvent: async (type: string, data: Record<string, unknown>, streamVersion: number) => {
+      const signal = listingEvent(type, data, streamVersion);
+      await marketplace[type]!(signal);
+      await marketplaceReactions[type]!(signal);
+      await enqueueDesiredStates();
+    },
+    applyFirstRun: async ({ beforeClaim }: Readonly<{ beforeClaim?: () => Promise<void> }> = {}) => {
+      await rootServices.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+        snapshotId: "snapshot-clamp-basis",
+        connectionId,
+        surface: "staged",
+        csv: `${stagedHeader}\n90000801,2,0,0.2600`,
+        limits: { maxRecords: 1 },
+        ingestedAt: "2026-09-09T12:01:00Z",
+        capturedAt: "2026-09-09T12:01:00Z",
+        capturedAtSource: "operator-declared",
+      });
+      const composed = await rootServices.tcgplayerCsv.composeTcgplayerSyncRun(
+        {
+          runId: "run-clamp",
+          connectionId,
+          claimant: { claimantKind: "connector", claimantId: "connector-clamp" },
+          leaseMs: 60_000,
+          manualClaimLeasePolicySnapshot: null,
+          resolvedPolicy: { maxRowsPerBatch: 500 },
+          composedAt: "2026-09-09T12:02:00Z",
+        },
+        testContext,
+      );
+      expect(composed?.composition.members).toMatchObject([{ memberKind: "composed", targetQuantity: 1 }]);
+      await beforeClaim?.();
+      const claimed = await rootServices.tcgplayerCsv.claimRun(
+        { runId: composed!.run.runId, expectedRevision: composed!.run.revision },
+        testContext,
+      );
+      const awaiting = await rootServices.tcgplayerCsv.recordUploadAttempt(
+        {
+          runId: claimed.runId,
+          expectedRevision: claimed.revision,
+          uploadAttemptedAt: "2026-09-09T12:02:30Z",
+          fileName: "clamp.csv",
+        },
+        testContext,
+      );
+      await rootServices.tcgplayerCsv.ingestTcgplayerExportSnapshot({
+        snapshotId: "snapshot-clamp-proof",
+        connectionId,
+        surface: "staged",
+        csv: `${stagedHeader}\n90000801,1,0,0.2700`,
+        limits: { maxRecords: 1 },
+        ingestedAt: "2026-09-09T12:03:00Z",
+        capturedAt: "2026-09-09T12:03:00Z",
+        capturedAtSource: "operator-declared",
+      });
+      const applied = await rootServices.tcgplayerCsv.verifyRun(
+        {
+          runId: awaiting.runId,
+          expectedRevision: awaiting.revision,
+          verificationSnapshotId: "snapshot-clamp-proof",
+          importSummary: {
+            fileName: "clamp.csv",
+            dateImportedText: "9/9/2026 12:03 PM",
+            numberOfProducts: 1,
+            recordedAt: "2026-09-09T12:03:30Z",
+          },
+        },
+        testContext,
+      );
+      expect(applied.state).toBe("applied");
+      await enqueueDesiredStates();
+    },
+    linkEvents: async () =>
+      (
+        await pools.channels.query<{ event_type: string; payload: Record<string, unknown> }>(
+          `SELECT event_type,payload FROM event_store_events
+           WHERE stream_id LIKE 'channels.channel-listing-cl_%' ORDER BY stream_version`,
+        )
+      ).rows,
+    operations: async () =>
+      (
+        await pools.channels.query<OperationRow>(
+          `SELECT operation_kind,status,listing_revision::int AS listing_revision,
+                  CASE WHEN payload->>'kind'='draft' THEN jsonb_build_object(
+                    'amountMinor',(payload->'draft'->'price'->>'amountMinor')::int,
+                    'quantity',(payload->'draft'->>'quantity')::int) END AS target,
+                  link_write_state
+           FROM channel_outbound_operations WHERE connection_id=$1 AND listing_id=$2
+           ORDER BY source_desired_state_sequence`,
+          [connectionId, listingId],
+        )
+      ).rows,
+  };
+}
+
+type OperationRow = Readonly<{
+  operation_kind: string;
+  status: string;
+  listing_revision: number;
+  target: Readonly<{ amountMinor: number; quantity: number }> | null;
+  link_write_state: string;
+}>;
+
+function operationRow(
+  operationKind: string,
+  status: string,
+  listingRevision: number,
+  target: OperationRow["target"],
+  linkWriteState: string,
+): OperationRow {
+  return {
+    operation_kind: operationKind,
+    status,
+    listing_revision: listingRevision,
+    target,
+    link_write_state: linkWriteState,
+  };
+}
+
+function isDelist(row: Readonly<{ event_type: string; payload: Record<string, unknown> }>): boolean {
+  return row.event_type === "channels.channel-listing.desired-state-changed" && row.payload.intent === "delist";
+}
 
 function candidate(dimension: string, sourceKey: string, proposedTargetKey: string) {
   return {

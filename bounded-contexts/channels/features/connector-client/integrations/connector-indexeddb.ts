@@ -1,6 +1,8 @@
 import { canonicalJson } from "../../outbound-sync/domain/validation";
 import { RetentionError } from "../domain/raw-export-record";
 import { assertHandoffTransition } from "../domain/order-pull-handoff";
+import { assertLiveExportHandoffTransition } from "../domain/live-export-handoff";
+import { assertStagedImportTimingTransition } from "../domain/staged-import-dispatch";
 import {
   OperationProtocolError,
   assertTotalResult,
@@ -13,7 +15,8 @@ import {
 } from "../domain/operation-protocol";
 
 export const connectorDatabaseName = "connector-raw-exports";
-export const connectorDatabaseVersion = 3;
+// Version 4 admits live-export journal rows; an older client opening it refuses as upgrade-required.
+export const connectorDatabaseVersion = 4;
 export const connectorStores = ["raw-exports", "operation-attempts", "reservations"] as const;
 
 export function openConnectorDatabase(indexedDB: IDBFactory): Promise<IDBDatabase> {
@@ -37,7 +40,7 @@ export function openConnectorDatabase(indexedDB: IDBFactory): Promise<IDBDatabas
         refused ||
         (event.oldVersion === 1 &&
           (db.objectStoreNames.length !== 1 || !db.objectStoreNames.contains("raw-exports"))) ||
-        (event.oldVersion === 2 &&
+        (event.oldVersion >= 2 &&
           (db.objectStoreNames.length !== connectorStores.length ||
             connectorStores.some((name) => !db.objectStoreNames.contains(name))))
       ) {
@@ -86,7 +89,8 @@ export function assertCompleteJournal(journal: OperationJournal): void {
       !reservation.memberOperationIds.includes(member.operationId) ||
       reservation.connectionId !== member.connectionId ||
       reservation.leaseExpiresAt !== member.leaseExpiresAt ||
-      (member.operationKind === "tcgplayer-order-pull" && reservation.memberOperationIds.length !== 1)
+      // Connection-subject pulls and exports are single-member reservations.
+      (!("desiredStateSequence" in member) && reservation.memberOperationIds.length !== 1)
     )
       throw new OperationProtocolError("incomplete-authority");
     if (member.receipt) assertTotalResult(member.receipt, [member]);
@@ -168,6 +172,15 @@ export function createOperationJournal(indexedDB: IDBFactory, ranges: typeof IDB
               for (const row of after) {
                 if (row.connectionId !== connectionId) throw new OperationProtocolError("incomplete-authority");
                 const prior = old.get(id(row));
+                if (prior && "executorKey" in prior && prior.stagedImport) {
+                  if (!("executorKey" in row)) throw new OperationProtocolError("stale-fence");
+                  if (
+                    prior.stagedImport.owner !== row.stagedImport?.owner &&
+                    (prior.phase !== "prepared" || row.phase !== "prepared")
+                  )
+                    throw new OperationProtocolError("stale-fence");
+                  assertStagedImportTimingTransition(prior.stagedImport, row.stagedImport);
+                }
                 if (prior && "operationKind" in prior && prior.operationKind === "tcgplayer-order-pull") {
                   if (
                     !("operationKind" in row) ||
@@ -191,6 +204,25 @@ export function createOperationJournal(indexedDB: IDBFactory, ranges: typeof IDB
                     throw new OperationProtocolError("stale-fence");
                   }
                 }
+                if (prior && "operationKind" in prior && prior.operationKind === "tcgplayer-live-export") {
+                  if (
+                    !("operationKind" in row) ||
+                    row.operationKind !== "tcgplayer-live-export" ||
+                    prior.payloadDigest !== row.payloadDigest ||
+                    canonicalJson(prior.payload) !== canonicalJson(row.payload) ||
+                    prior.scheduleGeneration !== row.scheduleGeneration
+                  )
+                    throw new OperationProtocolError("stale-fence");
+                  if (prior.handoff) {
+                    if (!row.handoff) throw new OperationProtocolError("stale-fence");
+                    try {
+                      assertLiveExportHandoffTransition(prior.handoff, row.handoff);
+                    } catch {
+                      throw new OperationProtocolError("stale-fence");
+                    }
+                  } else if (row.handoff && row.handoff.post.state !== "planned")
+                    throw new OperationProtocolError("stale-fence");
+                }
                 if (prior && canonicalJson(prior) === canonicalJson(row)) {
                   old.delete(id(row));
                   continue;
@@ -200,7 +232,15 @@ export function createOperationJournal(indexedDB: IDBFactory, ranges: typeof IDB
                 store.put(row);
                 old.delete(id(row));
               }
-              for (const key of old.keys()) store.delete([connectionId, key]);
+              for (const [key, row] of old) {
+                if (
+                  "executorKey" in row &&
+                  row.stagedImport &&
+                  (row.phase !== "acked" || row.stagedImport.state !== "released")
+                )
+                  throw new OperationProtocolError("stale-fence");
+                store.delete([connectionId, key]);
+              }
             }
             result = replacement;
           } catch (error) {

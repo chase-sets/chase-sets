@@ -22,6 +22,7 @@
     "./http": "./http.ts",
     "./internal-auth": "./internal-auth.ts",
     "./live-connection-status": "./live-connection-status.ts",
+    "./link-intents": "./link-intents.ts",
     "./mcp": "./mcp.ts",
     "./mcp-audit-log": "./mcp-audit-log.ts",
     "./mcp-contracts": "./mcp-contracts.ts",
@@ -58,7 +59,8 @@
     "./work-signal-store": "./work-signal-store.ts",
     "./worker": "./worker.ts",
     "./worker-observer": "./worker-observer.ts",
-    "./worker-capacity": "./worker-capacity.ts"
+    "./worker-capacity": "./worker-capacity.ts",
+    "./worker-event-capability": "./worker-event-capability.ts"
   },
   "scripts": {
     "typecheck": "tsc -p ./tsconfig.json --noEmit",
@@ -82,9 +84,11 @@
     "@chase-sets/realtime": "workspace:*",
     "@chase-sets/stripe-config": "workspace:*",
     "hono": "^4.12.12",
-    "react": "^19.2.5"
+    "react": "^19.2.5",
+    "react-router": "^7.14.0"
   },
   "devDependencies": {
+    "@chase-sets/typescript-compiler-api": "workspace:*",
     "@chase-sets/ordering": "workspace:*",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@react-router/dev": "^7.14.0",

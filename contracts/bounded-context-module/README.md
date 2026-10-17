@@ -18,6 +18,15 @@ Absent `activation` preserves legacy href leaves, groups, href groups, and inlin
 
 The shell guard discovers tracked JSON/JSONC by the `shellContributions` field, not context or path vocabulary. It classifies malformed arrays and every node before either entry validation or expanded ownership validation, with stable `SHELL_*` code/path diagnostics and scanned/candidate totals. Route ownership uses the union of every route block for the same manifest and deployable; another context or host never supplies ownership. Expanded duplicate keys/hrefs, badge owners, invalid parent graphs, malformed activation/active paths, and non-finite order/priority/max are rejected. Runtime limited calls additionally reject missing priorities with `SHELL_PRIORITY_INVALID`.
 
+`resolveWebHostActiveKeyAcrossSlots(registry, hostName, slots, pathname, actor?, options?)` resolves one active key across a host's navigation slots. `slots` is `Readonly<Partial<Record<BcShellContributionSlot, WebHostNavOptions>>>`; each listed slot is composed and rendered with its own `limit`, `dynamicValues`, and `section`. `options` carries only `defaultKey`. The single-slot `resolveWebHostActiveKey` delegates to this same core with one slot and preserves its existing results.
+
+1. Match the union of unfiltered expanded route leaves in every listed slot, before actor filtering or packing: no action, an href, and no populated children. Match hrefs and `activePathPatterns` with the normalization and segment-boundary descendant rules above.
+2. Rank by most path segments, then exact over descendant. The same key matched in several slots is one candidate. Different keys at the best rank return `undefined` (fail closed).
+3. Return the best key only if it appears in the rendered tree of at least one listed slot. Otherwise return `undefined`, with no ancestor, other-slot, or default fallback.
+4. Apply `defaultKey` only when no leaf in any listed slot matches, and only if that key is rendered in a listed slot.
+
+`AccountMenu` displays no selection. Its listed route leaves still participate in active-key resolution; resolution does not add active state to that component.
+
 ## Account Capability Declarations
 
 Contexts may publish Account Capability Declarations through the optional `accountCapabilities` manifest field. Manifest input is untrusted JSON: normalization accepts only the closed `boolean`, `limit`, and `tier` declaration variants, validates the key and kind-specific default, and rejects extra fields. Tier `allowedValues` remain distinct from the declared `defaultValue`.

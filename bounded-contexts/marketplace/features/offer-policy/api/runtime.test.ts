@@ -8,8 +8,116 @@ import { vi } from "vitest";
 import type { ManagedOfferTarget } from "../../offers/api/managed-authority";
 import { evolveBuyerOfferPolicy, initialBuyerOfferPolicyState } from "../domain/domain";
 import { buyerOfferPolicyCodec } from "../domain/codec";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
+  it("records exactly the returned policy and every Authorize binding event, but not replay or empty decisions", async () => {
+    const { runtime, store } = await fixture();
+    await seedOffer(store, "off_two");
+    const append = vi.spyOn(store, "appendToStreams");
+    const p = await preview(runtime, {
+      ...terms,
+      offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }],
+    });
+    const command = {
+      type: "AuthorizeBuyerOfferPolicy",
+      expectedVersion: p.version,
+      previewId: p.preview!.previewId,
+      consent: true,
+      operationId: "receipt_authorize",
+    } as const;
+    const active = await runWithEventCommitMetadata(async () => {
+      const result = await runtime.execute("bop_one", command, context);
+      const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+      const returned = results.flatMap((batch) => batch.storedEvents);
+      expect(returned.map((event) => event.streamId)).toEqual([
+        "marketplace.offer-policy-bop_one",
+        "marketplace.offer-off_one",
+        "marketplace.offer-off_two",
+      ]);
+      const eventIds = returned.map((event) => String(event.eventId));
+      const maxGlobalPosition = String(returned.at(-1)!.globalPosition);
+      expect(getEventCommitMetadata()).toEqual({
+        committedEvents: returned,
+        eventIds,
+        maxGlobalPosition,
+        sources: [{ sourceContextName: "marketplace", eventIds, maxGlobalPosition }],
+      });
+      return result;
+    });
+    expect(active).toEqual(await runtime.get("bop_one", "acc_buyer"));
+    append.mockClear();
+    await runWithEventCommitMetadata(async () => {
+      expect(await runtime.execute("bop_one", command, context)).toEqual(active);
+      expect(getEventCommitMetadata().eventIds).toEqual([]);
+      const paused = await runtime.execute(
+        "bop_one",
+        { type: "PauseBuyerOfferPolicy", expectedVersion: active.version, operationId: "receipt_pause" },
+        context,
+      );
+      await runWithEventCommitMetadata(async () => {
+        expect(
+          await runtime.execute(
+            "bop_one",
+            { type: "PauseBuyerOfferPolicy", expectedVersion: paused.version, operationId: "receipt_empty" },
+            context,
+          ),
+        ).toEqual(paused);
+        expect(getEventCommitMetadata().eventIds).toEqual([]);
+      });
+    });
+    expect(append).toHaveBeenCalledTimes(1);
+  });
+
+  it("records only returned policy events when Preview has empty Offer guards", async () => {
+    const { runtime, store } = await fixture();
+    const append = vi.spyOn(store, "appendToStreams");
+    await runWithEventCommitMetadata(async () => {
+      await preview(runtime);
+      const results: readonly AppendToStreamsResult[] = await append.mock.results.at(-1)!.value;
+      const returned = results.flatMap((batch) => batch.storedEvents);
+      expect(returned.map((event) => event.streamId)).toEqual(["marketplace.offer-policy-bop_one"]);
+      expect(getEventCommitMetadata().committedEvents).toEqual(returned);
+    });
+  });
+
+  it.each(["failure", "conflict-recovery"] as const)("records no policy receipt on %s", async (outcome) => {
+    let intercept = false;
+    const { runtime } = await fixture(true, (store) => ({
+      ...store,
+      appendToStreams: async (inputs) => {
+        if (!intercept) return store.appendToStreams!(inputs);
+        if (outcome === "failure") throw new Error("injected append failure");
+        await store.appendToStreams!(inputs);
+        throw Object.assign(new Error("concurrent duplicate committed"), { code: "concurrency_conflict" });
+      },
+    }));
+    const p = await preview(runtime);
+    intercept = true;
+    await runWithEventCommitMetadata(async () => {
+      const action = runtime.execute(
+        "bop_one",
+        {
+          type: "AuthorizeBuyerOfferPolicy",
+          expectedVersion: p.version,
+          previewId: p.preview!.previewId,
+          consent: true,
+          operationId: "receipt_race",
+        },
+        context,
+      );
+      if (outcome === "failure") await expect(action).rejects.toThrow("injected append failure");
+      else expect((await action).status).toBe("active");
+      expect(getEventCommitMetadata()).toEqual({
+        committedEvents: [],
+        eventIds: [],
+        sources: [],
+        maxGlobalPosition: undefined,
+      });
+    });
+  });
+
   it("resumes the same bound Offer from snapshot versions while the projection stays at N", async () => {
     const { runtime, store } = await fixture();
     const active = await activate(runtime);

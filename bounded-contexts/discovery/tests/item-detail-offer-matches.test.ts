@@ -611,3 +611,72 @@ describe("item detail offer matches", () => {
     expect(marketQueries[1]).toContain("LIMIT 25");
   });
 });
+
+describe("item detail Offer lifecycle projection", () => {
+  function lifecycleDb() {
+    const row = {
+      offer_id: "offer_charizard",
+      catalog_catalog_item_id: "cat_charizard",
+      status: "submitted",
+      version: 1,
+    };
+    const statusUpdates: Array<readonly unknown[] | undefined> = [];
+    const patches: Array<{ changes: Array<{ op: string; entity: string; id: string }> }> = [];
+    const db = {
+      query: async (sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("UPDATE discovery_offer_demand_matches") && sql.includes("SET status")) {
+          statusUpdates.push(params);
+          const [offerId, status, version] = params as [string, string, number];
+          if (offerId !== row.offer_id || version <= row.version) return { rows: [] };
+          Object.assign(row, { status, version });
+          return { rows: [{ offer_id: offerId }] };
+        }
+        if (sql.includes("FROM discovery_offer_demand_matches AS offer") && sql.includes("WHERE offer.offer_id = $1"))
+          return { rows: [{ ...row, selected_options: [] }] };
+        if (sql.includes("RETURNING outbox_id")) {
+          patches.push(JSON.parse(String(params?.[4])));
+          return { rows: [{ outbox_id: patches.length }] };
+        }
+        return { rows: [] };
+      },
+    } satisfies PgQueryable;
+    return { db, row, statusUpdates, patches };
+  }
+
+  const lifecycleEvent = (type: string, streamVersion: number) =>
+    buildTransportEvent(
+      type,
+      { offerId: "offer_charizard", buyerAccountId: "buyer_1", at: "2026-10-14T00:00:00.000Z" },
+      {
+        streamId: "marketplace.offer-offer_charizard",
+        streamVersion,
+        globalPosition: String(streamVersion),
+        timing: { occurredAt: "2026-10-14T00:00:00.000Z", recordedAt: "2026-10-14T00:00:00.000Z" },
+      },
+    );
+
+  it("hides a paused Offer with a live removal and restores it on Resume, guarding stale replays", async () => {
+    const { db, row, statusUpdates, patches } = lifecycleDb();
+    const handlers = buildDiscoveryMarketProjectionHandlers(db);
+
+    await handlers["marketplace.offer.paused"]!(lifecycleEvent("marketplace.offer.paused", 2));
+    expect(row.status).toBe("paused");
+    expect(statusUpdates[0]).toEqual(["offer_charizard", "paused", 2, "2026-10-14T00:00:00.000Z"]);
+    expect(patches.at(-1)?.changes).toEqual([{ op: "remove", entity: "discovery.buyerOffer", id: "offer_charizard" }]);
+
+    await handlers["marketplace.offer.resumed"]!(lifecycleEvent("marketplace.offer.resumed", 3));
+    expect(row.status).toBe("submitted");
+    expect(patches.at(-1)?.changes).toEqual([
+      expect.objectContaining({ op: "upsert", entity: "discovery.buyerOffer", id: "offer_charizard" }),
+    ]);
+
+    const patchCount = patches.length;
+    await handlers["marketplace.offer.paused"]!(lifecycleEvent("marketplace.offer.paused", 2));
+    expect(row.status).toBe("submitted");
+    expect(patches).toHaveLength(patchCount);
+
+    await handlers["marketplace.offer.withdrawn"]!(lifecycleEvent("marketplace.offer.withdrawn", 4));
+    expect(row.status).toBe("withdrawn");
+    expect(patches.at(-1)?.changes).toEqual([{ op: "remove", entity: "discovery.buyerOffer", id: "offer_charizard" }]);
+  });
+});

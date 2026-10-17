@@ -74,7 +74,7 @@ describe("payments terms artifact", () => {
       expect(section.draftText).not.toMatch(/does not itself hold|does not hold|does not.*custody, or transmit/);
       expect(section.reviewManifest.productTruthRefs).toEqual(
         expect.arrayContaining([
-          "infrastructure/stripe-payments/index.ts:1670-1694",
+          "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ]),
       );
@@ -220,7 +220,7 @@ describe("payments terms artifact", () => {
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
     expect(refs).not.toContain("runtime.ts:493-511");
-    expect(refs).toContain("runtime.ts:1956-1976");
+    expect(refs).toContain("runtime.ts:2051-2071");
   });
 
   it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {
@@ -241,7 +241,7 @@ describe("payments terms artifact", () => {
       /charges your selected payment method when you complete|immediately confirming|before the purchase is recorded|no repository evidence shows|statement will carry|Chase Sets does not control/i,
     );
     expect(section.reviewManifest.productTruthRefs).toContain(
-      "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+      "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376",
     );
     expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/statement.*display/i);
     expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/network.*control/i);
@@ -308,6 +308,96 @@ describe("payments terms artifact", () => {
     // existing bank-permission and refund-window questions.
     const openQuestions = prepaidBalance?.reviewManifest.openQuestions ?? [];
     expect(openQuestions.some((question) => /fee/i.test(question) && /disclos/i.test(question))).toBe(true);
+  });
+
+  it("prepaid-balance-us-rollout-not-geographic-eligibility", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+    expect(section.draftText).toBe(
+      "You can add funds to your Wallet by card to create a Prepaid Balance. Adding funds charges your card " +
+        "the amount you request plus the processing fee that applies to a card payment under the Marketplace's " +
+        "checkout processing-fee terms; your account is credited the amount you requested, and the fee is not " +
+        "refundable. A Prepaid Balance is spent before any other available Wallet balance, so sale proceeds you " +
+        "are owed stay available for payout. You can spend a Prepaid Balance at checkout, on channel labels, " +
+        "and on other features that draw on your Wallet balance. You may request a refund of the unspent " +
+        "portion of your Prepaid Balance back to the card used to add it at any time within the refund window " +
+        "Stripe's processor rules allow; the processing fee charged when you added the funds is not part of " +
+        "that refund. Withdrawing older unspent Prepaid Balance to a bank account is not available in this " +
+        "version; Chase Sets may enable a bank-withdrawal option in the future, subject to conditions Chase " +
+        "Sets discloses when that option becomes available, and an amount that remains past the refund-to-card " +
+        "window stays spendable in the meantime. If a card charge that added funds is later disputed and the " +
+        "dispute is resolved against your account, Chase Sets recovers the disputed amount and the processor's " +
+        "dispute fee from your account; if a bank-withdrawal option is enabled, a withdrawal carries the " +
+        "processor's payout cost as a fee. Chase Sets does not pay interest on a Prepaid Balance, and a Prepaid " +
+        "Balance does not expire in this version. Chase Sets offers adding funds as part of its United States " +
+        "marketplace rollout, covering all 50 states and the District of Columbia. For each funding, Chase Sets " +
+        "requests 3D Secure authentication and requires your account to be in good standing and to have " +
+        "accepted the current Payments Terms. Chase Sets may set and change the minimum, per-funding, and " +
+        "rolling-period maximum amounts for adding funds; the amounts in effect when the funding feature " +
+        "launches are a minimum of $5.00 and a maximum of $500.00 per funding, and a maximum of $2,000.00 within " +
+        "any rolling thirty-day period. A Prepaid Balance is not Marketplace Credit: it is value you added " +
+        "with your own card, and Marketplace Credit, if offered, is governed by its own terms.",
+    );
+
+    const rolloutStatement =
+      "US-only describes the #5678 marketplace rollout, interpreted by #9039 within #7808. It is not an " +
+      "application-enforced eligibility predicate based on account-holder residence, card issuing country, " +
+      "shipping address or access location. The funding eligibility resolver supplies only good standing " +
+      "and Payments Terms status; the separate funding limits and production controls remain in force. " +
+      "Counsel must assess at GA whether this rollout and the absence of geographic eligibility verification " +
+      "require jurisdictional restrictions, licensing, disclosures or an enforced predicate; this " +
+      "interpretation is not counsel approval.";
+    const productRulingStatement =
+      "The ruled Prepaid Balance decision and the ruled terms/consent-key decision together establish " +
+      "that prepaid funding is drafted in place into Payments Terms v2, staying counsel-review-required: " +
+      "spent before available balance, refunded to source for the unspent portion with the funding fee " +
+      "non-refundable, bank withdrawal parked, no interest, no expiry in v1, US marketplace rollout (all " +
+      "50 states plus DC) without geographic eligibility checks, a minimum of $5.00 and maximum of " +
+      "$500.00 per funding and $2,000.00 per rolling thirty-day period, 3D Secure requested, good standing " +
+      "and current Payments Terms acceptance required.";
+    expect(section.reviewManifest.scopeNote).toBe(
+      "State that Prepaid Balance is funded by card, spends before available balance, refunds unspent " +
+        "value to the source card within the processor refund window with the funding fee non-refundable, " +
+        "parks bank withdrawal behind a future disclosure, and states the ruled limits, nongeographic " +
+        "eligibility gates and US marketplace rollout including the ruled no-interest, no-expiry-in-v1 " +
+        "product terms, without inventing a refund-window duration, a bank-withdrawal launch date, or a " +
+        "Stripe/counsel position, without describing Prepaid Balance as Marketplace Credit, and without " +
+        "resolving the sibling Wallet's separate, still-unresolved corpus-wide wallet-no-interest claim, " +
+        "which governs the general Wallet ledger balance (terms-of-service.ts), not the ruled Prepaid " +
+        "Balance product term stated here.",
+    );
+    expect(section.reviewManifest.decisionRefs).toEqual([7807, 7808, 5678, 9039]);
+    expect(section.reviewManifest.productTruthRefs).toEqual([
+      "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
+      "bounded-contexts/identity/features/accounts/api/wallet-funding-eligibility.ts:6-23",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:39-43",
+      "bounded-contexts/payments/features/wallet-funding/api/runtime.ts:99-128",
+    ]);
+    expect(section.reviewManifest.assumptions).toContainEqual({
+      assertion: rolloutStatement,
+      evidenceRef: "https://github.com/chase-sets/chase-sets/issues/9039",
+    });
+    expect(
+      section.reviewManifest.assumptions
+        .map(({ assertion }) => assertion)
+        .filter((assertion) =>
+          /US-only|US marketplace|geograph|residen|issuing|shipping|access location/i.test(assertion),
+        ),
+    ).toEqual([productRulingStatement, rolloutStatement]);
+    expect(paymentsTermsPolicyArtifact.metadata).toEqual({
+      policyKey: "payments-terms",
+      version: "v2",
+      locale: "en",
+      href: "/payments-terms",
+      publicationStatus: "counsel-review-required",
+      effectiveAt: null,
+      counselApprovalReference: null,
+      rolloutJurisdictionsOrProductLimits: [],
+      launchRequired: true,
+    });
+    expect(paymentsTermsPolicyArtifact.sections.every(({ reviewStatus }) => reviewStatus === "counsel-required")).toBe(
+      true,
+    );
+    expect(isConsentActivatable(paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds)).toBe(false);
   });
 
   it("states the ruled no-interest product term for Prepaid Balance in the rendered draft, distinct from the sibling Wallet's unresolved wallet-no-interest claim, while staying non-operative pending counsel approval", () => {

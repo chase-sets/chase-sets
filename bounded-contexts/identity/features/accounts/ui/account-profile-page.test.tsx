@@ -1,4 +1,4 @@
-import { renderToString } from "react-dom/server";
+import { renderAccountManagementPageToString as renderToString } from "../../account-management/ui/test-support";
 import { describe, expect, it } from "vitest";
 import { AccountProfilePage } from "./account-profile-page";
 

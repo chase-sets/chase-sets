@@ -131,7 +131,7 @@ A **Shared Payment Token** is a provider-scoped payment credential grant from an
 
 Notes:
 
-- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff and require AP2 verification before headless UCP completion.
+- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff; UCP checkout completion does not submit them headlessly.
 - Payments stores the resulting processor payment reference and metadata, not the token as durable customer payment data.
 
 ## Saved Checkout Instrument
@@ -219,15 +219,6 @@ Notes:
 
 - Distinct from the product checkout session, which is Chase Sets' own buyer-facing checkout flow and is not a Stripe object; the two must never be conflated in Payments terminology or evidence.
 - Option B's evidence windows use the embedded setup path only, so no Stripe Checkout Session is created; its Disposition Terminal is `not-created`.
-
-## AP2 Mandate
-
-An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.
-
-Notes:
-
-- AP2 Mandates are accepted for headless UCP checkout completion only when a production verifier is configured and a supported payment handler is present.
-- Without a verified AP2 Mandate, UCP checkout completion must use Trusted Checkout Handoff.
 
 ## Payment Provider Mode
 

@@ -29,6 +29,22 @@ function money(value: number): string {
   return (Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2);
 }
 
+export function knownCurveSales(
+  sales: readonly CurveSale[],
+  policy: DemandCurvePolicyValue,
+  asOf: string,
+): readonly CurveSale[] {
+  const instant = Date.parse(asOf);
+  return sales.filter(
+    (sale) =>
+      policy.conditionOrder.includes(sale.condition) &&
+      sale.price > 0 &&
+      Number.isFinite(Date.parse(sale.soldAt)) &&
+      Date.parse(sale.soldAt) <= instant &&
+      Date.parse(sale.soldAt) >= instant - policy.historyDays * DAY,
+  );
+}
+
 /** One card's price/arrival/supply curve, in the requested condition's terms. */
 export function calculateDemandCurve(
   input: Readonly<{
@@ -52,14 +68,7 @@ export function calculateDemandCurve(
   salesCoverage: string;
 }> | null {
   const asOf = Date.parse(input.asOf);
-  const known = input.sales.filter(
-    (sale) =>
-      input.policy.conditionOrder.includes(sale.condition) &&
-      sale.price > 0 &&
-      Number.isFinite(Date.parse(sale.soldAt)) &&
-      Date.parse(sale.soldAt) <= asOf &&
-      Date.parse(sale.soldAt) >= asOf - input.policy.historyDays * DAY,
-  );
+  const known = knownCurveSales(input.sales, input.policy, input.asOf);
   const ladder = buildConditionLadder({
     sales: known.map((sale) => ({ condition: sale.condition, price: sale.price, soldAt: sale.soldAt })),
     siblingMarketPrices: input.siblingMarketPrices,

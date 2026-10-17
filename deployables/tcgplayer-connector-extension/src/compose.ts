@@ -4,6 +4,7 @@ import {
   createConnectorOperationCoordinator,
   createConnectorRetentionStore,
   type ConnectorExecutor,
+  type ConnectorExecutorPorts,
 } from "@chase-sets/channels/client";
 import { chromeStorage } from "./adapters/chrome-storage";
 import { chromeSession } from "./adapters/chrome-session";
@@ -15,11 +16,13 @@ import { chromeIndexedDB } from "./adapters/chrome-indexeddb";
 import { connectorTransport } from "./adapters/connector-transport";
 import { connectorHostRegistry } from "./host-registry";
 
-export function composeConnectorBackground({ executors }: Readonly<{ executors: readonly ConnectorExecutor[] }>) {
+export function composeConnectorBackground({
+  executors: register,
+}: Readonly<{ executors: (ports: ConnectorExecutorPorts) => readonly ConnectorExecutor[] }>) {
   const session = chromeSession();
   const alarms = chromeAlarms();
   const database = chromeIndexedDB();
-  const clock = { now: () => Date.now() };
+  const clock = { now: () => Date.now(), monotonic: () => performance.now() };
   const platformOrigin = import.meta.env.VITE_PLATFORM_API_URL;
   const request = connectorTransport({
     platformOrigin,
@@ -32,6 +35,7 @@ export function composeConnectorBackground({ executors }: Readonly<{ executors: 
     clock,
     scheduleDeadline: (when) => alarms.create("connector-retention-deadline", { when }),
   });
+  const executors = register({ retentionStore, request, clock });
   const coordinator = createConnectorOperationCoordinator({ ...database, executors, platformOrigin, request, clock });
   const background = createConnectorBackground({
     storage: chromeStorage(),

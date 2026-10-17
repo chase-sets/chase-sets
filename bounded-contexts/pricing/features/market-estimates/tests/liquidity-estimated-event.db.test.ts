@@ -15,6 +15,7 @@ import {
   writeDemandCurve,
   getDemandCurveCursor,
   saveDemandCurveCursor,
+  supersedeDemandCurve,
 } from "../read-model/demand-curve-writes";
 import { listDemandCurveCandidates } from "../read-model/demand-curve-candidates";
 import { createDemandCurveCloser } from "../api/demand-curve-closer";
@@ -101,6 +102,8 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
       supplyStatus: "observed" as const,
       ownSellerExclusionApplied: false,
       builtAt,
+      currencyCode: "USD",
+      freshUntil: new Date(Date.parse(builtAt) + 48 * 3_600_000).toISOString(),
       points: [5, 50, 95].map((percentile) => ({
         percentile,
         priceAmount: `${percentile}.00`,
@@ -166,6 +169,56 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
     expect(attempts.filter((result) => result.status === "fulfilled" && result.value === "built")).toHaveLength(1);
     expect(await store.readStream({ streamId: demandCurveStreamId({ catalogItemId, productId }) })).toHaveLength(1);
   });
+
+  it.each(["supersede", "replace", "newer-verification"] as const)(
+    "fences an unchanged refresh against an interleaved %s",
+    async (interleaving) => {
+      const store = createPostgresEventStore({ pool });
+      await writeDemandCurve(pool, store, version());
+      const later = "2026-09-03T15:00:00.000Z";
+      const lateVerification = version("fingerprint-one", later);
+      let interleaved = false;
+      let rowsAfterInterleaving: unknown[] = [];
+      const guardedPool: PgTransactionalPool = {
+        ...pool,
+        connect: async () => {
+          const client = await pool.connect();
+          return {
+            release: (error) => client.release(error),
+            query: async <Row>(sql: string, values?: readonly unknown[]) => {
+              const result = await client.query<Row>(sql, values);
+              if (!interleaved && sql.includes("SELECT curve.version, curve.fingerprint, curve.superseded_at")) {
+                interleaved = true;
+                if (interleaving === "supersede") await supersedeDemandCurve(pool, { catalogItemId, productId }, later);
+                else
+                  await writeDemandCurve(
+                    pool,
+                    store,
+                    interleaving === "replace" ? version("fingerprint-two", later) : lateVerification,
+                  );
+                rowsAfterInterleaving = (
+                  await pool.query(`SELECT * FROM pricing_demand_curve_versions ORDER BY version`)
+                ).rows;
+              }
+              return result;
+            },
+          };
+        },
+      };
+      const points = await listDemandCurvePoints(pool, { catalogItemId, productId, version: 1 });
+      expect(await writeDemandCurve(guardedPool, store, version("fingerprint-one", "2026-09-02T15:00:00.000Z"))).toBe(
+        interleaving === "newer-verification" ? "unchanged" : "conflict",
+      );
+      expect(interleaved).toBe(true);
+      expect((await pool.query(`SELECT * FROM pricing_demand_curve_versions ORDER BY version`)).rows).toEqual(
+        rowsAfterInterleaving,
+      );
+      expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: 1 })).toEqual(points);
+      expect(await store.readStream({ streamId: demandCurveStreamId({ catalogItemId, productId }) })).toHaveLength(
+        interleaving === "replace" ? 2 : 1,
+      );
+    },
+  );
 
   it("cursor writes require the generation and exact tuple the writer read", async () => {
     expect(await saveDemandCurveCursor(pool, null, { priority: 0, catalogItemId, productId }, at)).toBe(true);

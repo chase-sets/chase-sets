@@ -9,19 +9,15 @@ import type { TcgplayerCsvServices } from "../../tcgplayer-csv/api/runtime";
 import type { ConnectorFeedServices } from "../../connector-feed/api/runtime";
 import { resolveChannelInboundCoverage } from "../domain/inbound-coverage";
 import { planStagedImportBatches } from "../../tcgplayer-csv/domain/composition";
-import type {
-  ChannelSyncRun,
-  StagedImportBatch,
-  TcgplayerExportParseResult,
-  TcgplayerImportSummary,
-} from "../../tcgplayer-csv/domain/contracts";
+import type { ChannelSyncRun, StagedImportBatch, TcgplayerImportSummary } from "../../tcgplayer-csv/domain/contracts";
 import { tcgplayerStagedImportPolicy } from "../../tcgplayer-csv/domain/policy";
 import {
   ManualSyncError,
   manualSyncIngestContract,
   resolveManualSyncActions,
-  type FounderExportIngestProbe,
+  type ManualSyncIngestReceipt,
   type ManualSyncPanel,
+  type ManualSyncVerificationCandidate,
 } from "../domain/contracts";
 import { founderExportIngestProbe, inspectTcgplayerExportBytes } from "../domain/ingest";
 import { freezeManualClaimLeasePolicySnapshot, tcgplayerManualClaimLeasePolicy } from "../domain/policy";
@@ -79,9 +75,7 @@ export interface ManualSyncServices {
     input: Readonly<{ accountId: string; connectionId: string; runId: string; expectedRevision: number }>,
     context: EventStoreContext,
   ): Promise<ChannelSyncRun>;
-  ingest(
-    input: ManualSyncIngestInput,
-  ): Promise<Readonly<{ result: TcgplayerExportParseResult; probe: FounderExportIngestProbe }>>;
+  ingest(input: ManualSyncIngestInput): Promise<ManualSyncIngestReceipt>;
   verify(
     input: Readonly<{
       accountId: string;
@@ -238,7 +232,20 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
         capturedAt: input.capturedAt,
         capturedAtSource: input.capturedAtSource,
       });
-      return { result: ingested, probe };
+      if (ingested.kind === "refused") {
+        return { surface: input.surface, probe, outcome: { kind: "refused", reason: ingested.reason } };
+      }
+      if (!ingested.snapshot) throw new Error("Ingested Channel Inventory Snapshot is unavailable.");
+      return {
+        surface: input.surface,
+        probe,
+        outcome: {
+          kind: "ingested",
+          snapshotId: ingested.snapshot.snapshotId,
+          snapshotGeneration: ingested.snapshot.snapshotGeneration,
+          parsedRowCount: ingested.snapshot.parsedRowCount,
+        },
+      };
     },
     verify: async (input, context) => {
       const { run } = await authorizeRun(input);
@@ -294,7 +301,9 @@ async function buildPanel(
     throw new ManualSyncError("manual-sync-unavailable");
   });
   const inboundCoverage = resolveChannelInboundCoverage(authority, input);
-  const attentionReason = run ? await readAttentionReason(dependencies.db, run) : null;
+  const [attentionReason, verificationCandidate] = run
+    ? await Promise.all([readAttentionReason(dependencies.db, run), readVerificationCandidate(dependencies.db, run)])
+    : [null, null];
   const available = connection.providerKey === "tcgplayer" && connection.status === "active";
   return {
     connection,
@@ -305,7 +314,42 @@ async function buildPanel(
     requestedListingCount: run?.members.length ?? 0,
     composedListingCount: run?.members.filter((member) => member.memberKind === "composed").length ?? 0,
     attentionReason,
+    verificationCandidate,
   };
+}
+
+async function readVerificationCandidate(
+  db: PgQueryable,
+  run: ChannelSyncRun,
+): Promise<ManualSyncVerificationCandidate | null> {
+  if (run.state !== "awaiting-verification" || run.uploadAttemptedAt === null) return null;
+  const result = await db.query<{
+    snapshot_id: string;
+    snapshot_generation: string | number;
+    parsed_row_count: number;
+    captured_at: string | Date;
+    ingested_at: string | Date;
+  }>(
+    `SELECT snapshot_id,snapshot_generation,parsed_row_count,captured_at,ingested_at
+       FROM channel_inventory_snapshots
+      WHERE connection_id=$1 AND surface='staged' AND snapshot_generation > $2 AND ingested_at >= $3::timestamptz
+      ORDER BY snapshot_generation DESC LIMIT 1`,
+    [run.connectionId, run.basisSnapshotGeneration, run.uploadAttemptedAt],
+  );
+  const row = result.rows[0];
+  return row
+    ? {
+        snapshotId: row.snapshot_id,
+        snapshotGeneration: Number(row.snapshot_generation),
+        parsedRowCount: row.parsed_row_count,
+        capturedAt: instant(row.captured_at),
+        ingestedAt: instant(row.ingested_at),
+      }
+    : null;
+}
+
+function instant(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : value;
 }
 
 async function engageRunClamp(

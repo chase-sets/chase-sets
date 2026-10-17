@@ -50,6 +50,88 @@ function fixture() {
   };
   const progress = {
     identity,
+    handoffSenders: [
+      {
+        case: "staging-top-frame",
+        delivered: true,
+        origin: "https://admin.staging.chasesets.com",
+        url: "https://admin.staging.chasesets.com/catalog/providers/tcgplayer",
+        frameId: 0,
+        tabPresent: true,
+        id: null,
+        outcome: "paired",
+      },
+      {
+        case: "production-top-frame",
+        delivered: true,
+        origin: "https://admin.chasesets.com",
+        url: "https://admin.chasesets.com/catalog/providers/tcgplayer",
+        frameId: 0,
+        tabPresent: true,
+        id: null,
+        outcome: "paired",
+      },
+      {
+        case: "staging-other-path",
+        delivered: true,
+        origin: "https://admin.staging.chasesets.com",
+        url: "https://admin.staging.chasesets.com/catalog/providers/other",
+        frameId: 0,
+        tabPresent: true,
+        id: null,
+        outcome: "refused",
+      },
+      {
+        case: "staging-same-origin-subframe",
+        delivered: true,
+        origin: "https://admin.staging.chasesets.com",
+        url: "https://admin.staging.chasesets.com/catalog/providers/tcgplayer",
+        frameId: 6,
+        tabPresent: true,
+        id: null,
+        outcome: "refused",
+      },
+      {
+        case: "staging-about-blank-child",
+        delivered: false,
+        origin: null,
+        url: null,
+        frameId: null,
+        tabPresent: null,
+        id: null,
+        outcome: "undelivered",
+      },
+      {
+        case: "staging-sandboxed-opaque-frame",
+        delivered: true,
+        origin: "null",
+        url: "https://admin.staging.chasesets.com/catalog/providers/tcgplayer",
+        frameId: 10,
+        tabPresent: true,
+        id: null,
+        outcome: "refused",
+      },
+      {
+        case: "http-staging-top-frame",
+        delivered: false,
+        origin: null,
+        url: null,
+        frameId: null,
+        tabPresent: null,
+        id: null,
+        outcome: "undelivered",
+      },
+      {
+        case: "disallowed-origin-top-frame",
+        delivered: false,
+        origin: null,
+        url: null,
+        frameId: null,
+        tabPresent: null,
+        id: null,
+        outcome: "undelivered",
+      },
+    ],
     stages: [
       "launch",
       "launched",
@@ -87,6 +169,7 @@ describe("operator-only hosted evidence", () => {
       installationAuthority: false,
       identity: f.identity,
       handoff: f.handoff,
+      handoffSenders: f.progress.handoffSenders,
     });
     expect(readdirSync(f.output).sort()).toEqual(["scan.json", "summary.json"]);
     for (const name of readdirSync(f.output))
@@ -154,6 +237,48 @@ describe("operator-only hosted evidence", () => {
     f.producer.status = "failed";
     f.save();
     expect(() => prepareOperatorEvidence(f)).toThrow("Operator evidence refused");
+  });
+  it.each([
+    "missing",
+    "short",
+    "extra",
+    "unknown-case",
+    "order",
+    "extra-key",
+    "nested",
+    "origin",
+    "url",
+    "frame",
+    "tab",
+    "id",
+    "delivery",
+    "outcome",
+    "undelivered-fields",
+    "identity",
+    "marker",
+  ])("refuses %s attributed-sender matrix without publishing bytes", (fault) => {
+    const f = fixture();
+    const rows = f.progress.handoffSenders;
+    if (fault === "missing") delete f.progress.handoffSenders;
+    if (fault === "short") rows.pop();
+    if (fault === "extra") rows.push({ ...rows[0] });
+    if (fault === "unknown-case") rows[0].case = "unknown";
+    if (fault === "order") [rows[0], rows[1]] = [rows[1], rows[0]];
+    if (fault === "extra-key") rows[0].grant = "unknown";
+    if (fault === "nested") rows[0].origin = { value: rows[0].origin };
+    if (fault === "origin") rows[0].origin = "https://admin.chasesets.com";
+    if (fault === "url") rows[0].url += "/other";
+    if (fault === "frame") rows[3].frameId = 0;
+    if (fault === "tab") rows[0].tabPresent = false;
+    if (fault === "id") rows[0].id = "foreign";
+    if (fault === "delivery") rows[2].delivered = false;
+    if (fault === "outcome") rows[2].outcome = "paired";
+    if (fault === "undelivered-fields") rows[4].origin = "null";
+    if (fault === "identity") f.progress.identity = { ...f.identity, sourceHead: "3".repeat(40) };
+    if (fault === "marker") rows[0].origin = "A".repeat(43);
+    f.save();
+    expect(() => prepareOperatorEvidence(f)).toThrow("Operator evidence refused");
+    expect(readdirSync(join(f.output, "..")).includes("output")).toBe(false);
   });
   it.each(["sourceHead", "checkoutHead", "runId", "runAttempt", "job", "jobIndex", "suite"])(
     "refuses stale %s binding",

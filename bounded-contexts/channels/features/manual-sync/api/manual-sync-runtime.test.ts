@@ -153,7 +153,19 @@ describe("manual-sync runtime binding", () => {
         },
       ],
     };
-    tcgplayerCsv.ingestTcgplayerExportSnapshot = vi.fn(async () => parsed);
+    const snapshot = {
+      snapshotId: "cis_runtime",
+      snapshotGeneration: 3,
+      connectionId: connection.connectionId,
+      providerKey: "tcgplayer" as const,
+      surface: "staged" as const,
+      parsedRowCount: 1,
+      completeness: "unverified" as const,
+      ingestedAt: "2026-09-22T14:00:00.000Z",
+      capturedAt: "2026-09-22T13:47:54.000Z",
+      capturedAtSource: "operator-declared" as const,
+    };
+    tcgplayerCsv.ingestTcgplayerExportSnapshot = vi.fn(async () => ({ ...parsed, snapshot }));
     const runtime = createManualSyncRuntime({
       connectorFeed: { readAuthority: vi.fn(async () => liveAuthority()) },
       db: database as never,
@@ -178,7 +190,11 @@ describe("manual-sync runtime binding", () => {
       await expect(runtime.ingest(input)).rejects.toMatchObject({ code: scenario.error });
       expect(tcgplayerCsv.ingestTcgplayerExportSnapshot).not.toHaveBeenCalled();
     } else {
-      await expect(runtime.ingest(input)).resolves.toMatchObject({ result: parsed });
+      await expect(runtime.ingest(input)).resolves.toStrictEqual({
+        surface: "staged",
+        probe: expect.objectContaining({ fileName: "staged.csv", logicalRows: 1 }),
+        outcome: { kind: "ingested", snapshotId: "cis_runtime", snapshotGeneration: 3, parsedRowCount: 1 },
+      });
       expect(tcgplayerCsv.ingestTcgplayerExportSnapshot).toHaveBeenCalledExactlyOnceWith({
         snapshotId: expect.any(String),
         connectionId: input.connectionId,

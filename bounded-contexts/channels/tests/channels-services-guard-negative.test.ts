@@ -21,6 +21,25 @@ describe("channels-services-guard-negative", () => {
   it("accepts the complete aggregate candidate", () => {
     expect(isChannelsServices(validCandidate())).toBe(true);
   });
+  it.each(["scheduleDueOrderPulls", "scheduleDueLiveExports"] as const)(
+    "rejects missing %s worker scheduler",
+    (method) => {
+      const candidate = validCandidate();
+      const outboundSync = Object.fromEntries(Object.entries(candidate.outboundSync).filter(([key]) => key !== method));
+      expect(isChannelsServices({ ...candidate, outboundSync })).toBe(false);
+    },
+  );
+  it.each(["consumeConnection", "consumeDueConnections"] as const)("rejects an omitted live-export %s", (method) => {
+    const candidate = validCandidate();
+    expect(
+      isChannelsServices({
+        ...candidate,
+        liveExportSnapshots: Object.fromEntries(
+          Object.entries(candidate.liveExportSnapshots).filter(([key]) => key !== method),
+        ),
+      }),
+    ).toBe(false);
+  });
 
   it.each([null, undefined, false, 0, "channels", []])("rejects non-aggregate input %s", (candidate) => {
     expect(isChannelsServices(candidate)).toBe(false);
@@ -92,6 +111,18 @@ describe("channels-services-guard-negative", () => {
 
 function validCandidate() {
   return {
+    ebayAccountDeletion: { config: null },
+    ebayAccountDeletionReceipts: {
+      recordEbayAccountDeletionReceipt:
+        vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["recordEbayAccountDeletionReceipt"]>(),
+      lookup: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["lookup"]>(),
+      countSubjectData: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["countSubjectData"]>(),
+      assertKeyringContinuity: vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["assertKeyringContinuity"]>(),
+    } satisfies ChannelsServices["ebayAccountDeletionReceipts"],
+    ebayReceiptExpiry: {
+      cutoff: vi.fn<ChannelsServices["ebayReceiptExpiry"]["cutoff"]>(),
+      batch: vi.fn<ChannelsServices["ebayReceiptExpiry"]["batch"]>(),
+    } satisfies ChannelsServices["ebayReceiptExpiry"],
     credentials: { create: vi.fn(), replace: vi.fn(), rewrap: vi.fn(), resolve: vi.fn() },
     connections: { getConnection: async () => null },
     storageLocationAuthority: { resolve: async () => null },
@@ -107,6 +138,7 @@ function validCandidate() {
       recoverExpiredClaimedOperations: async () => 0,
       processNextInlineOperation: async () => 0,
       scheduleDueOrderPulls: async () => 0,
+      scheduleDueLiveExports: async () => 0,
     },
     reconciliation: {
       reconcileDueConnections: async () => [],
@@ -118,11 +150,17 @@ function validCandidate() {
     },
     tcgplayerCsv: {},
     tcgplayerOrders: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
+    liveExportSnapshots: {
+      consumeConnection: vi.fn<ChannelsServices["liveExportSnapshots"]["consumeConnection"]>(),
+      consumeDueConnections: vi.fn<ChannelsServices["liveExportSnapshots"]["consumeDueConnections"]>(),
+    } satisfies ChannelsServices["liveExportSnapshots"],
     fulfillmentObservations: { interpretConnection: vi.fn(), interpretDueConnections: vi.fn() },
     manualSync: {},
     connectorFeed: {
       readAuthority: vi.fn(),
       withAuthority: vi.fn(),
+      withGrantAuthority: vi.fn(),
+      readStagedImportDispatchPolicy: vi.fn(),
       claim: vi.fn(),
       report: vi.fn(),
       ingest: vi.fn(),

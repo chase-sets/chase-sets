@@ -444,7 +444,10 @@ describeDb("listing enforcement identity on the real event and snapshot stores",
     await expect(createImmutableBaseReader(pool).load("lst_revert")).rejects.toThrow("Unhandled variant");
     expect((await createRuntime(pool).listings.loadListingState("lst_revert")).status).toBe("paused");
 
-    expect(productionFilesNaming("OperatorUnlistListing")).toEqual(["features/listings/domain/domain.ts"]);
+    expect(productionFilesNaming("OperatorUnlistListing")).toEqual([
+      "features/listings/api/runtime.ts",
+      "features/listings/domain/domain.ts",
+    ]);
   });
 });
 

@@ -156,6 +156,76 @@ export function browserCapabilityProof(record) {
   );
 }
 
+export function removalWitness(value) {
+  const data = bytes(value);
+  if (!data || data.length > 1024) return null;
+  const line = data.toString("ascii");
+  if (!data.equals(Buffer.from(line))) return null;
+  const match =
+    /^provider-boundary-removal-witness:v1;predicate=(identity-drift|parent-order|foreign-image|member-cycle);records=([^;\n]+);start-drift=([01]);image-drift=([01]);repeated-pid=([0-9]+);chain-length=([0-9]+)\n$/.exec(
+      line,
+    );
+  if (!match || match[0] !== line) return null;
+  const number = (value, maximum, minimum = 0n) => {
+    if (!/^(0|[1-9][0-9]{0,19})$/.test(value)) throw new Error("witness-number");
+    const result = BigInt(value);
+    if (result < minimum || result > maximum) throw new Error("witness-number");
+    return result;
+  };
+  try {
+    const records = match[2].split("|").map((encoded) => {
+      const fields = encoded.split(",");
+      if (fields.length !== 8) throw new Error("witness-record");
+      const [pid, parent, start, device, inode, namespace, uid, image] = fields;
+      if (
+        !["initial", "noninitial"].includes(namespace) ||
+        !["admitted", "other"].includes(uid) ||
+        !["launcher", "target", "other", "none"].includes(image)
+      )
+        throw new Error("witness-class");
+      if (image === "none") {
+        if (device !== "-" || inode !== "-") throw new Error("witness-image");
+      } else {
+        number(device, 18446744073709551615n);
+        number(inode, 18446744073709551615n);
+      }
+      return {
+        pid: number(pid, 2147483647n, 1n),
+        parent: number(parent, 2147483647n),
+        start: number(start, 18446744073709551615n),
+        identity: `${device},${inode}`,
+        namespace,
+        image,
+      };
+    });
+    const predicate = match[1];
+    if (records.length !== (["identity-drift", "parent-order"].includes(predicate) ? 2 : 1)) return null;
+    const startDrift = match[3] === "1";
+    const imageDrift = match[4] === "1";
+    const repeated = number(match[5], 2147483647n);
+    const length = number(match[6], 4096n);
+    if (predicate !== "member-cycle" && (repeated !== 0n || length !== 0n)) return null;
+    if (predicate !== "identity-drift" && (startDrift || imageDrift)) return null;
+    const [first, second] = records;
+    if (predicate === "identity-drift") {
+      if (
+        first.pid !== second.pid ||
+        !(startDrift || imageDrift) ||
+        startDrift !== (first.start !== second.start) ||
+        imageDrift !== (first.identity !== second.identity)
+      )
+        return null;
+    } else if (predicate === "parent-order") {
+      if (first.parent !== second.pid || second.start <= first.start) return null;
+    } else if (predicate === "foreign-image") {
+      if (first.namespace !== "initial" || first.image !== "target") return null;
+    } else if (repeated !== first.pid || length === 0n) return null;
+    return line;
+  } catch {
+    return null;
+  }
+}
+
 export function removalRefusal(error, stage) {
   const census = [
     "remove-live-owner",
@@ -168,6 +238,14 @@ export function removalRefusal(error, stage) {
   if (!census && !path && !input) return false;
   const stdout = bytes(error?.stdout);
   const stderr = bytes(error?.stderr);
+  let witness = "";
+  if (stage === "remove-ambiguous-owner") {
+    // Validate the only permitted extra line before comparing the whole envelope.
+    if (!stderr || stderr.length > 1024 + 113) return false;
+    const end = stderr.indexOf(10);
+    witness = removalWitness(stderr.subarray(0, end + 1));
+    if (witness === null) return false;
+  }
   return (
     error?.code === 1 &&
     !error?.signal &&
@@ -187,7 +265,8 @@ export function removalRefusal(error, stage) {
       Buffer.from(
         input
           ? `provider-boundary-cleanup-refused:${stage}\n`
-          : `provider-boundary-installer-refused:${stage}\n` +
+          : witness +
+              `provider-boundary-installer-refused:${stage}\n` +
               "provider-boundary-cleanup-refused:remove-installation\n",
       ),
     )
@@ -215,6 +294,17 @@ export function observerDiagnostic(error) {
         "unknown")
       : "unknown";
   let root = null;
+  let errno = "unknown";
+  let identity = "unknown";
+  if (error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr && stderr.length <= 512) {
+    const match =
+      /^provider-boundary-observer-refused:(arguments|census|descendants|status|status-field|label|namespaces|user-namespace|identity-recheck)\nprovider-boundary-observer-detail:(none|EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other):(same|changed|zombie|gone|unknown)\n$/.exec(
+        stderr.toString("ascii"),
+      );
+    if (match && stderr.equals(Buffer.from(match[0]))) {
+      [stage, errno, identity] = match.slice(1);
+    }
+  }
   if (error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr && stderr.length <= 512) {
     const match =
       /^provider-boundary-observer-refused:root\nprovider-boundary-observer-root:(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(launcher|chrome|chrome_crashpad_handler):(host-helper|old-root):(EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other):(same|changed|zombie|unknown):(proc-fdinfo|other|unreadable):(directory|other|unreadable):(none|EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other)\n$/.exec(
@@ -245,6 +335,8 @@ export function observerDiagnostic(error) {
   return {
     stage,
     root,
+    errno,
+    identity,
     status: Number.isInteger(error?.code) && error.code >= 0 && error.code <= 255 ? error.code : null,
     signal: ["SIGTERM", "SIGKILL"].includes(error?.signal) ? error.signal : null,
     capturedBytes: stderr?.length ?? null,
