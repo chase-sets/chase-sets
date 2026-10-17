@@ -91,9 +91,7 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
     optimization_goal: row.optimization_goal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
     fulfillment_preview_snapshot: readCheckoutFulfillmentPreview(row.fulfillment_preview_snapshot),
     handoff_expires_at:
-      row.handoff_expires_at instanceof Date
-        ? row.handoff_expires_at.toISOString()
-        : (row.handoff_expires_at ?? null),
+      row.handoff_expires_at instanceof Date ? row.handoff_expires_at.toISOString() : (row.handoff_expires_at ?? null),
     shipping_option:
       row.shipping_option === "expedited" || row.shipping_option === "priority" ? row.shipping_option : "standard",
     shipping_address:

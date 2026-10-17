@@ -126,7 +126,14 @@ function fixture() {
       auth: {},
       identity: { agentGrantRevocations: { isActiveGrant: async () => true } },
       checkout: {
-        sessions: { getSession, cancelSession, createBuyNow, recordFulfillmentPreview, recordOrdersCreated, recordPaymentStarted },
+        sessions: {
+          getSession,
+          cancelSession,
+          createBuyNow,
+          recordFulfillmentPreview,
+          recordOrdersCreated,
+          recordPaymentStarted,
+        },
       },
       discovery: {
         items: {
