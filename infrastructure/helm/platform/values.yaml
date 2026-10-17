@@ -585,9 +585,6 @@ components:
         value: "30000"
       - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
         value: "250"
-      - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-        secret: true
-        secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
       - name: "UCP_BUSINESS_SIGNING_ALG"
         secret: true
         secretKey: "UCP_BUSINESS_SIGNING_ALG"
@@ -933,9 +930,6 @@ components:
         value: "30000"
       - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
         value: "250"
-      - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-        secret: true
-        secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
       - name: "VOYAGE_API_KEY"
         secret: true
         secretKey: "VOYAGE_API_KEY"
@@ -1175,9 +1169,6 @@ components:
         value: "30000"
       - name: "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS"
         value: "250"
-      - name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
-        secret: true
-        secretKey: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE"
     resources: {}
     podAnnotations: {}
     podLabels: {}

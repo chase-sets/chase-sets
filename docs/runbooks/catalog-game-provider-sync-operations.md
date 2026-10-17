@@ -35,7 +35,6 @@ The deploy step "Validate production configuration" checks the inputs whenever t
 
 - `SCRYDEX_API_KEY`
 - `SCRYDEX_TEAM_ID`
-- `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE`
 - either required Magic or One Piece signoff reference
 
 Missing Pokemon, Yu-Gi-Oh!, or Lorcana references do not fail deployment: their signoff gate stays blocked at runtime. A configured blank, whitespace-only, `false`, `none`, or `open` optional reference fails preflight in open and closed modes with `Invalid production Catalog integration signoff reference: <names>`. Only three per-name presence booleans and targeted reference values reach validation, never the aggregate variable map. Messages print names only, never values.
@@ -50,7 +49,7 @@ A per-game production-signoff reference env var (named in each game section) mus
 
 - Public transports (MTGJSON, Scryfall, TCGdex, YGOPRODeck, YGOJSON, LorcanaJSON, Lorcast) do not require credentials.
 - Scrydex requires a shared runtime API key and team identifier in the API and worker environments that execute provider transport. Configure `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` once per environment for all Scrydex-backed product lines; do not create game-specific Scrydex secrets.
-- TCGplayer uses stored operator session primary, env cookie fallback (`TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` only when custody is absent or cleared). API and worker requests resolve the newest custody revision per request; unreadable custody fails closed. Pairing, recovery, offboarding, and revision-bound verification are owned by [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
+- TCGplayer uses the stored operator session; the environment cookie is retired. API and worker requests resolve the newest custody revision per request; unreadable custody fails closed. Pairing, recovery, offboarding, and revision-bound verification are owned by [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
 
 ### Shared-transport handling (TCGplayer and Scrydex)
 

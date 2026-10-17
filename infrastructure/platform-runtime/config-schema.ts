@@ -871,8 +871,7 @@ export function loadPostageConfig<TIncludeWebhookSecret extends boolean>(input: 
 export function loadTcgplayerAutomationConfig(
   operatorSessionConfigured = false,
 ): PlatformTcgplayerAutomationConfig | null {
-  const tcgAuthCookie = getOptionalEnv("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
-  if (!tcgAuthCookie && !operatorSessionConfigured) {
+  if (!operatorSessionConfigured) {
     return null;
   }
 
@@ -909,7 +908,7 @@ export function loadTcgplayerAutomationConfig(
 
   const config: PlatformTcgplayerAutomationConfig = {
     auth: {
-      tcgAuthCookie,
+      tcgAuthCookie: null,
       userAgent: getOptionalEnv("TCGPLAYER_AUTOMATION_USER_AGENT") ?? DEFAULT_TCGPLAYER_AUTOMATION_USER_AGENT,
     },
     domainConfigs: mergeTcgplayerAutomationDomainConfigs(
@@ -968,7 +967,7 @@ export function describeTcgplayerAutomationConfigForLogs(config: PlatformTcgplay
   return {
     configured: true,
     auth: {
-      tcgAuthCookie: "[configured]",
+      tcgAuthCookie: "[missing]",
       userAgent: config.auth.userAgent ? "[configured]" : "[missing]",
     },
     domainConfigs: Object.fromEntries(
