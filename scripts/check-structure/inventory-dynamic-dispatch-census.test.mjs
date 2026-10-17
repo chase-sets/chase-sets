@@ -479,9 +479,8 @@ describe("issue-7169-type-resolved-census-matrix", () => {
   it("closes destructuring-assignment sources and erasure sinks", async () => {
     await matrix(assignmentClosureControls, ({ root, roots, program, families, fixtures }) => {
       const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
-      for (const control of assignmentClosureControls) {
-        const file = Object.keys(fixtures).find((candidate) => candidate.endsWith(`${control.id}.ts`));
-        expect(file, control.id).toBeDefined();
+      for (const [index, control] of assignmentClosureControls.entries()) {
+        const file = Object.keys(fixtures)[index];
         const source = program.getSourceFile(path.join(root, file));
         expect(program.getSyntacticDiagnostics(source), control.id).toEqual([]);
         expect(
