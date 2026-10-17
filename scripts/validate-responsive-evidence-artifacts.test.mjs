@@ -781,6 +781,7 @@ async function retryProbe(scenario, cleanup = roots) {
   await write(root, sourceManifestPath, sourceText);
   await write(root, "playwright.config.ts", "export default {};\n");
   const outputRoot = path.join(root, "artifacts/playwright/test-results");
+  const shallowBefore = await checkoutShallowState();
   const run = await runNode([playwrightCli, "test", "--config", retryProbeConfig, "--retries=1"], {
     ...process.env,
     // Hosted producers run on Linux, where the list reporter always prints ✓ and ✘;
@@ -791,6 +792,7 @@ async function retryProbe(scenario, cleanup = roots) {
     RESPONSIVE_EVIDENCE_RETRY_PROBE_CLAIM: claim.id,
     RESPONSIVE_EVIDENCE_RETRY_PROBE_SCENARIO: scenario,
   });
+  expect(await checkoutShallowState(), "the retry probe changed this checkout's shallow state").toEqual(shallowBefore);
   const log = path.join(root, "producer.log");
   await writeFile(log, run.stdout, "utf8");
 
@@ -817,6 +819,18 @@ async function retryProbe(scenario, cleanup = roots) {
     files,
     directories: [...new Set(files.filter((file) => file.includes("/")).map((file) => file.split("/")[0]))],
     captures,
+  };
+}
+
+// Playwright runs its git-info plugin in the checkout holding the probe config;
+// a fetch there can move the shallow boundary other script tests read.
+async function checkoutShallowState() {
+  const git = (...args) =>
+    execFileSync("git", ["-C", repoRoot, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const shallowFile = path.resolve(repoRoot, git("rev-parse", "--git-path", "shallow"));
+  return {
+    shallow: git("rev-parse", "--is-shallow-repository"),
+    boundary: existsSync(shallowFile) ? await readFile(shallowFile, "utf8") : null,
   };
 }
 
