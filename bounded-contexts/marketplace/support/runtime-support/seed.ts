@@ -6,6 +6,7 @@ import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
+import { tryMoneyToCents } from "@chase-sets/primitives/money";
 import type {
   AccountId,
   CatalogItemId,
@@ -21,13 +22,19 @@ import {
 } from "../../features/offers/domain/versioning";
 import { addReviewWindowDays, REVIEW_WINDOW_DAYS, type ReviewRole } from "../../features/reviews/domain/common";
 import { buildListingEvidenceSnapshot } from "../../features/listings/domain/evidence-snapshot";
+import { normalizeMarketplaceListingFeeLock, totalFeeLockedUnits } from "../../features/listings/domain/fee-lock";
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
-import { quoteMarketplaceTerms } from "./fee-quotes";
+import {
+  openMarketplaceListingTermsSession,
+  quoteMarketplaceTerms,
+  requoteMarketplaceListingFeeLock,
+} from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
 import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
 import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
 import {
   activeListingPhotos,
+  decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
   type MarketplaceListingEvent,
@@ -793,6 +800,292 @@ async function loadSeedReviewState(db: PgQueryable, reviewId: string) {
   return { committed, state: committed.reduce(evolveReview, initialReviewState) };
 }
 
+type SeedListingClassification = Readonly<{
+  listing: ListingSeed;
+  accountId: AccountId;
+  context: ReturnType<typeof createSeedContextFor>;
+  committed: readonly MarketplaceListingEvent[];
+  state: ReturnType<typeof evolveMarketplaceListing>;
+  kind: "absent" | "exact" | "author" | "reconcile" | "refused";
+  mismatches: readonly string[];
+}>;
+
+function seedListingStatusIsOnPath(finalStatus: ListingSeed["finalStatus"], status: string): boolean {
+  switch (finalStatus) {
+    case "draft":
+      return status === "draft";
+    case "active":
+      return status === "draft" || status === "active";
+    case "paused":
+      return status === "draft" || status === "active" || status === "paused";
+    case "withdrawn":
+      return status === "draft" || status === "active" || status === "withdrawn";
+  }
+}
+
+function seedMoneyMatches(actual: string | null, expected: string): boolean {
+  const actualCents = actual === null ? null : tryMoneyToCents(actual);
+  const expectedCents = tryMoneyToCents(expected);
+  return actualCents !== null && expectedCents !== null && actualCents === expectedCents;
+}
+
+function classifySeedListing(
+  listing: ListingSeed,
+  committed: readonly MarketplaceListingEvent[],
+  state: ReturnType<typeof evolveMarketplaceListing>,
+  accountId: AccountId,
+  context: ReturnType<typeof createSeedContextFor>,
+): SeedListingClassification {
+  if (state.listingId === null) {
+    return { listing, accountId, context, committed, state, kind: "absent", mismatches: [] };
+  }
+
+  const mismatches: string[] = [];
+  if (String(state.accountId) !== String(accountId)) mismatches.push("owner account");
+  if (String(state.inventoryItemId) !== String(listing.inventoryItemId)) mismatches.push("inventory item");
+  if (String(state.catalogItemId) !== String(listing.catalogItemId)) mismatches.push("catalog item");
+  if (state.quantityCap !== listing.quantityCap) mismatches.push("quantity cap");
+  if (!seedMoneyMatches(state.priceAmount, listing.priceAmount)) mismatches.push("price amount");
+
+  const currencyRequired = listing.finalStatus !== "withdrawn";
+  const currencyMatches = state.priceCurrencyCode === listing.priceCurrencyCode;
+  const currencyReconcile = currencyRequired && state.priceCurrencyCode === null;
+  if (currencyRequired && !currencyMatches && !currencyReconcile) mismatches.push("price currency");
+
+  if (!seedListingStatusIsOnPath(listing.finalStatus, state.status)) mismatches.push("status");
+  if (mismatches.length > 0) {
+    return { listing, accountId, context, committed, state, kind: "refused", mismatches };
+  }
+
+  if (state.status === listing.finalStatus && !currencyReconcile) {
+    return { listing, accountId, context, committed, state, kind: "exact", mismatches: [] };
+  }
+  return {
+    listing,
+    accountId,
+    context,
+    committed,
+    state,
+    kind: currencyReconcile ? "reconcile" : "author",
+    mismatches: [],
+  };
+}
+
+function assertSeedListingClassification(classification: SeedListingClassification): void {
+  if (classification.mismatches.length === 0) return;
+  const { listing, state, committed } = classification;
+  throw new Error(
+    `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${listing.listingId}' rejected; ` +
+      `stream '${marketplaceListingStreamId(listing.listingId)}', version ${committed.length}; ` +
+      `mismatched fields: ${classification.mismatches.join(", ")}; ` +
+      `found status '${state.status}'.`,
+  );
+}
+
+async function classifyAllSeedListings(services: MarketplaceServices): Promise<readonly SeedListingClassification[]> {
+  const classifications: SeedListingClassification[] = [];
+  for (const listing of listings) {
+    const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
+    const context = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
+    const { committed, state } = await loadSeedListingState(services.db, listing.listingId);
+    const classification = classifySeedListing(listing, committed, state, accountId, context);
+    assertSeedListingClassification(classification);
+    classifications.push(classification);
+  }
+  for (const classification of classifications) {
+    if (classification.kind !== "absent") continue;
+    const supply = await services.listings.getInventoryItemSupply(
+      classification.listing.inventoryItemId,
+      classification.accountId,
+    );
+    if (!supply) {
+      throw new Error(
+        `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${classification.listing.listingId}' rejected; ` +
+          `stream '${marketplaceListingStreamId(classification.listing.listingId)}', version 0; ` +
+          `mismatched fields: missing inventory supply.`,
+      );
+    }
+  }
+  return classifications;
+}
+
+async function reconcileSeedListings(
+  services: MarketplaceServices,
+  classifications: readonly SeedListingClassification[],
+): Promise<void> {
+  const updatesByAccount = new Map<AccountId, SeedListingClassification[]>();
+  for (const classification of classifications) {
+    if (classification.kind !== "reconcile") continue;
+    const entries = updatesByAccount.get(classification.accountId) ?? [];
+    entries.push(classification);
+    updatesByAccount.set(classification.accountId, entries);
+  }
+
+  const accountOrder = [
+    identitySeedIds.demo.accountId,
+    identitySeedIds.cardVault.accountId,
+    identitySeedIds.sealedStockroom.accountId,
+  ] as const;
+
+  const entriesByAccount = accountOrder.map((accountId) => ({
+    accountId,
+    entries: updatesByAccount.get(accountId) ?? [],
+  }));
+
+  // Open every terms session and validate every candidate before the first
+  // owner call. The owner opens its own session again inside the call; that
+  // residual race is intentional and the CAS remains authoritative.
+  const termsSessions = new Map<AccountId, Awaited<ReturnType<typeof openMarketplaceListingTermsSession>>>();
+  for (const { accountId, entries } of entriesByAccount) {
+    if (entries.length === 0) continue;
+    termsSessions.set(
+      accountId,
+      await openMarketplaceListingTermsSession(services.commercialTermsResolver, { accountId }),
+    );
+  }
+
+  for (const { accountId, entries } of entriesByAccount) {
+    const termsSession = termsSessions.get(accountId);
+    if (!termsSession) continue;
+    for (const entry of entries) {
+      try {
+        if (totalFeeLockedUnits(entry.state.feeLocks) !== entry.state.quantityCap) {
+          throw new Error("fee-lock units do not cover the listing quantity cap");
+        }
+        entry.state.feeLocks.forEach(normalizeMarketplaceListingFeeLock);
+        const feeLocks = entry.state.feeLocks.map((lock) =>
+          requoteMarketplaceListingFeeLock(lock, entry.listing.priceAmount),
+        );
+        termsSession.quote(entry.listing.priceAmount);
+        const decided = decideMarketplaceListing(entry.state, {
+          type: "UpdateListingPrice",
+          priceAmount: entry.listing.priceAmount,
+          priceCurrencyCode: entry.listing.priceCurrencyCode,
+          feeLocks,
+        });
+        if (decided.length !== 1 || decided[0]?.type !== "marketplace.listing.price-updated") {
+          throw new Error("price update precheck did not produce exactly one price-updated event");
+        }
+      } catch (error) {
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' rejected; ` +
+            `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${entry.committed.length}; ` +
+            `mismatched fields: fee locks (${error instanceof Error ? error.message : "invalid fee lock"}).`,
+        );
+      }
+    }
+  }
+
+  const reconciliationStates = async (
+    entries: readonly SeedListingClassification[],
+    notAttempted: readonly SeedListingClassification[] = [],
+  ): Promise<string> => {
+    const attempted = await Promise.all(
+      entries.map(async (entry) => {
+        const refolded = await loadSeedListingState(services.db, entry.listing.listingId);
+        const appended = refolded.committed
+          .slice(entry.committed.length)
+          .some((event) => event.type === "marketplace.listing.price-updated");
+        return `${entry.listing.listingId} version ${refolded.committed.length} ${appended ? "applied" : "not-applied"}`;
+      }),
+    );
+    const pending = notAttempted.map(
+      (entry) => `${entry.listing.listingId} version ${entry.committed.length} not-attempted`,
+    );
+    return [...attempted, ...pending].join(", ");
+  };
+
+  for (const accountId of accountOrder) {
+    const entries = updatesByAccount.get(accountId);
+    if (!entries || entries.length === 0) continue;
+    let outcomes: Awaited<ReturnType<MarketplaceServices["listings"]["applyBulkListingPriceUpdates"]>>;
+    try {
+      outcomes = await services.listings.applyBulkListingPriceUpdates(
+        {
+          accountId,
+          updates: entries.map(({ listing, committed }) => ({
+            listingId: listing.listingId,
+            priceAmount: listing.priceAmount,
+            priceCurrencyCode: listing.priceCurrencyCode,
+            expectedVersion: committed.length,
+            idempotencyKey: `seed:listing-denomination:${listing.listingId}`,
+          })),
+        },
+        entries[0]!.context,
+      );
+    } catch (error) {
+      const first = entries[0]!;
+      const laterEntries = accountOrder
+        .slice(accountOrder.indexOf(accountId) + 1)
+        .flatMap((laterAccountId) => updatesByAccount.get(laterAccountId) ?? []);
+      const states = await reconciliationStates(entries, laterEntries);
+      throw new Error(
+        `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${first.listing.listingId}' reconciliation failed; ` +
+          `stream '${marketplaceListingStreamId(first.listing.listingId)}', version ${first.committed.length}; ` +
+          `owner call did not apply: ${error instanceof Error ? error.message : "unknown error"}; ` +
+          `listing states: ${states}.`,
+      );
+    }
+
+    for (const entry of entries) {
+      const outcome = outcomes.find((candidate) => candidate.listingId === entry.listing.listingId);
+      if (!outcome || outcome.outcome !== "applied") {
+        const laterEntries = accountOrder
+          .slice(accountOrder.indexOf(accountId) + 1)
+          .flatMap((laterAccountId) => updatesByAccount.get(laterAccountId) ?? []);
+        const states = await reconciliationStates(entries, laterEntries);
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' reconciliation failed; ` +
+            `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${entry.committed.length}; ` +
+            `owner outcome '${outcome?.outcome ?? "missing"}'; listing states: ${states}.`,
+        );
+      }
+      const refolded = await loadSeedListingState(services.db, entry.listing.listingId);
+      const checked = classifySeedListing(
+        entry.listing,
+        refolded.committed,
+        refolded.state,
+        entry.accountId,
+        entry.context,
+      );
+      if (
+        checked.mismatches.length > 0 ||
+        (checked.kind !== "exact" && checked.kind !== "author") ||
+        refolded.state.priceCurrencyCode !== entry.listing.priceCurrencyCode
+      ) {
+        const laterEntries = accountOrder
+          .slice(accountOrder.indexOf(accountId) + 1)
+          .flatMap((laterAccountId) => updatesByAccount.get(laterAccountId) ?? []);
+        const states = await reconciliationStates(entries, laterEntries);
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' reconciliation failed; ` +
+            `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${refolded.committed.length}; ` +
+            `exact re-fold did not converge; listing states: ${states}.`,
+        );
+      }
+      const event = await services.db.query<{ event_id: string; stream_version: string; event_type: string }>(
+        `SELECT event_id, stream_version, event_type
+         FROM event_store_events
+         WHERE stream_id = $1 AND stream_version = $2`,
+        [marketplaceListingStreamId(entry.listing.listingId), refolded.committed.length],
+      );
+      const appendedEvent = event.rows[0];
+      if (!appendedEvent || appendedEvent.event_type !== "marketplace.listing.price-updated") {
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${entry.listing.listingId}' reconciliation failed; ` +
+            `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${refolded.committed.length}; ` +
+            `reconciled event evidence is missing.`,
+        );
+      }
+      console.log(
+        `[marketplace-seed] Listing '${entry.listing.listingId}' reconciled; ` +
+          `stream '${marketplaceListingStreamId(entry.listing.listingId)}', version ${entry.committed.length} -> ${refolded.committed.length}; ` +
+          `event '${appendedEvent.event_id}'`,
+      );
+    }
+  }
+}
+
 const seededReviewInventory = [
   {
     reviewId: reputationReservedSeedIds.reviews.buyerToSellerActive,
@@ -819,13 +1112,16 @@ export async function inspectMarketplaceSeedState(
 
   for (const listing of listings) {
     const { committed, state } = await loadSeedListingState(pool, listing.listingId);
+    const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
+    const context = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
+    const classification = classifySeedListing(listing, committed, state, accountId, context);
     reports.push({
       contextName: "marketplace",
       aggregateName: "Listing",
       id: listing.listingId,
       key: listing.inventoryItemId,
       streamId: marketplaceListingStreamId(listing.listingId),
-      kind: state.listingId === null ? "absent" : state.status === listing.finalStatus ? "active" : "draft",
+      kind: classification.kind === "exact" ? "active" : classification.kind === "absent" ? "absent" : "draft",
       status: state.listingId === null ? null : String(state.status),
       eventCount: committed.length,
     });
@@ -869,32 +1165,36 @@ export async function seedMarketplaceDatabase(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
+  const classifications = await classifyAllSeedListings(services);
+  await reconcileSeedListings(services, classifications);
+  const classificationByListingId = new Map(
+    classifications.map((classification) => [classification.listing.listingId, classification]),
+  );
+  const authoredOrReconciled = classifications.filter((classification) => classification.kind !== "exact");
   const context = createSeedContext();
 
   for (const listing of listings) {
     const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
     const listingContext = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
     const seededListingId = listing.listingId;
-    const persisted = await loadSeedListingState(services.db, seededListingId);
-    if (persisted.state.listingId !== null && persisted.state.status === listing.finalStatus) {
+    const classification = classificationByListingId.get(seededListingId);
+    if (!classification) {
+      throw new Error(`${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${seededListingId}' was not classified.`);
+    }
+    if (classification.kind === "exact") {
       continue;
     }
-    if (
-      persisted.state.listingId !== null &&
-      String(persisted.state.inventoryItemId) !== String(listing.inventoryItemId)
-    ) {
-      throw new Error(
-        `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${seededListingId}' expected inventory item ` +
-          `'${listing.inventoryItemId}', but found '${persisted.state.inventoryItemId ?? "null"}'. ` +
-          `Stream '${marketplaceListingStreamId(seededListingId)}'.`,
-      );
-    }
+    const persisted = await loadSeedListingState(services.db, seededListingId);
 
     let feeQuoteFingerprint: string | null = null;
     if (persisted.state.listingId === null) {
       const supply = await services.listings.getInventoryItemSupply(listing.inventoryItemId, accountId);
       if (!supply) {
-        continue;
+        throw new Error(
+          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${listing.listingId}' rejected; ` +
+            `stream '${marketplaceListingStreamId(listing.listingId)}', version 0; ` +
+            `mismatched fields: missing inventory supply.`,
+        );
       }
 
       const createdListing = await services.listings.createListing(
@@ -965,6 +1265,24 @@ export async function seedMarketplaceDatabase(
           listingId: seededListingId,
         },
         listingContext,
+      );
+    }
+  }
+
+  for (const classification of authoredOrReconciled) {
+    const refolded = await loadSeedListingState(services.db, classification.listing.listingId);
+    const checked = classifySeedListing(
+      classification.listing,
+      refolded.committed,
+      refolded.state,
+      classification.accountId,
+      classification.context,
+    );
+    if (checked.kind !== "exact" || checked.mismatches.length > 0) {
+      throw new Error(
+        `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${classification.listing.listingId}' authoring failed; ` +
+          `stream '${marketplaceListingStreamId(classification.listing.listingId)}', version ${refolded.committed.length}; ` +
+          `exact re-fold did not converge.`,
       );
     }
   }
