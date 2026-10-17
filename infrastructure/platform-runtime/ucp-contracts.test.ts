@@ -86,10 +86,12 @@ describe("UCP MCP tools", () => {
       annotations: { readOnlyHint: false, destructiveHint: false },
     });
     expect(completeCheckout).toMatchObject({
-      trustedHandoffOnUnsignedMcp: true,
       securitySchemes: [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }],
       annotations: { destructiveHint: true, openWorldHint: true },
     });
+    // The retired unsigned MCP trusted-handoff bypass is intentionally absent;
+    // complete/cancel dispatch is enforced by the composed checkout handlers.
+    expect(completeCheckout).not.toHaveProperty("trustedHandoffOnUnsignedMcp");
   });
 
   it("advertises MCP Apps resources for the agent commerce journey", () => {

@@ -241,7 +241,7 @@ describe("payments terms artifact", () => {
       /charges your selected payment method when you complete|immediately confirming|before the purchase is recorded|no repository evidence shows|statement will carry|Chase Sets does not control/i,
     );
     expect(section.reviewManifest.productTruthRefs).toContain(
-      "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+      "bounded-contexts/checkout/features/sessions/api/route.ts:1327-1376",
     );
     expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/statement.*display/i);
     expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/network.*control/i);

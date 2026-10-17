@@ -113,6 +113,7 @@ export type UcpOperationHandlerInput = Readonly<{
   arguments: Readonly<Record<string, unknown>>;
   request: Request;
   params: Readonly<Record<string, string>>;
+  requestMeta?: UcpRequestMeta;
 }>;
 
 export type UcpOperationHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope> | UcpEnvelope;
@@ -201,6 +202,7 @@ export type CreateUcpRoutesOptions = Readonly<{
   profileResolver?: UcpProfileResolver;
   businessSigningKeys?: UcpBusinessSigningKeySet;
   observer?: UcpRuntimeObserver;
+  preflight?: Readonly<Record<string, (input: UcpOperationHandlerInput) => Promise<UcpEnvelope | null>>>;
 }>;
 
 const JSON_RPC_VERSION = "2.0";
@@ -606,35 +608,6 @@ function oauthChallenge(tool: UcpMcpToolDescriptor) {
     .flatMap((scheme) => (scheme.type === "oauth2" ? [...scheme.scopes] : []))
     .filter((scope, index, scopes) => scopes.indexOf(scope) === index);
   return scopes.length > 0 ? `Bearer realm="Chase Sets", scope="${scopes.join(" ")}"` : 'Bearer realm="Chase Sets"';
-}
-
-function unsignedMcpTrustedHandoff(tool: UcpMcpToolDescriptor, args: Readonly<Record<string, unknown>>) {
-  const checkoutId = typeof args.id === "string" ? args.id : null;
-  const action =
-    tool.name === "cancel_checkout"
-      ? {
-          type: "trusted_checkout_handoff",
-          ...(checkoutId ? { url: `/checkout/${checkoutId}` } : {}),
-          reason: "Checkout cancellation is available only through trusted UI for ChatGPT OAuth callers.",
-        }
-      : {
-          type: "trusted_checkout_handoff",
-          ...(checkoutId ? { url: `/checkout/${checkoutId}` } : {}),
-          reason:
-            "Checkout completion requires trusted UI unless a signed UCP agent completes with a saved payment method.",
-        };
-  const message =
-    tool.name === "cancel_checkout"
-      ? "Open the trusted checkout UI to abandon or revise this checkout session."
-      : "Open the trusted checkout UI before creating orders or payment through ChatGPT.";
-
-  return createUcpEnvelope("requires_action", { action }, [
-    {
-      severity: "warning",
-      code: "trusted_ui_required",
-      message,
-    },
-  ]);
 }
 
 function normalizeArguments(value: unknown): Readonly<Record<string, unknown>> {
@@ -1402,6 +1375,17 @@ async function invokeRestWrite(
 ) {
   const failure = await signedWriteOrJsonError(c.req.raw);
   if (failure) {
+    if (!hasSignedWriteHeaders(c.req.raw) && (operation === "complete_checkout" || operation === "cancel_checkout")) {
+      const accessFailure = unsignedCheckoutAccessFailure(c.get("actor") ?? null);
+      if (accessFailure) return c.json(accessFailure, c.get("actor") ? 403 : 401);
+    }
+    if (
+      c.get("actor")?.agentGrant &&
+      !hasSignedWriteHeaders(c.req.raw) &&
+      (operation === "complete_checkout" || operation === "cancel_checkout")
+    ) {
+      return c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
+    }
     emitObserver(options.observer?.signedWriteRejected, {
       transport: "rest",
       operation,
@@ -1440,7 +1424,12 @@ async function invokeRestWrite(
     return c.json(rateLimit, 429);
   }
 
-  const input = handlerInput(c, params);
+  const input = { ...handlerInput(c, params), requestMeta: meta };
+  const preflight = options.preflight?.[operation];
+  if (preflight) {
+    const failure = await preflight(input);
+    if (failure) return c.json(failure, 400);
+  }
   const key = idempotencyScope(operation, meta, input.actor);
   const requestHash = await requestBodyHash(c.req.raw);
   const createdAt = new Date();
@@ -1519,7 +1508,13 @@ async function invokeMcpTool(
     arguments: args,
     request: c.req.raw,
     params: {},
+    requestMeta: meta,
   };
+  const preflight = options.preflight?.[toolName];
+  if (preflight) {
+    const failure = await preflight(input);
+    if (failure) return failure;
+  }
   const key = idempotencyScope(toolName, meta, input.actor);
   const requestHash = mcpToolRequestHash(toolName, args);
   const createdAt = new Date();
@@ -1873,8 +1868,20 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
       if (tool.idempotencyKeyRequired) {
         const signedFailure = await signedWriteFailure(c.req.raw);
         if (signedFailure) {
-          if ("trustedHandoffOnUnsignedMcp" in tool && tool.trustedHandoffOnUnsignedMcp && c.get("actor")) {
-            return respondResult(toolResult(tool, unsignedMcpTrustedHandoff(tool, args)));
+          const actor = c.get("actor");
+          const unsignedAgentGrant =
+            actor?.agentGrant &&
+            !hasSignedWriteHeaders(c.req.raw) &&
+            (tool.name === "complete_checkout" || tool.name === "cancel_checkout");
+          if (
+            !hasSignedWriteHeaders(c.req.raw) &&
+            (tool.name === "complete_checkout" || tool.name === "cancel_checkout")
+          ) {
+            const accessFailure = unsignedCheckoutAccessFailure(actor ?? null);
+            if (accessFailure) return respondResult(toolResult(tool, accessFailure));
+          }
+          if (unsignedAgentGrant) {
+            return respondResult(toolResult(tool, await invokeNonIdempotentMcpTool(c, options, tool, args, meta)));
           }
           emitObserver(options.observer?.signedWriteRejected, {
             transport: "mcp",
@@ -1902,7 +1909,7 @@ export function createUcpMcpRoutes(options: CreateUcpRoutesOptions = {}) {
 
       const result = tool.idempotencyKeyRequired
         ? await invokeMcpTool(c, options, tool, args, idempotencyStore, meta)
-        : await invokeNonIdempotentMcpTool(c, options, tool, args);
+        : await invokeNonIdempotentMcpTool(c, options, tool, args, meta);
 
       if (
         tool.idempotencyKeyRequired &&
@@ -1947,6 +1954,7 @@ async function invokeNonIdempotentMcpTool(
   options: CreateUcpRoutesOptions,
   tool: UcpMcpToolDescriptor,
   args: Readonly<Record<string, unknown>>,
+  meta: UcpRequestMeta,
 ) {
   const limit = await acquireUcpMcpToolCallLease(c, options, tool);
   if (!limit.allowed) {
@@ -1960,6 +1968,7 @@ async function invokeNonIdempotentMcpTool(
       arguments: args,
       request: c.req.raw,
       params: {},
+      requestMeta: meta,
     }) ?? unsupported(tool.name));
   } finally {
     await Promise.resolve(limit.lease?.release()).catch(() => undefined);
@@ -1974,4 +1983,14 @@ function handlerInput(c: Context<UcpRuntimeEnv>, params: Readonly<Record<string,
     request: c.req.raw,
     params,
   };
+}
+
+function hasSignedWriteHeaders(request: Request) {
+  return ["Signature-Input", "Signature", "Content-Digest"].some((name) => request.headers.has(name));
+}
+
+function unsignedCheckoutAccessFailure(actor: ResolvedActor | null) {
+  if (actor?.agentGrant?.scopes.includes("dev.ucp.shopping.checkout:manage")) return null;
+  const code = actor ? "authorization_forbidden" : "authentication_required";
+  return createUcpEnvelope("error", {}, [{ severity: "error", code, message: code }]);
 }

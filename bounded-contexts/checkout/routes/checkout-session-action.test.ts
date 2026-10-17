@@ -88,6 +88,7 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 }));
 
 import { action as checkoutSessionAction } from "./checkout-session";
+import { t } from "@chase-sets/localization";
 
 async function readResolvedFreshWriteToken(location: string | null) {
   const request = new Request(new URL(location ?? "", "http://localhost"));
@@ -146,6 +147,37 @@ function reviewedFulfillmentPreview(revision = "fulfillment_rev_2") {
 }
 
 describe("checkout web routes: checkout session action", () => {
+  it("AC6 refuses an expired covered handoff before confirm or checkout mutations", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockGetCheckoutSession.mockResolvedValue({
+      source_type: "buy-now",
+      order_ids: [],
+      handoff_expires_at: "2000-01-01T00:00:00Z",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    const form = new URLSearchParams({
+      intent: "confirm-checkout",
+      shippingOption: "standard",
+      shippingName: "Synthetic buyer",
+      shippingLine1: "100 Market Street",
+      shippingCity: "Chicago",
+      shippingState: "IL",
+      shippingPostalCode: "60601",
+      shippingCountry: "US",
+    });
+    const result = await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", { method: "POST", body: form }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+    expect(result).toMatchObject({
+      code: "checkout_expired",
+      error: t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description"),
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
   });

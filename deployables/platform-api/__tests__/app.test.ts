@@ -1681,9 +1681,28 @@ describe("platform api app wiring", () => {
   });
 
   it("wires Checkout-owned UCP checkout handlers with platform actor context", async () => {
-    const createBuyNow = vi.fn(async () => ({ sessionId: "chk_1" as never }));
+    // Brief create DTO replaces source inputs and verifies the Discovery/Ordering host ports.
+    const getPublicListingById = vi.fn(async () => ({
+      listing_id: "lst_1",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "cat_1::form:raw",
+      item_title: "Charizard",
+      item_subtitle: null,
+      product_summary: null,
+      selected_options: [],
+      visible_quantity: 3,
+    }));
+    const getPurchase = vi.fn(async () => ({
+      order_id: "ord_1",
+      status: "pending-payment",
+      ready_for_fulfillment_at: null,
+      display_reference: "TEST-1",
+    }));
+    let orders: string[] = [];
+    const checkoutSessionId = "chk_0123456789abcdefghijklmnop";
+    const createBuyNow = vi.fn(async () => ({ sessionId: checkoutSessionId as never }));
     const getSession = vi.fn(async () => ({
-      session_id: "chk_1",
+      session_id: checkoutSessionId,
       buyer_account_id: "acc_buyer",
       source_type: "buy-now",
       optimization_goal: "lowest-total",
@@ -1691,7 +1710,7 @@ describe("platform api app wiring", () => {
       shipping_option: "standard",
       shipping_address: null,
       lines: [],
-      order_ids: [],
+      order_ids: orders,
       payment_id: null,
       submitted_offer_id: null,
       created_at: "2026-05-16T00:00:00.000Z",
@@ -1699,6 +1718,8 @@ describe("platform api app wiring", () => {
     }));
     const app = buildPlatformApiApp(
       createEmptyRuntime({
+        discovery: { items: { market: { getPublicListingById } } },
+        ordering: { orders: { getPurchase } },
         checkout: {
           sessions: {
             commandHandler: vi.fn(),
@@ -1740,34 +1761,52 @@ describe("platform api app wiring", () => {
         },
       },
     );
-    const body = JSON.stringify({
-      source: {
-        type: "buy-now",
-        listing_id: "lst_1",
-        catalog_item_id: "cat_1",
-        product_id: "cat_1::form:raw",
-        title: "Charizard",
-        quantity: 1,
-      },
-    });
-
-    const response = await app.request("/ucp/v1/checkout-sessions", {
-      method: "POST",
-      body,
-      headers: signedUcpHeaders(body),
-    });
-
-    expect(response.status).toBe(200);
-    expect(createBuyNow).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "acc_buyer" }),
-      expect.objectContaining({
-        audit: expect.objectContaining({ forAccountId: "acc_buyer" }),
+    const body = JSON.stringify({ line_items: [{ item: { id: "lst_1" }, quantity: 1 }] });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json({
+        revision: "server_revision",
+        readyLineKeys: ["lst_1"],
+        unavailableLines: [],
+        unavailableLineKeys: [],
+        materialChangeReasons: [],
+        sellerGroups: [],
+        totals: {
+          itemSubtotalAmount: "20.00",
+          shippingAmount: "0.00",
+          salesTaxAmount: "0.00",
+          totalAmount: "20.00",
+          packageCount: 1,
+        },
       }),
     );
-    await expect(response.json()).resolves.toMatchObject({
-      ucp: { status: "ok" },
-      checkout: { id: "chk_1" },
-    });
+
+    try {
+      const response = await app.request("/ucp/v1/checkout-sessions", {
+        method: "POST",
+        body,
+        headers: signedUcpHeaders(body),
+      });
+
+      expect(response.status).toBe(200);
+      expect(getPublicListingById).toHaveBeenCalledExactlyOnceWith("lst_1");
+      expect(createBuyNow).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: "acc_buyer" }),
+        expect.objectContaining({
+          audit: expect.objectContaining({ forAccountId: "acc_buyer" }),
+        }),
+      );
+      await expect(response.json()).resolves.toMatchObject({
+        ucp: { status: "ok" },
+        checkout: { id: checkoutSessionId },
+      });
+      orders = ["ord_1"];
+      await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop", {
+        headers: { "UCP-Agent": 'profile="https://agent.example/.well-known/ucp"' },
+      });
+      expect(getPurchase).toHaveBeenCalledExactlyOnceWith("ord_1", "acc_buyer");
+    } finally {
+      fetch.mockRestore();
+    }
   });
 
   it("exercises UCP MCP discovery, tool calls, resources, and idempotency through the composed platform API", async () => {
