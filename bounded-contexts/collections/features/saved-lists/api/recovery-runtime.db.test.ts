@@ -179,6 +179,8 @@ describeDb("durable Saved List recovery", () => {
       (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
         .rows[0]?.count,
     ).toBe("0");
+  });
+
   it("recovery activation is read per request", async () => {
     await pools.collections.query(
       "UPDATE collections_anonymous_owner_activation SET activated_at = NULL, gate_packet_sha256 = NULL, floor_commit = NULL",
