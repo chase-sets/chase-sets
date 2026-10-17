@@ -260,7 +260,7 @@ describe("staging count capture lifecycle", () => {
         expect(second.intents.at(-1)).not.toBe("capture-baseline");
       } else {
         expect(stop).toMatchObject({ phase: "baseline", reason: "capture-stopped" });
-        expect(stop.evidence).toEqual({});
+        expect("evidence" in stop ? stop.evidence : undefined).toEqual({});
         expect(second.intents.at(-1)).toBe("capture-baseline");
       }
       return { stop, intents: second.intents, fetchBefore };
@@ -277,7 +277,7 @@ describe("staging count capture lifecycle", () => {
       expect(run.intents.at(-1)).not.toBe("count-acquire");
     } else {
       expect(stop).toMatchObject({ phase: "acquisition", reason: "capture-stopped" });
-      expect(stop.evidence).toEqual({});
+      expect("evidence" in stop ? stop.evidence : undefined).toEqual({});
       expect(run.intents.at(-1)).toBe("count-acquire");
       expect(run.intents).not.toContain("capture-freeze");
     }
