@@ -250,6 +250,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
     const UNRESOLVED_ASSIGNMENT_PATTERN = Symbol("unresolved-assignment-pattern");
     const assignmentSourceType = (pattern) => {
       let current = pattern;
+      let spread = false;
       for (let depth = 0; depth <= 32; depth++) {
         const parent = current.parent;
         if (!parent) return NOT_ASSIGNMENT_PATTERN;
@@ -263,6 +264,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
         ) {
           const owner = parent.parent;
+          if (spread) return mutant === "assignment-unresolved-open" ? NOT_ASSIGNMENT_PATTERN : UNRESOLVED_ASSIGNMENT_PATTERN;
           if (
             (ts.isBindingElement(owner) && owner.initializer === parent) ||
             (ts.isPropertyAssignment(owner) && owner.initializer === parent) ||
@@ -280,6 +282,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           }
         }
         if (ts.isForOfStatement(parent) && parent.initializer === current) {
+          if (spread) return mutant === "assignment-unresolved-open" ? NOT_ASSIGNMENT_PATTERN : UNRESOLVED_ASSIGNMENT_PATTERN;
           try {
             return mutant === "assignment-source-syntactic"
               ? typeOf(pattern)
@@ -289,8 +292,10 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           }
         }
         if (ts.isForInStatement(parent) && parent.initializer === current) return UNRESOLVED_ASSIGNMENT_PATTERN;
-        if (ts.isSpreadElement(parent) && ts.isArrayLiteralExpression(parent.parent)) {
-          return mutant === "assignment-unresolved-open" ? NOT_ASSIGNMENT_PATTERN : UNRESOLVED_ASSIGNMENT_PATTERN;
+        if (ts.isSpreadElement(parent) && parent.expression === current && ts.isArrayLiteralExpression(parent.parent)) {
+          spread = true;
+          current = parent.parent;
+          continue;
         }
         if (ts.isBindingElement(parent) && parent.name === current) {
           if (parent.initializer || parent.dotDotDotToken)
@@ -341,7 +346,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
         const keyType = computed && ts.isComputedPropertyName(computed) ? typeOf(computed.expression) : undefined;
         const numeric = keyType && Boolean(keyType.flags & ts.TypeFlags.NumberLike);
         return (
-          (numeric && checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number)) ??
+          (numeric ? checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number) : undefined) ??
           checker.getIndexTypeOfType(sourceType, ts.IndexKind.String) ??
           UNRESOLVED_ASSIGNMENT_PATTERN
         );

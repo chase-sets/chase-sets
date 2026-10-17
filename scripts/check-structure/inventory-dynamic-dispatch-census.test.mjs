@@ -439,6 +439,16 @@ const assignmentClosureControls = [
 
 const briefS3Controls = [
   [
+    "B1",
+    "declare const r: Record<string, H>; export function route() { let a: unknown; ({ [method]: a } = r); return a; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "B2",
+    "declare const r: { [key: string]: H }; export function route() { let a: any; ({ [method]: a } = r); return a[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
     "Y1",
     'declare const m: Record<string, H>; export function route() { let fn: unknown; ({ s: { [method as "createHold"]: fn } } = m); return fn; }',
     "FAMILY_DYNAMIC_KEY",
@@ -561,6 +571,21 @@ const briefS3Controls = [
     "FAMILY_TYPE_ERASURE",
   ],
   ["A19", "export function route(svc: H) { let a: any; [a] = new Set([svc]); return a; }", "FAMILY_TYPE_ERASURE"],
+  [
+    "A14",
+    "export function route() { let a: any; ({ holds: a = undefined } = services); return a[method](context, context); }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "C5",
+    "export function route(svc: H) { let a: any; [...[a]] = [svc]; return a; }",
+    "FAMILY_TYPE_ERASURE",
+  ],
+  [
+    "C6",
+    'declare const rows: H[][]; export function route() { let fn: unknown; for ([...[{ [method as "createHold"]: fn }]] of rows); return fn; }',
+    "FAMILY_DYNAMIC_KEY",
+  ],
 ].map(([id, source, reason]) => ({ id, source, reason }));
 
 const briefS3CleanControls = [
@@ -616,6 +641,16 @@ const briefS3CleanControls = [
     "A13",
     'export function route() { let r: InventoryServices["restockDecisions"]; ({ restockDecisions: r } = services); return r; }',
   ],
+  ["A17", "declare const t: number[]; export function route() { let a: any; [a] = t; return a; }"],
+  ["B9", "declare const r: { [n: number]: number }; declare const n: number; export function route() { let a: unknown; ({ [n]: a } = r); return a; }"],
+  [
+    "E3",
+    "declare const r: { [key: string]: H }; export function route() { let h: H; ({ [method]: h } = r); return h; }",
+  ],
+  ["C1", "export function route(x: any) { const xs = [...[x]]; return xs; }"],
+  ["C2", "export function route() { consume([...[{ [method]: 1 }]]); }"],
+  ["C3", "export function route(x: unknown) { let xs: unknown[]; xs = [...[x]]; return xs; }"],
+  ["C4", "export function route(x: any) { return [...[{ value: x }]]; }"],
 ].map(([id, source]) => ({ id, source }));
 
 async function matrix(cases, run) {
@@ -676,9 +711,9 @@ describe("issue-7169-destructuring-assignment-closure", () => {
 
   it.each([
     ["assignment-source-syntactic", ["Y1", "Y2", "Y3", "Y3c", "Y4", "Y5", "Y6", "Y7", "Y8"]],
-    ["assignment-unresolved-open", ["G1", "G2", "G3", "G4"]],
+    ["assignment-unresolved-open", ["G1", "G2", "G3", "G4", "C6"]],
     ["assignment-default-trusted", ["G1", "G2", "G4"]],
-    ["assignment-target-erasure-off", ["L1", "L2", "L6", "L9", "L11", "L12"]],
+    ["assignment-target-erasure-off", ["L1", "L2", "L6", "L9", "L11", "L12", "B2", "A14"]],
   ])("kills the %s S3 bypass", async (mutant, ids) => {
     const controls = briefS3Controls.filter(({ id }) => ids.includes(id));
     await matrix(controls, ({ root, roots, program, families, fixtures }) => {
