@@ -284,11 +284,12 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     page,
   }, testInfo) => {
     // Signed-out session: the layout renders no header actions, so the complete
-    // sequential order below md is SkipLink, brand link, search input, search
-    // trigger, first main-content focusable. Every stop below is produced by a
+    // sequential order below md is SkipLink, brand link, search input, first
+    // main-content focusable. The hydrated trigger is tabindex=-1. Every stop below is produced by a
     // real Tab or Shift+Tab key press; no scripted focus() appears anywhere.
     await openAtViewport(page, itemRoutePath, phoneViewport);
     await waitForSearchRowPhase(page, "expanded");
+    await expect(page.locator(`${slotSelector} button`)).toHaveAttribute("tabindex", "-1");
 
     type TraceStop = {
       direction: "tab" | "shift-tab" | "drive";
@@ -377,8 +378,8 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
     await recordStop("tab");
 
-    // Reverse: Tab until focus reaches the first focusable inside
-    // #main-content, which the trace names.
+    // Forward Tab skips the hydrated combobox trigger (tabindex=-1) and
+    // reaches the first focusable inside #main-content, which the trace names.
     let reachedMain = false;
     for (let press = 0; press < 40 && !reachedMain; press += 1) {
       await page.keyboard.press("Tab");
@@ -399,31 +400,31 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(64, 0);
     await recordStop("drive");
 
-    // The next Shift+Tab stops on the search trigger — the last header
-    // focusable when signed out — expanding the row to 124px.
+    // Reverse traversal stops on the search input first — the last sequential
+    // header focusable when signed out — expanding the row to 124px.
     await page.keyboard.press("Shift+Tab");
     await waitForSearchRowPhase(page, "expanded");
     const triggerFacts = await page.evaluate(() => {
-      const active = document.activeElement;
-      return {
-        isButton: active instanceof HTMLButtonElement,
-        inSlot: active?.closest("[data-search-row-slot]") !== null,
-      };
-    });
-    expect(triggerFacts).toEqual({ isButton: true, inSlot: true });
-    expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
-    await recordStop("shift-tab");
-
-    // And the one after it on the search input, still expanded at 124px.
-    await page.keyboard.press("Shift+Tab");
-    const reverseInputFacts = await page.evaluate(() => {
       const active = document.activeElement;
       return {
         isSearchInput: active instanceof HTMLInputElement,
         inSlot: active?.closest("[data-search-row-slot]") !== null,
       };
     });
-    expect(reverseInputFacts).toEqual({ isSearchInput: true, inSlot: true });
+    expect(triggerFacts).toEqual({ isSearchInput: true, inSlot: true });
+    expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
+    await recordStop("shift-tab");
+
+    // And the one after it on the brand link, still expanded at 124px.
+    await page.keyboard.press("Shift+Tab");
+    const reverseBrandFacts = await page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        isBrandLink: active instanceof HTMLAnchorElement && active.getAttribute("href") === "/",
+        inHeader: active?.closest('[data-shell-header-box="reserved"]') !== null,
+      };
+    });
+    expect(reverseBrandFacts).toEqual({ isBrandLink: true, inHeader: true });
     expect(await page.locator(shellSelector).getAttribute("data-search-row-state")).toBe("expanded");
     expect(await resolvedHeaderHeightPx(page)).toBeCloseTo(124, 0);
     await recordStop("shift-tab");

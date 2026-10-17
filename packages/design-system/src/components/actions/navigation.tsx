@@ -11,7 +11,6 @@ import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
 import { resolveOverlayMotion } from "../feedback/motion-overlay";
 import { controlHeightClasses, controlSquareSizeClasses } from "../control-sizing";
-import { SearchRowHeaderFrame } from "../../patterns/app-shells/search-row-phase";
 import { renderActivePill, renderActivePillGroup } from "./shared";
 
 export interface NavigationItem {
@@ -23,6 +22,53 @@ export interface NavigationItem {
   placement?: "primary" | "utility";
   avatar?: ReactNode;
   children?: NavigationItem[];
+}
+
+function SearchRowHeaderFrame({
+  navProps,
+  width,
+  reducedMotion,
+  searchRowState,
+  brand,
+  search,
+  actions,
+}: {
+  navProps: HTMLAttributes<HTMLElement> & { readonly "data-shell-header-box"?: string };
+  width: LayoutWidth;
+  reducedMotion: boolean;
+  searchRowState: "expanded" | "collapsed";
+  brand: ReactNode;
+  search: ReactNode;
+  actions: ReactNode;
+}) {
+  const navClassName = "sticky top-0 z-sticky max-md:h-[7.75rem] max-md:pointer-events-none";
+  const paintedClassName = cx(
+    "pointer-events-auto border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
+    "max-md:overflow-hidden",
+    reducedMotion ? undefined : "transition-[height] duration-200",
+    searchRowState === "collapsed" ? "max-md:h-16" : "max-md:h-[7.75rem]",
+  );
+  const slotClassName = cx(
+    "order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1",
+    "grid",
+    reducedMotion ? undefined : "transition-[grid-template-rows] duration-200",
+    searchRowState === "collapsed" ? "pointer-events-none grid-rows-[0fr]" : "grid-rows-[1fr]",
+  );
+  return (
+    <nav {...navProps} {...{ className: navClassName }}>
+      <div data-shell-header-box="painted" {...{ className: paintedClassName }}>
+        <Container width={width} paddingX={0}>
+          <Cluster justify="between" gap={4}>
+            {brand}
+            <div data-search-row-slot="" {...{ className: slotClassName }}>
+              <div {...{ className: "pointer-events-auto min-h-0 max-md:overflow-hidden" }}>{search}</div>
+            </div>
+            {actions}
+          </Cluster>
+        </Container>
+      </div>
+    </nav>
+  );
 }
 
 /**
@@ -587,7 +633,10 @@ export function TopNav({
     <nav
       {...rest}
       aria-label={navLabel}
-      className="sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl"
+      {...{
+        className:
+          "sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
+      }}
     >
       <Container width={width} paddingX={0}>
         <Cluster justify="between" gap={4}>

@@ -3,9 +3,7 @@
 // from shells.tsx publishes it at the package root through the wildcard chain, so
 // the reducer and hook live here and are imported privately by shells.tsx and by
 // their own tests only (see theme/internal-token-values.ts for the precedent).
-import { createElement, useCallback, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
-import { Container, Cluster, type LayoutWidth } from "../../primitives/layout";
-import { cx } from "../../utils/cx";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type SearchRowPhase = "inert" | "expanded" | "collapsed";
 export type SearchRowPolicy = "always-expanded" | "collapsible";
@@ -35,66 +33,6 @@ export interface SearchRowState {
 export const COLLAPSE_FLOOR = 96;
 export const DIRECTION_DELTA = 24;
 export const SEED_PHASE: SearchRowPhase = "collapsed";
-
-export interface SearchRowHeaderFrameProps {
-  readonly navProps: HTMLAttributes<HTMLElement> & { readonly "data-shell-header-box"?: string };
-  readonly width: LayoutWidth;
-  readonly reducedMotion: boolean;
-  readonly searchRowState: "expanded" | "collapsed";
-  readonly brand: ReactNode;
-  readonly search: ReactNode;
-  readonly actions: ReactNode;
-}
-
-export function SearchRowHeaderFrame({
-  navProps,
-  width,
-  reducedMotion,
-  searchRowState,
-  brand,
-  search,
-  actions,
-}: SearchRowHeaderFrameProps) {
-  return createElement(
-    "nav",
-    { ...navProps, className: "sticky top-0 z-sticky max-md:h-[7.75rem] max-md:pointer-events-none" },
-    createElement(
-      "div",
-      {
-        "data-shell-header-box": "painted",
-        className: cx(
-          "pointer-events-auto border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
-          "max-md:overflow-hidden",
-          reducedMotion ? undefined : "transition-[height] duration-200",
-          searchRowState === "collapsed" ? "max-md:h-16" : "max-md:h-[7.75rem]",
-        ),
-      },
-      createElement(
-        Container,
-        { width, paddingX: 0 },
-        createElement(
-          Cluster,
-          { justify: "between", gap: 4 },
-          brand,
-          createElement(
-            "div",
-            {
-              "data-search-row-slot": "",
-              className: cx(
-                "order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1",
-                "grid",
-                reducedMotion ? undefined : "transition-[grid-template-rows] duration-200",
-                searchRowState === "collapsed" ? "pointer-events-none grid-rows-[0fr]" : "grid-rows-[1fr]",
-              ),
-            },
-            createElement("div", { className: "pointer-events-auto min-h-0 max-md:overflow-hidden" }, search),
-          ),
-          actions,
-        ),
-      ),
-    ),
-  );
-}
 
 // The complete event alphabet: exactly five events, each carrying a full
 // environment recomputed from live observation at dispatch time.
