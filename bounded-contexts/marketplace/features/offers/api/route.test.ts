@@ -665,7 +665,7 @@ describe("buyer Offer lifecycle routes", () => {
   async function lifecycleApps(
     offerIds: Readonly<Record<string, string>>,
     lifecycleOpen = true,
-    buyerAccountStatus: string | null = null,
+    accountStatus: string | null = null,
   ) {
     const eventStore = createInMemoryEventStore().eventStore;
     const appendToStreams = vi.spyOn(eventStore, "appendToStreams");
@@ -673,7 +673,7 @@ describe("buyer Offer lifecycle routes", () => {
     const services = createMarketplaceOfferRuntime({
       ...(lifecycleOpen ? { offerLifecycleAdmission: { check: async () => ({ admitted: true }) as const } } : {}),
       eventStore,
-      db: { query: vi.fn(async () => ({ rows: buyerAccountStatus ? [{ account_status: buyerAccountStatus }] : [] })) },
+      db: { query: vi.fn(async () => ({ rows: accountStatus ? [{ account_status: accountStatus }] : [] })) },
       checkpointStore: {} as never,
       commercialTermsResolver: {} as never,
     });
@@ -803,7 +803,7 @@ describe("buyer Offer lifecycle routes", () => {
     });
   });
 
-  it("hides the buyer account status when accepting a suspended buyer Offer", async () => {
+  it("hides the counterparty status when accepting a suspended Offer", async () => {
     const { seller } = await lifecycleApps({ off_1: "acc_buyer" }, true, "suspended");
     const accept = await post(seller, "/offers/matches/off_1/accept", {
       listingId: "lst_1",
