@@ -369,21 +369,7 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
   const failures: ReadonlyArray<readonly [string, string, (base: IdentityServices) => IdentityServices, boolean]> = [
     ["a stream read error", "admin-qa-owner", (base) => failingRead(base, OWNER_USER), false],
     ["an incomplete page", "admin-qa-owner", (base) => gappedRead(base, OWNER_ACCOUNT), true],
-    [
-      "a state read error",
-      "admin-qa-manager",
-      (base) => ({
-        ...base,
-        memberships: {
-          ...base.memberships,
-          getMembershipState: async (membershipId: string) => {
-            if (membershipId === "mbr_admin_qa_manager") throw new Error("synthetic state read failure");
-            return base.memberships.getMembershipState(membershipId);
-          },
-        },
-      }),
-      false,
-    ],
+    ["a Membership stream read error", "admin-qa-manager", (base) => failingRead(base, MANAGER_MEMBERSHIP), false],
     ["a viewer secondary read error", VIEWER, (base) => failingRead(base, SECONDARY_MEMBERSHIP), false],
   ];
 
