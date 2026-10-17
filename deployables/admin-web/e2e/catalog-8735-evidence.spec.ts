@@ -203,7 +203,13 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
   const screenshots: { name: string; sha256: string }[] = [];
   receipt.screenshots = screenshots;
   const snap = async (name: string) => {
-    const bytes = await page.screenshot({ path: path.join(out, name), fullPage: true });
+    if (["01-populated-first-load.png", "04-narrowed-empty.png", "05-other-scope.png"].includes(name)) {
+      await page.getByRole("radio", { name: /^All \(/ }).evaluate((element) => {
+        element.scrollIntoView({ block: "start" });
+        window.scrollBy(0, -240);
+      });
+    }
+    const bytes = await page.screenshot({ path: path.join(out, name), fullPage: false });
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     screenshots.push({ name, sha256 });
     persist();
@@ -296,6 +302,9 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       save("fixture-readback.json", { rows: fixture.rows, counts: counts.rows, kind: receipt.fixtureKind });
       assert.equal(fixture.rows.length, 1);
       assert.equal(fixture.rows[0].status, "promoted");
+      assert.equal(fixture.rows[0].provider_key, "tcgdex");
+      assert.equal(fixture.rows[0].external_key, "base2-60");
+      assert.equal(fixture.rows[0].language_code, "en");
       assert.equal(fixture.rows[0].name, "Pikachu");
       assert.equal(fixture.rows[0].set_id.toLowerCase(), "base2");
       assert.ok(
@@ -462,7 +471,15 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       requestCount: requests.length,
       requests,
       observationId: payload.observationId,
-      detail: payload.detail,
+      detail: {
+        observationId: payload.detail.observationId,
+        providerKey: payload.detail.providerKey,
+        externalKey: payload.detail.externalKey,
+        sourceUrl: payload.detail.sourceUrl,
+        sourceRecordHash: payload.detail.sourceRecordHash,
+        observedAt: payload.detail.observedAt,
+        sourceProfileVersion: payload.detail.sourceProfileVersion,
+      },
     };
     save("network-identity-receipt.json", network);
     receipt.network = network;
@@ -479,7 +496,11 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     ])
       await expect(dialog).toContainText(text);
     await expect(page.locator('[data-catalog-observation-evidence="error"]')).toHaveCount(0);
-    await expect(review).toBeAttached();
+    const mountedReview = page.locator("table").filter({
+      has: page.locator("caption").filter({ hasText: /^Source Observation review$/ }),
+    });
+    await expect(mountedReview).toHaveCount(1);
+    await expect(mountedReview).toBeAttached();
     await checkProvider();
     receipt.loadedDom = { url: page.url(), dialogText: await dialog.innerText(), reviewMounted: true, errorCount: 0 };
     await snap("03-sheet-loaded.png");
