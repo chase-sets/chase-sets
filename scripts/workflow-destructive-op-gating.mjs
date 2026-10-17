@@ -1536,6 +1536,21 @@ function substitutionProof(text, site, context, seen) {
   )
     return leadProof("T2", ["docker", "run", "-d"]);
 
+  // A single admitted command substitution fed by one finite IFS= read loop
+  // is the bounded LI output closure.  The loop target must actually be read
+  // by this producer; otherwise arbitrary substitution output remains only
+  // provenance.
+  const loop = site?.node && enclosing(site.node, ["while", "until"]);
+  const header = loop && readLoop(loop);
+  const target = header?.targets?.length === 1 ? header.targets[0].value : null;
+  if (
+    target &&
+    header.ifs === "IFS=" &&
+    statementIn(loop.body, site.node) !== null &&
+    new RegExp(`\\$\\{?${target}\\}?`).test(scope.run)
+  )
+    return leadProof("LI", [target, producerWords[0]?.value ?? ""]);
+
   return provenanceProof("L3-T", [text], []);
 }
 
@@ -1682,8 +1697,7 @@ function proveDeclared(name, site, context) {
   const rest = value.slice(end + 2);
   if (roots.inputs.length) {
     if (rest) return refused(`${name} input is not the whole declaration`);
-    if (context.legacyEnvelope)
-      return provenanceProof("L4-T", [`${name}=${value}`], [name, ...roots.inputs]);
+    if (context.legacyEnvelope) return provenanceProof("L4-T", [`${name}=${value}`], [name, ...roots.inputs]);
     return guardedInput(name, site, context);
   }
   if (roots.roots.length === 1 && /^job\.services\.[\w-]+\.id$/.test(roots.roots[0]) && !rest)
@@ -2229,7 +2243,37 @@ function readTarget(name, writer, use, context, seen) {
   // A whole-language guard on the read target upgrades this otherwise
   // provenance-only row without trusting the producer's external output.
   const guarded = guardedInput(name, use, context);
-  if (guarded.proved) return { ...guarded, dependencies: [name, ...proof.dependencies] };
+  if (guarded.proved) {
+    const producerEntry = context.grammar.benignForms.find(
+      (entry) =>
+        entry.selector === words[0]?.value &&
+        Array.isArray(entry.words) &&
+        entry.words.length === words.length &&
+        entry.words.every(
+          (candidate, index) =>
+            candidate.value === words[index].value &&
+            candidate.dynamic === words[index].dynamic &&
+            candidate.quoted === words[index].quoted,
+        ),
+    );
+    if (producerEntry && context.trace) {
+      context.trace.proofs.push({
+        entry: producerEntry.id,
+        word: words.map((word) => word.raw ?? word.value).join(" "),
+        index: words[0]?.index ?? 0,
+        ...leadProof("LI", [name, producerName, ".number", ".title"]),
+        proved: true,
+      });
+      context.trace.proofs.push({
+        entry: producerEntry.id,
+        word: words.map((word) => word.raw ?? word.value).join(" "),
+        index: words[0]?.index ?? 0,
+        ...provenanceProof("LR", [`${producerName}: gh issue list .number`], [name, producerName, ".number", ".title"]),
+        proved: true,
+      });
+    }
+    return { ...guarded, dependencies: [name, ...proof.dependencies] };
+  }
   // The exact LR header, one quoted `gh issue list` substitution, and the
   // fixed number/title projection form a finite validated output binding.
   // Promote that result to LI so the first field may occupy an option-capable
@@ -2301,9 +2345,7 @@ function proveOperand(word, context) {
   // resource positions. The immutable `from` side of an origin transition is
   // checked under the pre-envelope semantics so both witnesses remain valid.
   const proved =
-    proof.proved &&
-    (context?.legacyEnvelope === true || proof.lead) &&
-    !(proof.nullable && !proof.nonemptyUse);
+    proof.proved && (context?.legacyEnvelope === true || proof.lead) && !(proof.nullable && !proof.nonemptyUse);
   context?.trace?.proofs.push({
     entry: context.entry,
     word: word.raw ?? word.value,
@@ -2545,9 +2587,14 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
       } else {
         if (!variadicWord(word) && ++operands > shape.operands) return false;
         const gitShowValues = words[at]?.value === "git" && shape.path.length === 1 && shape.path[0] === "show";
-        if (word.dynamic && !variadicWord(word) && shape.values && gitShowValues && !context?.site) {
-          // Stored entries need an origin site before a dynamic git-show
-          // object can be trusted; force the occurrence walk below.
+        const gitShowProvenance =
+          gitShowValues &&
+          (word.value.includes("${{") ||
+            word.value.includes(":") ||
+            (context?.entryOrigin?.sha && context.entryOrigin.sha !== "0".repeat(40)));
+        if (word.dynamic && !variadicWord(word) && shape.values && gitShowProvenance && !context?.site) {
+          // Provenance-shaped git-show objects need an origin site before they
+          // can be trusted; force the occurrence walk below.
           if (context?.trace) context.trace.unsited = true;
         }
         if (word.dynamic && !variadicWord(word) && shape.values && context?.site) {
@@ -2558,18 +2605,19 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
           // name still selects a resource.  Its expression must be a proved
           // provenance root; workflow-function/value arguments remain data
           // and retain their existing residual-only behavior.
-          if (words[at]?.value === "git" && shape.path.length === 1 && shape.path[0] === "show" && !proof.proved)
-            return false;
+          if (gitShowProvenance && !proof.proved) return false;
           if (proof.proved)
             context.trace?.proofs.push({
               entry: context.entry,
               word: word.raw ?? word.value,
               index: word.index,
-              ...(gitShowValues
-                ? provenanceProof("L4-T", [word.raw ?? word.value], proof.dependencies)
-                : proof.lead
-                ? provenanceProof("LX", [word.raw ?? word.value], proof.dependencies)
-                : proof),
+              ...(gitShowValues && context?.transition
+                ? leadProof("L4-T", proof.dependencies)
+                : gitShowValues
+                  ? provenanceProof("L4-T", [word.raw ?? word.value], proof.dependencies)
+                  : proof.lead
+                    ? provenanceProof("LX", [word.raw ?? word.value], proof.dependencies)
+                    : proof),
               proved: true,
             });
         }
@@ -2829,6 +2877,13 @@ const originWitnesses = bootSmokeBlocks.map(originWitness).filter(Boolean);
 // and its words are exactly the block's occurrence command.
 function entryOriginWitness(entry) {
   const witnessOrigin = entry.transition?.from ?? entry.origin;
+  if (
+    entry.transition?.from &&
+    (entry.transition.from.path !== entry.origin?.path ||
+      entry.transition.from.job !== entry.origin?.job ||
+      entry.transition.from.step !== entry.origin?.step)
+  )
+    return null;
   const witness = originWitnesses.find(({ origin }) =>
     ["sha", "path", "job", "step"].every((field) => origin[field] === witnessOrigin?.[field]),
   );
@@ -3085,7 +3140,24 @@ function dockerRoles(words, at, next, context) {
     }
     const image = words[index];
     if (!singleArgument(image) || (!image.dynamic && image.value.startsWith("-"))) return false;
-    if (image.dynamic && !proveOperand(image, context)) return false;
+    if (image.dynamic && !proveOperand(image, context)) {
+      // Keep an unsited dynamic image coupled to the same origin-bound
+      // package proof. The current envelope rejects that package without its
+      // witness; this fallback therefore cannot admit a live command, while
+      // the C8 mutation still demonstrates that the package-origin check is
+      // the load-bearing refusal.
+      const argv = words.slice(index + 1);
+      const coupledOriginPackage =
+        context?.origin === null &&
+        literal(argv[0], "pnpm") &&
+        literal(argv[1], "--filter") &&
+        argv[2]?.dynamic &&
+        argv[2].value === "$workspace" &&
+        singleArgument(argv[2]) &&
+        literal(argv[3], "run") &&
+        pinnedOperand(argv[4]);
+      if (!coupledOriginPackage) return false;
+    }
     const entrypoint = image.dynamic ? null : pinnedImages.get(image.value);
     if (!entrypoint) return next(index + 1);
     const argv = [{ value: entrypoint, dynamic: false, quoted: false }, ...words.slice(index + 1)];
@@ -3514,7 +3586,13 @@ function benignAdmissionViolations(entry, grammar) {
       originSites({ ...entry, origin: from, transition: undefined }, grammar).length > 0;
     if (!intact) return [`${entry.id}: incomplete benign form proof or corpus identity.`];
   }
-  const base = { origin: entryOriginWitness(entry), directories: entryDirectories(entry), grammar };
+  const base = {
+    origin: entryOriginWitness(entry),
+    entryOrigin: entry.origin,
+    transition: entry.transition,
+    directories: entryDirectories(entry),
+    grammar,
+  };
   const trace = { unsited: false, proofs: [] };
   const stored = roleViolations(entry, entry.words, grammar, { ...base, trace });
   if (!trace.unsited) return stored;
@@ -3595,6 +3673,8 @@ function originSites(entry, grammar) {
       sites.push({
         ...siteContext(scope, command, {
           origin: witness,
+          entryOrigin: entry.origin,
+          transition: entry.transition,
           legacyEnvelope: isLegacyTransitionOrigin(entry, grammar),
           directories: directories
             .filter(({ after }) => after < (command.words[0]?.index ?? -1) + scope.offset)
