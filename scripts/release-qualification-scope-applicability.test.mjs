@@ -630,7 +630,10 @@ describe("release qualification applicability evaluator", () => {
     ["E5 detached read", "export const f = (store) => store.readStream;"],
     ["E6 detached alias", "export const f = (store, input) => { const read = store.readStream; return read(input); };"],
     ["E13 append member", "export const f = (store, input) => store.appendToStream(input);"],
-    ["AC6 property-renamed destructuring", "export const f = (store, input) => { const { readStream: read } = store; return read(input); };"],
+    [
+      "AC6 property-renamed destructuring",
+      "export const f = (store, input) => { const { readStream: read } = store; return read(input); };",
+    ],
     ["AC7 optional append member", "export const f = (store, input) => store.appendToStreams(input);"],
     ["nested arrow", "export const f = (store, input) => () => store.readStream(input);"],
     [
@@ -856,7 +859,8 @@ describe("release qualification applicability evaluator", () => {
       const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
       const specifiers = [];
       const add = (node) => {
-        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) specifiers.push(node.moduleSpecifier.text);
+        if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier))
+          specifiers.push(node.moduleSpecifier.text);
         if (ts.isCallExpression(node) && (ts.isIdentifier(node.expression) ? node.expression.text : "") === "require") {
           if (ts.isStringLiteral(node.arguments[0])) specifiers.push(node.arguments[0].text);
         }
@@ -868,18 +872,22 @@ describe("release qualification applicability evaluator", () => {
       add(parsed);
       for (const specifier of specifiers.filter((value) => value.startsWith("."))) {
         const base = path.resolve(path.dirname(file), specifier);
-        const target = [base, `${base}.mjs`, `${base}.js`, `${base}.json`, path.join(base, "index.mjs")].find((candidate) => {
-          try {
-            return readFileSync(candidate);
-          } catch {
-            return false;
-          }
-        });
+        const target = [base, `${base}.mjs`, `${base}.js`, `${base}.json`, path.join(base, "index.mjs")].find(
+          (candidate) => {
+            try {
+              return readFileSync(candidate);
+            } catch {
+              return false;
+            }
+          },
+        );
         if (target) visit(target);
       }
     };
     visit(path.resolve("scripts/release-qualification-scope.mjs"));
-    expect([...staticClosure].some((file) => file.endsWith("release-qualification-scope-applicability.mjs"))).toBe(false);
+    expect([...staticClosure].some((file) => file.endsWith("release-qualification-scope-applicability.mjs"))).toBe(
+      false,
+    );
 
     const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
       .split(/\r?\n/)
@@ -894,7 +902,8 @@ describe("release qualification applicability evaluator", () => {
       if (
         !["bounded-contexts", "contracts", "deployables", "infrastructure", "scripts"].some((root) =>
           filePath.startsWith(`${root}/`),
-        ) || excludedPattern.test(filePath)
+        ) ||
+        excludedPattern.test(filePath)
       )
         return false;
       if (pathTokenPattern.test(filePath)) return true;
@@ -913,30 +922,40 @@ describe("release qualification applicability evaluator", () => {
       readFileAt: readReal,
     });
     const records = discovered
-      .map((filePath) =>
-        classifyReleaseQualificationScope({
-          base: { sha: "a".repeat(40), treeSha: "b".repeat(40) },
-          candidate: { sha: "c".repeat(40), treeSha: "d".repeat(40) },
-          changedFiles: [{ path: filePath, status: "modified" }],
-          readFileAt: readReal,
-          releaseWorkflowScriptReferences,
-          now,
-        }).files[0],
+      .map(
+        (filePath) =>
+          classifyReleaseQualificationScope({
+            base: { sha: "a".repeat(40), treeSha: "b".repeat(40) },
+            candidate: { sha: "c".repeat(40), treeSha: "d".repeat(40) },
+            changedFiles: [{ path: filePath, status: "modified" }],
+            readFileAt: readReal,
+            releaseWorkflowScriptReferences,
+            now,
+          }).files[0],
       )
       .sort((left, right) => left.path.localeCompare(right.path, "en"));
     const histogram = Object.fromEntries(
-      [...new Set(records.map((record) => record.class))].sort().map((className) => [className, records.filter((record) => record.class === className).length]),
+      [...new Set(records.map((record) => record.class))]
+        .sort()
+        .map((className) => [className, records.filter((record) => record.class === className).length]),
     );
     const digest = createHash("sha256").update(JSON.stringify(records)).digest("hex");
     process.stdout.write(`AC12_CANDIDATE_RECORDS ${JSON.stringify({ count: records.length, histogram, digest })}\n`);
     expect(records.some((record) => record.path.endsWith("release-qualification-scope-applicability.mjs"))).toBe(false);
-    expect(records.some((record) => record.path.endsWith("release-qualification-scope-applicability.test.mjs"))).toBe(false);
+    expect(records.some((record) => record.path.endsWith("release-qualification-scope-applicability.test.mjs"))).toBe(
+      false,
+    );
 
     const candidate = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
     const forkPoint = execFileSync("git", ["merge-base", "HEAD", "origin/main"], { encoding: "utf8" }).trim();
     const tree = (sha) => execFileSync("git", ["rev-parse", `${sha}^{tree}`], { encoding: "utf8" }).trim();
     expect(tree(candidate)).not.toBe(tree(forkPoint));
-    expect(execFileSync("git", ["diff", "--name-only", forkPoint, candidate], { encoding: "utf8" }).trim().split(/\r?\n/).filter(Boolean)).toEqual([
+    expect(
+      execFileSync("git", ["diff", "--name-only", forkPoint, candidate], { encoding: "utf8" })
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean),
+    ).toEqual([
       "scripts/release-qualification-scope-applicability.mjs",
       "scripts/release-qualification-scope-applicability.test.mjs",
     ]);
