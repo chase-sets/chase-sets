@@ -265,7 +265,7 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           try {
             return mutant === "assignment-source-syntactic"
               ? typeOf(pattern)
-              : checker.getTypeOfAssignmentPattern(pattern) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+              : (checker.getTypeOfAssignmentPattern(pattern) ?? UNRESOLVED_ASSIGNMENT_PATTERN);
           } catch {
             return UNRESOLVED_ASSIGNMENT_PATTERN;
           }
@@ -274,13 +274,12 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           try {
             return mutant === "assignment-source-syntactic"
               ? typeOf(pattern)
-              : checker.getTypeOfAssignmentPattern(pattern) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+              : (checker.getTypeOfAssignmentPattern(pattern) ?? UNRESOLVED_ASSIGNMENT_PATTERN);
           } catch {
             return UNRESOLVED_ASSIGNMENT_PATTERN;
           }
         }
-        if (ts.isForInStatement(parent) && parent.initializer === current)
-          return UNRESOLVED_ASSIGNMENT_PATTERN;
+        if (ts.isForInStatement(parent) && parent.initializer === current) return UNRESOLVED_ASSIGNMENT_PATTERN;
         if (ts.isBindingElement(parent) && parent.name === current) {
           if (parent.initializer || parent.dotDotDotToken)
             return mutant === "assignment-unresolved-open" ||
@@ -341,22 +340,17 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           symbol = undefined;
         }
       } else {
-        const target = ts.isPropertyAssignment(element)
-          ? element.initializer
-          : element.name ?? element.expression;
+        const target = ts.isPropertyAssignment(element) ? element.initializer : (element.name ?? element.expression);
         symbol = target && checker.getSymbolAtLocation(target);
       }
-      const fallback = ts.isPropertyAssignment(element)
-        ? element.initializer
-        : element.name ?? element.expression;
+      const fallback = ts.isPropertyAssignment(element) ? element.initializer : (element.name ?? element.expression);
       return symbol ? checker.getTypeOfSymbolAtLocation(symbol, element) : typeOf(fallback);
     };
     const inspectPattern = (pattern) => {
       const assignment = assignmentSourceType(pattern);
       const sourceType = assignment === NOT_ASSIGNMENT_PATTERN ? typeOf(pattern) : assignment;
       if (assignment === NOT_ASSIGNMENT_PATTERN && !ts.isObjectBindingPattern(pattern)) return;
-      const sourceFamily =
-        sourceType === UNRESOLVED_ASSIGNMENT_PATTERN || (sourceType && isFamily(sourceType));
+      const sourceFamily = sourceType === UNRESOLVED_ASSIGNMENT_PATTERN || (sourceType && isFamily(sourceType));
       if (!sourceFamily) return;
       const elements = ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties;
       for (const element of elements) {
