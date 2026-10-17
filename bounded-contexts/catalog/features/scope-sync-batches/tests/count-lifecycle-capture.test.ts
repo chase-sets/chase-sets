@@ -355,11 +355,12 @@ describe("staging count capture lifecycle", () => {
   });
   it("the cap overflow guard-disabled mutant proceeds past acquisition", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
+    let raise = false;
     const counts = {
       ...f.runtime,
       getCountQuote: async (input: Parameters<typeof f.runtime.getCountQuote>[0]) => ({
         ...(await f.runtime.getCountQuote(input)),
-        cap: countCapturePhaseCaps.acquisition + 1,
+        cap: raise ? countCapturePhaseCaps.acquisition + 1 : countCapturePhaseCaps.acquisition,
       }),
     };
     const lifecycle = captureLifecycleMutant(
@@ -375,7 +376,15 @@ describe("staging count capture lifecycle", () => {
         ])(f.pool, () => f.clock.now),
       }),
     );
-    const run = journey(f, lifecycle);
+    const run = journey(f, lifecycle, async (intent, post) => {
+      if (intent === "count-acquire") {
+        raise = true;
+        const response = await post();
+        raise = false;
+        return response;
+      }
+      return post();
+    });
     expect(((await run.result) as { reason?: string }).reason).not.toBe("capture-stopped");
     expect(run.intents.at(-1)).not.toBe("count-acquire");
   });
