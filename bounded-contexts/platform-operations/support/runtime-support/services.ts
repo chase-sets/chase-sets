@@ -22,6 +22,7 @@ import { createOpsDashboardRuntime } from "../../features/insights-dashboards/ap
 import type { OpsMarketAnalyticsCrossContextPort } from "../../features/insights-dashboards/api/ops-contracts";
 import { createOfferEconomicsRuntime } from "../../features/offer-economics/api/offer-economics-runtime";
 import type { OfferEconomicsCrossContextPort } from "../../features/offer-economics/api/offer-economics-contracts";
+import type { PayoutReviewHoldCrossContextPort } from "../../features/risk-alerts/api/cross-context";
 import { rateLimitPolicy } from "../../features/rate-limit-policy/domain/rate-limit-policy";
 import { createReportedContentRuntime } from "../../features/reported-content/api/runtime";
 import { createRiskAlertRuntime } from "../../features/risk-alerts/api/runtime";
@@ -85,6 +86,7 @@ export type PlatformOperationsHostPorts = Readonly<{
    * contexts' own exported functions bound to their own pools.
    */
   offerEconomicsCrossContext?: OfferEconomicsCrossContextPort;
+  payoutReviewHoldCrossContext?: PayoutReviewHoldCrossContextPort;
 }>;
 
 export type PlatformOperationsServices = Readonly<{
@@ -129,7 +131,11 @@ export function createPlatformOperationsServices(
   const publicDocReviews = createPublicDocReviewRuntime({ db, eventStore });
   const commercialTermsAttention = createCommercialTermsAttentionRuntime(db);
   const reportedContent = createReportedContentRuntime({ db, eventStore });
-  const riskAlerts = createRiskAlertRuntime({ db, eventStore });
+  const riskAlerts = createRiskAlertRuntime({
+    db,
+    eventStore,
+    payoutReviewHoldCrossContext: ports.payoutReviewHoldCrossContext,
+  });
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const policies = createPolicyRuntime({ eventStore, db });
   const supportRequests = createSupportRequestRuntime({

@@ -249,7 +249,7 @@ describe("pricing preset contract", () => {
   };
   // Sorted non-pricing sets, including the platform-admin-only reported-content and projection-operations grants.
   const predecessor = {
-    "platform-admin": "209c0bd015d367f005d7ea75f15101c0273c9bf0266e7b42005d8326aad3310c",
+    "platform-admin": "783c68e9b946919206e54caa8767d024561c343adfc28b9752cffadb1083995f",
     owner: "8dbce908e11a530780c622e5d633794d41c23357d51ed3054c586c505f2fdd55",
     manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
     fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",

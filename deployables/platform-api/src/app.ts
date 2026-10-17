@@ -129,6 +129,7 @@ import {
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
   createSettlementBalanceCreditResolver,
+  createSettlementPayoutReviewHoldPort,
   createSettlementWalletSpendHoldPort,
   getProtectionReserveSummary,
   lookupPayoutBySupportId,
@@ -143,6 +144,7 @@ import {
   type SettlementSupportLookupRow,
   type SettlementWalletAdjustmentSupportLookupRow,
 } from "@chase-sets/settlement/server";
+import type { PayoutReviewHoldCrossContextPort } from "@chase-sets/platform-operations/server";
 import {
   attachApiMountMiddleware,
   assertApiRouteTableHasNoCollisions,
@@ -355,6 +357,11 @@ export function createPlatformApiHost(
         ]
       : []),
   ];
+  const payoutReviewHoldCrossContext: PayoutReviewHoldCrossContextPort | undefined = settlementPool
+    ? createSettlementPayoutReviewHoldPort(
+        () => (runtime?.services.settlement as SettlementServices | undefined)?.payoutReviewHold,
+      )
+    : undefined;
   const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),
     () => runtime?.services.marketplace as MarketplaceServices | undefined,
@@ -711,6 +718,7 @@ export function createPlatformApiHost(
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
       providerConnectionsCrossContext,
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
+      ...(payoutReviewHoldCrossContext ? { payoutReviewHoldCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
       draftListingCreator,

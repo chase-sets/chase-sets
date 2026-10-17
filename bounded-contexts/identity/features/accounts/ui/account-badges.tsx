@@ -1,12 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { Badge, Inline, VisuallyHidden } from "@chase-sets/design-system";
 
-export const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
+export const accountBadgeKeys = ["founding-account", "trusted-seller"] as const;
 export type AccountBadgeKey = (typeof accountBadgeKeys)[number];
 
 export const accountBadgeLabels: Record<AccountBadgeKey, string> = {
   "founding-account": t("identity.features.accounts.ui.accountBadges.founding.account"),
-  "manual-payout-review": t("identity.features.accounts.ui.accountBadges.manual.payout.review"),
   "trusted-seller": t("identity.features.accounts.ui.accountBadges.trusted.seller"),
 };
 
@@ -14,8 +13,13 @@ export function isAccountBadgeKey(value: string): value is AccountBadgeKey {
   return accountBadgeKeys.includes(value as AccountBadgeKey);
 }
 
+// Frozen badge history keeps its name on read surfaces; Settlement's Payout Review Hold replaced its controls.
+const frozenAccountBadgeLabels: Readonly<Record<string, string>> = {
+  "manual-payout-review": t("identity.features.accounts.ui.accountBadges.manual.payout.review"),
+};
+
 export function accountBadgeLabel(badgeKey: string) {
-  return isAccountBadgeKey(badgeKey) ? accountBadgeLabels[badgeKey] : badgeKey;
+  return isAccountBadgeKey(badgeKey) ? accountBadgeLabels[badgeKey] : (frozenAccountBadgeLabels[badgeKey] ?? badgeKey);
 }
 
 export function AccountBadgeIcon() {

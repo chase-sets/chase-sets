@@ -353,24 +353,6 @@ describe("Identity mutation consistency route actions", () => {
         action: accountDetailAction,
         request: formRequest("/access/accounts/acc_1", {
           intent: "assign-account-badge",
-          badgeKey: "manual-payout-review",
-        }),
-        params: { id: "acc_1" },
-        expectedPath: "/access/accounts/acc_1",
-      },
-      {
-        action: accountDetailAction,
-        request: formRequest("/access/accounts/acc_1", {
-          intent: "remove-account-badge",
-          badgeKey: "manual-payout-review",
-        }),
-        params: { id: "acc_1" },
-        expectedPath: "/access/accounts/acc_1",
-      },
-      {
-        action: accountDetailAction,
-        request: formRequest("/access/accounts/acc_1", {
-          intent: "assign-account-badge",
           badgeKey: "trusted-seller",
         }),
         params: { id: "acc_1" },

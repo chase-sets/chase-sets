@@ -9,16 +9,12 @@ import {
   waitForProjectionPositionFromUrl,
 } from "./support/admin-e2e";
 
-const accountBadgeKeys = ["founding-account", "manual-payout-review", "trusted-seller"] as const;
+const accountBadgeKeys = ["founding-account", "trusted-seller"] as const;
 type AccountBadgeKey = (typeof accountBadgeKeys)[number];
-const operatorManagedAccountBadgeKeys = [
-  "manual-payout-review",
-  "trusted-seller",
-] as const satisfies readonly AccountBadgeKey[];
+const operatorManagedAccountBadgeKeys = ["trusted-seller"] as const satisfies readonly AccountBadgeKey[];
 
 const accountBadgeLabels: Record<AccountBadgeKey, string> = {
   "founding-account": "Founding Account",
-  "manual-payout-review": "Manual Payout Review",
   "trusted-seller": "Trusted Seller",
 };
 
@@ -94,7 +90,9 @@ test.describe("access admin account badges", () => {
     }
   });
 
-  test("platform admin assigns and removes every operator-managed account badge @admin-access", async ({ page }) => {
+  test("platform admin assigns and removes the remaining operator-managed account badge @admin-access", async ({
+    page,
+  }) => {
     test.setTimeout(300_000);
     test.skip(
       skipDeployedAdminE2e,
