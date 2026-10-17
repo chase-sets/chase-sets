@@ -129,6 +129,7 @@ export type CheckoutSessionState = Readonly<{
   submittedOfferId: string | null;
   cancelledAt: string | null;
   createdAt: string | null;
+  handoffExpiresAt: string | null;
   updatedAt: string | null;
 }>;
 
@@ -153,6 +154,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   submittedOfferId: null,
   cancelledAt: null,
   createdAt: null,
+  handoffExpiresAt: null,
   updatedAt: null,
 };
 
@@ -168,6 +170,7 @@ export type StartCheckoutSessionCommand = Readonly<{
   presentedAnonymousCartId?: string | null;
   shippingOption: ShippingOption;
   lines: readonly CheckoutSessionLine[];
+  handoffExpiresAt?: string | null;
   createdAt: string;
 }>;
 
@@ -267,6 +270,7 @@ export type CheckoutSessionStartedEvent = DomainEvent<
     splitGroupHandoff: CheckoutSplitGroupHandoff | null;
     shippingOption: ShippingOption;
     lines: CheckoutSessionLine[];
+    handoffExpiresAt?: string | null;
     createdAt: string;
   }>
 >;
@@ -716,6 +720,7 @@ export const decideCheckoutSession: AggregateDecider<
             splitGroupHandoff,
             shippingOption: normalizeShippingOption(command.shippingOption),
             lines,
+            handoffExpiresAt: command.handoffExpiresAt ?? null,
             createdAt: normalizeRequiredText(command.createdAt, "Checkout session must record a creation timestamp."),
           },
         },
@@ -956,6 +961,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         shippingAddress: null,
         authenticityCheckOptIn: null,
         lines: event.data.lines,
+        handoffExpiresAt: event.data.handoffExpiresAt ?? null,
         orderIds: [],
         orderWriteCommitPositions: [],
         checkoutReservations: [],
