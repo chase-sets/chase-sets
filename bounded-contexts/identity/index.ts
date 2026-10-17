@@ -10,7 +10,7 @@ import contextManifest from "./context.json" with { type: "json" };
 import { identityRetentionExemptions } from "./support/runtime-support/retention-policy";
 import type { IdentityHostPorts, IdentityServices } from "./support/runtime-support/services";
 import { buildIdentityApi, buildIdentityPublicApi } from "./api";
-import { createAccountMcpHandlers } from "./features/accounts/api/mcp";
+import { createIdentityMcpHandlers } from "./features/account-management/api/mcp";
 import { createIdentityServices } from "./support/runtime-support/services";
 import { identitySchemaSql } from "./support/runtime-support/schema";
 import { identityUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
@@ -35,7 +35,7 @@ export const module = defineBoundedContextModule<IdentityServices, PgTransaction
     { mountPath: "/api/identity", contextMountOrdinal: 1, router: buildIdentityApi(services) },
     { mountPath: "/api/public/identity", contextMountOrdinal: 2, router: buildIdentityPublicApi(services) },
   ],
-  buildMcpHandlers: (services) => createAccountMcpHandlers(services.accounts),
+  buildMcpHandlers: (services) => createIdentityMcpHandlers(services),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventReactionsFromManifest({

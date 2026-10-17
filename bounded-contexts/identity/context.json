@@ -320,7 +320,32 @@
       {
         "name": "identity.get-account",
         "ownerSlice": "accounts"
-      }
+      },
+      { "name": "identity.list-accounts", "ownerSlice": "accounts" },
+      { "name": "identity.list-users", "ownerSlice": "users" },
+      { "name": "identity.get-account-access-hub", "ownerSlice": "access-hub" },
+      { "name": "identity.get-user-account-link", "ownerSlice": "access-hub" },
+      { "name": "identity.update-account-profile", "ownerSlice": "account-management" },
+      { "name": "identity.suspend-account", "ownerSlice": "accounts" },
+      { "name": "identity.reactivate-account", "ownerSlice": "accounts" },
+      { "name": "identity.close-account", "ownerSlice": "accounts" },
+      { "name": "identity.assign-account-badge", "ownerSlice": "accounts" },
+      { "name": "identity.remove-account-badge", "ownerSlice": "accounts" },
+      { "name": "identity.create-invitation", "ownerSlice": "invitations" },
+      { "name": "identity.change-membership-role", "ownerSlice": "memberships" },
+      { "name": "identity.revoke-membership", "ownerSlice": "memberships" },
+      { "name": "identity.reinstate-membership", "ownerSlice": "memberships" },
+      { "name": "identity.resend-invitation", "ownerSlice": "invitations" },
+      { "name": "identity.cancel-invitation", "ownerSlice": "invitations" },
+      { "name": "identity.decline-invitation", "ownerSlice": "invitations" },
+      { "name": "identity.update-user-profile", "ownerSlice": "users" },
+      { "name": "identity.suspend-user", "ownerSlice": "users" },
+      { "name": "identity.reactivate-user", "ownerSlice": "users" },
+      { "name": "identity.add-user-contact-method", "ownerSlice": "users" },
+      { "name": "identity.verify-user-contact-method", "ownerSlice": "users" },
+      { "name": "identity.enable-user-auth-method", "ownerSlice": "users" },
+      { "name": "identity.disable-user-auth-method", "ownerSlice": "users" },
+      { "name": "identity.revoke-api-key", "ownerSlice": "api-keys" }
     ],
     "resources": [
       {
@@ -1608,16 +1633,16 @@
     }
   ],
   "agentCoverage": {
-    "accounts": { "pending": "#9238" },
-    "accounts-detail": { "pending": "#9238" },
-    "api-keys": { "pending": "#9238" },
-    "api-keys-detail": { "pending": "#9238" },
-    "invitations": { "pending": "#9238" },
-    "invitations-detail": { "pending": "#9238" },
-    "memberships": { "pending": "#9238" },
-    "memberships-detail": { "pending": "#9238" },
-    "users": { "pending": "#9238" },
-    "users-detail": { "pending": "#9238" }
+    "accounts": { "tools": ["identity.list-accounts"] },
+    "accounts-detail": { "tools": ["identity.get-account-access-hub", "identity.update-account-profile", "identity.suspend-account", "identity.reactivate-account", "identity.close-account", "identity.assign-account-badge", "identity.remove-account-badge"] },
+    "api-keys": { "tools": ["identity.list-users"] },
+    "api-keys-detail": { "tools": ["identity.get-user-account-link", "identity.revoke-api-key"] },
+    "invitations": { "tools": ["identity.list-accounts", "identity.list-users", "identity.create-invitation", "identity.resend-invitation", "identity.cancel-invitation", "identity.decline-invitation"] },
+    "invitations-detail": { "tools": ["identity.get-account-access-hub", "identity.resend-invitation", "identity.cancel-invitation", "identity.decline-invitation"] },
+    "memberships": { "tools": ["identity.get-account-access-hub", "identity.change-membership-role", "identity.revoke-membership", "identity.reinstate-membership"] },
+    "memberships-detail": { "tools": ["identity.get-account-access-hub", "identity.change-membership-role", "identity.revoke-membership", "identity.reinstate-membership"] },
+    "users": { "tools": ["identity.list-users"] },
+    "users-detail": { "tools": ["identity.get-user-account-link", "identity.update-user-profile", "identity.suspend-user", "identity.reactivate-user", "identity.add-user-contact-method", "identity.verify-user-contact-method", "identity.enable-user-auth-method", "identity.disable-user-auth-method"] }
   },
   "deployableContributions": [
     {

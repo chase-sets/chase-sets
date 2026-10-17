@@ -6851,66 +6851,6 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use before publishing listings or accepting offers."],
   },
   {
-    name: "identity.invite-member",
-    title: "Invite Member",
-    description: "Send a membership invitation for an account.",
-    availability: "planned",
-    serviceId: "identity",
-    risk: "sensitive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "email", "roleKey", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        email: {
-          type: "string",
-          description: "Invitee email address.",
-        },
-        roleKey: {
-          type: "string",
-          description: "Role to grant.",
-          enum: ["owner", "manager", "fulfillment", "viewer"],
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the invitation without sending it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "account",
-      requiredPermissions: ["memberships.manage"],
-      requiredScopes: ["account:manage"],
-      accountScoped: true,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use for explicit account administration requests."],
-  },
-  {
     name: "identity.list-memberships",
     title: "List Memberships",
     description: "List account memberships and role permissions.",
@@ -6945,65 +6885,6 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use before inviting, changing, or revoking team access."],
-  },
-  {
-    name: "identity.revoke-api-key",
-    title: "Revoke API Key",
-    description: "Revoke an account API key.",
-    availability: "planned",
-    serviceId: "identity",
-    risk: "destructive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "apiKeyId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        apiKeyId: {
-          type: "string",
-          description: "API key to revoke.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "account",
-      requiredPermissions: ["security.manage"],
-      requiredScopes: ["account:manage"],
-      accountScoped: true,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use for confirmed credential rotation or incident response."],
   },
   {
     name: "insights.get-account-summary",
