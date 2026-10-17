@@ -238,7 +238,7 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/collections/features/saved-lists/api/recovery-runtime.ts",
-          line: 93,
+          line: 95,
         }),
         expect.objectContaining({
           category: "member-declaration",
