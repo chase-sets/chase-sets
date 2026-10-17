@@ -23,15 +23,15 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 
 Until `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production copy must keep the marketplace framed as prelaunch. Do not publish live-buying, live-listing, transaction-volume, payout, or delivery promises on the public site while the production marketplace gate is closed.
 
-Keep UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, and Shared Payment Token claims out of launch marketing unless a separate UCP/AP2 certification record exists. Public Presence may describe trusted checkout, visible totals, and provider-backed payment review, but it must not imply agents can complete orders or payments without buyer UI review until Payments, Checkout, Auth, Identity, and Operations have approved production verifier, merchant signing key, provider-backed Stripe Shared Payment Token, OAuth, signed-write, incident-response, and support evidence.
+Keep UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, and Shared Payment Token claims out of launch marketing unless a separate UCP agent-commerce certification record exists. Public Presence may describe trusted checkout, visible totals, and provider-backed payment review, but it must not imply agents can complete orders or payments without buyer UI review until Payments, Checkout, Auth, Identity, and Operations have approved production verifier, merchant signing key, provider-backed Stripe Shared Payment Token, OAuth, signed-write, incident-response, and support evidence.
 
-Before marketplace production promotion, build the Marketplace Promotion and UCP/AP2 Marketing launch gates from the final launch review record **and** the exact successful launch-mode copy audit record:
+Before marketplace production promotion, build the Marketplace Promotion and UCP Agent-Commerce Marketing launch gates from the final launch review record **and** the exact successful launch-mode copy audit record:
 
 ```powershell
 pnpm run ops marketplace:promotion-evidence -- --review .\secure\marketplace-promotion-2026-05-30.json --public-presence-copy-audit .\secure\public-presence-copy-audit-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
 ```
 
-The Public Presence evidence in that review must confirm launch-mode copy for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, and contact pages, removal of future-only live-transaction language, and absence of uncertified UCP/AP2/headless-checkout claims.
+The Public Presence evidence in that review must confirm launch-mode copy for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, and contact pages, removal of future-only live-transaction language, and absence of uncertified UCP, AP2, and headless-checkout claims.
 
 Run the live copy audit before the final review. Use prelaunch mode while production is intentionally gated:
 

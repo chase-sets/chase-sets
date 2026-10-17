@@ -2,6 +2,9 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildIdentityApi } from "../../../api";
+import { parseAccountMutationResponse } from "../../../features/account-management/api/client-result";
+import type { PreferenceWriteResponse, UserPreferences } from "../../../features/preferences/api/contracts";
+import { canonicalPreferenceChanges } from "../../../features/preferences/api/presentation";
 import type {
   CloseAccountRequest,
   ReactivateAccountRequest,
@@ -31,6 +34,14 @@ export interface IdentityApiClientOptions {
   headers?: HeadersInit | (() => HeadersInit);
   credentials?: RequestCredentials;
 }
+
+export class PreferenceWriteNotDispatchedError extends Error {
+  constructor() {
+    super("User preferences were not sent.");
+  }
+}
+
+export type IdentityApiClient = ReturnType<typeof createIdentityApiClient>;
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
@@ -62,6 +73,8 @@ export function createIdentityApiClient({
     }),
   );
   const headers = resolveHeaders(initialHeaders);
+  const ownerResponse = <T>(response: Response) =>
+    parseAccountMutationResponse<T>(response, new Headers(headers).has("Idempotency-Key"), parseJsonResponse<T>);
 
   return {
     async getAccessHome<T>(query = ""): Promise<T> {
@@ -94,7 +107,7 @@ export function createIdentityApiClient({
       return parseJsonResponse<T>(await client.accounts[":id"].$get({ param: { id }, header: headers }));
     },
     async updateAccount<T>(id: string, body: Record<string, unknown>): Promise<T> {
-      return parseJsonResponse<T>(await client.accounts[":id"].$put({ param: { id }, json: body, header: headers }));
+      return ownerResponse<T>(await client.accounts[":id"].$put({ param: { id }, json: body, header: headers }));
     },
     async suspendAccount<T>(id: string, body: SuspendAccountRequest | Record<string, never> = {}): Promise<T> {
       return parseJsonResponse<T>(
@@ -137,7 +150,7 @@ export function createIdentityApiClient({
       );
     },
     async createShippingAddress<T>(accountId: string, body: Record<string, unknown>): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"].$post({
           param: { accountId },
           json: body,
@@ -150,7 +163,7 @@ export function createIdentityApiClient({
       shippingAddressId: string,
       body: Record<string, unknown>,
     ): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].$put({
           param: { accountId, shippingAddressId },
           json: body,
@@ -159,7 +172,7 @@ export function createIdentityApiClient({
       );
     },
     async setDefaultShippingAddress<T>(accountId: string, shippingAddressId: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].default.$post({
           param: { accountId, shippingAddressId },
           json: {},
@@ -168,7 +181,7 @@ export function createIdentityApiClient({
       );
     },
     async archiveShippingAddress<T>(accountId: string, shippingAddressId: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.accounts[":accountId"]["shipping-addresses"][":shippingAddressId"].archive.$post({
           param: { accountId, shippingAddressId },
           json: {},
@@ -179,11 +192,23 @@ export function createIdentityApiClient({
     async getCurrentActorDisplay<T>(): Promise<T> {
       return parseJsonResponse<T>(await client["current-actor-display"].$get({ header: headers }));
     },
-    async getUserPreferences<T>(): Promise<T> {
+    async getUserPreferences<T = UserPreferences>(): Promise<T> {
       return parseJsonResponse<T>(await client.preferences.$get({ header: headers }));
     },
-    async updateUserPreferences<T>(body: Record<string, unknown>): Promise<T> {
-      return parseJsonResponse<T>(await client.preferences.$put({ json: body, header: headers }));
+    async updateUserPreferences(body: unknown): Promise<PreferenceWriteResponse> {
+      let changes;
+      let key;
+      try {
+        changes = canonicalPreferenceChanges(body);
+        key = globalThis.crypto.randomUUID();
+      } catch {
+        throw new PreferenceWriteNotDispatchedError();
+      }
+      const requestHeaders = new Headers(headers);
+      requestHeaders.set("Idempotency-Key", key);
+      return parseJsonResponse<PreferenceWriteResponse>(
+        await client.preferences.$put({ json: changes, header: Object.fromEntries(requestHeaders) }),
+      );
     },
     async listUsers<T>(query = ""): Promise<T> {
       return parseJsonResponse<T>(
@@ -197,7 +222,7 @@ export function createIdentityApiClient({
       return parseJsonResponse<T>(await client.users[":id"].$get({ param: { id }, header: headers }));
     },
     async updateUser<T>(id: string, body: Record<string, unknown>): Promise<T> {
-      return parseJsonResponse<T>(await client.users[":id"].$put({ param: { id }, json: body, header: headers }));
+      return ownerResponse<T>(await client.users[":id"].$put({ param: { id }, json: body, header: headers }));
     },
     async suspendUser<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(
@@ -255,17 +280,17 @@ export function createIdentityApiClient({
       return parseJsonResponse<T>(await client.memberships.$post({ json: body, header: headers }));
     },
     async changeMembershipRole<T>(id: string, roleKey: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.memberships[":id"].role.$put({ param: { id }, json: { roleKey }, header: headers }),
       );
     },
     async revokeMembership<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.memberships[":id"].revoke.$post({ param: { id }, json: {}, header: headers }),
       );
     },
     async reinstateMembership<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.memberships[":id"].reinstate.$post({ param: { id }, json: {}, header: headers }),
       );
     },
@@ -281,7 +306,7 @@ export function createIdentityApiClient({
       return parseJsonResponse<T>(await client.invitations[":id"].$get({ param: { id }, header: headers }));
     },
     async createInvitation<T>(body: Record<string, unknown>): Promise<T> {
-      return parseJsonResponse<T>(await client.invitations.$post({ json: body, header: headers }));
+      return ownerResponse<T>(await client.invitations.$post({ json: body, header: headers }));
     },
     async resendInvitation<T>(id: string, expiresAt: string): Promise<T> {
       return parseJsonResponse<T>(
@@ -289,7 +314,7 @@ export function createIdentityApiClient({
       );
     },
     async cancelInvitation<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.invitations[":id"].cancel.$post({ param: { id }, json: {}, header: headers }),
       );
     },
@@ -310,15 +335,15 @@ export function createIdentityApiClient({
       return parseJsonResponse<T>(await client["api-keys"][":id"].$get({ param: { id }, header: headers }));
     },
     async createApiKey<T>(body: Record<string, unknown>): Promise<T> {
-      return parseJsonResponse<T>(await client["api-keys"].$post({ json: body, header: headers }));
+      return ownerResponse<T>(await client["api-keys"].$post({ json: body, header: headers }));
     },
     async revokeApiKey<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client["api-keys"][":id"].revoke.$post({ param: { id }, json: {}, header: headers }),
       );
     },
     async rotateApiKey<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client["api-keys"][":id"].rotate.$post({ param: { id }, json: {}, header: headers }),
       );
     },
@@ -331,7 +356,7 @@ export function createIdentityApiClient({
       );
     },
     async withdrawConsent<T>(id: string): Promise<T> {
-      return parseJsonResponse<T>(
+      return ownerResponse<T>(
         await client.consents[":id"].withdraw.$post({ param: { id }, json: {}, header: headers }),
       );
     },

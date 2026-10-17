@@ -802,7 +802,7 @@ function useInventoryImportBatchJob(jobId?: string | null) {
       onStatus: setJob,
       onTerminal: (nextJob) => {
         if (nextJob.status === "completed") {
-          const batchId = nextJob.result?.batch.batch_id;
+          const batchId = nextJob.result?.batch?.batch_id;
           const destination = batchId
             ? `/account/inventory/imports/${encodeURIComponent(batchId)}`
             : "/account/inventory/imports";

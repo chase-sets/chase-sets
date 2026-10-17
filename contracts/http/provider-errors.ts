@@ -18,7 +18,7 @@ export class ProviderAdapterError extends Error {
   }
 }
 
-export type ProviderWebhookEndpoint = "payments" | "settlement";
+export type ProviderWebhookEndpoint = "payments" | "settlement" | "channels-ebay-account-deletion";
 
 export type ProviderWebhookFailureClass =
   | "signature-invalid"

@@ -18,6 +18,17 @@ export const paymentsRetentionSweeps: readonly BcRetentionSweep[] = [
 
 export const paymentsRetentionExemptions: readonly BcRetentionExemption[] = [
   {
+    tableName: "payments_wallet_funding_pages",
+    owner: "payments",
+    reason: "Wallet Funding history and unresolved refund operations are money records rebuilt from events.",
+  },
+  {
+    tableName: "payments_wallet_funding_creation_reservations",
+    owner: "payments",
+    reason:
+      "Creation admission identity and rolling funding limits must survive projection rebuilds and pending provider outcomes.",
+  },
+  {
     tableName: "payments_saved_checkout_instrument_audit",
     owner: "payments",
     reason: "Consent/security audit history requires archive policy before destructive retention.",

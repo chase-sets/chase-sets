@@ -1,6 +1,6 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
-import type { NotificationMessage, NotificationOutbox } from ".";
+import type { NotificationMessage, NotificationOutbox } from "./index";
 
 type MaybePromise<T> = T | Promise<T>;
 

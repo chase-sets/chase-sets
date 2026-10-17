@@ -5,6 +5,9 @@ import { ChaseRoot } from "@chase-sets/design-system";
 import { encodeCommitReceipt, readCompactPostWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import type { ComponentProps } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { compareMoneyAmounts, sumMoneyAmounts, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
 type PurchaseDetail = Readonly<{
@@ -20,7 +23,7 @@ type PurchaseDetail = Readonly<{
   shipping_base_amount: string;
   shipping_discount_amount: string;
   shipping_charge_amount: string;
-  sales_tax_amount: string;
+  sales_tax_amount: string | null;
   total_amount: string;
   marketplace_sales_fee_amount: string;
   marketplace_checkout_fee_amount: string;
@@ -67,6 +70,16 @@ vi.mock("@chase-sets/platform-runtime/auth", async () => {
   return {
     ...actual,
     requireActorFromAuthApi: mockRequireActorFromAuthApi,
+  };
+});
+
+vi.mock("@chase-sets/primitives/money", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/primitives/money")>("@chase-sets/primitives/money");
+  return {
+    ...actual,
+    compareMoneyAmounts: vi.fn(actual.compareMoneyAmounts),
+    sumMoneyAmounts: vi.fn(actual.sumMoneyAmounts),
+    trySignedMoneyToCents: vi.fn(actual.trySignedMoneyToCents),
   };
 });
 
@@ -202,6 +215,247 @@ describe("marketplace account payment start route", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    { amounts: ["0.10", "0.20"], taxes: [null, null], expected: "0.30", display: "$0.30", taxDisplay: "$0.00" },
+    {
+      amounts: ["0.10", "0.20"],
+      fees: ["0.02", "0.04"],
+      payouts: ["0.08", "0.16"],
+      taxes: [null, null],
+      expected: "0.30",
+      display: "$0.30",
+      feeDisplay: "$0.06",
+      payoutDisplay: "$0.24",
+      taxDisplay: "$0.00",
+    },
+    {
+      amounts: ["0.10", "0.20", "0.00"],
+      taxes: ["0.10", "0.20", null],
+      expected: "0.30",
+      display: "$0.30",
+      taxDisplay: "$0.30",
+    },
+    {
+      amounts: ["9999999.99", "9999999.99", "9999999.99"],
+      taxes: [null, null, null],
+      expected: "29999999.97",
+      display: "$29,999,999.97",
+      taxDisplay: "$0.00",
+    },
+  ])(
+    "renders payment summary sums in exact cents ($expected)",
+    ({ amounts, fees, payouts, taxes, expected, display, feeDisplay, payoutDisplay, taxDisplay }) => {
+      mockUseLoaderData.mockReturnValue({
+        orderIds: amounts.map((_, index) => `ord_${index}`),
+        orders: amounts.map((amount, index) => ({
+          ...buildPurchase(`ord_${index}`),
+          total_amount: amount,
+          marketplace_sales_fee_amount: fees?.[index] ?? amount,
+          seller_payout_amount: payouts?.[index] ?? amount,
+          sales_tax_amount: taxes[index],
+        })),
+        autostart: false,
+        wallet: null,
+        checkoutStatus,
+      });
+
+      const { container } = render(
+        <ChaseRoot>
+          <MarketplaceAccountPaymentNewRoute />
+        </ChaseRoot>,
+      );
+
+      expect(container.querySelector<HTMLInputElement>('input[name="totalAmount"]')?.value).toBe(expected);
+      expect(screen.getByText("Marketplace Sales Fee", { selector: "span" }).parentElement?.textContent).toContain(
+        feeDisplay ?? display,
+      );
+      expect(screen.getByText("Seller payout", { selector: "span" }).parentElement?.textContent).toContain(
+        payoutDisplay ?? display,
+      );
+      expect(screen.getByText("Sales tax").parentElement?.textContent).toContain(taxDisplay);
+      expect(sumMoneyAmounts).toHaveBeenCalledWith(amounts);
+      expect(sumMoneyAmounts).toHaveBeenCalledWith(fees ?? amounts);
+      expect(sumMoneyAmounts).toHaveBeenCalledWith(payouts ?? amounts);
+      expect(sumMoneyAmounts).toHaveBeenCalledWith(taxes.map((amount) => amount ?? "0.00"));
+      expect(compareMoneyAmounts).toHaveBeenCalledWith("0.55", "0.00");
+    },
+  );
+
+  it.each([
+    { available: "-5.00", expected: "0.00", disabled: true },
+    { available: "0.00", expected: "0.00", disabled: true },
+    { available: "4.25", expected: "4.25", disabled: true },
+    { available: "10.30", expected: "10.30", disabled: false },
+    { available: "12.50", expected: "10.30", disabled: false },
+    { available: "abc", expected: "0.00", disabled: true },
+    { available: "12.50junk", expected: "0.00", disabled: true },
+  ])(
+    "caps balance credit at the order total and a non-negative balance ($available)",
+    async ({ available, expected, disabled }) => {
+      const fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+        const url = requestUrl(input);
+        if (url.includes("/checkout/status")) {
+          expect(new URL(url).searchParams.get("requestedBalanceCreditAmount")).toBe(expected);
+          return Promise.resolve(jsonResponse(checkoutStatus));
+        }
+        if (url.includes("/account/payments") && requestMethod(input, init) === "POST") {
+          expect(JSON.parse(String(init?.body)).requestedBalanceCreditAmount).toBe(expected);
+          return Promise.resolve(
+            jsonResponse({ payment_id: "pay_1" }, 201, {
+              "Chase-Sets-Consistency": "eventual",
+              "Chase-Sets-Commit-Receipt": encodeCommitReceipt([paymentCommitSource]),
+              "Chase-Sets-Commit-Event-Ids": paymentCommitSource.eventIds.join(","),
+              "Chase-Sets-Commit-Position": paymentCommitSource.maxGlobalPosition,
+            }),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      });
+      vi.stubGlobal("fetch", fetch);
+      const response = await action({
+        request: new Request("http://localhost/account/payments/new", {
+          method: "POST",
+          body: new URLSearchParams({
+            orderIds: "ord_1",
+            balanceCreditMode: "max",
+            totalAmount: "10.30",
+            availableBalance: available,
+          }),
+        }),
+        params: {},
+        context: undefined,
+      } as never);
+      expect(response).toBeInstanceOf(Response);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(trySignedMoneyToCents).toHaveBeenCalledWith(available);
+
+      mockUseLoaderData.mockReturnValue({
+        orderIds: ["ord_1"],
+        orders: [{ ...buildPurchase("ord_1"), total_amount: "10.30" }],
+        autostart: false,
+        wallet: { available_balance_amount: available, currency_code: "usd" },
+        checkoutStatus,
+      });
+      render(
+        <ChaseRoot>
+          <MarketplaceAccountPaymentNewRoute />
+        </ChaseRoot>,
+      );
+      expect((screen.getByRole("option", { name: "Platform credit only" }) as HTMLOptionElement).disabled).toBe(
+        disabled,
+      );
+      expect(screen.getByRole("option", { name: `Use up to $${expected}` })).toBeTruthy();
+      expect(compareMoneyAmounts).toHaveBeenCalledWith(
+        disabled ? (available === "4.25" ? "6.05" : "10.30") : "0.00",
+        "0.00",
+      );
+    },
+  );
+
+  it.each([
+    { available: "12.50", expected: "10.30" },
+    { available: "-1.00", expected: "0.00" },
+    { available: "abc", expected: "0.00" },
+    { available: null, expected: "0.00" },
+  ])("sends the exact-cent balance credit to checkout status ($available)", async ({ available, expected }) => {
+    const statusRequests: URL[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/order-inputs")) {
+          return Promise.resolve(
+            jsonResponse({
+              orders: [
+                { ...buildPurchase("ord_1"), total_amount: "10.10" },
+                { ...buildPurchase("ord_2"), total_amount: "0.20" },
+              ],
+            }),
+          );
+        }
+        if (url.includes("/settlement/wallet")) {
+          return Promise.resolve(
+            available === null
+              ? jsonResponse({}, 503)
+              : jsonResponse({ available_balance_amount: available, currency_code: "usd" }),
+          );
+        }
+        if (url.includes("/checkout/status")) {
+          statusRequests.push(new URL(url));
+          return Promise.resolve(jsonResponse(checkoutStatus));
+        }
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+    await loader({
+      request: new Request("http://localhost/account/payments/new?orderIds=ord_1,ord_2"),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(statusRequests).toHaveLength(1);
+    expect(statusRequests[0]?.searchParams.get("requestedBalanceCreditAmount")).toBe(expected);
+    expect(sumMoneyAmounts).toHaveBeenCalledWith(["10.10", "0.20"]);
+    expect(trySignedMoneyToCents).toHaveBeenCalledWith(available ?? "0.00");
+  });
+
+  it("routes money calculations without the retired float helpers", () => {
+    const source = readFileSync(resolve("routes/marketplace/account-payment-new.tsx"), "utf8");
+    expect(source).not.toMatch(/parseFloat|toFixed|decimalMoney|parseMoneyAmount/);
+  });
+
+  it.each(["abc", "1.0", "01.00", "1.234"])("rejects a non-canonical order amount (%s)", async (amount) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/order-inputs")) {
+          return Promise.resolve(jsonResponse({ orders: [{ ...buildPurchase("ord_1"), total_amount: amount }] }));
+        }
+        if (url.includes("/settlement/wallet")) return Promise.resolve(jsonResponse({}, 503));
+        if (url.includes("/checkout/status")) return Promise.resolve(jsonResponse(checkoutStatus));
+        return Promise.reject(new Error(`Unexpected fetch request: ${url}`));
+      }),
+    );
+    await expect(
+      loader({
+        request: new Request("http://localhost/account/payments/new?orderIds=ord_1"),
+        params: {},
+        context: undefined,
+      } as never),
+    ).rejects.toThrow("Order amounts must be canonical money amounts.");
+  });
+
+  it.each(["abc", "10.30junk"])("treats an unparseable hidden total as zero (%s)", async (total) => {
+    const statusRequests: URL[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input);
+        if (url.includes("/checkout/status")) {
+          statusRequests.push(new URL(url));
+          return Promise.resolve(jsonResponse(checkoutStatus));
+        }
+        return Promise.resolve(jsonResponse({ payment_id: "pay_1" }, 201));
+      }),
+    );
+    const response = await action({
+      request: new Request("http://localhost/account/payments/new", {
+        method: "POST",
+        body: new URLSearchParams({
+          orderIds: "ord_1",
+          balanceCreditMode: "max",
+          totalAmount: total,
+          availableBalance: "12.50",
+        }),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(response).toBeInstanceOf(Response);
+    expect(statusRequests).toHaveLength(1);
+    expect(statusRequests[0]?.searchParams.get("requestedBalanceCreditAmount")).toBe("0.00");
+  });
+
   it("auto-submits the payment form when checkout redirects with autostart enabled", async () => {
     const submit = vi.fn();
     mockUseLoaderData.mockReturnValue({
@@ -224,6 +478,7 @@ describe("marketplace account payment start route", () => {
 
     expect(screen.getByText("Start payment")).toBeTruthy();
     expect(screen.getAllByText("$22.60")).toHaveLength(2);
+    expect(screen.getByRole("region", { name: "Checkout" }).textContent).toContain("$22.60");
     expect(screen.getByText("Ready to initialize payment")).toBeTruthy();
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));

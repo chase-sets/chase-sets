@@ -14,6 +14,15 @@ Notes:
 - A Saved List expresses intent; it is not an owned-stock record.
 - “List” is acceptable inside the My Collection Lists section when context is clear. “Collection” does not mean a Saved List.
 
+## Saved List Operation
+
+A **Saved List Operation** is an Account-owned, durable reservation to add one exact Product to a confirmed Saved List destination. Recovery reconstructs the frozen request and reports success only from a matching aggregate receipt, never from the reservation alone.
+
+Notes:
+
+- Not-sent operations expire after 30 days. Possible-send operations remain unknown until receipt proof or serialized expiry proves the outcome.
+- Recovery `lineResults[].operationId` identifies the durable reservation; `result.receipt.lineResults[].operationId` identifies a line command within its batch.
+
 ## Saved List Line
 
 A **Saved List Line** is one stable row for one exact Catalog Product selection in a Saved List.

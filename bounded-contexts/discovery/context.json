@@ -27,7 +27,7 @@
     "ui-support",
     "ucp-support"
   ],
-  "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
+  "publicExports": [".", "./context", "./routes/*", "./server", "./web", "./integration/link-intents"],
   "allowedContextDependencies": [
     "@chase-sets/checkout",
     "@chase-sets/collections",
@@ -241,7 +241,11 @@
       "subscriptionVersion": 2,
       "subscriptionName": "discovery.catalog-market-projection",
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 21,
       "projectionHandlerSetNames": ["discovery-market-projection"]
     },
@@ -295,11 +299,15 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.seller-listing-availability.disabled",
         "marketplace.seller-listing-availability.enabled",
         "marketplace.offer.submitted",
         "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted",
         "marketplace.review.submitted",
         "marketplace.review.updated",
@@ -340,9 +348,13 @@
         "marketplace.listing.published",
         "marketplace.listing.paused",
         "marketplace.listing.auto-unlisted",
+        "marketplace.listing.operator-unlisted",
         "marketplace.listing.withdrawn",
         "marketplace.offer.submitted",
         "marketplace.offer.price-updated",
+        "marketplace.offer.paused",
+        "marketplace.offer.resumed",
+        "marketplace.offer.withdrawn",
         "marketplace.offer.accepted"
       ],
       "order": 35,
@@ -371,7 +383,8 @@
         "discovery_search_catalog_categories",
         "discovery_search_catalog_reference_records",
         "discovery_search_product_contents",
-        "discovery_search_items"
+        "discovery_search_items",
+        "discovery_search_item_identity_terms"
       ],
       "requiredDuringBootstrap": true,
       "resetStrategy": "generation-cutover"
@@ -921,8 +934,8 @@
       "surfaces": [
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/purchase-section.tsx:H7fc0fad212ad#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/buy-sections.tsx:H7fc0fad212ad#2",
-        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#1",
-        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H7fc0fad212ad#2",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H2e6216228277#1",
+        "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx:H829df595fb75#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#1",
         "post-form:bounded-contexts/discovery/features/item-detail/ui/commerce/sell-sections.tsx:H7fc0fad212ad#2",
         "route-action:bounded-contexts/discovery/support/route-support/item-detail/action.ts"
@@ -1034,6 +1047,9 @@
       }
     }
   ],
+  "agentCoverage": {
+    "google-shopping": { "pending": "#9238" }
+  },
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
@@ -1109,6 +1125,15 @@
             "owner": "discovery",
             "followUp": "#5238",
             "reason": "Portable data operations have not been extracted for this route."
+          },
+          "linkParameters": {
+            "query": {
+              "market": {
+                "kind": "value",
+                "maxLength": 4,
+                "values": ["sell", "buy"]
+              }
+            }
           }
         },
         {
@@ -1270,7 +1295,8 @@
       "href": "/search",
       "order": 10,
       "visibility": "always",
-      "requiredPermissions": []
+      "requiredPermissions": [],
+      "packingPriority": 700
     },
     {
       "deployable": "admin-web",

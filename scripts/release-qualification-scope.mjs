@@ -239,10 +239,14 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "browser-boundary-diagnostics.yml": "ci",
+    "catalog-completion-report.yml": "ci",
     "catalog-integration-staging-reset.yml": "release",
     "catalog-provider-refresh-watch.yml": "release",
+    "catalog-staging-count-preparation.yml": "release",
     "catalog-staging-provider-uat.yml": "release",
     "checkout-order-readiness-trace.yml": "ci",
+    "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
@@ -270,6 +274,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-pr-scope.yml": "ci",
     "platform-pr.yml": "release",
     "platform-preview-cleanup.yml": "release",
+    "platform-preview-wildcard-tls.yml": "release",
     "platform-production-restore-point-cleanup.yml": "release",
     "platform-production-stale-helm-recovery.yml": "release",
     "platform-production-stripe-webhook-endpoint-create.yml": "release",
@@ -300,6 +305,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
 
   // Composite actions under .github/actions by directory name.
   actions: Object.freeze({
+    "block-docker-hub": "release",
     "export-managed-postgres-authority": "release",
     "report-scheduled-workflow-alert": "ci",
     "setup-pnpm-workspace": "release",
@@ -336,6 +342,13 @@ export const releaseQualificationScopeRegistry = Object.freeze({
       expectedClass: "isolated",
       rationale:
         "Import-to-promotion admin UI renders the import workflow; the import mutations live under the registered source-observations api surface.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
+    }),
+    Object.freeze({
+      pattern: /^scripts\/provider-object-disposition\/browser-boundary\/bootstrap\.mjs$/,
+      expectedClass: "not_applicable",
+      rationale:
+        "Memory-only browser bootstrap under parent-only exact GET; no persistent seed, import, reconciliation or environment mutation.",
       applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
   ]),

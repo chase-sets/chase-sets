@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -105,6 +105,252 @@ describe("retention sweep coverage", () => {
     expect(retentionCoverageExemptions.get("pricing_repricing_dry_runs")).toContain(
       "durable consumed_at evidence must survive for once-only consumption",
     );
+  });
+});
+
+describe("connector inbound payload retention coverage", () => {
+  const schemaFile = "bounded-contexts/channels/features/connector-feed/read-model/inbound-schema.ts";
+  const policyFile = "bounded-contexts/channels/features/connector-feed/read-model/retention-policy.ts";
+  const moduleFile = "bounded-contexts/channels/index.ts";
+  const policy = `export const connectorInboundRetentionSweeps = [{ tableName: "channel_connector_inbound_payloads" }];
+export const connectorInboundRetentionExemptions = [{ tableName: "channel_connector_inbound_events" }];`;
+  const mountedModule = `import {
+  connectorInboundRetentionExemptions,
+  connectorInboundRetentionSweeps,
+} from "./features/connector-feed/read-model/retention-policy";
+export const module = defineBoundedContextModule({
+  retentionSweeps: connectorInboundRetentionSweeps,
+  retentionExemptions: connectorInboundRetentionExemptions,
+});`;
+  const payloadViolation = `${schemaFile}: retention candidate 'channel_connector_inbound_payloads' requires a sweep mounted by ${moduleFile} module.retentionSweeps; a lexical mention, unmounted declaration or exemption does not count.`;
+  const connector = (entries = {}) =>
+    fixture({
+      [schemaFile]: "export const schema = [];",
+      [policyFile]: policy,
+      [moduleFile]: mountedModule,
+      ...entries,
+    });
+
+  it("accepts the payload table only through a sweep the Channels module mounts", async () => {
+    await expect(validateRetentionSweepCoverage({ repoRoot: await connector() })).resolves.toEqual({ violations: [] });
+  });
+
+  it("flags the planted payload table when no policy declares or mounts it", async () => {
+    const root = await connector({
+      [policyFile]: "export const nothing = [];",
+      [moduleFile]: "export const module = {};",
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("does not accept a lexical mention in another retention policy", async () => {
+    const root = await connector({
+      [moduleFile]: "export const module = {};",
+      "bounded-contexts/other/retention-policy.ts": `// channel_connector_inbound_payloads
+export const otherSweeps = [{ tableName: "channel_connector_inbound_payloads" }];`,
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("flags a stale declaration that the module no longer mounts", async () => {
+    const root = await connector({
+      [moduleFile]: mountedModule.replace("  retentionSweeps: connectorInboundRetentionSweeps,\n", ""),
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("flags a mount that resolves to a sweep set without the payload table", async () => {
+    const root = await connector({
+      [moduleFile]: mountedModule.replace(
+        "retentionSweeps: connectorInboundRetentionSweeps,",
+        "retentionSweeps: connectorInboundRetentionExemptions,",
+      ),
+      [policyFile]: policy.replace(
+        'export const connectorInboundRetentionSweeps = [{ tableName: "channel_connector_inbound_payloads" }];',
+        "export const connectorInboundRetentionSweeps = [];",
+      ),
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("accepts the real Channels module and policy sources", async () => {
+    const repoFile = (relativePath) => readFile(new URL(`../../${relativePath}`, import.meta.url), "utf8");
+    const root = await connector({
+      [policyFile]: await repoFile(policyFile),
+      [moduleFile]: await repoFile(moduleFile),
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({ violations: [] });
+  });
+
+  it("accepts a zero-argument builder whose mapped sweep declares the payload table", async () => {
+    const root = await connector({
+      [policyFile]: `export function buildSweeps(registrations: readonly unknown[] = classes): readonly Sweep[] {
+  return resolve(registrations).map(
+    ({ retentionClass }) => ({
+      name: \`connector-inbound-\${retentionClass}\`,
+      tableName: "channel_connector_inbound_payloads",
+    }),
+  );
+}
+export const connectorInboundRetentionSweeps = buildSweeps();`,
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({ violations: [] });
+  });
+
+  it.each([
+    [
+      "an empty mounted export beside an unused sibling that declares the table",
+      `export const connectorInboundRetentionSweeps = [];
+export const unusedSweeps = [{ tableName: "channel_connector_inbound_payloads" }];`,
+    ],
+    [
+      "a mounted builder that mentions the table only in a comment and a string",
+      `export function buildSweeps() {
+  // tableName: "channel_connector_inbound_payloads"
+  return kinds.map((kind) => ({ name: kind, note: 'tableName: "channel_connector_inbound_payloads"' }));
+}
+export const connectorInboundRetentionSweeps = buildSweeps();`,
+    ],
+    [
+      "a table declared only in a nested object",
+      `export const connectorInboundRetentionSweeps = [{ meta: { tableName: "channel_connector_inbound_payloads" } }];`,
+    ],
+    [
+      "an unsupported conditional initializer",
+      `export const connectorInboundRetentionSweeps = enabled ? [] : [{ tableName: "channel_connector_inbound_payloads" }];`,
+    ],
+    [
+      "a builder with more than one return",
+      `export function buildSweeps() {
+  if (enabled) return [];
+  return [{ tableName: "channel_connector_inbound_payloads" }];
+}
+export const connectorInboundRetentionSweeps = buildSweeps();`,
+    ],
+  ])("refuses %s", async (_label, policySource) => {
+    const root = await connector({ [policyFile]: policySource });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it.each([
+    [
+      "a module spread that can override the mounted sweeps",
+      {
+        [moduleFile]: mountedModule.replace(
+          "retentionSweeps: connectorInboundRetentionSweeps,",
+          "retentionSweeps: connectorInboundRetentionSweeps,\n  ...getOverrides(),",
+        ),
+      },
+    ],
+    [
+      "a computed module key that can override the mounted sweeps",
+      {
+        [moduleFile]: mountedModule.replace(
+          "retentionSweeps: connectorInboundRetentionSweeps,",
+          'retentionSweeps: connectorInboundRetentionSweeps,\n  ["retention" + "Sweeps"]: [],',
+        ),
+      },
+    ],
+    [
+      "a sweep spread that can override the declared table",
+      {
+        [policyFile]: `function getOverrides() {
+  return { tableName: "synthetic_unrelated_rows" };
+}
+export const connectorInboundRetentionSweeps = [{ tableName: "channel_connector_inbound_payloads", ...getOverrides() }];`,
+      },
+    ],
+    [
+      "an unknown wrapper that can discard the module object",
+      {
+        [moduleFile]: mountedModule.replace(
+          "export const module = defineBoundedContextModule(",
+          "function discard(_input) {\n  return { retentionSweeps: [] };\n}\nexport const module = discard(",
+        ),
+      },
+    ],
+    [
+      "a local declaration shadowing the module constructor name",
+      {
+        [moduleFile]: `function defineBoundedContextModule(_input) {\n  return { retentionSweeps: [] };\n}\n${mountedModule}`,
+      },
+    ],
+    [
+      "the constructor name imported from another module",
+      {
+        [moduleFile]: `import { defineBoundedContextModule } from "./discard";\n${mountedModule}`,
+      },
+    ],
+  ])("refuses %s", async (_label, entries) => {
+    const root = await connector(entries);
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("accepts the module constructor through an aliased package import", async () => {
+    const root = await connector({
+      [moduleFile]: `import { defineBoundedContextModule as defineModule } from "@chase-sets/bounded-context-module";\n${mountedModule.replace(
+        "defineBoundedContextModule(",
+        "defineModule(",
+      )}`,
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({ violations: [] });
+  });
+
+  it("binds the mount to the imported name, not the local alias", async () => {
+    const root = await connector({
+      [policyFile]: `${policy}\nexport const unusedSweeps = [];`,
+      [moduleFile]: mountedModule.replace(
+        "  connectorInboundRetentionSweeps,\n",
+        "  unusedSweeps as connectorInboundRetentionSweeps,\n",
+      ),
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [payloadViolation],
+    });
+  });
+
+  it("never lets an exemption stand in for the mounted payload sweep", async () => {
+    const root = await connector();
+    retentionCoverageExemptions.set(
+      "channel_connector_inbound_payloads",
+      "Synthetic exemption control for the payload.",
+    );
+    try {
+      await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+        violations: [payloadViolation],
+      });
+    } finally {
+      retentionCoverageExemptions.delete("channel_connector_inbound_payloads");
+    }
+  });
+
+  it("keeps the identity table a required candidate retained only by its #7795 dedupe exemption", async () => {
+    const root = await connector({ [policyFile]: policy.split("\n")[0] });
+    const reason = retentionCoverageExemptions.get("channel_connector_inbound_events");
+    expect(reason).toContain("#7795");
+    expect(retentionCoverageExemptions.has("channel_connector_inbound_payloads")).toBe(false);
+    retentionCoverageExemptions.delete("channel_connector_inbound_events");
+    try {
+      await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+        violations: [
+          `${schemaFile}: retention candidate 'channel_connector_inbound_events' has no shared retention-sweep registration or explicit exemption.`,
+        ],
+      });
+    } finally {
+      retentionCoverageExemptions.set("channel_connector_inbound_events", reason);
+    }
   });
 });
 

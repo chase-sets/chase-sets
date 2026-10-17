@@ -17,7 +17,7 @@ import {
 import { localizedTextMapValues } from "@chase-sets/localization";
 import type { DiscoveryDisplayBadge } from "../../../support/client-support/contracts";
 import { buildDiscoveryEmbeddingDocument } from "../domain/embedding-document";
-import { buildSimpleSearchText, foldSearchDiacritics } from "../domain/normalization";
+import { buildSimpleSearchText, foldSearchDiacritics, normalizeSimpleSearchText } from "../domain/normalization";
 import { aliasTextByWeight, type ResolvedAlias, type SearchTextWeight } from "../domain/alias-weighting";
 import { aliasSearchContributionEnabled } from "../domain/alias-rollout";
 import { uniqueStrings } from "../../../support/item-support/unique-strings";
@@ -48,6 +48,10 @@ const SEARCH_PRODUCT_CONTENTS_TABLE = "discovery_search_product_contents";
 const SEARCH_INDEX_TABLE = "discovery_search_items";
 const SEARCH_INDEX_REBUILD_TABLE = "discovery_search_items_rebuild";
 type SearchIndexTable = typeof SEARCH_INDEX_TABLE | typeof SEARCH_INDEX_REBUILD_TABLE;
+const IDENTITY_TERMS_TABLE = {
+  discovery_search_items: "discovery_search_item_identity_terms",
+  discovery_search_items_rebuild: "discovery_search_item_identity_terms_rebuild",
+} as const;
 const DELETE_MISSING_SEARCH_ITEM_SQL: Readonly<Record<SearchIndexTable, string>> = {
   discovery_search_items: `DELETE FROM discovery_search_items AS search_item
     WHERE search_item.catalog_item_id = $1
@@ -753,6 +757,11 @@ async function refreshDiscoverySearchItem(
 
   if (!item) {
     await db.query(DELETE_MISSING_SEARCH_ITEM_SQL[targetTable], [itemId]);
+    await db.query(
+      `DELETE FROM ${IDENTITY_TERMS_TABLE[targetTable]} WHERE catalog_item_id = $1
+       AND NOT EXISTS (SELECT 1 FROM discovery_search_catalog_items WHERE catalog_item_id = $1)`,
+      [itemId],
+    );
     if (options.refreshProductContentText) {
       await refreshSearchProductContentsForContainedItem(db, itemId, new Date().toISOString(), {
         cascadeContainers: options.cascadeContainerContents,
@@ -763,6 +772,12 @@ async function refreshDiscoverySearchItem(
 
   if (item.status === "archived") {
     await db.query(DELETE_ARCHIVED_SEARCH_ITEM_SQL[targetTable], [itemId, item.updated_at]);
+    await db.query(
+      `DELETE FROM ${IDENTITY_TERMS_TABLE[targetTable]} WHERE catalog_item_id = $1
+       AND EXISTS (SELECT 1 FROM discovery_search_catalog_items
+         WHERE catalog_item_id = $1 AND status = 'archived' AND updated_at = $2)`,
+      [itemId, item.updated_at],
+    );
     if (options.refreshProductContentText) {
       await refreshSearchProductContentsForContainedItem(db, itemId, item.updated_at, {
         cascadeContainers: options.cascadeContainerContents,
@@ -915,7 +930,7 @@ async function refreshDiscoverySearchItem(
     descriptionI18n: item.description_i18n,
   });
 
-  await db.query(
+  const applied = await db.query(
     `INSERT INTO ${targetTable} (
       catalog_item_id,
       slug,
@@ -1047,6 +1062,18 @@ async function refreshDiscoverySearchItem(
     ],
   );
 
+  if (applied.rowCount) {
+    await db.query(`DELETE FROM ${IDENTITY_TERMS_TABLE[targetTable]} WHERE catalog_item_id = $1`, [itemId]);
+    const terms = item.status === "active" ? buildDiscoverySearchIdentityTerms(item) : [];
+    if (terms.length > 0) {
+      await db.query(
+        `INSERT INTO ${IDENTITY_TERMS_TABLE[targetTable]} (catalog_item_id, term)
+         SELECT $1, unnest($2::text[])`,
+        [itemId, terms],
+      );
+    }
+  }
+
   if (options.refreshProductContentText) {
     await refreshSearchProductContentsForContainedItem(db, item.catalog_item_id, item.updated_at, {
       cascadeContainers: options.cascadeContainerContents,
@@ -1055,6 +1082,25 @@ async function refreshDiscoverySearchItem(
 }
 
 const EMPTY_ALIAS_WEIGHTS: Readonly<Record<SearchTextWeight, string>> = { A: "", B: "", C: "", D: "" };
+
+export function buildDiscoverySearchIdentityTerms(
+  item: Readonly<{
+    title: string;
+    subtitle: string | null;
+    resolved_aliases: unknown;
+  }>,
+): string[] {
+  const aliases = aliasSearchContributionEnabled() ? collectResolvedAliases(item.resolved_aliases) : [];
+  const text = [item.title, item.subtitle ?? "", ...aliases.map((alias) => alias.aliasText)].join(" ");
+  return [
+    ...new Set(
+      normalizeSimpleSearchText(text)
+        .toLowerCase()
+        .split(" ")
+        .filter((term) => /^\p{Script=Latin}{3,}$/u.test(term)),
+    ),
+  ].sort();
+}
 
 function joinSearchText(...parts: readonly string[]): string {
   return parts.filter((part) => part.trim().length > 0).join(" ");
@@ -1244,6 +1290,9 @@ export async function rebuildDiscoverySearchIndex(
 ): Promise<void> {
   await db.query(`DROP TABLE IF EXISTS ${SEARCH_INDEX_REBUILD_TABLE}`);
   await db.query(`CREATE TABLE ${SEARCH_INDEX_REBUILD_TABLE} (LIKE ${SEARCH_INDEX_TABLE} INCLUDING ALL)`);
+  await db.query(`DROP TABLE IF EXISTS discovery_search_item_identity_terms_rebuild`);
+  await db.query(`CREATE TABLE discovery_search_item_identity_terms_rebuild
+    (LIKE discovery_search_item_identity_terms INCLUDING ALL)`);
 
   await refreshAffectedRows(db, {
     select: { column: "catalog_item_id" },
@@ -1263,10 +1312,10 @@ export async function rebuildDiscoverySearchIndex(
   await options.onShadowReady?.(db);
 
   // The long build never locks the serving table. Take the exclusive lock only
-  // for final freshness preservation + cutover inside the projection runtime's
-  // supplied reset transaction, so the swap and checkpoint reset commit or roll
-  // back as one boundary.
-  await db.query(`LOCK TABLE ${SEARCH_INDEX_TABLE} IN ACCESS EXCLUSIVE MODE`);
+  // for final freshness preservation + paired cutover inside the caller-owned
+  // transaction. Population leaves checkpoints alone; projection reset owns its
+  // checkpoint changes in that same transaction.
+  await db.query(`LOCK TABLE ${SEARCH_INDEX_TABLE}, discovery_search_item_identity_terms IN ACCESS EXCLUSIVE MODE`);
   await db.query(
     `UPDATE discovery_search_items_rebuild AS shadow
      SET search_embedding = active.search_embedding,
@@ -1284,6 +1333,15 @@ export async function rebuildDiscoverySearchIndex(
   await db.query(`ALTER TABLE ${SEARCH_INDEX_TABLE} RENAME TO discovery_search_items_previous`);
   await db.query(`ALTER TABLE ${SEARCH_INDEX_REBUILD_TABLE} RENAME TO ${SEARCH_INDEX_TABLE}`);
   await db.query(`ALTER TABLE discovery_search_items_previous RENAME TO ${SEARCH_INDEX_REBUILD_TABLE}`);
+  await db.query(
+    `ALTER TABLE discovery_search_item_identity_terms RENAME TO discovery_search_item_identity_terms_previous`,
+  );
+  await db.query(
+    `ALTER TABLE discovery_search_item_identity_terms_rebuild RENAME TO discovery_search_item_identity_terms`,
+  );
+  await db.query(
+    `ALTER TABLE discovery_search_item_identity_terms_previous RENAME TO discovery_search_item_identity_terms_rebuild`,
+  );
 }
 
 async function refreshItemsByBlueprint(

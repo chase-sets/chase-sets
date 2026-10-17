@@ -641,10 +641,13 @@ export function createSubscriptionRunner(
     return sourceHead;
   };
   const shouldPersistIdleCheckpointFastForward = (
-    fromGlobalPosition: GlobalPosition,
+    fromGlobalPosition: GlobalPosition | null,
     toGlobalPosition: GlobalPosition,
     force = false,
   ): boolean => {
+    if (fromGlobalPosition === null) {
+      return true;
+    }
     const gap = BigInt(toGlobalPosition) - BigInt(fromGlobalPosition);
     if (gap <= 0n) {
       return false;
@@ -656,7 +659,7 @@ export function createSubscriptionRunner(
     return Date.now() - lastIdleCheckpointFastForwardAtMs >= IDLE_CHECKPOINT_FAST_FORWARD_HEARTBEAT_MS;
   };
   const persistIdleCheckpointFastForward = async (
-    fromGlobalPosition: GlobalPosition,
+    fromGlobalPosition: GlobalPosition | null,
     toGlobalPosition: GlobalPosition,
     saveCheckpoint: (lastGlobalPosition: GlobalPosition) => Promise<void>,
     force = false,
@@ -920,14 +923,18 @@ export function createSubscriptionRunner(
       status.state = "running";
       status.lastError = null;
       status.updatedAt = new Date().toISOString();
+      let hasPersistedCheckpoint = false;
       const saveLeasedSubscriptionCheckpoint = async (lastGlobalPosition: GlobalPosition) => {
         context?.throwIfLeaseLost?.();
         await saveSubscriptionCheckpoint(targetPool, subscription, lastGlobalPosition, context);
+        hasPersistedCheckpoint = true;
       };
 
       try {
         const recoveryState = await loadSubscriptionCheckpointRecoveryState(targetPool, checkpointKey);
         status.recoveryRequired = recoveryState.recoveryRequired;
+        hasPersistedCheckpoint = recoveryState.checkpoint !== null && !recoveryState.recoveryRequired;
+        status.initialized = hasPersistedCheckpoint;
         if (recoveryState.recoveryRequired) {
           throw new Error(
             `Subscription '${checkpointKey}' recovery requires a committed projection group reset before replay.`,
@@ -935,7 +942,6 @@ export function createSubscriptionRunner(
         }
         const storedCheckpoint = recoveryState.checkpoint;
         const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
-        status.initialized = storedCheckpoint !== null;
         status.lastGlobalPosition = checkpoint;
         const sourceHeadGlobalPosition = await readSourceHeadForRun(context);
         status.sourceHeadGlobalPosition = sourceHeadGlobalPosition;
@@ -954,7 +960,7 @@ export function createSubscriptionRunner(
             ? checkpoint
             : sourceHeadGlobalPosition;
           await persistIdleCheckpointFastForward(
-            checkpoint,
+            storedCheckpoint,
             lastGlobalPosition,
             saveLeasedSubscriptionCheckpoint,
             context?.settleIdleCheckpoints === true,
@@ -962,7 +968,7 @@ export function createSubscriptionRunner(
           const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
           status.blockedStreamCount = errorSummary.blockedStreamCount;
           status.poisonEventCount = errorSummary.poisonEventCount;
-          status.initialized = true;
+          status.initialized = hasPersistedCheckpoint;
           status.lastGlobalPosition = lastGlobalPosition;
           status.outstandingEventCount = calculateOutstandingEventCount(
             lastGlobalPosition,
@@ -1383,7 +1389,7 @@ export function createSubscriptionRunner(
           }
         }
         const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
-        status.initialized = true;
+        status.initialized = hasPersistedCheckpoint;
         status.lastGlobalPosition = lastGlobalPosition;
         if (isGlobalPositionGreater(lastGlobalPosition, status.sourceHeadGlobalPosition)) {
           status.sourceHeadGlobalPosition = lastGlobalPosition;

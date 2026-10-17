@@ -20,6 +20,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { buildIdentityApi, type IdentityApiEnv } from "../../../api";
 import { module as identityModule } from "../../../index";
 import { createIdentityServices } from "../../../support/runtime-support/services";
+import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../../account-capabilities/api/authority";
 import {
   identityConsentPolicyPublications,
   resolveConsentBundleAgainstCorpus,
@@ -122,7 +123,12 @@ describeDb("consent-activation-route: actual Identity mount and PostgreSQL", () 
     mounted.route(
       "/api/identity",
       buildIdentityApi(
-        { ...createIdentityServices(pools.identity), policies: options.runtime ?? policies },
+        {
+          ...createIdentityServices(pools.identity, {
+            capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
+          }),
+          policies: options.runtime ?? policies,
+        },
         {
           ...(options.production ? {} : { publications: options.publications ?? corpus() }),
           now: () => now,

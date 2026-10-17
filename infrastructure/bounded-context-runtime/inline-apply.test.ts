@@ -121,6 +121,20 @@ function createQueryCaptureGroup(
 }
 
 describe("projection inline apply", () => {
+  it("skips an unknown event type without claiming or calling another handler", async () => {
+    const handler = vi.fn(async () => undefined);
+    const { group, statements } = createQueryCaptureGroup(handler);
+    await expect(
+      applyCommittedProjectionEventsInline({
+        committedEvents: [{ ...storedEvent(), eventType: "checkout.session.unknown" }],
+        commitSources: [{ sourceContextName: "checkout", eventIds: ["evt_1"] }],
+        projectionGroups: [group],
+      }),
+    ).resolves.toEqual({ applied: 0, deferred: 0, failed: 0 });
+    expect(handler).not.toHaveBeenCalled();
+    expect(statements).toEqual([]);
+  });
+
   it("defaults off and treats repeated disabled evaluation as a steady-state no-op", () => {
     expect(projectionInlineApplyEnabled({})).toBe(false);
     expect(projectionInlineApplyEnabled({ PROJECTION_INLINE_APPLY_ENABLED: "false" })).toBe(false);

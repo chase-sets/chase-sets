@@ -27,6 +27,7 @@ import {
   loadRepricingRoundInputsPage,
 } from "../../repricing-engine/read-model/queries";
 import { seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
+import { roundCapture } from "../../repricing-engine/tests/round-capture-fixture";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -98,6 +99,7 @@ describeDb("pricing repricing-policy assignment resolution (#4330)", () => {
           },
         },
         {
+          ...roundCapture(),
           products: Array.from({ length: 500 }, (_, index) => ({
             catalogItemId: `cat_${String(index).padStart(8, "0")}`,
             productId: `prod_${String(index).padStart(8, "0")}`,
@@ -200,7 +202,7 @@ describeDb("pricing repricing-policy assignment resolution (#4330)", () => {
       const candidateRows = async (replacingPolicyId?: string) => {
         const candidate = { sellerAccountId: "acc_seller", body, replacingPolicyId };
         const products = await listCandidateRepricingProducts(db, candidate, null);
-        const rounds = await loadRepricingRoundInputsPage(db, { products, candidate });
+        const rounds = await loadRepricingRoundInputsPage(db, { products, candidate, ...roundCapture() });
         return [...rounds.values()].flatMap((round) => round.listings.map((listing) => listing.listingId)).sort();
       };
       const viewRows = async (policyId: string) =>

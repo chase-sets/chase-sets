@@ -6,6 +6,14 @@ import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-c
 import { createPostgresDurableJobStore, type DurableJobRecord } from "@chase-sets/platform-runtime/durable-job-store";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { moneyToCents } from "@chase-sets/primitives/money";
+import type { EconomicsServices } from "../../economics/api/services";
+import {
+  forecastKindDefinitions,
+  withForecasts,
+  type EvaluatedPrice,
+  type ForecastCurve,
+} from "../../forecast-ledger/domain/forecast-kinds";
+import { loadConditionSales } from "../../forecast-ledger/read-model/queries";
 import {
   activeProductFreeze,
   readProductRoundState,
@@ -13,11 +21,12 @@ import {
   reserveProductRoundCooldown,
 } from "../read-model/product-round-state";
 import type { RepricingListingEvaluation } from "../domain/evaluate";
-import { planRepricingRound, traceFromEvaluation } from "../domain/round";
+import { planRepricingRound, planRepricingShadows, readsDemandCurve, traceFromEvaluation } from "../domain/round";
 import { createRepricingDryRunServices } from "./dry-run";
 import {
   repricingPolicyEvaluatedEventType,
   type RepricingEvaluationSkipReason,
+  type RepricingGoalInputs,
   type RepricingPolicyEvaluatedEvent,
   type RepricingPolicyListingTrace,
   type RepricingRoundDirection,
@@ -31,6 +40,7 @@ import {
   listAssignedRepricingProducts,
   loadRepricingRoundInputs,
   type RepricingCandidate,
+  type RepricingRoundInputs,
   type RepricingRoundListing,
 } from "../read-model/queries";
 
@@ -110,6 +120,7 @@ export type RepricingMarketplaceGateway = Readonly<{
 type RepricingEngineRuntimeDeps = Readonly<{
   eventStore: EventStore;
   db: PgTransactionalPool;
+  economics: Pick<EconomicsServices, "resolve">;
 }>;
 
 export type RepricingEngineServices = ReturnType<typeof createRepricingDryRunServices> &
@@ -305,8 +316,16 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
   };
 
   const previewProductRound: RepricingEngineServices["previewProductRound"] = async (input) => {
-    const round = await loadRepricingRoundInputs(deps.db, input, input.candidate);
-    return planRepricingRound(round, input.now ?? new Date().toISOString(), await resolvePolicy());
+    const capturedAt = input.now ?? new Date().toISOString();
+    const policy = await resolvePolicy();
+    const round = await loadRepricingRoundInputs(deps.db, {
+      product: { catalogItemId: input.catalogItemId, productId: input.productId },
+      candidate: input.candidate,
+      capturedAt,
+      policy,
+      economics: deps.economics,
+    });
+    return planRepricingRound(round, capturedAt, policy);
   };
 
   const processNextEvaluationJob: RepricingEngineServices["processNextEvaluationJob"] = async (input) => {
@@ -392,7 +411,7 @@ export function createRepricingEngineRuntime(deps: RepricingEngineRuntimeDeps): 
   };
 
   return {
-    ...createRepricingDryRunServices(deps.db, resolvePolicy),
+    ...createRepricingDryRunServices(deps.db, resolvePolicy, deps.economics),
     enqueueMarketPriceSignal,
     enqueueCompetingAskSignal,
     enqueueDailyDriftSweep,
@@ -454,8 +473,24 @@ async function executeAdmittedProductRound(
   policy: RepricingEnginePolicyValue,
 ): Promise<RepricingEvaluationJobResult> {
   const nowIso = new Date().toISOString();
-  const round = await loadRepricingRoundInputs(deps.db, job.payload);
+  const round = await loadRepricingRoundInputs(deps.db, {
+    product: { catalogItemId: job.payload.catalogItemId, productId: job.payload.productId },
+    capturedAt: nowIso,
+    policy,
+    economics: deps.economics,
+  });
+  // Forecasts are fixed from the curve and the provider weeks as read now; a week's count changes later.
+  const forecastCurve: ForecastCurve | null = round.demandCurve && {
+    modelVersion: round.demandCurve.modelVersion,
+    points: round.demandCurve.points,
+    conditionSales: await loadConditionSales(deps.db, {
+      catalogItemId: job.payload.catalogItemId,
+      productId: job.payload.productId,
+      asOf: nowIso,
+    }),
+  };
   const evaluations = planRepricingRound(round, nowIso, policy);
+  const shadows = planRepricingShadows(round, nowIso, policy);
   await input.afterRoundPlanned?.();
   const byPolicy = new Map<string, Array<{ listing: RepricingRoundListing; evaluation: RepricingListingEvaluation }>>();
   round.listings.forEach((listing, index) => {
@@ -697,6 +732,8 @@ async function executeAdmittedProductRound(
       }
     });
     const evaluatedAt = new Date().toISOString();
+    const forecastsAt = <Price extends EvaluatedPrice>(price: Price) =>
+      withForecasts(forecastKindDefinitions(), price, { pricedAt: evaluatedAt, curve: forecastCurve });
     const fact: RepricingPolicyEvaluatedEvent = {
       type: repricingPolicyEvaluatedEventType,
       data: {
@@ -711,7 +748,15 @@ async function executeAdmittedProductRound(
         listingsEvaluated: traces.length,
         listingsChanged: traces.filter((trace) => trace.outcome === "changed").length,
         listingsSkipped: traces.filter((trace) => trace.outcome !== "changed").length,
-        listings: traces,
+        listings: traces.map((trace, index) => {
+          const shadow = shadows.get(trace.listingId)?.map(forecastsAt);
+          const traced = {
+            ...(trace.anchor?.goal ? forecastsAt(trace) : trace),
+            quantity: plan.entries[index]!.listing.quantityCap,
+          };
+          return shadow ? { ...traced, shadow } : traced;
+        }),
+        ...goalInputsFor(plan.entries, round),
         ...(frozenUntil ? { spiralBreaker: { tripped: false, frozenUntil } } : {}),
         signalToEvaluationLatencyMs: Math.min(
           MAX_POSTGRES_INTEGER,
@@ -842,6 +887,21 @@ async function refundDailyChanges(
 
 function evaluationJobId(eventId: string): string {
   return `repricing-evaluation:${eventId}`;
+}
+
+/** Only a policy whose rules read the Demand Curve records goal inputs, counting its own listings' Economics. */
+function goalInputsFor(
+  entries: readonly Readonly<{ listing: RepricingRoundListing }>[],
+  round: RepricingRoundInputs,
+): Readonly<{ goalInputs?: RepricingGoalInputs }> {
+  if (!entries.some(({ listing }) => readsDemandCurve(listing.rules))) return {};
+  return {
+    goalInputs: {
+      curveVersion: round.demandCurve?.version ?? null,
+      economicsResolved: entries.filter(({ listing }) => listing.economics?.availability === "resolved").length,
+      economicsUnavailable: entries.filter(({ listing }) => listing.economics?.availability === "unavailable").length,
+    },
+  };
 }
 
 function buildEvaluationId(eventId: string, policyId: string, policyRevision: string): string {

@@ -16,6 +16,7 @@ import {
   type SourceObservationState,
 } from "../domain/domain";
 import {
+  type CatalogMergeCandidateAppliedMode,
   type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateReviewSnapshot,
   type CatalogMergeCandidateState,
@@ -71,7 +72,11 @@ import type {
   CatalogAdminRollbackRetirementImpactSummaryReadModel,
 } from "./admin/admin-control-plane-read-model-contracts";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
-import type { ProviderAdapter, ProviderUsageEstimate } from "./provider-adapters/provider-adapter";
+import type {
+  ProviderAdapter,
+  ProviderUsageEstimate,
+  ProviderUsageSnapshot,
+} from "./provider-adapters/provider-adapter";
 import type { ProviderOptionAliasRecord } from "./providers/provider-option-aliases";
 import { type CatalogProviderOptionQueryPage } from "./providers/provider-option-query-cache";
 import { type CatalogControlPlaneTelemetryEventInput } from "./governance/catalog-integration-observability";
@@ -102,12 +107,18 @@ export const staticCatalogProviderIntegrationProfileVersions: CatalogProviderInt
     getActiveCatalogProviderIntegrationProfileVersion(providerKey, selector),
 };
 
+// Stable machine-readable cause of a failed promotion outcome, beside the
+// free-text reason. Absent when the failure has no classified cause.
+export const sourceObservationPromotionDiagnosticCodes = ["asset-processing-failed"] as const;
+export type SourceObservationPromotionDiagnosticCode = (typeof sourceObservationPromotionDiagnosticCodes)[number];
+
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
   status: "promoted" | "rejected" | "deferred" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
   referenceRecordId?: ReferenceRecordId | null;
   reason: string | null;
+  diagnosticCode?: SourceObservationPromotionDiagnosticCode;
 }>;
 
 export type BulkSourceObservationPromotionResult = Readonly<{
@@ -226,6 +237,84 @@ export type SourceObservationPromotionOutcomeRecord = Readonly<{
 }>;
 
 export type SourceObservationBulkJobResult = BulkSourceObservationPromotionResult | BulkSourceObservationReapplyResult;
+
+// Scope-wide Catalog Merge Candidate review jobs run on the bulk review runner
+// beside the observation actions. The kinds are additive: a worker that does not
+// claim them leaves the job queued.
+export const catalogMergeCandidateBulkJobKinds = ["merge-candidate-promote", "merge-candidate-defer"] as const;
+
+export type CatalogMergeCandidateBulkJobKind = (typeof catalogMergeCandidateBulkJobKinds)[number];
+
+/**
+ * Scope promotion jobs that apply approved candidates. Persisted on the job
+ * payload and serialized on every job read; absence means a retained legacy
+ * job whose `promoted` outcomes recorded approval only.
+ */
+export const catalogMergeCandidatePromotionApplicationVersion = 1;
+
+export type CatalogMergeCandidateBulkJobPayload = Readonly<{
+  scopeRecordId: string;
+  reason: string;
+  promotionApplicationVersion?: typeof catalogMergeCandidatePromotionApplicationVersion;
+}>;
+
+export type CatalogMergeCandidateBulkWorkUnitPayload = Readonly<{
+  candidateId: string;
+}>;
+
+/** Inner application failures a report can classify; anything else stays unclassified. */
+export type CatalogMergeCandidateApplicationDiagnosticCode = "asset-processing-failed";
+
+export type CatalogMergeCandidateBulkUnitResult = Readonly<{
+  candidateId: string;
+  status: "promoted" | "deferred" | "skipped-not-eligible" | "failed";
+  /** Historical matched Catalog Item from the reviewed snapshot; never application authority. */
+  catalogItemId: string | null;
+  reason: string | null;
+  /**
+   * Version-1 promotion results only. A `promoted` result carries the completed
+   * application: the applied Catalog Item, the action actually taken, and the
+   * application identity (approval version and plan fingerprint) that lets
+   * readers count retries once. Every other status carries null.
+   */
+  appliedCatalogItemId?: string | null;
+  appliedMode?: CatalogMergeCandidateAppliedMode | null;
+  approvalVersion?: number | null;
+  planFingerprint?: string | null;
+  diagnosticCode?: CatalogMergeCandidateApplicationDiagnosticCode;
+}>;
+
+export type CatalogMergeCandidateBulkJobResult = Readonly<{
+  requested: number;
+  promoted: number;
+  deferred: number;
+  skippedNotEligible: number;
+  failed: number;
+  outcomes: readonly CatalogMergeCandidateBulkUnitResult[];
+}>;
+
+export type CatalogMergeCandidateBulkJob = Readonly<{
+  jobId: string;
+  kind: CatalogMergeCandidateBulkJobKind;
+  /** 1 for jobs that apply approved candidates; null for defer jobs and retained legacy promotion jobs. */
+  promotionApplicationVersion: typeof catalogMergeCandidatePromotionApplicationVersion | null;
+  scopeRecordId: string;
+  reason: string;
+  status: SourceObservationBulkJobStatus;
+  progress: BulkSourceObservationProgress;
+  result: CatalogMergeCandidateBulkJobResult | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}>;
+
+export type CatalogMergeCandidateBulkJobPage = Readonly<{
+  items: readonly CatalogMergeCandidateBulkJob[];
+  /** Opaque keyset cursor for the next (older) page; absent on the last page. */
+  cursor?: string;
+}>;
 
 export type SourceObservationJobRunContext = Readonly<{
   signal?: AbortSignal;
@@ -412,6 +501,21 @@ export type SourceObservationBulkReviewWorkUnitStore = DurableJobWorkUnitStore<
   SourceObservationBulkJobResult,
   SourceObservationBulkWorkUnitPayload,
   SourceObservationBulkWorkUnitResult
+>;
+
+export type CatalogMergeCandidateBulkJobStore = DurableJobStore<
+  CatalogMergeCandidateBulkJobPayload,
+  BulkSourceObservationProgress,
+  CatalogMergeCandidateBulkJobResult,
+  CatalogMergeCandidateBulkJob
+>;
+
+export type CatalogMergeCandidateBulkWorkUnitStore = DurableJobWorkUnitStore<
+  CatalogMergeCandidateBulkJobPayload,
+  BulkSourceObservationProgress,
+  CatalogMergeCandidateBulkJobResult,
+  CatalogMergeCandidateBulkWorkUnitPayload,
+  CatalogMergeCandidateBulkUnitResult
 >;
 
 export type SourceObservationIntegrationJobStore = DurableJobStore<
@@ -639,6 +743,8 @@ export type CatalogIntegrationControlPlaneReadiness = Readonly<{
   generatedAt: string;
   rolloutControls: CatalogIntegrationRolloutControlSnapshot;
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[];
+  /** One cached usage snapshot per provider that reports account usage. */
+  providerUsage: readonly ProviderUsageSnapshot[];
 }>;
 
 export type CatalogIntegrationControlPlaneUnitReadiness = Readonly<{
@@ -889,6 +995,38 @@ export type BulkReviewJobServices = Readonly<{
   getBulkReviewWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
 }>;
 
+export type CatalogMergeCandidateBulkJobServices = Readonly<{
+  /** Enumerates the scope's non-terminal candidates once, one work unit each; each unit selects itself when it runs. */
+  enqueueCatalogMergeCandidateBulkJob: (input: {
+    kind: CatalogMergeCandidateBulkJobKind;
+    scopeRecordId: string;
+    reason?: string | null;
+    context: EventStoreContext;
+  }) => Promise<CatalogMergeCandidateBulkJob>;
+  getCatalogMergeCandidateBulkJob: (
+    jobId: string,
+    context?: EventStoreContext | null,
+  ) => Promise<CatalogMergeCandidateBulkJob | null>;
+  listActiveCatalogMergeCandidateBulkJobs: (input: {
+    context: EventStoreContext;
+    scopeRecordId?: string | null;
+    kind?: CatalogMergeCandidateBulkJobKind | null;
+  }) => Promise<readonly CatalogMergeCandidateBulkJob[]>;
+  /** Newest-first pages of at most 50 completed jobs over a stable completion-time/job-id keyset. */
+  listCompletedCatalogMergeCandidateBulkJobs: (input: {
+    context: EventStoreContext;
+    scopeRecordId?: string | null;
+    kind?: CatalogMergeCandidateBulkJobKind | null;
+    cursor?: string | null;
+  }) => Promise<CatalogMergeCandidateBulkJobPage>;
+  /** The latest 50 failed jobs for this scope and operator, separate from completed pagination. */
+  listFailedCatalogMergeCandidateBulkJobs: (input: {
+    context: EventStoreContext;
+    scopeRecordId: string;
+  }) => Promise<readonly CatalogMergeCandidateBulkJob[]>;
+  processNextCatalogMergeCandidateBulkJob: BulkReviewJobServices["processNextBulkReviewJob"];
+}>;
+
 // One provider unit's durable sync state within a Catalog sync scope, read
 // back across runs. This is what the scope page renders instead of the
 // transient per-run child-job list: state survives after the run that
@@ -1101,6 +1239,7 @@ export type SourceObservationServices = ProviderSendWindowServices &
   SourceObservationReviewServices &
   PromotionReapplyServices &
   BulkReviewJobServices &
+  CatalogMergeCandidateBulkJobServices &
   IntegrationJobServices &
   SourceObservationReadServices &
   CatalogMergeCandidateServices &

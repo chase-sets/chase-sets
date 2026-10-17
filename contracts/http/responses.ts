@@ -119,7 +119,7 @@ export type FreshWriteReceipt = Readonly<{
 
 export type FreshWriteTokenState =
   | Readonly<{ kind: "missing"; receipt: null }>
-  | Readonly<{ kind: "valid"; receipt: FreshWriteReceipt; ageMs: number }>
+  | Readonly<{ kind: "valid"; receipt: FreshWriteReceipt; ageMs: number; expiresAtMs: number }>
   | Readonly<{ kind: "malformed"; receipt: null }>
   | Readonly<{ kind: "expired"; receipt: null; observedAtMs: number; ageMs: number; maxAgeMs: number }>
   | Readonly<{ kind: "future"; receipt: null; observedAtMs: number; ageMs: number; clockSkewMs: number }>;
@@ -499,6 +499,7 @@ function validFreshWriteState(receipt: FreshWriteReceipt, nowMs: number, maxAgeM
     kind: "valid",
     receipt,
     ageMs,
+    expiresAtMs: receipt.observedAtMs + maxAgeMs,
   } satisfies FreshWriteTokenState;
 }
 

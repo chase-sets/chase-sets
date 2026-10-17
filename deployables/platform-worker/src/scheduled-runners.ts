@@ -1,12 +1,25 @@
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
+import { isChannelsServices } from "@chase-sets/channels/server";
+import { createEbayReceiptExpiryRunner } from "@chase-sets/channels/server";
+import type { InventoryServices } from "@chase-sets/inventory/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import type { PricingServices } from "@chase-sets/pricing/server";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import {
+  SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+  type PlatformOperationsHostPorts,
+  type PlatformOperationsServices,
+} from "@chase-sets/platform-operations/server";
+import {
+  createFilesystemPrivateObjectStore,
+  createS3PrivateObjectStoreFromOptions,
+  type PrivateObjectStore,
+} from "@chase-sets/object-storage";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createWorkSignalCleanupRunner } from "@chase-sets/platform-runtime/projection-wake-scheduler";
 import { createRetentionSweepRunner } from "@chase-sets/platform-runtime/retention-sweep";
-import type { WorkerRunner } from "@chase-sets/platform-runtime/worker";
+import { createDurableJobLaneRunners, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
 import type { PlatformWorkerConfig } from "./config";
 
 export type ScheduledRunnerLogger = Readonly<{
@@ -14,13 +27,37 @@ export type ScheduledRunnerLogger = Readonly<{
   warn: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
 }>;
 
+export function createInventoryProductResolutionMaintenanceRunners(
+  services: Readonly<Record<string, unknown>>,
+  config: Pick<PlatformWorkerConfig, "workerId" | "leaseTtlMs">,
+): readonly WorkerRunner[] {
+  const inventory = services.inventory as InventoryServices | undefined;
+  const processNext = inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
+  if (!processNext) return [];
+  return createDurableJobLaneRunners({
+    workflowName: "inventory.import-product-resolution-maintenance",
+    laneCount: 1,
+    runLane: async (lane) => ({
+      processed: await processNext({
+        claimOwnerId: `${config.workerId}:product-resolution-maintenance`,
+        claimTtlMs: config.leaseTtlMs * 4,
+        signal: lane.runnerContext?.signal,
+        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+      }),
+      lastGlobalPosition: "0" as never,
+    }),
+  });
+}
+
 export type RegisteredScheduledRunnerConfig = Pick<
   PlatformWorkerConfig,
   | "workerId"
   | "leaseTtlMs"
   | "paymentReconciliationIntervalMs"
   | "paymentDeadlineSweepIntervalMs"
+  | "channelsConnectorLivenessSweepIntervalMs"
   | "supportRequestDeadlineSweepIntervalMs"
+  | "supportEvidenceCleanupIntervalMs"
   | "customerFeedbackAttentionDigestIntervalMs"
   | "customerFeedbackAttentionTeamRecipientUserIds"
   | "reviewWindowSweepIntervalMs"
@@ -177,6 +214,7 @@ export function createRegisteredScheduledRunners({
         };
       }
     | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
   const discovery = services.discovery as
     | {
         googleShoppingSync?: {
@@ -201,6 +239,26 @@ export function createRegisteredScheduledRunners({
     | undefined;
   const durableJobRetention = createDurableJobRetentionTask(services, logger);
   const runners: WorkerRunner[] = [];
+  const channels = services.channels;
+  if (isChannelsServices(channels)) {
+    runners.push(createEbayReceiptExpiryRunner(channels.ebayReceiptExpiry, logger, undefined, controlPlane));
+  }
+  if (input.channelsConnectorLivenessSweepIntervalMs && isChannelsServices(channels)) {
+    runners.push(
+      createScheduledJobRunner(
+        "channels.connector-liveness-sweep",
+        input.channelsConnectorLivenessSweepIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await channels.connectionHealth.sweepConnectorLiveness({
+            now: new Date().toISOString(),
+            limit: 100,
+          });
+          return result.accepted;
+        },
+      ),
+    );
+  }
   const reviewOpportunityPublication = (services.marketplace as MarketplaceServices | undefined)
     ?.reviewOpportunityPublication;
   if (reviewOpportunityPublication) {
@@ -230,6 +288,21 @@ export function createRegisteredScheduledRunners({
   }
 
   if (payments && input.paymentReconciliationIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        "payments.wallet-funding-reconciliation",
+        input.paymentReconciliationIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await payments.walletFunding.reconcile(SYSTEM_CONTEXT);
+          logger.info("Wallet funding reconciliation completed.", {
+            type: "payments.wallet-funding-reconciliation",
+            result,
+          });
+          return result.checked;
+        },
+      ),
+    );
     runners.push(
       createScheduledJobRunner(
         "payments.reconciliation",
@@ -298,6 +371,29 @@ export function createRegisteredScheduledRunners({
             result.reviewRemindersEmitted +
             result.returnRefundsReleased
           );
+        },
+      ),
+    );
+  }
+
+  // Mounted only by a valid, active cleanup binding (see createSupportEvidenceCleanupHostPort).
+  const supportEvidenceCleanup = (services["platform-operations"] as PlatformOperationsServices | undefined)
+    ?.supportRequests.attachmentCleanup;
+  if (supportEvidenceCleanup?.kind === "available" && input.supportEvidenceCleanupIntervalMs) {
+    runners.push(
+      createScheduledJobRunner(
+        SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+        input.supportEvidenceCleanupIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await supportEvidenceCleanup.run();
+          // Healthy polls and routine retention stay silent; only a refusal or a failure is signalled.
+          if (result.denied || result.failed || result.auditUnavailable || result.invalid)
+            logger.warn("Support evidence operation cleanup was refused or failed.", {
+              type: SUPPORT_EVIDENCE_CLEANUP_RUNNER,
+              result,
+            });
+          return result.abandoned + result.deleted + result.failed;
         },
       ),
     );
@@ -863,6 +959,20 @@ export function createRegisteredScheduledRunners({
     );
   }
 
+  if (inventory?.importBatches?.enqueueProductResolutionMaintenanceJob) {
+    runners.push(
+      createScheduledJobRunner(
+        "inventory.import-product-resolution-maintenance.enqueue",
+        24 * 60 * 60 * 1000,
+        controlPlane,
+        async () => {
+          await inventory.importBatches!.enqueueProductResolutionMaintenanceJob!({ validatorVersion: 1 });
+          return 1;
+        },
+      ),
+    );
+  }
+
   if (durableJobRetention) {
     runners.push(createScheduledJobRunner("durable-jobs.retention", 60 * 60 * 1000, controlPlane, durableJobRetention));
   }
@@ -892,17 +1002,7 @@ function createDurableJobRetentionTask(
         };
       }
     | undefined;
-  const inventory = services.inventory as
-    | {
-        importBatches?: {
-          pruneImportBatchJobRetention?: (input?: {
-            completedBefore?: Date;
-            stagedInputCreatedBefore?: Date;
-            limit?: number;
-          }) => Promise<{ jobs: number; stagedInputs: number }>;
-        };
-      }
-    | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
   const pricing = services.pricing as
     | {
         recommendations?: {
@@ -986,6 +1086,50 @@ function createDurableJobRetentionTask(
     return deleted;
   };
 }
+/**
+ * Builds Platform Operations' cleanup host port from worker configuration. Absent, invalid or inactive
+ * bindings, and a filesystem store a deployed worker cannot share with platform-api, stay not-mounted with
+ * one bounded denial. The mounted store exposes only delete and absence verification.
+ */
+export function createSupportEvidenceCleanupHostPort(
+  config: Pick<
+    PlatformWorkerConfig,
+    "deploymentEnvironment" | "supportEvidenceCleanupBinding" | "supportEvidenceStorage"
+  >,
+  logger: Pick<ScheduledRunnerLogger, "info">,
+  createStore: (storage: PlatformWorkerConfig["supportEvidenceStorage"]) => PrivateObjectStore = (storage) =>
+    storage.kind === "s3"
+      ? createS3PrivateObjectStoreFromOptions(storage)
+      : createFilesystemPrivateObjectStore({ rootDir: `${storage.rootDir}-private-support-evidence` }),
+): Required<Pick<PlatformOperationsHostPorts, "supportEvidenceCleanup">> {
+  const binding = config.supportEvidenceCleanupBinding;
+  const denial =
+    binding.kind === "denied"
+      ? binding.diagnostic
+      : config.supportEvidenceStorage.kind === "filesystem" &&
+          !["local", "dev", "test"].includes(config.deploymentEnvironment)
+        ? "binding_storage_unshared"
+        : null;
+  if (denial || binding.kind !== "configured") {
+    logger.info("Support evidence operation cleanup is not mounted.", {
+      type: "platform-operations.support-evidence-cleanup-binding",
+      reason: denial,
+    });
+    return { supportEvidenceCleanup: { kind: "not-mounted" } };
+  }
+  const store = createStore(config.supportEvidenceStorage);
+  return {
+    supportEvidenceCleanup: {
+      kind: "available",
+      binding,
+      storage: {
+        deleteKeys: (keys) => store.deleteKeys(keys),
+        verifyPrivate: (key, expected) => store.verifyPrivate(key, expected),
+      },
+    },
+  };
+}
+
 export function createScheduledJobRunner(
   name: string,
   intervalMs: number,

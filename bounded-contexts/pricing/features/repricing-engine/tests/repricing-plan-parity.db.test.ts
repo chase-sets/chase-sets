@@ -14,6 +14,8 @@ import type { RepricingPolicyListingTrace } from "../domain/fact";
 import * as roundPlanner from "../domain/round";
 import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../api/runtime";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "./dry-run-fixture";
+import { economicsNeverResolved } from "./round-capture-fixture";
+import { registerShadowGoals, shadowGoal } from "./shadow-goal-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
@@ -33,6 +35,7 @@ type MatrixRow = {
   exhausted?: RepricingPolicyListingTrace["exhaustedAnchors"];
   ruleIndex?: number;
   lastSold?: "native-undenominated" | "supplied-denominated-snapshot";
+  curve?: boolean;
 };
 const market = (amount: string) => ({
   source: "market-estimate" as const,
@@ -156,6 +159,32 @@ const matrix: MatrixRow[] = [
     anchor: { source: "last-sold", amount: "14.00", stratum: "last-sold", contributingListingCount: 0 },
   },
   { name: "ordered default rule", estimate: "12.00", target: "12.00", anchor: market("12.00"), ruleIndex: 1 },
+  {
+    name: "curve-objective fixed percentile",
+    curve: true,
+    directive: {
+      anchorChain: [
+        { source: "curve-objective", goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 50 } },
+      ],
+    },
+    target: "18.00",
+    // The seeded curve's 50th-percentile point is 18.00 with a 20-day observed median.
+    anchor: {
+      source: "curve-objective",
+      amount: "18.00",
+      stratum: "curve-objective",
+      contributingListingCount: 0,
+      goal: {
+        goalId: "fixed-percentile",
+        goalVersion: 1,
+        curveVersion: 1,
+        equivalentPercentile: 50,
+        forecastMedianSellDays: 20,
+        forecastStatus: "interpolated",
+        unprofitable: false,
+      },
+    },
+  },
 ];
 
 function normalized(trace: RepricingListingEvaluation | RepricingPolicyListingTrace) {
@@ -204,6 +233,27 @@ describeDb("independent repricing plan parity through preview/live/dry-run", () 
        VALUES ($1, $2, 1, now(), now(), $3, 'USD', $3, $3, 'medium', 3, 3, 0, now(), $4, 'account', now())`,
         [product.catalogItemId, product.productId, row.estimate, row.stale ? "2000-01-01" : "2100-01-01"],
       );
+    if (row.curve) {
+      await pool.query(
+        `INSERT INTO pricing_demand_curve_versions
+         (catalog_item_id, product_id, version, provider_condition, provider_variant, provider_language, fingerprint,
+          model_version, policy_revision_id, ladder_method, anchor_condition, exposure_start_reason, sales_coverage,
+          supply_status, own_seller_exclusion_applied, built_at, currency_code, fresh_until)
+         VALUES ($1, $2, 1, 'Near Mint', 'Normal', 'English', 'parity', 'parity', 'parity', 'parity', NULL,
+           'history-window', 'parity', 'observed', true, now() - interval '1 hour', 'USD', '2100-01-01')`,
+        [product.catalogItemId, product.productId],
+      );
+      await pool.query(
+        `INSERT INTO pricing_demand_curve_points
+         (catalog_item_id, product_id, version, percentile, price_amount, buyer_arrival_interval_days,
+          competing_seller_count, store_win_share, median_sell_days, qualifying_sale_count, history_capped, hopeless,
+          supply_status)
+         VALUES ($1, $2, 1, 10, 12.00, NULL, NULL, NULL, 5, 9, false, false, 'observed'),
+                ($1, $2, 1, 50, 18.00, NULL, NULL, NULL, 20, 6, false, false, 'observed'),
+                ($1, $2, 1, 90, 30.00, NULL, NULL, NULL, 60, 3, false, false, 'observed')`,
+        [product.catalogItemId, product.productId],
+      );
+    }
     if (row.asks) {
       await pool.query(
         `INSERT INTO pricing_market_listing_inputs
@@ -246,11 +296,14 @@ describeDb("independent repricing plan parity through preview/live/dry-run", () 
         };
       },
     };
-    const services = createRepricingEngineRuntime({ db, eventStore });
+    const services = createRepricingEngineRuntime({ economics: economicsNeverResolved, db, eventStore });
     const spy = vi.spyOn(roundPlanner, "planRepricingRound");
     const preview = (await services.previewProductRound(product)).find(
       (item) => item.listingId === "lst_7910_00000001",
     )!;
+    const shadowSolve = vi.fn(shadowGoal().solve);
+    registerShadowGoals([shadowGoal("fixed-percentile", { solve: shadowSolve })]);
+    const shadowPlan = vi.spyOn(roundPlanner, "planRepricingShadows");
     const run = await services.enqueueDryRun(
       {
         sellerAccountId: "acc_7910",
@@ -285,6 +338,9 @@ describeDb("independent repricing plan parity through preview/live/dry-run", () 
     expect(gateway.pauseListing).not.toHaveBeenCalled();
     expect(gateway.publishListing).not.toHaveBeenCalled();
     const dry = (await services.listDryRunTraces("acc_7910", run!.dryRunId))[0]!;
+    expect(dry).not.toHaveProperty("shadow");
+    expect(shadowSolve).not.toHaveBeenCalled();
+    expect(shadowPlan).not.toHaveBeenCalled();
     await services.enqueueMarketPriceSignal({
       ...product,
       amount: "25.00",

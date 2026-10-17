@@ -80,6 +80,12 @@ const discoverySearchQueryCounter = lazyCounter("chase_sets_discovery_search_que
 const discoverySearchQueryDuration = lazyHistogram("chase_sets_discovery_search_query_duration_ms", {
   unit: "ms",
 });
+const discoveryQueryEmbeddingWaiterDuration = lazyHistogram("chase_sets_discovery_query_embedding_waiter_duration_ms", {
+  unit: "ms",
+});
+const discoveryQueryEmbeddingLoadDuration = lazyHistogram("chase_sets_discovery_query_embedding_load_duration_ms", {
+  unit: "ms",
+});
 const eventStoreCounter = lazyCounter("chase_sets_event_store_operations_total");
 const eventStoreDuration = lazyHistogram("chase_sets_event_store_operation_duration_ms", {
   unit: "ms",
@@ -255,15 +261,19 @@ export type DiscoverySearchQuerySignal = Readonly<{
   resultSetKey: string;
   filterState: string;
   sortOrder: string;
-  cursorState: "cursor" | "fresh";
+  cursorState: "fresh" | "cursor" | "restarted";
   resultCount: number | null;
   total: number | null;
   zeroResults: boolean | null;
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | null;
+  lexicalZero: boolean | null;
+  interpretation: "applied" | "not-applied" | "unknown";
+  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected" | null;
   outcome: "success" | "failure";
   normalizationDurationMs: number;
   retrievalDurationMs: number;
   totalDurationMs: number;
+  queryEmbeddingOutcome: "cache-hit" | "joined" | "loaded" | "timeout" | "error" | "not-attempted";
+  queryEmbeddingWaiterDurationMs: number;
 }>;
 
 export type CheckoutObservabilityEventSignal = Readonly<{
@@ -1149,8 +1159,11 @@ export function recordDiscoverySearchQuerySignal(event: DiscoverySearchQuerySign
     sort_order: event.sortOrder,
     cursor_state: event.cursorState,
     zero_results: event.zeroResults === null ? "unknown" : String(event.zeroResults),
+    lexical_zero: event.lexicalZero === null ? "unknown" : String(event.lexicalZero),
+    interpretation: event.interpretation,
     retrieval_mode: event.retrievalMode ?? "unknown",
     outcome: event.outcome,
+    query_embedding_outcome: event.queryEmbeddingOutcome,
   };
   discoverySearchQueryCounter.add(1, {
     ...attributes,
@@ -1158,6 +1171,20 @@ export function recordDiscoverySearchQuerySignal(event: DiscoverySearchQuerySign
   discoverySearchQueryDuration.record(event.normalizationDurationMs, { ...attributes, phase: "normalization" });
   discoverySearchQueryDuration.record(event.retrievalDurationMs, { ...attributes, phase: "retrieval" });
   discoverySearchQueryDuration.record(event.totalDurationMs, { ...attributes, phase: "total" });
+  if (event.queryEmbeddingOutcome !== "not-attempted") {
+    discoveryQueryEmbeddingWaiterDuration.record(event.queryEmbeddingWaiterDurationMs, {
+      outcome: event.queryEmbeddingOutcome,
+    });
+  }
+}
+
+export function recordDiscoveryQueryEmbeddingLoad(
+  event: Readonly<{
+    outcome: "loaded" | "timeout" | "error";
+    durationMs: number;
+  }>,
+): void {
+  discoveryQueryEmbeddingLoadDuration.record(event.durationMs, { outcome: event.outcome });
 }
 
 export function checkoutObservabilityEventAttributes(event: CheckoutObservabilityEventSignal): Attributes {

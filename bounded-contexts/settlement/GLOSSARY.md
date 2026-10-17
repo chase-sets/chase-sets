@@ -134,6 +134,12 @@ Notes:
 - Active chargeback holds keep pending sale proceeds and shipping allowances from becoming available while the processor dispute remains open or lost.
 - A won chargeback releases the active hold with a matching Wallet credit; payout-reversal mechanics remain owned by Payout.
 
+## Staging Proof Credit
+
+A **Staging Proof Credit** is the one audited, staging-only credit of USD 0.01 through USD 25.00 to the immutable named Wallet for proof `7806-ac6`. It uses ordinary available balance and an `adjustment`-kind Ledger Entry, not a new balance type or the ordinary Wallet Adjustment approval lifecycle. The dedicated receipt identifies this proof path; the account statement retains the generic "Wallet adjustment" label without a lifecycle action.
+
+The fixed policy document retains the account pin through disable, expiry and re-enable. Spending, refunds, retries and operator changes never renew the allowance. Production has no exception. See [ADR 0020](../../docs/adr/0020-wallet-adjustment-authority-and-balance-types.md#staging-only-operator-proof-credit-exception) and [Money Operations](../../docs/runbooks/money-operations.md#staging-proof-credit).
+
 ## Wallet Adjustment
 
 A **Wallet Adjustment** is a Settlement-owned, cash-equivalent correction to an account's Wallet balance, requested by one authorized platform operator, approved by a different authorized platform operator, and posted as exactly one immutable `adjustment`-kind Wallet Ledger Entry. It is a governed path onto the existing available/pending balance, not a second balance type.

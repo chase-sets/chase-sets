@@ -125,6 +125,7 @@ type ListingFactRow = Readonly<{
   selected_options: unknown;
   selected_option_key: string;
   listing_status: "draft" | "active" | "paused" | "withdrawn" | "auto-unlisted";
+  pause_reason: string | null;
   item_title: string | null;
   item_subtitle: string | null;
   product_summary: string | null;
@@ -141,7 +142,7 @@ export async function resolveChannelPublishableQuantity(
     buffer?: ChannelStockAllocationBufferPolicyValue;
   }>,
 ): Promise<
-  | Readonly<{ kind: "resolved"; publishableQuantity: number }>
+  | Readonly<{ kind: "resolved"; publishableQuantity: number; lowStockWithheld: boolean }>
   | Readonly<{ kind: "listing-facts-unavailable" }>
   | Readonly<{ kind: "inventory-facts-unavailable" }>
 > {
@@ -152,8 +153,9 @@ export async function resolveChannelPublishableQuantity(
     allocation_mode: "shared-pool" | "partitioned" | null;
     allocation_partitions: unknown;
     publish_quantity_cap: number | null;
+    low_stock_withhold_units: number | null;
   }>(
-    `SELECT listing.quantity_cap, item.total_quantity, settings.publish_quantity_cap,
+    `SELECT listing.quantity_cap, item.total_quantity, settings.publish_quantity_cap, settings.low_stock_withhold_units,
             allocation.mode AS allocation_mode, allocation.partitions AS allocation_partitions,
             COALESCE(SUM(hold.quantity) FILTER (WHERE hold.status='active'),0) AS held_quantity
      FROM channels_listing_publication_facts AS listing
@@ -163,7 +165,8 @@ export async function resolveChannelPublishableQuantity(
        ON allocation.item_id=listing.inventory_item_id AND allocation.account_id=listing.account_id
      LEFT JOIN channels_connection_publication_settings AS settings ON settings.connection_id=$2
      WHERE listing.listing_id=$1
-     GROUP BY listing.quantity_cap,item.total_quantity,allocation.mode,allocation.partitions,settings.publish_quantity_cap`,
+     GROUP BY listing.quantity_cap,item.total_quantity,allocation.mode,allocation.partitions,
+              settings.publish_quantity_cap,settings.low_stock_withhold_units`,
     [input.listingId, input.connectionId ?? null],
   );
   const row = result.rows[0];
@@ -180,10 +183,16 @@ export async function resolveChannelPublishableQuantity(
       available,
       listingQuantityCap: row.quantity_cap,
       connectionPublishQuantityCap: row.publish_quantity_cap ?? null,
+      connectionLowStockWithholdUnits: row.low_stock_withhold_units ?? null,
       channelConnectionId: input.connectionId ?? "",
       allocation,
       buffer: input.buffer ?? CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
     }),
+    lowStockWithheld:
+      allocation.mode === "shared-pool" &&
+      available > 0 &&
+      row.low_stock_withhold_units != null &&
+      available <= row.low_stock_withhold_units,
   };
 }
 
@@ -252,6 +261,7 @@ export async function readChannelListingCompositionFacts(
           listingId: listing.listing_id,
           listingRevision: Number(listing.listing_stream_version),
           listingStatus: listing.listing_status,
+          pauseReason: listing.pause_reason,
           sellerAvailabilityStatus: listing.seller_availability_status,
           identity: {
             catalogItemId: listing.catalog_item_id,
@@ -273,7 +283,9 @@ export async function readChannelListingCompositionFacts(
                 : { kind: "absent" },
             publishableQuantity:
               quantity.kind === "resolved"
-                ? { kind: "resolved", value: quantity.publishableQuantity }
+                ? quantity.lowStockWithheld
+                  ? { kind: "low-stock-withheld" }
+                  : { kind: "resolved", value: quantity.publishableQuantity }
                 : { kind: "unavailable" },
           },
         },
@@ -322,6 +334,60 @@ export async function readChannelListingProviderProductReferences(
   );
   const byId = new Map(result.rows.map((row) => [row.channel_listing_id, row]));
   return input.channelListingIds.map((channelListingId) => {
+    const row = byId.get(channelListingId);
+    return {
+      channelListingId,
+      productReference: row
+        ? referenceFromCount(row.product_count, row.product_provider_key, row.product_external_key)
+        : { kind: "unlinked" },
+      catalogItemReference: row
+        ? referenceFromCount(row.catalog_count, row.catalog_provider_key, row.catalog_external_key)
+        : { kind: "unlinked" },
+    };
+  });
+}
+
+export async function readComposeChannelListingProviderProductReferences(
+  db: PgQueryable,
+  input: Readonly<{
+    providerKey: string;
+    operations: readonly Readonly<{ channelListingId: string; listingId: string }>[];
+  }>,
+): Promise<readonly ChannelReferenceRead[]> {
+  if (input.operations.length === 0) return [];
+  const result = await db.query<{
+    channel_listing_id: string;
+    product_count: string | number;
+    product_provider_key: string | null;
+    product_external_key: string | null;
+    catalog_count: string | number;
+    catalog_provider_key: string | null;
+    catalog_external_key: string | null;
+  }>(
+    `SELECT operation.channel_listing_id,
+       product.candidate_count AS product_count,product.provider_key AS product_provider_key,product.external_key AS product_external_key,
+       catalog.candidate_count AS catalog_count,catalog.provider_key AS catalog_provider_key,catalog.external_key AS catalog_external_key
+     FROM unnest($1::text[],$2::text[]) AS operation(channel_listing_id,listing_id)
+     JOIN channels_listing_publication_facts AS listing ON listing.listing_id=operation.listing_id
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*) AS candidate_count,MIN(provider_key) AS provider_key,MIN(external_key) AS external_key
+       FROM channels_external_product_reference_facts
+       WHERE provider_key=$3 AND catalog_item_id=listing.catalog_item_id
+         AND selected_option_key=listing.selected_option_key AND link_state='linked'
+     ) AS product ON true
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*) AS candidate_count,MIN(provider_key) AS provider_key,MIN(external_key) AS external_key
+       FROM channels_external_catalog_item_reference_facts
+       WHERE provider_key=$3 AND catalog_item_id=listing.catalog_item_id AND link_state='linked'
+     ) AS catalog ON true`,
+    [
+      input.operations.map((operation) => operation.channelListingId),
+      input.operations.map((operation) => operation.listingId),
+      input.providerKey,
+    ],
+  );
+  const byId = new Map(result.rows.map((row) => [row.channel_listing_id, row]));
+  return input.operations.map(({ channelListingId }) => {
     const row = byId.get(channelListingId);
     return {
       channelListingId,
@@ -465,8 +531,10 @@ async function readSettings(db: PgQueryable, connectionId: string): Promise<Chan
     category_allowlist: unknown;
     excluded_listing_ids: unknown;
     publish_quantity_cap: number | null;
+    low_stock_withhold_units: number | null;
   }>(
-    `SELECT title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,publish_quantity_cap
+    `SELECT title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,publish_quantity_cap,
+            low_stock_withhold_units
       FROM channels_connection_publication_settings WHERE connection_id=$1`,
     [connectionId],
   );
@@ -479,6 +547,7 @@ async function readSettings(db: PgQueryable, connectionId: string): Promise<Chan
         categoryAllowlist: strings(row.category_allowlist),
         excludedListingIds: strings(row.excluded_listing_ids),
         publishQuantityCap: row.publish_quantity_cap,
+        lowStockWithholdUnits: row.low_stock_withhold_units,
       }
     : null;
 }

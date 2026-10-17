@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseGlobalPosition } from "@chase-sets/event-core/storage";
-import { assertEnqueueOutboundOperation, payloadDigest } from "../domain/validation";
+import { assertEnqueueOutboundOperation } from "../domain/validation";
+import { payloadDigest } from "../api/payload-digest";
 
 const draft = {
   channelListingId: "channel-listing-1",

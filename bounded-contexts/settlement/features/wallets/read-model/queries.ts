@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { normalizeSignedMoneyAmount } from "@chase-sets/primitives/money";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createEmptyWalletSummary, type LedgerEntryDirection } from "../../../support/runtime-support/common";
 import type { WalletAdjustmentReasonCode } from "../domain/wallet-adjustment";
@@ -461,7 +462,7 @@ export async function getAccountActiveSpendHoldAmount(db: PgQueryable, accountId
     [accountId],
   );
 
-  return Number.parseFloat(result.rows[0]?.amount ?? "0").toFixed(2);
+  return normalizeSignedMoneyAmount(result.rows[0]?.amount ?? "0");
 }
 
 export type SettlementSpendHoldRow = Readonly<{
@@ -523,7 +524,7 @@ export async function getAccountActiveSupportHoldAmount(db: PgQueryable, account
     [accountId],
   );
 
-  return Number.parseFloat(result.rows[0]?.amount ?? "0").toFixed(2);
+  return normalizeSignedMoneyAmount(result.rows[0]?.amount ?? "0");
 }
 
 /**

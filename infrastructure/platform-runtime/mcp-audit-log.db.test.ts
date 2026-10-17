@@ -46,7 +46,7 @@ describe("Postgres MCP audit log", () => {
       actorId: "usr_1",
       accountId: "acc_1",
       agentGrantId: "lpa_1",
-      agentGrantScopes: ["checkout:read"],
+      agentGrantScopes: ["dev.ucp.shopping.checkout:manage"],
       auditEventName: "cart.viewed",
       targetType: "cart",
     };
@@ -57,7 +57,7 @@ describe("Postgres MCP audit log", () => {
       actorId: "usr_1",
       accountId: "acc_1",
       agentGrantId: "lpa_1",
-      agentGrantScopes: ["checkout:read"],
+      agentGrantScopes: ["dev.ucp.shopping.checkout:manage"],
       auditEventName: "payout.requested",
       targetType: "payout",
       reason: "Missing scope payouts:request.",

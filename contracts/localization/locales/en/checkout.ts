@@ -1,4 +1,6 @@
 export const checkoutEnglishTranslations = {
+  "checkout.routes.accountSellList.managed.offer.refresh.detail":
+    "{itemTitle}: this Offer needs current pricing terms. Refresh the Match and review price, fees and evidence. Your Sell List selection was kept.",
   "checkout.features.cart.api.route.authentication.context.missing": "Authentication context missing.",
   "checkout.features.cart.api.route.authentication.context.missing.2": "Authentication context missing.",
   "checkout.features.cart.api.route.authentication.context.missing.3": "Authentication context missing.",
@@ -1086,4 +1088,5 @@ export const checkoutEnglishTranslations = {
   "checkout.shared.policyLinks.privacy": "Privacy policy",
   "checkout.shared.policyLinks.refunds": "Refunds and returns",
   "checkout.shared.policyLinks.terms": "Terms of service",
+  "checkout.shell.cart.label": "Buy Cart",
 } as const;

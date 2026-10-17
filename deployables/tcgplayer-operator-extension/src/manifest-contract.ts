@@ -1,4 +1,4 @@
-export const operatorExtensionId = "ghemdloifdkoadnapmigabiekchlholm";
+export { operatorExtensionId } from "@chase-sets/catalog/client";
 export const operatorPublicKey =
   "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvBMv5xfZFqsgLsDHVgJsQE4oH5c+GbIgS1sB9zcwCT06+rCErQCyAFCdYW/CWbvQrzbNfZ2pSxNVlbF4+jSvNNcA+jC7xfsv20xDdWqcmT+4FFcDhDchzYNemi/E++Ru5OTFmYBDWjeYFtMHslO5s5he3/eXgVO9oWbePLhFkL0kiplFQfZNgC3qe9R1BKFjIMUIn0AM9HPMTpHsdOVA9rRfede3CdIEEi2fH0cTUHtQ9F8uFkvupCznOn9t4TdR0VMikx/dbNDtaHD+vAgotG/chEAcQlx1joKG9VwsZ4XtjpQbHQYLnWJCsis31bqOUpAaxh92NJIaEi2BLbEeaQIDAQAB";
 export const operatorManifest = {
@@ -8,6 +8,9 @@ export const operatorManifest = {
   key: operatorPublicKey,
   incognito: "not_allowed",
   permissions: ["cookies", "storage", "alarms"],
+  externally_connectable: {
+    matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
+  },
   host_permissions: [
     "https://store.tcgplayer.com/*",
     "https://admin.staging.chasesets.com/*",

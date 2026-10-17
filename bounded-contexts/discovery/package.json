@@ -19,13 +19,16 @@
     "./context": "./context.json",
     "./routes/*": "./routes/*.tsx",
     "./server": "./server.ts",
-    "./web": "./web.ts"
+    "./web": "./web.ts",
+    "./integration/link-intents": "./support/runtime-support/link-intents.ts"
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
+    "@chase-sets/catalog-seed": "workspace:*",
     "@chase-sets/checkout": "workspace:*",
     "@chase-sets/collections": "workspace:*",
     "@chase-sets/customer-feedback": "workspace:*",

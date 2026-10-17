@@ -276,20 +276,20 @@ describe("existing structure command enrollment", () => {
 // Independent input examples: expected detectors are explicit, not computed by the classifier.
 function lexicalCases() {
   return [
-    ["lower-six", "#8a682a", "raw"],
-    ["upper-six", "#8A682A", "raw"],
-    ["alpha-ff", "#8a682aff", "raw"],
-    ["alpha-80", "#8A682A80", "raw"],
-    ["alpha-gradient", "linear-gradient(#8a682aff, #edd28d80)", "raw"],
+    ["lower-six", "#806127", "raw"],
+    ["upper-six", "#A38132", "raw"],
+    ["alpha-ff", "#806127ff", "raw"],
+    ["alpha-80", "#A3813280", "raw"],
+    ["alpha-gradient", "linear-gradient(#806127ff, #edd28d80)", "raw"],
     ["dark-property", "--dark-chase-logo-end", "literal"],
     ["var", "var(--chase-logo-start)", "literal"],
     ["identifier", "chaseLogoMid", "literal"],
     ["raw-stop", "#d4a94e", "raw"],
     ["constructor", "`--chase-logo-${stop}`", "constructor"],
-    ["one-alpha", "#8a682aF", null],
-    ["three-alpha", "#8a682aff0", null],
-    ["long-run", "#8a682aff012345", null],
-    ["near-stop", "#8a682b", null],
+    ["one-alpha", "#806127F", null],
+    ["three-alpha", "#806127ff0", null],
+    ["long-run", "#806127ff012345", null],
+    ["near-stop", "#806128", null],
     ["width-constructor", "`--chase-logo-${width}`", null],
     ["width-property", "--chase-logo-width", null],
     ["width-identifier", "chaseLogoWidth", null],
@@ -299,11 +299,11 @@ function lexicalCases() {
     ["property-prefix", "x--chase-logo-start", null],
     ["identifier-prefix", "otherchaseLogoMid", null],
     ["constructor-prefix", "x--chase-logo-${stop}", null],
-    ["raw-prefix", "a#8a682a", null],
+    ["raw-prefix", "a#806127", null],
     ["unrelated-prose", "brand foil is distinct from holofoil", null],
     ["unrelated-gradient", "linear-gradient(#fff, #000)", null],
-    ["rgb", "rgb(138,104,42)", null],
-    ["hsl", "hsl(39,53%,35%)", null],
+    ["rgb", "rgb(128,97,39)", null],
+    ["hsl", "hsl(39,53%,33%)", null],
   ];
 }
 
@@ -318,7 +318,7 @@ function misplacedUses() {
     ],
     [
       "packages/design-system/src/theme/__fixtures__/ink-foil-candidate-tokens.json",
-      '\n"buttonFill": "#8a682a"',
+      '\n"buttonFill": "#806127"',
       "raw",
     ],
     [
@@ -326,7 +326,7 @@ function misplacedUses() {
       '\nconst button = <button style={{ background: "var(--chase-logo-start)" }} />;\n',
       "literal",
     ],
-    ["packages/design-system/src/brand/chase-sets-logo.svg", '\n<rect fill="#8a682a"/>', "raw"],
+    ["packages/design-system/src/brand/chase-sets-logo.svg", '\n<rect fill="#806127"/>', "raw"],
     ["scripts/generate-brand-icons.mjs", "\nconst buttonFill = `--chase-logo-${stop}`;\n", "constructor"],
     [
       "bounded-contexts/public-presence/features/waitlist/ui/assets/generate-og-images.mjs",
@@ -357,7 +357,7 @@ function misplacedUses() {
     ],
     [
       "scripts/check-structure/brand-foil-proof.mjs",
-      '\nfunction unrelatedProofHelper() { return "#8a682a"; }\n',
+      '\nfunction unrelatedProofHelper() { return "#806127"; }\n',
       "raw",
     ],
   ];

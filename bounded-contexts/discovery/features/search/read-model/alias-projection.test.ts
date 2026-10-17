@@ -4,7 +4,7 @@ import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
 import { DISCOVERY_ALIAS_SEARCH_ENV_VAR } from "../domain/alias-rollout";
 import type { ResolvedAlias } from "../domain/alias-weighting";
-import { buildDiscoverySearchItemProjectionHandlers } from "./projection";
+import { buildDiscoverySearchIdentityTerms, buildDiscoverySearchItemProjectionHandlers } from "./projection";
 
 // In-memory PgQueryable that models just enough of the search source/derived
 // tables to exercise the alias handler: it stores the resolved_aliases jsonb and
@@ -16,6 +16,8 @@ class AliasProjectionDb implements PgQueryable {
   public lastEmbeddedTextHash: string | null = null;
   public lastDerivedWriteSql = "";
   public derivedWrites = 0;
+  public terms: string[] = [];
+  public rejectDerivedWrite = false;
 
   constructor(initial: Record<string, unknown> = {}) {
     this.row = catalogItemRow(initial);
@@ -42,6 +44,7 @@ class AliasProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("INSERT INTO discovery_search_items")) {
+      if (this.rejectDerivedWrite) return { rows: [], rowCount: 0 };
       // VALUES placeholders: the ordered badge list precedes the search-text
       // inputs, so English and simple weights follow the natural-key fields.
       this.lastEnglishWeights = values.slice(25, 29).map(String);
@@ -50,6 +53,15 @@ class AliasProjectionDb implements PgQueryable {
       this.lastDerivedWriteSql = sql;
       this.derivedWrites += 1;
       return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("DELETE FROM discovery_search_item_identity_terms")) {
+      this.terms = [];
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO discovery_search_item_identity_terms")) {
+      this.terms = values[1] as string[];
+      return { rows: [], rowCount: this.terms.length };
     }
 
     if (
@@ -128,6 +140,46 @@ function alias(overrides: Partial<ResolvedAlias> & Pick<ResolvedAlias, "aliasTex
 }
 
 describe("Discovery search alias projection", () => {
+  it("projects distinct Latin identity words only, excluding identifiers and other scripts", () => {
+    expect(
+      buildDiscoverySearchIdentityTerms({
+        title: "Pokémon POKEMON Mew-ex OP01 東京 abc東京",
+        subtitle: "Élite 004/102 Łódź",
+        resolved_aliases: { fr: [alias({ aliasText: "Dracaufeu", aliasType: "official-equivalent" })] },
+      }),
+    ).toEqual(["dracaufeu", "elite", "mew", "pokemon", "łodz"]);
+  });
+
+  it("replaces language aliases, clears the last alias and empty identities, and ignores stale refreshes", async () => {
+    const db = new AliasProjectionDb();
+    const handlers = buildDiscoverySearchItemProjectionHandlers(db);
+    const apply = handlers["catalog.catalog-item.aliases-resolved"]!;
+    await apply(aliasesResolvedEvent([alias({ aliasText: "Dracaufeu", aliasType: "official-equivalent" })], "fr"));
+    await apply(aliasesResolvedEvent([alias({ aliasText: "Glurak", aliasType: "official-equivalent" })], "de"));
+    expect(db.terms).toEqual(["base", "charizard", "dracaufeu", "glurak", "set"]);
+    await apply(aliasesResolvedEvent([], "fr"));
+    expect(db.terms).toEqual(["base", "charizard", "glurak", "set"]);
+    await apply(aliasesResolvedEvent([], "de"));
+    expect(db.terms).toEqual(["base", "charizard", "set"]);
+    db.rejectDerivedWrite = true;
+    await apply(aliasesResolvedEvent([alias({ aliasText: "Stalealias", aliasType: "official-equivalent" })]));
+    expect(db.terms).toEqual(["base", "charizard", "set"]);
+    db.rejectDerivedWrite = false;
+    db.row.title = "東京";
+    db.row.subtitle = null;
+    await apply(aliasesResolvedEvent([]));
+    expect(db.terms).toEqual([]);
+  });
+
+  it("clears terms for retired items without removing their served row", async () => {
+    const db = new AliasProjectionDb({ status: "retired" });
+    db.terms = ["previous"];
+    await buildDiscoverySearchItemProjectionHandlers(db)["catalog.catalog-item.aliases-resolved"]!(
+      aliasesResolvedEvent([]),
+    );
+    expect(db.terms).toEqual([]);
+    expect(db.derivedWrites).toBe(1);
+  });
   afterEach(() => {
     delete process.env[DISCOVERY_ALIAS_SEARCH_ENV_VAR];
   });
@@ -222,6 +274,7 @@ describe("Discovery search alias projection", () => {
 
     // Source row still stores the alias, but it never reaches search text.
     expect(db.row.resolved_aliases).toMatchObject({ fr: expect.any(Array) });
+    expect(db.terms).toEqual(["base", "charizard", "set"]);
     expect(db.lastEnglishWeights.join(" ")).not.toContain("Dracaufeu");
     expect(db.lastEnglishWeights[0]).toContain("Charizard");
   });

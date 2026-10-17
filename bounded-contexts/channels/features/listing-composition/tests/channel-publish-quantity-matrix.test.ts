@@ -18,6 +18,7 @@ const partitioned = {
 
 function derive(overrides: Partial<Parameters<typeof deriveChannelPublishQuantity>[0]> = {}) {
   return deriveChannelPublishQuantity({
+    connectionLowStockWithholdUnits: null,
     available: 10,
     listingQuantityCap: 100,
     connectionPublishQuantityCap: null,
@@ -29,6 +30,39 @@ function derive(overrides: Partial<Parameters<typeof deriveChannelPublishQuantit
 }
 
 describe("channel-publish-quantity-matrix", () => {
+  it.each([
+    ["at threshold", 1, 1, null, shared, 0, 0],
+    ["above threshold", 2, 1, null, shared, 0, 2],
+    ["zero", 0, 1, null, shared, 0, 0],
+    ["negative", -1, 1, null, shared, 0, 0],
+    ["off", 1, null, null, shared, 0, 1],
+    ["cap follows withhold", 3, 2, 1, shared, 0, 1],
+    ["pre-buffer comparison", 3, 2, null, shared, 2, 1],
+    ["buffer-only zero", 2, 1, null, shared, 2, 0],
+    ["partitioned ignores withhold", 1, 1, null, partitioned, 0, 1],
+  ])(
+    "low-stock withhold: %s",
+    (
+      _label,
+      available,
+      connectionLowStockWithholdUnits,
+      connectionPublishQuantityCap,
+      allocation,
+      bufferHoldbackUnits,
+      expected,
+    ) => {
+      expect(
+        derive({
+          available,
+          connectionLowStockWithholdUnits,
+          connectionPublishQuantityCap,
+          allocation,
+          buffer: { bufferThresholdUnits: 5, bufferHoldbackUnits },
+        }),
+      ).toBe(expected);
+    },
+  );
+
   it.each([
     ["shared pool", 10, 2, shared, 100, 2],
     [

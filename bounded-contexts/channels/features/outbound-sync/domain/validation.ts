@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   assertChannelPublicationDraft,
   assertChannelPublicationResult,
@@ -158,10 +157,6 @@ export function canonicalJson(value: unknown): string {
       .join(",")}}`;
   }
   invalid("canonical JSON contains an unsupported value.");
-}
-
-export function payloadDigest(payload: OutboundOperationPayload): string {
-  return createHash("sha256").update(canonicalJson(payload), "utf8").digest("hex");
 }
 
 function closed(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {

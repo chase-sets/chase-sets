@@ -20,12 +20,6 @@ import type { ReviewDetail } from "./contracts";
 import { ReviewReportAction, type ReviewReportResult } from "./review-report-action";
 import { ReviewScoringContext } from "./review-scoring-context";
 
-function statusTone(status: string) {
-  return status === "withdrawn" ? "danger" : "success";
-}
-
-// Double-blind reveal (m108): rating === null means this row was
-// redacted for the subject's own view of a not-yet-revealed review.
 function isPending(review: ReviewDetail) {
   return review.status !== "withdrawn" && review.revealed_at === null;
 }
@@ -106,7 +100,17 @@ export function ReviewDetailPage({
       />
 
       <PageSection title={t("reputation.features.reviews.ui.reviewDetailPage.summary")}>
-        {review.held && review.rating === null ? (
+        {review.status === "withdrawn" ? (
+          <Stack gap={2}>
+            <MarketplaceEmptyState
+              title={t("reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.title")}
+              description={t("reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.description")}
+            />
+            {review.withdrawn_by_actor_type === "operator" ? (
+              <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}</Badge>
+            ) : null}
+          </Stack>
+        ) : review.held && review.rating === null ? (
           <MarketplaceEmptyState
             title={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.title")}
             description={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.description")}
@@ -131,7 +135,7 @@ export function ReviewDetailPage({
                   {t("reputation.features.reviews.ui.reviewDetailPage.reviewed.account")}
                   {review.subject_display_name ?? review.subject_account_id}
                 </Text>
-                <Badge tone={statusTone(review.status)}>{review.status}</Badge>
+                <Badge tone="success">{review.status}</Badge>
                 {pending ? (
                   <Badge tone="warning">{t("reputation.features.reviews.ui.reviewDetailPage.pending.reveal")}</Badge>
                 ) : null}
@@ -143,18 +147,21 @@ export function ReviewDetailPage({
                 {review.scoring_disposition === "context-only" ? (
                   <Badge tone="neutral">{t("reputation.features.reviews.ui.context.only.rating.explanation")}</Badge>
                 ) : null}
-                {review.withdrawn_by_actor_type === "operator" ? (
-                  <Badge tone="danger">
-                    {t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}
-                  </Badge>
-                ) : null}
                 {review.feedback_redacted_at !== null ? (
                   <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.redacted")}</Badge>
                 ) : null}
               </Stack>
             }
             verified
-            response={review.reply_status === "active" && review.reply_feedback ? review.reply_feedback : undefined}
+            response={
+              review.status === "active" &&
+              !review.held &&
+              review.revealed_at !== null &&
+              review.reply_status === "active" &&
+              review.reply_feedback
+                ? review.reply_feedback
+                : undefined
+            }
             responseLabel={t("reputation.features.reviews.ui.reviewDetailPage.reply.label")}
             context={<ReviewScoringContext review={review} />}
             actions={

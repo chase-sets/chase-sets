@@ -52,6 +52,7 @@ describeDb("channel-projection-concurrent-write", () => {
       "updated_at",
       "last_stream_version",
       "publish_quantity_cap",
+      "low_stock_withhold_units",
     ]);
     await pools.channels.query(
       `INSERT INTO channels_connection_publication_settings VALUES
@@ -65,13 +66,21 @@ describeDb("channel-projection-concurrent-write", () => {
     if (!channelsModule.schemaMigrations) throw new Error("Channels migrations are required.");
     const previousModule = {
       ...channelsModule,
-      schemaSql: channelsModule.schemaSql.replace(",\n    publish_quantity_cap integer NULL", ""),
+      schemaSql: channelsModule.schemaSql
+        .replace(",\n    publish_quantity_cap integer NULL", "")
+        .replace(",\n    low_stock_withhold_units integer NULL", ""),
       schemaMigrations: channelsModule.schemaMigrations
-        .filter((migration) => migration.migrationId !== migrationId)
+        .filter(
+          (migration) =>
+            migration.migrationId !== migrationId &&
+            migration.migrationId !== "20261008_channels_connection_low_stock_withhold",
+        )
         .map((migration) => ({
           ...migration,
           statements: migration.statements.map((statement) =>
-            statement.replace(",\n    publish_quantity_cap integer NULL", ""),
+            statement
+              .replace(",\n    publish_quantity_cap integer NULL", "")
+              .replace(",\n    low_stock_withhold_units integer NULL", ""),
           ),
         })),
     };
@@ -160,13 +169,168 @@ describeDb("channel-projection-concurrent-write", () => {
       ).toBe(publishQuantityCap);
       await expect(
         resolveChannelPublishableQuantity(pools.channels, { connectionId: "connection-1", listingId: "listing-1" }),
-      ).resolves.toEqual({ kind: "resolved", publishableQuantity: publishQuantityCap ?? 10 });
+      ).resolves.toEqual({ kind: "resolved", lowStockWithheld: false, publishableQuantity: publishQuantityCap ?? 10 });
       await expect(
         resolveChannelPublishableQuantity(pools.channels, { connectionId: "connection-other", listingId: "listing-1" }),
-      ).resolves.toEqual({ kind: "resolved", publishableQuantity: 10 });
+      ).resolves.toEqual({ kind: "resolved", lowStockWithheld: false, publishableQuantity: 10 });
       await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
         kind: "resolved",
         publishableQuantity: 10,
+        lowStockWithheld: false,
+      });
+    }
+  });
+
+  it("low_stock_withhold_units migration and read-back preserves old replay and pre-buffer resolver flags", async () => {
+    await resetMultiContextTestSchemas(pools);
+    const migrationId = "20261008_channels_connection_low_stock_withhold";
+    const strip = (sql: string) => sql.replace(",\n    low_stock_withhold_units integer NULL", "");
+    if (!channelsModule.schemaMigrations) throw new Error("Expected migrations.");
+    await bootstrapContextDatabase(
+      {
+        ...channelsModule,
+        schemaSql: strip(channelsModule.schemaSql),
+        schemaMigrations: channelsModule.schemaMigrations
+          .filter((entry) => entry.migrationId !== migrationId)
+          .map((entry) => ({ ...entry, statements: entry.statements.map(strip) })),
+      },
+      pools.channels,
+    );
+    const columns = () =>
+      pools.channels.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='channels_connection_publication_settings' AND column_name='low_stock_withhold_units'",
+      );
+    expect((await columns()).rows).toEqual([]);
+    await pools.channels.query(
+      "INSERT INTO channels_connection_publication_settings VALUES ('connection-1','','','','[]','[]',now(),1,NULL)",
+    );
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect((await columns()).rows).toEqual([{ column_name: "low_stock_withhold_units" }]);
+    expect(
+      (await pools.channels.query("SELECT low_stock_withhold_units FROM channels_connection_publication_settings"))
+        .rows,
+    ).toEqual([{ low_stock_withhold_units: null }]);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    for (const sql of channelListingCompositionSchemaMigrations.find((entry) => entry.migrationId === migrationId)!
+      .statements)
+      await pools.channels.query(sql);
+    await pools.channels.query(`INSERT INTO channels_connection_facts VALUES
+      ('connection-1','account-1','synthetic-provider','sandbox','active',now(),1),
+      ('connection-other','account-1','synthetic-provider','sandbox','active',now(),1)`);
+    const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+    const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+    const projection = buildChannelListingStateProjectionHandlers(pools.channels);
+    await marketplace["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-1",
+          accountId: "account-1",
+          inventoryItemId: "item-1",
+          catalogItemId: "catalog-1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Synthetic card",
+          itemSubtitle: null,
+          productSummary: null,
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-1",
+        1,
+      ),
+    );
+    await inventory["inventory.item.created"]!(
+      event(
+        "inventory.item.created",
+        {
+          itemId: "item-1",
+          accountId: "account-1",
+          catalogItemId: "catalog-1",
+          totalQuantity: 3,
+        },
+        "inventory.item-item-1",
+        1,
+      ),
+    );
+    await inventory["inventory.hold.placed"]!(
+      event(
+        "inventory.hold.placed",
+        {
+          holdId: "hold-1",
+          itemId: "item-1",
+          quantity: 2,
+        },
+        "inventory.hold-hold-1",
+        1,
+      ),
+    );
+    let version = 1;
+    for (const [label, available, withhold, cap, mode, holdback, quantity, flag] of [
+      ["old-event replay", 1, undefined, null, "shared-pool", 0, 1, false],
+      ["at threshold", 1, 1, null, "shared-pool", 0, 0, true],
+      ["above threshold", 2, 1, null, "shared-pool", 0, 2, false],
+      ["zero", 0, 1, null, "shared-pool", 0, 0, false],
+      ["negative", -1, 1, null, "shared-pool", 0, 0, false],
+      ["partitioned", 1, 1, null, "partitioned", 0, 1, false],
+      ["cap", 3, 2, 1, "shared-pool", 0, 1, false],
+      ["pre-buffer", 3, 2, null, "shared-pool", 2, 1, false],
+      ["buffer-only zero", 2, 1, null, "shared-pool", 2, 0, false],
+      ["off", 1, null, null, "shared-pool", 0, 1, false],
+    ] as const) {
+      const settings = {
+        titlePrefix: "",
+        titleSuffix: "",
+        descriptionFooter: "",
+        categoryAllowlist: [],
+        excludedListingIds: [],
+        publishQuantityCap: cap,
+        ...(withhold === undefined ? {} : { lowStockWithholdUnits: withhold }),
+      };
+      const settingsEvent = event(
+        "channels.channel-publication-configuration.settings-replaced",
+        { connectionId: "connection-1", settings },
+        "channels.channel-publication-configuration-connection-1",
+        ++version,
+      );
+      await projection[settingsEvent.type]!(settingsEvent);
+      await projection[settingsEvent.type]!(settingsEvent);
+      await pools.channels.query("UPDATE channels_inventory_item_facts SET total_quantity=$1 WHERE item_id='item-1'", [
+        available + 2,
+      ]);
+      await pools.channels.query(
+        `INSERT INTO channels_inventory_allocation_facts VALUES ('item-1','account-1',$1,$2::jsonb,now(),1)
+        ON CONFLICT (item_id) DO UPDATE SET mode=EXCLUDED.mode,partitions=EXCLUDED.partitions`,
+        [mode, JSON.stringify([{ channelConnectionId: "connection-1", units: 1 }])],
+      );
+      expect(
+        (
+          await readChannelPublicationConnection(pools.channels, {
+            accountId: "account-1",
+            connectionId: "connection-1",
+          })
+        )?.settings?.lowStockWithholdUnits,
+        label,
+      ).toBe(withhold ?? null);
+      expect(
+        await resolveChannelPublishableQuantity(pools.channels, {
+          connectionId: "connection-1",
+          listingId: "listing-1",
+          buffer: { bufferThresholdUnits: 5, bufferHoldbackUnits: holdback },
+        }),
+        label,
+      ).toEqual({ kind: "resolved", publishableQuantity: quantity, lowStockWithheld: flag });
+      expect(
+        await resolveChannelPublishableQuantity(pools.channels, {
+          connectionId: "connection-other",
+          listingId: "listing-1",
+        }),
+        label,
+      ).toEqual({
+        kind: "resolved",
+        publishableQuantity: mode === "partitioned" ? 0 : Math.max(0, available),
+        lowStockWithheld: false,
       });
     }
   });
@@ -223,6 +387,7 @@ describeDb("channel-projection-concurrent-write", () => {
     await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
       kind: "resolved",
       publishableQuantity: 3,
+      lowStockWithheld: false,
     });
     await inventory["inventory.item.adjusted"]!(
       event(
@@ -238,6 +403,7 @@ describeDb("channel-projection-concurrent-write", () => {
     await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
       kind: "resolved",
       publishableQuantity: 1,
+      lowStockWithheld: false,
     });
     await inventory["inventory.hold.placed"]!(
       event(
@@ -254,6 +420,7 @@ describeDb("channel-projection-concurrent-write", () => {
     await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
       kind: "resolved",
       publishableQuantity: 0,
+      lowStockWithheld: false,
     });
     await inventory["inventory.hold.released"]!(
       event(
@@ -268,6 +435,7 @@ describeDb("channel-projection-concurrent-write", () => {
     await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
       kind: "resolved",
       publishableQuantity: 1,
+      lowStockWithheld: false,
     });
   });
 

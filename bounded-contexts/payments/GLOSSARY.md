@@ -6,6 +6,26 @@ This glossary defines the canonical terminology for the Payments bounded context
 
 A **Payment** is the external charge workflow associated with one or more orders.
 
+## Wallet Funding
+
+**Wallet Funding** is the card-to-prepaid funding capability, separate from order Payments and Settlement's internal balance accounting.
+
+## Wallet Funding Payment
+
+A **Wallet Funding Payment** is a platform-held card charge with no orders. Its gross charge is the requested prepaid amount plus its Wallet Funding Fee. Payments owns the charge; Settlement owns the resulting Prepaid Balance.
+
+## Wallet Funding Fee
+
+The **Wallet Funding Fee** is the non-refundable processing fee quoted from the checkout card fee policy and charged on top of the requested prepaid amount.
+
+## Wallet Funding Refund
+
+A **Wallet Funding Refund** returns an exact reserved amount of unspent prepaid money to the original card, subject to processor acceptance. Pending or unknown provider outcomes retain their reservation and require reconciliation, not expiry or another refund attempt.
+
+## Refund Reservation
+
+A **Refund Reservation** is Settlement's durable authorization of one account, funding, refund, currency and amount. Payments persists the identity before provider submission, commits it after one successful refund fact, and releases it only after definitive terminal non-execution evidence. It is not a refundable-balance snapshot or a Payments wallet write.
+
 ## Payment Intent
 
 A **Payment Intent** is the buyer-facing authorization attempt created before capture.
@@ -111,7 +131,7 @@ A **Shared Payment Token** is a provider-scoped payment credential grant from an
 
 Notes:
 
-- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff and require AP2 verification before headless UCP completion.
+- Stripe Shared Payment Tokens are processed through a PaymentIntent handoff; UCP checkout completion does not submit them headlessly.
 - Payments stores the resulting processor payment reference and metadata, not the token as durable customer payment data.
 
 ## Saved Checkout Instrument
@@ -199,15 +219,6 @@ Notes:
 
 - Distinct from the product checkout session, which is Chase Sets' own buyer-facing checkout flow and is not a Stripe object; the two must never be conflated in Payments terminology or evidence.
 - Option B's evidence windows use the embedded setup path only, so no Stripe Checkout Session is created; its Disposition Terminal is `not-created`.
-
-## AP2 Mandate
-
-An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.
-
-Notes:
-
-- AP2 Mandates are accepted for headless UCP checkout completion only when a production verifier is configured and a supported payment handler is present.
-- Without a verified AP2 Mandate, UCP checkout completion must use Trusted Checkout Handoff.
 
 ## Payment Provider Mode
 

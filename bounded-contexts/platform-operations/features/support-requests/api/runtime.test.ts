@@ -12,6 +12,12 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createSupportRequestRuntime } from "./runtime";
+import { evidenceActor } from "../domain/evidence-access-policy.test-support";
+import {
+  attachmentManifestReferences,
+  attachmentOperationStreamId,
+  createAttachmentManifest,
+} from "../domain/attachment-operation";
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -109,7 +115,7 @@ describe("support request runtime", () => {
     });
   });
 
-  it("limits attachment reads to the buyer, seller, and platform support operator", async () => {
+  it("platform-admin without a grant cannot read another account case even when a read model grants it", async () => {
     const body = new Uint8Array([0xff, 0xd8, 0xff]);
     const sha256 = createHash("sha256").update(body).digest("hex");
     const reference = `support-attachment:v1:sea_photo:${sha256}:jpg`;
@@ -133,10 +139,35 @@ describe("support request runtime", () => {
       }),
     };
     const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "support.support-request-sup_case",
+      expectedVersion: "any",
+      context,
+      events: [
+        {
+          eventType: "support.support-request.opened",
+          payload: {
+            supportRequestId: "sup_case",
+            buyerAccountId: "acc_buyer",
+            sellerAccountId: "acc_seller",
+            orderReturnContext: [],
+          },
+        },
+        {
+          eventType: "support.support-request.evidence-submitted",
+          payload: { evidence: { attachments: [reference] } },
+        },
+      ],
+    });
     const storage = {
-      putObject: vi.fn(),
-      getObject: vi.fn(async () => ({ body, contentType: "image/jpeg" })),
-      deleteObjects: vi.fn(),
+      putPrivate: vi.fn(),
+      readPrivate: vi.fn(async () => ({
+        status: "found" as const,
+        body,
+        byteSize: body.length,
+        providerContentType: "image/jpeg",
+      })),
+      verifyPrivate: vi.fn(),
     };
     const runtime = createSupportRequestRuntime({
       eventStore,
@@ -149,27 +180,25 @@ describe("support request runtime", () => {
       runtime.getAttachment({
         supportRequestId: "sup_case",
         attachmentId: "sea_photo",
-        accountId: "acc_buyer",
-        roleKey: "owner",
+        actor: evidenceActor("owner", ["support.view"]),
       }),
     ).resolves.toEqual({ body, contentType: "image/jpeg" });
     await expect(
       runtime.getAttachment({
         supportRequestId: "sup_case",
         attachmentId: "sea_photo",
-        accountId: "acc_unrelated",
-        roleKey: "owner",
+        actor: evidenceActor("owner", ["support.view"], false, "acc_unrelated"),
       }),
-    ).resolves.toBeNull();
+    ).rejects.toMatchObject({ status: 404 });
     await expect(
       runtime.getAttachment({
         supportRequestId: "sup_case",
         attachmentId: "sea_photo",
-        accountId: "acc_operator",
-        roleKey: "platform-admin",
+        actor: evidenceActor("platform-admin", ["support.view"], false, "acc_operator"),
       }),
-    ).resolves.toEqual({ body, contentType: "image/jpeg" });
-    expect(storage.getObject).toHaveBeenCalledTimes(2);
+    ).rejects.toMatchObject({ status: 404 });
+    expect(storage.readPrivate).toHaveBeenCalledTimes(1);
+    expect(db.query).not.toHaveBeenCalled();
   });
 
   it("stamps the shipment projection's delivered-at fact onto the open decision", async () => {
@@ -1303,6 +1332,7 @@ describe("support request runtime", () => {
     async function openAndResolveReturnRequest(
       runtime: ReturnType<typeof createSupportRequestRuntime>,
       setPendingId: (id: string) => void,
+      eventStore: EventStore,
     ) {
       const opened = await runtime.openSupportRequest(
         { orderId: "ord_1", accountId: "acc_buyer", flowType: "return-request" },
@@ -1310,6 +1340,29 @@ describe("support request runtime", () => {
       );
       const supportRequestId = opened.supportRequestId;
       setPendingId(supportRequestId);
+      const operationId = "sao_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+      const manifest = createAttachmentManifest({
+        owner: { tenantId: context.tenantId, accountId: context.audit.forAccountId, supportRequestId, operationId },
+        profile: "support-evidence-raster/v1",
+        encoderFingerprint: {
+          profile: "support-evidence-raster/v1",
+          sharp: "test",
+          libvips: "test",
+          platform: "test",
+          arch: "test",
+          libc: "test",
+        },
+        images: [{ canonicalSha256: "a".repeat(64), contentType: "image/jpeg", byteSize: 10 }],
+      });
+      await eventStore.appendToStream({
+        streamId: attachmentOperationStreamId(manifest.owner),
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          { eventType: "support.attachment-operation.staged", payload: manifest },
+          { eventType: "support.attachment-operation.stored", payload: { index: 0 } },
+        ],
+      });
 
       await runtime.submitEvidence(
         {
@@ -1329,7 +1382,9 @@ describe("support request runtime", () => {
           submittedByRole: "buyer",
           evidenceType: "photo",
           summary: "As-received front and back photos.",
-          attachments: ["att_1"],
+          actor: { ...evidenceActor("owner", ["support.manage"], true), tenantId: "tnt_test", userId: "usr_test" },
+          attachments: attachmentManifestReferences(manifest),
+          attachmentOperationId: operationId,
           scope: "operations",
         },
         context,
@@ -1372,9 +1427,13 @@ describe("support request runtime", () => {
         db: db as never,
       });
 
-      await openAndResolveReturnRequest(runtime, (id) => {
-        pendingId = id;
-      });
+      await openAndResolveReturnRequest(
+        runtime,
+        (id) => {
+          pendingId = id;
+        },
+        eventStore,
+      );
 
       const resolvedEvent = allEvents.find((event) => event.eventType === "support.support-request.resolved");
       expect(resolvedEvent?.payload).toMatchObject({ resolution: { resolutionType: "return-for-refund" } });
@@ -1418,9 +1477,13 @@ describe("support request runtime", () => {
         db: db as never,
       });
 
-      await openAndResolveReturnRequest(runtime, (id) => {
-        pendingId = id;
-      });
+      await openAndResolveReturnRequest(
+        runtime,
+        (id) => {
+          pendingId = id;
+        },
+        eventStore,
+      );
       await runtime.recordReturnDelivery(
         {
           supportRequestId: pendingId,

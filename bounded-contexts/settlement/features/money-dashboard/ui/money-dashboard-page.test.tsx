@@ -267,6 +267,32 @@ describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
     expect(numericValueClassName).not.toBe("");
   });
 
+  it("unlinked-adjustment-statement retains Wallet adjustment label without lifecycle action", () => {
+    const html = renderToString(
+      <SettlementMoneyDashboardPage
+        wallet={wallet}
+        entries={[
+          {
+            ...ledgerEntry,
+            kind: "adjustment",
+            description: "staging-operator-proof",
+            adjustment_display_reference: null,
+          },
+        ]}
+        payouts={[]}
+        payoutReadiness={readiness}
+        evaluatedAt="2026-07-15T12:00:00.000Z"
+        canRequestPayouts={false}
+        canSetupPayouts={false}
+        canReconcilePayouts={false}
+      />,
+    );
+    expect(html).toContain("Wallet adjustment");
+    expect(html).not.toContain("staging-operator-proof");
+    expect(html).not.toContain("wallet-adjustment=");
+    expect(html).not.toContain("View adjustment");
+  });
+
   it("roles every standalone money value on the page and the selected adjustment sheet, and nothing else", async () => {
     render(
       <SettlementMoneyDashboardPage

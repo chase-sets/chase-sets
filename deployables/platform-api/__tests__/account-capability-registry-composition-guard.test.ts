@@ -31,10 +31,17 @@ describe("platform-api Account Capability registry composition guard", () => {
         allowedValues: ["standard"],
         defaultValue: "standard",
       },
+      {
+        owningContext: "platform-operations",
+        key: "support.evidence.any-case",
+        description: "Declares whether an Account may hold any-case Support evidence authority.",
+        kind: "boolean",
+        defaultValue: false,
+      },
     ]);
   });
 
-  it("keeps shipped Account Capability catalog terms separate from planned lifecycle terms", () => {
+  it("keeps shipped Account Capability catalog and grant terms separate from planned lifecycle terms", () => {
     const glossary = readFileSync(path.join(repositoryRoot, "bounded-contexts", "identity", "GLOSSARY.md"), "utf8");
     const readme = readFileSync(path.join(repositoryRoot, "bounded-contexts", "identity", "README.md"), "utf8");
     const shippedHeading = "## Account Capabilities";
@@ -48,19 +55,35 @@ describe("platform-api Account Capability registry composition guard", () => {
 
     const shipped = glossary.slice(shippedStart, plannedStart);
     const planned = glossary.slice(plannedStart);
-    for (const term of ["Account Capability", "Account Capability Declaration", "Account Capability Registry"]) {
+    for (const term of [
+      "Account Capability",
+      "Account Capability Declaration",
+      "Account Capability Registry",
+      "Capability Grant",
+    ]) {
       expect(shipped).toMatch(new RegExp(`^### ${term}$`, "m"));
       expect(readme).toContain(`**${term}**`);
     }
-    for (const key of ["authenticity.seller-included", "inventory.locations", "mcp.rate-tier"]) {
+    for (const key of [
+      "authenticity.seller-included",
+      "inventory.locations",
+      "mcp.rate-tier",
+      "support.evidence.any-case",
+    ]) {
       expect(shipped).toContain(`\`${key}\``);
       expect(planned).not.toContain(`\`${key}\``);
     }
     expect(shipped).toMatch(/inert declarations without grants, resolution, enforcement, pricing, or UI behavior/);
     expect(readme).toMatch(/inert metadata.*no grants, resolution, enforcement, pricing, or UI behavior/s);
+    expect(shipped).toMatch(/ships for `support\.evidence\.any-case` only/);
+    expect(shipped).toMatch(/^### Capability Administration Authority$/m);
+    expect(readme).toContain("release-scoped Capability Administration Authority admission");
+    expect(shipped).toMatch(
+      /Grant and revoke routes require the Capability Administration Authority and audit every attempt/,
+    );
+    expect(shipped).not.toMatch(/planned in #9385 and not yet shipped/);
 
     for (const plannedTerm of [
-      "Capability Grant",
       "Capability Restriction",
       "Capability Requirement",
       "Capability Level",

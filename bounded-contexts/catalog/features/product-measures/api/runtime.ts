@@ -1,13 +1,13 @@
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   createProjectionHandlerSet,
   resolveProjectionDb,
   type ProjectionHandlerSet,
 } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { toJsonValue, type JsonObject } from "@chase-sets/primitives/json";
 import type {
   ProductMeasureSnapshot,
   ProductPhysicalFlag,
@@ -16,6 +16,14 @@ import type {
 } from "@chase-sets/product-measures";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { listProductMeasureProfiles, listResolvedProductMeasures } from "../read-model/queries";
+import { publishProductMeasures } from "./publication";
+
+export const catalogProductMeasureSubscription = {
+  projectionName: "catalog-product-measures-projection",
+  sourceContextName: "catalog",
+  subscriptionVersion: 1,
+} as const;
+const measurePublicationCheckpointKey = createCheckpointKey(catalogProductMeasureSubscription);
 
 type ProductMeasureProfileInput = Readonly<{
   profileId: string;
@@ -76,16 +84,20 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
     listResolvedProductMeasures: (catalogItemId) => listResolvedProductMeasures(deps.db, catalogItemId),
     projectors: [
       createProjectionHandlerSet({
-        projectionName: "catalog-product-measures-projection",
+        projectionName: catalogProductMeasureSubscription.projectionName,
         handlers: {
-          "catalog.catalog-item.product-measures-resolved": async (event, context) => {
-            const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
-            await replaceResolvedProductMeasures(
-              resolveProjectionDb(context, deps.db),
-              data.catalogItemId,
-              data.products,
-            );
-          },
+          ...buildProductMeasurePublicationHandlers(
+            deps.db,
+            measurePublicationCheckpointKey,
+            async (event, context) => {
+              const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
+              await replaceResolvedProductMeasures(
+                resolveProjectionDb(context, deps.db),
+                data.catalogItemId,
+                data.products,
+              );
+            },
+          ),
         },
       }),
     ],
@@ -167,29 +179,7 @@ async function resolveCatalogItemMeasures(
   const resolvedProducts = resolveProductMeasures(item, products, profiles);
 
   if (context) {
-    const streamId = `catalog.product-measures-${catalogItemId}`;
-    const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
-    const currentVersion = existingEvents.at(-1)?.streamVersion ?? 0;
-    const lastResolved = [...existingEvents]
-      .reverse()
-      .find((event) => event.eventType === "catalog.catalog-item.product-measures-resolved");
-    if (jsonValuesEqual(lastResolved?.payload ?? null, { catalogItemId, products: resolvedProducts })) {
-      return;
-    }
-    await deps.eventStore.appendToStream({
-      streamId,
-      expectedVersion: currentVersion,
-      context,
-      events: [
-        {
-          eventType: "catalog.catalog-item.product-measures-resolved",
-          payload: {
-            catalogItemId,
-            products: toJsonValue(resolvedProducts),
-          } as JsonObject,
-        },
-      ],
-    });
+    await publishProductMeasures(deps.eventStore, catalogItemId, resolvedProducts, context);
     return;
   }
 
@@ -397,22 +387,4 @@ function profileMatches(
       (selected) => selected.dimensionId === required.dimensionId && selected.optionId === required.optionId,
     ),
   );
-}
-
-function jsonValuesEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(sortJson(left)) === JSON.stringify(sortJson(right));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortJson);
-  }
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, sortJson(entry)]),
-    );
-  }
-  return value;
 }

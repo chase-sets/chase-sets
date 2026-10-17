@@ -1,4 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -13,6 +15,663 @@ import {
 } from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
+
+// These are the finite input contracts in #8993, executed by Bash's own ERE
+// implementation, not a second regex classifier or a provider integration.
+const operatorSha = "a".repeat(40);
+const operatorBlocks = [
+  {
+    file: "platform-compose-boot-smoke.yml",
+    step: "Validate immutable target provenance",
+    bindings: [
+      ["target_sha", "TARGET_SHA", operatorSha, "target_sha must be a lowercase 40-character"],
+      ["expected_base_sha", "EXPECTED_BASE_SHA", operatorSha, "expected_base_sha must be a lowercase 40-character"],
+    ],
+  },
+  {
+    file: "platform-staging-advisory-evidence.yml",
+    step: "Check out applied staging release",
+    bindings: [
+      ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
+    ],
+  },
+  ...["Summarize staging advisory evidence", "Create, update, or resolve advisory evidence incident"].map((step) => ({
+    file: "platform-staging-advisory-evidence.yml",
+    step,
+    bindings: [
+      ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
+    ],
+  })),
+  {
+    file: "platform-rollback-readiness.yml",
+    step: "Validate rollback target evidence",
+    bindings: [
+      ["target_commit", "target_commit", operatorSha, "Target commit must be a lowercase 40-character"],
+      ["release_tag", "release_tag", "release-20261007071150-aaaaaaaa-123", "Release tag must start with release-"],
+      [
+        "image_ref",
+        "image_ref",
+        "registry.digitalocean.com/example/chase-sets-platform:release-20261007071150-aaaaaaaa-123",
+        "Image reference must start with registry.digitalocean.com/",
+      ],
+    ],
+  },
+  {
+    file: "platform-staging-mixed-version-wake-drills.yml",
+    step: "Confirm mixed-version evidence evaluation",
+    bindings: [
+      [
+        "platform_deploy_run_id",
+        "PLATFORM_DEPLOY_RUN_ID",
+        "123",
+        "Platform deploy run id must contain only decimal digits",
+      ],
+    ],
+  },
+  {
+    file: "platform-staging-mixed-version-wake-drills.yml",
+    step: "Download source evidence",
+    bindings: [
+      [
+        "platform_deploy_run_id",
+        "PLATFORM_DEPLOY_RUN_ID",
+        "123",
+        "Platform deploy run id must contain only decimal digits",
+      ],
+      ["wake_drill_run_id", "WAKE_DRILL_RUN_ID", "456", "Wake drill run id must contain only decimal digits"],
+      [
+        "secondary_wake_drill_run_id",
+        "SECONDARY_WAKE_DRILL_RUN_ID",
+        "789",
+        "Secondary wake drill run id must be empty or contain only decimal digits",
+      ],
+    ],
+  },
+].map((block) => {
+  const workflow = parse(readFileSync(resolve(".github/workflows", block.file), "utf8"));
+  const step = Object.values(workflow.jobs)
+    .flatMap((job) => job.steps ?? [])
+    .find((step) => step.name === block.step);
+  if (!step?.run) throw new Error(`Missing operator block: ${block.file}::${block.step}`);
+  return { ...block, workflow, source: step };
+});
+
+const operatorCases = operatorBlocks.flatMap((block) =>
+  block.bindings.map(([input, name, valid, message]) => ({ block, input, name, valid, message })),
+);
+const operatorBash =
+  process.platform === "win32"
+    ? resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+    : "bash";
+
+function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
+  const root = mkdtempSync(join(tmpdir(), "operator-input-control-"));
+  const env = {
+    ...process.env,
+    ...Object.fromEntries(block.bindings.map(([, name, value]) => [name, value])),
+    REPOSITORY_URL: "https://example.invalid/synthetic.git",
+    GITHUB_REPOSITORY: "synthetic/operator-input-control",
+    GITHUB_OUTPUT: "output",
+    GITHUB_STEP_SUMMARY: "summary",
+    EVIDENCE_DIR: "evidence",
+    TRIGGER_EVENT: "workflow_dispatch",
+    TRIGGER_REF: "refs/heads/main",
+    TRIGGER_SHA: operatorSha,
+    PLATFORM_IMAGE: `registry.digitalocean.com/example/chase-sets-platform:${operatorSha}`,
+    PLATFORM_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
+    CONTROL_SHA: operatorSha,
+    CONTROL_FAILURE: "",
+    CONTROL_NAME: "",
+    SCENARIO_SEED_OUTCOME: "success",
+    MARKETPLACE_E2E_OUTCOME: "success",
+    ADVISORY_RESULT: "failure",
+    SCENARIO_SEED_ERROR: "",
+    RUN_URL: "https://example.invalid/synthetic-run",
+    ARTIFACTS_URL: "https://example.invalid/synthetic-artifacts",
+    ...overrides,
+  };
+  // Functions intercept every provider-facing command in these extracted
+  // blocks. Trace goes to a file so the real block's redirections cannot hide it.
+  const stubs = `
+    trace() { printf '%s' "$1" >> trace; shift; printf ' <%s>' "$@" >> trace; printf '\\n' >> trace; }
+    git() {
+      trace git "$@"
+      case "$1" in
+        fetch) [[ "$CONTROL_FAILURE" != fetch ]] ;;
+        cat-file) [[ "$CONTROL_FAILURE" != object ]] ;;
+        merge-base) [[ "$CONTROL_FAILURE" != ancestry ]] ;;
+        rev-list) printf '%s\\n' "$CONTROL_SHA" ;;
+        rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
+      esac
+    }
+    gh() { trace gh "$@"; }
+    doctl() { trace doctl "$@"; }
+    docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
+    jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
+    date() { printf '2026-10-07T00:00:00Z'; }
+    control_use() {
+      [[ "$1" == *'=~'* || "$1" == '[ -z '* || "$1" == 'fail '* || "$1" == "$CONTROL_NAME="* ]] && return 0
+      if [[ "$1" == *"\\$$CONTROL_NAME"* || "$1" == *"\\\${$CONTROL_NAME}"* ]]; then
+        trace consume "\${!CONTROL_NAME}"
+      fi
+    }
+    if [[ -n "$CONTROL_NAME" ]]; then trap 'control_use "$BASH_COMMAND"' DEBUG; fi
+  `;
+  try {
+    run = run
+      .replaceAll("\${{ inputs.platform_image }}", env.PLATFORM_IMAGE)
+      .replaceAll("\${{ inputs.platform_image_digest }}", env.PLATFORM_IMAGE_DIGEST);
+    const result = spawnSync(operatorBash, ["-c", `${stubs}\n${run}`], { cwd: root, env, encoding: "utf8" });
+    if (result.error) throw result.error;
+    const read = (name) => (existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : "");
+    return {
+      status: result.status,
+      output: `${result.stdout}${result.stderr}`,
+      trace: read("trace"),
+      injected: existsSync(join(root, "marker")),
+      evidence: read("output"),
+      summary: read("summary"),
+    };
+  } finally {
+    if (!root.startsWith(join(tmpdir(), "operator-input-control-"))) throw new Error("Unexpected control cleanup root");
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function operatorGuard(run, name) {
+  const start = run.indexOf(`[[ "$${name}" =~ `);
+  if (start < 0) throw new Error(`Missing guard for ${name}`);
+  const end = run.indexOf("\n}", start);
+  if (end < 0) throw new Error(`Missing refusal block for ${name}`);
+  return run.slice(start, end + 2);
+}
+
+describe("operator inputs before shell parsing (#8993)", () => {
+  it("reproduces the frozen Compose line-oriented guard bypass without provider effects", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-compose-boot-smoke.yml");
+    const old = parse(
+      execFileSync("git", ["show", `595ea3a666b4a9c92a66cd1b5136230e132277f3:.github/workflows/${block.file}`], {
+        encoding: "utf8",
+      }),
+    );
+    const run = old.jobs.verify.steps.find((step) => step.name === block.step).run;
+    const overrides = { TARGET_SHA: `${operatorSha}\n-e` };
+    const baseline = executeOperatorBlock(block, overrides, run);
+    expect(baseline.status, baseline.output).toBe(0);
+    expect(baseline.trace).toContain(`${operatorSha}\n-e`);
+    const candidate = executeOperatorBlock(block, overrides);
+    expect(candidate.status).toBe(1);
+    expect(candidate.output).toContain("target_sha must be a lowercase 40-character");
+    expect(candidate.trace).toBe("");
+  });
+
+  it("inventories every named run/env occurrence, including the earlier echo and optional condition", () => {
+    for (const block of operatorBlocks) {
+      for (const [input, name] of block.bindings) {
+        expect(block.source.env[name]).toBe(`\${{ inputs.${input} }}`);
+        expect(block.source.run).toContain(`$${name}`);
+      }
+      const inputs = new Set(
+        operatorCases.filter((entry) => entry.block.file === block.file).map((entry) => entry.input),
+      );
+      for (const job of Object.values(block.workflow.jobs)) {
+        for (const step of job.steps ?? []) {
+          for (const input of inputs) {
+            expect(step.run ?? "").not.toMatch(new RegExp(`\\$\\{\\{\\s*inputs\\.${input}\\b`, "u"));
+          }
+        }
+      }
+    }
+  });
+
+  it.each(operatorBlocks)("preserves the valid effect trace: $step", (block) => {
+    const result = executeOperatorBlock(block);
+    expect(result.status, result.output).toBe(0);
+    if (block.step.startsWith("Confirm")) {
+      expect(result.output).toBe("Evaluating mixed-version wake evidence for deploy run 123.\n");
+    } else if (block.file === "platform-compose-boot-smoke.yml") {
+      expect(result.trace).toBe(
+        [
+          "git <init> <--quiet>",
+          "git <remote> <add> <origin> <https://example.invalid/synthetic.git>",
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <${operatorSha}>`,
+          "",
+        ].join("\n"),
+      );
+    } else if (block.step === "Check out applied staging release") {
+      expect(result.trace).toBe(
+        `git <fetch> <origin> <main>\ngit <merge-base> <--is-ancestor> <${operatorSha}> <origin/main>\ngit <checkout> <--detach> <${operatorSha}>\n`,
+      );
+    } else if (block.file === "platform-rollback-readiness.yml") {
+      const [, , tag] = block.bindings[1];
+      const [, , image] = block.bindings[2];
+      expect(result.trace).toBe(
+        [
+          "git <fetch> <origin> <production> <--tags>",
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <origin/production>`,
+          `git <rev-parse> <--verify> <--quiet> <refs/tags/${tag}^{commit}>`,
+          `git <rev-list> <-n> <1> <${tag}>`,
+          "doctl <registry> <login> <--expiry-seconds> <3600>",
+          `docker <buildx> <imagetools> <inspect> <${image}>`,
+          "git <rev-parse> <origin/production>",
+          "",
+        ].join("\n"),
+      );
+      expect(result.evidence).toContain(`last_known_good_commit=${operatorSha}`);
+    } else if (block.step === "Summarize staging advisory evidence") {
+      expect(result.trace).toContain(
+        `jq <-n> <--arg> <checkedAt> <2026-10-07T00:00:00Z> <--arg> <releaseCommit> <${operatorSha}>`,
+      );
+      expect(result.summary).toContain(`Release: ${operatorSha}@sha256:${"b".repeat(64)}`);
+      expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
+    } else if (block.step === "Create, update, or resolve advisory evidence incident") {
+      expect(result.trace).toContain("gh <issue> <list>");
+      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
+    } else {
+      expect(result.trace).toBe(
+        "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\ngh <run> <download> <789> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-secondary>\n",
+      );
+    }
+    if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
+  });
+
+  it.each(operatorCases)(
+    "rejects malformed/option inputs before effects: $input in $block.step",
+    ({ block, input, name, valid, message }) => {
+      const invalid = ["--help", "-e", "-- x", "\n--help", "malformed"];
+      if (input !== "secondary_wake_drill_run_id") invalid.push("");
+      if (valid === operatorSha || /run_id$/u.test(input)) invalid.push(`${valid}\n-e`, `${valid} `, `${valid}\r`);
+      for (const value of invalid) {
+        const result = executeOperatorBlock(block, { [name]: value });
+        expect(result.status, `${input}=${JSON.stringify(value)}: ${result.output}`).toBe(1);
+        expect(result.trace).toBe("");
+        expect(result.output).toContain(
+          value === "" && block.file === "platform-compose-boot-smoke.yml"
+            ? `${input} is required and cannot be empty.`
+            : message,
+        );
+      }
+    },
+  );
+
+  it.each(operatorCases)(
+    "keeps shell syntax inert in env and detects interpolation-before-guard: $input in $block.step",
+    ({ block, name, input }) => {
+      for (const value of [
+        "$(printf injected > marker)",
+        "`printf injected > marker`",
+        '\"; printf injected > marker; #',
+        '\"\nprintf injected > marker\n#',
+      ]) {
+        const candidate = executeOperatorBlock(block, { [name]: value });
+        expect(candidate.status).toBe(1);
+        expect(candidate.injected).toBe(false);
+        expect(candidate.trace).toBe("");
+        const raw = block.source.run.replace(
+          "set -euo pipefail",
+          `set -euo pipefail\n${name}="\${{ inputs.${input} }}"`,
+        );
+        const bypass = executeOperatorBlock(block, { [name]: value }, raw.replace(`\${{ inputs.${input} }}`, value));
+        expect(bypass.injected, `${input}: ${JSON.stringify(value)}: ${bypass.output}`).toBe(true);
+      }
+    },
+  );
+
+  it.each(operatorCases)(
+    "discriminates deleted, rebound, nullable and alternation guards: $input in $block.step",
+    ({ block, name }) => {
+      const guard = operatorGuard(block.source.run, name);
+      const candidate = executeOperatorBlock(block, { [name]: "-e", CONTROL_NAME: name });
+      expect(candidate.status).toBe(1);
+      expect(candidate.trace).toBe("");
+      const mutants = [
+        block.source.run.replace(guard, ""),
+        block.source.run.replace(guard, `${guard}\n${name}="-e"`),
+        block.source.run.replace(guard, guard.replace(/=~ .* \]\]/u, "=~ ^[0-9]*-e$ ]]")),
+        block.source.run.replace(guard, guard.replace(/=~ .* \]\]/u, "=~ ^a|-e$ ]]")),
+      ];
+      for (const [index, run] of mutants.entries()) {
+        const result = executeOperatorBlock(
+          block,
+          { ...(index === 1 ? {} : { [name]: "-e" }), CONTROL_NAME: name },
+          run,
+        );
+        expect(result.trace, result.output).toContain("consume <-e>");
+        if (block.step === "Check out applied staging release") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("release commit's SHA-tagged platform image");
+          expect(result.trace).not.toContain("git <checkout>");
+        } else if (name === "target_commit") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("expected -e");
+          expect(result.trace).not.toContain("docker");
+        } else {
+          expect(result.status, result.output).toBe(0);
+        }
+      }
+    },
+  );
+
+  it("retains the optional secondary nonempty-use condition and decimal argv", () => {
+    const block = operatorBlocks.find((entry) => entry.step === "Download source evidence");
+    const result = executeOperatorBlock(block, { SECONDARY_WAKE_DRILL_RUN_ID: "" });
+    expect(result.status).toBe(0);
+    expect(result.trace).toBe(
+      "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\n",
+    );
+    const bypass = executeOperatorBlock(
+      block,
+      { SECONDARY_WAKE_DRILL_RUN_ID: "" },
+      block.source.run.replace('[ -n "$SECONDARY_WAKE_DRILL_RUN_ID" ]', "true"),
+    );
+    expect(bypass.trace).toContain("gh <run> <download> <>");
+    for (const value of ["0", "000123", "9".repeat(32)]) {
+      const result = executeOperatorBlock(block, {
+        PLATFORM_DEPLOY_RUN_ID: value,
+        WAKE_DRILL_RUN_ID: value,
+        SECONDARY_WAKE_DRILL_RUN_ID: value,
+      });
+      expect(result.status).toBe(0);
+      expect(result.trace).toContain(`gh <run> <view> <${value}>`);
+      expect(result.trace.match(new RegExp(`<${value}>`, "gu"))).toHaveLength(3);
+    }
+  });
+
+  it("accepts producer prefixes without claiming suffix identity or evaluating suffix shell text", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-rollback-readiness.yml");
+    const suffix = "$(printf injected > marker)";
+    const result = executeOperatorBlock(block, {
+      release_tag: `release-${suffix}`,
+      image_ref: `registry.digitalocean.com/${suffix}`,
+    });
+    expect(result.status).toBe(0);
+    expect(result.injected).toBe(false);
+    expect(result.trace).toContain(`git <rev-list> <-n> <1> <release-${suffix}>`);
+    expect(result.trace).toContain(`docker <buildx> <imagetools> <inspect> <registry.digitalocean.com/${suffix}>`);
+    for (const [name, value] of [
+      ["release_tag", "release-"],
+      ["image_ref", "registry.digitalocean.com/"],
+      ["image_ref", "registryXdigitaloceanXcom/example"],
+    ]) {
+      const refused = executeOperatorBlock(block, { [name]: value });
+      expect(refused.status).toBe(1);
+      expect(refused.trace).toBe("");
+    }
+  });
+
+  it("preserves advisory digest, image and ancestry refusals", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-staging-advisory-evidence.yml");
+    for (const [overrides, message, reachedFetch] of [
+      [{ PLATFORM_IMAGE_DIGEST: "sha256:bad" }, "immutable platform image digest", false],
+      [
+        { PLATFORM_IMAGE: `registry.digitalocean.com/example/chase-sets-platform:${"c".repeat(40)}` },
+        "release commit's SHA-tagged platform image",
+        false,
+      ],
+      [{ CONTROL_FAILURE: "ancestry" }, "release commit must be contained in origin/main", true],
+    ]) {
+      const result = executeOperatorBlock(block, overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toContain(message);
+      expect(result.trace.includes("git <fetch>")).toBe(reachedFetch);
+      expect(result.trace).not.toContain("git <checkout>");
+    }
+  });
+
+  it("preserves rollback object, production ancestry, tag association and image-existence behavior", () => {
+    const block = operatorBlocks.find((entry) => entry.file === "platform-rollback-readiness.yml");
+    for (const [overrides, message] of [
+      [{ CONTROL_FAILURE: "object" }, "does not exist in repository history"],
+      [{ CONTROL_FAILURE: "ancestry" }, "not reachable from the smoke-verified production marker"],
+      [{ CONTROL_FAILURE: "tag" }, "does not exist locally after fetching tags"],
+      [{ CONTROL_SHA: "c".repeat(40) }, `expected ${operatorSha}`],
+    ]) {
+      const result = executeOperatorBlock(block, overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toContain(message);
+      expect(result.trace).not.toContain("doctl");
+      expect(result.trace).not.toContain("docker");
+    }
+    const missingImage = executeOperatorBlock(block, { CONTROL_FAILURE: "image" });
+    expect(missingImage.status).toBe(0);
+    expect(missingImage.evidence).toContain("image_exists=false");
+  });
+});
+
+it("maps the optional wallet funding smoke and fail-closed production runtime gates", () => {
+  for (const workflow of ["platform-production.yml", "platform-staging-representative-commerce-state.yml"]) {
+    const source = readFileSync(resolve(".github/workflows", workflow), "utf8");
+    expect(source).toContain(
+      "STAGING_SMOKE_WALLET_FUNDING_AMOUNT: ${{ vars.STAGING_SMOKE_WALLET_FUNDING_AMOUNT || '' }}",
+    );
+  }
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const deployProduction = production.slice(
+    production.indexOf("  deploy-production:"),
+    production.indexOf("  dispatch-ephemeral-verification:"),
+  );
+  for (const name of [
+    "PRODUCTION_WALLET_FUNDING_APPROVED",
+    "PRODUCTION_WALLET_FUNDING_REFERENCE",
+    "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST",
+  ]) {
+    expect(deployProduction).toContain(`vars.${name}`);
+    expect(deployProduction).toContain(`add_optional_runtime_env "${name}"`);
+  }
+});
+
+describe("production Catalog integration deploy preflight (#8072)", () => {
+  const productionWorkflow = parse(readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8"));
+  const deployProduction = productionWorkflow.jobs["deploy-production"];
+  const jobStep = (name) => {
+    const step = deployProduction.steps.find((candidate) => candidate.name === name);
+    if (!step?.run) throw new Error(`Missing deploy-production step: ${name}`);
+    return step;
+  };
+  const shippedRuntimeValues = readFileSync(resolve("infrastructure/helm/platform/runtime-values.json"), "utf8");
+  const providerCredentials = [
+    ["SCRYDEX_API_KEY", "TF_VAR_scrydex_api_key"],
+    ["SCRYDEX_TEAM_ID", "TF_VAR_scrydex_team_id"],
+    ["TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE", "TF_VAR_tcgplayer_automation_tcg_auth_cookie"],
+  ];
+  const enforcedSignoffReferences = [
+    "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE",
+  ];
+  const optionalSignoffReferences = [
+    "CATALOG_INTEGRATION_POKEMON_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_YUGIOH_PRODUCTION_SIGNOFF_REFERENCE",
+    "CATALOG_INTEGRATION_LORCANA_PRODUCTION_SIGNOFF_REFERENCE",
+  ];
+  const recordedSignoffReferences = [...enforcedSignoffReferences, ...optionalSignoffReferences];
+  // [GitHub secret or variable name the message names, deploy-production env name the step reads]
+  const catalogInputs = [...providerCredentials, ...enforcedSignoffReferences.map((name) => [name, name])];
+  const syntheticValue = (name) => `SYNTHETIC-${name}-VALUE`;
+
+  // Executes the real step body in a scratch root holding a copy of the shipped runtime values,
+  // with every other production requirement satisfied by synthetic values.
+  function runCatalogPreflight(overrides = {}, controlPlaneMode, optionalVariables = {}) {
+    const root = mkdtempSync(join(tmpdir(), "catalog-integration-preflight-"));
+    try {
+      const runtimeValues = JSON.parse(shippedRuntimeValues);
+      if (controlPlaneMode === null) delete runtimeValues.productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE;
+      else if (controlPlaneMode !== undefined)
+        runtimeValues.productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE = controlPlaneMode;
+      mkdirSync(join(root, "infrastructure/helm/platform"), { recursive: true });
+      writeFileSync(join(root, "infrastructure/helm/platform/runtime-values.json"), JSON.stringify(runtimeValues));
+      const env = {
+        ...process.env,
+        ...Object.fromEntries(
+          [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DIGITALOCEAN_ACCESS_TOKEN",
+            "TF_VAR_platform_internal_auth_secret",
+            "TF_VAR_platform_admin_email",
+            "TF_VAR_platform_admin_password",
+            "TF_VAR_discord_invite_url",
+          ].map((name) => [name, syntheticValue(name)]),
+        ),
+        TF_VAR_observability_enabled: "false",
+        TF_VAR_admin_google_workspace_hosted_domains: "",
+        TF_VAR_production_runtime_profile: "landing",
+        TF_VAR_production_marketplace_public_enabled: "false",
+        TF_VAR_notification_email_provider: "noop",
+        ...Object.fromEntries(catalogInputs.map(([name, envName]) => [envName, syntheticValue(name)])),
+        ...Object.fromEntries(
+          optionalSignoffReferences.map((name) => [`${name}_PRESENT`, String(Object.hasOwn(optionalVariables, name))]),
+        ),
+        ...Object.fromEntries(optionalSignoffReferences.map((name) => [name, optionalVariables[name] ?? ""])),
+        ...overrides,
+      };
+      const result = spawnSync(operatorBash, ["-s"], {
+        input: jobStep("Validate production configuration").run,
+        cwd: root,
+        env,
+        encoding: "utf8",
+      });
+      if (result.error) throw result.error;
+      return { status: result.status, output: `${result.stdout}${result.stderr}` };
+    } finally {
+      if (!root.startsWith(join(tmpdir(), "catalog-integration-preflight-"))) {
+        throw new Error("Unexpected preflight cleanup root");
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  function expectNoInputValue(output) {
+    for (const [name] of catalogInputs) expect(output).not.toContain(syntheticValue(name));
+  }
+
+  it("admits the shipped open control plane when every credential and enforced signoff reference is present", () => {
+    expect(JSON.parse(shippedRuntimeValues).productionEnvOverrides.CATALOG_INTEGRATION_CONTROL_PLANE_MODE).toBe("open");
+    const result = runCatalogPreflight();
+    expect(result.status, result.output).toBe(0);
+    expectNoInputValue(result.output);
+  });
+
+  it("admits absent optional game signoffs without activating those games", () => {
+    const result = runCatalogPreflight();
+    expect(result.status, result.output).toBe(0);
+    expect(result.output).toBe("");
+  });
+
+  it.each(optionalSignoffReferences)("rejects a present-but-blank %s by name without exposing values", (name) => {
+    for (const mode of [undefined, "dry-run-only", "read-only", null]) {
+      for (const value of ["", "   ", "false", " None ", "OPEN"]) {
+        const result = runCatalogPreflight({}, mode, { [name]: value });
+        expect(result.status).toBe(1);
+        expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+        expectNoInputValue(result.output);
+      }
+      const result = runCatalogPreflight({}, mode, { [name]: syntheticValue(name) });
+      expect(result.status, result.output).toBe(0);
+      expect(result.output).not.toContain(syntheticValue(name));
+    }
+  });
+
+  it("passes only targeted presence booleans, never the aggregate variable map", () => {
+    const step = jobStep("Validate production configuration");
+    expect(step.env).not.toHaveProperty("CATALOG_INTEGRATION_PRODUCTION_SIGNOFF_VARIABLES");
+    for (const name of optionalSignoffReferences) {
+      expect(step.env[`${name}_PRESENT`]).toBe(`\${{ contains(toJSON(vars), '"${name}":') }}`);
+    }
+    expect(Object.values(step.env)).not.toContain("${{ toJSON(vars) }}");
+  });
+
+  it("uses presence booleans rather than fallback values to distinguish absent references", () => {
+    for (const name of optionalSignoffReferences) {
+      expect(runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "false" }).status).toBe(0);
+      const result = runCatalogPreflight({ [name]: "", [`${name}_PRESENT`]: "true" });
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Invalid production Catalog integration signoff reference: ${name}\n`);
+    }
+  });
+
+  it("rejects configured blank optional references even when the control plane is closed", () => {
+    for (const mode of ["dry-run-only", "read-only", null]) {
+      const result = runCatalogPreflight(
+        {},
+        mode,
+        Object.fromEntries(optionalSignoffReferences.map((name) => [name, ""])),
+      );
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(
+        `Invalid production Catalog integration signoff reference: ${optionalSignoffReferences.join(" ")}\n`,
+      );
+    }
+  });
+
+  it.each(catalogInputs)("fails the open-plane preflight by name when %s is withheld", (name, envName) => {
+    const result = runCatalogPreflight({ [envName]: "" });
+    expect(result.status).toBe(1);
+    expect(result.output).toBe(`Missing required production Catalog integration configuration: ${name}\n`);
+    expectNoInputValue(result.output);
+  });
+
+  it("treats blank credentials and open-alias signoff references as withheld, the way the runtime does", () => {
+    for (const [overrides, name] of [
+      [{ TF_VAR_scrydex_team_id: "   " }, "SCRYDEX_TEAM_ID"],
+      [{ CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE: " None " }, enforcedSignoffReferences[0]],
+      [{ CATALOG_INTEGRATION_ONE_PIECE_PRODUCTION_SIGNOFF_REFERENCE: "false" }, enforcedSignoffReferences[1]],
+    ]) {
+      const result = runCatalogPreflight(overrides);
+      expect(result.status).toBe(1);
+      expect(result.output).toBe(`Missing required production Catalog integration configuration: ${name}\n`);
+    }
+    const allWithheld = runCatalogPreflight(Object.fromEntries(catalogInputs.map(([, envName]) => [envName, ""])));
+    expect(allWithheld.status).toBe(1);
+    expect(allWithheld.output).toBe(
+      `Missing required production Catalog integration configuration: ${catalogInputs.map(([name]) => name).join(" ")}\n`,
+    );
+  });
+
+  it("applies whenever the shipped plane admits writes and never to a closed plane", () => {
+    const withheld = Object.fromEntries(catalogInputs.map(([, envName]) => [envName, ""]));
+    for (const mode of ["rollback-ready", "OPEN", "none"]) {
+      expect(runCatalogPreflight(withheld, mode).status, mode).toBe(1);
+    }
+    for (const mode of ["dry-run-only", "read-only", null]) {
+      const result = runCatalogPreflight(withheld, mode);
+      expect(result.status, `${mode}: ${result.output}`).toBe(0);
+      expect(result.output).toBe("");
+    }
+  });
+
+  it("threads the signoff references from production variables beside the preserved provider secret path", () => {
+    for (const name of recordedSignoffReferences) {
+      expect(deployProduction.env[name]).toBe(`\${{ vars.${name} || '' }}`);
+      expect(jobStep("Deploy production Kubernetes release").run).toContain(
+        `add_optional_runtime_env "${name}" "\${${name}:-}"`,
+      );
+    }
+    // Preserved, not rebuilt: the production environment's provider secrets reach the API and worker
+    // runtime Secret through the same step as Stripe and EasyPost.
+    const secretStep = jobStep("Apply production Kubernetes runtime secrets").run;
+    for (const [name, envName] of [
+      ...providerCredentials,
+      ["STRIPE_SECRET_KEY", "TF_VAR_stripe_secret_key"],
+      ["EASYPOST_API_KEY", "TF_VAR_easypost_api_key"],
+    ]) {
+      expect(secretStep).toContain(`export ${name}="\${${envName}:-}"`);
+    }
+    expect(secretStep).toContain("--deployment-environment production");
+    const runtimeComponents = JSON.parse(shippedRuntimeValues).components;
+    for (const [name, envName] of providerCredentials) {
+      expect(deployProduction.env[envName]).toBe(`\${{ secrets.${name} || '' }}`);
+      for (const consumer of ["platform-api", "platform-worker"]) {
+        expect(runtimeComponents[consumer].env).toContainEqual({ name, secret: true, secretKey: name });
+      }
+    }
+  });
+});
 const platformVersions = readFileSync(resolve("infrastructure/digitalocean/platform/versions.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");
@@ -139,6 +798,10 @@ const platformStagingRollbackDrillWorkflow = readFileSync(
 );
 const platformStagingHelmRecoveryWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-helm-recovery.yml"),
+  "utf8",
+);
+const platformPreviewWildcardTlsWorkflow = readFileSync(
+  resolve(".github/workflows/platform-preview-wildcard-tls.yml"),
   "utf8",
 );
 const platformStagingBootstrapHookDrillWorkflow = readFileSync(
@@ -1925,6 +2588,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
+    expect(dbProfileJob).toContain("id: platform-api-selected");
+    const idIdx = dbProfileJob.indexOf("id: platform-api-selected");
+    const runIdx = dbProfileJob.indexOf("- name: Run DB-profile tests");
+    expect(idIdx).toBeGreaterThan(-1);
+    expect(runIdx).toBeGreaterThan(-1);
+    expect(idIdx).toBeLessThan(runIdx);
+    const selection = dbProfileJob.slice(dbProfileJob.lastIndexOf("- name:", idIdx), runIdx);
+    expect(selection).not.toContain("if:");
+    expect(selection).toContain("AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}");
+    expect(selection).toContain(
+      'if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then',
+    );
+    expect(dbProfileJob).toContain("if: always() && steps.platform-api-selected.outputs.selected == 'true'");
+    expect(dbProfileJob).toContain("name: bootstrap-db-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
+    expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
       'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
@@ -2079,6 +2758,7 @@ describe("DigitalOcean platform configuration", () => {
       'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests_required }}"',
       dbCall.line,
       e2eCall.line,
+      'require_job "Capture Hermetic Chromium" "${{ needs[\'capture-hermetic-chromium\'].result }}" "$capture_required"',
       'require_job "Build" "${{ needs.build.result }}" "${{ needs[\'change-scope\'].outputs.build_required }}"',
       'require_job "Docker Image Build" "${{ needs[\'docker-image\'].result }}" "${{ needs[\'change-scope\'].outputs.docker_image_required }}"',
       'require_job "Workflow Lint" "${{ needs[\'workflow-lint\'].result }}" "${{ needs[\'change-scope\'].outputs.workflow_lint_required }}"',
@@ -2186,9 +2866,6 @@ describe("DigitalOcean platform configuration", () => {
       ["UCP_BUSINESS_SIGNING_ALG", "ucp_business_signing_alg"],
       ["UCP_BUSINESS_SIGNING_PRIVATE_JWK", "ucp_business_signing_private_jwk"],
       ["UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS", "ucp_business_signing_previous_public_jwks"],
-      ["UCP_AP2_VERIFIER_URL", "ucp_ap2_verifier_url"],
-      ["UCP_AP2_VERIFIER_AUTH_TOKEN", "ucp_ap2_verifier_auth_token"],
-      ["UCP_AP2_VERIFIER_TIMEOUT_MS", "ucp_ap2_verifier_timeout_ms"],
     ];
     for (const [environmentName, terraformName] of ucpSecretEnvironmentNames) {
       expect(runtimeSecretsStep).toContain(`TF_VAR_${terraformName}:`);
@@ -2417,6 +3094,72 @@ describe("DigitalOcean platform configuration", () => {
       'export const previewWildcardTlsSecretName = "preview-wildcard-tls"',
     );
     expect(renderPlatformHelmValuesScript).not.toContain("secretName: `${previewIdentifier}-platform-tls`");
+  });
+
+  it("#9268: staging deploys converge the preview DNS-01 token and fail closed on an unhealthy preview wildcard", () => {
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+
+    // The token is passed only as an env secret; the script pipes it to
+    // kubectl stdin through applyDoksDnsTokenSecret, never through argv.
+    const convergeStep = workflowStep(stagingJob, "Converge staging preview DNS-01 token and renewal");
+    expect(convergeStep).toContain("if: env.SHOULD_DEPLOY != 'false'");
+    expect(convergeStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
+    expect(convergeStep).toContain("run: node ./scripts/preview-wildcard-certificate.mjs converge");
+    expect(convergeStep).not.toMatch(/converge.*DIGITALOCEAN_ACCESS_TOKEN/);
+    expect(convergeStep).not.toContain("continue-on-error");
+
+    const guardStep = workflowStep(stagingJob, "Verify staging preview wildcard certificate");
+    expect(guardStep).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 600",
+    );
+    expect(guardStep).not.toContain("continue-on-error");
+    expect(guardStep).not.toContain("secrets.");
+
+    // Converge runs as soon as the staging kube context exists; the guard
+    // runs after the rollout promote/abort pair (so a preview TLS fault never
+    // aborts the app rollout) but before staging is marked applied.
+    const indexOf = (name) => stagingJob.indexOf(`- name: ${name}`);
+    expect(indexOf("Converge staging preview DNS-01 token and renewal")).toBeGreaterThan(
+      indexOf("Configure staging Kubernetes context"),
+    );
+    expect(indexOf("Converge staging preview DNS-01 token and renewal")).toBeLessThan(
+      indexOf("Deploy staging Kubernetes release"),
+    );
+    expect(indexOf("Verify staging preview wildcard certificate")).toBeGreaterThan(
+      indexOf("Abort staging Argo Rollouts"),
+    );
+    expect(indexOf("Verify staging preview wildcard certificate")).toBeLessThan(indexOf("Mark staging applied"));
+
+    // Production never hosts previews and keeps its own add-on install path.
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    expect(productionJob).not.toContain("preview-wildcard-certificate.mjs");
+
+    // Preview deploys read the source Certificate once: fail on not-Ready or
+    // expired, warn inside the 14-day floor, never poll.
+    const previewVerifyStep = workflowStep(
+      workflowJob(platformPrWorkflow, "preview-deploy-smoke"),
+      "Verify preview TLS secret",
+    );
+    expect(previewVerifyStep).toContain(
+      "node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 0 --warn-remaining-days 14",
+    );
+    expect(previewVerifyStep).not.toContain("--wait-seconds");
+    expect(previewVerifyStep).not.toContain("converge");
+
+    // On-demand restore: confirmed dispatch only, serialized with staging
+    // deploys, same converge + guard, token via env only.
+    expect(platformPreviewWildcardTlsWorkflow).toMatch(/^on:\n  workflow_dispatch:\n/m);
+    expect(platformPreviewWildcardTlsWorkflow).not.toMatch(/^\s+(schedule|push|pull_request):/m);
+    expect(platformPreviewWildcardTlsWorkflow).toContain("group: platform-deploy-staging");
+    expect(platformPreviewWildcardTlsWorkflow).toContain("if: inputs.confirm != 'restore preview wildcard tls'");
+    expect(platformPreviewWildcardTlsWorkflow).toContain("environment: staging");
+    const restoreJob = workflowJob(platformPreviewWildcardTlsWorkflow, "restore-preview-wildcard-tls");
+    expect(workflowStep(restoreJob, "Converge staging preview DNS-01 token and renewal")).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs converge",
+    );
+    expect(workflowStep(restoreJob, "Verify preview wildcard certificate")).toContain(
+      "run: node ./scripts/preview-wildcard-certificate.mjs check --min-remaining-days 14 --wait-seconds 900",
+    );
   });
 
   it("gates route-matrix evidence generation on the segment-level projection lag SLO regression gate", () => {
@@ -3017,6 +3760,54 @@ describe("DigitalOcean platform configuration", () => {
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
     );
+  });
+
+  it("offers the admission retry only under the workflow rollback's eligibility and reads its attempts record", () => {
+    const attemptsPath = "artifacts/release-health/production-kubernetes-deploy-attempts.json";
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const stagingJob = workflowJob(platformProductionWorkflow, "deploy-staging");
+    const deployStep = workflowStep(productionJob, "Deploy production Kubernetes release");
+    const verifyStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    const classifyStep = workflowStep(productionJob, "Classify production deployment failure");
+    const rollbackStep = workflowStep(productionJob, "Roll back production Kubernetes release");
+
+    expect(deployStep).toContain("ADMISSION_RETRY_READINESS_RESULT: ${{ steps.rollback_readiness.outputs.result }}");
+    expect(deployStep).toContain(
+      "ADMISSION_RETRY_ROLLBACK_COMMIT: ${{ steps.rollback_target.outputs.last_known_good_commit }}",
+    );
+    expect(deployStep).toContain(
+      [
+        'if [ "$ADMISSION_RETRY_READINESS_RESULT" = "success" ] && node ./scripts/agent-grant-revocation-release.mjs check-rollback \\',
+        '            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \\',
+        '            --commit "$ADMISSION_RETRY_ROLLBACK_COMMIT"; then',
+        '            admission_retry_args=(--admission-retry-rollback-target "artifacts/release-health/production-rollback-target.json")',
+        "          fi",
+      ].join("\n"),
+    );
+    // The workflow rollback is gated by the same readiness result and check-rollback commit.
+    expect(rollbackStep).toContain("steps.rollback_readiness.outputs.result == 'success'");
+    expect(rollbackStep).toContain('--commit "${{ steps.rollback_target.outputs.last_known_good_commit }}"');
+    expect(deployStep).toContain(`--attempts-out "${attemptsPath}"`);
+    expect(deployStep).toContain('"${admission_retry_args[@]}"');
+    expect(deployStep).toContain('--timeout "$CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT"');
+    expect(platformProductionWorkflow.split("--admission-retry-rollback-target")).toHaveLength(2);
+    expect(verifyStep).toContain(`--deploy-attempts "${attemptsPath}"`);
+    expect(classifyStep).toContain(`--diagnostics ${attemptsPath}`);
+
+    expect(stagingJob).not.toContain("--attempts-out");
+    expect(stagingJob).not.toContain("--admission-retry-rollback-target");
+    expect(stagingJob).not.toContain("deploy-attempts");
+    expect(workflowStep(stagingJob, "Deploy staging Kubernetes release")).toContain(
+      "platform:kubernetes-deployment -- deploy",
+    );
+    for (const job of [productionJob, stagingJob]) {
+      expect(job).toContain("\n    timeout-minutes: 180\n");
+    }
+
+    expect(doksPlatformOperationsRunbook).toContain("### Admission-Webhook Transient Retry (#9662)");
+    expect(doksPlatformOperationsRunbook).toContain("doks-admission-webhook-unreachable");
+    expect(doksPlatformOperationsRunbook).toContain("If both attempts fail");
+    expect(doksPlatformOperationsRunbook).toContain("rerun the failed Platform Deploy run");
   });
 
   it("binds production marker recovery callers and handoff outputs to the verified producer", () => {

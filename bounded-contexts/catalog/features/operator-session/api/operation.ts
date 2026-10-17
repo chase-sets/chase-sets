@@ -40,9 +40,18 @@ export async function withOperatorSessionBackend<T>(
         if (poisoned || released || !client) throw unavailable();
         try {
           return await client.query<Row>(text, values);
-        } catch {
+        } catch (error) {
           // Includes lost COMMIT acknowledgement. ROLLBACK cannot establish its outcome.
           poisoned = true;
+          const sqlstate =
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            typeof error.code === "string" &&
+            /^[0-9A-Z]{5}$/.test(error.code)
+              ? error.code
+              : "unknown";
+          console.warn(JSON.stringify({ operation: "operator-session.query", sqlstate }));
           throw unavailable();
         }
       },

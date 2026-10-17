@@ -80,6 +80,7 @@ async function loadPlatformApiRuntime(): Promise<RuntimeHandle> {
     runtime: createPlatformApiHost({
       pools,
       hostPorts: {
+        capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
         processorGateway: createFakePaymentProcessorGateway(),
       },
     }),

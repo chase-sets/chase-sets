@@ -69,7 +69,7 @@ export function decodeRetainedDriftGeneration(value: unknown): RetainedDriftGene
     resolution: row.resolution,
   };
   if (
-    result.members.length === 0 ||
+    (result.members.length === 0 && result.resolution !== "recovered-automatically") ||
     new Set(result.members.map((member) => member.identity)).size !== result.members.length ||
     result.fingerprint !== generationFingerprint(result.generation, result.members)
   ) {
@@ -105,7 +105,13 @@ export function retainDriftGeneration(
   previous: RetainedDriftGeneration | null,
   observed: readonly DriftGenerationMember[],
   clean: boolean,
+  listingOnly = false,
 ): RetainedDriftGeneration | null {
+  if (listingOnly) observed = observed.filter((member) => member.identity !== "source:sales");
+  if (listingOnly && previous?.members.some((member) => member.identity === "source:sales")) {
+    const members = previous.members.filter((member) => member.identity !== "source:sales");
+    previous = { ...previous, members, fingerprint: generationFingerprint(previous.generation, members) };
+  }
   const open = observed.filter((member) => member.settlement === "open");
   const previousMembers = new Map(previous?.members.map((member) => [member.identity, member]));
   const currentMembers = new Map(observed.map((member) => [member.identity, member]));
@@ -151,7 +157,8 @@ export function retainDriftGeneration(
     fingerprint: generationFingerprint(previous.generation, members),
     resolution: !settled
       ? null
-      : members.every(
+      : members.length > 0 &&
+          members.every(
             (member) => member.kind === "foreign-edit" && member.settlement === "accepted" && !member.recoveryRequested,
           )
         ? "handled-on-channel"

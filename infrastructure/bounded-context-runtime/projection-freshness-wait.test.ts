@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEventCoreMock, createEventCorePostgresMock, resetMockPoolState } from "./index-test-harness";
 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
@@ -9,6 +9,10 @@ import { ProjectionFreshnessTimeoutError, waitForProjectionFreshness } from "./i
 describe("bounded context projection freshness waits", () => {
   beforeEach(() => {
     resetMockPoolState();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("waits for matching projection runners to reach a write receipt", async () => {
@@ -57,8 +61,10 @@ describe("bounded context projection freshness waits", () => {
     const waitCalls: { timeoutMs: number; requests: readonly { checkpointKey: string; requiredPosition: string }[] }[] =
       [];
 
-    const startedAt = performance.now();
-    const outcome = await waitForProjectionFreshness({
+    const pollIntervalMs = 500;
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    let settled = false;
+    const wait = waitForProjectionFreshness({
       projectionGroups: [
         {
           targetContextName: "marketplace",
@@ -85,7 +91,8 @@ describe("bounded context projection freshness waits", () => {
         sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
       },
       timeoutMs: 1_000,
-      pollIntervalMs: 500,
+      pollIntervalMs,
+      nowMs: () => Date.now(),
       workSignalGateway: {
         waitForReadiness: async (input) => {
           waitCalls.push(input);
@@ -93,9 +100,15 @@ describe("bounded context projection freshness waits", () => {
           return "notified";
         },
       },
+    }).finally(() => {
+      settled = true;
     });
 
-    expect(performance.now() - startedAt).toBeLessThan(250);
+    // The notification, not the poll interval, must trigger the recheck: the
+    // wait settles while less fake time than one poll interval has elapsed.
+    await vi.advanceTimersByTimeAsync(pollIntervalMs - 1);
+    expect(settled, "wait did not settle before the poll interval elapsed").toBe(true);
+    const outcome = await wait;
     expect(outcome).toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
     expect(refreshCount).toBe(2);
     expect(waitCalls).toEqual([

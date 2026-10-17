@@ -65,6 +65,23 @@ Do not use candidate placement to hide stopped implementation or active lanes.
 Planning recovery queries `status:needs-replan` across all milestones, including
 candidates; candidate status only excludes ordinary implementation dispatch.
 
+Apply the [delivery operator boundary](../delivery/SKILL.md#operator-boundary)
+when forecasting human dependencies. Agents own probe preparation, execution,
+monitoring, evidence, cleanup, and reporting, including permitted sandbox/test
+credential entry through supported computer use. Reserve for Todd only production
+credential or real-money authorization/supervision, private entry for credentials
+agents may not hold, protected Windows permission prompts, or an actual
+policy/external-authority step agents cannot lawfully perform; do not assign him
+routine sign-ins or watch windows. Live credentials or real charges do not become
+autonomous sandbox work because the task is called a test. Missing tooling,
+including sandbox/test safe-entry gaps, is agent repair. Preserve actual tool
+policy, secret safety, provider restrictions (including no automated TCGplayer
+login), external approvals at their ruled
+lifecycle, and unrelated reserved authority. This grants no provider or
+production authorization. Explicit performer-specific acceptance needs
+prospective repair through the decision route and independent validation before
+agent execution, never relabeled human evidence.
+
 ## Bounded brief contract
 
 A brief:
@@ -97,7 +114,10 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    track placement plus entry/exit gates against other milestones.
 2. **Discovery.** Repo evidence sweep: owning contexts' README/GLOSSARY, prior
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
-   never reimplementation. Check glossary conformance of every term the plan
+   never reimplementation. Run a **supersession check**: inventory every existing
+   path the planned change replaces or makes redundant, including code, docs,
+   flags, and workflows. Stage 2-light for Issues still requires this check.
+   Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
 
@@ -112,7 +132,11 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
 3. **Decomposition.** Vertical slices, one behavior owner each. **Footprint
    analysis drives topology:** slices sharing files form declared serial chains;
    disjoint slices form parallel waves. Declare the chain DAG explicitly — this
-   is what lets the orchestrator parallelize lanes safely.
+   is what lets the orchestrator parallelize lanes safely. Place each superseded
+   path's removal in the replacing slice or in a removal slice natively dependent
+   on the switchover, in the same committed outcome, never candidate, parked or
+   unfiled work. Each removal has an owning acceptance criterion and named
+   evidence method.
 4. **Decision extraction.** Enumerate every decision the work will hit. Resolve
    what repo evidence can; everything else goes to the decision queue NOW, each
    with a recommendation — never leave a known decision to surface mid-lane.
@@ -127,6 +151,8 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    (`references/issue-standard.md` item 8).
 5. **Drafting.** Author artifacts per the reference standards. Every path
    terminates in issues meeting `references/issue-standard.md`, whatever the tier.
+   For Issues tier, Stage 5 performs the removal placement specified in
+   Decomposition; tier shortcuts never skip the supersession check or placement.
 6. **Pressure test.** Adversarial pass in a FRESH context (independent agent)
    per `references/pressure-test.md`. Repair findings before registration.
 7. **Registration.** Create on GitHub (issue forms under `.github/ISSUE_TEMPLATE/`)
@@ -235,6 +261,7 @@ highest-traffic first.
 
 Calibration, decomposition, decision extraction, and synthesis are frontier-
 judgment work (model-routing row 8). Discovery sweeps and drafting mechanics go
-to cheap workers. The pressure test runs on an independent capable model, never
-the one that wrote the plan. Always route by exact model version; a successor is
-a new model with new evidence, and predecessor vetoes or scores never transfer.
+to cheap workers. The pressure test runs in a fresh session (new agent, no planning
+context) on the row-8 routing pick, which may be the model that wrote the plan.
+Always route by exact model version; a successor is a new model with new
+evidence, and predecessor vetoes or scores never transfer.

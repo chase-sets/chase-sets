@@ -66,7 +66,8 @@ const tables = [
     connection_id text PRIMARY KEY, title_prefix text NOT NULL, title_suffix text NOT NULL,
     description_footer text NOT NULL, category_allowlist jsonb NOT NULL, excluded_listing_ids jsonb NOT NULL,
     updated_at timestamptz NOT NULL, last_stream_version bigint NOT NULL,
-    publish_quantity_cap integer NULL
+    publish_quantity_cap integer NULL,
+    low_stock_withhold_units integer NULL
   )`,
   `CREATE TABLE IF NOT EXISTS channels_channel_mappings (
     connection_id text NOT NULL, dimension text NOT NULL CHECK (dimension IN ('category','condition','attribute')),
@@ -154,6 +155,13 @@ export const channelListingCompositionSchemaMigrations: readonly BcSchemaMigrati
     description: "Retain the connection-wide Channel Publish Quantity Cap.",
     statements: [
       "ALTER TABLE channels_connection_publication_settings ADD COLUMN IF NOT EXISTS publish_quantity_cap integer NULL",
+    ],
+  },
+  {
+    migrationId: "20261008_channels_connection_low_stock_withhold",
+    description: "Retain the connection-wide Channel Low-Stock Withhold.",
+    statements: [
+      "ALTER TABLE channels_connection_publication_settings ADD COLUMN IF NOT EXISTS low_stock_withhold_units integer NULL",
     ],
   },
 ];

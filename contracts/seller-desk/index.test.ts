@@ -61,6 +61,14 @@ describe("Seller entities", () => {
 });
 
 describe("Action vocabulary", () => {
+  it("retires the buyer-mute analytics action and both form intents", () => {
+    expect(SELLER_DESK_ACTIONS.map((action) => action.id)).not.toContain("offer.mute-buyer");
+    const intents = SELLER_DESK_ACTIONS.flatMap((action) => action.replaces);
+    expect(intents).not.toContain("mute-offer-buyer");
+    expect(intents).not.toContain("unmute-offer-buyer");
+    expect(intents).toContain("decline-offer");
+    expect(intents).toContain("add-selected-offer");
+  });
   it("has a unique id, a known entity, and a non-empty replaces list per action", () => {
     const ids = new Set<string>();
     for (const action of SELLER_DESK_ACTIONS) {
@@ -118,8 +126,6 @@ describe("Action vocabulary", () => {
       "upload-bulk-reprice",
       "cancel-bulk-reprice",
       "decline-offer",
-      "mute-offer-buyer",
-      "unmute-offer-buyer",
       "add-selected-offer",
       "remove-sell-list-line",
       "request",

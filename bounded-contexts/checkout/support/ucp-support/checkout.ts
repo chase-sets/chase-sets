@@ -7,6 +7,7 @@ import {
   type AgentGrantSpendPolicy,
 } from "@chase-sets/platform-runtime/agent-guardrails";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { UcpPaymentHandlerHandoff as PaymentsUcpPaymentHandlerHandoff } from "@chase-sets/payments/server";
 import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
@@ -29,42 +30,12 @@ function checkoutClosedResponse() {
   ]);
 }
 
-type UcpPaymentCompletionDecision =
-  | Readonly<{
-      kind: "respond";
-      response: UcpEnvelope;
-    }>
-  | Readonly<{
-      kind: "headless-agentic-payment";
-      agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
-      humanPresent: true;
-      evidence?: Readonly<Record<string, unknown>>;
-    }>
-  | Readonly<{
-      kind: "headless-stored-payment-method";
-      savedCheckoutInstrumentId: string;
-    }>;
+// Checkout embeds the Payments-declared handlers in its responses and lets Payments decide whether a
+// completion request names a saved checkout instrument; the decision type stays Payments-owned.
 type UcpPaymentHandlerHandoff = Readonly<{
   payment: Readonly<Record<string, unknown>>;
-  evaluateCompleteRequest: (
-    body: Readonly<Record<string, unknown>>,
-    checkout: Readonly<Record<string, unknown>>,
-  ) => UcpPaymentCompletionDecision | Promise<UcpPaymentCompletionDecision | null> | null;
+  evaluateCompleteRequest: PaymentsUcpPaymentHandlerHandoff["evaluateCompleteRequest"];
 }>;
-
-// The money-moving instrument a headless completion charges. Both rails share the ordering,
-// mandate-enforcement, and 3DS-challenge handoff flow; they differ only in what Payments confirms.
-type HeadlessPaymentApproach =
-  | Readonly<{
-      kind: "agentic";
-      agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[9];
-      humanPresent: true;
-      evidence?: Readonly<Record<string, unknown>>;
-    }>
-  | Readonly<{
-      kind: "stored-pm";
-      savedCheckoutInstrumentId: string;
-    }>;
 
 export type CheckoutUcpHandlers = Readonly<{
   restHandlers: Readonly<Record<string, UcpHandler>>;
@@ -117,14 +88,13 @@ export function createCheckoutUcpHandlers(
   options: Readonly<{
     checkoutClosed?: boolean;
     paymentHandoff?: UcpPaymentHandlerHandoff;
-    signCheckout?: (checkout: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>;
     agentGrantSpendPolicy?: AgentGrantSpendPolicy;
   }> = {},
 ): CheckoutUcpHandlers {
-  // Shared headless-completion flow for both the AP2 agentic rail and the stored-payment-method
-  // off-session rail. Creates orders once, enforces the agent grant's spending mandate against the
-  // server-computed total, charges through Payments, and hands a 3DS/SCA challenge back to the human
-  // as a hosted URL when the processor demands one. Idempotent on replay: order creation and payment
+  // Headless completion over the stored-payment-method off-session rail. Creates orders once,
+  // enforces the agent grant's spending mandate against the server-computed total, charges through
+  // Payments, and hands a 3DS/SCA challenge back to the human as a hosted URL when the processor
+  // demands one. Idempotent on replay: order creation and payment
   // creation are single-flight, and spend authorization is deduped by operation id, so re-invoking
   // after the buyer clears a challenge resumes to the same payment.
   const completeHeadlessCheckout = async (
@@ -133,7 +103,7 @@ export function createCheckoutUcpHandlers(
     sessionId: string,
     body: Readonly<Record<string, unknown>>,
     checkoutPayload: Readonly<Record<string, unknown>>,
-    approach: HeadlessPaymentApproach,
+    savedCheckoutInstrumentId: string,
   ): Promise<UcpEnvelope> => {
     assertNoUnsupportedCustomerEconomicsInput(body);
 
@@ -276,7 +246,12 @@ export function createCheckoutUcpHandlers(
         operation: "complete_checkout",
         operationId: `complete_checkout:${sessionId}:${readNullableString(body.idempotencyKey) ?? input.request.headers.get("Idempotency-Key") ?? "unknown"}`,
         amountCents: moneyToCents(checkoutStatus.marketplace_checkout_fee.total_amount),
-        ...readCheckoutSpendContext(approach),
+        // The saved instrument carries the buyer's standing off-session consent captured at setup, so a
+        // human-not-present charge is authorized here; the grant's mandate still gates the stored-pm rail
+        // and the per-order/daily/monthly caps.
+        rail: "stored-pm",
+        humanPresent: false,
+        humanNotPresentAuthorized: true,
       });
       if (spendGuard) {
         return spendGuard;
@@ -290,10 +265,10 @@ export function createCheckoutUcpHandlers(
       requestedBalanceCreditAmount,
       paymentMethodCategory,
       marketplaceCheckoutFeeQuoteFingerprint,
-      approach.kind === "stored-pm" ? approach.savedCheckoutInstrumentId : null,
+      savedCheckoutInstrumentId,
       false,
       "/account/payments/:paymentId",
-      approach.kind === "agentic" ? approach.agenticPayment : null,
+      null,
       orderCreationWriteResult,
       undefined,
       checkoutStatus ?? undefined,
@@ -352,9 +327,7 @@ export function createCheckoutUcpHandlers(
       checkout: completedCheckoutPayload,
       payment_id: paymentId,
       order_ids: orderIds,
-      ...(approach.kind === "agentic"
-        ? { ap2: { mandate_verification: "accepted", evidence: approach.evidence ?? null } }
-        : { payment_rail: "stored-payment-method" }),
+      payment_rail: "stored-payment-method",
     });
   };
 
@@ -498,41 +471,17 @@ export function createCheckoutUcpHandlers(
           session = cleanupResult.session;
         }
         const checkoutPayload = sessionToUcpCheckout(session, options);
-        const guardedPaymentResponse = await options.paymentHandoff?.evaluateCompleteRequest(body, checkoutPayload);
-        if (guardedPaymentResponse?.kind === "respond") {
-          const responsePayload = withTrustedCheckoutHandoffUrl(
-            stripUcpEnvelope(guardedPaymentResponse.response),
-            sessionId,
-          );
-          return createUcpEnvelope(
-            guardedPaymentResponse.response.ucp.status,
-            {
-              ...cleanupWriteMetadata(cleanupResult),
-              checkout: checkoutPayload,
-              ...responsePayload,
-            },
-            guardedPaymentResponse.response.messages ?? [],
-          );
-        }
-
-        if (
-          guardedPaymentResponse?.kind === "headless-agentic-payment" ||
-          guardedPaymentResponse?.kind === "headless-stored-payment-method"
-        ) {
+        const paymentDecision = options.paymentHandoff?.evaluateCompleteRequest(body);
+        if (paymentDecision?.kind === "headless-stored-payment-method") {
           try {
-            const approach: HeadlessPaymentApproach =
-              guardedPaymentResponse.kind === "headless-agentic-payment"
-                ? {
-                    kind: "agentic",
-                    agenticPayment: guardedPaymentResponse.agenticPayment,
-                    humanPresent: guardedPaymentResponse.humanPresent,
-                    evidence: guardedPaymentResponse.evidence,
-                  }
-                : {
-                    kind: "stored-pm",
-                    savedCheckoutInstrumentId: guardedPaymentResponse.savedCheckoutInstrumentId,
-                  };
-            return await completeHeadlessCheckout(input, access, sessionId, body, checkoutPayload, approach);
+            return await completeHeadlessCheckout(
+              input,
+              access,
+              sessionId,
+              body,
+              checkoutPayload,
+              paymentDecision.savedCheckoutInstrumentId,
+            );
           } catch (error) {
             return validationError(error);
           }
@@ -560,7 +509,7 @@ export function createCheckoutUcpHandlers(
               type: "trusted_checkout_handoff",
               url: `/checkout/buy/session/${session.session_id}`,
               reason:
-                "Checkout completion requires buyer review in trusted UI until Payments enables production AP2 mandate verification and payment-handler handoff.",
+                "Checkout completion requires buyer review in trusted UI unless the agent completes with a saved payment method.",
             },
           },
           [
@@ -746,10 +695,9 @@ function sessionToUcpCheckout(
   session: CheckoutSessionRow,
   options: Readonly<{
     paymentHandoff?: UcpPaymentHandlerHandoff;
-    signCheckout?: (checkout: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>;
   }> = {},
 ) {
-  const checkout = {
+  return {
     id: session.session_id,
     status: session.cancelled_at
       ? "cancelled"
@@ -782,12 +730,6 @@ function sessionToUcpCheckout(
     created_at: session.created_at,
     updated_at: session.updated_at,
   };
-  return options.signCheckout ? options.signCheckout(checkout) : checkout;
-}
-
-function stripUcpEnvelope(envelope: UcpEnvelope) {
-  const { ucp: _ucp, messages: _messages, ...payload } = envelope;
-  return payload;
 }
 
 function readCheckoutSessionId(input: UcpOperationHandlerInput) {
@@ -1002,34 +944,6 @@ async function authorizeAgentGrantSpend(
       },
     ],
   );
-}
-
-// Derives the payment-rail and human-presence signals a completion carries so the mandate
-// policy can decide whether an autonomous, human-not-present purchase is permitted.
-function readCheckoutSpendContext(
-  approach: HeadlessPaymentApproach,
-): Readonly<{ rail: AgentGrantRail; humanPresent: boolean; humanNotPresentAuthorized: boolean }> {
-  if (approach.kind === "stored-pm") {
-    // The saved instrument carries the buyer's standing off-session consent captured at setup, so a
-    // human-not-present charge is authorized here; the grant's mandate still gates the stored-pm rail
-    // and the per-order/daily/monthly caps.
-    return { rail: "stored-pm", humanPresent: false, humanNotPresentAuthorized: true };
-  }
-  return { rail: "ap2", humanPresent: approach.humanPresent, humanNotPresentAuthorized: false };
-}
-
-function withTrustedCheckoutHandoffUrl(payload: Readonly<Record<string, unknown>>, sessionId: string) {
-  const action = readObject(payload.action);
-  if (action?.type !== "trusted_checkout_handoff" || readString(action.url)) {
-    return payload;
-  }
-  return {
-    ...payload,
-    action: {
-      ...action,
-      url: `/checkout/buy/session/${sessionId}`,
-    },
-  };
 }
 
 // A 3DS/SCA challenge shows up as a hosted next-action URL on a payment that has not yet settled.

@@ -117,6 +117,20 @@ describeDb("manual-sync browser scenario seed", () => {
         eventCount: 1,
       },
     ]);
+    const seededPanelInput = {
+      accountId: demoIdentitySeedIds.accountId,
+      connectionId: manualSyncScenarioSeed.connectionId,
+    };
+    const noAuthority = { state: "dark", reason: "no-inbound-authority" };
+    await expect(services.manualSync.readPanel(seededPanelInput)).resolves.toMatchObject({
+      inboundCoverage: noAuthority,
+    });
+    await pool.query(composeModuleSchemaSql(channelsModule));
+    await seedManualSyncScenario(pool, services);
+    await drainLocalProjectionHandlerSets("channels", pool, services.projectors);
+    await expect(services.manualSync.readPanel(seededPanelInput)).resolves.toMatchObject({
+      inboundCoverage: noAuthority,
+    });
     const eventStore = createPostgresEventStore({ pool });
     const connectionEvents = await eventStore.readStream({
       streamId: `channels.connection-${manualSyncScenarioSeed.connectionId}`,
@@ -228,7 +242,7 @@ describeDb("manual-sync browser scenario seed", () => {
         },
         context,
       ),
-    ).resolves.toMatchObject({ attentionReason: "ready", actions: ["download"] });
+    ).resolves.toMatchObject({ attentionReason: "ready", actions: ["download"], inboundCoverage: noAuthority });
     const download = await services.manualSync.claimAndDownload(
       {
         accountId: demoIdentitySeedIds.accountId,

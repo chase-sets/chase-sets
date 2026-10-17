@@ -18,4 +18,9 @@ export const authUnloggedProjectionSchemaMigrations: readonly BcSchemaMigration[
       "ALTER TABLE identity_sessions SET UNLOGGED;",
     ],
   },
+  {
+    migrationId: "20261011_auth_identity_account_capabilities_unlogged",
+    description: "Store the replayable Auth Capability Grant projection as an unlogged table.",
+    statements: ["SET lock_timeout = '5s';", "ALTER TABLE auth_identity_account_capabilities SET UNLOGGED;"],
+  },
 ];

@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { centsToSignedMoneyAmount, signedMoneyToCents } from "@chase-sets/primitives/money";
 
 /**
  * Read-model queries for the ProtectionCoverage slice. These serve
@@ -82,7 +83,7 @@ export async function getProtectionReservePoolBalance(db: PgQueryable): Promise<
 
 /**
  * Available protection funds for new reservations:
- * funded − outstanding-reserved − consumed. Mirrors the pool aggregate's
+ * funded − outstanding-reserved − consumed + net recovered value. Mirrors the pool aggregate's
  * `availableProtectionAmount`, computed from the convergent projection.
  */
 export async function getProtectionCoverageAvailability(db: PgQueryable): Promise<ProtectionCoverageAvailability> {
@@ -113,10 +114,10 @@ export async function getProtectionCoverageAvailability(db: PgQueryable): Promis
     recovered_net: "0.00",
   };
   const availableCents =
-    Math.round(Number(funded) * 100) -
-    Math.round(Number(row.outstanding_reserved) * 100) -
-    Math.round(Number(row.consumed) * 100) +
-    Math.round(Number(row.recovered_net) * 100);
+    signedMoneyToCents(funded) -
+    signedMoneyToCents(row.outstanding_reserved) -
+    signedMoneyToCents(row.consumed) +
+    signedMoneyToCents(row.recovered_net);
   return {
     fundedAmount: funded,
     outstandingReservedAmount: row.outstanding_reserved,
@@ -125,7 +126,7 @@ export async function getProtectionCoverageAvailability(db: PgQueryable): Promis
     recoveredGrossAmount: row.recovered_gross,
     recoveryCostAmount: row.recovery_cost,
     recoveredNetAmount: row.recovered_net,
-    availableAmount: (availableCents / 100).toFixed(2),
+    availableAmount: centsToSignedMoneyAmount(availableCents),
   };
 }
 

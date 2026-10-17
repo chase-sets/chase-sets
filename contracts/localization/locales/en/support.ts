@@ -4,6 +4,11 @@ export const supportEnglishTranslations = {
   "support.features.support_requests.api.route.request.failed": "Support request failed.",
   "support.features.support_requests.api.route.support_request.not.found": "Support request not found.",
   "support.features.support_requests.api.route.attachment.not.found": "Attachment not found.",
+  "support.features.support_requests.api.route.evidence.unavailable": "Support evidence is unavailable.",
+  "support.features.support_requests.api.route.attachment.reference.unknown":
+    "These photos cannot be submitted. Start a new photo batch and re-upload them.",
+  "support.features.support_requests.api.route.attachment.operation.referenced":
+    "These photos are part of submitted case evidence and are kept.",
   "support.features.support_requests.api.route.authentication.context.missing": "Support request context is missing.",
   "support.features.support_requests.api.route.authentication.context.missing.2":
     "Support evidence context is missing.",
@@ -176,6 +181,11 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.intake.back": "Back",
   "support.features.supportRequests.ui.supportRequestListPage.intake.continue": "Continue",
   "support.features.supportRequests.ui.supportRequestListPage.intake.submit": "Open case",
+  "support.features.supportRequests.ui.supportRequestListPage.photos.newBatch": "Start a new photo batch",
+  "support.features.supportRequests.ui.supportRequestListPage.photos.recovered":
+    "The uploaded photos are ready to submit with this case.",
+  "support.features.supportRequests.ui.supportRequestListPage.photos.retry":
+    "Retry the same photos (re-select the same files if needed), or start a new photo batch.",
   "support.features.supportRequests.ui.supportRequestListPage.duplicate.title": "A case is already open for this order",
   "support.features.supportRequests.ui.supportRequestListPage.duplicate.description":
     "Only one case can be open for an order at a time. Continue with the existing case.",
@@ -560,6 +570,12 @@ export const supportEnglishTranslations = {
   "support.routes.marketplace.accountSupport.photos.required":
     "Add the required evidence photos before opening this case.",
   "support.routes.marketplace.accountSupport.photos.summary": "Photos submitted when the support case was opened.",
+  "support.routes.marketplace.accountSupport.photos.intakeRejected":
+    "The photo request could not be read within the upload limits.",
+  "support.routes.marketplace.accountSupport.photos.operationRequired":
+    "The photo batch id is missing or invalid. Start a new photo batch.",
+  "support.routes.marketplace.accountSupport.photos.uncertain":
+    "The upload outcome is unknown. No second upload was started.",
   "support.routes.marketplace.accountSupport.support.marketplace": "Support | Marketplace",
   "support.features.supportReferenceLookup.api.route.authentication.required":
     "Sign in with a support account to look up references.",

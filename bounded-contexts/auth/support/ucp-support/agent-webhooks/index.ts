@@ -20,6 +20,7 @@ export {
 } from "./order-update-payload";
 export {
   agentWebhookOutboxSchemaSql,
+  agentWebhookGrantFenceSchemaMigrations,
   createPostgresAgentWebhookOutbox,
   type AgentWebhookDeliverySummary,
   type AgentWebhookOutbox,

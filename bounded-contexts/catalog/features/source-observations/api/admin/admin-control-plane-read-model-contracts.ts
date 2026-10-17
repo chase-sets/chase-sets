@@ -178,7 +178,7 @@ export const catalogAdminControlPlaneQueryContracts = [
     grouping: "provider-adapter",
     unitKey: "optional",
     freshness: "request-time",
-    sources: [runtimeSource("ProviderAdapterRegistry.getTransportDiagnostics/getCredentialReadiness")],
+    sources: [runtimeSource("ProviderAdapterRegistry.getTransportDiagnostics/getCredentialReadiness/getUsageSnapshot")],
     errorStates: [
       errorState("adapter_unavailable", "blocked", "Provider adapter transport diagnostics are unavailable."),
       errorState("credential_unavailable", "blocked", "Provider credential readiness is unavailable."),

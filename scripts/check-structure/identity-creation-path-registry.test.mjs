@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { compileFunction } from "node:vm";
@@ -114,6 +115,63 @@ describe("identity creation path registry", () => {
     ]);
   });
 
+  it("states that provisioning records no Consent and awaits no migration, in both creation registries", () => {
+    const positions = JSON.parse(readFileSync(path.join(repoRoot, "scripts/identity-creation-positions.json"), "utf8"));
+    const provisioningPaths = ["admin-qa-actor-fixtures", "development-scenario-seed"];
+    const provisioningFiles = provisioningPaths.flatMap((id) =>
+      registry.paths.find((entry) => entry.id === id).sites.map(({ file }) => file),
+    );
+    const staleProvisioningReasons = (pathEntries, positionEntries) =>
+      [
+        ...pathEntries.filter(({ id }) => provisioningPaths.includes(id)),
+        ...positionEntries.filter((entry) => provisioningFiles.includes(entry.path)),
+      ]
+        .filter(
+          ({ reason }) => /records? consent directly|must migrate/i.test(reason) || !/records no Consent/.test(reason),
+        )
+        .map(({ id, path: file, command }) => id ?? `${file}:${command}`);
+
+    expect(staleProvisioningReasons(registry.paths, positions.positions)).toEqual([]);
+    // Ids, dispositions and creation counts are unchanged by the removal.
+    expect(
+      provisioningPaths.map((id) => {
+        const entry = registry.paths.find((candidate) => candidate.id === id);
+        return [id, entry.disposition, entry.owningIssue, entry.sites.length];
+      }),
+    ).toEqual([
+      ["admin-qa-actor-fixtures", "exempt-temporary", 5684, 3],
+      ["development-scenario-seed", "exempt-temporary", 5684, 18],
+    ]);
+    expect(
+      positions.positions
+        .filter((entry) => provisioningFiles.includes(entry.path))
+        .map(({ path: file, command, occurrences, disposition }) => [
+          path.posix.basename(file),
+          command,
+          occurrences,
+          disposition,
+        ]),
+    ).toEqual([
+      ["admin-qa-actor-fixtures.ts", "CreateAccount", 1, "exempt-temporary"],
+      ["admin-qa-actor-fixtures.ts", "CreateUser", 1, "exempt-temporary"],
+      ["admin-qa-actor-fixtures.ts", "GrantMembership", 1, "exempt-temporary"],
+      ["seed.ts", "CreateAccount", 6, "exempt-temporary"],
+      ["seed.ts", "CreateUser", 6, "exempt-temporary"],
+      ["seed.ts", "GrantMembership", 6, "exempt-temporary"],
+    ]);
+
+    const restoredPath = structuredClone(registry.paths);
+    restoredPath.find(({ id }) => id === "admin-qa-actor-fixtures").reason =
+      "Provisions QA actors and already records consent directly; must migrate to the consent bundle once one exists.";
+    expect(staleProvisioningReasons(restoredPath, positions.positions)).toEqual(["admin-qa-actor-fixtures"]);
+    const restoredPosition = structuredClone(positions.positions);
+    restoredPosition.find((entry) => entry.path.endsWith("/seed.ts") && entry.command === "CreateUser").reason =
+      "Development and scenario seeding creates non-production users and records consent directly; it must migrate with the consent bundle.";
+    expect(staleProvisioningReasons(registry.paths, restoredPosition)).toEqual([
+      "bounded-contexts/identity/support/runtime-support/seed.ts:CreateUser",
+    ]);
+  });
+
   it("registers guest checkout as one pinned composition exemption", () => {
     const guestCheckout = registry.compositions.find((entry) => entry.id === "guest-checkout-account-claim");
     expect(guestCheckout, "guest checkout must be classified, not omitted").toBeTruthy();
@@ -139,7 +197,6 @@ describe("identity creation path registry", () => {
   });
 
   it("classifies every Auth caller of the personal-identity constructor", () => {
-    const authRoutesDirectory = path.join(repoRoot, "bounded-contexts/auth/support/api-support");
     const registered = new Set(
       registry.paths.flatMap((entry) => entry.sites.map((site) => `${site.file}:${site.line}`)),
     );
@@ -151,29 +208,34 @@ describe("identity creation path registry", () => {
       }
     }
 
-    // Independent rediscovery: every createPersonalIdentity call in the Auth
-    // API surface must already be a registered site. A new caller shows up here
-    // as an unregistered position rather than as a silently bound one.
     const callSites = [];
-    for (const file of [
-      "invitation-routes",
-      "magic-link-routes",
-      "passkey-routes",
-      "phone-code-routes",
-      "register-routes",
-      "social-login-routes",
-      "guest-checkout-routes",
-    ]) {
-      const relative = `bounded-contexts/auth/support/api-support/${file}.ts`;
-      const lines = readFileSync(path.join(authRoutesDirectory, `${file}.ts`), "utf8").split(/\r?\n/);
-      lines.forEach((line, index) => {
-        if (line.includes("await identityMutations.createPersonalIdentity(")) {
-          callSites.push(`${relative}:${index + 1}`);
-        }
-      });
+    const files = execFileSync("git", ["ls-files", "--", "bounded-contexts/auth"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    })
+      .trim()
+      .split(/\r?\n/)
+      .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file));
+    for (const file of files) {
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(path.join(repoRoot, file), "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      for (const node of walk(source, (node) => ts.isCallExpression(node))) {
+        const expression = node.expression;
+        const name = ts.isPropertyAccessExpression(expression)
+          ? expression.name.text
+          : ts.isElementAccessExpression(expression)
+            ? literal(expression.argumentExpression)
+            : null;
+        if (name === "createPersonalIdentity")
+          callSites.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`);
+      }
     }
 
-    expect(callSites.length).toBe(6);
+    expect(callSites.length).toBe(7);
     expect(callSites.filter((site) => !registered.has(site))).toEqual([]);
     expect(discovered.sort()).toEqual(callSites.sort());
   });
@@ -286,7 +348,6 @@ function seedStep(aggregate, fixture) {
     Account: ["accounts", "CreateAccount", "accountId"],
     User: ["users", "CreateUser", "userId"],
     Membership: ["memberships", "GrantMembership", "membershipId"],
-    Consent: ["consents", "RecordConsent", "consentId"],
   };
   const [receiver, type, id] = names[aggregate];
   const reconciler = `${aggregate.toLowerCase()}Reconciler`;
@@ -326,7 +387,7 @@ function seedStep(aggregate, fixture) {
       "buildScenarioIdentityReconcilers",
       (node) => expressionText(node.arguments[0]) === `${fixture}.${id}`,
     )(source).flatMap((node) => {
-      const steps = node.arguments[aggregate === "Consent" ? 4 : 2];
+      const steps = node.arguments[2];
       if (!steps || !ts.isArrayLiteralExpression(steps)) return [];
       return steps.elements
         .filter(
@@ -353,7 +414,10 @@ const commandsFor = (workflow, prefix, fixture) =>
 // Slot meaning comes from the introduction history, never from the current numeric pin.
 const landingSelectors = {
   "password-direct-registration": [personalIdentity("registerRegistrationRoutes", "post", "/register")],
-  "invitation-registration": [personalIdentity("registerInvitationRoutes", "post", "/invitations/accept")],
+  "invitation-registration": [
+    personalIdentity("registerInvitationRoutes", "post", "/invitations/accept"),
+    call("identity.createPersonalIdentity", "acceptInvitationAttempt"),
+  ],
   "first-use-magic-link": [personalIdentity("registerMagicLinkRoutes", "post", "/magic-link/consume")],
   "passkey-registration": [personalIdentity("registerPasskeyRoutes", "post", "/passkeys/register")],
   "phone-code-registration": [personalIdentity("registerPhoneCodeRoutes", "post", "/phone-code/consume")],
@@ -407,23 +471,16 @@ const landingSelectors = {
     ),
   ],
   "production-platform-admin-bootstrap": commandsFor("bootstrapPlatformAdminIdentity", "services"),
-  "admin-qa-actor-fixtures": [
-    ...commandsFor("provisionAdminQaActorFixture", "services", "fixture"),
-    command("services.consents.commandHandler", "provisionAdminQaActorFixture", "RecordConsent", {
-      consentId: "fixture.consentId",
-    }),
-  ],
+  "admin-qa-actor-fixtures": commandsFor("provisionAdminQaActorFixture", "services", "fixture"),
   "development-scenario-seed": [
     ...["Account", "User", "Membership"].flatMap((aggregate) =>
       ["demo", "collector", "support", "suspended", "persona.seed"].map((fixture) => seedStep(aggregate, fixture)),
     ),
-    seedStep("Consent", "consent"),
-    ...["Account", "User", "Membership", "Consent"].map((aggregate) => {
+    ...["Account", "User", "Membership"].map((aggregate) => {
       const [receiver, type, id] = {
         Account: ["accounts", "CreateAccount", "accountId"],
         User: ["users", "CreateUser", "userId"],
         Membership: ["memberships", "GrantMembership", "membershipId"],
-        Consent: ["consents", "RecordConsent", "consentId"],
       }[aggregate];
       return command(`services.${receiver}.commandHandler`, `reconcileRepresentative${aggregate}`, type, {
         [id]: `account.${id}`,
@@ -501,7 +558,7 @@ describe("identity creation pin landing", () => {
   it("every registry pin lands on its creation call", () => {
     const sources = parseRegisteredSources(registry);
     const landings = discoverLandingTargets(registry, sources);
-    expect(landings).toHaveLength(51);
+    expect(landings).toHaveLength(49);
     expect(landings.filter((landing) => landing.wholeFile)).toHaveLength(6);
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
     for (const slot of landings) {
@@ -532,9 +589,9 @@ describe("identity creation pin landing", () => {
       "marketplace-e2e-auth-helper": [92],
       "guest-buy-now-freshness-probe": [1323],
       "platform-api-bootstrap-reconciliation-db-test": [182, 903],
-      "admin-qa-actor-fixtures": [188, 203, 233, 249],
+      "admin-qa-actor-fixtures": [188, 203, 233],
       "development-scenario-seed": [
-        272, 283, 294, 305, 322, 385, 455, 484, 524, 542, 572, 584, 596, 627, 640, 655, 844, 895, 944, 983,
+        272, 283, 294, 305, 322, 385, 455, 484, 524, 542, 572, 584, 596, 627, 640, 844, 895, 944,
       ],
     };
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
@@ -629,6 +686,35 @@ describe("identity creation pin landing", () => {
     }
   });
 
+  it("rejects the pre-#8945 pins and a restored Consent-only slot", () => {
+    const sources = parseRegisteredSources(registry);
+    const preRemovalLines = {
+      "admin-qa-actor-fixtures": [189, 204, 234],
+      "development-scenario-seed": [
+        442, 452, 462, 472, 491, 548, 579, 591, 613, 625, 639, 649, 659, 672, 683, 863, 914, 963,
+      ],
+    };
+    for (const slot of registrySlots(registry).filter(({ entry }) => Object.hasOwn(preRemovalLines, entry.id))) {
+      const errors = collectPinLandingViolations(
+        movePin(registry, slot, preRemovalLines[slot.entry.id][slot.index]),
+        sources,
+      );
+      expect(errors, `${slot.label} pre-#8945 pin must fail`).toHaveLength(1);
+    }
+    for (const [id, line] of [
+      ["admin-qa-actor-fixtures", 250],
+      ["development-scenario-seed", 696],
+      ["development-scenario-seed", 1002],
+    ]) {
+      const restored = structuredClone(registry);
+      const entry = restored.paths.find((candidate) => candidate.id === id);
+      entry.sites.push({ ...entry.sites[0], line });
+      expect(collectPinLandingViolations(restored, sources), `${id} restored Consent slot`).toEqual([
+        `${id}[${entry.sites.length - 1}] ${entry.sites[0].file}:${line}: unclassified slot`,
+      ]);
+    }
+  });
+
   it("fails closed on unknown slots and altered whole-file exceptions", () => {
     const sources = parseRegisteredSources(registry);
     const unknown = structuredClone(registry);
@@ -651,14 +737,15 @@ describe("identity creation pin landing", () => {
     const moved = structuredClone(registry);
     for (const { site } of registrySlots(moved).filter(({ site }) => site.file === file)) site.line += 1;
     expect(collectPinLandingViolations(moved, shifted)).toEqual([]);
-    expect(collectPinLandingViolations(registry, shifted)).toHaveLength(20);
-    for (const receiver of ["accounts", "users", "memberships", "consents"]) {
+    expect(collectPinLandingViolations(registry, shifted)).toHaveLength(18);
+    expect(source.text).not.toContain("services.consents.commandHandler");
+    for (const receiver of ["accounts", "users", "memberships"]) {
       const detached = new Map(sources);
       const text = source.text.replace(`services.${receiver}.commandHandler`, `unrelated.${receiver}.commandHandler`);
       expect(text).not.toBe(source.text);
       detached.set(file, ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true));
       const errors = collectPinLandingViolations(registry, detached);
-      expect(errors).toHaveLength(receiver === "consents" ? 1 : 5);
+      expect(errors).toHaveLength(5);
       expect(errors.every((error) => error.includes("development-scenario-seed[") && error.includes("found 0"))).toBe(
         true,
       );

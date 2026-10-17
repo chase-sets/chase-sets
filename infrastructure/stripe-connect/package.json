@@ -16,6 +16,7 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/money-movement": "workspace:*",
+    "@chase-sets/primitives": "workspace:*",
     "@chase-sets/stripe-config": "workspace:*"
   },
   "devDependencies": {

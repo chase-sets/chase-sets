@@ -1,14 +1,19 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
+  discoverySearchCursorState,
   previewBulkAddSearchResults,
   searchDiscoveryItems,
   searchDiscoveryItemsByNaturalKey,
   searchDiscoverySemanticItems,
+  lookupDiscoveryCorrectionTerms,
+  searchDiscoveryCorrectedItems,
 } from "./queries";
 import { buildSimpleSearchQuery } from "../domain/normalization";
 import { discoverySearchSchemaMigrations, discoverySearchSchemaSql } from "./schema";
 
+// Duplicates the production encoders in queries.ts; change both together.
 function encodeCursor(input: {
   id: string;
   title: string;
@@ -17,29 +22,65 @@ function encodeCursor(input: {
   baseMatch?: boolean;
   lowestPriceAmount?: string | null;
 }) {
-  return Buffer.from(
-    JSON.stringify({
-      id: input.id,
-      title: input.title,
-      updatedAt: input.updatedAt,
-      rank: input.rank ?? 0,
-      baseMatch: input.baseMatch ?? false,
-      lowestPriceAmount: input.lowestPriceAmount ?? null,
-    }),
-    "utf8",
-  ).toString("base64url");
+  return encodeCursorJson({
+    id: input.id,
+    title: input.title,
+    updatedAt: input.updatedAt,
+    rank: input.rank ?? 0,
+    baseMatch: input.baseMatch ?? false,
+    lowestPriceAmount: input.lowestPriceAmount ?? null,
+  });
 }
 
-function createCapturingDb() {
+function encodeRelevanceCursor(input: { tier: number; baseMatch: boolean; rank: number; title: string; id: string }) {
+  return encodeCursorJson({
+    v: 2,
+    id: input.id,
+    title: input.title,
+    updatedAt: "2026-05-16T00:00:00.000Z",
+    rank: input.rank,
+    baseMatch: input.baseMatch,
+    tier: input.tier,
+    lowestPriceAmount: null,
+  });
+}
+
+function encodeCursorJson(value: unknown) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeCursorJson(cursor: string | null): unknown {
+  return cursor ? JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) : null;
+}
+
+function createCapturingDb(listRows: readonly Record<string, unknown>[] = []) {
   const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
   const db: PgQueryable = {
     query: async <Row>(sql: string, values: readonly unknown[] = []) => {
       calls.push({ sql, values });
-      return { rows: [] as Row[], rowCount: 0 };
+      const rows = sql.startsWith("SELECT catalog_item_id") || sql.startsWith("SELECT * FROM (") ? listRows : [];
+      return { rows: rows as Row[], rowCount: rows.length };
     },
   };
 
   return { db, calls };
+}
+
+function listRow(id: string, title: string, extra: Record<string, unknown> = {}) {
+  return {
+    catalog_item_id: id,
+    title,
+    subtitle: null,
+    updated_at: "2026-05-16T00:00:00.000Z",
+    lowest_price_amount: null,
+    lowest_price_currency_code: null,
+    visible_quantity: null,
+    ...extra,
+  };
+}
+
+function findListCall(calls: ReadonlyArray<{ sql: string; values: readonly unknown[] }>) {
+  return calls.find((call) => call.sql.startsWith("SELECT catalog_item_id") || call.sql.startsWith("SELECT * FROM ("));
 }
 
 function expectBuyerVisibleListingPredicate(sql: string | undefined) {
@@ -54,6 +95,158 @@ function expectBuyerVisibleListingPredicate(sql: string | undefined) {
 }
 
 describe("searchDiscoveryItems cursor paging", () => {
+  it("candidate lookups bind input, retain the default trgm threshold and dedupe before limit", async () => {
+    const { db, calls } = createCapturingDb();
+    expect(await lookupDiscoveryCorrectionTerms(db, "charzard")).toEqual({
+      literal: false,
+      prefix: false,
+      candidates: [],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].values).toEqual(["charzard", "charzard%"]);
+    expect(calls[0].sql).toContain("SELECT DISTINCT term FROM discovery_search_item_identity_terms WHERE term % $1");
+    expect(calls[0].sql).toContain("ORDER BY similarity(term, $1) DESC, term ASC LIMIT 20");
+    expect(calls[0].sql).not.toMatch(/set_config|SET |description|field_values|charzard/i);
+  });
+  it("correction reuses lexical ordering, full filters and batched hydration without facets or cursor", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        const rows = sql.startsWith("SELECT EXISTS")
+          ? [{ literal: false, prefix: false, candidates: ["charizard"] }]
+          : sql.startsWith("SELECT * FROM (")
+            ? [listRow("right-a", "Charizard"), listRow("right-b", "Charizard")]
+            : sql.includes("FROM startable_listing GROUP BY")
+              ? [
+                  {
+                    catalog_catalog_item_id: "right-a",
+                    lowest_price_amount: "10.00",
+                    lowest_price_currency_code: "USD",
+                    active_listing_count: 1,
+                    total_visible_quantity: 2,
+                  },
+                ]
+              : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    const page = await searchDiscoveryCorrectedItems(
+      db,
+      {
+        search: "charzard 004/102",
+        limit: 200,
+        category: "pokemon",
+        tag: "foil",
+        language: "en",
+        blueprintId: "card",
+        priceMin: "5",
+        priceMax: "20",
+        inStock: true,
+        marketActivity: "listings",
+        fieldFilters: [{ fieldId: "rarity", value: "rare" }],
+        referenceFilters: [{ typeKey: "set", referenceId: "base" }],
+        dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
+      },
+      [
+        { raw: "charzard", protected: false },
+        { raw: "004/102", protected: true },
+      ],
+    );
+    expect(page).toMatchObject({ total: 2, nextCursor: null, facets: [], category_counts: [] });
+    expect(page?.items[0].market_summary).toMatchObject({ lowest_price_amount: "10.00", total_visible_quantity: 2 });
+    const list = findListCall(calls)!;
+    expect(list.values).toContain("(charzard | charizard) & ((004 <-> 102) | (4 <-> 102))");
+    expect(list.values).toContain("((004 <-> 102) | (4 <-> 102))");
+    expect(list.values.at(-1)).toBe(51);
+    expect(list.sql).toContain(
+      "search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC",
+    );
+    for (const bound of ['["pokemon"]', '["foil"]', "en", "card", "5", "20", "rare", "base"])
+      expect(list.values.flat()).toContain(bound);
+    expect(calls.filter(({ sql }) => sql.startsWith("WITH startable_listing"))).toHaveLength(1);
+    expect(calls.some(({ sql }) => sql.startsWith("SELECT COUNT(*)"))).toBe(false);
+  });
+  it("db-profile-test-leaks-into-non-db-ci", () => {
+    const { scripts } = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    for (const file of [
+      "features/search/read-model/queries.db.test.ts",
+      "tests/acceptance/marketplace-search.test.ts",
+    ]) {
+      expect(scripts["test:db"].split(" ")).toContain(file);
+      for (const profile of ["test:fast", "test:unit"]) {
+        const excludes = (script: string) => [...script.matchAll(/--exclude (\S+)/g)].map((match) => match[1]);
+        expect(excludes(scripts[profile])).toContain(file);
+        // Bypass mutant: deleting only the DB exclusion exposes the file in
+        // a non-DB profile even though it still enters the DB profile.
+        expect(excludes(scripts[profile].replace(`--exclude ${file}`, ""))).not.toContain(file);
+      }
+    }
+  });
+  it.each([undefined, 1, "2", 3])("selected price cursor restarts without numeric pv=2 (%s)", async (pv) => {
+    const params = {
+      sort: "price_asc",
+      dimensionFilters: [{ dimensionId: "finish", optionId: "foil" }],
+      cursor: encodeCursorJson({ id: "old", title: "Old", lowestPriceAmount: "2", pv }),
+      offset: 40,
+      includeTotal: true,
+    };
+    expect(discoverySearchCursorState(params)).toBe("restarted");
+    const { db, calls } = createCapturingDb();
+    await searchDiscoveryItems(db, params);
+    expect(calls.some((call) => call.sql.includes("SELECT COUNT(*) AS count"))).toBe(true);
+    expect(findListCall(calls)?.sql).not.toContain("OFFSET");
+    expect(findListCall(calls)?.values).not.toContain("old");
+    expect(discoverySearchCursorState({ ...params, dimensionFilters: [] })).toBe("cursor");
+  });
+
+  it("same-listing variant commerce binds AND groups, OR options and selected minima everywhere", async () => {
+    const dimensionFilters = [
+      { dimensionId: "finish", optionId: "foil" },
+      { dimensionId: "finish", optionId: "etched" },
+      { dimensionId: "condition", optionId: "mint" },
+    ];
+    const { db, calls } = createCapturingDb([listRow("card", "Card", { lowest_price_amount: "20" })]);
+    await searchDiscoveryItems(db, { dimensionFilters, priceMax: "3", inStock: true });
+    const list = findListCall(calls)!;
+    expect(list.sql).toContain("selected_market.lowest_price_amount <=");
+    expect(list.sql).toContain("selected_market.total_visible_quantity > 0");
+    expect(list.sql).toContain("COUNT(DISTINCT price_currency_code) = 1");
+    expect(list.sql).toMatch(/listing\.selected_options @> \$\d+::jsonb OR listing\.selected_options @> \$\d+::jsonb/);
+    expectBuyerVisibleListingPredicate(list.sql);
+    const hydration = calls.find((call) => call.sql.startsWith("WITH startable_listing"))!;
+    expect(hydration.values).toEqual([["card"], ...dimensionFilters.map((filter) => JSON.stringify([filter]))]);
+    expect(hydration.sql).toContain("listing.selected_options @> $2::jsonb");
+  });
+
+  it.each(["price_asc", "price_desc"])("encodes selected-price pv=2 from selected minima for %s", async (sort) => {
+    const { db } = createCapturingDb([
+      listRow("a", "A", { lowest_price_amount: "20" }),
+      listRow("b", "B", { lowest_price_amount: "30" }),
+    ]);
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    const page = await searchDiscoveryItems(db, { sort, dimensionFilters, limit: 1 });
+    expect(decodeCursorJson(page.nextCursor)).toMatchObject({ pv: 2, lowestPriceAmount: "20" });
+    expect(discoverySearchCursorState({ sort, dimensionFilters, cursor: page.nextCursor! })).toBe("cursor");
+  });
+
+  it("installs the identity-term table and concurrent trigram index idempotently", () => {
+    expect(discoverySearchSchemaSql).toContain("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+    expect(discoverySearchSchemaSql).toContain("CREATE TABLE IF NOT EXISTS discovery_search_item_identity_terms");
+    expect(discoverySearchSchemaSql).toContain("PRIMARY KEY (catalog_item_id, term)");
+    const migration = discoverySearchSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261008_discovery_search_identity_terms",
+    );
+    expect(migration?.statements).toEqual([
+      "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+      expect.stringContaining("PRIMARY KEY (catalog_item_id, term)"),
+      expect.stringContaining("CREATE INDEX CONCURRENTLY IF NOT EXISTS discovery_search_item_identity_terms_trgm_idx"),
+    ]);
+    expect(migration?.statements[2]).toContain("USING gin (term gin_trgm_ops)");
+  });
+
   it("counts a requested first page but never a cursor page", async () => {
     const firstPage = createCapturingDb();
     await searchDiscoveryItems(
@@ -390,15 +583,9 @@ describe("searchDiscoveryItems cursor paging", () => {
     },
   );
 
-  it("applies a rank cursor for relevance searches", async () => {
+  it("applies the complete exact-tier keyset for v2 relevance cursors", async () => {
     const { db, calls } = createCapturingDb();
-    const cursor = encodeCursor({
-      id: "cat_002",
-      title: "Bulbasaur",
-      updatedAt: "2026-05-16T00:00:00.000Z",
-      rank: 0.75,
-      baseMatch: true,
-    });
+    const cursor = encodeRelevanceCursor({ tier: 1, baseMatch: true, rank: 0.75, title: "Bulbasaur", id: "cat_002" });
 
     await searchDiscoveryItems(db, {
       search: "pokemon",
@@ -407,24 +594,256 @@ describe("searchDiscoveryItems cursor paging", () => {
       limit: 24,
     });
 
-    const listCall = calls.find((call) => call.sql.includes("SELECT catalog_item_id"));
+    const listCall = findListCall(calls);
     expect(listCall?.sql).toContain("(ts_rank(search_text");
     // Rank is computed purely from the item's own folded tsvectors — no correlated
     // content-rank subquery and no 0.20 content dampener.
     expect(listCall?.sql).not.toContain("discovery_search_product_contents");
     expect(listCall?.sql).not.toContain("* 0.20");
-    expect(listCall?.sql).toContain("search_base_match");
-    // Mixed-direction ORDER BY (baseMatch DESC, rank DESC, title ASC, id ASC) requires an
-    // expanded lexicographic keyset predicate rather than a single row-value comparison.
-    expect(listCall?.sql).toContain(")::integer < $4::integer");
-    expect(listCall?.sql).toContain(") < $5::real)");
-    expect(listCall?.sql).toContain("AND title > $6)");
-    expect(listCall?.sql).toContain("AND title = $6 AND catalog_item_id > $7))");
-    expect(listCall?.sql).not.toContain(", title, catalog_item_id) <");
-    expect(listCall?.sql).toContain("ORDER BY (search_text @@");
-    expect(listCall?.sql).toContain("DESC, title ASC, catalog_item_id ASC");
-    expect(listCall?.sql).not.toContain("OFFSET");
-    expect(listCall?.values.slice(-5)).toEqual([1, 0.75, "Bulbasaur", "cat_002", 25]);
+    // Mixed-direction ORDER BY (tier/baseMatch/rank DESC, title/id ASC) splits the keyset
+    // by direction rather than applying one row-value comparison to every column.
+    expect(listCall?.sql).toContain(
+      "WHERE ((search_exact_tier, search_base_match::integer, search_rank) < ($5::integer, $6::integer, $7::real)" +
+        " OR ((search_exact_tier, search_base_match::integer, search_rank) = ($5::integer, $6::integer, $7::real)" +
+        " AND (title, catalog_item_id) > ($8, $9)))",
+    );
+    expect(listCall?.sql).toContain(
+      "ORDER BY search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC",
+    );
+    expect(listCall?.sql).toContain("LIMIT $10");
+    expect(listCall?.sql).not.toContain("OFFSET $");
+    expect(listCall?.values).toEqual([
+      "active",
+      "pokemon",
+      "pokemon",
+      "pokemon",
+      1,
+      1,
+      0.75,
+      "Bulbasaur",
+      "cat_002",
+      25,
+    ]);
+  });
+
+  it("selects the exact identity tier once per qualifying row from one SQL normalization of both sides", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+    const sql = findListCall(calls)?.sql ?? "";
+    const normalized = (text: string) => `lower(btrim(regexp_replace(regexp_replace(normalize(${text}, NFD), '(?<=[`;
+    // One expression shape normalizes the bound raw query, the title, and title + subtitle.
+    expect(sql).toContain(`CASE ${normalized("$4")}`);
+    expect(sql).toContain(`${normalized("title")}`);
+    expect(sql).toContain(`COLLATE "C") AS search_title_identity`);
+    expect(sql).toContain(
+      `WHEN '' THEN 0 WHEN search_title_identity THEN 1 WHEN CASE WHEN search_title_identity = '' OR starts_with(${normalized("$4")}`,
+    );
+    expect(sql).toContain(`search_title_identity || ' ') THEN ${normalized("title || ' ' || subtitle")}`);
+    expect(sql).toContain(`COLLATE "C") END THEN 1 ELSE 0 END AS search_exact_tier`);
+    // Explicit code-point ranges, never LC_CTYPE-dependent classes or extension folding.
+    expect(sql).not.toMatch(/\[\[:|\\w|\\p\{|unaccent/);
+    // The fenced derived table computes rank, base match, and the normalized title once per
+    // qualifying row; the tier compares that text, and the outer query orders and pages it.
+    expect(sql).toMatch(/^SELECT \* FROM \(\s*SELECT \*, CASE /);
+    expect(sql).toContain(" AS search_rank, ");
+    expect(sql).toContain(" AS search_base_match, ");
+    expect(sql.match(/AS search_exact_tier/g)).toHaveLength(1);
+    expect(sql.match(/AS search_title_identity/g)).toHaveLength(1);
+    expect(sql).toContain("OFFSET 0\n      ) AS normalized\n    ) AS candidate");
+    expect(sql).toContain(
+      "ORDER BY search_exact_tier DESC, search_base_match DESC, search_rank DESC, title ASC, catalog_item_id ASC",
+    );
+    // The query side is bound raw (never folded in JS) after the base WHERE values.
+    expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", "Pokémon", 25]);
+  });
+
+  it("binds an empty exact query when the oracle normalizes the search to nothing", async () => {
+    const { db, calls } = createCapturingDb();
+
+    await searchDiscoveryItems(db, { search: "¡¿…!!", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+    expect(findListCall(calls)?.values).toEqual(["active", "¡¿…!!", "", "", 25]);
+  });
+
+  it("keeps explicit sorts and text-free relevance off the exact tier", async () => {
+    for (const params of [{ search: "pokemon", sort: "title_asc" }, { sort: "relevance" }] as const) {
+      const { db, calls } = createCapturingDb();
+
+      await searchDiscoveryItems(db, { ...params, limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
+
+      const listCall = findListCall(calls);
+      expect(listCall?.sql).not.toContain("search_exact_tier");
+      expect(listCall?.sql).toContain("ORDER BY title ASC, catalog_item_id ASC");
+    }
+  });
+
+  it("encodes v2 relevance cursors with the tier and leaves explicit-sort cursors unversioned", async () => {
+    const relevance = createCapturingDb([
+      listRow("cat_exact", "Charizard ex", {
+        search_rank: 0.25,
+        search_base_match: true,
+        search_exact_tier: 1,
+        search_title_identity: "charizard ex",
+      }),
+      listRow("cat_next", "Charizard ex Box", { search_rank: 0.5, search_base_match: true, search_exact_tier: 0 }),
+    ]);
+    const relevancePage = await searchDiscoveryItems(
+      relevance.db,
+      { search: "Charizard ex", limit: 1 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    expect(decodeCursorJson(relevancePage.nextCursor)).toEqual({
+      v: 2,
+      id: "cat_exact",
+      title: "Charizard ex",
+      updatedAt: "2026-05-16T00:00:00.000Z",
+      rank: 0.25,
+      baseMatch: true,
+      tier: 1,
+      lowestPriceAmount: null,
+    });
+    expect(relevancePage.items[0]).not.toHaveProperty("search_exact_tier");
+    expect(relevancePage.items[0]).not.toHaveProperty("search_title_identity");
+
+    const titleSort = createCapturingDb([listRow("cat_a", "Alpha"), listRow("cat_b", "Beta")]);
+    const titlePage = await searchDiscoveryItems(
+      titleSort.db,
+      { search: "Charizard ex", sort: "title_asc", limit: 1 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    expect(decodeCursorJson(titlePage.nextCursor)).toEqual({
+      id: "cat_a",
+      title: "Alpha",
+      updatedAt: "2026-05-16T00:00:00.000Z",
+      rank: 0,
+      baseMatch: false,
+      lowestPriceAmount: null,
+    });
+  });
+
+  it("counts relevance first pages with only the base WHERE values", async () => {
+    for (const params of [
+      { includeTotal: true, limit: 24 },
+      { offset: 48, limit: 24 },
+    ]) {
+      const { db, calls } = createCapturingDb();
+
+      await searchDiscoveryItems(
+        db,
+        { search: "pokemon", category: "cards", ...params },
+        { loadFacets: false, loadMarketSummaries: false },
+      );
+
+      const countCall = calls.find((call) => call.sql.startsWith("SELECT COUNT(*) AS count"));
+      expect(countCall?.sql).toContain("WHERE status = $1 AND (search_text @@ plainto_tsquery('english', $2)");
+      expect(countCall?.sql).not.toContain("$5");
+      expect(countCall?.values).toEqual(["active", "pokemon", "pokemon", JSON.stringify(["cards"])]);
+    }
+  });
+
+  it.each([
+    [
+      "an unversioned legacy cursor",
+      encodeCursor({ id: "cat_002", title: "Bulbasaur", updatedAt: "2026", rank: 0.75, baseMatch: true }),
+    ],
+    ["a malformed cursor", "not-a-cursor"],
+    ["array JSON", encodeCursorJson([2, 1, true, 0.75, "Bulbasaur", "cat_002"])],
+    [
+      "a cursor missing its tier",
+      encodeCursorJson({ v: 2, id: "cat_002", title: "Bulbasaur", rank: 0.75, baseMatch: true }),
+    ],
+    [
+      "a wrong cursor version",
+      encodeCursorJson({ v: 3, id: "cat_002", title: "Bulbasaur", rank: 0.75, baseMatch: true, tier: 1 }),
+    ],
+    [
+      "an out-of-range tier",
+      encodeCursorJson({ v: 2, id: "cat_002", title: "Bulbasaur", rank: 0.75, baseMatch: true, tier: 2 }),
+    ],
+    ["a hybrid cursor", encodeCursorJson({ kind: "hybrid", offset: 24 })],
+  ])("legacy or invalid relevance cursor restarts with metadata: %s", async (_label, cursor) => {
+    const { db, calls } = createCapturingDb();
+    const params = { search: "pokemon", category: "cards", cursor, includeTotal: true, limit: 24 };
+
+    expect(discoverySearchCursorState(params)).toBe("restarted");
+    await searchDiscoveryItems(db, params);
+
+    const listCall = findListCall(calls);
+    expect(listCall?.sql).not.toContain("search_exact_tier, search_base_match::integer, search_rank) <");
+    expect(listCall?.values).toEqual(["active", "pokemon", "pokemon", JSON.stringify(["cards"]), "pokemon", 25]);
+    expect(calls.some((call) => call.sql.startsWith("SELECT COUNT(*) AS count"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("AS summaries"))).toBe(true);
+    expect(calls.some((call) => call.sql.includes("AS slug, COUNT(DISTINCT item.catalog_item_id)"))).toBe(true);
+  });
+
+  it.each([
+    [
+      "an unversioned legacy cursor",
+      encodeCursor({ id: "cat_old", title: "Old", updatedAt: "2026", rank: 0.9, baseMatch: true }),
+    ],
+    ["a malformed cursor", "not-a-cursor"],
+    [
+      "a wrong cursor version",
+      encodeCursorJson({ v: 3, id: "cat_old", title: "Old", rank: 0.9, baseMatch: true, tier: 1 }),
+    ],
+  ])("restarts %s with an offset at the first page", async (_label, cursor) => {
+    const { db, calls } = createCapturingDb([
+      listRow("cat_exact", "Charizard ex", { search_rank: 0.25, search_base_match: true, search_exact_tier: 1 }),
+      listRow("cat_next", "Charizard ex Box", { search_rank: 0.5, search_base_match: true, search_exact_tier: 0 }),
+    ]);
+
+    const page = await searchDiscoveryItems(
+      db,
+      { search: "Charizard ex", cursor, offset: 48, limit: 1, includeTotal: true },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    const listCall = findListCall(calls);
+    expect(listCall?.sql).toContain("LIMIT $5");
+    expect(listCall?.sql).not.toContain("OFFSET $");
+    expect(listCall?.values).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 2]);
+    expect(calls.find((call) => call.sql.startsWith("SELECT COUNT(*) AS count"))?.values).toEqual([
+      "active",
+      "Charizard ex",
+      "Charizard ex",
+    ]);
+    expect(page.items.map((item) => item.catalog_item_id)).toEqual(["cat_exact"]);
+    expect(decodeCursorJson(page.nextCursor)).toMatchObject({ v: 2, id: "cat_exact", tier: 1 });
+  });
+
+  it("keeps intentional offset paging when no cursor is supplied", async () => {
+    const { db, calls } = createCapturingDb([listRow("cat_next", "Charizard ex Box", { search_exact_tier: 0 })]);
+
+    const page = await searchDiscoveryItems(
+      db,
+      { search: "Charizard ex", offset: 48, limit: 1 },
+      { loadFacets: false, loadMarketSummaries: false },
+    );
+
+    const listCall = findListCall(calls);
+    expect(listCall?.sql).toContain("LIMIT $5 OFFSET $6");
+    expect(listCall?.values).toEqual(["active", "Charizard ex", "Charizard ex", "Charizard ex", 1, 48]);
+    expect(calls.some((call) => call.sql.startsWith("SELECT COUNT(*) AS count"))).toBe(true);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("classifies only cursors the active ordering can decode as continuations", () => {
+    const relevanceCursor = encodeRelevanceCursor({ tier: 0, baseMatch: true, rank: 0.5, title: "A", id: "cat_a" });
+    const legacyCursor = encodeCursor({ id: "cat_a", title: "A", updatedAt: "2026-05-16T00:00:00.000Z" });
+
+    expect(discoverySearchCursorState({ search: "pokemon" })).toBe("fresh");
+    expect(discoverySearchCursorState({ search: "pokemon", cursor: relevanceCursor })).toBe("cursor");
+    expect(discoverySearchCursorState({ search: "pokemon", sort: "relevance", cursor: legacyCursor })).toBe(
+      "restarted",
+    );
+    // Explicit sorts and text-free relevance keep their unversioned keysets.
+    expect(discoverySearchCursorState({ search: "pokemon", sort: "newest", cursor: legacyCursor })).toBe("cursor");
+    expect(discoverySearchCursorState({ cursor: legacyCursor })).toBe("cursor");
+    expect(discoverySearchCursorState({ sort: "title_asc", cursor: "not-a-cursor" })).toBe("restarted");
   });
 
   it("matches container contents through the folded item tsvector without a correlated subquery", async () => {
@@ -448,9 +867,9 @@ describe("searchDiscoveryItems cursor paging", () => {
       "(search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3))",
     );
     expect(listCall?.sql).toContain(
-      "ORDER BY (search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3)) DESC",
+      "(search_text @@ plainto_tsquery('english', $2) OR search_text_simple @@ plainto_tsquery('simple', $3)) AS search_base_match",
     );
-    expect(listCall?.values).toEqual(["active", "Charizard", "Charizard", 25]);
+    expect(listCall?.values).toEqual(["active", "Charizard", "Charizard", "Charizard", 25]);
   });
 
   it("applies first-class reference filters by Reference Type", async () => {
@@ -560,7 +979,9 @@ describe("searchDiscoveryItems cursor paging", () => {
     const facetValueCall = calls.find((call) => call.sql.includes("market_counts AS"));
     expect(facetValueCall?.sql).toContain("FROM discovery_market_listings AS listing");
     expectBuyerVisibleListingPredicate(facetValueCall?.sql);
-    expect(facetValueCall?.sql).toContain("COUNT(DISTINCT activity.activity_id)::integer AS count");
+    expect(facetValueCall?.sql).toContain(
+      "COUNT(DISTINCT activity_id) FILTER (WHERE price_amount IS NOT NULL)::integer AS listing_count",
+    );
     expect(facetValueCall?.sql).toContain("jsonb_array_elements(activity.selected_options)");
     expect(facetValueCall?.sql).toContain("COALESCE(market_counts.count, 0)::integer AS count");
     expect(facetValueCall?.sql).toContain("WHERE selected OR (count > 0 AND facet_rank <= 50)");
@@ -696,6 +1117,49 @@ describe("searchDiscoveryItems cursor paging", () => {
 });
 
 describe("searchDiscoveryItems facets", () => {
+  it.each(["offers", "any", "listings", undefined] as const)(
+    "prospective variant facet counts bind independent selected supply requirements (%s)",
+    async (marketActivity) => {
+      const { db: capturingDb, calls } = createCapturingDb();
+      const db: PgQueryable = {
+        query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("AS summaries")) {
+            calls.push({ sql, values });
+            return {
+              rows: [{ kind: "dimension", id: "finish", label: "Finish", coverage: 1, distinct_count: 2 }] as Row[],
+              rowCount: 1,
+            };
+          }
+          return capturingDb.query<Row>(sql, values);
+        },
+      };
+      await searchDiscoveryItems(db, {
+        dimensionFilters: [
+          { dimensionId: "finish", optionId: "foil" },
+          { dimensionId: "condition", optionId: "mint" },
+        ],
+        priceMin: "10",
+        priceMax: "30",
+        inStock: true,
+        marketActivity,
+      });
+      const facet = calls.find(({ sql }) => sql.includes("option_market AS"))!;
+      expect(facet.sql).toContain("market.visible_quantity > 0");
+      expect(facet.sql).toContain("market.lowest_price_amount >=");
+      expect(facet.sql).toContain("market.lowest_price_amount <=");
+      expect(facet.sql).toContain("COUNT(DISTINCT price_currency_code) = 1");
+      expect(facet.sql).toContain("catalog_options AS MATERIALIZED");
+      expect(facet.values).toContain(JSON.stringify([{ dimensionId: "condition", optionId: "mint" }]));
+      expect(facet.values).not.toContain(JSON.stringify([{ dimensionId: "finish", optionId: "foil" }]));
+      expect(facet.values.slice(-2)).toEqual(["10", "30"]);
+      if (marketActivity === "offers")
+        expect(facet.sql).toContain("WHERE market.visible_quantity > 0 AND market.lowest_price_amount");
+      for (const call of calls) {
+        const indices = [...call.sql.matchAll(/\$(\d+)/g)].map((match) => Number(match[1]));
+        expect(Math.max(...indices)).toBe(call.values.length);
+      }
+    },
+  );
   it("starts facet-value queries concurrently", async () => {
     const started: string[] = [];
     let releaseFirst: (() => void) | undefined;
@@ -872,6 +1336,16 @@ describe("searchDiscoveryItems facets", () => {
 });
 
 describe("previewBulkAddSearchResults", () => {
+  it("preview retains selected dimensions and selected stock/price constraints", async () => {
+    const { db, calls } = createCapturingDb();
+    const dimensionFilters = [{ dimensionId: "finish", optionId: "foil" }];
+    await previewBulkAddSearchResults(db, { dimensionFilters, inStock: true, priceMin: "10", priceMax: "30" });
+    const list = findListCall(calls)!;
+    expect(list.sql).toContain("selected_market.lowest_price_amount >=");
+    expect(list.sql).toContain("selected_market.lowest_price_amount <=");
+    expect(list.sql).toContain("selected_market.total_visible_quantity > 0");
+    expect(list.values).toContain(JSON.stringify(dimensionFilters));
+  });
   it("performs no facet work", async () => {
     const { db, calls } = createCapturingDb();
 
@@ -884,12 +1358,55 @@ describe("previewBulkAddSearchResults", () => {
 });
 
 describe("searchDiscoveryItems input hardening", () => {
+  it("expands reviewed vocabulary as original OR whole phrase, retaining required terms and original exact tier", async () => {
+    const { db, calls } = createCapturingDb();
+    await searchDiscoveryItems(db, { search: "pkmn ETB zard missing" }, { loadFacets: false });
+    const list = findListCall(calls)!;
+    expect(list.sql).toContain("to_tsquery('english', $2)");
+    expect(list.sql).toContain("to_tsquery('simple', $3)");
+    expect(list.values.slice(1, 4)).toEqual([
+      "(pkmn | (pokemon)) & (ETB | (elite <-> trainer <-> box)) & (zard | (charizard)) & missing",
+      "(pkmn | (pokemon)) & (ETB | (elite <-> trainer <-> box)) & (zard | (charizard)) & missing",
+      "pkmn ETB zard missing",
+    ]);
+    expect(list.sql).not.toContain("pkmn");
+    // Bypass mutant: globally OR-relaxing the required groups loses this discriminator.
+    expect(String(list.values[1]).replaceAll(" & ", " | ")).not.toBe(list.values[1]);
+  });
+
+  it("batches served-code candidates once and reuses membership across facets and counts", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const db: PgQueryable = {
+      query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+        calls.push({ sql, values });
+        const rows = sql.includes("unnest($1::text[])") ? [{ set_code: "zard" }] : [];
+        return { rows: rows as Row[], rowCount: rows.length };
+      },
+    };
+    await searchDiscoveryItems(db, { search: "zard 4/102 zard 136a TSP 136a charzard 4/102" });
+    const lookups = calls.filter(({ sql }) => sql.includes("unnest($1::text[])"));
+    expect(lookups).toHaveLength(1);
+    expect(lookups[0]?.values).toEqual([["zard", "tsp", "charzard"]]);
+    expect(lookups[0]?.sql).toContain("EXISTS");
+    expect(lookups[0]?.sql).toContain("item.set_code = candidate.set_code");
+    expect(findListCall(calls)?.values[1]).toBe("zard & 4/102 & zard & 136a & TSP & 136a & charzard & 4/102");
+  });
+
+  it("does not protect an absent alphabetic nickname merely because it precedes a collector number", async () => {
+    const { db, calls } = createCapturingDb();
+    await searchDiscoveryItems(db, { search: "zard 4/102" }, { loadFacets: false });
+    expect(findListCall(calls)?.values.slice(1, 3)).toEqual([
+      "(zard | (charizard)) & 4/102",
+      "(zard | (charizard)) & (4 <-> 102)",
+    ]);
+  });
+
   it("folds diacritics in both full-text query inputs", async () => {
     const { db, calls } = createCapturingDb();
 
     await searchDiscoveryItems(db, { search: "Pokémon", limit: 24 }, { loadFacets: false, loadMarketSummaries: false });
 
-    expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", 25]);
+    expect(calls[0]?.values).toEqual(["active", "Pokemon", "Pokemon", "Pokémon", 25]);
   });
 
   it.each([
@@ -905,7 +1422,7 @@ describe("searchDiscoveryItems input hardening", () => {
     expect(calls[0]?.sql).toContain("plainto_tsquery('english', $2)");
     expect(calls[0]?.sql).toContain("plainto_tsquery('simple', $3)");
     expect(calls[0]?.sql).not.toContain(search);
-    expect(calls[0]?.values).toEqual(["active", search, buildSimpleSearchQuery(search), 25]);
+    expect(calls[0]?.values).toEqual(["active", search, buildSimpleSearchQuery(search), search, 25]);
   });
 });
 

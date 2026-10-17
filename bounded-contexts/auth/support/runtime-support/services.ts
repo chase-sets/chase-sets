@@ -1,14 +1,15 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AgentGrantRevocations } from "../../features/agent-grants/api/api";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { isSocialLoginProviderKey, type ResolvedActor } from "@chase-sets/auth-context";
+import { isSocialLoginProviderKey, type OperatorAuthority, type ResolvedActor } from "@chase-sets/auth-context";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createAuthSecretAdapters } from "../auth-support/adapters";
 import {
   authSecurityLifetimesOf,
@@ -29,6 +30,7 @@ import {
   getActiveAuthMembershipForUserAccount,
   listActiveAuthAccountIds,
   listActiveAuthMembershipsForUser,
+  listGrantedAuthAccountCapabilities,
   normalizeAuthEmail,
 } from "../auth-support/identity-projection";
 import {
@@ -73,6 +75,17 @@ type AuthIdentityReadServices = Readonly<{
   ) => ReturnType<typeof getActiveAuthMembershipForUserAccount>;
   getInvitation: (invitationId: string) => ReturnType<typeof getAuthIdentityInvitation>;
   findPendingInvitationByEmail: (email: string) => ReturnType<typeof getPendingAuthIdentityInvitationByEmail>;
+  /**
+   * Current Capability Grants for one Account. Always populated by
+   * `createAuthServices`; optional on the type only so unit-test identity
+   * doubles keep typechecking. A missing reader projects no grant.
+   */
+  listGrantedAccountCapabilities?: (
+    tenantId: string,
+    accountId: string,
+  ) => ReturnType<typeof listGrantedAuthAccountCapabilities>;
+  /** Identity's aggregate-backed operator authority; absent means every operator check is denied. */
+  operatorAuthority?: OperatorAuthority;
 }>;
 
 export type RegistrationAdmissionHostConfig = RegistrationAdmissionConfig &
@@ -142,9 +155,11 @@ export type AuthHostPorts = Readonly<{
    * `bounded-contexts/auth/docs/security-lifetimes.md`.
    */
   securityLifetimes?: Partial<AuthSecurityLifetimesMs>;
+  operatorAuthority?: OperatorAuthority;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
+  withActiveGrants?: AgentGrantRevocations["withActiveGrants"];
   resolveOrderRecipient: (orderId: string) => Promise<string | null>;
   resolveShipmentOrderId: (shipmentId: string) => Promise<string | null>;
   resolveWebhookTargets: (accountId: string) => Promise<readonly AgentWebhookTarget[]>;
@@ -183,7 +198,10 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
-  const agentWebhookOutbox = createPostgresAgentWebhookOutbox({ db });
+  const agentWebhookOutbox = createPostgresAgentWebhookOutbox({
+    db,
+    withActiveGrants: ports.agentWebhookOrderResolvers?.withActiveGrants,
+  });
   const sessions = createSessionRuntime({
     eventStore,
     checkpointStore,
@@ -212,6 +230,9 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
         getActiveAuthMembershipForUserAccount(db, userId, accountId),
       getInvitation: (invitationId) => getAuthIdentityInvitation(db, invitationId),
       findPendingInvitationByEmail: (email) => getPendingAuthIdentityInvitationByEmail(db, email),
+      listGrantedAccountCapabilities: (tenantId, accountId) =>
+        listGrantedAuthAccountCapabilities(db, tenantId, accountId),
+      operatorAuthority: ports.operatorAuthority,
     },
     awaitInvitationProjectionFreshness: createInvitationProjectionFreshnessWaiter({
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
@@ -424,6 +445,7 @@ async function startSessionForUser(
   services: AuthServices,
   params: Readonly<{
     userId: string;
+    sessionId?: string;
     accountId?: string;
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
@@ -459,7 +481,7 @@ async function startSessionForUser(
     throw new Error("Selected account is not available for this user.");
   }
 
-  const sessionId = createId("ses");
+  const sessionId = (params.sessionId ?? createId("ses")) as SessionId;
   const expiresAt = createExpiryTimestamp(authSecurityLifetimesOf(services).sessionTtlMs);
 
   const result = await services.sessions.commandHandler({
@@ -540,6 +562,7 @@ export async function startInteractiveAuth(
   services: AuthServices,
   params: Readonly<{
     userId: string;
+    sessionId?: string;
     accountId?: string;
     authenticationMethod: AuthMethod;
     context: EventStoreContext;
@@ -632,6 +655,10 @@ export async function resolveActorFromSessionId(
     user,
     session.authentication_method,
   );
+  // Grants never widen the unverified-email restriction: such an actor carries none.
+  const capabilityAssignments = hasVerifiedEmailForCommerce(user, session.authentication_method)
+    ? ((await services.identity.listGrantedAccountCapabilities?.(AUTH_BOOTSTRAP_TENANT_ID, session.account_id)) ?? [])
+    : [];
 
   return {
     sessionId: session.session_id,
@@ -642,5 +669,6 @@ export async function resolveActorFromSessionId(
     roleKey: membership.role_key,
     permissions,
     authenticatedAt: session.started_at ?? null,
+    ...(capabilityAssignments.length > 0 ? { capabilityAssignments } : {}),
   };
 }

@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 import { AUTH_PERMISSION_PRESETS, AUTH_ROLE_PERMISSIONS } from "./constants";
 
 describe("auth role permissions", () => {
+  it("grants reported-content operator authority to platform-admin only", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "reported-content.view")).toEqual(
+        role === "platform-admin" ? ["reported-content.view"] : [],
+      );
+    }
+    for (const permissions of Object.values(AUTH_PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("reported-content.view");
+    }
+  });
   it("grants platform payout reads once to platform-admin and never through a preset", () => {
     for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
       expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
@@ -190,9 +200,9 @@ describe("pricing preset contract", () => {
     viewer: ["pricing.view"],
     "platform-admin": [],
   };
-  // Sorted non-pricing sets, including the platform-admin-only #6483, #7857 and #8725 grants.
+  // Sorted non-pricing sets, including the platform-admin-only reported-content grant.
   const predecessor = {
-    "platform-admin": "6b60c2e83a40fc55f9f3a044b8db07ac0bc270b53a58aada413f77fab454e294",
+    "platform-admin": "209c0bd015d367f005d7ea75f15101c0273c9bf0266e7b42005d8326aad3310c",
     owner: "2f44a3531ad460bb8c0e8813515adfccb5299c697e75d0c66afa5880566344d4",
     manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
     fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",

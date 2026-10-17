@@ -14,7 +14,8 @@ import { createCheckoutSessionRuntime } from "../features/sessions/api/runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import { createUcpEnvelope, type UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
+import { createPaymentsUcpHandoff } from "@chase-sets/payments/server";
 import { createCheckoutUcpHandlers } from "../support/ucp-support/checkout";
 import type { CheckoutSessionServices } from "../features/sessions/api/runtime";
 import type { CheckoutSessionRow } from "../features/sessions/read-model/queries";
@@ -388,32 +389,48 @@ describe("checkout UCP handlers", () => {
     expect(response.messages).toEqual([expect.objectContaining({ code: "trusted_ui_required" })]);
   });
 
-  it("adds a resumable checkout URL to a mandate rejection without money-moving effects", async () => {
+  it("answers an agent-provided payment instrument with the resumable trusted handoff and no money-moving effects", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers(
       { sessions },
       {
-        paymentHandoff: {
-          payment: {},
-          evaluateCompleteRequest: () => ({
-            kind: "respond",
-            response: createUcpEnvelope("requires_action", { action: { type: "trusted_checkout_handoff" } }, [
-              { severity: "error", code: "mandate_expired", message: "Mandate expired." },
-            ]),
-          }),
-        },
+        paymentHandoff: createPaymentsUcpHandoff({
+          processorName: "stripe",
+          publishableKey: "pk_test_123",
+          confirmationExperience: "processor-managed-form",
+          dynamicPaymentMethods: true,
+          sensitivePaymentDetailsHandledByProcessor: true,
+          agenticPaymentHandlers: [
+            {
+              id: "stripe-shared-payment-token",
+              provider: "stripe",
+              type: "shared_payment_token",
+              confirmationExperience: "server-confirmed-payment-intent",
+            },
+          ],
+        }),
       },
     );
 
-    const response = await handlers.restHandlers.complete_checkout(input({}, { id: "chk_1" }));
+    const response = await handlers.restHandlers.complete_checkout(
+      input(
+        {
+          marketplace_checkout_fee_quote_fingerprint: "quote_1",
+          payment_data: { provider: "stripe", token: "spt_123" },
+        },
+        { id: "chk_1" },
+      ),
+    );
 
     expect(response).toMatchObject({
       ucp: { status: "requires_action" },
       action: { type: "trusted_checkout_handoff", url: "/checkout/buy/session/chk_1" },
-      messages: [{ severity: "error", code: "mandate_expired" }],
+      messages: [{ severity: "warning", code: "trusted_ui_required" }],
     });
+    expect(sessions.assertReadyForOrderCreation).not.toHaveBeenCalled();
     expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
     expect(sessions.recordPaymentStarted).not.toHaveBeenCalled();
+    expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
     expect(checkoutConfirmationMocks.createCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
   });
 
@@ -452,10 +469,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -500,10 +515,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -559,10 +572,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -598,9 +609,9 @@ describe("checkout UCP handlers", () => {
         accountId: "acc_buyer",
         operation: "complete_checkout",
         amountCents: 2_605,
-        rail: "ap2",
-        humanPresent: true,
-        humanNotPresentAuthorized: false,
+        rail: "stored-pm",
+        humanPresent: false,
+        humanNotPresentAuthorized: true,
       }),
     );
     expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
@@ -656,10 +667,8 @@ describe("checkout UCP handlers", () => {
         paymentHandoff: {
           payment: { provider: "test" },
           evaluateCompleteRequest: () => ({
-            kind: "headless-agentic-payment",
-            agenticPayment: {} as never,
-            humanPresent: true,
-            evidence: { mandate: "verified" },
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "sci_card_1",
           }),
         },
       },
@@ -1083,16 +1092,16 @@ describe("UCP union cleanup caller closure", () => {
     accountId: "acc_foreign",
     presentedAnonymousCartId: "anon_foreign",
   };
-  const handlersFor = (sessions: CheckoutSessionServices, rail: "agentic" | "stored") =>
+  const handlersFor = (sessions: CheckoutSessionServices) =>
     createCheckoutUcpHandlers(
       { sessions },
       {
         paymentHandoff: {
           payment: { provider: "test" },
-          evaluateCompleteRequest: () =>
-            rail === "agentic"
-              ? { kind: "headless-agentic-payment", agenticPayment: {} as never, humanPresent: true }
-              : { kind: "headless-stored-payment-method", savedCheckoutInstrumentId: "instrument_test" },
+          evaluateCompleteRequest: () => ({
+            kind: "headless-stored-payment-method",
+            savedCheckoutInstrumentId: "instrument_test",
+          }),
         },
       },
     );
@@ -1103,94 +1112,88 @@ describe("UCP union cleanup caller closure", () => {
       .mockResolvedValue({ payment_id: "pay_union" });
   });
 
-  it.each(["agentic", "stored"] as const)(
-    "union cleanup caller closure %s zero/partial-copy and identical shipping retry",
-    async (rail) => {
-      for (const copies of [0, 1]) {
+  it("union cleanup caller closure stored zero/partial-copy and identical shipping retry", async () => {
+    for (const copies of [0, 1]) {
+      const h = await unionCleanupHarness();
+      if (copies) await h.copy(h.ids[0]!);
+      checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockClear().mockResolvedValue({
+        orderIds: h.record.orderIds,
+        readyLineKeys: h.ids,
+        writeResult: { commitPositions: h.record.orderWriteCommitPositions },
+      });
+      const result = await handlersFor(h.runtime()).restHandlers.complete_checkout!(
+        input(body, { id: h.params.sessionId }),
+      );
+      expect(result.ucp.status).toBe("ok");
+      expect((await h.cartState(h.anonymous)).lines).toEqual([]);
+      expect((await h.cartState(h.buyer)).lines).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain(h.anonymous);
+      const before = await h.sessionEvents();
+      await handlersFor(h.runtime()).restHandlers.complete_checkout!(input(body, { id: h.params.sessionId }));
+      expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+      expect(await h.sessionEvents()).toEqual(before);
+    }
+  });
+
+  it("union cleanup crash resume stored both projection variants at each commit", async () => {
+    for (const projection of ["absent", "stale", "orders"])
+      for (const boundary of ["orders", "remove-1", "remove-2", "remove-3", "complete", "complete-ack"]) {
         const h = await unionCleanupHarness();
-        if (copies) await h.copy(h.ids[0]!);
+        await h.copy(h.ids[0]!);
+        const initialPage = await h.runtime().getSession(h.params.sessionId, h.buyer);
         checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockClear().mockResolvedValue({
           orderIds: h.record.orderIds,
           readyLineKeys: h.ids,
           writeResult: { commitPositions: h.record.orderWriteCommitPositions },
         });
-        const result = await handlersFor(h.runtime(), rail).restHandlers.complete_checkout!(
+        const original = h.eventStore.appendToStream.bind(h.eventStore);
+        let removals = 0;
+        const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
+          const type = input.events[0]?.eventType;
+          const at =
+            type === "checkout.session.orders-created"
+              ? "orders"
+              : type === "checkout.cart.line-removed"
+                ? `remove-${++removals}`
+                : type === "checkout.session.cart-cleanup-completed"
+                  ? "complete"
+                  : "other";
+          if (at === boundary || (boundary === "complete-ack" && at === "complete")) {
+            if (boundary !== "complete") await original(input);
+            throw new Error(`store ${h.anonymous}`);
+          }
+          return original(input);
+        });
+        const result = await handlersFor(h.runtime()).restHandlers.complete_checkout!(
           input(body, { id: h.params.sessionId }),
         );
-        expect(result.ucp.status).toBe("ok");
+        expect(result.ucp.status, `${projection} ${boundary}`).toBe("error");
+        expect(result.messages?.[0]?.message).toBe("Cart cleanup could not finish. Retry checkout.");
+        expect(JSON.stringify(result)).not.toContain(h.anonymous);
+        expect(result.commit_positions).toContainEqual(h.record.orderWriteCommitPositions[0]);
+        fault.mockRestore();
+        h.setProjected(
+          projection === "absent"
+            ? null
+            : projection === "stale"
+              ? initialPage
+              : await h.runtime().getSession(h.params.sessionId, h.buyer),
+        );
+        const retry = await handlersFor(h.runtime()).mcpToolHandlers.complete_checkout!(
+          input(body, { id: h.params.sessionId }),
+        );
+        expect(retry.ucp.status, `${projection} ${boundary}`).toBe("ok");
+        expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
         expect((await h.cartState(h.anonymous)).lines).toEqual([]);
         expect((await h.cartState(h.buyer)).lines).toEqual([]);
-        expect(JSON.stringify(result)).not.toContain(h.anonymous);
-        const before = await h.sessionEvents();
-        await handlersFor(h.runtime(), rail).restHandlers.complete_checkout!(input(body, { id: h.params.sessionId }));
-        expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
-        expect(await h.sessionEvents()).toEqual(before);
+        expect(
+          (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.orders-created"),
+        ).toHaveLength(1);
+        expect(
+          (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.cart-cleanup-completed"),
+        ).toHaveLength(1);
       }
-    },
-  );
-
-  it.each(["agentic", "stored"] as const)(
-    "union cleanup crash resume %s both projection variants at each commit",
-    async (rail) => {
-      for (const projection of ["absent", "stale", "orders"])
-        for (const boundary of ["orders", "remove-1", "remove-2", "remove-3", "complete", "complete-ack"]) {
-          const h = await unionCleanupHarness();
-          await h.copy(h.ids[0]!);
-          const initialPage = await h.runtime().getSession(h.params.sessionId, h.buyer);
-          checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockClear().mockResolvedValue({
-            orderIds: h.record.orderIds,
-            readyLineKeys: h.ids,
-            writeResult: { commitPositions: h.record.orderWriteCommitPositions },
-          });
-          const original = h.eventStore.appendToStream.bind(h.eventStore);
-          let removals = 0;
-          const fault = vi.spyOn(h.eventStore, "appendToStream").mockImplementation(async (input) => {
-            const type = input.events[0]?.eventType;
-            const at =
-              type === "checkout.session.orders-created"
-                ? "orders"
-                : type === "checkout.cart.line-removed"
-                  ? `remove-${++removals}`
-                  : type === "checkout.session.cart-cleanup-completed"
-                    ? "complete"
-                    : "other";
-            if (at === boundary || (boundary === "complete-ack" && at === "complete")) {
-              if (boundary !== "complete") await original(input);
-              throw new Error(`store ${h.anonymous}`);
-            }
-            return original(input);
-          });
-          const result = await handlersFor(h.runtime(), rail).restHandlers.complete_checkout!(
-            input(body, { id: h.params.sessionId }),
-          );
-          expect(result.ucp.status, `${projection} ${boundary}`).toBe("error");
-          expect(result.messages?.[0]?.message).toBe("Cart cleanup could not finish. Retry checkout.");
-          expect(JSON.stringify(result)).not.toContain(h.anonymous);
-          expect(result.commit_positions).toContainEqual(h.record.orderWriteCommitPositions[0]);
-          fault.mockRestore();
-          h.setProjected(
-            projection === "absent"
-              ? null
-              : projection === "stale"
-                ? initialPage
-                : await h.runtime().getSession(h.params.sessionId, h.buyer),
-          );
-          const retry = await handlersFor(h.runtime(), rail).mcpToolHandlers.complete_checkout!(
-            input(body, { id: h.params.sessionId }),
-          );
-          expect(retry.ucp.status, `${projection} ${boundary}`).toBe("ok");
-          expect(checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
-          expect((await h.cartState(h.anonymous)).lines).toEqual([]);
-          expect((await h.cartState(h.buyer)).lines).toEqual([]);
-          expect(
-            (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.orders-created"),
-          ).toHaveLength(1);
-          expect(
-            (await h.sessionEvents()).filter((event) => event.eventType === "checkout.session.cart-cleanup-completed"),
-          ).toHaveLength(1);
-        }
-    },
-  );
+  });
 
   it("union cleanup authority and redaction precedes guarded and terminal returns", async () => {
     for (const mode of ["guarded", "terminal", "default"]) {
@@ -1214,10 +1217,7 @@ describe("UCP union cleanup caller closure", () => {
             ? {
                 paymentHandoff: {
                   payment: {},
-                  evaluateCompleteRequest: () => ({
-                    kind: "respond",
-                    response: createUcpEnvelope("requires_action", {}),
-                  }),
+                  evaluateCompleteRequest: () => null,
                 },
               }
             : {},

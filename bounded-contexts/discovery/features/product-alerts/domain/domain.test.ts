@@ -2,6 +2,33 @@ import { describe, expect, it } from "vitest";
 import { decideProductAlert, evolveProductAlert, initialProductAlertState } from "./domain";
 
 describe("Product Alert domain", () => {
+  it.each([
+    [" 1.5 ", "1.50"],
+    ["0.1", "0.10"],
+    ["0.00", "0.00"],
+    ["9999999999.99", "9999999999.99"],
+    ["abc", null],
+    ["10000000000.00", null],
+  ])("normalizes price amounts through the money primitive: %s", (thresholdAmount, expected) => {
+    const create = () =>
+      decideProductAlert(initialProductAlertState, {
+        type: "CreateProductAlert",
+        alertId: "pal_1",
+        accountId: "acc_1",
+        marketSide: "listing",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        selectedOptions: [],
+        thresholdCurrencyCode: "USD",
+        thresholdAmount,
+      });
+    if (expected === null) {
+      expect(create).toThrow("Price threshold must be a valid decimal.");
+    } else {
+      expect(create()[0]).toMatchObject({ data: { thresholdAmount: expected } });
+    }
+  });
+
   it("creates a normalized exact-product alert with an optional threshold", () => {
     const events = decideProductAlert(initialProductAlertState, {
       type: "CreateProductAlert",

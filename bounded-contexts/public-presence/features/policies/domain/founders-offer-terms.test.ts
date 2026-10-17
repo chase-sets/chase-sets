@@ -260,7 +260,7 @@ const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quot
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:989-1009`,
+    `${listingRuntime}:1006-1026`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -280,16 +280,16 @@ const quoteChain: Citation[] = [
   ],
 ];
 const creationChain: Citation[] = [
-  [`${listingDomain}:391-416`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
-  [`${listingDomain}:514-546`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
+  [`${listingDomain}:418-443`, /type: "CreateListing"/, /feeLock: MarketplaceListingFeeLock/, /quantityCap: number/],
+  [`${listingDomain}:551-583`, /"marketplace.listing.created"/, /feeLocks: MarketplaceListingFeeLock\[\]/],
   [
-    `${listingDomain}:939-968`,
+    `${listingDomain}:996-1025`,
     /catalogItemId: event.data.catalogItemId/,
     /selectedOptions: event.data.selectedOptions/,
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1449-1494`,
+    `${listingRuntime}:1466-1511`,
     /const quote = await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\)/,
@@ -340,13 +340,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Beta access starts",
     [
       [
-        "bounded-contexts/identity/api.ts:815-827",
+        "bounded-contexts/identity/api.ts:869-881",
         /if \(params.foundersBetaAccessStartedAt\)/,
         /foundersWindowEndsAt.setUTCDate\(foundersWindowEndsAt.getUTCDate\(\) \+ 60\)/,
         /type: "OpenFoundersWindow"/,
       ],
       [
-        "bounded-contexts/identity/GLOSSARY.md:108-120",
+        "bounded-contexts/identity/GLOSSARY.md:120-132",
         /anchored to beta access, not badge claim/,
         /includes its start and excludes/,
       ],
@@ -380,13 +380,13 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:1813-1829`,
+        `${listingRuntime}:1830-1846`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:1830-1938`,
+        `${listingRuntime}:1847-1955`,
         /applyBulkListingPriceUpdates: async/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
@@ -398,7 +398,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /return \{\s*\.\.\.feeLock,/,
       ],
       [
-        `${listingDomain}:721-729`,
+        `${listingDomain}:758-766`,
         /case "UpdateListingPrice"/,
         /assertFeeLockTranchesPreserved\(state.feeLocks, feeLocks\)/,
       ],
@@ -423,7 +423,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Photos, pause",
     [
       [
-        `${listingTests}:376-397`,
+        `${listingTests}:382-404`,
         /type: "AddListingPhotos"/,
         /type: "PauseListing"/,
         /const resumed = decideMarketplaceListing\(paused, publishListingCommand\)/,
@@ -435,12 +435,12 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Purchase-limit edits",
     [
       [
-        `${listingDomain}:774-784`,
+        `${listingDomain}:811-821`,
         /case "UpdateListingPurchaseLimits"/,
         /return \[\{ type: "marketplace.listing.purchase-limits-updated", data: \{ purchaseLimits \} \}\]/,
       ],
       [
-        `${listingDomain}:987-994`,
+        `${listingDomain}:1046-1053`,
         /case "marketplace.listing.purchase-limits-updated":\s*return \{\s*\.\.\.state,\s*purchaseLimits: event.data.purchaseLimits,/,
       ],
     ],
@@ -449,7 +449,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Added units",
     [
       [
-        `${listingDomain}:753-772`,
+        `${listingDomain}:790-809`,
         /resizeMarketplaceListingFeeLocks\(state.feeLocks, quantityCap, command.addedUnitsFeeLock\)/,
       ],
       [
@@ -460,7 +460,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:1941-1953`,
+        `${listingRuntime}:1958-1970`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
@@ -472,9 +472,9 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
   [
     "Withdrawal is terminal",
     [
-      [`${listingDomain}:925-931`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
+      [`${listingDomain}:982-988`, /case "WithdrawListing"/, /"marketplace.listing.withdrawn"/],
       [
-        `${listingTests}:399-421`,
+        `${listingTests}:406-428`,
         /Withdrawn listings cannot be published/,
         /Withdrawn listings cannot be updated/,
         /Listing has already been created/,
@@ -487,8 +487,8 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Item or condition",
     [
       [
-        `${listingDomain}:499-514`,
-        /^export type MarketplaceListingCommand =\s*\| CreateListingCommand\s*\| UpdateListingPriceCommand\s*\| UpdateListingQuantityCapCommand\s*\| UpdateListingPurchaseLimitsCommand\s*\| AddListingPhotosCommand\s*\| ClassifyListingPhotoCommand\s*\| ReplaceListingPhotoCommand\s*\| RemoveListingPhotoCommand\s*\| ReorderListingPhotosCommand\s*\| RefreshListingEvidenceRequirementsCommand\s*\| PublishListingCommand\s*\| PauseListingCommand\s*\| AutoUnlistListingCommand\s*\| WithdrawListingCommand;$/,
+        `${listingDomain}:535-551`,
+        /^export type MarketplaceListingCommand =\s*\| CreateListingCommand\s*\| UpdateListingPriceCommand\s*\| UpdateListingQuantityCapCommand\s*\| UpdateListingPurchaseLimitsCommand\s*\| AddListingPhotosCommand\s*\| ClassifyListingPhotoCommand\s*\| ReplaceListingPhotoCommand\s*\| RemoveListingPhotoCommand\s*\| ReorderListingPhotosCommand\s*\| RefreshListingEvidenceRequirementsCommand\s*\| PublishListingCommand\s*\| PauseListingCommand\s*\| AutoUnlistListingCommand\s*\|| PauseListingCommands*| AutoUnlistListingCommands*| OperatorUnlistListingCommands*| WithdrawListingCommand;$/,
       ],
       ...creationChain,
       changedSchedule,
@@ -571,7 +571,7 @@ describe("founders clause-level source authority", () => {
     assertCitations(artifact);
   });
   it("rejects blanket fee-lock and unrelated plausible ranges for photos independently", () => {
-    for (const ref of [`${feeLock}:106-180`, `${listingTests}:335-365`]) {
+    for (const ref of [`${feeLock}:106-180`, `${listingTests}:341-371`]) {
       expect(() => assertCitations(replaceEvidence("Photos, pause", () => ref))).toThrow(
         "Photos, pause: clause references",
       );
@@ -618,7 +618,7 @@ describe("founders clause-level source authority", () => {
   it("preserves all three Pricing callers through the shared client and the real bulk route", () => {
     const callers: Citation[] = [
       [
-        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:612-612",
+        "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts:647-647",
         /marketplaceGatewayForAccount\(accountId\).applyBulkListingPriceUpdates\(\{ updates \}\)/,
       ],
       [
@@ -635,7 +635,7 @@ describe("founders clause-level source authority", () => {
         /applyBulkListingPriceUpdates: \(body, options\) => marketplaceApi.applyBulkListingPriceUpdates\(body, options\)/,
       ],
       [
-        "bounded-contexts/marketplace/client.ts:528-542",
+        "bounded-contexts/marketplace/client.ts:571-585",
         /async applyBulkListingPriceUpdates/,
         /"\/account\/listings\/prices\/bulk"/,
         /method: "POST"/,

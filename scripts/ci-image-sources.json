@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "node",
+      "source": "docker.io/library/node",
+      "tag": "24-bookworm-slim",
+      "mirror": "ghcr.io/chase-sets/ci-mirror-node",
+      "digest": "sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20",
+      "platforms": ["linux/amd64", "linux/arm64/v8", "linux/ppc64le"]
+    },
+    {
+      "id": "dockerfile",
+      "source": "docker.io/docker/dockerfile",
+      "tag": "1",
+      "mirror": "ghcr.io/chase-sets/ci-mirror-dockerfile",
+      "digest": "sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e",
+      "platforms": [
+        "linux/386",
+        "linux/amd64",
+        "linux/arm/v7",
+        "linux/arm64",
+        "linux/mips",
+        "linux/mips64",
+        "linux/mips64le",
+        "linux/mipsle",
+        "linux/ppc64le",
+        "linux/riscv64",
+        "linux/s390x"
+      ]
+    },
+    {
+      "id": "buildkit",
+      "source": "docker.io/moby/buildkit",
+      "tag": "buildx-stable-1",
+      "mirror": "ghcr.io/chase-sets/ci-mirror-buildkit",
+      "digest": "sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea",
+      "platforms": ["linux/amd64", "linux/arm/v7", "linux/arm64", "linux/ppc64le", "linux/riscv64", "linux/s390x"]
+    },
+    {
+      "id": "pgvector",
+      "source": "docker.io/pgvector/pgvector",
+      "tag": "pg16",
+      "mirror": "ghcr.io/chase-sets/ci-mirror-pgvector",
+      "digest": "sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    {
+      "id": "actionlint",
+      "source": "docker.io/rhysd/actionlint",
+      "tag": "1.7.12",
+      "mirror": "ghcr.io/chase-sets/ci-mirror-actionlint",
+      "digest": "sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    {
+      "id": "helm",
+      "source": "docker.io/alpine/helm",
+      "tag": "3.15.4",
+      "mirror": "ghcr.io/chase-sets/ci-mirror-helm",
+      "digest": "sha256:105741fa6621ed9a3ea944066de78bb27d4b9bb93a56ce8e7cb4d621e1e4bbf2",
+      "platforms": ["linux/amd64", "linux/arm/v6", "linux/arm/v7", "linux/arm64", "linux/ppc64le", "linux/s390x"]
+    }
+  ]
+}

@@ -8,9 +8,11 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as marketplaceModule } from "../../../index";
 import { createMarketplaceServices } from "../../../support/runtime-support/services";
 import type { CreateListingCommand, PublishListingCommand } from "../../listings/domain/domain";
+import { buildMarketplaceListingProjectionHandlers } from "../../listings/read-model/projection";
 import { createMarketplaceChannelInboundClampRuntime } from "../api/runtime";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -126,6 +128,85 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       examinedListingCount: 0,
       releasedListingCount: 0,
     });
+  });
+
+  it("second-run-engage-skips-edited-clamp-paused-listing", async () => {
+    const services = createMarketplaceServices(pools.marketplace);
+    await seedActiveListing(pools.marketplace, services, "lst_revert_edited", "itm_revert_edited");
+    await seedActiveListing(pools.marketplace, services, "lst_revert_held", "itm_revert_held");
+    const clamp = services.channelInboundClamp;
+    const runOne = {
+      accountId: "acc_seller",
+      connectionId: "connection-tcg",
+      runId: "run-canary",
+      listingIds: ["lst_revert_edited", "lst_revert_held"],
+    } as const;
+    await expect(clamp.engage(runOne, context)).resolves.toEqual({
+      kind: "engaged",
+      requestedListingCount: 2,
+      affectedListingCount: 2,
+      clampedListingCount: 2,
+      recoveryListingCount: 0,
+    });
+    const edited = await services.listings.loadListingState("lst_revert_edited");
+    await services.listings.commandHandler({
+      streamId: "marketplace.listing-lst_revert_edited",
+      expectedVersion: await streamVersion(pools.marketplace, "lst_revert_edited"),
+      command: {
+        type: "UpdateListingPrice",
+        priceAmount: "12.00",
+        priceCurrencyCode: "USD",
+        feeLocks: edited.feeLocks,
+      },
+      context,
+    });
+    await projectListingEventsAfter(pools.marketplace, "lst_revert_edited", 2);
+    await projectListingEventsAfter(pools.marketplace, "lst_revert_held", 2);
+    await expect(
+      pools.marketplace.query(
+        "SELECT listing_id,status,price_amount FROM marketplace_listing_pages ORDER BY listing_id",
+      ),
+    ).resolves.toMatchObject({
+      rows: [
+        { listing_id: "lst_revert_edited", status: "paused", price_amount: "12.00" },
+        { listing_id: "lst_revert_held", status: "paused", price_amount: "10.00" },
+      ],
+    });
+    const editedVersion = await streamVersion(pools.marketplace, "lst_revert_edited");
+    expect(await listingEventTypes(pools.marketplace, "lst_revert_edited")).toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.published",
+      "marketplace.listing.paused",
+      "marketplace.listing.price-updated",
+    ]);
+
+    const runTwo = { ...runOne, runId: "run-revert" } as const;
+    await expect(clamp.engage(runTwo, context)).resolves.toEqual({
+      kind: "engaged",
+      requestedListingCount: 2,
+      affectedListingCount: 1,
+      clampedListingCount: 1,
+      recoveryListingCount: 0,
+    });
+    await expect(streamVersion(pools.marketplace, "lst_revert_edited")).resolves.toBe(editedVersion);
+    expect(await listingEventTypes(pools.marketplace, "lst_revert_edited")).toEqual([
+      "marketplace.listing.created",
+      "marketplace.listing.published",
+      "marketplace.listing.paused",
+      "marketplace.listing.price-updated",
+    ]);
+    await expect(services.listings.loadListingState("lst_revert_edited")).resolves.toMatchObject({
+      status: "paused",
+      pauseReason: "channel-inbound-dark",
+      priceAmount: "12.00",
+    });
+    expect(await readOwners(pools.marketplace, "lst_revert_edited")).toEqual([
+      expect.objectContaining({ run_id: "run-canary", state: "engaged", paused_stream_version: 3 }),
+    ]);
+    expect(await readOwners(pools.marketplace, "lst_revert_held")).toEqual([
+      expect.objectContaining({ run_id: "run-canary", state: "engaged", paused_stream_version: 3 }),
+      expect.objectContaining({ run_id: "run-revert", state: "engaged", paused_stream_version: 3 }),
+    ]);
   });
 
   it("records every dark-inbound owner at one paused version and releases only after the final owner", async () => {
@@ -466,6 +547,32 @@ async function streamVersion(pool: PgTransactionalPool, listingId: string) {
     [`marketplace.listing-${listingId}`],
   );
   return Number(result.rows[0]?.current_version);
+}
+
+async function projectListingEventsAfter(pool: PgTransactionalPool, listingId: string, projectedVersion: number) {
+  const project = buildMarketplaceListingProjectionHandlers(pool);
+  const result = await pool.query<{
+    event_id: string;
+    event_type: string;
+    stream_id: string;
+    stream_version: string | number;
+    global_position: string;
+    payload: Record<string, unknown>;
+  }>(
+    `SELECT event_id,event_type,stream_id,stream_version,global_position::text,payload
+       FROM event_store_events WHERE stream_id=$1 AND stream_version>$2 ORDER BY stream_version`,
+    [`marketplace.listing-${listingId}`, projectedVersion],
+  );
+  for (const row of result.rows) {
+    await project[row.event_type]!(
+      buildTransportEvent(row.event_type, row.payload, {
+        id: row.event_id,
+        streamId: row.stream_id,
+        streamVersion: Number(row.stream_version),
+        globalPosition: row.global_position,
+      }),
+    );
+  }
 }
 
 async function listingEventTypes(pool: PgTransactionalPool, listingId: string) {

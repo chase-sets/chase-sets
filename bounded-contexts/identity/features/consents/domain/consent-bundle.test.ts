@@ -5,6 +5,8 @@ import {
   type ValidatedConsentActivationAuthoritySnapshot,
 } from "@chase-sets/platform-policy/consent-activation-authority";
 import { publicPolicyHrefsByKey, type PublicPolicyPublicationRecord } from "@chase-sets/public-docs";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
+import { IDENTITY_BOOTSTRAP_ACCOUNT_ID, IDENTITY_BOOTSTRAP_USER_ID } from "../../memberships/read-model/constants";
 import {
   activeSnapshot,
   deactivatedSnapshot,
@@ -14,6 +16,11 @@ import {
 } from "../../../tests/consent-activation-authority-fixtures";
 import {
   CONSENT_BUNDLE_KEYS,
+  assertResolvedMemberProvenance,
+  assertRegistrationConsentDeclaration,
+  assertBoundRegistrationConsentDeclaration,
+  bindRegistrationConsentSubject,
+  RegistrationConsentBundleUnresolvedError,
   consentBundleDeclarationFor,
   consentBundleDeclarations,
   deriveActivatedConsentMemberOutcome,
@@ -22,6 +29,7 @@ import {
   resolveConsentBundle,
   resolveConsentBundleAgainstCorpus,
   resolveConsentPolicyMember,
+  resolveConsentPolicyMemberWithProvenanceAgainstPublication,
   type ConsentActivationAuthorityReader,
   type ConsentBundleKey,
   type ConsentPolicyPublicationCorpus,
@@ -60,6 +68,177 @@ function activatable(policyKey: IdentityConsentPolicyKey, version: `v${number}`)
 function activeVersionKeyFor(policyKey: IdentityConsentPolicyKey): string {
   return identityConsentActiveVersionPolicies[policyKey].policyKey;
 }
+
+describe("registration declaration provenance", () => {
+  const subject = { userId: "usr_registering" as UserId, accountId: "acc_registering" as AccountId };
+
+  async function resolve(bundleKey: ConsentBundleKey = "registration") {
+    return resolveConsentBundleAgainstCorpus(
+      recordingAuthorityReader({
+        [activeVersionKeyFor("terms-of-service")]: () => activeSnapshot(activeVersionKeyFor("terms-of-service"), "v1"),
+        [activeVersionKeyFor("privacy-policy")]: () =>
+          registeredNeverActivatedSnapshot(activeVersionKeyFor("privacy-policy")),
+        [activeVersionKeyFor("seller-agreement")]: () => activeSnapshot(activeVersionKeyFor("seller-agreement"), "v2"),
+      }),
+      bundleKey,
+      corpus({
+        "terms-of-service": activatable("terms-of-service", "v1"),
+        "privacy-policy": activatable("privacy-policy", "v3"),
+        "seller-agreement": activatable("seller-agreement", "v2"),
+      }),
+    );
+  }
+
+  it("issues only the canonical registration declaration and retains inactive guards", async () => {
+    const declaration = await resolve();
+    assertRegistrationConsentDeclaration(declaration);
+    expect(declaration.requirements.map(({ policyKey }) => policyKey)).toEqual(["terms-of-service"]);
+    expect(declaration.guards.map(({ policyKey }) => policyKey)).toEqual(["terms-of-service", "privacy-policy"]);
+    expect(declaration.outcomes.map(({ policyKey }) => policyKey)).toEqual(["terms-of-service", "privacy-policy"]);
+    for (const value of [
+      declaration,
+      declaration.requirements,
+      declaration.guards,
+      declaration.outcomes,
+      ...declaration.requirements,
+      ...declaration.guards,
+      ...declaration.outcomes,
+      ...declaration.guards.map(({ guard }) => guard),
+    ])
+      expect(Object.isFrozen(value)).toBe(true);
+    expect(() => Object.assign(declaration, { subjectScope: "account" })).toThrow(TypeError);
+  });
+
+  it("rejects genuine seller agreement v2 issuance and structural registration copies", async () => {
+    const seller = await resolve("seller-onboarding");
+    expect(seller.resolved && seller.requirements[0]).toMatchObject({ policyKey: "seller-agreement", version: "v2" });
+    const declaration = await resolve();
+    for (const value of [
+      seller,
+      { ...declaration },
+      { ...seller, bundleKey: "registration", subjectScope: "user" },
+      { resolved: true },
+      null,
+      true,
+    ]) {
+      expect(() => assertRegistrationConsentDeclaration(value)).toThrow(RegistrationConsentBundleUnresolvedError);
+    }
+  });
+
+  it("binds the original issued declaration to immutable registering IDs, not the bootstrap actor", async () => {
+    const declaration = await resolve();
+    assertRegistrationConsentDeclaration(declaration);
+    const supplied = { ...subject };
+    const bound = bindRegistrationConsentSubject(declaration, supplied);
+    supplied.userId = "usr_changed" as UserId;
+    assertBoundRegistrationConsentDeclaration(bound, subject);
+    expect(bound.declaration).toBe(declaration);
+    expect(bound.subject).toEqual(subject);
+    expect(Object.isFrozen(bound)).toBe(true);
+    expect(Object.isFrozen(bound.subject)).toBe(true);
+    expect(() => assertBoundRegistrationConsentDeclaration({ ...bound }, subject)).toThrow(
+      RegistrationConsentBundleUnresolvedError,
+    );
+    expect(() => assertRegistrationConsentDeclaration(bound)).toThrow(RegistrationConsentBundleUnresolvedError);
+    expect(() => bindRegistrationConsentSubject({ ...declaration }, subject)).toThrow(
+      RegistrationConsentBundleUnresolvedError,
+    );
+  });
+
+  it.each([
+    { userId: "usr_other" as UserId, accountId: subject.accountId },
+    { userId: subject.userId, accountId: "acc_other" as AccountId },
+  ])("rejects genuine issuance bound to different expected IDs: %j", async (other) => {
+    const declaration = await resolve();
+    assertRegistrationConsentDeclaration(declaration);
+    const bound = bindRegistrationConsentSubject(declaration, other);
+    expect(() => assertBoundRegistrationConsentDeclaration(bound, subject)).toThrow(
+      RegistrationConsentBundleUnresolvedError,
+    );
+  });
+
+  it.each([
+    { userId: "usr_guest_checkout", accountId: "acc_registering" },
+    { userId: IDENTITY_BOOTSTRAP_USER_ID, accountId: "acc_registering" },
+    { userId: "usr_registering", accountId: IDENTITY_BOOTSTRAP_ACCOUNT_ID },
+    { userId: "not-a-user", accountId: "acc_registering" },
+    { userId: "usr_registering", accountId: "not-an-account" },
+  ])("rejects invalid or shared subjects: %j", async (invalid) => {
+    const declaration = await resolve();
+    assertRegistrationConsentDeclaration(declaration);
+    expect(() => bindRegistrationConsentSubject(declaration, invalid as typeof subject)).toThrow(
+      RegistrationConsentBundleUnresolvedError,
+    );
+  });
+
+  it("does not issue an unresolved registration declaration", async () => {
+    const key = activeVersionKeyFor("terms-of-service");
+    const unresolved = await resolveConsentBundleAgainstCorpus(
+      recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v2") }),
+      "registration",
+      corpus({ "terms-of-service": activatable("terms-of-service", "v1") }),
+    );
+    expect(unresolved.resolved).toBe(false);
+    expect(() => assertRegistrationConsentDeclaration(unresolved)).toThrow(RegistrationConsentBundleUnresolvedError);
+  });
+});
+
+describe("resolved member provenance", () => {
+  it("narrows only an issued member for the exact expected policy and freezes its complete binding", async () => {
+    const authority = recordingAuthorityReader({
+      [activeVersionKeyFor("terms-of-service")]: () => activeSnapshot(activeVersionKeyFor("terms-of-service"), "v4"),
+    });
+    const member: unknown = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      authority,
+      "terms-of-service",
+      activatable("terms-of-service", "v4"),
+    );
+    assertResolvedMemberProvenance(member, "terms-of-service");
+    expect(member.outcome.requirement.version).toBe("v4");
+    expect(member.guard.guard.expectedVersion).toBe(2);
+    for (const value of [member, member.outcome, member.outcome.requirement, member.guard, member.guard.guard])
+      expect(Object.isFrozen(value)).toBe(true);
+    expect(() => Object.assign(member.outcome.requirement, { version: "v999" })).toThrow(TypeError);
+    expect(() => Object.assign(member.guard, { guard: { expectedVersion: 999 } })).toThrow(TypeError);
+    expect(() => assertResolvedMemberProvenance({ ...member }, "terms-of-service")).toThrow();
+    expect(authority.reads).toEqual([activeVersionKeyFor("terms-of-service")]);
+  });
+
+  it("rejects a genuinely issued unrelated member, not only a forged lookalike", async () => {
+    const key = activeVersionKeyFor("privacy-policy");
+    const member = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v4") }),
+      "privacy-policy",
+      activatable("privacy-policy", "v4"),
+    );
+    expect(() => assertResolvedMemberProvenance(member, "privacy-policy")).not.toThrow();
+    expect(() => assertResolvedMemberProvenance(member, "terms-of-service")).toThrow();
+  });
+
+  it("publication-ineligible member never reads authority and cannot narrow", async () => {
+    const key = activeVersionKeyFor("terms-of-service");
+    const authority = recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v4") });
+    const member = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      authority,
+      "terms-of-service",
+      publication("terms-of-service", { consentActivatable: false, version: "v4" }),
+    );
+    expect(() => assertResolvedMemberProvenance(member, "terms-of-service")).toThrow();
+    expect(authority.reads).toEqual([]);
+  });
+
+  it("publication version mismatch cannot narrow an issued member", async () => {
+    const key = activeVersionKeyFor("terms-of-service");
+    const authority = recordingAuthorityReader({ [key]: () => activeSnapshot(key, "v5") });
+    const member = await resolveConsentPolicyMemberWithProvenanceAgainstPublication(
+      authority,
+      "terms-of-service",
+      activatable("terms-of-service", "v4"),
+    );
+    expect(() => assertResolvedMemberProvenance(member, "terms-of-service")).toThrow();
+    expect(authority.reads).toEqual([key]);
+  });
+});
 
 describe("consent bundle declarations", () => {
   it("declares exactly the two bundles, closed", () => {

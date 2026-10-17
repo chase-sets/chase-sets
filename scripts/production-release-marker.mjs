@@ -446,15 +446,18 @@ async function readHistory(options) {
   return normalizedHistory(JSON.parse(stdout));
 }
 
-async function assertWriters(env, options) {
-  const census = await readGitHubProductionWriterCensus({ env });
+export function assertExclusiveMarkerWriter(census, currentRunId) {
   requireThat(
     census.writerRuns.length === 1 &&
-      String(census.writerRuns[0].id) === env.GITHUB_RUN_ID &&
+      String(census.writerRuns[0].id) === currentRunId &&
       census.writerRuns[0].name === "Platform Deploy" &&
       census.writerRuns[0].status === "in_progress",
     "active or conflicting production writer",
   );
+}
+
+async function assertWriters(env, options) {
+  assertExclusiveMarkerWriter(await readGitHubProductionWriterCensus({ env }), env.GITHUB_RUN_ID);
   assertNoActiveHelmOperation(await readHelmOperationCensus({ ...options, spawn: readOnlySpawn }));
 }
 

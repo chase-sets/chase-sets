@@ -3,6 +3,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { CatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
   BulkReviewJobServices,
+  CatalogMergeCandidateBulkJobServices,
   CatalogMergeCandidateServices,
   CatalogIntegrationEngineServices,
   ControlPlaneTelemetryServices,
@@ -36,6 +37,7 @@ export type SourceObservationRouteServices = Partial<ProviderSendWindowServices>
   SourceObservationReviewServices &
   PromotionReapplyServices &
   BulkReviewJobServices &
+  CatalogMergeCandidateBulkJobServices &
   CatalogMergeCandidateServices &
   IntegrationJobServices &
   ControlPlaneTelemetryServices;
@@ -43,6 +45,7 @@ export type SourceObservationRouteServices = Partial<ProviderSendWindowServices>
 export function sourceObservationRoutes(
   services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
+  readCountSpend?: () => Promise<readonly import("../../scope-sync-batches/domain/count-acquisition").CountSpend[]>,
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -76,7 +79,13 @@ export function sourceObservationRoutes(
     ]);
 
     return c.json({
-      ...buildCatalogIntegrationControlPlaneOverview({ readiness, profiles, activeJobs: recentJobs, audience }),
+      ...buildCatalogIntegrationControlPlaneOverview({
+        readiness,
+        profiles,
+        activeJobs: recentJobs,
+        audience,
+        countSpend: await readCountSpend?.(),
+      }),
       providerSendWindow,
     });
   });

@@ -50,6 +50,8 @@ export function bindCatalogProviderServices(
     reapplyObservationScope: bind(services.reapplyObservationScope),
     enqueueBulkReviewJob: bind(services.enqueueBulkReviewJob),
     processNextBulkReviewJob: bind(services.processNextBulkReviewJob),
+    enqueueCatalogMergeCandidateBulkJob: bind(services.enqueueCatalogMergeCandidateBulkJob),
+    processNextCatalogMergeCandidateBulkJob: bind(services.processNextCatalogMergeCandidateBulkJob),
     previewCatalogSyncScope: bind(services.previewCatalogSyncScope),
     enqueueCatalogSyncRun: bind(services.enqueueCatalogSyncRun),
     previewIntegrationImport: bind(services.previewIntegrationImport),
@@ -108,6 +110,7 @@ function scopeRequest(
 export function bindProviderAdapter(adapter: ProviderAdapter): ProviderAdapter {
   const provider = providerSendProviders.find((candidate) => candidate === adapter.providerKey);
   if (!provider) return adapter;
+  const getUsageSnapshot = adapter.getUsageSnapshot;
   return {
     ...adapter,
     listOptions(input) {
@@ -142,6 +145,12 @@ export function bindProviderAdapter(adapter: ProviderAdapter): ProviderAdapter {
       runProviderSendRequest({ provider, category: "baseline" }, () => adapter.getCredentialReadiness()),
     getTransportDiagnostics: () =>
       runProviderSendRequest({ provider, category: "baseline" }, () => adapter.getTransportDiagnostics()),
+    ...(getUsageSnapshot
+      ? {
+          getUsageSnapshot: () =>
+            runProviderSendRequest({ provider, category: "baseline" }, () => getUsageSnapshot.call(adapter)),
+        }
+      : {}),
   };
 }
 

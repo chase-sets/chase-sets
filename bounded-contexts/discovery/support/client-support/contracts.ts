@@ -83,11 +83,34 @@ export interface DiscoverySearchResponse {
   total: number | null;
   count: number;
   nextCursor: string | null;
-  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured";
+  retrievalMode: "lexical" | "rescue" | "hybrid" | "structured" | "corrected";
   lexicalCount: number | null;
   queryHash: string;
   resultSetKey: string;
+  /**
+   * Present only when the submitted cursor was rejected (unversioned, malformed, or from
+   * another retrieval mode): this response is a fresh first page with full metadata, so
+   * callers replace their pages and metadata instead of appending. Absent means paging.
+   */
+  cursorRestarted?: true;
+  /**
+   * Present only when Search Interpretation turned words into Filter State: these rows were
+   * retrieved for `remainingQuery` under the explicit filters plus `applied`, which lists only
+   * newly applied values (an explicit selection the words repeated is not listed). The rows
+   * do not page (`nextCursor` is null); continue from the canonical query instead.
+   */
+  interpretation?: DiscoverySearchInterpretation;
 }
+
+/** HTTP-only explanation of a Search Interpretation; never Catalog truth. */
+export type DiscoverySearchInterpretation = Readonly<{
+  remainingQuery: string;
+  applied: readonly DiscoverySearchInterpretationValue[];
+}>;
+
+export type DiscoverySearchInterpretationValue =
+  | Readonly<{ param: `dimension.${string}`; optionId: string; label: string }>
+  | Readonly<{ param: "language"; language: string; label: string }>;
 
 export interface DiscoverySearchSuggestion {
   catalogItemId: string;

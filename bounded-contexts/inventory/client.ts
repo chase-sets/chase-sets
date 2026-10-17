@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "@chase-sets/http/responses";
 import type { buildInventoryApi } from "./api";
+import type { InventoryMutationReceipt } from "./support/runtime-support/mutation-attempt";
 import type { InventoryCatalogItemSnapshot } from "./features/inventory-items/integrations/catalog/queries";
 import type { InventoryImportBatch, InventoryImportBatchDetail } from "./features/import-batches/read-model/queries";
 import type { ImportCsvRow } from "./features/import-batches/domain/csv";
@@ -47,7 +48,7 @@ import type {
   InventoryOfflineSaleResult,
 } from "./features/inventory-items/api/contracts";
 import type { InventoryStorageLocation } from "./features/storage-locations/api/contracts";
-import type { InventoryRestockDecision } from "./features/restock-decisions/api/contracts";
+import type { InventoryRestockDecision, RecordRestockDecisionInput } from "./features/restock-decisions/api/contracts";
 import type { InventoryRecoveredItemRow } from "./features/recovered-items/read-model/queries";
 
 type InventoryApiApp = ReturnType<typeof buildInventoryApi>;
@@ -64,6 +65,7 @@ export class InventoryApiError extends Error {
 }
 
 export interface InventoryApiClientOptions {
+  mutationAttemptId?: string;
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit | (() => HeadersInit);
@@ -126,6 +128,7 @@ function gatewayTimeoutResponse() {
 }
 
 export function createInventoryApiClient({
+  mutationAttemptId,
   baseUrl = DEFAULT_BASE_URL,
   fetch = globalThis.fetch,
   headers: initialHeaders,
@@ -134,6 +137,10 @@ export function createInventoryApiClient({
   recoverTransportErrorsAsGatewayTimeout = false,
 }: InventoryApiClientOptions = {}) {
   const configuredFetch: typeof globalThis.fetch = async (input, init = {}) => {
+    const mutationHeaders = new Headers(init.headers);
+    if (["POST", "PATCH"].includes(init.method?.toUpperCase() ?? "")) {
+      mutationHeaders.set("Inventory-Mutation-Attempt", mutationAttemptId ?? globalThis.crypto.randomUUID());
+    }
     const timeout =
       typeof requestTimeoutMs === "number" && Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0
         ? timeoutFetchSignal(requestTimeoutMs, init.signal ?? undefined)
@@ -142,6 +149,7 @@ export function createInventoryApiClient({
     try {
       const request = fetch(input, {
         ...init,
+        headers: mutationHeaders,
         credentials: init.credentials ?? credentials,
         ...(timeout ? { signal: timeout.signal } : {}),
       });
@@ -164,6 +172,11 @@ export function createInventoryApiClient({
   const headers = resolveHeaders(initialHeaders);
 
   return {
+    async getMutationAttempt(id: string): Promise<InventoryMutationReceipt | null> {
+      const response = await client["mutation-attempts"][":id"].$get({ param: { id }, header: headers });
+      if (response.status === 404) return null;
+      return parseJsonResponse<InventoryMutationReceipt>(response);
+    },
     async listImportSources(): Promise<ListResponse<InventoryImportSourceProfile>> {
       return parseJsonResponse(
         await client["import-batches"].sources.$get({
@@ -363,7 +376,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async recordRestockDecision(id: string, body: Record<string, unknown>) {
+    async recordRestockDecision(id: string, body: RecordRestockDecisionInput) {
       return parseJsonResponse(
         await client["restock-decisions"][":id"].decision.$post({
           param: { id },

@@ -101,7 +101,11 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- $componentEnvOverrides := default dict .component.envOverrides -}}
 {{- range .component.env }}
 - name: {{ .name | quote }}
-  {{- if .secret }}
+  {{- if eq .name "CHASE_SETS_DEPLOYMENT_INSTANCE" }}
+  value: {{ list "support-deployment-instance/v1" $root.Release.Namespace $root.Release.Name | toJson | quote }}
+  {{- else if eq .name "CHASE_SETS_IMPLEMENTATION_SHA" }}
+  value: {{ $root.Values.global.image.tag | quote }}
+  {{- else if .secret }}
   valueFrom:
     secretKeyRef:
       name: {{ default $root.Values.global.existingSecretName .secretName | quote }}

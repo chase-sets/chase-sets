@@ -217,7 +217,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -357,7 +357,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -446,7 +446,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -539,7 +539,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -670,7 +670,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -822,7 +822,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -2395,7 +2395,16 @@ export const mcpToolCatalog = [
         idempotencyKey: {
           type: "string",
           description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+            "Caller-created Inventory mutation attempt UUIDv4. Reuse only for the same normalized intent; after response loss read the original result.",
+        },
+        collisionMode: {
+          type: "string",
+          description: "Stock reduction collision policy.",
+          enum: ["protect-orders", "honor-offline"],
+        },
+        confirmSellerCannotFulfill: {
+          type: "boolean",
+          description: "Explicit Honor Offline confirmation.",
         },
         confirmationText: {
           type: "string",
@@ -2421,8 +2430,8 @@ export const mcpToolCatalog = [
         matchInputField: "confirmationText",
       },
       idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
+      idempotencyAuthority: "owner",
+      dryRunSupported: false,
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use for explicit stock corrections after checking active holds and ledger history."],
@@ -3020,6 +3029,46 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use after creating a batch to inspect accepted, rejected, unresolved, and committed rows."],
+  },
+  {
+    name: "inventory.get-mutation-attempt",
+    title: "Get Inventory Mutation Result",
+    description: "Read the exact original Inventory result without resubmitting a change.",
+    availability: "available",
+    serviceId: "inventory",
+    risk: "read",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "attemptId"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        attemptId: {
+          type: "string",
+          description: "Original caller-created attempt UUIDv4.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["inventory.view"],
+      requiredScopes: ["inventory:read"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: false,
+      },
+      idempotencyKey: "not-applicable",
+      idempotencyAuthority: "platform",
+      dryRunSupported: false,
+      notes: ["Return only account-scoped data that the actor can already view."],
+    },
+    expectedUsage: ["Use after an uncertain response; an unavailable result does not authorize a second write."],
   },
   {
     name: "inventory.list-import-sources",
@@ -5017,7 +5066,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5099,7 +5148,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5191,7 +5240,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5312,7 +5361,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5415,7 +5464,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5500,7 +5549,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -5518,55 +5567,6 @@ export const mcpToolCatalog = [
     expectedUsage: [
       "Use once, before in-chat checkout completion, when the account has no stored payment method.",
       "Return the hosted URL to the user for a one-time card-entry hop; then poll confirm-payment-method-setup.",
-    ],
-  },
-  {
-    name: "platform-operations.get-offer-economics-summary",
-    title: "Get Offer Economics Summary",
-    description:
-      "Read the founders 0%-locked-fee cohort's listing volume, realized GMV share of the platform, foregone-fee estimate, and cumulative sell-through trend for a date range.",
-    availability: "available",
-    serviceId: "platform-operations",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: [],
-      properties: {
-        from: {
-          type: "string",
-          description: "Inclusive range start, YYYY-MM-DD. Defaults to 59 days before 'to'.",
-        },
-        to: {
-          type: "string",
-          description: "Inclusive range end, YYYY-MM-DD. Defaults to today.",
-        },
-        accountType: {
-          type: "string",
-          description: "Account type the foregone-fee estimate's standard schedule basis is resolved for.",
-          enum: ["personal", "business", "enterprise"],
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["insights-dashboards.view"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: [
-      "Use to check whether a public campaign fee claim is substantiated before citing it.",
-      "Use for founders-offer cohort economics review, not any single account's own fees.",
     ],
   },
   {
@@ -6587,42 +6587,6 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use only after confirming available balance and payout readiness."],
   },
   {
-    name: "auth.list-sessions",
-    title: "List Sessions",
-    description: "List active sessions visible to a security operator.",
-    availability: "planned",
-    serviceId: "auth",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: [],
-      properties: {
-        userId: {
-          type: "string",
-          description: "User identifier.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["security.manage"],
-      requiredScopes: ["account:manage"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use when investigating account access or stale sessions."],
-  },
-  {
     name: "auth.resolve-actor",
     title: "Resolve Actor",
     description: "Resolve the current actor and selected account from an agent session.",
@@ -6651,65 +6615,6 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use as the first step in account-scoped agent flows."],
-  },
-  {
-    name: "auth.revoke-session",
-    title: "Revoke Session",
-    description: "Revoke an active authentication session.",
-    availability: "planned",
-    serviceId: "auth",
-    risk: "destructive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "sessionId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        sessionId: {
-          type: "string",
-          description: "Session to revoke.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["security.manage"],
-      requiredScopes: ["account:manage"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for explicit account security remediation."],
   },
   {
     name: "catalog.get-blueprint",
@@ -6888,7 +6793,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -6904,65 +6809,6 @@ export const mcpToolCatalog = [
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use only after confirming total, shipping terms, and buyer intent."],
-  },
-  {
-    name: "commercial-terms.publish-schedule",
-    title: "Publish Terms Schedule",
-    description: "Publish a commercial terms schedule.",
-    availability: "planned",
-    serviceId: "commercial-terms",
-    risk: "sensitive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "scheduleId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        scheduleId: {
-          type: "string",
-          description: "Terms schedule to publish.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["commercial-terms.manage"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for explicit policy administration changes."],
   },
   {
     name: "commercial-terms.resolve-listing-terms",
@@ -7003,105 +6849,6 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use before publishing listings or accepting offers."],
-  },
-  {
-    name: "easypost-postage.inspect-label",
-    title: "Inspect EasyPost Label",
-    description: "Inspect support-safe provider label status.",
-    availability: "planned",
-    serviceId: "easypost-postage",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["shipmentId", "providerLabelId"],
-      properties: {
-        shipmentId: {
-          type: "string",
-          description: "Shipment identifier.",
-        },
-        providerLabelId: {
-          type: "string",
-          description: "EasyPost label identifier.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["fulfillment.view"],
-      requiredScopes: ["fulfillment:read"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use after checking the Fulfillment shipment read model."],
-  },
-  {
-    name: "easypost-postage.replay-tracking-event",
-    title: "Replay Tracking Event",
-    description: "Replay a captured tracking webhook through the provider webhook inbox.",
-    availability: "planned",
-    serviceId: "easypost-postage",
-    risk: "sensitive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "providerEventId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        providerEventId: {
-          type: "string",
-          description: "Provider event to replay.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["fulfillment.manage"],
-      requiredScopes: ["fulfillment:write"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for confirmed fulfillment support recovery."],
   },
   {
     name: "identity.invite-member",
@@ -7399,7 +7146,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -7462,7 +7209,7 @@ export const mcpToolCatalog = [
     permissionBoundary: {
       scope: "account",
       requiredPermissions: ["orders.manage"],
-      requiredScopes: ["checkout:write"],
+      requiredScopes: ["dev.ucp.shopping.checkout:manage"],
       accountScoped: true,
       auditPrincipal: "actor",
     },
@@ -7577,174 +7324,5 @@ export const mcpToolCatalog = [
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use only when the actor explicitly confirms rating and review text."],
-  },
-  {
-    name: "stripe-connect.inspect-payout-readiness",
-    title: "Inspect Stripe Payout Readiness",
-    description: "Inspect support-safe payout readiness for a connected account.",
-    availability: "planned",
-    serviceId: "stripe-connect",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "providerReference"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Account identifier.",
-        },
-        providerReference: {
-          type: "string",
-          description: "Stripe connected account reference.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["payouts.reconcile"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use after checking Settlement readiness when provider state must be explained."],
-  },
-  {
-    name: "stripe-connect.replay-webhook",
-    title: "Replay Stripe Connect Webhook",
-    description: "Replay a captured money movement webhook through the provider webhook inbox.",
-    availability: "planned",
-    serviceId: "stripe-connect",
-    risk: "sensitive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "providerEventId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        providerEventId: {
-          type: "string",
-          description: "Provider event to replay.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["payouts.reconcile"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for confirmed reconciliation recovery."],
-  },
-  {
-    name: "stripe-payments.get-public-config",
-    title: "Get Stripe Public Config",
-    description: "Read publishable, non-secret payment processor configuration.",
-    availability: "planned",
-    serviceId: "stripe-payments",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {},
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use to explain payment confirmation capabilities without exposing secrets."],
-  },
-  {
-    name: "stripe-payments.inspect-payment-reference",
-    title: "Inspect Stripe Payment Reference",
-    description: "Inspect support-safe Stripe status for a known internal payment reference.",
-    availability: "planned",
-    serviceId: "stripe-payments",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["paymentId", "processorPaymentReference"],
-      properties: {
-        paymentId: {
-          type: "string",
-          description: "Internal payment identifier.",
-        },
-        processorPaymentReference: {
-          type: "string",
-          description: "Stripe payment reference.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["orders.view"],
-      requiredScopes: ["checkout:read", "order:read"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use for support diagnostics after checking the Payments read model."],
   },
 ] as const satisfies readonly DeveloperMcpToolCatalogEntry[];

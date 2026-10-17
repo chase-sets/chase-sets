@@ -12,6 +12,8 @@ import type {
   SourceObservationReapplyProfileMode,
 } from "../runtime";
 import type { CatalogProviderProfileVersionReview } from "../providers/provider-profile-review";
+import type { ProviderUsageSnapshot } from "../provider-adapters/provider-adapter";
+import { projectCountSpend, type CountSpend } from "../../../scope-sync-batches/domain/count-acquisition";
 
 export type CatalogIntegrationControlPlaneOverview = Readonly<{
   generatedAt: string;
@@ -90,17 +92,30 @@ export type CatalogIntegrationProviderReadiness = Readonly<{
   rateLimitStatus: CatalogIntegrationProviderCapabilityStatus;
   payloadAcquisition: CatalogIntegrationProviderCapabilityStatus;
   usageBudget: CatalogIntegrationProviderUsageBudget | null;
+  countSpend?: readonly CountSpend[];
   diagnostics: readonly CatalogIntegrationControlPlaneDiagnostic[];
 }>;
 
+// Projected from the provider's cached usage snapshot. Freshness comes from the
+// snapshot's observed age at the readiness read model's generation time, never from
+// the snapshot's presence. Balances older than the provider's unavailable window are
+// withheld as null; null never means zero. Providers that do not report usage
+// project `usageBudget: null`.
 export type CatalogIntegrationProviderUsageBudget = Readonly<{
   creditBalance: number | null;
+  creditAllowance: number | null;
   creditUnit: string | null;
   readiness: "ready" | "degraded" | "blocked" | "unknown";
+  freshness: CatalogIntegrationProviderUsageFreshness;
+  observedAt: string | null;
+  lagCategory: ProviderUsageSnapshot["lagCategory"];
+  diagnosticCode: string | null;
+  diagnostic: string | null;
   estimatedCalls: number | null;
   estimatedScope: string | null;
-  refreshedAt: string | null;
 }>;
+
+export type CatalogIntegrationProviderUsageFreshness = "fresh" | "stale" | "unavailable" | "never-observed";
 
 export type CatalogIntegrationProviderCapabilityStatus = Readonly<{
   status: "ready" | "blocked" | "degraded" | "unknown";
@@ -157,6 +172,7 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
   activeJobs: readonly SourceObservationIntegrationJob[];
   generatedAt?: string;
   audience?: CatalogIntegrationControlPlaneOverviewAudience;
+  countSpend?: unknown;
 }): CatalogIntegrationControlPlaneOverview {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const audience = input.audience ?? "full";
@@ -170,7 +186,11 @@ export function buildCatalogIntegrationControlPlaneOverview(input: {
     },
     providerReadiness: {
       generatedAt,
-      providers: buildProviderReadiness(input.readiness.units),
+      providers: buildProviderReadiness(input.readiness).map((provider) =>
+        provider.providerKey === "scrydex"
+          ? { ...provider, countSpend: projectCountSpend(input.countSpend, generatedAt) }
+          : provider,
+      ),
     },
     auditLifecycle:
       audience === "daily"
@@ -250,10 +270,10 @@ export function buildCatalogProviderDetailDestination(providerKey: string) {
 }
 
 export function buildProviderReadiness(
-  units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
+  readiness: Pick<CatalogIntegrationControlPlaneReadiness, "generatedAt" | "units" | "providerUsage">,
 ): readonly CatalogIntegrationProviderReadiness[] {
   const providers = new Map<string, CatalogIntegrationControlPlaneUnitReadiness[]>();
-  for (const unit of units) {
+  for (const unit of readiness.units) {
     providers.set(unit.providerKey, [...(providers.get(unit.providerKey) ?? []), unit]);
   }
 
@@ -290,10 +310,74 @@ export function buildProviderReadiness(
         optionQueryHealth: summarizeCapability(diagnostics, ["option", "query"]),
         rateLimitStatus: summarizeCapability(diagnostics, ["rate-limit", "cooldown", "throttle"]),
         payloadAcquisition: summarizeCapability(diagnostics, ["payload", "fetch", "acquisition", "fixture"]),
-        usageBudget: null,
+        usageBudget: projectUsageBudget(
+          readiness.providerUsage.find((snapshot) => snapshot.providerKey === providerKey),
+          readiness.generatedAt,
+        ),
         diagnostics,
       };
     });
+}
+
+function projectUsageBudget(
+  snapshot: ProviderUsageSnapshot | undefined,
+  generatedAt: string,
+): CatalogIntegrationProviderUsageBudget | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const freshness = usageFreshness(snapshot, generatedAt);
+  const displayable = freshness === "fresh" || freshness === "stale";
+  return {
+    creditBalance: displayable ? snapshot.remainingCredits : null,
+    creditAllowance: displayable ? snapshot.totalCredits : null,
+    creditUnit: snapshot.creditUnit,
+    readiness: usageBudgetReadiness(snapshot, freshness),
+    freshness,
+    observedAt: snapshot.observedAt,
+    lagCategory: snapshot.lagCategory,
+    diagnosticCode: snapshot.diagnosticCode,
+    diagnostic: snapshot.diagnostic,
+    estimatedCalls: null,
+    estimatedScope: null,
+  };
+}
+
+function usageFreshness(
+  snapshot: ProviderUsageSnapshot,
+  generatedAt: string,
+): CatalogIntegrationProviderUsageFreshness {
+  if (snapshot.observedAt === null) {
+    return snapshot.attemptedAt === null ? "never-observed" : "unavailable";
+  }
+
+  const ageSeconds = (Date.parse(generatedAt) - Date.parse(snapshot.observedAt)) / 1000;
+  if (!Number.isFinite(ageSeconds) || ageSeconds < 0) {
+    return "unavailable";
+  }
+  if (ageSeconds <= snapshot.freshWithinSeconds) {
+    return "fresh";
+  }
+  return ageSeconds <= snapshot.unavailableAfterSeconds ? "stale" : "unavailable";
+}
+
+// A positive balance without a reported allowance is incomplete evidence, so it is
+// unknown rather than ready; the balance itself is still projected.
+function usageBudgetReadiness(
+  { creditState, totalCredits }: ProviderUsageSnapshot,
+  freshness: CatalogIntegrationProviderUsageFreshness,
+): CatalogIntegrationProviderUsageBudget["readiness"] {
+  if (creditState === "exhausted") {
+    return "blocked";
+  }
+  if (freshness === "stale") {
+    return "degraded";
+  }
+  if (freshness !== "fresh" || creditState === "unknown" || totalCredits === null) {
+    return "unknown";
+  }
+  return creditState === "low" ? "degraded" : "ready";
 }
 
 function buildAuditLifecycleEntries(

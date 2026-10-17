@@ -1,12 +1,13 @@
 import { z } from "zod";
 import type { DomainEventCodec } from "@chase-sets/event-core/codec";
-import { buyerOfferPolicyAuditSchema, buyerOfferPolicyTermsSchema } from "./contracts";
+import { buyerOfferPolicyAuditSchema, buyerOfferPolicyTermsSchema, buyerOfferPolicyOutcomeSchema } from "./contracts";
 import type { BuyerOfferPolicyEvent } from "./domain";
 
 const preview = buyerOfferPolicyAuditSchema.extend({
   previewId: z.string().regex(/^[a-f0-9]{64}$/),
   policyVersion: z.number().int().positive().safe(),
   terms: buyerOfferPolicyTermsSchema,
+  outcomes: z.array(buyerOfferPolicyOutcomeSchema).max(100).optional(),
 });
 const eventSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("marketplace.offer-policy.created"), data: buyerOfferPolicyAuditSchema }),

@@ -55,6 +55,14 @@ export const businessLiteralAllowlist = [
     ref: "#4293",
   },
   {
+    file: "bounded-contexts/marketplace/features/offers/api/runtime.ts",
+    pattern: "MARKETPLACE_OFFER_BULK_LIFECYCLE_LIMIT",
+    reason:
+      "Request-size bound for one bulk Offer Pause/Resume/Withdraw call (1 to 250 IDs, matching the 250-row Submitted Offers page), not a money/deadline/rate business value -- a page-size-shaped constant that only coincidentally matches the curated _LIMIT suffix.",
+    owner: "marketplace",
+    ref: "#8691",
+  },
+  {
     file: "bounded-contexts/discovery/features/search/domain/relevance-evaluation.ts",
     pattern: "RELEVANCE_RESULT_LIMIT",
     reason:

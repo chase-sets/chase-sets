@@ -1,0 +1,42 @@
+[
+  {
+    "id": "bounded-contexts/channels/features/outbound-sync/tests/outbound-claimed-reservation-interleavings.db.test.ts::test:outbound-backlog-fairness-drill drains 10,000 listings while a provider neighbor advances::1::1",
+    "reason": "Fixture validity: the 10,000-listing fairness drill must finish inside a 15-minute wall-clock ceiling to remain a valid drill; operation counts are asserted separately."
+  },
+  {
+    "id": "deployables/marketplace/e2e/search-scroll-restoration.spec.ts::test:restores loaded Result Set context after an item-detail roundtrip @marketplace-browse::1::1",
+    "reason": "Browser e2e performance measurement: a soft assertion flags only a gross restoration regression and does not gate the merge queue; correctness is asserted by fetch counts."
+  },
+  {
+    "id": "deployables/tcgplayer-connector-extension/__tests__/extension-restart-probe-chromium.spec.ts::test:complete refire observation segment ${segment} (at most 20 seconds)::1::1",
+    "reason": "Browser e2e restart probe: each observation segment must stay inside the 120-second real-browser intervention window that the probe itself measures."
+  },
+  {
+    "id": "deployables/tcgplayer-connector-extension/__tests__/extension-restart-probe-chromium.spec.ts::test:complete refire observation segment ${segment} (at most 20 seconds)::1::2",
+    "reason": "Browser e2e restart probe: each observation segment must stay inside the 120-second real-browser intervention window that the probe itself measures."
+  },
+  {
+    "id": "infrastructure/platform-runtime/concurrency.db.test.ts::test:busy-group-exact-receipt-read $shape::1::1",
+    "reason": "Liveness bound against real Postgres: the busy-group exact-receipt read must return before its configured wait timeout instead of exhausting it."
+  },
+  {
+    "id": "infrastructure/platform-runtime/concurrency.db.test.ts::test:busy-group-exact-receipt-read $shape::1::2",
+    "reason": "Liveness bound against real Postgres: the busy-group exact-receipt read must return before its configured wait timeout instead of exhausting it."
+  },
+  {
+    "id": "infrastructure/platform-runtime/concurrency.db.test.ts::test:idle-tail-wake-durable-settlement / idle-tail-wake-safety: %s survives a fresh API and repeated wakes::1::1",
+    "reason": "Fixture validity: the idle-tail wake scenario only holds while real time stays inside the ordinary 60-second idle heartbeat, as the assertion message states."
+  },
+  {
+    "id": "scripts/dev-system-launch.test.mjs::test:exits 1 within five seconds with a connected parent (owned=%s)::1::1",
+    "reason": "Real child-process teardown: the launcher must exit and clean up owned children within five seconds of a failure signal, using real processes that fake timers cannot drive."
+  },
+  {
+    "id": "scripts/dev-system-launch.test.mjs::test:fails fast and cleans up only owned children after a synchronous spawn failure::1::1",
+    "reason": "Real child-process teardown: the launcher must exit and clean up owned children within five seconds of a failure signal, using real processes that fake timers cannot drive."
+  },
+  {
+    "id": "scripts/public-web-route-smoke.test.mjs::test:rejects promptly when the real CLI exits before requesting /faq::1::1",
+    "reason": "Real CLI process exit ceiling: the deadline proof spawns the real smoke CLI and bounds its exit below processExitCeilingMs; added by #9414 after this guard was scoped."
+  }
+]

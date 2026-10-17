@@ -30,6 +30,8 @@ function assertImmutableProviderUatAdmission(document) {
     EXPECTED_SHA: "${{ inputs.expected_sha }}",
     RUN_SHA: "${{ github.sha }}",
     CONFIRMATION: "${{ inputs.confirm }}",
+    JOURNEY_SCOPE: "${{ inputs.journey_scope }}",
+    ADMIN_WEB_URL: "${{ inputs.admin_web_url }}",
   });
   expect(resolver.needs).toBe("admit-reviewed-sha");
   expect(resolver.if).toBe("needs.admit-reviewed-sha.result == 'success'");
@@ -81,12 +83,14 @@ describe("Catalog provider UAT immutable admission", () => {
 const workflowSource = (file) => readFileSync(resolve(file), "utf8");
 const sharedResetConcurrencyWorkflowFiles = [
   ".github/workflows/catalog-integration-staging-reset.yml",
+  ".github/workflows/catalog-staging-count-preparation.yml",
   ".github/workflows/catalog-staging-provider-uat.yml",
   ".github/workflows/platform-staging-wake-drills.yml",
   ".github/workflows/platform-staging-mixed-version-wake-drills.yml",
   ".github/workflows/platform-staging-representative-commerce-state.yml",
 ];
 const deployConcurrencyWorkflowFiles = [
+  ".github/workflows/platform-preview-wildcard-tls.yml",
   ".github/workflows/platform-production.yml",
   ".github/workflows/platform-staging-admin-qa-actor-fixtures.yml",
   ".github/workflows/platform-staging-advisory-evidence.yml",

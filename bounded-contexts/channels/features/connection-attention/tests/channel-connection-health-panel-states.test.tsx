@@ -15,6 +15,49 @@ function panel(state: ChannelHealthPanelState) {
   );
 }
 describe("channel-connection-health-panel-states", () => {
+  it("does not imply resolution on an empty later order page", () => {
+    panel({
+      kind: "loaded",
+      data: {
+        connectionId: "synthetic",
+        healthState: "unknown",
+        health: [],
+        manual: null,
+        orders: { count: 100, hasMore: true, nextCursor: null, items: [] },
+      },
+    });
+    expect(screen.getByRole("link", { name: "No order issues on this page. Return to the first page." })).toBeTruthy();
+    expect(screen.queryByText("No open health attention")).toBeNull();
+  });
+  it("renders an order reference and reason without inventing an acknowledgement, with bounded paging", () => {
+    panel({
+      kind: "loaded",
+      data: {
+        connectionId: "synthetic",
+        healthState: "unknown",
+        health: [],
+        manual: null,
+        orders: {
+          count: 100,
+          hasMore: true,
+          nextCursor: "next",
+          items: [
+            {
+              externalOrderReference: "synthetic-order",
+              reason: "tcgplayer-order-unmapped",
+              generation: 1,
+              openedAt: "2026-09-12T00:00:00Z",
+              affectedLineCount: 0,
+            },
+          ],
+        },
+      },
+    });
+    expect(screen.getByText("Order synthetic-order")).toBeTruthy();
+    expect(screen.getByText("An order item could not be matched to inventory.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "More order issues" }).getAttribute("href")).toContain("orderCursor=next");
+    expect(screen.queryByRole("button", { name: "Resolve attention" })).toBeNull();
+  });
   it("renders the health section as flush furniture", () => {
     panel({ kind: "loaded", data: { connectionId: "synthetic", healthState: "healthy", health: [], manual: null } });
     expect(screen.getByTestId("channel-health-panel").className).toBe("rounded-tokenLg overflow-hidden p-4");
@@ -34,7 +77,10 @@ describe("channel-connection-health-panel-states", () => {
     expect(screen.getByText("Healthy")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
-  it("renders exact generation and only seller resolution choices", () => {
+  it.each([
+    { reasonCode: "polling", label: "Channel polling" },
+    { reasonCode: "connector-liveness", label: "Connector not responding" },
+  ] as const)("renders $reasonCode generation and only seller resolution choices", ({ reasonCode, label }) => {
     panel({
       kind: "loaded",
       data: {
@@ -43,19 +89,26 @@ describe("channel-connection-health-panel-states", () => {
         manual: null,
         health: [
           {
-            reasonCode: "polling",
+            reasonCode,
             generation: 7,
-            fingerprint: "a".repeat(64),
+            fingerprint: reasonCode === "connector-liveness" ? "pair_synthetic" : "a".repeat(64),
             state: "failing",
             consecutiveFailures: 3,
             trailingFailures: 3,
-            opening: { sourceWorkId: "b".repeat(64), sourceAttempt: 1, occurredAt: "2026-09-13T00:00:00Z" },
+            opening: {
+              sourceWorkId:
+                reasonCode === "connector-liveness"
+                  ? JSON.stringify([reasonCode, "synthetic", "pair_synthetic", 1, "b".repeat(64)])
+                  : "b".repeat(64),
+              sourceAttempt: 1,
+              occurredAt: "2026-09-13T00:00:00Z",
+            },
             lastOccurredAt: "2026-09-13T00:00:00Z",
           },
         ],
       },
     });
-    expect(screen.getByText("Channel polling")).toBeTruthy();
+    expect(screen.getByText(label)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resolve attention" })).toBeTruthy();
     expect(screen.getAllByRole("option")).toHaveLength(5);
     expect(screen.queryByRole("option", { name: "Recovered automatically" })).toBeNull();

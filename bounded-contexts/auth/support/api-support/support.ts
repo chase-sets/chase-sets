@@ -15,6 +15,8 @@ import {
 } from "@chase-sets/identity/server";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 
+export type { IdentityAuthMutationClient };
+
 export type AuthApiEnv = {
   Variables: {
     context: EventStoreContext;

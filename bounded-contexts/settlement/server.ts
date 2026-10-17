@@ -26,6 +26,9 @@ export type {
 } from "@chase-sets/money-movement";
 export { settlementOperationLogFields } from "./support/runtime-support/operations";
 export type { SettlementServices } from "./support/runtime-support/services";
+export { stagingProofCreditPolicy } from "./features/wallets/domain/staging-proof-credit";
+export { createStagingProofCreditRoutes } from "./features/wallets/api/staging-proof-credit-runtime";
+export type { StagingProofCreditServices } from "./features/wallets/api/staging-proof-credit-runtime";
 /**
  * Policy definitions for the platform policy console: Platform
  * Operations imports these (via `policyConsoleCrossContext`, assembled in

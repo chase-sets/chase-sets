@@ -12,6 +12,86 @@ export const VERIFY_STATIC_SCOPED_EXCLUSIONS = Object.freeze({
   "test:scripts": "complete scripts battery is a hosted-CI gate; run named focused script tests locally",
 });
 
+// Repository-wide reads cannot be narrowed to the paths in historical failures.
+// These rules describe scan inputs, not the tests' static import graphs.
+export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
+  "scripts/check-structure/sql-execution-surface.test.mjs": {
+    rule: "repository-wide tracked TypeScript inventory and module-resolution file inventory",
+    evidence: [
+      "scripts/check-structure/sql-execution-surface.test.mjs:967-985,1038-1045",
+      "scripts/check-structure/module-resolution.mjs:264-315",
+    ],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/brand-mark-representations.test.mjs": {
+    rule: "repository-wide tracked callers, including documentation, plus raster outputs and lockfile",
+    evidence: ["scripts/check-structure/brand-mark-representations.test.mjs:236-265,277-300,560-574,695-733"],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/deployed-browser-e2e-profile.test.mjs": {
+    rule: "deployed browser config, three web E2E roots, and the guard source",
+    evidence: ["scripts/check-structure/deployed-browser-e2e-profile.test.mjs:1-9,64-73"],
+    include: [
+      ...exact("playwright.config.ts", "pnpm-lock.yaml"),
+      ...prefix(
+        "deployables/marketplace/e2e",
+        "deployables/admin-web/e2e",
+        "deployables/public-web/e2e",
+        "scripts",
+        "packages/typescript-compiler-api",
+      ),
+    ],
+  },
+  "scripts/ci-gate-plan.test.mjs": {
+    rule: "repository-wide tracked path existence, workspace discovery, workflow and scripts selection contracts",
+    evidence: ["scripts/ci-gate-plan.test.mjs:9-38,83-87,296-372"],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/consent-authorization-sites.test.mjs": {
+    rule: "repository-wide tracked authorization evidence inventory, product corpus, and fixture evidence",
+    evidence: ["scripts/check-structure/consent-authorization-sites.test.mjs:152-186,1238-1260,3266-3276"],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/json-import-attributes.test.mjs": {
+    rule: "repository-wide tracked JSON-import census (tracked TypeScript inventory, git grep, workspace vite/vitest partition), script analyzers and registry-builder helpers, plus the live Channels context-root contract",
+    evidence: [
+      "scripts/check-structure/json-import-attributes.test.mjs:1-13,137-138,487-495,697-723,822-829",
+      "scripts/check-structure/json-import-attributes.mjs:44-78,494-530",
+    ],
+    include: [{ kind: "any" }],
+  },
+  "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs": {
+    rule: "root command and lockfile, compiler wrapper, and script-owned artifact provenance chain",
+    evidence: [
+      "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs:6-18,92-119,170-177",
+      "scripts/check-structure/typescript-owner-context-derivation.mjs:155-177",
+    ],
+    include: [...exact("package.json", "pnpm-lock.yaml"), ...prefix("scripts", "packages/typescript-compiler-api")],
+  },
+  "scripts/check-structure/typescript-owner-context-derivation.test.mjs": {
+    rule: "compiler wrapper and lockfile, script-owned artifact/schema/partition/fixtures and scripts config",
+    evidence: [
+      "scripts/check-structure/typescript-owner-context-derivation.test.mjs:20-31,600-614,700-706",
+      "scripts/check-structure/typescript-owner-context-derivation.mjs:155-177",
+    ],
+    include: [
+      ...exact("pnpm-lock.yaml", "vitest.scripts.config.mjs"),
+      ...prefix("scripts", "packages/typescript-compiler-api"),
+    ],
+  },
+  "scripts/check-structure/issue-reference-comments.test.mjs": {
+    rule: "code comments under four source roots and the script-owned scanner/allowlist",
+    evidence: [
+      "scripts/check-structure/issue-reference-comments.mjs:1-6,26-38",
+      "scripts/check-structure/issue-reference-comments.test.mjs:220-225",
+    ],
+    include: [
+      ...exact("pnpm-lock.yaml"),
+      ...prefix("bounded-contexts", "infrastructure", "deployables", "scripts", "packages/typescript-compiler-api"),
+    ],
+  },
+};
+
 // This is the auditable link -> input-surface contract for verify:static.
 // ALWAYS_RUN links deliberately have no include rules: their input is not
 // bounded by changed repository paths. MAY_NARROW rules are conservative
@@ -192,7 +272,7 @@ export const VERIFY_STATIC_SURFACES = {
   "check:structure": {
     classification: ALWAYS_RUN,
     rule: "repo-wide structure scan plus diff-consuming SQL and boot-schema guards",
-    evidence: ["scripts/check-structure/run.mjs:40-55,1344-1353,3370-3378"],
+    evidence: ["scripts/check-structure/run.mjs:40-55,1261-1270,3238-3246"],
   },
   "check:localization": {
     classification: MAY_NARROW,

@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { replayCatalogMirror } from "@chase-sets/event-core-postgres/catalog-mirror-replay";
 import { buildMarketplaceCatalogProjectionHandlers } from "./supply-projection";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import contextManifest from "../../../../context.json" with { type: "json" };
 
 /**
  * Golden parity replay for the marketplace catalog mirror.
@@ -19,10 +21,26 @@ describe("marketplace catalog projection parity", () => {
     const golden = JSON.parse(
       readFileSync(new URL("./supply-projection.parity.golden.json", import.meta.url), "utf8"),
     ) as unknown;
+    const stagingPurges: unknown[] = [];
     const result = await replayCatalogMirror({
       tablePrefix: "marketplace_catalog",
       buildHandlers: buildMarketplaceCatalogProjectionHandlers,
+      onMeasureStagingPurge: (effect) => stagingPurges.push(effect),
     });
+    expect(stagingPurges).toEqual([
+      {
+        sql: "DELETE FROM event_projection_measure_publication_parts WHERE checkpoint_key = $1 AND stream_id = $2 AND stream_version <= $3",
+        params: [
+          createCheckpointKey(
+            contextManifest.eventSubscriptions.find(
+              (subscription) => subscription.projectionName === "marketplace-catalog-item-projection",
+            )!,
+          ),
+          "catalog.item-cat_alpha",
+          21,
+        ],
+      },
+    ]);
 
     const recordedResult = JSON.parse(JSON.stringify(result)) as typeof result;
 

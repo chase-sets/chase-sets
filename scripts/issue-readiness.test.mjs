@@ -35,7 +35,7 @@ const MILESTONE = {
   id: "MI_kwDORKgVcc4AAAAABaseMilestone",
   number: 136,
   title: "Wave 1 — Platform Foundation & Representative Staging",
-  description: null,
+  description: '<!-- outcome: {"version":1,"track":"wave","order":1,"status":"committed"} -->',
   state: "open",
 };
 
@@ -1414,10 +1414,26 @@ describe("prospective issue readiness", () => {
     expect(prospective.reasonCodes).toEqual(live.reasonCodes);
   });
 
-  it("accepts legacy Mobile and managed renamed outcomes while excluding candidates", () => {
+  it.each(["Wave 9", "Mobile 4"])("rejects an untagged %s as MILESTONE_NOT_OUTCOME", (title) => {
+    const result = prospectiveResult(
+      fixture.readyBody,
+      prospectiveMetadata({ milestone: { number: 200, title, state: "open" } }),
+    );
+    expect(result.status).toBe("not-ready");
+    expect(result.reasonCodes).toContain("MILESTONE_NOT_OUTCOME");
+  });
+
+  it("accepts tagged Mobile and renamed outcomes while excluding candidates", () => {
     const mobile = prospectiveResult(
       fixture.readyBody,
-      prospectiveMetadata({ milestone: { number: 200, title: "Mobile 3 — App delivery", state: "open" } }),
+      prospectiveMetadata({
+        milestone: {
+          number: 200,
+          title: "Mobile 3 — App delivery",
+          description: '<!-- outcome: {"version":1,"track":"mobile","order":3,"status":"committed"} -->',
+          state: "open",
+        },
+      }),
     );
     expect(mobile.status).toBe("ready");
 
@@ -1948,13 +1964,33 @@ describe("slice form and trusted-base workflow integration", () => {
       form.body.filter((entry) => entry.id).map((entry) => [entry.attributes.label, entry]),
     );
     expect(fields["Operator actions"].attributes.description).toContain("`none`");
+    expect(fields["Operator actions"].attributes.description).toContain("Residual human steps only");
+    expect(fields["Operator actions"].attributes.description).toContain("environment");
+    expect(fields["Operator actions"].attributes.description).toContain("reason a human is needed");
+    expect(fields["Operator actions"].attributes.description).toContain("exact step");
+    expect(fields["Operator actions"].attributes.description).toContain("agent resumption point");
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "production-credential or real-money authorization/supervision",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "private entry for credentials agents may not hold",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain("a protected permission prompt");
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "an actual policy/external-authority step agents cannot lawfully perform",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain(
+      "agent-owned sign-ins, probe execution, and watch windows are not operator actions",
+    );
+    expect(fields["Operator actions"].attributes.description).toContain("Enter `none` when there are none.");
+    expect(fields["Operator actions"].attributes.description).not.toContain("live watch windows");
     expect(fields["External authority probe & evidence timing"].attributes.description).toContain(
       "exact lifecycle moment",
     );
     expect(fields["Review packet seed"].attributes.description).toContain("omission-revealing");
   });
 
-  it("slice-form fields other than the acceptance description and registered area options are unchanged", () => {
+  it("freezes slice-form fields except acceptance/operator-actions descriptions and area options", () => {
     const predecessorForm = parseYaml(
       execFileSync("git", ["show", "05afe2b107e922ee05c12be3bacecae108d01845:.github/ISSUE_TEMPLATE/slice.yml"], {
         cwd: repoRoot,
@@ -1962,7 +1998,7 @@ describe("slice form and trusted-base workflow integration", () => {
       }),
     );
     const differences = fieldDifferences(fieldProjection(predecessorForm), fieldProjection(form)).filter(
-      (key) => key !== "acceptance.description" && key !== "area.options",
+      (key) => key !== "acceptance.description" && key !== "operator-actions.description" && key !== "area.options",
     );
 
     expect(differences).toEqual([]);

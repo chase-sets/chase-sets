@@ -1,6 +1,11 @@
 import type { AccountId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { deriveDisplayReferenceOrRaw } from "@chase-sets/primitives/display-reference";
 import { t } from "@chase-sets/localization";
+import { links as fulfillmentLinks } from "@chase-sets/fulfillment/integration/link-intents";
+import { links as inventoryLinks } from "@chase-sets/inventory/integration/link-intents";
+import { links as marketplaceLinks } from "@chase-sets/marketplace/integration/link-intents";
+import { links as orderingLinks } from "@chase-sets/ordering/integration/link-intents";
+import { links as settlementLinks } from "@chase-sets/settlement/integration/link-intents";
 import type {
   FulfillmentShipmentDispatchedPayload,
   OrderingOrderCancelledPayload,
@@ -110,7 +115,7 @@ export type ShipmentDispatchedNotificationInput = Pick<
 
 export function mapShipmentDispatchedToNotification(input: ShipmentDispatchedNotificationInput): NotificationMessage {
   const trackingIdentifier = input.trackingIdentifier?.trim() || null;
-  const shipmentHref = `/account/shipments/${input.shipmentId}`;
+  const shipmentHref = fulfillmentLinks("account-shipment", { path: { shipmentId: input.shipmentId } }).href;
   const webChannel: WebNotificationChannel = {
     channel: "web",
     recipient: { accountId: input.buyerAccountId },
@@ -180,7 +185,7 @@ export type SellerAvailabilityRestoredNotificationInput = Readonly<{
 export function mapSellerAvailabilityRestoredToNotification(
   input: SellerAvailabilityRestoredNotificationInput,
 ): NotificationMessage {
-  const actionHref = "/account/selling/listings";
+  const actionHref = marketplaceLinks("account-listings", { path: {} }).href;
   return sellerWebNotification({
     sellerAccountId: input.sellerAccountId,
     messageType: "marketplace.seller-listing-availability.enabled",
@@ -207,7 +212,7 @@ export type PayoutReadinessRegressionNotificationInput = Readonly<{
 export function mapPayoutReadinessRegressionToNotification(
   input: PayoutReadinessRegressionNotificationInput,
 ): NotificationMessage {
-  const actionHref = "/account/payouts/setup";
+  const actionHref = settlementLinks("account-payout-setup", { path: {} }).href;
   const title = t("notifications.intents.payoutReadinessRegression.title");
   const body = t("notifications.intents.payoutReadinessRegression.body", {
     reason: input.reason,
@@ -260,7 +265,7 @@ export function mapOrderCreatedToNotification(input: OrderCreatedNotificationInp
   const orderReference = orderReferenceOrRaw(input.orderId);
   const title = `Order ${orderReference} confirmed`;
   const body = `Your order total is ${input.orderTotal}.`;
-  const actionHref = `/account/purchases/${input.orderId}`;
+  const actionHref = orderingLinks("account-purchase", { path: { purchaseId: input.orderId } }).href;
   const webChannel: WebNotificationChannel = {
     channel: "web",
     recipient: { accountId: input.buyerAccountId },
@@ -312,7 +317,7 @@ export function mapOrderCancelledToNotification(
       : status === "pending-payment" || status === "ready-for-fulfillment"
         ? t("notifications.intents.orderCancelled.body.paymentDetails")
         : t("notifications.intents.orderCancelled.body.unknown");
-  const purchaseHref = `/account/purchases/${input.orderId}`;
+  const purchaseHref = orderingLinks("account-purchase", { path: { purchaseId: input.orderId } }).href;
   const buyerEmail = typeof input.buyerEmail === "string" ? input.buyerEmail.trim() : "";
   const webChannel: WebNotificationChannel = {
     channel: "web",
@@ -465,7 +470,7 @@ export function mapShipmentDeliveredToNotification(input: ShipmentDeliveredNotif
   const shipmentReference = shipmentReferenceOrRaw(input.shipmentId);
   const title = `Shipment ${shipmentReference} delivered for order ${orderReference}`;
   const body = `Tracking ${input.trackingNumber} is marked delivered.`;
-  const actionHref = `/account/shipments/${input.shipmentId}`;
+  const actionHref = fulfillmentLinks("account-shipment", { path: { shipmentId: input.shipmentId } }).href;
   const webChannel: WebNotificationChannel = {
     channel: "web",
     recipient: { accountId: input.buyerAccountId },
@@ -544,9 +549,9 @@ function sellerWebNotification(
 }
 
 function sellerOrderHref(orderId: string) {
-  return `/account/sales/${orderId}`;
+  return orderingLinks("account-sale", { path: { orderId } }).href;
 }
 
-function itemLedgerHrefFor(itemId: string, ledgerKind: string) {
-  return `/account/inventory/items/${itemId}?ledgerKind=${ledgerKind}`;
+function itemLedgerHrefFor(itemId: string, ledgerKind: "hold-placed" | "hold-released" | "hold-consumed") {
+  return inventoryLinks("account-inventory-item", { path: { itemId }, query: { ledgerKind } }).href;
 }

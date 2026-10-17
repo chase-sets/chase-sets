@@ -361,6 +361,26 @@ async function expectUcpEndpoints(origin) {
     throw new Error("UCP REST profile did not return the business profile.");
   }
 
+  const checkoutResponse = await fetchWithRetry(
+    "UCP REST missing-profile checkout",
+    `${origin}/ucp/v1/checkout-sessions`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+    (response) => response.status === 400,
+  );
+  const checkout = await checkoutResponse.json();
+  if (checkout.messages?.[0]?.code !== "invalid_profile_url") {
+    throw new Error("UCP REST missing-profile checkout did not return invalid_profile_url.");
+  }
+  const catalogResponse = await expectOk("UCP REST profile-less catalog", `${origin}/ucp/v1/catalog/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "charizard", limit: 1 }),
+  });
+  const catalog = await catalogResponse.json();
+  if (catalog.ucp?.status !== "ok") {
+    throw new Error("UCP REST profile-less catalog did not succeed.");
+  }
+
   const mcpResponse = await expectOk("UCP MCP tools", `${origin}/ucp/mcp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

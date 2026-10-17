@@ -127,83 +127,126 @@ describe("merge-candidate entity command handler", () => {
     expect(result.feedback).toMatchObject({ status: "error", result: "reason-required" });
   });
 
-  it("bulk-promotes exactly the ready candidate IDs the read model classified", async () => {
-    const promoteCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
+  it("enqueues one scope promote job from the scope record alone, never a per-candidate request loop", async () => {
+    const enqueueCatalogMergeCandidateBulkJob = vi.fn(async () => ({ jobId: "job_scope_promote" }));
+    const promoteCatalogMergeCandidate = vi.fn();
     const formData = new FormData();
-    formData.set("bulkCandidateIds", "cand_1,cand_2,cand_1");
+    formData.set("candidateSelection", "scope");
+    formData.set("scopeRecordId", "scope_base_set");
 
     const result = await handleCandidateCommand({
-      api: { promoteCatalogMergeCandidate } as never,
+      api: { enqueueCatalogMergeCandidateBulkJob, promoteCatalogMergeCandidate } as never,
       intent: "candidate.promote",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
     });
 
-    expect(promoteCatalogMergeCandidate).toHaveBeenCalledTimes(2);
-    expect(promoteCatalogMergeCandidate).toHaveBeenNthCalledWith(
-      1,
-      "cand_1",
-      expect.objectContaining({ reason: expect.any(String) }),
-    );
-    expect(promoteCatalogMergeCandidate).toHaveBeenNthCalledWith(
-      2,
-      "cand_2",
-      expect.objectContaining({ reason: expect.any(String) }),
-    );
-    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.promote" });
+    expect(enqueueCatalogMergeCandidateBulkJob).toHaveBeenCalledTimes(1);
+    expect(enqueueCatalogMergeCandidateBulkJob).toHaveBeenCalledWith("merge-candidate-promote", "scope_base_set", null);
+    expect(promoteCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.promote", result: "job-queued" });
+    // The job reference rides the result context like other bulk review jobs.
+    expect(result.context.jobId).toBe("job_scope_promote");
   });
 
-  it("fails a bulk promote closed when no candidate IDs are posted", async () => {
-    const promoteCatalogMergeCandidate = vi.fn();
-    const result = await handleCandidateCommand({
-      api: { promoteCatalogMergeCandidate } as never,
+  it("falls back to the route context scope record when the form omits it", async () => {
+    const enqueueCatalogMergeCandidateBulkJob = vi.fn(async () => ({ jobId: "job_scope_promote" }));
+    const formData = new FormData();
+    formData.set("candidateSelection", "scope");
+
+    await handleCandidateCommand({
+      api: { enqueueCatalogMergeCandidateBulkJob } as never,
       intent: "candidate.promote",
-      context: commandContext(),
-      formData: new FormData(),
+      context: { ...commandContext(), scopeRecordId: "scope_from_route" },
+      formData,
       selectedObservationIds: [],
     });
 
-    expect(promoteCatalogMergeCandidate).not.toHaveBeenCalled();
-    expect(result.feedback).toMatchObject({ status: "error", intent: "candidate.promote" });
+    expect(enqueueCatalogMergeCandidateBulkJob).toHaveBeenCalledWith(
+      "merge-candidate-promote",
+      "scope_from_route",
+      null,
+    );
   });
 
-  it("bulk-defers the remainder with the operator reason", async () => {
-    const deferCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
+  it("fails a scope job closed when no scope record is known", async () => {
+    const enqueueCatalogMergeCandidateBulkJob = vi.fn();
     const formData = new FormData();
-    formData.set("bulkCandidateIds", "cand_3,cand_4");
+    formData.set("candidateSelection", "scope");
+
+    const result = await handleCandidateCommand({
+      api: { enqueueCatalogMergeCandidateBulkJob } as never,
+      intent: "candidate.promote",
+      context: commandContext(),
+      formData,
+      selectedObservationIds: [],
+    });
+
+    expect(enqueueCatalogMergeCandidateBulkJob).not.toHaveBeenCalled();
+    expect(result.feedback).toMatchObject({ status: "error", intent: "candidate.promote", result: "command-failed" });
+  });
+
+  it("enqueues one scope defer-remainder job with the operator reason", async () => {
+    const enqueueCatalogMergeCandidateBulkJob = vi.fn(async () => ({ jobId: "job_scope_defer" }));
+    const deferCatalogMergeCandidate = vi.fn();
+    const formData = new FormData();
+    formData.set("candidateSelection", "scope");
+    formData.set("scopeRecordId", "scope_base_set");
     formData.set("reason", "Deferred pending conflict review.");
 
     const result = await handleCandidateCommand({
-      api: { deferCatalogMergeCandidate } as never,
+      api: { enqueueCatalogMergeCandidateBulkJob, deferCatalogMergeCandidate } as never,
       intent: "candidate.defer",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
     });
 
-    expect(deferCatalogMergeCandidate).toHaveBeenCalledTimes(2);
-    expect(deferCatalogMergeCandidate).toHaveBeenNthCalledWith(1, "cand_3", {
-      reason: "Deferred pending conflict review.",
-    });
-    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.defer" });
+    expect(enqueueCatalogMergeCandidateBulkJob).toHaveBeenCalledWith(
+      "merge-candidate-defer",
+      "scope_base_set",
+      "Deferred pending conflict review.",
+    );
+    expect(deferCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.defer", result: "job-queued" });
   });
 
-  it("requires a reason to bulk-defer the remainder", async () => {
-    const deferCatalogMergeCandidate = vi.fn();
+  it("requires a reason to defer the scope remainder", async () => {
+    const enqueueCatalogMergeCandidateBulkJob = vi.fn();
     const formData = new FormData();
-    formData.set("bulkCandidateIds", "cand_3");
+    formData.set("candidateSelection", "scope");
+    formData.set("scopeRecordId", "scope_base_set");
 
     const result = await handleCandidateCommand({
-      api: { deferCatalogMergeCandidate } as never,
+      api: { enqueueCatalogMergeCandidateBulkJob } as never,
       intent: "candidate.defer",
       context: commandContext(),
       formData,
       selectedObservationIds: [],
     });
 
-    expect(deferCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(enqueueCatalogMergeCandidateBulkJob).not.toHaveBeenCalled();
     expect(result.feedback).toMatchObject({ status: "error", result: "reason-required" });
+  });
+
+  it("rejects scope selection for candidate verbs that have no scope job", async () => {
+    const enqueueCatalogMergeCandidateBulkJob = vi.fn();
+    const formData = new FormData();
+    formData.set("candidateSelection", "scope");
+    formData.set("scopeRecordId", "scope_base_set");
+    formData.set("reason", "Ignore everything.");
+
+    const result = await handleCandidateCommand({
+      api: { enqueueCatalogMergeCandidateBulkJob } as never,
+      intent: "candidate.ignore",
+      context: commandContext(),
+      formData,
+      selectedObservationIds: [],
+    });
+
+    expect(enqueueCatalogMergeCandidateBulkJob).not.toHaveBeenCalled();
+    expect(result.feedback).toMatchObject({ status: "error", result: "invalid-intent" });
   });
 });
 

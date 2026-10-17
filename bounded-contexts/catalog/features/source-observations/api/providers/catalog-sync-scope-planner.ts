@@ -1,4 +1,5 @@
 import { ProviderSendStoppedError } from "./provider-send-admission";
+import { mapCountCaptureUnits } from "./count-capture-transport";
 import { t } from "@chase-sets/localization";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
 import type { ProviderAdapterRegistry } from "../provider-adapters/registry";
@@ -138,6 +139,7 @@ export type CatalogSyncProviderParticipationUnit = Readonly<{
     }>[];
   }>;
   estimate: Readonly<{
+    countSource?: ProviderUsageEstimate["countSource"];
     enforcedAdmissionMaximum?: ProviderUsageEstimate["enforcedAdmissionMaximum"];
     targetCount: number | null;
     requestStrategy: ProviderUsageEstimate["requestStrategy"] | null;
@@ -224,26 +226,27 @@ export async function previewCatalogSyncProviderParticipation(input: {
     }));
   if (requiredDefaults.size === 0) {
     for (const candidate of matchingCandidates) {
+      if (!selectedUnitKeys.has(candidate.unitKey) && !isActiveProviderProfileVersion(candidate.version)) {
+        continue;
+      }
       if (providerParticipationRole(candidate.version) === "primary-source-observation") {
         requiredDefaults.add(candidate.unitKey);
       }
     }
   }
 
-  const units = await Promise.all(
-    matchingCandidates.map(({ version, unitKey }) =>
-      planProviderUnit({
-        scope,
-        version,
-        unitKey,
-        mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey),
-        registry: input.providerAdapterRegistry,
-        rolloutControlPolicy: input.rolloutControlPolicy,
-        includeOperationalGates: input.includeOperationalGates ?? false,
-        required: requiredDefaults.has(unitKey),
-        explicitlySelected: selectedUnitKeys.has(unitKey),
-      }),
-    ),
+  const units = await mapCountCaptureUnits(matchingCandidates, ({ version, unitKey }) =>
+    planProviderUnit({
+      scope,
+      version,
+      unitKey,
+      mapping: acceptedMappingFor(acceptedScopeMappings, version.providerKey, unitKey),
+      registry: input.providerAdapterRegistry,
+      rolloutControlPolicy: input.rolloutControlPolicy,
+      includeOperationalGates: input.includeOperationalGates ?? false,
+      required: requiredDefaults.has(unitKey),
+      explicitlySelected: selectedUnitKeys.has(unitKey),
+    }),
   );
   const blockers = units.flatMap((unit) =>
     unit.requirement === "required" ? unit.blockers.filter((blocker) => blocker.severity === "error") : [],
@@ -460,6 +463,7 @@ async function planEstimate(
       targetCount: plan.estimatedPayloads ?? null,
       requestStrategy: plan.usageEstimate?.requestStrategy ?? null,
       estimatedRequestCount: plan.usageEstimate?.estimatedRequestCount ?? null,
+      countSource: plan.usageEstimate?.countSource ?? null,
       enforcedAdmissionMaximum: plan.usageEstimate?.enforcedAdmissionMaximum ?? null,
       estimateState: plan.usageEstimate?.estimateState ?? "unavailable",
       estimateReason: plan.usageEstimate?.estimateReason ?? null,
@@ -563,6 +567,10 @@ async function appendProviderReadinessBlockers(
   return { credentials, transport };
 }
 
+function isActiveProviderProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  return version.active && version.lifecycle === "active" && version.profile.status === "active";
+}
+
 function eligibilityBlockers(
   version: CatalogProviderIntegrationProfileVersionRecord,
   unitKey: CatalogIntegrationUnitKey,
@@ -570,7 +578,7 @@ function eligibilityBlockers(
   mapping: CatalogSyncAcceptedScopeMapping | null,
 ): CatalogSyncProviderParticipationBlocker[] {
   const blockers: CatalogSyncProviderParticipationBlocker[] = [];
-  if (!(version.active && version.lifecycle === "active" && version.profile.status === "active")) {
+  if (!isActiveProviderProfileVersion(version)) {
     blockers.push({
       code: "inactive-profile-unit",
       severity: "error",

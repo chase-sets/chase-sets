@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const constantSources = {
+  CHANNELS_EBAY_ACCOUNT_DELETION_PATH:
+    "bounded-contexts/channels/features/ebay-account-deletion/api/provider-webhook-paths.ts",
   PAYMENTS_PROVIDER_WEBHOOK_PATH: "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts",
   SETTLEMENT_MONEY_MOVEMENT_WEBHOOK_PATH: "bounded-contexts/settlement/features/payouts/api/provider-webhook-paths.ts",
   FULFILLMENT_POSTAGE_WEBHOOK_PATH: "bounded-contexts/fulfillment/features/shipments/api/provider-webhook-paths.ts",
@@ -45,4 +47,5 @@ export const PROVIDER_WEBHOOK_PATHS = [
   FULFILLMENT_POSTAGE_WEBHOOK_PATH,
   NOTIFICATIONS_EMAIL_WEBHOOK_PATH,
   NOTIFICATIONS_MOBILE_MESSAGING_WEBHOOK_PATH,
+  readProviderWebhookPathConstant("CHANNELS_EBAY_ACCOUNT_DELETION_PATH"),
 ];

@@ -13,6 +13,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/catalog/server";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import { createInventoryRepresentativeSeedServices, type InventoryServices } from "@chase-sets/inventory/server";
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
@@ -381,6 +382,7 @@ export async function runRepresentativeCommerceState(
         pools,
         runtimeProfile: config!.runtimeProfile,
         hostPorts: {
+          capabilityAdministrationAuthority: { kind: "deny-all", diagnostic: "authority_absent" },
           processorGateway: paymentProcessorGateway,
           paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
           moneyMovementGateway:
@@ -1042,7 +1044,7 @@ function getInventoryServices(services: Readonly<Record<string, unknown>>): Repr
     throw new Error("Representative commerce state requires mounted Inventory services.");
   }
 
-  return inventory as RepresentativeInventoryServices;
+  return createInventoryRepresentativeSeedServices(inventory as InventoryServices);
 }
 
 export async function selectChromeUatRepresentativePersona(

@@ -1,3 +1,7 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -25,6 +29,13 @@ import {
 } from "../../features/google-shopping-operations/api/feed-row-projection";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/slugs";
 import { refreshSearchIndexMarketSignals } from "../../features/search/read-model/market-signals";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" && subscription.projectionName === "discovery-market-projection",
+  )!,
+);
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
@@ -492,6 +503,27 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
   );
 }
 
+/** Buyer Pause/Resume/Withdraw: status only; the Offer patch removes non-submitted Offers from live views. */
+async function projectOfferLifecycleStatus(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  status: "submitted" | "paused" | "withdrawn",
+) {
+  const data = event.data as { offerId: string };
+  const projected = await db.query<{ offer_id: string }>(
+    `UPDATE discovery_offer_demand_matches
+     SET status = $2,
+         offer_stream_version = $3,
+         updated_at = $4
+     WHERE offer_id = $1
+       AND offer_stream_version < $3
+     RETURNING offer_id`,
+    [data.offerId, status, event.streamVersion, event.timing.recordedAt],
+  );
+  if (projected.rows.length === 0) return;
+  await emitOfferPatch(db, event, data.offerId);
+}
+
 async function markDiscoveryMarketSupplyHoldTerminal(
   db: PgQueryable,
   params: Readonly<{
@@ -556,6 +588,18 @@ async function updateDiscoveryAccountBadges(
 }
 
 export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const pauseListing: ProjectorHandlerMap[string] = async (event) => {
+    const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
+    await transitionStatus(db, {
+      table: MARKET_LISTINGS_TABLE,
+      idColumn: "listing_id",
+      id: listingId,
+      status: "paused",
+      updatedAt: event.timing.recordedAt,
+    });
+    await refreshGoogleShoppingListing(db, event, listingId, "visibility");
+    await emitListingPatch(db, event, listingId);
+  };
   return {
     "identity.account.created": async (event) => {
       const { accountId, displayName } = event.data as {
@@ -831,14 +875,15 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, data.listingId, "listing-created");
       await emitListingPatch(db, event, data.listingId);
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
       const products = JSON.stringify(Array.isArray(data.products) ? data.products : []);
 
-      await db.query(
+      await projectionDb.query(
         `DELETE FROM discovery_market_product_measures
          WHERE catalog_item_id = $1
            AND product_id NOT IN (
@@ -848,7 +893,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
            )`,
         [data.catalogItemId, products],
       );
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO discovery_market_product_measures (
            catalog_item_id,
            product_id,
@@ -864,7 +909,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         [data.catalogItemId, products, event.timing.recordedAt],
       );
 
-      const updated = await db.query<{ listing_id: string }>(
+      const updated = await projectionDb.query<{ listing_id: string }>(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -883,10 +928,10 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       );
 
       for (const row of updated.rows) {
-        await refreshGoogleShoppingListing(db, event, row.listing_id, "catalog");
-        await emitListingPatch(db, event, row.listing_id);
+        await refreshGoogleShoppingListing(projectionDb, event, row.listing_id, "catalog");
+        await emitListingPatch(projectionDb, event, row.listing_id);
       }
-    },
+    }),
     "inventory.storage-location.created": async (event) => {
       const data = event.data as {
         storageLocationId: string;
@@ -1218,30 +1263,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, listingId, "visibility");
       await emitListingPatch(db, event, listingId);
     },
-    "marketplace.listing.paused": async (event) => {
-      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_LISTINGS_TABLE,
-        idColumn: "listing_id",
-        id: listingId,
-        status: "paused",
-        updatedAt: event.timing.recordedAt,
-      });
-      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
-      await emitListingPatch(db, event, listingId);
-    },
-    "marketplace.listing.auto-unlisted": async (event) => {
-      const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
-      await transitionStatus(db, {
-        table: MARKET_LISTINGS_TABLE,
-        idColumn: "listing_id",
-        id: listingId,
-        status: "paused",
-        updatedAt: event.timing.recordedAt,
-      });
-      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
-      await emitListingPatch(db, event, listingId);
-    },
+    "marketplace.listing.paused": pauseListing,
+    "marketplace.listing.auto-unlisted": pauseListing,
+    "marketplace.listing.operator-unlisted": pauseListing,
     "marketplace.listing.withdrawn": async (event) => {
       const listingId = extractIdFromStreamId(event.streamId, MARKETPLACE_LISTING_STREAM_PREFIX);
       await transitionStatus(db, {
@@ -1379,6 +1403,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       if (projected.rows.length === 0) return;
       await emitOfferPatch(db, event, data.offerId);
     },
+    "marketplace.offer.paused": (event) => projectOfferLifecycleStatus(db, event, "paused"),
+    "marketplace.offer.resumed": (event) => projectOfferLifecycleStatus(db, event, "submitted"),
+    "marketplace.offer.withdrawn": (event) => projectOfferLifecycleStatus(db, event, "withdrawn"),
     "marketplace.offer.accepted": async (event) => {
       const data = event.data as {
         offerId: string;
