@@ -455,6 +455,53 @@ describe("Product Alert notification projector", () => {
       expect(outbox.enqueueNotification).not.toHaveBeenCalled();
     },
   );
+
+  it.each(["suspended", "closed"] as const)(
+    "does not notify for a %s Offer owner or Offer price update",
+    async (status) => {
+      const db = new ProductAlertProjectionDb();
+      const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+      db.alerts.set("pal_offer_status", {
+        alert_id: "pal_offer_status",
+        account_id: "acc_watcher",
+        market_side: "offer",
+        product_id: "cat_1::raw",
+        threshold_amount: "10.00",
+        threshold_currency_code: "EUR",
+        status: "active",
+      });
+      db.accounts.set("acc_buyer", { status });
+      const handlers = buildProductAlertNotificationProjectionHandlers(db, outbox as never);
+      await handlers["marketplace.offer.submitted"]!(
+        marketplaceEvent("marketplace.offer.submitted", {
+          offerId: "off_status",
+          buyerAccountId: "acc_buyer",
+          catalogItemId: "cat_1",
+          productId: "cat_1::raw",
+          selectedOptions: [],
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: "Raw",
+          priceAmount: "12.00",
+          priceCurrencyCode: "EUR",
+          quantityRequested: 1,
+        }),
+      );
+      await handlers["marketplace.offer.price-updated"]!(
+        marketplaceEvent(
+          "marketplace.offer.price-updated",
+          {
+            offerId: "off_status",
+            buyerAccountId: "acc_buyer",
+            priceAmount: "15.00",
+            priceCurrencyCode: "EUR",
+          },
+          2,
+        ),
+      );
+      expect(outbox.enqueueNotification).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("Product Alert Offer lifecycle", () => {

@@ -815,6 +815,16 @@ describe("buyer Offer lifecycle routes", () => {
     expect(body.error.details).not.toHaveProperty("accountStatus");
   });
 
+  it("returns 409 offer_not_open when the buyer mirror is missing", async () => {
+    const { seller } = await lifecycleApps({ off_1: "acc_buyer" }, true, null);
+    const accept = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+    });
+    expect(accept.status).toBe(409);
+    await expect(accept.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
+  });
+
   it("hides another buyer's Offer from single lifecycle commands", async () => {
     const { buyer, eventStore } = await lifecycleApps({ off_other: "acc_other" });
     const response = await post(buyer, "/offers/submitted/off_other/withdraw");
