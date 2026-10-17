@@ -3302,7 +3302,7 @@ const programRules = new Map([
         "remote add": "",
         "rev-list": "--count --max-parents= -n:1",
         "rev-parse": "--verify --quiet",
-        show: "-s --diff-merges= --format=",
+        show: { options: "-s --diff-merges= --format=", values: true },
         "show-ref": "--verify --quiet",
         tag: "--points-at:1 --list -a -m:1",
       },
