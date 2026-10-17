@@ -9,7 +9,6 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import { module as identityModule } from "../index";
 import { DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY } from "../features/account-capabilities/api/authority";
 import {
@@ -39,6 +38,12 @@ const CONTACTS: AdminQaActorFixtureContacts = {
 };
 const ALIASES = ADMIN_QA_ACTOR_FIXTURES.map((fixture) => fixture.actorAlias);
 const VIEWER = "admin-qa-viewer";
+const OWNER_ACCOUNT = "identity.account-acc_admin_qa_owner";
+const OWNER_USER = "identity.user-usr_admin_qa_owner";
+const MANAGER_MEMBERSHIP = "identity.membership-mbr_admin_qa_manager";
+const FULFILLMENT_ACCOUNT = "identity.account-acc_admin_qa_fulfillment";
+const FULFILLMENT_USER = "identity.user-usr_admin_qa_fulfillment";
+const CATALOG_ADMIN_ACCOUNT = "identity.account-acc_admin_qa_catalog_admin";
 const SECONDARY_ACCOUNT = "identity.account-acc_admin_qa_viewer_secondary";
 const SECONDARY_MEMBERSHIP = "identity.membership-mbr_admin_qa_viewer_secondary";
 const ENFORCEMENT = {
@@ -49,14 +54,10 @@ const ENFORCEMENT = {
 } as const;
 
 type Streams = Readonly<Record<string, number>>;
-type Plant = (services: IdentityServices) => Promise<void>;
+type HistoryEvent = Readonly<{ eventType: string; payload: Readonly<Record<string, unknown>> }>;
 
 const snake = (alias: string) => alias.replaceAll("-", "_");
 const fixtureOf = (alias: string) => ADMIN_QA_ACTOR_FIXTURES.find((fixture) => fixture.actorAlias === alias)!;
-const emailOf = (alias: string) =>
-  CONTACTS[
-    `ADMIN_QA_${snake(alias).slice("admin_qa_".length).toUpperCase()}_EMAIL` as keyof AdminQaActorFixtureContacts
-  ];
 
 /** Every stream one alias owns, with the events a clean run appends to each. */
 function cleanRun(alias: string): Streams {
@@ -78,25 +79,48 @@ const allOutcomes = (outcome: AdminQaActorFixtureOutcome, overrides: Record<stri
 describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
   let pools: Readonly<Record<"identity", PgTransactionalPool>>;
   let services: IdentityServices;
+  // The exact histories a clean run writes; planted states copy them and change one fact.
+  let canonical: ReadonlyMap<string, readonly HistoryEvent[]>;
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["identity"], "identity_admin_qa_fixtures");
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
+    await resetSchema();
+    await provisionAdminQaActorFixtures(boot(), CONTACTS);
+    canonical = await histories();
   });
   beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await pools.identity.query(composeModuleSchemaSql(identityModule));
+    await resetSchema();
     services = boot();
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
   });
 
+  async function resetSchema() {
+    await resetMultiContextTestSchemas(pools);
+    await pools.identity.query(composeModuleSchemaSql(identityModule));
+  }
   function boot(): IdentityServices {
     return createIdentityServices(pools.identity, {
       capabilityAdministrationAuthority: DENY_ALL_CAPABILITY_ADMINISTRATION_AUTHORITY,
     });
+  }
+  async function histories(): Promise<ReadonlyMap<string, readonly HistoryEvent[]>> {
+    const result = await pools.identity.query<{
+      stream_id: string;
+      event_type: string;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT stream_id, event_type, payload FROM event_store_events
+        WHERE position('admin_qa' in stream_id) > 0 ORDER BY stream_id, stream_version`,
+    );
+    const map = new Map<string, HistoryEvent[]>();
+    for (const row of result.rows) {
+      map.set(row.stream_id, [...(map.get(row.stream_id) ?? []), { eventType: row.event_type, payload: row.payload }]);
+    }
+    return map;
   }
 
   /** Event counts for every Admin QA stream, read from the event store itself. */
@@ -119,7 +143,17 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
 
   it("creates every actor from nothing beside unrelated rows, then same-boot and boot-two runs are steady", async () => {
     // Unrelated Identity state and a stray projection row for a target are not completeness.
-    await createAccount("acc_unrelated_control", { name: "Unrelated Control" });
+    await appendRaw("identity.account-acc_unrelated_control", [
+      {
+        eventType: "identity.account.created",
+        payload: {
+          accountId: "acc_unrelated_control",
+          name: "Unrelated Control",
+          displayName: "Unrelated Control",
+          accountType: "business",
+        },
+      },
+    ]);
     await pools.identity.query(
       `INSERT INTO identity_accounts (account_id, name, display_name, account_type, status)
        VALUES ('acc_admin_qa_owner', 'Admin QA Owner', 'Admin QA Owner', 'business', 'active')`,
@@ -128,6 +162,7 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
     const clean = await provision();
     expect(clean.outcomes).toEqual(allOutcomes("created"));
     expect(clean.delta(cleanRunAll())).toEqual(cleanRunAll());
+    expect(await histories()).toEqual(canonical);
 
     const repeat = await provision();
     expect(repeat.outcomes).toEqual(allOutcomes("steady"));
@@ -137,7 +172,7 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
     expect(bootTwo.outcomes).toEqual(allOutcomes("steady"));
     expect(bootTwo.delta(cleanRunAll())).toEqual(zero(cleanRunAll()));
 
-    await expect(eventTypes(`identity.user-usr_admin_qa_owner`)).resolves.toEqual([
+    expect(canonical.get(OWNER_USER)!.map((event) => event.eventType)).toEqual([
       "identity.user.created",
       "identity.user.auth-method-enabled",
     ]);
@@ -167,156 +202,158 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
         Object.entries(cleanRun(alias)).map(([stream, count]) => [stream, count - (prefix[stream] ?? 0)]),
       );
       expect(resumed.delta(cleanRun(alias))).toEqual(expected);
-      expect(await streamCounts()).toEqual(cleanRunAll());
+      expect(await histories()).toEqual(canonical);
 
       const again = await provision(boot());
       expect(again.outcomes).toEqual(allOutcomes("steady"));
     },
   );
 
-  const conflicts: ReadonlyArray<readonly [string, string, Plant]> = [
+  const conflicts: ReadonlyArray<readonly [string, string, () => Promise<void>]> = [
     [
       "Account identity",
       "admin-qa-owner",
-      () => createAccount("acc_admin_qa_owner", { accountId: "acc_admin_qa_impostor" }),
+      () => plant(OWNER_ACCOUNT, patched(OWNER_ACCOUNT, 0, { accountId: "acc_admin_qa_impostor" })),
     ],
     [
       "Account display",
       "admin-qa-owner",
-      () => createAccount("acc_admin_qa_owner", { name: "Admin QA Owner Renamed" }),
+      () =>
+        plant(
+          OWNER_ACCOUNT,
+          patched(OWNER_ACCOUNT, 0, { name: "Admin QA Owner Renamed", displayName: "Admin QA Owner Renamed" }),
+        ),
     ],
-    ["Account type", "admin-qa-owner", () => createAccount("acc_admin_qa_owner", { accountType: "personal" })],
+    [
+      "Account type",
+      "admin-qa-owner",
+      () => plant(OWNER_ACCOUNT, patched(OWNER_ACCOUNT, 0, { accountType: "personal" })),
+    ],
     [
       "Account status (terminal suspension)",
       "admin-qa-owner",
       async () => {
-        await createAccount("acc_admin_qa_owner");
-        await accountCommand("acc_admin_qa_owner", { type: "SuspendAccount", enforcement: ENFORCEMENT });
+        await plant(OWNER_ACCOUNT);
+        await command("accounts", OWNER_ACCOUNT, { type: "SuspendAccount", enforcement: ENFORCEMENT });
       },
     ],
     [
       "unexpected Account event",
       "admin-qa-owner",
       async () => {
-        await createAccount("acc_admin_qa_owner");
-        await accountCommand("acc_admin_qa_owner", { type: "UpdateAccountProfile", name: "Admin QA Owner" });
+        await plant(OWNER_ACCOUNT);
+        await command("accounts", OWNER_ACCOUNT, { type: "UpdateAccountProfile", name: "Admin QA Owner" });
       },
     ],
-    ["User identity", "admin-qa-owner", () => createUser("admin-qa-owner", { userId: "usr_admin_qa_impostor" })],
-    ["User contact", "admin-qa-owner", () => createUser("admin-qa-owner", { email: "someone-else@admin-qa.test" })],
+    [
+      "User identity",
+      "admin-qa-owner",
+      () => plant(OWNER_USER, patched(OWNER_USER, 0, { userId: "usr_admin_qa_impostor" })),
+    ],
+    [
+      "User contact",
+      "admin-qa-owner",
+      () => plant(OWNER_USER, replaced(OWNER_USER, CONTACTS.ADMIN_QA_OWNER_EMAIL, "someone-else@admin-qa.test")),
+    ],
     [
       "User auth (poisoned canonical event types)",
       "admin-qa-owner",
-      async () => {
-        await createUser("admin-qa-owner");
-        await userCommand("admin-qa-owner", { type: "EnableAuthMethod", authMethod: "password" });
-      },
+      () => plant(OWNER_USER, patched(OWNER_USER, 1, { authMethod: "password" })),
     ],
     [
       "User extra auth method",
       "admin-qa-owner",
       async () => {
-        await createUser("admin-qa-owner");
-        await userCommand("admin-qa-owner", { type: "EnableAuthMethod", authMethod: "magic-link" });
-        await userCommand("admin-qa-owner", { type: "EnableAuthMethod", authMethod: "passkey" });
+        await plant(OWNER_USER);
+        await command("users", OWNER_USER, { type: "EnableAuthMethod", authMethod: "passkey" });
       },
     ],
     [
       "User status (terminal suspension)",
       "admin-qa-owner",
       async () => {
-        await createUser("admin-qa-owner");
-        await userCommand("admin-qa-owner", { type: "SuspendUser" });
+        await plant(OWNER_USER);
+        await command("users", OWNER_USER, { type: "SuspendUser" });
       },
     ],
-    ["Membership role", "admin-qa-manager", () => grant("admin-qa-manager", { roleKey: "owner" })],
+    [
+      "Membership role",
+      "admin-qa-manager",
+      () => plant(MANAGER_MEMBERSHIP, patched(MANAGER_MEMBERSHIP, 0, { roleKey: "owner" })),
+    ],
     [
       "Membership assignment (Account binding)",
       "admin-qa-manager",
-      () => grant("admin-qa-manager", { accountId: "acc_admin_qa_owner" }),
+      () => plant(MANAGER_MEMBERSHIP, patched(MANAGER_MEMBERSHIP, 0, { accountId: "acc_admin_qa_owner" })),
     ],
     [
       "Membership assignment (User binding)",
       "admin-qa-manager",
-      () => grant("admin-qa-manager", { userId: "usr_admin_qa_owner" }),
+      () => plant(MANAGER_MEMBERSHIP, patched(MANAGER_MEMBERSHIP, 0, { userId: "usr_admin_qa_owner" })),
     ],
     [
       "Membership status (terminal revocation)",
       "admin-qa-manager",
       async () => {
-        await grant("admin-qa-manager");
-        await services.memberships.commandHandler({
-          streamId: "identity.membership-mbr_admin_qa_manager",
-          command: { type: "RevokeMembership" },
-          context: createIdentityBootstrapContext(),
-        });
+        await plant(MANAGER_MEMBERSHIP);
+        await command("memberships", MANAGER_MEMBERSHIP, { type: "RevokeMembership" });
       },
     ],
     [
       "malformed history (canonical type, unreadable payload)",
       "admin-qa-fulfillment",
-      () =>
-        appendRaw("identity.account-acc_admin_qa_fulfillment", [
-          { eventType: "identity.account.created", payload: {} },
-        ]),
+      () => plant(FULFILLMENT_ACCOUNT, [{ eventType: "identity.account.created", payload: {} }]),
     ],
     [
       "unknown event type",
       "admin-qa-fulfillment",
-      () =>
-        appendRaw("identity.account-acc_admin_qa_fulfillment", [
-          { eventType: "identity.account.mystery", payload: {} },
-        ]),
+      () => plant(FULFILLMENT_ACCOUNT, [{ eventType: "identity.account.mystery", payload: {} }]),
     ],
     [
       "poisoned duplicate creation",
       "admin-qa-fulfillment",
-      async () => {
-        await createUser("admin-qa-fulfillment");
-        const [created] = await services.eventStore!.readStream({ streamId: "identity.user-usr_admin_qa_fulfillment" });
-        await appendRaw(
-          "identity.user-usr_admin_qa_fulfillment",
-          [{ eventType: "identity.user.created", payload: created!.payload }],
-          1,
-        );
-      },
+      () => plant(FULFILLMENT_USER, [canonicalOf(FULFILLMENT_USER)[0]!, canonicalOf(FULFILLMENT_USER)[0]!]),
     ],
     [
       "decisive event 501 after 500 canonical-looking events",
       "admin-qa-catalog-admin",
       () =>
-        appendRaw("identity.account-acc_admin_qa_catalog_admin", [
-          ...Array.from({ length: 500 }, () => ({
-            eventType: "identity.account.created",
-            payload: {
-              accountId: "acc_admin_qa_catalog_admin",
-              name: "Admin QA Catalog Admin",
-              displayName: "Admin QA Catalog Admin",
-              accountType: "business",
-            },
-          })),
+        plant(CATALOG_ADMIN_ACCOUNT, [
+          ...Array.from({ length: 500 }, () => canonicalOf(CATALOG_ADMIN_ACCOUNT)[0]!),
           { eventType: "identity.account.suspended", payload: { enforcement: ENFORCEMENT } },
         ]),
     ],
-    ["viewer secondary role", VIEWER, () => grantSecondary({ roleKey: "owner" })],
-    ["viewer secondary binding", VIEWER, () => grantSecondary({ accountId: "acc_admin_qa_viewer" })],
+    [
+      "viewer secondary role",
+      VIEWER,
+      () => plant(SECONDARY_MEMBERSHIP, patched(SECONDARY_MEMBERSHIP, 0, { roleKey: "owner" })),
+    ],
+    [
+      "viewer secondary binding",
+      VIEWER,
+      () => plant(SECONDARY_MEMBERSHIP, patched(SECONDARY_MEMBERSHIP, 0, { accountId: "acc_admin_qa_viewer" })),
+    ],
     [
       "viewer secondary Account display",
       VIEWER,
-      () => createAccount("acc_admin_qa_viewer_secondary", { name: "Admin QA Viewer Tertiary" }),
+      () =>
+        plant(
+          SECONDARY_ACCOUNT,
+          patched(SECONDARY_ACCOUNT, 0, { name: "Admin QA Viewer Primary", displayName: "Admin QA Viewer Primary" }),
+        ),
     ],
     [
       "viewer secondary Account status (terminal closure)",
       VIEWER,
       async () => {
-        await createAccount("acc_admin_qa_viewer_secondary", { name: "Admin QA Viewer Secondary" });
-        await accountCommand("acc_admin_qa_viewer_secondary", { type: "CloseAccount", enforcement: ENFORCEMENT });
+        await plant(SECONDARY_ACCOUNT);
+        await command("accounts", SECONDARY_ACCOUNT, { type: "CloseAccount", enforcement: ENFORCEMENT });
       },
     ],
   ];
 
-  it.each(conflicts)("classifies %s on %s as conflict and appends nothing to it", async (_name, alias, plant) => {
-    await plant(services);
+  it.each(conflicts)("classifies %s on %s as conflict and appends nothing to it", async (_name, alias, plantState) => {
+    await plantState();
     const run = await provision();
     expect(run.outcomes).toEqual(allOutcomes("created", { [alias]: "conflict" }));
     expect(run.delta(cleanRun(alias))).toEqual(zero(cleanRun(alias)));
@@ -328,10 +365,10 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
     expect(rerun.delta(cleanRun(alias))).toEqual(zero(cleanRun(alias)));
   });
 
-  // The incomplete page needs a present stream, so that case first creates the owner Account.
+  // The incomplete page needs a present stream, so that case first plants the owner Account.
   const failures: ReadonlyArray<readonly [string, string, (base: IdentityServices) => IdentityServices, boolean]> = [
-    ["a stream read error", "admin-qa-owner", (base) => failingRead(base, "identity.user-usr_admin_qa_owner"), false],
-    ["an incomplete page", "admin-qa-owner", (base) => gappedRead(base, "identity.account-acc_admin_qa_owner"), true],
+    ["a stream read error", "admin-qa-owner", (base) => failingRead(base, OWNER_USER), false],
+    ["an incomplete page", "admin-qa-owner", (base) => gappedRead(base, OWNER_ACCOUNT), true],
     [
       "a state read error",
       "admin-qa-manager",
@@ -351,14 +388,14 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
   ];
 
   it.each(failures)("classifies %s on %s as error without any append to it", async (_name, alias, wrap, planted) => {
-    if (planted) await createAccount("acc_admin_qa_owner");
+    if (planted) await plant(OWNER_ACCOUNT);
     const run = await provision(wrap(services));
     expect(run.outcomes).toEqual(allOutcomes("created", { [alias]: "error" }));
     expect(run.delta(cleanRun(alias))).toEqual(zero(cleanRun(alias)));
 
     const recovered = await provision(boot());
     expect(recovered.outcomes).toEqual(allOutcomes("steady", { [alias]: planted ? "reconciled" : "created" }));
-    expect(await streamCounts()).toEqual(cleanRunAll());
+    expect(await histories()).toEqual(canonical);
   });
 
   it("nets exactly one creation when two boots provision concurrently", async () => {
@@ -371,7 +408,7 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
         expect(["created", "reconciled", "steady"]).toContain(outcome);
       }
     }
-    expect(await streamCounts()).toEqual(cleanRunAll());
+    expect(await histories()).toEqual(canonical);
     expect((await provision(boot())).outcomes).toEqual(allOutcomes("steady"));
   });
 
@@ -414,23 +451,21 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
     expect(consents.rows).toEqual([]);
 
     // A second Membership planted on any other actor is visible to the same enumeration.
-    await createAccount("acc_admin_qa_planted", { name: "Admin QA Planted" });
-    await services.memberships.commandHandler({
-      streamId: "identity.membership-mbr_admin_qa_owner_planted",
-      command: {
-        type: "GrantMembership",
-        membershipId: "mbr_admin_qa_owner_planted" as MembershipId,
-        userId: "usr_admin_qa_owner" as UserId,
-        accountId: "acc_admin_qa_planted" as AccountId,
-        roleKey: "owner",
-        assignmentAuthority: { type: "system" },
+    await plant("identity.membership-mbr_admin_qa_owner_planted", [
+      {
+        eventType: "identity.membership.granted",
+        payload: {
+          membershipId: "mbr_admin_qa_owner_planted",
+          userId: "usr_admin_qa_owner",
+          accountId: "acc_admin_qa_manager",
+          roleKey: "owner",
+        },
       },
-      context: createIdentityBootstrapContext(),
-    });
+    ]);
     await expect(aliasesWithSeveralMemberships()).resolves.toEqual(["admin-qa-owner", VIEWER]);
   });
 
-  /** Every active-or-not Membership granted to an Admin QA User, joined to its Account, from stream state. */
+  /** Every Membership granted to an Admin QA User, joined to its Account, from stream state. */
   async function membershipEnumeration() {
     const granted = await pools.identity.query<{ stream_id: string }>(
       `SELECT stream_id FROM event_store_events
@@ -471,106 +506,40 @@ describeDb("Admin QA actor fixtures against real PostgreSQL", () => {
   async function eventTypes(streamId: string) {
     return (await services.eventStore!.readStream({ streamId })).map((event) => event.eventType);
   }
-  async function createAccount(
-    accountId: string,
-    overrides: Partial<{ accountId: string; name: string; accountType: "business" | "personal" }> = {},
-  ) {
-    const fixture = ADMIN_QA_ACTOR_FIXTURES.find((candidate) => candidate.accountId === accountId);
-    const name = overrides.name ?? fixture?.accountName ?? accountId;
-    await services.accounts.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command: {
-        type: "CreateAccount",
-        accountId: (overrides.accountId ?? accountId) as AccountId,
-        name,
-        accountType: overrides.accountType ?? "business",
-        displayName: name,
-      },
-      context: createIdentityBootstrapContext(),
-    });
+  function canonicalOf(streamId: string): readonly HistoryEvent[] {
+    const events = canonical.get(streamId);
+    if (!events) throw new Error(`No canonical history captured for ${streamId}.`);
+    return events;
   }
-  async function accountCommand(
-    accountId: string,
-    command: Parameters<IdentityServices["accounts"]["commandHandler"]>[0]["command"],
-  ) {
-    await services.accounts.commandHandler({
-      streamId: `identity.account-${accountId}`,
-      command,
-      context: createIdentityBootstrapContext(),
-    });
+  function patched(streamId: string, index: number, patch: Readonly<Record<string, unknown>>): readonly HistoryEvent[] {
+    return canonicalOf(streamId).map((event, position) =>
+      position === index ? { ...event, payload: { ...event.payload, ...patch } } : event,
+    );
   }
-  async function createUser(alias: string, overrides: Partial<{ userId: string; email: string }> = {}) {
-    const fixture = fixtureOf(alias);
-    const email = overrides.email ?? emailOf(alias);
-    await services.users.commandHandler({
-      streamId: `identity.user-${fixture.userId}`,
-      command: {
-        type: "CreateUser",
-        userId: (overrides.userId ?? fixture.userId) as UserId,
-        displayName: fixture.displayName,
-        primaryEmail: email,
-        givenName: fixture.givenName,
-        familyName: fixture.familyName,
-        primaryContactMethod: {
-          contactMethodId: `ctm_${fixture.userId.slice(4)}_email`,
-          type: "email",
-          value: email,
-          verifiedAt: "2026-07-13T00:00:00.000Z",
-        },
-      },
-      context: createIdentityBootstrapContext(),
-    });
+  function replaced(streamId: string, from: string, to: string): readonly HistoryEvent[] {
+    return canonicalOf(streamId).map((event) => ({
+      ...event,
+      payload: JSON.parse(JSON.stringify(event.payload).replaceAll(from, to)) as HistoryEvent["payload"],
+    }));
   }
-  async function userCommand(
-    alias: string,
-    command: Parameters<IdentityServices["users"]["commandHandler"]>[0]["command"],
-  ) {
-    await services.users.commandHandler({
-      streamId: `identity.user-${fixtureOf(alias).userId}`,
-      command,
-      context: createIdentityBootstrapContext(),
-    });
+  async function plant(streamId: string, events: readonly HistoryEvent[] = canonicalOf(streamId)) {
+    await appendRaw(streamId, events);
   }
-  async function grant(alias: string, overrides: Partial<{ roleKey: string; accountId: string; userId: string }> = {}) {
-    const fixture = fixtureOf(alias);
-    await services.memberships.commandHandler({
-      streamId: `identity.membership-${fixture.membershipId}`,
-      command: {
-        type: "GrantMembership",
-        membershipId: fixture.membershipId,
-        userId: (overrides.userId ?? fixture.userId) as UserId,
-        accountId: (overrides.accountId ?? fixture.accountId) as AccountId,
-        roleKey: (overrides.roleKey ?? fixture.roleKey) as typeof fixture.roleKey,
-        assignmentAuthority: { type: "system" },
-      },
-      context: createIdentityBootstrapContext(),
-    });
-  }
-  async function grantSecondary(overrides: Partial<{ roleKey: string; accountId: string }>) {
-    await services.memberships.commandHandler({
-      streamId: SECONDARY_MEMBERSHIP,
-      command: {
-        type: "GrantMembership",
-        membershipId: "mbr_admin_qa_viewer_secondary" as MembershipId,
-        userId: "usr_admin_qa_viewer" as UserId,
-        accountId: (overrides.accountId ?? "acc_admin_qa_viewer_secondary") as AccountId,
-        roleKey: (overrides.roleKey ?? "viewer") as "viewer",
-        assignmentAuthority: { type: "system" },
-      },
-      context: createIdentityBootstrapContext(),
-    });
-  }
-  async function appendRaw(
-    streamId: string,
-    events: ReadonlyArray<Readonly<{ eventType: string; payload: unknown }>>,
-    expectedVersion: number | "no_stream" = "no_stream",
-  ) {
+  async function appendRaw(streamId: string, events: readonly HistoryEvent[]) {
     await services.eventStore!.appendToStream({
       streamId,
-      expectedVersion,
+      expectedVersion: "no_stream",
       context: createIdentityBootstrapContext(),
       events: events as never,
     });
+  }
+  async function command(
+    aggregate: "accounts" | "users" | "memberships",
+    streamId: string,
+    payload: Readonly<{ type: string } & Record<string, unknown>>,
+  ) {
+    const handler = services[aggregate].commandHandler as (input: unknown) => Promise<unknown>;
+    await handler({ streamId, command: payload, context: createIdentityBootstrapContext() });
   }
 
   /** Lets `appended` commands for one alias through, then fails its next command. */
