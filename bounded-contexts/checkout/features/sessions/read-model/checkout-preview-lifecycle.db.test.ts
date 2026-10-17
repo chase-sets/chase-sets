@@ -36,6 +36,7 @@ import type { CheckoutServices } from "../../../support/runtime-support/services
 import { action, loader } from "../../../routes/checkout-session";
 import { evolveCheckoutSession, initialCheckoutSessionState, type CheckoutSessionEvent } from "../domain/domain";
 import { getCheckoutSession } from "./queries";
+import { checkoutSessionRetainedSchemaSql } from "./schema";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -474,7 +475,9 @@ describeDb("checkout preview lifecycle", () => {
       test.task.name.startsWith("AC7")
         ? {
             ...checkoutModule,
-            schemaSql: checkoutModule.schemaSql.replace("  handoff_expires_at timestamptz NULL,", ""),
+            schemaSql: checkoutModule.schemaSql
+              .replace("  handoff_expires_at timestamptz NULL,", "")
+              .replace(checkoutSessionRetainedSchemaSql, ""),
             schemaMigrations: schemaMigrations.filter(
               (migration) => migration.migrationId !== "20261016_checkout_session_handoff_expiry",
             ),

@@ -20,6 +20,14 @@ import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../fe
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(checkoutRoot, "..", "..");
+
+it("keeps the retained-database expiry boot expansion outside the fresh base schema", () => {
+  const expansion = "ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL";
+  expect(checkoutSessionSchemaSql).not.toContain(expansion);
+  expect(checkoutSchemaSql).toContain(expansion);
+  expect(checkoutSchemaSql.indexOf(expansion)).toBeGreaterThan(checkoutSchemaSql.indexOf(checkoutSessionSchemaSql));
+});
+
 type ForbiddenPattern = Readonly<{
   label: string;
   pattern: RegExp;

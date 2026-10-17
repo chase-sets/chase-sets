@@ -44,6 +44,10 @@ ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS fulfillment_preview_snapshot jsonb NULL;
 `;
 
+// Retained databases expand before boot consumers, independently of the ledger (#7751).
+export const checkoutSessionRetainedSchemaSql = `ALTER TABLE checkout_session_pages
+  ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;`;
+
 export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260707_checkout_session_reservations",
@@ -78,9 +82,6 @@ export const checkoutSessionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261016_checkout_session_handoff_expiry",
     description: "Add optional UCP checkout handoff expiry timestamps.",
-    statements: [
-      `ALTER TABLE checkout_session_pages
-  ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;`,
-    ],
+    statements: [checkoutSessionRetainedSchemaSql],
   },
 ];
