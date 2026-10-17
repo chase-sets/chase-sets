@@ -77,7 +77,7 @@ const malformedNonStringMoneyValues: readonly unknown[] = [
 
 function createMoneyDb() {
   return {
-    query: vi.fn(async () => ({ rows: [] })),
+    query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
   };
 }
 
