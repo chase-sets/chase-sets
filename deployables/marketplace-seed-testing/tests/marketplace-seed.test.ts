@@ -406,7 +406,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before + 1,
     );
-    await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+    await clearListingStream(pools, streamId);
     await runMarketplaceSeed(pools);
   }, 300_000);
 
@@ -433,7 +433,13 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
           ownerCalls += 1;
           if (!injected) {
             injected = true;
-            await original({ ...args[0], updates: [args[0].updates[0]!] }, args[1]);
+            await original(
+              {
+                ...args[0],
+                updates: [{ ...args[0].updates[0]!, idempotencyKey: "owner-write:marketplace-seed" }],
+              },
+              args[1],
+            );
           }
           return original(...args);
         },
@@ -458,7 +464,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const { pools } = seedRuntime;
     const listingId = marketplaceReservedSeedIds.listings.mewtwoBlackStarPromoActive;
     const streamId = listingStream(listingId);
-    await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+    await clearListingStream(pools, streamId);
 
     await runMarketplaceSeed(pools);
 
@@ -482,7 +488,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
        FROM event_store_events WHERE stream_id = $1 AND event_type = 'marketplace.listing.created'`,
       [streamId],
     );
-    await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+    await clearListingStream(pools, streamId);
     await pools.inventory.query("DELETE FROM inventory_items WHERE item_id = $1", [created.rows[0]!.inventory_item_id]);
 
     await expect(marketplaceModule.seed!(pools.marketplace, services)).rejects.toThrow(/missing inventory supply/);
@@ -607,13 +613,23 @@ async function countStreamEvents(
 }
 
 async function resetListingStream(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"], streamId: string) {
-  await pools.marketplace.query("DELETE FROM event_store_streams WHERE stream_id = $1", [streamId]);
+  await clearListingStream(pools, streamId);
   await runMarketplaceSeed(pools);
 }
 
 async function resetAllListingStreams(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
-  await pools.marketplace.query("DELETE FROM event_store_streams WHERE stream_id LIKE 'marketplace.listing-%'");
+  await clearListingStreams(pools);
   await runMarketplaceSeed(pools);
+}
+
+async function clearListingStream(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"], streamId: string) {
+  await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id = $1", [streamId]);
+  await pools.marketplace.query("DELETE FROM event_store_streams WHERE stream_id = $1", [streamId]);
+}
+
+async function clearListingStreams(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
+  await pools.marketplace.query("DELETE FROM event_store_events WHERE stream_id LIKE 'marketplace.listing-%'");
+  await pools.marketplace.query("DELETE FROM event_store_streams WHERE stream_id LIKE 'marketplace.listing-%'");
 }
 
 async function repairListingStreamVersions(pools: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]) {
