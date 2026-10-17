@@ -885,17 +885,21 @@ async function classifyAllSeedListings(services: MarketplaceServices): Promise<r
     const { committed, state } = await loadSeedListingState(services.db, listing.listingId);
     const classification = classifySeedListing(listing, committed, state, accountId, context);
     assertSeedListingClassification(classification);
-    if (classification.kind === "absent") {
-      const supply = await services.listings.getInventoryItemSupply(listing.inventoryItemId, accountId);
-      if (!supply) {
-        throw new Error(
-          `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${listing.listingId}' rejected; ` +
-            `stream '${marketplaceListingStreamId(listing.listingId)}', version 0; ` +
-            `mismatched fields: missing inventory supply.`,
-        );
-      }
-    }
     classifications.push(classification);
+  }
+  for (const classification of classifications) {
+    if (classification.kind !== "absent") continue;
+    const supply = await services.listings.getInventoryItemSupply(
+      classification.listing.inventoryItemId,
+      classification.accountId,
+    );
+    if (!supply) {
+      throw new Error(
+        `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${classification.listing.listingId}' rejected; ` +
+          `stream '${marketplaceListingStreamId(classification.listing.listingId)}', version 0; ` +
+          `mismatched fields: missing inventory supply.`,
+      );
+    }
   }
   return classifications;
 }
