@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
-import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
+import { createMarketplaceSeedRuntime, describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
   demoAccountId: "acc_seed_demo_account",
@@ -201,19 +201,18 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
   it("refuses AC1 listing drift before any append and reports non-exact inspection as draft", async () => {
     const { pools } = seedRuntime;
-    await seedRuntime.seed();
     const listingId = marketplaceReservedSeedIds.listings.cardVaultCharizardNearMint;
     const streamId = listingStream(listingId);
     const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
 
     await updateCreatedPayload(pools.marketplace, streamId, "priceAmount", "1.00");
-    await expect(seedRuntime.seed()).rejects.toThrow(/mismatched fields: price amount/);
+    await expect(marketplaceModule.seed!(pools.marketplace)).rejects.toThrow(/mismatched fields: price amount/);
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before,
     );
 
     await updateCreatedPayload(pools.marketplace, streamId, "priceAmount", "389.00");
-    await seedRuntime.seed();
+    await marketplaceModule.seed!(pools.marketplace);
     await replacePublishedEvent(pools.marketplace, streamId, "marketplace.listing.paused");
     const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
     expect(reports.find((report) => report.id === listingId)).toMatchObject({ kind: "draft", status: "paused" });
@@ -221,7 +220,6 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
   it("reconciles a legacy active draft to exact and authors it in one real-DB seed", async () => {
     const { pools } = seedRuntime;
-    await seedRuntime.seed();
     const listingId = marketplaceReservedSeedIds.listings.lugiaNeoGenesisBgs95;
     const streamId = listingStream(listingId);
     await stripCreatedCurrency(pools.marketplace, streamId);
@@ -232,7 +230,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     const before = await countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated");
 
-    await seedRuntime.seed();
+    await marketplaceModule.seed!(pools.marketplace);
 
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before + 1,
@@ -243,7 +241,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
       [streamId],
     );
     expect(Number(published.rows[0]?.count ?? 0)).toBe(1);
-    await seedRuntime.seed();
+    await marketplaceModule.seed!(pools.marketplace);
     await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
       before + 1,
     );
@@ -251,7 +249,6 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
   it("refuses incomplete fee locks across accounts with zero price updates", async () => {
     const { pools } = seedRuntime;
-    await seedRuntime.seed();
     const streams = [
       listingStream(marketplaceReservedSeedIds.listings.cardVaultCharizardNearMint),
       listingStream(marketplaceReservedSeedIds.listings.sealedStockroomSurgingSparksActive),
@@ -266,7 +263,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     const before = await countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true);
 
-    await expect(seedRuntime.seed()).rejects.toThrow(/mismatched fields: fee locks/);
+    await expect(marketplaceModule.seed!(pools.marketplace)).rejects.toThrow(/mismatched fields: fee locks/);
     await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
       before,
     );
@@ -275,14 +272,14 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
   it("keeps withdrawn legacy listings unchanged while reconciling active listings", async () => {
     const { pools } = seedRuntime;
-    await seedRuntime.seed();
+    await marketplaceModule.seed!(pools.marketplace);
     const withdrawnId = marketplaceReservedSeedIds.listings.surgingSparksWithdrawn;
     const withdrawnStream = listingStream(withdrawnId);
     await stripCreatedCurrency(pools.marketplace, withdrawnStream);
     await replacePublishedEvent(pools.marketplace, withdrawnStream, "marketplace.listing.withdrawn");
     const before = await countListingEvents(pools.marketplace, withdrawnStream, "marketplace.listing.price-updated");
 
-    await seedRuntime.seed();
+    await marketplaceModule.seed!(pools.marketplace);
 
     await expect(
       countListingEvents(pools.marketplace, withdrawnStream, "marketplace.listing.price-updated"),
@@ -297,7 +294,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
   it("survives an owner write between classify and append and converges on the next run", async () => {
     const { pools } = seedRuntime;
-    const runtime = await seedRuntime.seed();
+    const runtime = createMarketplaceSeedRuntime(pools);
     const services = runtime.services.marketplace as MarketplaceSeedServices;
     await pools.marketplace.query(
       `UPDATE event_store_events
@@ -340,7 +337,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
   it("refuses missing supply without creating the absent listing and remains idempotent across boots", async () => {
     const { pools } = seedRuntime;
-    const runtime = await seedRuntime.seed();
+    const runtime = createMarketplaceSeedRuntime(pools);
     const services = runtime.services.marketplace as MarketplaceSeedServices;
     const listingId = marketplaceReservedSeedIds.listings.mewtwoBlackStarPromoPremium;
     const streamId = listingStream(listingId);
