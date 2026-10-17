@@ -527,6 +527,7 @@ describe("responsive evidence from a retried Playwright capture", () => {
   });
 
   it("accepts only the final attempt's manifest and publishes only its payload", async () => {
+    expect(retried.captures.map((capture) => capture.attempt), retried.output).toEqual([0, 1]);
     const [earlier, final] = retried.captures;
     const validation = await validateResponsiveEvidenceArtifacts({
       repoRoot: retried.root,
@@ -609,7 +610,7 @@ describe("retried-capture fail-closed controls", () => {
     "publishes nothing when the retried capture's final attempt failed",
     async () => {
       const probe = await retryProbe("failed-final-attempt");
-      expect(probe.status, probe.output).not.toBe(0);
+      expect(probe.status, probe.output).toBe(1);
       expect(probe.captures.map((capture) => capture.attempt)).toEqual([0, 1]);
       const hostedArtifact = {
         repoRoot: probe.root,
