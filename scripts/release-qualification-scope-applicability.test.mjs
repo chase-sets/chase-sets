@@ -598,6 +598,17 @@ describe("release qualification applicability evaluator", () => {
   ])
     leafCase(name, source, undefined);
 
+  for (const [name, source] of [
+    ["X1 alias receiver dynamic key", "export const f = (es, k, input) => es[k](input);"],
+    [
+      "X2 rebound receiver dynamic key",
+      "export const f = (store, k, input) => { const es = store; return es[k](input); };",
+    ],
+    ["X3 concatenated alias key", 'export const f = (es, input) => es["read" + "Stream"](input);'],
+    ["X4 template alias key", "export const f = (es, x, input) => es[`read${x}`](input);"],
+  ])
+    leafCase(name, source, "ambiguous_member_reference_key");
+
   it("N_import_type neutral stays applicable when its type edge is declared", () => {
     const rootPath = "bounded-contexts/synthetic/domain/root.ts";
     const specifier = "../../../contracts/event-core/event-store";
