@@ -2548,7 +2548,12 @@ function terminal({ global = "", shapes = { "": "" } } = {}) {
           // Data positions stay admissible without a lead proof, but retain
           // their provenance-only witness for the R handoff inventory.
           const proof = proveText(word.value, context?.site ?? null, context ?? {}, context?.seen ?? new Set());
-          if (!proof.proved) return false;
+          // `git show` is the one value-shaped terminal whose dynamic object
+          // name still selects a resource.  Its expression must be a proved
+          // provenance root; workflow-function/value arguments remain data
+          // and retain their existing residual-only behavior.
+          if (words[at]?.value === "git" && shape.path.length === 1 && shape.path[0] === "show" && !proof.proved)
+            return false;
           if (proof.proved)
             context.trace?.proofs.push({
               entry: context.entry,
