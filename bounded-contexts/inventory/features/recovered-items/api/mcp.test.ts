@@ -263,6 +263,19 @@ describe("recovered item MCP handlers", () => {
     const fake = services();
     const boundary = native(fake);
     const args = writeInput(row.name, row.input);
+    for (const [index, invalid] of [
+      { confirmed: false },
+      { confirmationText: "unrelated" },
+      { accountId: "acc_other" },
+      { evidenceReferences: [42] },
+      { dryRun: true },
+    ].entries()) {
+      expect(
+        (await boundary.call(row.name, { ...args, ...invalid, idempotencyKey: `invalid-${row.name}-${index}` })).result
+          .isError,
+      ).toBe(true);
+    }
+    expect(fake.execute).not.toHaveBeenCalled();
     const first = await boundary.call(row.name, args);
     expect(first.result.isError).not.toBe(true);
     expect(first.result.structuredContent).toEqual({
@@ -271,16 +284,7 @@ describe("recovered item MCP handlers", () => {
       status: "inspection-complete",
     });
     expect(await boundary.call(row.name, args)).toEqual(first);
-    for (const invalid of [
-      { id: "rcv_other" },
-      { confirmed: false },
-      { confirmationText: "unrelated" },
-      { accountId: "acc_other" },
-      { evidenceReferences: [42] },
-      { dryRun: true },
-    ]) {
-      expect((await boundary.call(row.name, { ...args, ...invalid })).result.isError).toBe(true);
-    }
+    expect((await boundary.call(row.name, { ...args, id: "rcv_other" })).result.isError).toBe(true);
     boundary.state.authority = { kind: "denied", reason: "inactive" };
     expect((await boundary.call(row.name, args)).result.isError).toBe(true);
     expect(fake.execute).toHaveBeenCalledOnce();
