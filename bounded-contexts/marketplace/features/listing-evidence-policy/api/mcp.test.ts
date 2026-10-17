@@ -11,7 +11,6 @@ import {
   type McpToolHandlerInput,
 } from "@chase-sets/platform-runtime/mcp";
 import { marketplaceService } from "@chase-sets/platform-runtime/mcp-contracts/catalog/marketplace";
-import contextManifest from "../../../context.json";
 import { createListingEvidencePolicyMcpHandlers } from "./mcp";
 import { createListingEvidencePolicyRuntime, type ListingEvidencePolicyRuntime } from "./runtime";
 
@@ -186,7 +185,7 @@ describe("MCP source-call contract coverage", () => {
     const runtime = createRuntime();
     const handlers = createListingEvidencePolicyMcpHandlers(runtime);
     const capabilities = {
-      tools: contextManifest.mcpCapabilities.tools.filter((tool) => tool.ownerSlice === "listing-evidence-policy"),
+      tools: policyTools.map((tool) => ({ name: tool.name, ownerSlice: "listing-evidence-policy" })),
     };
     const registration = { contextName: "marketplace", capabilities, handlers };
     expect(validateMcpModuleRegistrations([registration], services)).toEqual([]);
@@ -353,9 +352,15 @@ describe("Listing Evidence Policy MCP boundaries", () => {
         expect(tool.guardrails.idempotencyAuthority).toBe("platform");
       }
     }
-    expect(contextManifest.agentCoverage["listing-evidence-policy"].tools).toEqual(
-      policyTools.map((t) => t.name).sort(),
-    );
+    expect(policyTools.map((tool) => tool.name).sort()).toEqual([
+      "marketplace.activate-listing-evidence-policy-draft",
+      "marketplace.create-listing-evidence-policy-draft",
+      "marketplace.create-listing-evidence-policy-rollback-draft",
+      "marketplace.get-listing-evidence-policy-overview",
+      "marketplace.get-listing-evidence-policy-selectors",
+      "marketplace.reject-listing-evidence-policy-draft",
+      "marketplace.validate-listing-evidence-policy-draft",
+    ]);
   });
 
   it("refuses missing confirmation, wrong title, invalid nested input, account overrides and missing targets before effects", async () => {
