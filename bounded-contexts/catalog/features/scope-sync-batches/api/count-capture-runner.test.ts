@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCountCaptureJourney, type CountCaptureDeploymentCollection } from "./count-capture-runner";
 import { syntheticCountLifecycleReceipt } from "../tests/count-lifecycle-receipt-fixture";
+import { countCaptureCollectionSchema } from "../domain/count-lifecycle-receipt";
 
 const identity = { sha: "a".repeat(40), dispatchId: "synthetic-dispatch", scopeRecordId: "synthetic-scope" };
 const now = () => "2026-10-13T08:06:00.000Z";
@@ -160,9 +161,10 @@ describe("isolates the count capture runner", () => {
 
   it("preserves a freeze-time drift as the server's incomplete stop", async () => {
     const { action: original, collect, receipt } = journey();
-    const drifted = structuredClone(receipt.freezeCollection);
+    const freezeCollection = countCaptureCollectionSchema.parse(receipt.freezeCollection);
+    const drifted: typeof freezeCollection = structuredClone(freezeCollection);
     drifted.collectedAt = "2026-10-13T08:05:00.000Z";
-    collect.mockResolvedValueOnce(receipt.freezeCollection).mockResolvedValueOnce(drifted);
+    collect.mockResolvedValueOnce(freezeCollection).mockResolvedValueOnce(drifted);
     const stopReceipt = {
       schemaVersion: "scope-sync-count-lifecycle-stop/v1",
       attribution: receipt.attribution,

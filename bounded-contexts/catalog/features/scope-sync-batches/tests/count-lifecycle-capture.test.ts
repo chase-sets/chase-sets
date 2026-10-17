@@ -86,10 +86,7 @@ describe("staging count capture lifecycle", () => {
       identity,
       action,
       () => fixture.clock.now,
-      async () => ({
-        ...authority.collection,
-        collectedAt: fixture.clock.now,
-      }),
+      async () => countCaptureCollectionSchema.parse({ ...authority.collection, collectedAt: fixture.clock.now }),
     );
     const receipt = result;
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
