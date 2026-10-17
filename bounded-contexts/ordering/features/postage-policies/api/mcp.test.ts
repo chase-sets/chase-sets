@@ -447,7 +447,7 @@ describe("ordering postage policy MCP handlers", () => {
       agentGrant: {
         grantId: "synthetic-commerce-grant",
         platformProfileUrl: "https://synthetic.invalid/profile",
-        scopes: ["orders:read"],
+        scopes: ["fulfillment:read"],
         rolePermissions: actor.permissions,
       },
     };
