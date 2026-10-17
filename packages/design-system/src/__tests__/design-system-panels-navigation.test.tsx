@@ -1226,8 +1226,8 @@ describe("design system panels, navigation, and shells", () => {
 describe("marketplace shell search-row collapse (#5709)", () => {
   const itemIdentity = "/items/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp";
 
-  // Frozen goldens captured from MarketplaceShell and TopNav at exact main
-  // a1658e3461016b10da2930160fec6aa60caa55b7 rendering the identical fixture
+  // Frozen goldens captured from MarketplaceShell and TopNav at merge-base
+  // a460b410398b01d386b7919ef364e63d3d271b88 rendering the identical fixture
   // props below; criterion 14 compares omitting callers against these bytes,
   // never against themselves.
   const exactMainShellGolden =
@@ -1819,7 +1819,14 @@ describe("marketplace shell search-row collapse (#5709)", () => {
     });
     expect(shellStateAttribute(view.container)).toBe("expanded");
     expect(header!.contains(document.activeElement)).toBe(false);
+    const observations: SearchRowObservation[] = [];
+    const stopObserving = observeSearchRowEvents((observation) => observations.push(observation));
     driveScroll(2084);
+    stopObserving();
+    expect(observations).toHaveLength(1);
+    expect(observations[0]!.event.type).toBe("scroll");
+    expect(observations[0]!.event.environment.focusInHeader).toBe(false);
+    expect(observations[0]!.state.phase).toBe("collapsed");
     expect(shellStateAttribute(view.container)).toBe("collapsed");
     view.unmount();
   });

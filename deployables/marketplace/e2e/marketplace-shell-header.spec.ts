@@ -267,17 +267,6 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     expect(shimObservation.mutations.length).toBeGreaterThan(0);
     expect(shimObservation.mutations.map((mutation) => mutation.value)).toContain("expanded");
     expect(shimObservation.scrollSamples.some((sample) => sample < COLLAPSE_FLOOR)).toBe(true);
-
-    // The canonical path over the same claim stays green with zero intermediate
-    // mutations and a collapsed post-state.
-    await expect(page.locator(slotSelector)).not.toBeVisible();
-    await installSearchRowObservation(page);
-    await captureResponsiveEvidence({ page, testInfo, claimId: "marketplace-shell-search-row-collapsed-390" });
-    const canonicalObservation = await drainSearchRowObservation(page);
-    await publishRecord(testInfo, "canonical-collapsed-observation", canonicalObservation);
-    expect(canonicalObservation.startState).toBe("collapsed");
-    expect(canonicalObservation.endState).toBe("collapsed");
-    expect(canonicalObservation.mutations).toEqual([]);
   });
 
   test("reveals the collapsed search row through sequential keyboard focus @marketplace-browse", async ({
@@ -474,6 +463,7 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       await expect(page.locator(slotSelector)).toHaveCount(1);
       await driveDownwardPastFloor(page);
       await expect(page.locator(`[data-search-row-state="${row.expected}"]`)).toHaveCount(1);
+      const phase = await page.locator(shellSelector).getAttribute("data-search-row-state");
 
       // Focus inside the header expands every route regardless of policy; this
       // is not criterion 5's unscripted trace, so a direct focus is fine here.
@@ -483,22 +473,12 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
       observed.push({
         path: row.path,
         landedPathname: await page.evaluate(() => window.location.pathname),
-        phase: row.expected,
+        phase,
         focusPhase,
       });
     }
     await publishRecord(testInfo, "route-policy-table", observed);
     expect(observed.every((row) => row.focusPhase === "expanded")).toBe(true);
-
-    // These two routes are deliberate zero-budget controls, not additional
-    // driveable rows. The scrollability guard must refuse them loudly rather
-    // than allowing a false collapsed result from a scroll position that never
-    // moved.
-    for (const path of ["/search/charizard-does-not-exist", "/account/listings"]) {
-      await openAtViewport(page, path, phoneViewport);
-      await expect(page.locator(shellSelector)).toHaveCount(1, { timeout: 15_000 });
-      await expect(driveDownwardPastFloor(page)).rejects.toThrow(/route must be scrollable/);
-    }
 
     // Synthetic opposite-policy control: a policy that lets /search collapse
     // and every other pathname resist cannot satisfy the observed table — the
@@ -510,6 +490,21 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     const observedPhases = observed.map((row) => ({ path: row.path, phase: row.phase }));
     expect(observedPhases).not.toEqual(oppositePolicyExpectation);
     expect(observedPhases[0]).toEqual({ path: "/search?q=charizard", phase: "expanded" });
+  });
+
+  test("guards the undriveable non-search pathnames as unscrollable under the shell @marketplace-browse", async ({
+    page,
+  }) => {
+    for (const path of ["/search/charizard-does-not-exist", "/account/listings"]) {
+      await openAtViewport(page, path, phoneViewport);
+      await expect(page.locator(shellSelector)).toHaveCount(1, { timeout: 15_000 });
+      await expect(page.locator(slotSelector)).toHaveCount(1);
+      const scrollBudget = await page.evaluate(
+        () => document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      );
+      expect(scrollBudget).toBeLessThan(COLLAPSE_FLOOR + DIRECTION_DELTA);
+      await expect(driveDownwardPastFloor(page)).rejects.toThrow(/route must be scrollable/);
+    }
   });
 
   test("keeps page content anchored across the search-row collapse @marketplace-browse", async ({ page }, testInfo) => {
@@ -559,6 +554,10 @@ test.describe("marketplace shell search-row collapse (#5709)", () => {
     await waitForSearchRowPhase(page, "expanded");
     await driveDownwardPastFloor(page);
     await waitForSearchRowPhase(page, "collapsed");
+    await expect(page.locator(slotSelector)).not.toBeVisible();
+    await expect
+      .poll(() => page.locator(paintedSelector).evaluate((element) => element.getBoundingClientRect().height))
+      .toBeCloseTo(64, 0);
 
     const probe = await page.evaluate(() => {
       const painted = document.querySelector('[data-shell-header-box="painted"]');

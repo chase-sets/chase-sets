@@ -24,53 +24,6 @@ export interface NavigationItem {
   children?: NavigationItem[];
 }
 
-function SearchRowHeaderFrame({
-  navProps,
-  width,
-  reducedMotion,
-  searchRowState,
-  brand,
-  search,
-  actions,
-}: {
-  navProps: HTMLAttributes<HTMLElement> & { readonly "data-shell-header-box"?: string };
-  width: LayoutWidth;
-  reducedMotion: boolean;
-  searchRowState: "expanded" | "collapsed";
-  brand: ReactNode;
-  search: ReactNode;
-  actions: ReactNode;
-}) {
-  const navClassName = "sticky top-0 z-sticky max-md:h-[7.75rem] max-md:pointer-events-none";
-  const paintedClassName = cx(
-    "pointer-events-auto border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
-    "max-md:overflow-hidden",
-    reducedMotion ? undefined : "transition-[height] duration-200",
-    searchRowState === "collapsed" ? "max-md:h-16" : "max-md:h-[7.75rem]",
-  );
-  const slotClassName = cx(
-    "order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1",
-    "grid",
-    reducedMotion ? undefined : "transition-[grid-template-rows] duration-200",
-    searchRowState === "collapsed" ? "pointer-events-none grid-rows-[0fr]" : "grid-rows-[1fr]",
-  );
-  return (
-    <nav {...navProps} {...{ className: navClassName }}>
-      <div data-shell-header-box="painted" {...{ className: paintedClassName }}>
-        <Container width={width} paddingX={0}>
-          <Cluster justify="between" gap={4}>
-            {brand}
-            <div data-search-row-slot="" {...{ className: slotClassName }}>
-              <div {...{ className: "pointer-events-auto min-h-0 max-md:overflow-hidden" }}>{search}</div>
-            </div>
-            {actions}
-          </Cluster>
-        </Container>
-      </div>
-    </nav>
-  );
-}
-
 /**
  * Shared layered content row for an interactive nav item. Sits above the active
  * pill (`relative z-10`) so the motion background never overlaps the label, icon,
@@ -602,51 +555,65 @@ export function TopNav({
     </Inline>
   );
 
-  if (searchRowState !== undefined) {
-    // One stable structure for every phase and width, so the search control is
-    // server-rendered and hydrated once and never remounts on a phase or
-    // breakpoint change. Below md the nav's contribution to document flow stays
-    // constant at the expanded height (the reserved box) while only the painted
-    // surface shrinks: the nav is sticky, and shrinking the in-flow box while
-    // the reader is scrolled would reflow everything after it. The vacated
-    // strip between the painted bottom and the reserved bottom is transparent
-    // and pointer-events-none, so it is page surface, not dead header. The
-    // search row collapses to a zero-height grid row but stays mounted (never
-    // display:none, hidden, invisible, or a negative tabIndex), so it remains
-    // in sequential focus and reveals on focus. At and above md every override
-    // is inert by its max-md scope and the row renders inline exactly as the
-    // plain branch below.
-    return (
-      <SearchRowHeaderFrame
-        navProps={{ ...rest, "aria-label": navLabel, "data-shell-header-box": "reserved" }}
-        width={width}
-        reducedMotion={motionSettings.reducedMotion}
-        searchRowState={searchRowState}
-        brand={brandGroup}
-        search={search}
-        actions={actionsGroup}
-      />
-    );
-  }
+  // One stable structure for every phase and width, so the search control is
+  // server-rendered and hydrated once and never remounts on a phase or
+  // breakpoint change. Below md the nav's contribution to document flow stays
+  // constant at the expanded height while only the painted surface shrinks.
+  // The row collapses to a zero-height grid row but stays mounted, so it remains
+  // in sequential focus and reveals on focus. Every override is max-md scoped.
+  const navClassName = cx(
+    searchRowState !== undefined
+      ? "sticky top-0 z-sticky max-md:h-[7.75rem] max-md:pointer-events-none"
+      : "sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
+  );
+  const slotClassName = cx(
+    "order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1",
+    searchRowState !== undefined && "grid",
+    searchRowState !== undefined && !motionSettings.reducedMotion && "transition-[grid-template-rows] duration-200",
+    searchRowState !== undefined &&
+      (searchRowState === "collapsed" ? "pointer-events-none grid-rows-[0fr]" : "grid-rows-[1fr]"),
+  );
+  const searchSlot = search ? (
+    <div data-search-row-slot={searchRowState !== undefined ? "" : undefined} className={slotClassName}>
+      {searchRowState !== undefined ? (
+        <div className="pointer-events-auto min-h-0 max-md:overflow-hidden">{search}</div>
+      ) : (
+        search
+      )}
+    </div>
+  ) : null;
+  const headerContent = (
+    <Container width={width} paddingX={0}>
+      <Cluster justify="between" gap={4}>
+        {brandGroup}
+        {searchSlot}
+        {actionsGroup}
+      </Cluster>
+    </Container>
+  );
 
   return (
     <nav
       {...rest}
       aria-label={navLabel}
-      {...{
-        className:
-          "sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
-      }}
+      data-shell-header-box={searchRowState !== undefined ? "reserved" : undefined}
+      className={navClassName}
     >
-      <Container width={width} paddingX={0}>
-        <Cluster justify="between" gap={4}>
-          {brandGroup}
-          {search ? (
-            <div className="order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1">{search}</div>
-          ) : null}
-          {actionsGroup}
-        </Cluster>
-      </Container>
+      {searchRowState !== undefined ? (
+        <div
+          data-shell-header-box="painted"
+          className={cx(
+            "pointer-events-auto border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
+            "max-md:overflow-hidden",
+            !motionSettings.reducedMotion && "transition-[height] duration-200",
+            searchRowState === "collapsed" ? "max-md:h-16" : "max-md:h-[7.75rem]",
+          )}
+        >
+          {headerContent}
+        </div>
+      ) : (
+        headerContent
+      )}
     </nav>
   );
 }
