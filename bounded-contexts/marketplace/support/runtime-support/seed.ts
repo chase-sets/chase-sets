@@ -953,7 +953,9 @@ async function reconcileSeedListings(
           throw new Error("fee-lock units do not cover the listing quantity cap");
         }
         entry.state.feeLocks.forEach(normalizeMarketplaceListingFeeLock);
-        const feeLocks = entry.state.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, entry.listing.priceAmount));
+        const feeLocks = entry.state.feeLocks.map((lock) =>
+          requoteMarketplaceListingFeeLock(lock, entry.listing.priceAmount),
+        );
         termsSession.quote(entry.listing.priceAmount);
         const decided = decideMarketplaceListing(entry.state, {
           type: "UpdateListingPrice",
@@ -987,7 +989,9 @@ async function reconcileSeedListings(
         return `${entry.listing.listingId} version ${refolded.committed.length} ${appended ? "applied" : "not-applied"}`;
       }),
     );
-    const pending = notAttempted.map((entry) => `${entry.listing.listingId} version ${entry.committed.length} not-attempted`);
+    const pending = notAttempted.map(
+      (entry) => `${entry.listing.listingId} version ${entry.committed.length} not-attempted`,
+    );
     return [...attempted, ...pending].join(", ");
   };
 
