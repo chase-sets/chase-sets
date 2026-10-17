@@ -738,23 +738,26 @@ describe("issue-7169-destructuring-assignment-closure", () => {
 });
 
 // Prepare the tracked Program once, as in authoritative-stream-read-classification.test.mjs.
-const roots = enumerateTrackedRoots(repoRoot);
-const program = createClassificationProgram(repoRoot, roots);
-const families = resolveInventoryFamilies(program, repoRoot);
-const sources = trackedInventorySources(repoRoot);
-const production = analyzeInventoryDynamicDispatch({ repoRoot, roots, program, families, sources });
-const c1 = discoverInventoryCallers(sources);
-const registry = JSON.parse(
-  readFileSync(path.join(repoRoot, "bounded-contexts/inventory/tests/caller-partition.json"), "utf8"),
-);
-const partition = partitionInventoryCallers(c1, registry);
-const built = analyzeInventoryDynamicDispatch({
-  repoRoot,
-  roots,
-  program,
-  families,
-  sources: [...sources, { path: "bounded-contexts/unexpected/build/output.js", source: "svc[key]()" }],
-});
+const { roots, sources, production, c1, partition, built, familyTable } = (() => {
+  const roots = enumerateTrackedRoots(repoRoot);
+  const program = createClassificationProgram(repoRoot, roots);
+  const families = resolveInventoryFamilies(program, repoRoot);
+  const sources = trackedInventorySources(repoRoot);
+  const production = analyzeInventoryDynamicDispatch({ repoRoot, roots, program, families, sources });
+  const c1 = discoverInventoryCallers(sources);
+  const registry = JSON.parse(
+    readFileSync(path.join(repoRoot, "bounded-contexts/inventory/tests/caller-partition.json"), "utf8"),
+  );
+  const partition = partitionInventoryCallers(c1, registry);
+  const built = analyzeInventoryDynamicDispatch({
+    repoRoot,
+    roots,
+    program,
+    families,
+    sources: [...sources, { path: "bounded-contexts/unexpected/build/output.js", source: "svc[key]()" }],
+  });
+  return { roots, sources, production, c1, partition, built, familyTable: families.table };
+})();
 
 describe("issue-7169-type-resolved-census-matrix", () => {
   it("closes destructuring-assignment sources and erasure sinks", async () => {
@@ -795,14 +798,34 @@ describe("issue-7169-type-resolved-census-matrix", () => {
   });
 
   it("rejects every derived family's M16 and P1 forms at arbitrary paths", async () => {
-    const cases = familyExpressions.flatMap(([family, expression, type]) =>
-      [...shapes(expression, type), ...p1(expression, type, "member")].map((source) => ({ family, source })),
+    const formsByFamily = new Map(
+      familyExpressions.map(([family, expression, type]) => [
+        family,
+        [...shapes(expression, type), ...p1(expression, type, "member")],
+      ]),
     );
+    const cases = familyExpressions.map(([family]) => ({
+      family,
+      source: formsByFamily
+        .get(family)
+        .map((form) => `{ ${form} }`)
+        .join("\n"),
+    }));
     await matrix(cases, ({ root, roots, program, families, fixtures }) => {
       expect(families.families.map(({ name }) => name).sort()).toEqual(familyExpressions.map(([name]) => name).sort());
       const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
-      const rejected = new Set(result.diagnostics.map(({ file }) => file));
-      for (const file of Object.keys(fixtures)) expect(rejected.has(file), fixtures[file]).toBe(true);
+      const fixture = Object.keys(fixtures)[0];
+      const diagnostics = result.diagnostics.filter(({ file }) => file === fixture);
+      const familyIndex = Number(fixture.match(/case-(\d+)/)?.[1]);
+      const forms = formsByFamily.get(cases[familyIndex].family);
+      const expectedLines = prelude.split("\n").length + 1;
+      expect(diagnostics).toHaveLength(forms.length);
+      for (const [index, form] of forms.entries()) {
+        expect(
+          diagnostics.some(({ line }) => line === expectedLines + index),
+          form,
+        ).toBe(true);
+      }
       emit(
         "family-matrix",
         familyExpressions.map(([family]) => ({ family, m16: 16, p1: 23, rejected: 39 })),
@@ -962,7 +985,7 @@ describe("issue-7169-type-resolved-census-corpus", () => {
     expect(built.scanned).toEqual(result.scanned);
     expect(built.total).toBe(result.total + 1);
     expect(built.ignored).toContain("bounded-contexts/unexpected/build/output.js");
-    emit("family-table", families.table);
+    emit("family-table", familyTable);
     emit("corpus-coverage", {
       scanned: result.scanned.length,
       ignored: result.ignored.length,
