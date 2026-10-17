@@ -23,6 +23,15 @@ function requiredString(args: Readonly<Record<string, unknown>>, key: string) {
   return value;
 }
 
+function requireWriteEnvelope(args: Readonly<Record<string, unknown>>, confirmation: string | null) {
+  if (args.confirmed !== true) throw new Error("confirmed must be true.");
+  requiredString(args, "idempotencyKey");
+  const confirmationText = requiredString(args, "confirmationText");
+  if (confirmation !== null && confirmationText !== confirmation) {
+    throw new Error(`confirmationText must exactly match '${confirmation}'.`);
+  }
+}
+
 function requiredRules(args: Readonly<Record<string, unknown>>): readonly ListingEvidencePolicyRule[] {
   if (!Array.isArray(args.rules)) throw new Error("rules must be a list.");
   return args.rules as readonly ListingEvidencePolicyRule[];
@@ -49,7 +58,8 @@ export function createListingEvidencePolicyMcpHandlers(
   };
 
   const createDraft: McpToolHandler = async ({ actor, arguments: args }) => {
-    rejectUnknownArguments(args, ["policyName", "rules", "idempotencyKey", "confirmationText"]);
+    rejectUnknownArguments(args, ["policyName", "rules", "idempotencyKey", "confirmed", "confirmationText"]);
+    requireWriteEnvelope(args, "Create Listing Evidence Policy Draft.");
     const scopedActor = requireOperatorActor(actor, "listing-evidence-policy.draft");
     const result = await runtime.createDraft(
       {
@@ -63,7 +73,8 @@ export function createListingEvidencePolicyMcpHandlers(
   };
 
   const validateDraft: McpToolHandler = async ({ actor, arguments: args }) => {
-    rejectUnknownArguments(args, ["policyId", "idempotencyKey", "confirmationText"]);
+    rejectUnknownArguments(args, ["policyId", "idempotencyKey", "confirmed", "confirmationText"]);
+    requireWriteEnvelope(args, "Validate Listing Evidence Policy Draft.");
     const scopedActor = requireOperatorActor(actor, "listing-evidence-policy.validate");
     return runtime.validateDraft(
       requiredString(args, "policyId"),
@@ -73,7 +84,8 @@ export function createListingEvidencePolicyMcpHandlers(
   };
 
   const rejectDraft: McpToolHandler = async ({ actor, arguments: args }) => {
-    rejectUnknownArguments(args, ["policyId", "idempotencyKey", "confirmationText"]);
+    rejectUnknownArguments(args, ["policyId", "idempotencyKey", "confirmed", "confirmationText"]);
+    requireWriteEnvelope(args, "Reject Listing Evidence Policy Draft.");
     const scopedActor = requireOperatorActor(actor, "listing-evidence-policy.draft");
     return runtime.rejectDraft(
       requiredString(args, "policyId"),
@@ -83,7 +95,8 @@ export function createListingEvidencePolicyMcpHandlers(
   };
 
   const createRollbackDraft: McpToolHandler = async ({ actor, arguments: args }) => {
-    rejectUnknownArguments(args, ["policyId", "idempotencyKey", "confirmationText"]);
+    rejectUnknownArguments(args, ["policyId", "idempotencyKey", "confirmed", "confirmationText"]);
+    requireWriteEnvelope(args, "Create Listing Evidence Policy Rollback Draft.");
     const scopedActor = requireOperatorActor(actor, "listing-evidence-policy.draft");
     const result = await runtime.createRollbackDraft(
       requiredString(args, "policyId"),
@@ -100,8 +113,10 @@ export function createListingEvidencePolicyMcpHandlers(
       "effectiveUntil",
       "impactAcknowledgmentHash",
       "idempotencyKey",
+      "confirmed",
       "confirmationText",
     ]);
+    requireWriteEnvelope(args, readMcpStringArgument(args, "impactAcknowledgmentHash"));
     const scopedActor = requireOperatorActor(actor, "listing-evidence-policy.activate");
     return runtime.activateDraft(
       requiredString(args, "policyId"),

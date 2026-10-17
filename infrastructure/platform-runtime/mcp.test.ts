@@ -675,7 +675,13 @@ describe("MCP runtime routes", () => {
           kind: "granted",
           membershipId: actor.membershipId,
           roleKey: "platform-admin",
-          rolePermissions: ["insights-dashboards.view"],
+          rolePermissions: [
+            "insights-dashboards.view",
+            "listing-evidence-policy.view",
+            "listing-evidence-policy.draft",
+            "listing-evidence-policy.validate",
+            "listing-evidence-policy.activate",
+          ],
         }),
       },
     );

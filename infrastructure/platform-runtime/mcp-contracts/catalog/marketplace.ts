@@ -214,22 +214,105 @@ const marketplaceOfferListOutputSchema: McpJsonSchema = {
   },
 };
 
+const stringListInputProperty = (description: string): McpJsonSchemaProperty =>
+  arrayProperty(description, stringProperty("A normalized selector value."));
+
+const listingEvidencePolicyOptionInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "A selected catalog option that must be present.",
+  additionalProperties: false,
+  required: ["dimensionId", "optionId"],
+  properties: {
+    dimensionId: stringProperty("Catalog option dimension identifier."),
+    optionId: stringProperty("Catalog option identifier."),
+  },
+};
+
+const listingEvidencePolicySelectorInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Listing fact selectors. Omitted selectors default to an empty list or no constraint.",
+  additionalProperties: false,
+  properties: {
+    catalogItemIds: stringListInputProperty("Catalog item identifiers; omitted or empty matches every item."),
+    productIds: stringListInputProperty("Product identifiers; omitted or empty matches every product."),
+    blueprintIds: stringListInputProperty("Blueprint identifiers; omitted or empty matches every blueprint."),
+    categoryIds: stringListInputProperty("Category identifiers; omitted or empty matches any category."),
+    options: arrayProperty("Required selected catalog options.", listingEvidencePolicyOptionInputProperty),
+    gradedItem: booleanProperty("Whether the listing must be graded; omitted means either."),
+    priceBand: {
+      type: "object",
+      description: "Optional non-negative decimal price interval; maximum is exclusive.",
+      additionalProperties: false,
+      properties: {
+        minimumAmount: stringProperty("Optional non-negative decimal lower bound; null or empty means unbounded."),
+        maximumAmount: stringProperty("Optional non-negative decimal upper bound; null or empty means unbounded."),
+      },
+    },
+    seller: {
+      type: "object",
+      description: "Optional seller trust selectors.",
+      additionalProperties: false,
+      properties: {
+        minimumReviewCount: integerProperty("Optional whole-number minimum from 0 through 1,000,000."),
+        badgeKeys: stringListInputProperty("Accepted seller badge keys."),
+        riskLevels: stringListInputProperty("Accepted seller risk levels."),
+      },
+    },
+  },
+};
+
+const listingEvidencePolicySlotInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Evidence slot requirement.",
+  additionalProperties: false,
+  required: ["slotId", "viewKind"],
+  properties: {
+    slotId: stringProperty("Stable slot identifier (lowercase letters, digits, and hyphens)."),
+    viewKind: stringProperty("Evidence view kind (lowercase letters, digits, and hyphens)."),
+    minimumWidthPixels: integerProperty("Optional whole-number minimum from 1 through 100,000."),
+    minimumHeightPixels: integerProperty("Optional whole-number minimum from 1 through 100,000."),
+    maximumAgeHours: integerProperty("Optional whole-number maximum age from 1 through 87,600 hours."),
+  },
+};
+
+const listingEvidencePolicyOutcomeInputProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Evidence requirements produced by the rule.",
+  additionalProperties: false,
+  properties: {
+    minimumPhotoCount: integerProperty("Minimum photo count from 0 through 100; omitted defaults to 0."),
+    requiredSlots: arrayProperty(
+      "Required evidence slots; omitted defaults to an empty list.",
+      listingEvidencePolicySlotInputProperty,
+    ),
+    sellerTrust: {
+      type: "object",
+      description: "Optional seller trust requirement; a positive review threshold or badge is required.",
+      additionalProperties: false,
+      properties: {
+        satisfaction: stringProperty("Seller satisfaction posture; omitted defaults to any.", ["any"]),
+        minimumReviewCount: integerProperty("Whole-number minimum from 0 through 1,000,000."),
+        acceptedBadgeKeys: stringListInputProperty("Accepted seller badge keys."),
+      },
+    },
+    buyerAcknowledgment: stringProperty("Buyer acknowledgment posture; omitted defaults to none.", [
+      "none",
+      "required",
+    ]),
+  },
+};
+
 const listingEvidencePolicyRuleInputProperty: McpJsonSchemaProperty = {
   type: "object",
-  description: "Validated Listing Evidence Policy rule.",
+  description: "Listing Evidence Policy rule. Priority and selector default from the rule position and empty selector.",
   additionalProperties: false,
-  required: ["ruleId", "explanationCode", "priority", "selector", "outcome"],
+  required: ["ruleId", "explanationCode", "outcome"],
   properties: {
-    ruleId: stringProperty("Stable rule identifier."),
-    explanationCode: stringProperty("Stable explanation code."),
-    priority: integerProperty("Rule evaluation priority."),
-    selector: { type: "object", description: "Listing fact selectors.", additionalProperties: true, properties: {} },
-    outcome: {
-      type: "object",
-      description: "Evidence requirements produced by the rule.",
-      additionalProperties: true,
-      properties: {},
-    },
+    ruleId: stringProperty("Stable rule identifier (lowercase letters, digits, and hyphens)."),
+    explanationCode: stringProperty("Stable explanation code (lowercase letters, digits, dots, and hyphens)."),
+    priority: integerProperty("Optional rule evaluation priority from 0 through 1,000,000."),
+    selector: listingEvidencePolicySelectorInputProperty,
+    outcome: listingEvidencePolicyOutcomeInputProperty,
   },
 };
 
@@ -262,6 +345,37 @@ const listingEvidencePolicyReceiptSchema = objectSchema(
     lifecycle: stringProperty("Policy lifecycle."),
   },
   ["version"],
+);
+
+const listingEvidencePolicyActivationReceiptSchema = objectSchema(
+  {
+    policyId: stringProperty("Activated policy document identifier."),
+    version: integerProperty("Committed policy document version."),
+    policyHash: stringProperty("Canonical hash of the activated policy."),
+    scheduled: booleanProperty("Whether activation begins after the current time."),
+  },
+  ["policyId", "version", "policyHash", "scheduled"],
+);
+
+const listingEvidencePolicyValidationOutputSchema = objectSchema(
+  {
+    documentId: stringProperty("Validated policy document identifier."),
+    version: integerProperty("Committed policy document version when valid."),
+    valid: booleanProperty("Whether the policy passed semantic validation."),
+    diagnostics: arrayProperty("Validation diagnostics.", {
+      type: "object",
+      description: "One validation diagnostic.",
+      additionalProperties: false,
+      required: ["code", "path", "message"],
+      properties: {
+        code: stringProperty("Stable diagnostic code."),
+        path: stringProperty("Diagnostic source path."),
+        message: stringProperty("Human-readable diagnostic message."),
+      },
+    }),
+    policyHash: stringProperty("Canonical candidate policy hash."),
+  },
+  ["valid", "diagnostics", "policyHash"],
 );
 
 const operatorPolicyBoundary = (permission: string) => ({
@@ -679,9 +793,10 @@ export const marketplaceService = {
             policyName: stringProperty("Human-readable policy name."),
             rules: arrayProperty("Validated Listing Evidence Policy rules.", listingEvidencePolicyRuleInputProperty),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the agent confirms this write."),
             confirmationText: stringProperty("Exact tool-title confirmation text."),
           },
-          ["policyName", "rules", "idempotencyKey", "confirmationText"],
+          ["policyName", "rules", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "listing-evidence-policy",
         ["Use after reviewing the policy selectors and intended evidence requirements."],
@@ -689,6 +804,7 @@ export const marketplaceService = {
         "operator",
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { dryRunSupported: false }),
       permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.draft"),
       outputSchema: listingEvidencePolicyReceiptSchema,
     },
@@ -703,9 +819,10 @@ export const marketplaceService = {
           {
             policyId: stringProperty("Inactive Listing Evidence Policy draft identifier."),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the agent confirms this write."),
             confirmationText: stringProperty("Exact tool-title confirmation text."),
           },
-          ["policyId", "idempotencyKey", "confirmationText"],
+          ["policyId", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "listing-evidence-policy",
         ["Use before activation; the returned impact preview hash is required for activation."],
@@ -713,7 +830,9 @@ export const marketplaceService = {
         "operator",
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { dryRunSupported: false }),
       permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.validate"),
+      outputSchema: listingEvidencePolicyValidationOutputSchema,
     },
     {
       ...writeTool(
@@ -726,9 +845,10 @@ export const marketplaceService = {
           {
             policyId: stringProperty("Inactive Listing Evidence Policy draft identifier."),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the agent confirms this write."),
             confirmationText: stringProperty("Exact tool-title confirmation text."),
           },
-          ["policyId", "idempotencyKey", "confirmationText"],
+          ["policyId", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "listing-evidence-policy",
         ["Use when a draft should not proceed to validation or activation."],
@@ -736,6 +856,7 @@ export const marketplaceService = {
         "operator",
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { dryRunSupported: false }),
       permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.draft"),
       outputSchema: listingEvidencePolicyReceiptSchema,
     },
@@ -750,9 +871,10 @@ export const marketplaceService = {
           {
             policyId: stringProperty("Retained active Listing Evidence Policy identifier."),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the agent confirms this write."),
             confirmationText: stringProperty("Exact tool-title confirmation text."),
           },
-          ["policyId", "idempotencyKey", "confirmationText"],
+          ["policyId", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "listing-evidence-policy",
         ["Use when a retained active policy must be restored through the normal validation workflow."],
@@ -760,6 +882,7 @@ export const marketplaceService = {
         "operator",
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { dryRunSupported: false }),
       permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.draft"),
       outputSchema: listingEvidencePolicyReceiptSchema,
     },
@@ -777,9 +900,10 @@ export const marketplaceService = {
             effectiveUntil: stringProperty("Optional ISO-8601 activation end time."),
             impactAcknowledgmentHash: stringProperty("Current validation impact preview hash."),
             idempotencyKey: idempotencyKeyProperty(),
+            confirmed: booleanProperty("Must be true after the agent confirms this write."),
             confirmationText: stringProperty("Must exactly match impactAcknowledgmentHash."),
           },
-          ["policyId", "effectiveFrom", "impactAcknowledgmentHash", "idempotencyKey", "confirmationText"],
+          ["policyId", "effectiveFrom", "impactAcknowledgmentHash", "idempotencyKey", "confirmed", "confirmationText"],
         ),
         "listing-evidence-policy",
         ["Use only after reviewing the exact impact preview and its current hash."],
@@ -789,14 +913,14 @@ export const marketplaceService = {
       availability: "available",
       permissionBoundary: operatorPolicyBoundary("listing-evidence-policy.activate"),
       guardrails: {
-        ...guardrails("sensitive"),
+        ...guardrails("sensitive", { dryRunSupported: false }),
         confirmation: {
           required: true,
           prompt: "Confirm activation against the exact impact preview hash.",
           matchInputValue: "impactAcknowledgmentHash",
         },
       },
-      outputSchema: listingEvidencePolicyReceiptSchema,
+      outputSchema: listingEvidencePolicyActivationReceiptSchema,
     },
   ],
   resources: [
