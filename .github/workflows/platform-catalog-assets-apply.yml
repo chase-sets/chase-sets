@@ -201,6 +201,14 @@ jobs:
           public_base_url="$(terraform output -raw public_base_url)"
           object_path="${{ inputs.catalog_asset_object_path }}"
           object_path="${object_path#/}"
+          [[ "$public_base_url" =~ ^[^-].*$ ]] || {
+            echo "public_base_url must be a non-option value." >&2
+            exit 1
+          }
+          [[ "$object_path" =~ ^[^-].*$ ]] || {
+            echo "object_path must be a non-option value." >&2
+            exit 1
+          }
           if printf '%s' "$object_path" | grep -Eq '(^|/)\.\.(/|$)'; then
             echo "Catalog asset object path must not contain traversal segments." >&2
             exit 1

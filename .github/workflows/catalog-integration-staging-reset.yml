@@ -98,7 +98,7 @@ jobs:
       - refuse-production
       - refuse-unconfirmed-apply
     if: >-
-      always() &&
+      !cancelled() &&
       needs.refuse-production.result == 'skipped' &&
       needs.refuse-unconfirmed-apply.result == 'skipped'
     env:

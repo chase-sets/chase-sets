@@ -413,6 +413,10 @@ jobs:
           pod="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             -l app.kubernetes.io/component=platform-api \
             -o jsonpath='{.items[0].metadata.name}')"
+          [[ "$pod" =~ ^[^-].*$ ]] || {
+            echo "pod must be a non-option value." >&2
+            exit 1
+          }
           kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" "$pod" -- \
             env EPHEMERAL_VERIFICATION_NAMESPACE="$CHASE_SETS_KUBERNETES_NAMESPACE" \
               REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \
