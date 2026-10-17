@@ -228,6 +228,14 @@ ALTER TABLE marketplace_supply_holds
 
 export const marketplaceSupplyProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20261017_marketplace_account_status_stream_version",
+    description: "Add stream-fenced account lifecycle status to Marketplace account mirrors.",
+    statements: [
+      `ALTER TABLE marketplace_account_pages
+  ADD COLUMN IF NOT EXISTS status_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
     migrationId: "20260715_marketplace_account_review_scoring",
     description: "Persist canonical review scoring disposition for Marketplace account reputation.",
     statements: [

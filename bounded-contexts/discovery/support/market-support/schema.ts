@@ -293,6 +293,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS discovery_item_detail_sell_list_lines_offer_un
 
 export const discoveryMarketSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20261017_discovery_market_account_status_stream_version",
+    description: "Add stream-fenced account lifecycle status to Discovery market mirrors.",
+    statements: [
+      `ALTER TABLE discovery_market_accounts
+  ADD COLUMN IF NOT EXISTS status_stream_version integer NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
     migrationId: "20260907_discovery_market_price_currency",
     description: "Store Marketplace Listing and Offer prices as version-fenced nullable currency pairs.",
     statements: [
