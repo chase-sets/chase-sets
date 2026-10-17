@@ -835,6 +835,28 @@ describe("DB duration scheduling", () => {
     }
   });
 
+  it("discovers the payments projection drain DB file exactly once through the commands selected by the runner", async () => {
+    const payments = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/payments");
+    const scripts = payments.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [payments],
+      registry: durationRegistry([durationEntry(payments.name, "test:db", 24)]),
+    });
+    const vitest = await createVitest("test", { root: payments.dir, config: "./tests/vitest.config.mjs", watch: false });
+    try {
+      const discovered = [];
+      for (const args of output.invocations) {
+        const tokens = scripts[args[3]].split(/\s+/);
+        expect(tokens.slice(0, 4)).toEqual(["vitest", "run", "--config", "./tests/vitest.config.mjs"]);
+        discovered.push(...(await vitest.globTestSpecifications(tokens.slice(4))).map((spec) => spec.moduleId));
+      }
+      const drain = path.resolve(payments.dir, "tests/money-consolidation-projection-drain.db.test.ts").replaceAll("\\", "/");
+      expect(discovered.filter((file) => file === drain)).toHaveLength(1);
+    } finally {
+      await vitest.close();
+    }
+  });
+
   it("keeps all real API DB entries in the API cell and out of unit and fast discovery", async () => {
     const api = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/app-platform-api");
     const scripts = api.packageJson.scripts;
