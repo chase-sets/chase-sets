@@ -720,7 +720,7 @@ describe("buyer Offer lifecycle routes", () => {
       new Request(`http://marketplace.test/account${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceActionKey: "lifecycle_route_attempt_identity_01", ...body }),
+        body: JSON.stringify(body),
       }),
     );
   const patchPrice = (app: Hono<MarketplaceApiEnv>, offerId: string, priceAmount: string) =>
@@ -797,7 +797,11 @@ describe("buyer Offer lifecycle routes", () => {
     await expect(reprice.json()).resolves.toMatchObject({
       error: { code: "validation_failed", message: "Only open or paused Offers can change price." },
     });
-    const accept = await post(seller, "/offers/matches/off_1/accept", { listingId: "lst_1", feeQuoteFingerprint: "x" });
+    const accept = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+      sourceActionKey: "lifecycle_route_attempt_identity_01",
+    });
     expect(accept.status).toBe(409);
     await expect(accept.json()).resolves.toMatchObject({ error: { code: "offer_not_open" } });
   });
@@ -805,7 +809,11 @@ describe("buyer Offer lifecycle routes", () => {
   it("returns 409 offer_not_open when a seller accepts a paused Offer", async () => {
     const { buyer, seller } = await lifecycleApps({ off_1: "acc_buyer" });
     await post(buyer, "/offers/submitted/off_1/pause");
-    const accept = await post(seller, "/offers/matches/off_1/accept", { listingId: "lst_1", feeQuoteFingerprint: "x" });
+    const accept = await post(seller, "/offers/matches/off_1/accept", {
+      listingId: "lst_1",
+      feeQuoteFingerprint: "x",
+      sourceActionKey: "lifecycle_route_attempt_identity_01",
+    });
     expect(accept.status).toBe(409);
     await expect(accept.json()).resolves.toMatchObject({
       error: { code: "offer_not_open", details: { status: "paused" } },

@@ -45,10 +45,16 @@ describe("offer attempt caller partition", () => {
   });
   it.each([
     ['request.post("/api/marketplace/account/offers/submitted", { data: {} });', "http-submit-offer"],
-    ["request.patch(`/api/marketplace/account/offers/submitted/${id}/price`, { data: {} });", "http-update-offer-price"],
+    [
+      "request.patch(`/api/marketplace/account/offers/submitted/${id}/price`, { data: {} });",
+      "http-update-offer-price",
+    ],
     ["page.request.post(`/api/marketplace/account/offers/matches/${id}/accept`, { data: {} });", "http-accept-offer"],
     ["page.request.post(`/api/marketplace/account/offers/matches/${id}/decline`, { data: {} });", "http-decline-offer"],
-    ["request.post(`/api/marketplace/account/offer-policies/${id}/commands`, { data: {} });", "http-offer-policy-command"],
+    [
+      "request.post(`/api/marketplace/account/offer-policies/${id}/commands`, { data: {} });",
+      "http-offer-policy-command",
+    ],
   ])("rejects a planted HTTP transport caller in a test file: %s", (call, method) => {
     const source = `import { test } from "@playwright/test"; ${call}`;
     const callers = enumerateMarketplaceAttemptCallers([{ path: "odd/banana.spec.ts", source }]);
@@ -59,7 +65,10 @@ describe("offer attempt caller partition", () => {
     const path = "deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts";
     const callers = (data: string) =>
       enumerateMarketplaceAttemptCallers([
-        { path, source: `page.request.post(\`/api/marketplace/account/offers/matches/\${id}/accept\`, { data: ${data} });` },
+        {
+          path,
+          source: `page.request.post(\`/api/marketplace/account/offers/matches/\${id}/accept\`, { data: ${data} });`,
+        },
       ]);
     expect(unpartitionedMarketplaceOfferCallers(callers("{ sourceActionKey: randomUUID() }"))).toEqual([]);
     expect(unpartitionedMarketplaceOfferCallers(callers("{ attemptId: randomUUID() }"))).toHaveLength(1);
