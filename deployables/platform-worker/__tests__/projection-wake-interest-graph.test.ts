@@ -255,13 +255,7 @@ describe("platform worker projection wake interest graph", () => {
         subscription.projectionName === "marketplace-listing-moderation-reaction",
     );
     expect(added).toHaveLength(1);
-    const isCheckoutIdentitySubscription = (entry: (typeof allRawSubscriptions)[number]) =>
-      entry.targetContextName === "checkout" &&
-      entry.subscription.projectionName === "checkout-seller-accounts-projection" &&
-      entry.subscription.sourceContextName === "identity";
-    const rawSubscriptions = allRawSubscriptions.filter(
-      (entry) => !added.includes(entry) && !isCheckoutIdentitySubscription(entry),
-    );
+    const rawSubscriptions = allRawSubscriptions.filter((entry) => !added.includes(entry));
     const sharedNames = summarizeSharedSubscriptionNames(rawSubscriptions.map(({ subscription }) => subscription));
     const rawCheckpointIdentities = rawSubscriptions
       .map(
@@ -350,11 +344,28 @@ describe("platform worker projection wake interest graph", () => {
         .filter((runner) => runner.projectionName === "pricing-forecast-ledger-projection")
         .map((runner) => runner.checkpointKey),
     ).toEqual(["pricing-forecast-ledger-projection:pricing:v1"]);
+    // #9783 moves pricing-catalog-input-projection to catalog v8 (+7 Product Line event types).
+    const productLineRunner = inheritedRunners.find(
+      (runner) => runner.projectionName === "pricing-catalog-input-projection",
+    );
+    expect(productLineRunner).toMatchObject({
+      checkpointKey: "pricing-catalog-input-projection:catalog:v8",
+      subscriptionVersion: 8,
+      eventTypes: expect.arrayContaining([
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
+        "catalog.reference-record.created",
+        "catalog.reference-record.revised",
+        "catalog.reference-record.published",
+        "catalog.reference-record.deprecated",
+        "catalog.reference-record.archived",
+      ]),
+    });
     expect(
       fingerprint(inheritedRunners.map((runner) => fingerprintObject(withoutAddedConsumerEvents(runner)))),
     ).toEqual({
-      count: 255,
-      sha256: "79a881e61c340e3d923100d0d1e4b2868a5093e85fa3c2878cb9cc755adba96d",
+      count: 256,
+      sha256: "b0c7fa7bedb465d117afee5a79dd688b3bb7a1351aa1afb73a0b0407e60c5002",
     });
     const proofCreditEventType = "settlement.wallet.staging-proof-credit-posted";
     const proofCreditRunners = inheritedRunners.filter((runner) => runner.eventTypes?.includes(proofCreditEventType));
@@ -382,8 +393,8 @@ describe("platform worker projection wake interest graph", () => {
         ),
       ),
     ).toEqual({
-      count: 255,
-      sha256: "8a408f8b4642a8b40991fdb6cbe0f798bfa5107c5cfb7b9a4345c0ea7109965c",
+      count: 256,
+      sha256: "bfb7ff23b9d9cedd97470416e3ef75b9e36ab9f16d3079c570b37d72c0b2fbb6",
     });
     expect(
       fingerprint(
@@ -393,24 +404,24 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 158,
-      sha256: "641c89c309eded3a162fe6c99ffce10e37adcd1d16f7e654293a70557ae558bb",
+      count: 159,
+      sha256: "0a73df217e97742ca52e075f2945f4c54726c1fb4ccc4094d039905ae3df7f68",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 158,
-      sha256: "1a118a4132e677e993714ccb9bc22d2e30b5a6c862de43ebb798e171d5c1f86b",
+      count: 159,
+      sha256: "45de3093ae018317244a6d507ea2d5e81909b31057f8e4db94699a2e5f42184e",
     });
     expect(fingerprint(inheritedRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 255,
-      sha256: "82005b2742acea29f1ebb2ec387eb006baa73bc592e719237f6645d5161126a8",
+      count: 256,
+      sha256: "cade127fa0f6ffe997a009d9ec74b15fc7363e3486a60ebbaa57d5994e409ef5",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 123,
-      distinctSharedNames: 20,
-      runnersUsingSharedNames: 55,
+      distinctSharedNames: 21,
+      runnersUsingSharedNames: 57,
     });
     expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
     expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);

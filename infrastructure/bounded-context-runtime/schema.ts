@@ -119,6 +119,13 @@ const contextSchemaMigrations = [
   concurrentEventStoreIndexesMigration,
   eventStoreWriteHotFillfactorMigration,
   projectionRecoveryMarkerBackfillMigration,
+  {
+    migrationId: "20261015_subscription_reaction_output_positions",
+    description: "Record reaction output positions atomically with completed applications.",
+    statements: [
+      "ALTER TABLE event_subscription_applications ADD COLUMN IF NOT EXISTS output_global_positions bigint[] NULL;",
+    ],
+  },
 ] as const;
 const eventCoreBootstrapSchemaSql = removeEventCoreMigrationStatements(eventCorePostgresSchemaSql.trim());
 
@@ -179,6 +186,7 @@ CREATE TABLE IF NOT EXISTS event_subscription_applications (
   event_type text NOT NULL,
   status text NOT NULL CHECK (status IN ('started', 'applied', 'poison', 'transient')),
   error_message text NULL,
+  output_global_positions bigint[] NULL,
   lease_owner_id text NULL,
   lease_fencing_token bigint NULL,
   started_at timestamptz NOT NULL,
@@ -188,7 +196,8 @@ CREATE TABLE IF NOT EXISTS event_subscription_applications (
 
 ALTER TABLE event_subscription_applications
   ADD COLUMN IF NOT EXISTS lease_owner_id text NULL,
-  ADD COLUMN IF NOT EXISTS lease_fencing_token bigint NULL;
+  ADD COLUMN IF NOT EXISTS lease_fencing_token bigint NULL,
+  ADD COLUMN IF NOT EXISTS output_global_positions bigint[] NULL;
 
 CREATE INDEX IF NOT EXISTS event_subscription_applications_projection_position_idx
   ON event_subscription_applications (projection_key, global_position);

@@ -88,6 +88,7 @@ vi.mock("@chase-sets/marketplace/server", () => ({
 }));
 
 import { action as sellCheckoutSessionAction, loader as sellCheckoutSessionLoader } from "./sell-checkout-session";
+import { loader as sellCheckoutConfirmationLoader } from "./sell-checkout-confirmation";
 
 async function readResolvedFreshWriteToken(url: URL) {
   const resolvedRequest = await resolvePlatformPostWriteRequest(new Request(url));
@@ -337,10 +338,13 @@ describe("checkout web routes: sell checkout session", () => {
 
   const mockRemoveSellListLine = vi.fn();
 
-  function mockSignedInSellCheckoutState() {
+  function mockSignedInSellCheckoutState(lineOverrides: Parameters<typeof guestSellListLine>[0] = {}) {
     mockResolveActorFromAuthApi.mockResolvedValue(signedInSellerActor());
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getSellList: vi.fn(async () => ({ items: [guestSellListLine({ seller_account_id: "acc_seller" })], count: 1 })),
+      getSellList: vi.fn(async () => ({
+        items: [guestSellListLine({ seller_account_id: "acc_seller", ...lineOverrides })],
+        count: 1,
+      })),
       createSellListReadiness: mockCreateSellListReadiness,
       getSellListConfirmation: mockGetSellListConfirmation,
       confirmSellListCheckout: mockConfirmSellListCheckout,
@@ -568,6 +572,101 @@ describe("checkout web routes: sell checkout session", () => {
           sourceContextName: "marketplace",
           maxGlobalPosition: "55",
           eventIds: ["evt_marketplace_offer_accepted"],
+        }),
+      ]),
+    });
+  });
+
+  it("pins both two-member Smart Match receipts on the committed Sales link", async () => {
+    mockSignedInSellCheckoutState({
+      line_id: "sll_product",
+      line_type: "product",
+      offer_id: null,
+      offer_price_amount: null,
+      quantity: 2,
+      minimum_listing_price_amount: null,
+    });
+    mockCreateSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        lineCount: 1,
+        includedLineIds: ["sll_product"],
+        lineOutcomes: [{ lineId: "sll_product", outcome: "checkout", reason: "ready", action: "smart-match" }],
+      },
+    });
+    for (const [index, eventId] of ["first_member", "completing_member"].entries()) {
+      mockAcceptOfferMatch.mockResolvedValueOnce({
+        status: "accepted",
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: String(55 + index),
+            eventIds: [eventId],
+          },
+        ],
+      });
+    }
+    const targets = [1, 2].map((index) => ({
+      offerId: `off_product_${index}`,
+      listingId: `lst_product_${index}`,
+      feeQuoteFingerprint: `quote_product_${index}`,
+      quantity: 1,
+    }));
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: signedInSellCheckoutForm({
+          readinessDecisions: JSON.stringify({
+            lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+            lineOutcomes: [],
+          }),
+          sellListReviewPlan: JSON.stringify({
+            version: 1,
+            lines: [
+              {
+                lineId: "sll_product",
+                lineType: "product",
+                itemTitle: "Mewtwo",
+                productId: "prod_1",
+                quantity: 2,
+                selectedOffer: null,
+                productOfferTargets: targets,
+                fallbackListing: null,
+                skippedReasons: [],
+              },
+            ],
+          }),
+        }).toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    await expectSellConfirmationRedirect(result);
+    expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(2);
+    for (const target of targets)
+      expect(mockAcceptOfferMatch).toHaveBeenCalledWith(
+        target.offerId,
+        expect.objectContaining({
+          acceptanceBatchId: "offer-acceptance:slc_chk_sell_1:sll_product",
+          acceptanceBatchSize: 2,
+        }),
+      );
+    mockGetSellListConfirmation.mockResolvedValue({ confirmation_id: "slc_chk_sell_1" });
+    const confirmation = await sellCheckoutConfirmationLoader({
+      request: new Request(new URL((result as Response).headers.get("Location")!, "http://localhost")),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+    expect(confirmation.committedSalesPath).toContain("/account/sales?");
+    expect(
+      await readResolvedFreshWriteToken(new URL(confirmation.committedSalesPath, "http://localhost")),
+    ).toMatchObject({
+      sources: expect.arrayContaining([
+        expect.objectContaining({
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "56",
+          eventIds: ["first_member", "completing_member"],
         }),
       ]),
     });

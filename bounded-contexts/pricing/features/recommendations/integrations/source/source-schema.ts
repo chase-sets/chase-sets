@@ -13,8 +13,39 @@ CREATE TABLE IF NOT EXISTS pricing_catalog_category_inputs (
 );
 `;
 
+const pricingCatalogProductLineTablesSql = `
+CREATE TABLE IF NOT EXISTS pricing_catalog_reference_inputs (
+  catalog_item_id text NOT NULL,
+  field_id text NOT NULL,
+  reference_id text NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1),
+  PRIMARY KEY (catalog_item_id, field_id)
+);
+
+CREATE TABLE IF NOT EXISTS pricing_catalog_reference_records (
+  reference_id text PRIMARY KEY,
+  type_key text NOT NULL,
+  name text NOT NULL,
+  relationships jsonb NOT NULL DEFAULT '[]'::jsonb,
+  status text NOT NULL,
+  updated_at timestamptz NOT NULL,
+  last_stream_version integer NOT NULL CHECK (last_stream_version >= 1)
+);
+`;
+
+const pricingCatalogProductLineBootIndexSql = `
+CREATE INDEX IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx
+  ON pricing_catalog_reference_inputs (reference_id);
+`;
+
+const pricingCatalogProductLineIndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS pricing_catalog_reference_inputs_reference_idx
+  ON pricing_catalog_reference_inputs (reference_id)`;
+
 export const pricingRecommendationSourceSchemaSql = `
 ${pricingCatalogCategorySchemaSql}
+${pricingCatalogProductLineTablesSql}
+${pricingCatalogProductLineBootIndexSql}
 CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   catalog_item_id text PRIMARY KEY,
   language_code text NOT NULL DEFAULT 'en',
@@ -22,6 +53,9 @@ CREATE TABLE IF NOT EXISTS pricing_catalog_item_inputs (
   subtitle text NULL,
   status text NOT NULL,
   category_ids text[] NOT NULL DEFAULT '{}',
+  product_line_reference_id text NULL,
+  product_line_name text NULL,
+  product_line_version integer NULL,
   slug text NULL,
   updated_at timestamptz NOT NULL
 );
@@ -31,6 +65,15 @@ ALTER TABLE pricing_catalog_item_inputs
 
 ALTER TABLE pricing_catalog_item_inputs
   ADD COLUMN IF NOT EXISTS category_ids text[] NOT NULL DEFAULT '{}';
+
+ALTER TABLE pricing_catalog_item_inputs
+  ADD COLUMN IF NOT EXISTS product_line_reference_id text NULL;
+
+ALTER TABLE pricing_catalog_item_inputs
+  ADD COLUMN IF NOT EXISTS product_line_name text NULL;
+
+ALTER TABLE pricing_catalog_item_inputs
+  ADD COLUMN IF NOT EXISTS product_line_version integer NULL;
 -- Public market pages address catalog items by slug. Minted locally
 -- (see ../../../../support/runtime-support/slugs.ts) from title/subtitle/id
 -- already carried on the events this projection already consumes -- no new
@@ -185,6 +228,17 @@ CREATE INDEX IF NOT EXISTS pricing_fulfillment_signal_lines_lookup_idx
 `;
 
 export const pricingRecommendationSourceSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261016_pricing_product_line_inputs",
+    description: "Project Catalog-owned Product Line references onto Pricing catalog inputs.",
+    statements: [
+      pricingCatalogProductLineTablesSql,
+      pricingCatalogProductLineIndexSql,
+      `ALTER TABLE pricing_catalog_item_inputs ADD COLUMN IF NOT EXISTS product_line_reference_id text NULL`,
+      `ALTER TABLE pricing_catalog_item_inputs ADD COLUMN IF NOT EXISTS product_line_name text NULL`,
+      `ALTER TABLE pricing_catalog_item_inputs ADD COLUMN IF NOT EXISTS product_line_version integer NULL`,
+    ],
+  },
   {
     migrationId: "20260914_pricing_catalog_category_inputs",
     description: "Replay Catalog category names and lifecycle for account policy controls.",
