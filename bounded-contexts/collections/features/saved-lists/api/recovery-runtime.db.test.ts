@@ -16,6 +16,7 @@ import { createSavedListRuntime } from "./runtime";
 import type { SavedListDestination } from "./discovery-contracts";
 import type { SavedListProductSelection } from "../domain/contracts";
 import { savedListCanonicalProduct, savedListFingerprint } from "./anonymous-owner";
+import { activateAnonymousOwnerCutover } from "../../../support/runtime-support/anonymous-owner-activation";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for recovery DB proof.");
@@ -51,7 +52,6 @@ function runtime(pool = pools.collections) {
     eventStore: createPostgresEventStore({ pool }),
     productCatalog: catalog,
     clock: () => clock,
-    enabled: true,
   });
 }
 
@@ -77,6 +77,13 @@ describeDb("durable Saved List recovery", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(collectionsModule, pools.collections);
+    await pools.collections.query(
+      "UPDATE collections_anonymous_owner_activation SET activated_at = NULL, gate_packet_sha256 = NULL, floor_commit = NULL",
+    );
+    await activateAnonymousOwnerCutover(pools.collections, {
+      gatePacketSha256: "d".repeat(64),
+      floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+    });
     clock = new Date("2026-10-12T12:00:00.000Z");
     catalog.resolveProduct.mockClear();
   });
@@ -120,7 +127,6 @@ describeDb("durable Saved List recovery", () => {
       },
       productCatalog: catalog,
       clock: () => clock,
-      enabled: true,
     });
     const observed = await runWithEventCommitMetadata(async () => {
       const result = await retrying.apply(
@@ -159,7 +165,6 @@ describeDb("durable Saved List recovery", () => {
       eventStore: createPostgresEventStore({ pool: failingPool }),
       productCatalog: catalog,
       clock: () => clock,
-      enabled: true,
     });
     const observed = await runWithEventCommitMetadata(async () => {
       const error = await failing.apply({ operationId: sending.operationId, revision: sending.revision }, context).then(
@@ -174,6 +179,17 @@ describeDb("durable Saved List recovery", () => {
       (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
         .rows[0]?.count,
     ).toBe("0");
+  it("recovery activation is read per request", async () => {
+    await pools.collections.query(
+      "UPDATE collections_anonymous_owner_activation SET activated_at = NULL, gate_packet_sha256 = NULL, floor_commit = NULL",
+    );
+    const service = runtime();
+    await expect(service.list({}, context)).rejects.toMatchObject({ code: "disabled" });
+    await activateAnonymousOwnerCutover(pools.collections, {
+      gatePacketSha256: "e".repeat(64),
+      floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+    });
+    await expect(service.list({}, context)).resolves.toMatchObject({ items: [] });
   });
 
   it("direct-recovery-without-browser-state", async () => {
@@ -229,6 +245,10 @@ describeDb("durable Saved List recovery", () => {
     for (let crash = 1; crash <= writeCount; crash += 1) {
       await resetMultiContextTestSchemas(pools);
       await bootstrapContextDatabase(collectionsModule, pools.collections);
+      await activateAnonymousOwnerCutover(pools.collections, {
+        gatePacketSha256: "d".repeat(64),
+        floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+      });
       const prepared = await ready();
       let current = 0;
       const injectedFailure = new Error("synthetic-write-crash");
@@ -516,7 +536,6 @@ describeDb("durable Saved List recovery", () => {
     const delayed = createSavedListRecoveryRuntime({
       pool: pools.collections,
       eventStore: createPostgresEventStore({ pool: pools.collections }),
-      enabled: true,
       clock: () => clock,
       productCatalog: {
         resolveProduct: async (selection) => {
@@ -540,6 +559,9 @@ describeDb("durable Saved List recovery", () => {
     const { service, sending } = await ready();
     await service.apply({ operationId: sending.operationId, revision: sending.revision }, context);
     await pools.collections.query(
+      "UPDATE collections_anonymous_owner_activation SET activated_at = NULL, gate_packet_sha256 = NULL, floor_commit = NULL",
+    );
+    await pools.collections.query(
       `INSERT INTO collections_anonymous_saved_list_intents
       (intent_id, anonymous_owner_id, source_path, source_surface, catalog_catalog_item_id, product_id,
        selected_options, add_command_id, line_id, created_at, expires_at)
@@ -552,6 +574,10 @@ describeDb("durable Saved List recovery", () => {
         new Date(clock.getTime() + 30 * 86400000).toISOString(),
       ],
     );
+    await activateAnonymousOwnerCutover(pools.collections, {
+      gatePacketSha256: "f".repeat(64),
+      floorCommit: "54c9898f45e14e616230e584d5a4ec078ceb1a03",
+    });
     const target = { kind: "existing" as const, listId: destination.listId };
     const confirmed = await service.reserveAnonymous(
       { anonymousOwnerId: "anon_sum", intentId: "sli_sum", destination: target, trackedQuantity: 3 },
@@ -608,7 +634,6 @@ describeDb("durable Saved List recovery", () => {
     const delayed = createSavedListRecoveryRuntime({
       pool: pools.collections,
       eventStore: createPostgresEventStore({ pool: pools.collections }),
-      enabled: true,
       clock: () => clock,
       productCatalog: {
         resolveProduct: async (selection) => {
