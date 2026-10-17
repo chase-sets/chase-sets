@@ -99,7 +99,7 @@ function mappedValue(
   values: Readonly<Record<string, string>>,
   input: Parameters<InventoryImportSourceAdapter["normalize"]>[0],
 ) {
-  const existing = values[mapping.targetKey] ?? "";
+  const existing = values[mapping.targetKey] ?? row.values[mapping.targetKey] ?? "";
   const copied = mapping.copyFrom ? (values[mapping.copyFrom] ?? "") : "";
   const fromHeaders = valueByHeader(row, mapping.headers);
   const fromDefault =
@@ -280,7 +280,7 @@ export function getInventoryImportSourceAdapter(sourceKey: string | null | undef
   const profile = getInventoryImportSourceProfile(sourceKey);
   if (!profile) {
     const normalized = clean(sourceKey) || "native-csv";
-    throw new Error(`Unsupported inventory import source '${normalized}'.`);
+    throw new Error("Unsupported inventory import source.");
   }
 
   return adapters[profile.sourceKey];

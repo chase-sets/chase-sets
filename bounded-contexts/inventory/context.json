@@ -493,7 +493,6 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1",
         "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#2",
         "route-action:bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx"
       ],
@@ -517,7 +516,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/inventory/features/import-batches/api/route.ts:POST /:id/rows/:rowId/resolve",
-        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#3"
+        "post-form:bounded-contexts/inventory/features/import-batches/ui/import-batch-page.tsx:H2df726441e2a#1"
       ],
       "visibleDestination": {
         "routeId": "account-inventory-import",
@@ -1016,7 +1015,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by inventory-owned features and composition seams.",
-      "expectedConsumers": ["inventory-items", "restock-decisions", "storage-locations"],
+      "expectedConsumers": ["import-batches", "inventory-items", "restock-decisions", "storage-locations"],
       "crossCuttingRuntimeComposition": true
     },
     "runtime-support": {
@@ -1044,7 +1043,7 @@
     "ui-support": {
       "classification": "support",
       "purpose": "Expose the Inventory browser recovery provider through the web composition surface.",
-      "expectedConsumers": ["Deployable composition for inventory"]
+      "expectedConsumers": ["import-batches"]
     },
     "routes": {
       "classification": "routes",

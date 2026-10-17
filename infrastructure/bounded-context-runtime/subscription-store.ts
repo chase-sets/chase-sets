@@ -389,6 +389,132 @@ export async function areSubscribedReceiptEventsApplied(
   return result.rows[0]?.fresh === true;
 }
 
+export type SubscriptionReceiptApplicationOutputs = Readonly<{
+  state: "applied" | "pending" | "failed";
+  outputPositions: readonly string[];
+}>;
+
+export type SubscriptionOutputApplicationStatus = Readonly<{
+  requiredGlobalPosition: string | null;
+  failed: boolean;
+}>;
+
+type ConsistencySourceEvent = Readonly<{
+  event_id: string;
+  stream_id: string;
+  global_position: string;
+  handled: boolean;
+}>;
+
+async function readConsistencySourceEvents(
+  source: PgQueryable,
+  identity: Readonly<{ eventIds: readonly string[] } | { positions: readonly string[] }>,
+  eventTypes: readonly string[],
+  streamPrefixes?: readonly string[],
+): Promise<readonly ConsistencySourceEvent[]> {
+  const byId = "eventIds" in identity;
+  const params: unknown[] = [byId ? identity.eventIds : identity.positions, eventTypes];
+  const predicates = ["event_type = ANY($2::text[])"];
+  const prefixFilter = buildStreamPrefixFilterSql(streamPrefixes ?? [], 3);
+  if (prefixFilter) {
+    predicates.push(prefixFilter.predicate);
+    params.push(...prefixFilter.params);
+  }
+  const result = await source.query<ConsistencySourceEvent>(
+    `SELECT event_id, stream_id, global_position::text, (${predicates.join(" AND ")}) AS handled
+     FROM event_store_events
+     WHERE ${byId ? "event_id = ANY($1::text[])" : "global_position = ANY($1::bigint[])"}`,
+    params,
+  );
+  return result.rows;
+}
+
+async function readConsistencyApplications(
+  target: PgQueryable,
+  projectionKey: string,
+  events: readonly ConsistencySourceEvent[],
+) {
+  const result = await target.query<
+    Readonly<{
+      event_id: string;
+      status: string | null;
+      output_global_positions: string[] | null;
+      failed: boolean;
+    }>
+  >(
+    `SELECT event.event_id, application.status, application.output_global_positions,
+       (EXISTS (
+         SELECT 1 FROM event_projection_poison_events AS poison
+         WHERE poison.projection_key = $1 AND poison.event_id = event.event_id
+           AND poison.state IN ('blocked', 'retrying')
+       ) OR EXISTS (
+         SELECT 1 FROM event_projection_blocked_streams AS blocked
+         WHERE blocked.projection_key = $1 AND blocked.stream_id = event.stream_id
+           AND blocked.state IN ('blocked', 'retrying')
+           AND blocked.first_blocked_global_position <= event.global_position
+       )) AS failed
+     FROM unnest($2::text[], $3::text[], $4::bigint[]) AS event(event_id, stream_id, global_position)
+     LEFT JOIN event_subscription_applications AS application
+       ON application.projection_key = $1 AND application.event_id = event.event_id`,
+    [
+      projectionKey,
+      events.map((event) => event.event_id),
+      events.map((event) => event.stream_id),
+      events.map((event) => event.global_position),
+    ],
+  );
+  return result.rows;
+}
+
+export async function readReceiptApplicationOutputs(
+  source: PgQueryable,
+  target: PgQueryable,
+  projectionKey: string,
+  eventIds: readonly string[],
+  eventTypes: readonly string[],
+  streamPrefixes?: readonly string[],
+): Promise<SubscriptionReceiptApplicationOutputs> {
+  const ids = [...new Set(eventIds)];
+  const events = await readConsistencySourceEvents(source, { eventIds: ids }, eventTypes, streamPrefixes);
+  const handled = events.filter((event) => event.handled);
+  const applications = await readConsistencyApplications(target, projectionKey, handled);
+  if (applications.some((application) => application.failed)) return { state: "failed", outputPositions: [] };
+  if (
+    ids.length === 0 ||
+    events.length !== ids.length ||
+    applications.length !== handled.length ||
+    applications.some((application) => application.status !== "applied" || application.output_global_positions === null)
+  ) {
+    return { state: "pending", outputPositions: [] };
+  }
+  return {
+    state: "applied",
+    outputPositions: [...new Set(applications.flatMap((application) => application.output_global_positions!))],
+  };
+}
+
+export async function readOutputApplicationStatus(
+  source: PgQueryable,
+  target: PgQueryable,
+  projectionKey: string,
+  positions: readonly string[],
+  eventTypes: readonly string[],
+  streamPrefixes?: readonly string[],
+): Promise<SubscriptionOutputApplicationStatus> {
+  const events = (await readConsistencySourceEvents(source, { positions }, eventTypes, streamPrefixes)).filter(
+    (event) => event.handled,
+  );
+  const applications = await readConsistencyApplications(target, projectionKey, events);
+  return {
+    requiredGlobalPosition: events.reduce<string | null>(
+      (highest, event) =>
+        highest === null || BigInt(event.global_position) > BigInt(highest) ? event.global_position : highest,
+      null,
+    ),
+    failed: applications.some((application) => application.failed),
+  };
+}
+
 /**
  * Elapsed time since a subscription application row was first claimed. `started_at`
  * is written once on the initial claim and preserved across re-claims, so it is a
@@ -601,12 +727,14 @@ export async function recordSubscriptionApplicationCompleted(
   status: "applied" | "poison" | "transient",
   error: unknown = null,
   context?: ProjectionRunContext,
+  outputGlobalPositions: readonly string[] | null = null,
 ): Promise<void> {
   const fencingToken = leaseFencingToken(context);
   const result = await db.query(
     `UPDATE event_subscription_applications
      SET status = $3,
          error_message = $4,
+         output_global_positions = $6::bigint[],
          updated_at = now()
      WHERE projection_key = $1
        AND event_id = $2
@@ -617,6 +745,7 @@ export async function recordSubscriptionApplicationCompleted(
       status,
       error instanceof Error ? error.message : error === null ? null : String(error),
       fencingToken,
+      status === "applied" ? outputGlobalPositions : null,
     ],
   );
   if (result.rowCount != null && result.rowCount < 1) {

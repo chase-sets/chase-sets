@@ -98,7 +98,7 @@ export const checkoutEnglishTranslations = {
     "Register or sign in before submitting an offer.",
   "checkout.features.sessions.api.route.request.failed": "Request failed.",
   "checkout.features.sessions.readModel.schema.create.table.if.not.exists.checkout":
-    "\nCREATE TABLE IF NOT EXISTS checkout_session_pages (\n  session_id text PRIMARY KEY,\n  buyer_account_id text NOT NULL,\n  source_type text NOT NULL,\n  shipping_option text NOT NULL,\n  lines jsonb NOT NULL DEFAULT '[]'::jsonb,\n  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,\n  payment_id text NULL,\n  created_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS checkout_session_pages_buyer_idx\n  ON checkout_session_pages (buyer_account_id, updated_at DESC, session_id DESC);\n",
+    "\nCREATE TABLE IF NOT EXISTS checkout_session_pages (\n  session_id text PRIMARY KEY,\n  buyer_account_id text NOT NULL,\n  source_type text NOT NULL,\n  shipping_option text NOT NULL,\n  lines jsonb NOT NULL DEFAULT '[]'::jsonb,\n  order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,\n  payment_id text NULL,\n  handoff_expires_at timestamptz NULL,\n  created_at timestamptz NOT NULL,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS checkout_session_pages_buyer_idx\n  ON checkout_session_pages (buyer_account_id, updated_at DESC, session_id DESC);\n",
   "checkout.features.sessions.ui.checkoutPage.add.a.product.before.starting.checkout":
     "Add a product before starting checkout.",
   "checkout.features.sessions.ui.checkoutPage.address.line1": "Address line 1",

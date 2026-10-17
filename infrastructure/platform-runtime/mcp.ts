@@ -508,7 +508,9 @@ function typeName(value: unknown) {
   return typeof value;
 }
 
-function validatePrimitiveType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+type McpJsonSchemaPrimitiveType = Extract<McpJsonSchemaProperty["type"], string>;
+
+function validatePrimitiveType(value: unknown, expected: McpJsonSchemaPrimitiveType) {
   switch (expected) {
     case "array":
       return Array.isArray(value);
@@ -529,12 +531,20 @@ function validateSchemaProperty(
   schema: McpJsonSchemaProperty,
   path: string,
 ): McpInputValidationIssue[] {
-  if (!validatePrimitiveType(value, schema.type)) {
+  // A nullable type is the tuple `[<T>, "null"]`; `null` passes only there.
+  const nullable = typeof schema.type !== "string";
+  const type = typeof schema.type === "string" ? schema.type : schema.type[0];
+  if (value === null && nullable) {
+    return [];
+  }
+
+  if (!validatePrimitiveType(value, type)) {
+    const expected = nullable ? `${type} or null` : type;
     return [
       {
         path,
-        message: `Expected ${schema.type}.`,
-        expected: schema.type,
+        message: `Expected ${expected}.`,
+        expected,
         actual: typeName(value),
       },
     ];
@@ -551,13 +561,13 @@ function validateSchemaProperty(
     });
   }
 
-  if (schema.type === "array" && schema.items) {
+  if (type === "array" && schema.items) {
     (value as readonly unknown[]).forEach((item, index) => {
       issues.push(...validateSchemaProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
     });
   }
 
-  if (schema.type === "object" && schema.properties) {
+  if (type === "object" && schema.properties) {
     issues.push(
       ...validateObjectProperties(
         value as Readonly<Record<string, unknown>>,
