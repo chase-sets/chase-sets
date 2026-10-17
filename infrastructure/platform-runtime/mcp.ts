@@ -529,6 +529,9 @@ function validateSchemaProperty(
   schema: McpJsonSchemaProperty,
   path: string,
 ): McpInputValidationIssue[] {
+  if (value === null && schema.nullable) {
+    return [];
+  }
   if (!validatePrimitiveType(value, schema.type)) {
     return [
       {
