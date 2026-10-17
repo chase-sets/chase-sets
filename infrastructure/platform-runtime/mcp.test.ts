@@ -682,7 +682,7 @@ describe("MCP runtime routes", () => {
           kind: "granted",
           membershipId: actor.membershipId,
           roleKey: "platform-admin",
-          rolePermissions: ["insights-dashboards.view"],
+          rolePermissions: ["insights-dashboards.view", "postage-policies.view", "postage-policies.manage"],
         }),
       },
     );

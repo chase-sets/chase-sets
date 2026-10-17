@@ -201,8 +201,11 @@ export function createOrderingPostagePolicyMcpHandlers(
 
   const clonePolicy: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = requirePermission(actor, "postage-policies.manage");
+    const policyId = readMcpTypedIdArgument(args, "id", "opp");
+    const source = await services.getPolicy(policyId);
+    if (!source) throw new Error("Postage policy not found.");
     const result = await services.clonePolicy(
-      readMcpTypedIdArgument(args, "id", "opp"),
+      policyId,
       {
         label: requiredString(args, "label"),
         effectiveFrom: requiredString(args, "effectiveFrom"),
