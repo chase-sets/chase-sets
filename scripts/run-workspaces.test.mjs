@@ -798,7 +798,7 @@ describe("DB duration scheduling", () => {
     );
     for (const [name, scripts] of [
       ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2"]],
-      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
     }
@@ -845,7 +845,9 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(57);
+    expect(census.entries).toHaveLength(58);
+    expect(census.entries).toContain("__tests__/ucp-checkout-dispatch.test.ts");
+    expect(census.dbEntries).not.toContain("__tests__/ucp-checkout-dispatch.test.ts");
     expect(census.entries).toContain("__tests__/activate-agent-grant-revocation.test.ts");
     expect(census.dbEntries).not.toContain("__tests__/activate-agent-grant-revocation.test.ts");
     expect(census.entries).toContain("__tests__/ucp-profile-negotiation.test.ts");
@@ -872,7 +874,7 @@ describe("DB duration scheduling", () => {
         groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([6, 12]);
+      expect(groups.map((files) => files.length)).toEqual([3, 12, 3]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),

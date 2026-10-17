@@ -16,6 +16,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         splitGroupHandoff?: unknown;
         shippingOption: string;
         lines: unknown;
+        handoffExpiresAt?: string | null;
         createdAt: string;
       };
 
@@ -39,9 +40,10 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            payment_id,
            submitted_offer_id,
            cancelled_at,
+           handoff_expires_at,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, $11, $11)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL, $10, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, NULL, NULL, NULL, $11, $12, $12)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
@@ -54,6 +56,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
              shipping_address_id = EXCLUDED.shipping_address_id,
              shipping_address = EXCLUDED.shipping_address,
              lines = EXCLUDED.lines,
+             handoff_expires_at = EXCLUDED.handoff_expires_at,
              updated_at = EXCLUDED.updated_at`,
         [
           data.sessionId,
@@ -66,6 +69,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
           JSON.stringify(data.splitGroupHandoff ?? null),
           data.shippingOption,
           JSON.stringify(Array.isArray(data.lines) ? data.lines : []),
+          data.handoffExpiresAt ?? null,
           data.createdAt,
         ],
       );

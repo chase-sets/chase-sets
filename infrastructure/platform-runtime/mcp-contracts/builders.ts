@@ -23,8 +23,19 @@ export type McpJsonSchema = Readonly<{
   properties: Readonly<Record<string, McpJsonSchemaProperty>>;
 }>;
 
+export type McpJsonSchemaPrimitiveType = "string" | "number" | "integer" | "boolean" | "array" | "object";
+
+declare const nullableTypeBrand: unique symbol;
+
+/**
+ * Standard JSON Schema `[<T>, "null"]`. Branded so only `nullableProperty`
+ * authors it; the brand is type-only and never serialized.
+ */
+export type McpNullableJsonSchemaType = readonly [McpJsonSchemaPrimitiveType, "null"] &
+  Readonly<{ [nullableTypeBrand]: true }>;
+
 export type McpJsonSchemaProperty = Readonly<{
-  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  type: McpJsonSchemaPrimitiveType | McpNullableJsonSchemaType;
   description: string;
   enum?: readonly string[];
   items?: McpJsonSchemaProperty;
@@ -44,7 +55,14 @@ export type McpPermissionBoundary = Readonly<{
 export type McpConfirmationPolicy = Readonly<{
   required: boolean;
   prompt?: string;
+  /** Title-bound: this input and the confirmation text must both equal the tool title. */
   matchInputField?: string;
+  /**
+   * Input-bound: names a required string input; the confirmation text must
+   * equal that input's exact per-call value. Exclusive with `matchInputField`.
+   * Binds the confirmation to the value only; the handler still validates it.
+   */
+  matchInputValue?: string;
 }>;
 
 export type McpGuardrails = Readonly<{
@@ -161,6 +179,19 @@ export const arrayProperty = (description: string, items: McpJsonSchemaProperty)
   items,
 });
 
+/**
+ * Accepts `null` alongside the property's own type. Nested rules still apply
+ * to non-null values. `enum` is excluded: JSON Schema clients would refuse a
+ * `null` absent from it, so the published contract would disagree with the
+ * server.
+ */
+export const nullableProperty = (
+  property: McpJsonSchemaProperty & Readonly<{ type: McpJsonSchemaPrimitiveType; enum?: undefined }>,
+): McpJsonSchemaProperty => ({
+  ...property,
+  type: [property.type, "null"] as unknown as McpNullableJsonSchemaType,
+});
+
 // Shared guidance for every write tool's `idempotencyKey` field: the agent
 // host must generate one stable value per logical action and resend that
 // same value on every retry, so a retried call is deduped rather than
@@ -183,7 +214,8 @@ export const objectSchema = (
 export const readBoundary = (permission: string, scope: McpAccessScope = "account"): McpPermissionBoundary => ({
   scope,
   requiredPermissions: [permission],
-  requiredScopes: agentOAuthScopesForPermissions([permission]),
+  // Commerce scopes neither gate nor satisfy an operator capability; the operator predicate admits it.
+  requiredScopes: scope === "operator" ? [] : agentOAuthScopesForPermissions([permission]),
   accountScoped: scope === "account",
   auditPrincipal: "actor",
 });

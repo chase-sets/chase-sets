@@ -549,7 +549,21 @@
     "tools": [
       { "name": "discovery.search-market", "ownerSlice": "search" },
       { "name": "discovery.get-item-detail", "ownerSlice": "item-detail" },
-      { "name": "discovery.get-chatgpt-product-feed", "ownerSlice": "item-detail" }
+      { "name": "discovery.get-chatgpt-product-feed", "ownerSlice": "item-detail" },
+      {
+        "name": "discovery.enqueue-google-shopping-diagnostics-refresh",
+        "ownerSlice": "google-shopping-operations"
+      },
+      {
+        "name": "discovery.enqueue-google-shopping-dry-run-full-sync",
+        "ownerSlice": "google-shopping-operations"
+      },
+      {
+        "name": "discovery.enqueue-google-shopping-dry-run-maintenance-sync",
+        "ownerSlice": "google-shopping-operations"
+      },
+      { "name": "discovery.get-google-shopping-sync-job", "ownerSlice": "google-shopping-operations" },
+      { "name": "discovery.list-google-shopping-feed-rows", "ownerSlice": "google-shopping-operations" }
     ],
     "resources": [
       {
@@ -1131,7 +1145,15 @@
     }
   ],
   "agentCoverage": {
-    "google-shopping": { "pending": "#9238" }
+    "google-shopping": {
+      "tools": [
+        "discovery.enqueue-google-shopping-diagnostics-refresh",
+        "discovery.enqueue-google-shopping-dry-run-full-sync",
+        "discovery.enqueue-google-shopping-dry-run-maintenance-sync",
+        "discovery.get-google-shopping-sync-job",
+        "discovery.list-google-shopping-feed-rows"
+      ]
+    }
   },
   "deployableContributions": [
     {

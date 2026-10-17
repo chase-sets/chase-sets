@@ -2439,7 +2439,8 @@ export const mcpToolCatalog = [
   {
     name: "inventory.commit-import-batch",
     title: "Commit Inventory Import Batch",
-    description: "Commit accepted import rows into Inventory Items and draft Listings when listing fields are present.",
+    description:
+      "Accept a durable job to commit reviewed import rows into Inventory Items and draft Listings; read the job for its outcome.",
     availability: "available",
     serviceId: "inventory",
     risk: "sensitive",
@@ -2477,139 +2478,26 @@ export const mcpToolCatalog = [
     },
     outputSchema: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
+      required: ["receiptVersion", "jobId", "batchId", "status"],
       properties: {
-        batch_id: {
-          type: "string",
-          description: "Import batch identifier.",
+        receiptVersion: {
+          type: "integer",
+          description: "Durable import acceptance receipt version (1).",
         },
-        account_id: {
+        jobId: {
           type: "string",
-          description: "Account that owns the import batch.",
+          description: "Durable commit job identity.",
+        },
+        batchId: {
+          type: "string",
+          description: "Inventory import batch identity.",
         },
         status: {
           type: "string",
-          description: "Import batch status.",
-          enum: ["uploaded", "committed"],
-        },
-        source_key: {
-          type: "string",
-          description: "Configured import source key.",
-        },
-        adapter_version: {
-          type: "integer",
-          description: "Version of the import adapter contract.",
-        },
-        quantity_mode: {
-          type: "string",
-          description: "How row quantities affect stock.",
-          enum: ["add", "replace"],
-        },
-        total_count: {
-          type: "integer",
-          description: "Total row count.",
-        },
-        accepted_count: {
-          type: "integer",
-          description: "Accepted row count.",
-        },
-        rejected_count: {
-          type: "integer",
-          description: "Rejected row count.",
-        },
-        committed_count: {
-          type: "integer",
-          description: "Committed row count.",
-        },
-        created_at: {
-          type: "string",
-          description: "Creation timestamp.",
-        },
-        updated_at: {
-          type: "string",
-          description: "Last update timestamp.",
-        },
-        rows: {
-          type: "array",
-          description: "Import batch rows.",
-          items: {
-            type: "object",
-            description: "Inventory import batch row.",
-            additionalProperties: true,
-            required: [
-              "row_id",
-              "batch_id",
-              "row_number",
-              "status",
-              "quantity_mode",
-              "resolution_status",
-              "validation_errors",
-              "created_at",
-              "updated_at",
-            ],
-            properties: {
-              row_id: {
-                type: "string",
-                description: "Import batch row identifier.",
-              },
-              batch_id: {
-                type: "string",
-                description: "Import batch identifier.",
-              },
-              row_number: {
-                type: "integer",
-                description: "Source row number.",
-              },
-              status: {
-                type: "string",
-                description: "Import row status.",
-                enum: ["accepted", "rejected", "committed"],
-              },
-              quantity_mode: {
-                type: "string",
-                description: "How row quantities affect stock.",
-                enum: ["add", "replace"],
-              },
-              resolution_status: {
-                type: "string",
-                description: "Catalog resolution status.",
-                enum: ["native", "resolved", "unresolved"],
-              },
-              validation_errors: {
-                type: "array",
-                description: "Validation errors for the row.",
-                items: {
-                  type: "string",
-                  description: "Validation error.",
-                },
-              },
-              created_at: {
-                type: "string",
-                description: "Creation timestamp.",
-              },
-              updated_at: {
-                type: "string",
-                description: "Last update timestamp.",
-              },
-            },
-          },
+          description: "accepted; read the durable job for its terminal outcome.",
         },
       },
-      required: [
-        "batch_id",
-        "account_id",
-        "status",
-        "source_key",
-        "adapter_version",
-        "quantity_mode",
-        "total_count",
-        "accepted_count",
-        "rejected_count",
-        "committed_count",
-        "created_at",
-        "updated_at",
-        "rows",
-      ],
     },
     permissionBoundary: {
       scope: "account",
@@ -2634,7 +2522,8 @@ export const mcpToolCatalog = [
   {
     name: "inventory.create-import-batch",
     title: "Create Inventory Import Batch",
-    description: "Create a review-first import batch from CSV text or pre-parsed provider rows.",
+    description:
+      "Accept a recoverable import validation job from CSV text or pre-parsed provider rows. Read the exact attempt receipt after a possible send; acceptance is not validation or stock commit.",
     availability: "available",
     serviceId: "inventory",
     risk: "sensitive",
@@ -2666,7 +2555,20 @@ export const mcpToolCatalog = [
           items: {
             type: "object",
             description: "Parsed row with rowNumber and string values.",
-            additionalProperties: true,
+            additionalProperties: false,
+            required: ["rowNumber", "values"],
+            properties: {
+              rowNumber: {
+                type: "integer",
+                description: "Distinct positive source row identity.",
+              },
+              values: {
+                type: "object",
+                description:
+                  "Text cells normalized by the selected source adapter; unknown upload fields are not retained.",
+                additionalProperties: true,
+              },
+            },
           },
         },
         defaultStorageLocationId: {
@@ -2681,7 +2583,7 @@ export const mcpToolCatalog = [
         },
         sourceFilename: {
           type: "string",
-          description: "Original file or connector source name.",
+          description: "Optional display hint, discarded and never retained with the import.",
         },
         idempotencyKey: {
           type: "string",
@@ -2700,139 +2602,27 @@ export const mcpToolCatalog = [
     },
     outputSchema: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
+      required: ["receiptVersion", "jobId", "batchId", "status"],
       properties: {
-        batch_id: {
-          type: "string",
-          description: "Import batch identifier.",
+        receiptVersion: {
+          type: "integer",
+          description: "Durable import acceptance receipt version (1).",
         },
-        account_id: {
+        jobId: {
           type: "string",
-          description: "Account that owns the import batch.",
+          description: "Durable validation job identity.",
+        },
+        batchId: {
+          type: "string",
+          description: "Recoverable import batch identity.",
         },
         status: {
           type: "string",
-          description: "Import batch status.",
-          enum: ["uploaded", "committed"],
-        },
-        source_key: {
-          type: "string",
-          description: "Configured import source key.",
-        },
-        adapter_version: {
-          type: "integer",
-          description: "Version of the import adapter contract.",
-        },
-        quantity_mode: {
-          type: "string",
-          description: "How row quantities affect stock.",
-          enum: ["add", "replace"],
-        },
-        total_count: {
-          type: "integer",
-          description: "Total row count.",
-        },
-        accepted_count: {
-          type: "integer",
-          description: "Accepted row count.",
-        },
-        rejected_count: {
-          type: "integer",
-          description: "Rejected row count.",
-        },
-        committed_count: {
-          type: "integer",
-          description: "Committed row count.",
-        },
-        created_at: {
-          type: "string",
-          description: "Creation timestamp.",
-        },
-        updated_at: {
-          type: "string",
-          description: "Last update timestamp.",
-        },
-        rows: {
-          type: "array",
-          description: "Import batch rows.",
-          items: {
-            type: "object",
-            description: "Inventory import batch row.",
-            additionalProperties: true,
-            required: [
-              "row_id",
-              "batch_id",
-              "row_number",
-              "status",
-              "quantity_mode",
-              "resolution_status",
-              "validation_errors",
-              "created_at",
-              "updated_at",
-            ],
-            properties: {
-              row_id: {
-                type: "string",
-                description: "Import batch row identifier.",
-              },
-              batch_id: {
-                type: "string",
-                description: "Import batch identifier.",
-              },
-              row_number: {
-                type: "integer",
-                description: "Source row number.",
-              },
-              status: {
-                type: "string",
-                description: "Import row status.",
-                enum: ["accepted", "rejected", "committed"],
-              },
-              quantity_mode: {
-                type: "string",
-                description: "How row quantities affect stock.",
-                enum: ["add", "replace"],
-              },
-              resolution_status: {
-                type: "string",
-                description: "Catalog resolution status.",
-                enum: ["native", "resolved", "unresolved"],
-              },
-              validation_errors: {
-                type: "array",
-                description: "Validation errors for the row.",
-                items: {
-                  type: "string",
-                  description: "Validation error.",
-                },
-              },
-              created_at: {
-                type: "string",
-                description: "Creation timestamp.",
-              },
-              updated_at: {
-                type: "string",
-                description: "Last update timestamp.",
-              },
-            },
-          },
+          description: "Acceptance does not assert validation or stock commit.",
+          enum: ["accepted"],
         },
       },
-      required: [
-        "batch_id",
-        "account_id",
-        "status",
-        "source_key",
-        "adapter_version",
-        "quantity_mode",
-        "total_count",
-        "accepted_count",
-        "rejected_count",
-        "committed_count",
-        "created_at",
-        "updated_at",
-        "rows",
-      ],
     },
     permissionBoundary: {
       scope: "account",
@@ -2848,8 +2638,8 @@ export const mcpToolCatalog = [
         matchInputField: "confirmationText",
       },
       idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
+      idempotencyAuthority: "owner",
+      dryRunSupported: false,
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use after source rows are fetched and before committing stock or draft listings."],
@@ -5570,55 +5360,6 @@ export const mcpToolCatalog = [
     ],
   },
   {
-    name: "platform-operations.get-offer-economics-summary",
-    title: "Get Offer Economics Summary",
-    description:
-      "Read the founders 0%-locked-fee cohort's listing volume, realized GMV share of the platform, foregone-fee estimate, and cumulative sell-through trend for a date range.",
-    availability: "available",
-    serviceId: "platform-operations",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: [],
-      properties: {
-        from: {
-          type: "string",
-          description: "Inclusive range start, YYYY-MM-DD. Defaults to 59 days before 'to'.",
-        },
-        to: {
-          type: "string",
-          description: "Inclusive range end, YYYY-MM-DD. Defaults to today.",
-        },
-        accountType: {
-          type: "string",
-          description: "Account type the foregone-fee estimate's standard schedule basis is resolved for.",
-          enum: ["personal", "business", "enterprise"],
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["insights-dashboards.view"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: [
-      "Use to check whether a public campaign fee claim is substantiated before citing it.",
-      "Use for founders-offer cohort economics review, not any single account's own fees.",
-    ],
-  },
-  {
     name: "platform-operations.get-seller-insight-summary",
     title: "Get Seller Insight Summary",
     description: "Read seller dashboard KPIs currently exposed by Platform Operations insights dashboards.",
@@ -6636,42 +6377,6 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use only after confirming available balance and payout readiness."],
   },
   {
-    name: "auth.list-sessions",
-    title: "List Sessions",
-    description: "List active sessions visible to a security operator.",
-    availability: "planned",
-    serviceId: "auth",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: [],
-      properties: {
-        userId: {
-          type: "string",
-          description: "User identifier.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["security.manage"],
-      requiredScopes: ["account:manage"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use when investigating account access or stale sessions."],
-  },
-  {
     name: "auth.resolve-actor",
     title: "Resolve Actor",
     description: "Resolve the current actor and selected account from an agent session.",
@@ -6700,65 +6405,6 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use as the first step in account-scoped agent flows."],
-  },
-  {
-    name: "auth.revoke-session",
-    title: "Revoke Session",
-    description: "Revoke an active authentication session.",
-    availability: "planned",
-    serviceId: "auth",
-    risk: "destructive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "sessionId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        sessionId: {
-          type: "string",
-          description: "Session to revoke.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["security.manage"],
-      requiredScopes: ["account:manage"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for explicit account security remediation."],
   },
   {
     name: "catalog.get-blueprint",
@@ -6955,65 +6601,6 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use only after confirming total, shipping terms, and buyer intent."],
   },
   {
-    name: "commercial-terms.publish-schedule",
-    title: "Publish Terms Schedule",
-    description: "Publish a commercial terms schedule.",
-    availability: "planned",
-    serviceId: "commercial-terms",
-    risk: "sensitive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "scheduleId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        scheduleId: {
-          type: "string",
-          description: "Terms schedule to publish.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["commercial-terms.manage"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for explicit policy administration changes."],
-  },
-  {
     name: "commercial-terms.resolve-listing-terms",
     title: "Resolve Listing Terms",
     description: "Resolve terms that apply to a listing or account sale workflow.",
@@ -7052,105 +6639,6 @@ export const mcpToolCatalog = [
       notes: ["Return only account-scoped data that the actor can already view."],
     },
     expectedUsage: ["Use before publishing listings or accepting offers."],
-  },
-  {
-    name: "easypost-postage.inspect-label",
-    title: "Inspect EasyPost Label",
-    description: "Inspect support-safe provider label status.",
-    availability: "planned",
-    serviceId: "easypost-postage",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["shipmentId", "providerLabelId"],
-      properties: {
-        shipmentId: {
-          type: "string",
-          description: "Shipment identifier.",
-        },
-        providerLabelId: {
-          type: "string",
-          description: "EasyPost label identifier.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["fulfillment.view"],
-      requiredScopes: ["fulfillment:read"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use after checking the Fulfillment shipment read model."],
-  },
-  {
-    name: "easypost-postage.replay-tracking-event",
-    title: "Replay Tracking Event",
-    description: "Replay a captured tracking webhook through the provider webhook inbox.",
-    availability: "planned",
-    serviceId: "easypost-postage",
-    risk: "sensitive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "providerEventId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        providerEventId: {
-          type: "string",
-          description: "Provider event to replay.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["fulfillment.manage"],
-      requiredScopes: ["fulfillment:write"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for confirmed fulfillment support recovery."],
   },
   {
     name: "identity.invite-member",
@@ -7626,174 +7114,5 @@ export const mcpToolCatalog = [
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use only when the actor explicitly confirms rating and review text."],
-  },
-  {
-    name: "stripe-connect.inspect-payout-readiness",
-    title: "Inspect Stripe Payout Readiness",
-    description: "Inspect support-safe payout readiness for a connected account.",
-    availability: "planned",
-    serviceId: "stripe-connect",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "providerReference"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Account identifier.",
-        },
-        providerReference: {
-          type: "string",
-          description: "Stripe connected account reference.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["payouts.reconcile"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use after checking Settlement readiness when provider state must be explained."],
-  },
-  {
-    name: "stripe-connect.replay-webhook",
-    title: "Replay Stripe Connect Webhook",
-    description: "Replay a captured money movement webhook through the provider webhook inbox.",
-    availability: "planned",
-    serviceId: "stripe-connect",
-    risk: "sensitive",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accountId", "providerEventId", "reason", "idempotencyKey", "confirmationText"],
-      properties: {
-        accountId: {
-          type: "string",
-          description: "Authenticated account scope.",
-        },
-        providerEventId: {
-          type: "string",
-          description: "Provider event to replay.",
-        },
-        reason: {
-          type: "string",
-          description: "Business reason for the action.",
-        },
-        idempotencyKey: {
-          type: "string",
-          description:
-            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
-        },
-        confirmationText: {
-          type: "string",
-          description: "Exact user or policy confirmation text.",
-        },
-        dryRun: {
-          type: "boolean",
-          description: "Validate the action without committing it.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["payouts.reconcile"],
-      requiredScopes: [],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: true,
-        prompt: "Confirm the exact business action before invoking this tool.",
-        matchInputField: "confirmationText",
-      },
-      idempotencyKey: "required",
-      idempotencyAuthority: "platform",
-      dryRunSupported: true,
-      notes: ["Write through the owning bounded context and emit normal domain events."],
-    },
-    expectedUsage: ["Use only for confirmed reconciliation recovery."],
-  },
-  {
-    name: "stripe-payments.get-public-config",
-    title: "Get Stripe Public Config",
-    description: "Read publishable, non-secret payment processor configuration.",
-    availability: "planned",
-    serviceId: "stripe-payments",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {},
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["orders.view"],
-      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use to explain payment confirmation capabilities without exposing secrets."],
-  },
-  {
-    name: "stripe-payments.inspect-payment-reference",
-    title: "Inspect Stripe Payment Reference",
-    description: "Inspect support-safe Stripe status for a known internal payment reference.",
-    availability: "planned",
-    serviceId: "stripe-payments",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["paymentId", "processorPaymentReference"],
-      properties: {
-        paymentId: {
-          type: "string",
-          description: "Internal payment identifier.",
-        },
-        processorPaymentReference: {
-          type: "string",
-          description: "Stripe payment reference.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "operator",
-      requiredPermissions: ["orders.view"],
-      requiredScopes: ["dev.ucp.shopping.checkout:manage", "dev.ucp.shopping.order:read"],
-      accountScoped: false,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use for support diagnostics after checking the Payments read model."],
   },
 ] as const satisfies readonly DeveloperMcpToolCatalogEntry[];

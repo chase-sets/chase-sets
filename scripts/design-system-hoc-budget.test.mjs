@@ -6,6 +6,7 @@ import {
   checkDesignSystemHocBudget,
   collectDesignSystemHocBudgetDocument,
   createDesignSystemHocBudgetDocument,
+  countRawClassNameOccurrencesInSource,
   printDesignSystemHocBudgetCheckResult,
 } from "./design-system-hoc-budget.mjs";
 
@@ -59,6 +60,91 @@ afterEach(() => {
 });
 
 describe("design-system HOC budget", () => {
+  it("counts an inline object-literal property assignment spread", () => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        `export function Example() { return <div {...{ className: "surface" }} />; }`,
+      ),
+    ).toBe(1);
+  });
+
+  it("counts an inline object-literal shorthand spread", () => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        `const className = "surface"; export function Example() { return <div {...{ className }} />; }`,
+      ),
+    ).toBe(1);
+  });
+
+  it("counts an inline object-literal string-key spread", () => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        `export function Example() { return <div {...{ "className": "surface" }} />; }`,
+      ),
+    ).toBe(1);
+  });
+
+  it("counts a same-file const object-literal identifier spread", () => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        `const props = { className: "surface" }; export function Example() { return <div {...props} />; }`,
+      ),
+    ).toBe(1);
+  });
+
+  it("unwraps parentheses, as, satisfies, and non-null wrappers", () => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        `export function Example() { return <div {...((({ className: "surface" } as Record<string, string>) satisfies Record<string, string>)!)} />; }`,
+      ),
+    ).toBe(1);
+  });
+
+  it("counts a host with both a literal attribute and a qualifying spread once", () => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        `export function Example() { return <div className="literal" {...{ className: "spread" }} />; }`,
+      ),
+    ).toBe(1);
+  });
+
+  it("counts four navigation-shaped hosts without path-name gating", () => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        `
+const navProps = { className: navClassName };
+export function NavigationFixture() {
+  return <>
+    <nav {...navProps} {...{ className: navClassName }} />
+    <nav {...navProps} {...{ className: navClassName }} />
+    <nav {...navProps} {...{ className: navClassName }} />
+    <nav {...navProps} {...{ className: navClassName }} />
+  </>;
+}
+`,
+      ),
+    ).toBe(4);
+  });
+
+  it.each([
+    ["a parameter pass-through", `export function Example(rest) { return <div {...rest} />; }`],
+    ["a call-result spread", `export function Example() { return <div {...createProps()} />; }`],
+  ])("leaves %s uncounted", (_name, source) => {
+    expect(
+      countRawClassNameOccurrencesInSource(
+        "packages/design-system/src/components/actions/arbitrary-neighbor.tsx",
+        source,
+      ),
+    ).toBe(0);
+  });
+
   it("fails when a governed file exceeds its raw className budget", async () => {
     const rootDir = createRepo();
     const relativeFile = "packages/design-system/src/components/feedback/banner.tsx";

@@ -79,6 +79,39 @@ function detail(rows: readonly InventoryImportBatchRow[]): InventoryImportBatchD
 }
 
 describe("InventoryImportBatchPage", () => {
+  it.each(["validating", "failed-safe", "ambiguous", "expired"] as const)("never offers commit while %s", (status) => {
+    const html = renderToString(
+      <InventoryImportBatchPage batches={[]} storageLocations={[]} detail={{ ...detail([row()]), status }} />,
+    );
+    expect(html).not.toContain('value="commit-batch"');
+  });
+  it("issue-7169-c3-upload-recovery: expiry is visible and never offers commit", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        detail={{ ...detail([row()]), status: "expired" }}
+      />,
+    );
+    expect(html).toContain("Import expired");
+    expect(html).toContain("24 hours");
+    expect(html).not.toContain('value="commit-batch"');
+  });
+
+  it("keeps review rows beyond the first page reachable", () => {
+    const html = renderToString(
+      <InventoryImportBatchPage
+        batches={[]}
+        storageLocations={[]}
+        currentPath="/account/inventory/imports/imb_1?offset=100"
+        detail={{ ...detail([row()]), total_count: 10_001 }}
+      />,
+    );
+    expect(html).toContain("Previous 100 rows");
+    expect(html).toContain("/account/inventory/imports/imb_1?offset=0");
+    expect(html).toContain("Next 100 rows");
+    expect(html).toContain("/account/inventory/imports/imb_1?offset=200");
+  });
   it("renders the empty upload and recent import state", () => {
     const html = renderToString(<InventoryImportBatchPage batches={[]} storageLocations={[]} detail={null} />);
 

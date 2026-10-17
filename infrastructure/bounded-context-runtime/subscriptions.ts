@@ -10,6 +10,8 @@ import {
   isTransientProjectionError,
   ZERO_GLOBAL_POSITION,
   toTransportEvent,
+  getEventCommitMetadata,
+  runWithEventCommitMetadata,
 } from "@chase-sets/event-core";
 import { createTransientProjectionError } from "@chase-sets/event-core/projector";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
@@ -32,7 +34,10 @@ import {
   type PgTransactionalPool,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
-import { runInProjectionDbContext, withProjectionTransaction } from "./projection-transactions";
+import {
+  runInProjectionDbContext,
+  withProjectionTransaction as runProjectionTransaction,
+} from "./projection-transactions";
 import {
   applyLagMetrics,
   areSubscribedReceiptEventsApplied,
@@ -54,9 +59,13 @@ import {
   markProjectionBlockedStreamBlocked,
   markProjectionBlockedStreamRetrying,
   readSourceHeadGlobalPosition,
+  readReceiptApplicationOutputs,
+  readOutputApplicationStatus,
+  type SubscriptionReceiptApplicationOutputs,
+  type SubscriptionOutputApplicationStatus,
   recordProjectionDeferredBlockedStreamEvent,
   recordProjectionPoisonEvent,
-  recordSubscriptionApplicationCompleted,
+  recordSubscriptionApplicationCompleted as completeSubscriptionApplication,
   recordSubscriptionApplicationFailure,
   refreshSubscriptionStatus,
   resolveProjectionBlockedStream,
@@ -184,6 +193,8 @@ export type ContextSubscriptionRunner = Readonly<{
   getStatus: () => ContextSubscriptionStatus;
   refreshStatus: () => Promise<ContextSubscriptionStatus>;
   areReceiptEventsApplied?: (eventIds: readonly string[]) => Promise<boolean>;
+  readReceiptApplicationOutputs?: (eventIds: readonly string[]) => Promise<SubscriptionReceiptApplicationOutputs>;
+  readOutputApplicationStatus?: (positions: readonly string[]) => Promise<SubscriptionOutputApplicationStatus>;
   reset: (context?: ProjectionRunContext, options?: SubscriptionResetOptions) => Promise<void>;
   retryBlockedStream: (streamId: string, context?: ProjectionRunContext) => Promise<ProjectionStreamRetryResult>;
 }>;
@@ -514,6 +525,33 @@ export function createSubscriptionRunner(
   );
   const cascadeChunkSize = normalizeCascadeChunkSize(subscription.projectionCascadeChunkSize);
   const subscriptionEventTypes = subscription.eventTypes ?? Object.keys(subscription.handlers).sort();
+  const withProjectionTransaction: typeof runProjectionTransaction = (pool, context, work, telemetry, control) =>
+    runProjectionTransaction(
+      pool,
+      context,
+      (client) => (handlerKind === "reaction" ? runWithEventCommitMetadata(() => work(client)) : work(client)),
+      telemetry,
+      control,
+    );
+  const recordSubscriptionApplicationCompleted: typeof completeSubscriptionApplication = (
+    db,
+    projectionKey,
+    eventId,
+    status,
+    error,
+    context,
+  ) =>
+    completeSubscriptionApplication(
+      db,
+      projectionKey,
+      eventId,
+      status,
+      error,
+      context,
+      handlerKind === "reaction"
+        ? [...new Set(getEventCommitMetadata().committedEvents.map((event) => String(event.globalPosition)))]
+        : null,
+    );
   const sourceHistoryReader = (trigger: TransportEvent, context?: ProjectionRunContext) => {
     // Capture the invocation, not a mutable cursor or a caller-selected stream.
     const bound = structuredClone(trigger);
@@ -693,6 +731,24 @@ export function createSubscriptionRunner(
     eventTypes: subscriptionEventTypes,
     streamPrefixes: subscription.streamPrefixes,
     order: subscription.order ?? 0,
+    readReceiptApplicationOutputs: (eventIds) =>
+      readReceiptApplicationOutputs(
+        sourcePool,
+        targetPool,
+        checkpointKey,
+        eventIds,
+        subscriptionEventTypes,
+        subscription.streamPrefixes,
+      ),
+    readOutputApplicationStatus: (positions) =>
+      readOutputApplicationStatus(
+        sourcePool,
+        targetPool,
+        checkpointKey,
+        positions,
+        subscriptionEventTypes,
+        subscription.streamPrefixes,
+      ),
     getStatus: () => ({ ...status }),
     refreshStatus: async () => {
       const recoveryState = await loadSubscriptionCheckpointRecoveryState(targetPool, checkpointKey);
@@ -1330,8 +1386,9 @@ export function createSubscriptionRunner(
         };
         const events = storedEvents.map((storedEvent) => toTransportEvent(storedEvent));
         const progress =
-          storedEvents.length <= checkpointBatchSize
-            ? await applyStoredEventsAsBatch(events).catch((error: unknown) => {
+          handlerKind === "reaction" || storedEvents.length > checkpointBatchSize
+            ? await applyStoredEventsIndividually(events)
+            : await applyStoredEventsAsBatch(events).catch((error: unknown) => {
                 if (!(error instanceof BatchEventApplyError)) {
                   throw error;
                 }
@@ -1355,8 +1412,7 @@ export function createSubscriptionRunner(
                   eventId: error.eventId,
                   error: error.originalError,
                 });
-              })
-            : await applyStoredEventsIndividually(events);
+              });
         let lastGlobalPosition = progress.lastGlobalPosition;
         let lastCheckpointedGlobalPosition = progress.lastCheckpointedGlobalPosition;
         const processed = progress.processed;

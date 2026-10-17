@@ -74,13 +74,14 @@ function assertDeliveryDecisionRouting(text) {
     /^ {2}- \*\*Decision routing\*\* [^\r\n]*: the host decides same-attempt, in-scope repairs itself [^\r\n]* and records each as `decision-resolved` with its reasoning\./m,
   );
   expect(text).toMatch(
-    /^ {2}- \*\*Decision routing\*\*[^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, an attempt ceiling, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
+    /^ {2}- \*\*Decision routing\*\*[^\r\n]* An independent decision lane is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages; its verdict is final, and the host records it and proceeds\./m,
   );
   expect(text).toMatch(
     /^ {2}- \*\*Decision routing\*\*[^\r\n]* A decision lane may not return `TODD_RULING_NEEDED`: if it believes Todd must decide, that is a finding the host resolves with a second independent lane\. Independent code\/planning review and review-contract\/v2 are unchanged\.$/m,
   );
+  expect(text).not.toMatch(/attempt\s+ceiling/i);
   expect(text).toMatch(
-    /^ {2}- \*\*Todd receives only two kinds of question\*\* [^\r\n]*: product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, attempt ceiling or proof route to Todd; the host routes those decisions\.$/m,
+    /^ {2}- \*\*Todd receives only two kinds of question\*\* [^\r\n]*: product priority or scope changes, and operator actions no lane can perform\. Package an operator action as one concrete, runnable step\. Never escalate another review pass, revision, replan, step-back verdict or proof route to Todd; the host routes those decisions\.$/m,
   );
 }
 
@@ -89,8 +90,9 @@ function assertPlanningDecisionRouting(text) {
     "Other unresolved product, legal and provider-authority choices inside accepted scope go to the orchestrator as host. The host decides same-attempt, in-scope repairs itself and records its reasoning.",
   );
   expect(text).toContain(
-    "An independent decision lane is required only for a change to accepted scope or acceptance criteria, an attempt ceiling, ownership or authority, or a cross-lineage question; its verdict is final.",
+    "An independent decision lane is required only for a change to accepted scope or acceptance criteria, ownership or authority, or a cross-lineage question; its verdict is final.",
   );
+  expect(text).not.toMatch(/attempt\s+ceiling/i);
   expect(text).toContain(
     "A decision lane may not return `TODD_RULING_NEEDED`; if it believes Todd must decide, the host resolves that finding with a second independent lane.",
   );
@@ -135,8 +137,18 @@ describe("delivery decision routing contract", () => {
     },
     {
       name: "drops the independent-lane threshold",
-      from: "is required only when the decision changes accepted scope or acceptance criteria, an attempt ceiling, ownership or authority, or crosses lineages;",
+      from: "is required only when the decision changes accepted scope or acceptance criteria, ownership or authority, or crosses lineages;",
       to: "is required for every decision;",
+    },
+    {
+      name: "restores an attempt ceiling to the decision-lane triggers",
+      from: "accepted scope or acceptance criteria, ownership or authority, or crosses lineages;",
+      to: "accepted scope or acceptance criteria, an attempt ceiling, ownership or authority, or crosses lineages;",
+    },
+    {
+      name: "restores an attempt ceiling to the Todd escalation list",
+      from: "revision, replan, step-back verdict or proof route to Todd;",
+      to: "revision, replan, attempt ceiling or proof route to Todd;",
     },
     {
       name: "makes the independent verdict non-final",
@@ -163,8 +175,13 @@ describe("delivery decision routing contract", () => {
     },
     {
       name: "drops the independent-lane threshold",
-      from: "is required only for a change to accepted scope or acceptance criteria, an attempt ceiling, ownership or authority, or a cross-lineage question;",
+      from: "is required only for a change to accepted scope or acceptance criteria, ownership or authority, or a cross-lineage question;",
       to: "is required for every decision;",
+    },
+    {
+      name: "restores an attempt ceiling to the decision-lane triggers",
+      from: "accepted scope or acceptance criteria, ownership or authority, or a cross-lineage question;",
+      to: "accepted scope or acceptance criteria, an attempt ceiling, ownership or authority, or a cross-lineage question;",
     },
     {
       name: "makes the independent verdict non-final",
@@ -234,7 +251,7 @@ function assertHostedAttemptProof(text) {
     /^- Hosted CI is the proof for every product attempt, not only DB \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body\.$/m,
   );
   expect(text).toMatch(
-    /^- An implementation attempt counts toward an attempt ceiling only when a pushed head receives a hosted CI verdict or an exact-head review verdict \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling \(helper scripts, probes, config\) do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
+    /^- An implementation attempt counts only when a pushed head receives a hosted CI verdict or an exact-head review verdict \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. Attempt counts are telemetry and step-back triggers, never a stop; no attempt count parks your issue \(\[#4388 ruling\]\([^)\s]+6022146271\)\)\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling \(helper scripts, probes, config\) do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
   );
   expect(text).toContain(
     "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head.",
@@ -290,6 +307,16 @@ describe("hosted attempt proof and floor backfill contract", () => {
       name: "lets a local failure park a candidate",
       from: "never parks, fails or classifies your candidate",
       to: "parks your candidate",
+    },
+    {
+      name: "makes an attempt count a stop",
+      from: "Attempt counts are telemetry and step-back triggers, never a stop; no attempt count parks your issue",
+      to: "A third counted attempt parks your issue",
+    },
+    {
+      name: "restores the attempt ceiling to attempt counting",
+      from: "An implementation attempt counts only when",
+      to: "An implementation attempt counts toward an attempt ceiling only when",
     },
     {
       name: "counts local-only stops",
@@ -387,5 +414,15 @@ describe("hosted attempt proof and floor backfill contract", () => {
 
     expect(mutant).not.toBe(backlogModel);
     expect(() => assertFloorBackfill(mutant)).toThrow();
+  });
+});
+
+// #9195: the `.claude/skills/` copies are byte-identical mirrors of the
+// `.agents/skills/` sources these contracts pin.
+describe("delivery and planning skill mirrors", () => {
+  it.each(["delivery", "planning"])("keeps the %s skill mirror byte-identical", (skill) => {
+    const read = (root) => readFileSync(new URL(`../../${root}/skills/${skill}/SKILL.md`, import.meta.url));
+
+    expect(read(".claude").equals(read(".agents"))).toBe(true);
   });
 });

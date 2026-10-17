@@ -678,6 +678,7 @@ describe("auth-retained-state", () => {
 
 const censusRoots = ["deployables/marketplace/e2e", "deployables/marketplace/app", "deployables/marketplace/src"];
 const expectedConsumers: Record<string, readonly [number, number, number, number, string]> = {
+  "accepted-offer-sales-handoff.spec.ts": [0, 2, 0, 0, "seeded buyer/seller; fresh API-owned Offer, stock and Listing"],
   "agent-grant-revocation-real-route.spec.ts": [
     2,
     0,
@@ -697,7 +698,7 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "listing-evidence-readiness.spec.ts": [0, 1, 0, 0, "configured/seeded"],
   "notifications.spec.ts": [0, 1, 0, 0, "seeded"],
   "marketplace-navigation.spec.ts": [0, 1, 0, 0, "seeded owner navigation"],
-  "inventory-recovery.spec.ts": [0, 3, 0, 0, "configured/seeded seller recovery"],
+  "inventory-recovery.spec.ts": [0, 4, 0, 0, "configured/seeded seller recovery"],
   "market-following-offers.spec.ts": [0, 2, 0, 0, "seeded buyer/seller; receipted Identity-to-Auth session"],
   "payout-connect-appearance.uat.spec.ts": [0, 1, 0, 0, "configured"],
   "support-case-detail.spec.ts": [0, 2, 0, 0, "seeded"],

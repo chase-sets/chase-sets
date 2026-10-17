@@ -1,0 +1,9 @@
+{
+  "name": "@chase-sets/catalog-product-line",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  }
+}

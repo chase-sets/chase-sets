@@ -8,7 +8,6 @@ import {
   createUcpOAuthRoutes,
   createPostgresAgentWebhookOutbox,
   fenceAgentGrantActor,
-  fenceAgentGrantSpendPolicy,
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
@@ -53,6 +52,7 @@ import { isChannelsServices, connectorAuditMiddleware, type ChannelsServices } f
 import { TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels";
 import { module as identityModule } from "@chase-sets/identity";
 import {
+  createIdentityOperatorAuthority,
   createIdentityTermsAcceptanceResolver,
   createIdentityWalletFundingEligibilityResolver,
   identityTermsOfServicePolicy,
@@ -66,7 +66,7 @@ import {
   createInventoryHoldCleanupAuthorityForPool,
   type RecordExternalChannelSale,
   type InventoryDraftListingCreator,
-  type InventorySavedListImportBatchCreator,
+  type InventoryServices,
 } from "@chase-sets/inventory/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -397,6 +397,15 @@ export function createPlatformApiHost(
           getProtectionReserveSummary: (params) => getProtectionReserveSummary(settlementPool, params),
         }
       : undefined;
+  // Reads the Membership aggregate through the Identity services this host composes; Auth carries it on its
+  // identity port and native MCP consumes it from there.
+  const operatorAuthority = createIdentityOperatorAuthority({
+    getMembershipState: (membershipId) => {
+      const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
+      if (!identity) throw new Error("Identity services are not composed on this host.");
+      return identity.memberships.getMembershipState(membershipId);
+    },
+  });
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
   const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
     ? createIdentityWalletFundingEligibilityResolver(identityPool)
@@ -648,13 +657,7 @@ export function createPlatformApiHost(
     abort: (input, context) => admissionAuthority().abort(input, context),
   };
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
-    const inventoryServices = runtime?.services.inventory as
-      | {
-          importBatches?: {
-            createSavedListImportBatch?: InventorySavedListImportBatchCreator;
-          };
-        }
-      | undefined;
+    const inventoryServices = runtime?.services.inventory as InventoryServices | undefined;
     const createBatch = inventoryServices?.importBatches?.createSavedListImportBatch;
     if (!createBatch) {
       throw new Error("Inventory Saved List import service is unavailable.");
@@ -696,6 +699,7 @@ export function createPlatformApiHost(
       ...(savedListProductCatalog ? { savedListProductCatalog } : {}),
       savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
+      operatorAuthority,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
@@ -974,6 +978,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     ? createDiscoveryUcpHandlers(discoveryServices.items)
     : undefined;
   const checkoutServices = runtime.services.checkout as Parameters<typeof createCheckoutUcpHandlers>[0] | undefined;
+  const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const paymentsServices = runtime.services.payments as PaymentsServices | undefined;
   const paymentHandoff = isPaymentProcessorPublicConfig(paymentsServices?.publicConfig)
     ? createPaymentsUcpHandoff(paymentsServices.publicConfig)
@@ -982,13 +987,26 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     ? createCheckoutUcpHandlers(checkoutServices, {
         checkoutClosed: options.checkoutClosed,
         paymentHandoff,
-        agentGrantSpendPolicy: fenceAgentGrantSpendPolicy(
-          options.agentGrantSpendPolicy,
-          identityServices.identity?.agentGrantRevocations,
-        ),
+        getPublicListingById: (id) =>
+          discoveryServices?.items?.market?.getPublicListingById(id) ?? Promise.resolve(null),
+        getOrderFacts: orderingServices?.orders
+          ? async (orderIds, accountId) => {
+              const facts = await Promise.all(
+                orderIds.map((orderId) => orderingServices.orders!.getPurchase(orderId, accountId)),
+              );
+              return facts
+                .filter((fact): fact is NonNullable<typeof fact> => fact !== null)
+                .map((fact) => ({
+                  id: fact.order_id,
+                  status: fact.status,
+                  readyForFulfillmentAt: fact.ready_for_fulfillment_at,
+                  label: `${fact.display_reference}`,
+                  permalinkUrl: `/account/purchases/${fact.order_id}`,
+                }));
+            }
+          : async () => [],
       })
     : undefined;
-  const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
   const moduleMcpHandlers = buildMcpHandlersFromModules(runtime.mountedModules);
   const toolHandlers = {
@@ -1002,6 +1020,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   }
   const mcpOptions = {
     ...options.mcp,
+    operatorAuthority: options.mcp?.operatorAuthority ?? identityServices.auth?.identity?.operatorAuthority,
     agentGrantRateLimiter: options.mcp?.agentGrantRateLimiter ?? options.ucp?.agentGrantRateLimiter,
     toolHandlers,
     resourceHandlers: {
@@ -1024,6 +1043,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
             ...checkoutUcpHandlers?.mcpToolHandlers,
             ...orderingUcpHandlers?.mcpToolHandlers,
             ...options.ucp?.mcpToolHandlers,
+          },
+          preflight: {
+            ...checkoutUcpHandlers?.preflight,
+            ...options.ucp?.preflight,
           },
         }
       : options.ucp;
