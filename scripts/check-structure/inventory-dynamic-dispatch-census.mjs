@@ -246,47 +246,132 @@ export function analyzeInventoryDynamicDispatch({ repoRoot, roots, program, fami
           : "";
       return ["bind", "call", "apply"].includes(name);
     };
-    const elementType = (type) => type && checker.getIndexTypeOfType(type, ts.IndexKind.Number);
+    const NOT_ASSIGNMENT_PATTERN = Symbol("not-assignment-pattern");
+    const UNRESOLVED_ASSIGNMENT_PATTERN = Symbol("unresolved-assignment-pattern");
     const assignmentSourceType = (pattern) => {
-      const parent = pattern.parent;
-      if (ts.isParenthesizedExpression(parent)) return assignmentSourceType(parent);
-      if (
-        ts.isBinaryExpression(parent) &&
-        parent.left === pattern &&
-        parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      )
-        return typeOf(parent.right);
-      if (ts.isForOfStatement(parent) && parent.initializer === pattern) return elementType(typeOf(parent.expression));
-      if (ts.isPropertyAssignment(parent) && parent.initializer === pattern) {
-        const outer = assignmentSourceType(parent.parent);
-        const name = parent.name;
-        if (!outer) return undefined;
-        const nameType = ts.isComputedPropertyName(name) ? typeOf(name.expression) : undefined;
-        const text =
-          ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)
-            ? name.text
-            : nameType && (nameType.isStringLiteral() || nameType.isNumberLiteral())
-              ? String(nameType.value)
-              : undefined;
-        const resolved = text === undefined ? undefined : checker.getTypeOfPropertyOfType(outer, text);
-        return (
-          resolved ??
-          outer
-            .getProperties()
-            .map((property) => checker.getTypeOfSymbolAtLocation(property, pattern))
-            .find(isFamily)
-        );
+      let current = pattern;
+      for (let depth = 0; depth <= 32; depth++) {
+        const parent = current.parent;
+        if (!parent) return NOT_ASSIGNMENT_PATTERN;
+        if (ts.isParenthesizedExpression(parent) && parent.expression === current) {
+          current = parent;
+          continue;
+        }
+        if (
+          ts.isBinaryExpression(parent) &&
+          parent.left === current &&
+          parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        ) {
+          try {
+            return mutant === "assignment-source-syntactic"
+              ? typeOf(pattern)
+              : checker.getTypeOfAssignmentPattern(pattern) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+          } catch {
+            return UNRESOLVED_ASSIGNMENT_PATTERN;
+          }
+        }
+        if (ts.isForOfStatement(parent) && parent.initializer === current) {
+          try {
+            return mutant === "assignment-source-syntactic"
+              ? typeOf(pattern)
+              : checker.getTypeOfAssignmentPattern(pattern) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+          } catch {
+            return UNRESOLVED_ASSIGNMENT_PATTERN;
+          }
+        }
+        if (ts.isForInStatement(parent) && parent.initializer === current)
+          return UNRESOLVED_ASSIGNMENT_PATTERN;
+        if (ts.isBindingElement(parent) && parent.name === current) {
+          if (parent.initializer || parent.dotDotDotToken)
+            return mutant === "assignment-unresolved-open" ||
+              (mutant === "assignment-default-trusted" && parent.initializer)
+              ? NOT_ASSIGNMENT_PATTERN
+              : UNRESOLVED_ASSIGNMENT_PATTERN;
+          current = parent.parent;
+          continue;
+        }
+        if (ts.isPropertyAssignment(parent) && parent.initializer === current) {
+          current = parent.parent;
+          continue;
+        }
+        if (ts.isArrayLiteralExpression(parent) && parent.elements.some((element) => element === current)) {
+          current = parent;
+          continue;
+        }
+        return NOT_ASSIGNMENT_PATTERN;
       }
-      if (ts.isArrayLiteralExpression(parent)) return elementType(assignmentSourceType(parent));
-      return undefined;
+      return UNRESOLVED_ASSIGNMENT_PATTERN;
+    };
+    const memberType = (sourceType, element) => {
+      if (sourceType === UNRESOLVED_ASSIGNMENT_PATTERN) return UNRESOLVED_ASSIGNMENT_PATTERN;
+      const parent = element.parent;
+      let key;
+      if (ts.isBindingElement(element)) {
+        if (element.dotDotDotToken || ts.isArrayBindingPattern(parent))
+          return checker.getIndexTypeOfType(sourceType, ts.IndexKind.Number) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+        const name = element.propertyName ?? element.name;
+        if (ts.isComputedPropertyName(name)) {
+          const keyType = typeOf(name.expression);
+          key = keyType.isStringLiteral() || keyType.isNumberLiteral() ? String(keyType.value) : undefined;
+        } else if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) key = name.text;
+      } else if (ts.isPropertyAssignment(element)) {
+        const name = element.name;
+        if (ts.isComputedPropertyName(name)) {
+          const keyType = typeOf(name.expression);
+          key = keyType.isStringLiteral() || keyType.isNumberLiteral() ? String(keyType.value) : undefined;
+        } else if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) key = name.text;
+      } else if (ts.isShorthandPropertyAssignment(element)) {
+        key = element.name.text;
+      } else if (ts.isSpreadAssignment(element)) {
+        return checker.getIndexTypeOfType(sourceType, ts.IndexKind.String) ?? UNRESOLVED_ASSIGNMENT_PATTERN;
+      }
+      if (key === undefined) return UNRESOLVED_ASSIGNMENT_PATTERN;
+      return (
+        checker.getTypeOfPropertyOfType(sourceType, key) ??
+        checker.getIndexTypeOfType(sourceType, /^\d+$/.test(key) ? ts.IndexKind.Number : ts.IndexKind.String) ??
+        UNRESOLVED_ASSIGNMENT_PATTERN
+      );
+    };
+    const targetType = (element) => {
+      let symbol;
+      if (ts.isShorthandPropertyAssignment(element)) {
+        try {
+          symbol = checker.getShorthandAssignmentValueSymbol(element);
+        } catch {
+          symbol = undefined;
+        }
+      } else {
+        const target = ts.isPropertyAssignment(element)
+          ? element.initializer
+          : element.name ?? element.expression;
+        symbol = target && checker.getSymbolAtLocation(target);
+      }
+      const fallback = ts.isPropertyAssignment(element)
+        ? element.initializer
+        : element.name ?? element.expression;
+      return symbol ? checker.getTypeOfSymbolAtLocation(symbol, element) : typeOf(fallback);
     };
     const inspectPattern = (pattern) => {
-      const sourceType = ts.isObjectBindingPattern(pattern) ? typeOf(pattern) : assignmentSourceType(pattern);
-      if (!sourceType || !isFamily(sourceType)) return;
+      const assignment = assignmentSourceType(pattern);
+      const sourceType = assignment === NOT_ASSIGNMENT_PATTERN ? typeOf(pattern) : assignment;
+      if (assignment === NOT_ASSIGNMENT_PATTERN && !ts.isObjectBindingPattern(pattern)) return;
+      const sourceFamily =
+        sourceType === UNRESOLVED_ASSIGNMENT_PATTERN || (sourceType && isFamily(sourceType));
+      if (!sourceFamily) return;
       const elements = ts.isObjectBindingPattern(pattern) ? pattern.elements : pattern.properties;
       for (const element of elements) {
         const name = element.propertyName ?? element.name;
         if (name && ts.isComputedPropertyName(name) && !staticKey(name.expression)) reject(name, "FAMILY_DYNAMIC_KEY");
+        if (element.initializer && isFamily(typeOf(element.initializer)))
+          reject(element.initializer, "FAMILY_TYPE_ERASURE");
+        const target = targetType(element);
+        const member = memberType(sourceType, element);
+        if (
+          mutant !== "assignment-target-erasure-off" &&
+          opaqueType(target) &&
+          (member === UNRESOLVED_ASSIGNMENT_PATTERN || (member && isFamily(member)))
+        )
+          reject(element.name ?? element, "FAMILY_TYPE_ERASURE");
       }
     };
     const isContextualSink = (node) => {

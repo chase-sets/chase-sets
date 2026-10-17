@@ -359,6 +359,24 @@ const finiteAliasCleanControls = [
   ["W9", 'export function route(svc: H) { let k = "createHold" as const; return svc[k](context, context); }'],
 ].map(([id, source]) => ({ id, source }));
 
+const assignmentClosureControls = [
+  ["Y1", "export function route(svc: H) { let fn: unknown; ({ [method]: fn } = svc); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y2", "export function route(svc: H) { let fn: unknown; ({ s: { [method]: fn } } = { s: svc }); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y3", "export function route(svc: H) { let fn: unknown; ([{ [method]: fn }] = [svc]); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y3c", "export function route(svc: H) { let fn: unknown; ({ 0: { [method]: fn } } = [svc]); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y4", "export function route(svc: H) { let fn: unknown; ({ [method as string]: fn } = svc); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y5", "export function route(svc: H) { let fn: unknown; for ({ [method]: fn } of [svc]); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y6", "export function route(svc: H) { let fn: unknown; for ({ [method]: fn } in svc); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y7", "export function route(svc: H) { let fn: unknown; ({ s: { [method]: fn } = {} } = { s: svc }); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["Y8", "export function route(svc: H) { let fn: unknown, rest: any; ({ [method]: fn, ...rest } = svc); return fn; }", "FAMILY_DYNAMIC_KEY"],
+  ["G1", "export function route(svc: H) { let erased: any; ({ holds: erased = svc } = services); return erased; }", "FAMILY_TYPE_ERASURE"],
+  ["G2", "export function route(svc: H) { let erased: unknown; ({ holds: erased = svc } = services); return erased; }", "FAMILY_TYPE_ERASURE"],
+  ["G3", "export function route(svc: H) { let erased: any; ({ holds: { value: erased } } = { holds: svc }); return erased; }", "FAMILY_TYPE_ERASURE"],
+  ["G4", "export function route(svc: H) { let erased: unknown; ([erased = svc] = [svc]); return erased; }", "FAMILY_TYPE_ERASURE"],
+  ["G5", "export function route(svc: H) { let erased: any; ({ ...erased } = services); return erased; }", "FAMILY_TYPE_ERASURE"],
+  ["G6", "export function route(svc: H) { let erased: unknown; ([...erased] = [svc]); return erased; }", "FAMILY_TYPE_ERASURE"],
+].map(([id, source, reason]) => ({ id, source, reason }));
+
 async function matrix(cases, run) {
   const fixtures = Object.fromEntries(
     cases.map(({ source, id }, index) => [
@@ -398,6 +416,25 @@ const built = analyzeInventoryDynamicDispatch({
 });
 
 describe("issue-7169-type-resolved-census-matrix", () => {
+  it("closes destructuring-assignment sources and erasure sinks", async () => {
+    await matrix(assignmentClosureControls, ({ root, roots, program, families, fixtures }) => {
+      const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
+      for (const control of assignmentClosureControls) {
+        const file = Object.keys(fixtures).find((candidate) => candidate.endsWith(`${control.id}.ts`));
+        expect(file, control.id).toBeDefined();
+        const source = program.getSourceFile(path.join(root, file));
+        expect(program.getSyntacticDiagnostics(source), control.id).toEqual([]);
+        expect(
+          result.diagnostics.some(
+            ({ file: diagnosticFile, reason }) => diagnosticFile === file && reason === control.reason,
+          ),
+          control.id,
+        ).toBe(true);
+      }
+      emit("assignment-closure", { total: assignmentClosureControls.length, rejected: result.diagnostics.length });
+    });
+  });
+
   it("rejects the compile-clean F1-F4 escape controls", async () => {
     await matrix(repairControls, ({ root, roots, program, families, fixtures }) => {
       const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
