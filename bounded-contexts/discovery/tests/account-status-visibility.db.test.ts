@@ -78,16 +78,16 @@ describeDb("Discovery account status visibility on Postgres", () => {
 
   it("hides direct listing and account content, emits removal, restores on reactivation, and fences stale events", async () => {
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toMatchObject({ listing_id: "lst_one" });
-    expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one")).listings).toHaveLength(1);
-    expect((await getDiscoveryItemDetail(pool, "item-one")).market_summary).toMatchObject({ active_listing_count: 1 });
+    expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one"))!.listings).toHaveLength(1);
+    expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toMatchObject({ active_listing_count: 1 });
     expect(
       (await getDiscoveryItemDetailSellerOverlay(pool, { accountId: "acc_seller", catalogItemId: "cat_one" }))
         .accountOfferMatches,
     ).toHaveLength(1);
     await status("identity.account.suspended", 2);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toBeNull();
-    expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one")).listings).toHaveLength(0);
-    expect((await getDiscoveryItemDetail(pool, "item-one")).market_summary).toMatchObject({
+    expect((await getDiscoveryPublicAccountBySlug(pool, "seller-one"))!.listings).toHaveLength(0);
+    expect((await getDiscoveryItemDetail(pool, "item-one"))!.market_summary).toMatchObject({
       active_listing_count: 0,
       total_visible_quantity: 0,
     });
