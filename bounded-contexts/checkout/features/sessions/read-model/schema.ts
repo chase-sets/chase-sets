@@ -44,7 +44,7 @@ ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS fulfillment_preview_snapshot jsonb NULL;
 `;
 
-// Retained databases expand before boot consumers, independently of the ledger (#7751).
+// Retained databases expand before boot consumers, independently of the ledger.
 export const checkoutSessionRetainedSchemaSql = `ALTER TABLE checkout_session_pages
   ADD COLUMN IF NOT EXISTS handoff_expires_at timestamptz NULL;`;
 
