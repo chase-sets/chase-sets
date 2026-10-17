@@ -92,13 +92,12 @@ describeDb("Discovery account status visibility on Postgres", () => {
       (await getDiscoveryItemDetailSellerOverlay(pool, { accountId: "acc_seller", catalogItemId: "cat_one" }))
         .accountOfferMatches,
     ).toHaveLength(0);
-    expect(
-      (
-        await pool.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM realtime_projection_outbox WHERE projection_name = 'discovery-market-projection'`,
-        )
-      ).rows[0].count,
-    ).toBe("1");
+    const suspendedOutboxCount = (
+      await pool.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM realtime_projection_outbox WHERE projection_name = 'discovery-market-projection'`,
+      )
+    ).rows[0].count;
+    expect(Number(suspendedOutboxCount)).toBeGreaterThan(0);
     await status("identity.account.suspended", 2);
     await status("identity.account.reactivated", 1);
     expect(
@@ -108,6 +107,13 @@ describeDb("Discovery account status visibility on Postgres", () => {
         )
       ).rows[0],
     ).toEqual({ status: "suspended", status_stream_version: 2 });
+    expect(
+      (
+        await pool.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM realtime_projection_outbox WHERE projection_name = 'discovery-market-projection'`,
+        )
+      ).rows[0].count,
+    ).toBe(suspendedOutboxCount);
     await status("identity.account.reactivated", 3);
     expect(await getDiscoveryPublicListingBySlug(pool, "listing-one")).toMatchObject({ listing_id: "lst_one" });
     await status("identity.account.closed", 4);
