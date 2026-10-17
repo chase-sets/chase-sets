@@ -589,43 +589,9 @@ export function createCountCaptureLifecycle(deps: {
       const run = await deps.store.seal(owner(session));
       return local(run, async () => {
         const receipt = await closedReceipt(run, parsed, run.stopped);
-        if (validateCountLifecycleReceipt(receipt).valid)
-          return { receipt: await deps.store.retainReceipt(run.runId, receipt) };
-
-        // A sealed run must return its own freeze-phase stop even when the
-        // completed receipt cannot be classified as a safe lifecycle. Never
-        // turn that server-owned stop into a runner baseline fallback.
-        const stopCandidate = {
-          schemaVersion: "scope-sync-count-lifecycle-stop/v1",
-          attribution: {
-            dispatchId: receipt.attribution.dispatchId,
-            runnerRunId: receipt.attribution.runnerRunId,
-            runnerRunAttempt: receipt.attribution.runnerRunAttempt,
-            runnerSha: receipt.attribution.runnerSha,
-            packetHash: receipt.attribution.packetHash,
-            reviewReceiptHash: receipt.attribution.reviewReceiptHash,
-            phases: receipt.attribution.phases,
-          },
-          stoppedAt: "frozenAt" in receipt ? receipt.frozenAt : receipt.stoppedAt,
-          phase: "freeze",
-          reason: "reason" in receipt ? receipt.reason : "missing-observation",
-          ...("sends" in receipt ? { sends: receipt.sends } : {}),
-          evidence:
-            "effects" in receipt
-              ? {
-                  startedAt: receipt.startedAt,
-                  frozenAt: receipt.frozenAt,
-                  sends: receipt.sends,
-                  effects: receipt.effects,
-                }
-              : receipt.evidence,
-          classification: receipt.classification,
-        };
-        const stop = countLifecycleStopReceiptSchema.parse({
-          ...stopCandidate,
-          classification: classifyCountLifecycleReceipt(stopCandidate),
-        });
-        return { receipt: await deps.store.retainReceipt(run.runId, stop) };
+        // The sealed server result is authoritative. Retain and return it
+        // unchanged; the runner validates full receipts and preserves stops.
+        return { receipt: await deps.store.retainReceipt(run.runId, receipt) };
       });
     },
   };
