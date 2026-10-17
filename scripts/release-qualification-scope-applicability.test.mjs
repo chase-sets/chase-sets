@@ -1,6 +1,5 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,7 +7,6 @@ import { deriveGuardCandidateProvenance } from "./check-structure/guard-candidat
 import {
   buildModuleResolutionContextFixture,
   enumerateCanonicalModuleCandidates,
-  loadModuleResolutionContext,
   resolveModule,
 } from "./check-structure/module-resolution.mjs";
 import { classifySqlExecutionSurface, listNonTestTypeScriptModules } from "./check-structure/sql-execution-surface.mjs";
@@ -185,18 +183,22 @@ describe("release qualification applicability evaluator", () => {
     ]);
   });
 
+  const evaluateLeaf = (source, rootPath = "bounded-contexts/synthetic/domain/root.ts") => {
+    const { root, files } = fixture({ [rootPath]: source });
+    return evaluate(
+      root,
+      files,
+      {
+        kind: "pure-module/v1",
+        modules: [{ path: rootPath, specifiers: [] }],
+      },
+      rootPath,
+    );
+  };
+
   const leafCase = (name, source, code, rootPath = "bounded-contexts/synthetic/domain/root.ts") => {
     it(name, () => {
-      const { root, files } = fixture({ [rootPath]: source });
-      const result = evaluate(
-        root,
-        files,
-        {
-          kind: "pure-module/v1",
-          modules: [{ path: rootPath, specifiers: [] }],
-        },
-        rootPath,
-      );
+      const result = evaluateLeaf(source, rootPath);
       if (code) {
         expect(result.applies).toBe(false);
         expect(result.withdrawalCodes).toContain(code);
@@ -302,15 +304,13 @@ describe("release qualification applicability evaluator", () => {
         x5.resolutionContext,
       ).withdrawalCodes,
     ).toContain("event_store_member_reference");
-    leafCase(
-      "X6 options dynamic import",
-      "export const load = (name) => import(name, {});",
+    expect(evaluateLeaf("export const load = (name) => import(name, {});").withdrawalCodes).toContain(
       "ambiguous_dynamic_import",
     );
-    leafCase("X7 non-literal require", "export const load = (name) => require(name);", "ambiguous_dynamic_import");
-    leafCase(
-      "X8 literal require undeclared",
-      'export const load = () => require("./persist");',
+    expect(evaluateLeaf("export const load = (name) => require(name);").withdrawalCodes).toContain(
+      "ambiguous_dynamic_import",
+    );
+    expect(evaluateLeaf('export const load = () => require("./persist");').withdrawalCodes).toContain(
       "unresolvable_module_specifier",
     );
   });
@@ -326,7 +326,7 @@ describe("release qualification applicability evaluator", () => {
       "export const f = (store) => class extends store.readStream {};",
       "event_store_member_reference",
     ],
-    ["X11 typeof type query neutral", "export const f = (store) => typeof store.readStream;", undefined],
+    ["X11 typeof type query neutral", "type Read = typeof store.readStream; export const f = () => 1;", undefined],
   ])
     leafCase(name, source, code);
 
@@ -390,7 +390,7 @@ describe("release qualification applicability evaluator", () => {
     ["missing file", 'export { value } from "./missing";', "unresolvable_module_specifier"],
     ["repository escape", 'export { value } from "../../../../outside";', "module_specifier_escapes_repository"],
   ])("AC8 delegates %s resolution failure to the canonical resolver", (_name, source, code) => {
-    leafCase(`AC8 ${_name}`, source, code);
+    expect(evaluateLeaf(source).withdrawalCodes).toContain(code);
   });
 
   it("AC8 refuses a workspace subpath rejected by the exports map", () => {
@@ -418,6 +418,8 @@ describe("release qualification applicability evaluator", () => {
     ]);
     expect(source).not.toMatch(/enumerateGuardImportCandidates|normalizeRepoPath|path\.posix\.normalize/);
     expect(source).toContain("resolveModule");
+    expect(typeof enumerateCanonicalModuleCandidates).toBe("function");
+    expect(typeof resolveModule).toBe("function");
     const imports = execFileSync("git", ["ls-files", "--", "*.mjs"], { encoding: "utf8" })
       .split(/\r?\n/)
       .filter(Boolean)
@@ -824,10 +826,9 @@ describe("release qualification applicability evaluator", () => {
     ["N3 removal", "bounded-contexts/a.ts\0bounded-contexts/b.ts\0", "bounded-contexts/a.ts\0"],
     ["N4 membership", "bounded-contexts/a.ts\0", "bounded-contexts/b.ts\0"],
   ])("%s refuses complete raw membership inequality", (_name, base, candidate) => {
-    expect(() => compareNeutrality(Buffer.from(base), Buffer.from(candidate))).toMatchObject({
-      code: "NEUTRALITY_MEMBER_SET_CHANGED",
-      reachedClause: "complete-raw-member-set",
-    });
+    expect(() => compareNeutrality(Buffer.from(base), Buffer.from(candidate))).toThrowError(
+      expect.objectContaining({ code: "NEUTRALITY_MEMBER_SET_CHANGED", reachedClause: "complete-raw-member-set" }),
+    );
   });
 
   it.each([
@@ -835,16 +836,16 @@ describe("release qualification applicability evaluator", () => {
     ["short", Buffer.from("bounded-contexts/a.ts"), "NEUTRALITY_TREE_INCOMPLETE", "nul-terminated-tree"],
     ["failed", null, "NEUTRALITY_TREE_INCOMPLETE", "nul-terminated-tree"],
   ])("N5 refuses %s tree input", (_name, bytes, code, reachedClause) => {
-    expect(() => rawTreeMembers(bytes)).toMatchObject({ code, reachedClause });
+    expect(() => rawTreeMembers(bytes)).toThrowError(expect.objectContaining({ code, reachedClause }));
   });
 
   it("N6 preserves raw identities and refuses invalid UTF-8 or same-tree aliases", () => {
-    expect(() => rawTreeMembers(Buffer.from("bounded-contexts/a\\b.ts\0bounded-contexts/a/b.ts\0"))).toMatchObject({
-      code: "NEUTRALITY_CANONICAL_ALIAS_COLLISION",
-    });
-    expect(() => rawTreeMembers(Buffer.from("7372632fff2e747300", "hex"))).toMatchObject({
-      code: "NEUTRALITY_INVALID_UTF8",
-    });
+    expect(() => rawTreeMembers(Buffer.from("bounded-contexts/a\\b.ts\0bounded-contexts/a/b.ts\0"))).toThrowError(
+      expect.objectContaining({ code: "NEUTRALITY_CANONICAL_ALIAS_COLLISION" }),
+    );
+    expect(() => rawTreeMembers(Buffer.from("7372632fff2e747300", "hex"))).toThrowError(
+      expect.objectContaining({ code: "NEUTRALITY_INVALID_UTF8" }),
+    );
     const identities = Buffer.from("bounded-contexts/A.ts\0bounded-contexts/a.ts\0bounded-contexts/é.ts\0", "utf8");
     expect(rawTreeMembers(identities)).toHaveLength(3);
   });
@@ -853,7 +854,9 @@ describe("release qualification applicability evaluator", () => {
     [Buffer.from("bounded-contexts/a\\b.ts\0"), Buffer.from("bounded-contexts/a/b.ts\0")],
     [Buffer.from("bounded-contexts/./a.ts\0"), Buffer.from("bounded-contexts/a.ts\0")],
   ])("N8 cross-tree canonical aliases refuse while canonical-only comparison is green", (base, candidate) => {
-    expect(() => compareNeutrality(base, candidate)).toMatchObject({ code: "NEUTRALITY_CANONICAL_ALIAS_COLLISION" });
+    expect(() => compareNeutrality(base, candidate)).toThrowError(
+      expect.objectContaining({ code: "NEUTRALITY_CANONICAL_ALIAS_COLLISION" }),
+    );
     expect(listNonTestTypeScriptModules(process.cwd(), { execGit: () => base.toString("utf8") })).toEqual(
       listNonTestTypeScriptModules(process.cwd(), { execGit: () => candidate.toString("utf8") }),
     );
