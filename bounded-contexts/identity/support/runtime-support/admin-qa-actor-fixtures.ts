@@ -252,7 +252,10 @@ async function reconcileFixture(
       createdMembership = false,
       createdConsent = false;
     const initiallyAbsent =
-      account.kind === "missing" && user.kind === "missing" && membership.kind === "missing" && consent.kind === "missing";
+      account.kind === "missing" &&
+      user.kind === "missing" &&
+      membership.kind === "missing" &&
+      consent.kind === "missing";
     if (account.kind === "missing") {
       await services.accounts.commandHandler({
         streamId: `identity.account-${actor.accountId}`,
