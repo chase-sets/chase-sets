@@ -11,6 +11,7 @@ import { renderMotionDiv } from "../../utils/base-ui";
 import { cx } from "../../utils/cx";
 import { resolveOverlayMotion } from "../feedback/motion-overlay";
 import { controlHeightClasses, controlSquareSizeClasses } from "../control-sizing";
+import { SearchRowHeaderFrame } from "../../patterns/app-shells/search-row-phase";
 import { renderActivePill, renderActivePillGroup } from "./shared";
 
 export interface NavigationItem {
@@ -570,42 +571,15 @@ export function TopNav({
     // is inert by its max-md scope and the row renders inline exactly as the
     // plain branch below.
     return (
-      <nav
-        {...rest}
-        aria-label={navLabel}
-        data-shell-header-box="reserved"
-        className="sticky top-0 z-sticky max-md:h-[7.75rem] max-md:pointer-events-none"
-      >
-        <div
-          data-shell-header-box="painted"
-          className={cx(
-            "pointer-events-auto border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
-            "max-md:overflow-hidden",
-            motionSettings.reducedMotion ? undefined : "transition-[height] duration-200",
-            searchRowState === "collapsed" ? "max-md:h-16" : "max-md:h-[7.75rem]",
-          )}
-        >
-          <Container width={width} paddingX={0}>
-            <Cluster justify="between" gap={4}>
-              {brandGroup}
-              {search ? (
-                <div
-                  data-search-row-slot=""
-                  className={cx(
-                    "order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1",
-                    "grid",
-                    motionSettings.reducedMotion ? undefined : "transition-[grid-template-rows] duration-200",
-                    searchRowState === "collapsed" ? "pointer-events-none grid-rows-[0fr]" : "grid-rows-[1fr]",
-                  )}
-                >
-                  <div className="min-h-0 max-md:overflow-hidden">{search}</div>
-                </div>
-              ) : null}
-              {actionsGroup}
-            </Cluster>
-          </Container>
-        </div>
-      </nav>
+      <SearchRowHeaderFrame
+        navProps={{ ...rest, "aria-label": navLabel, "data-shell-header-box": "reserved" }}
+        width={width}
+        reducedMotion={motionSettings.reducedMotion}
+        searchRowState={searchRowState}
+        brand={brandGroup}
+        search={search}
+        actions={actionsGroup}
+      />
     );
   }
 
