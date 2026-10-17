@@ -129,10 +129,6 @@ describe("Saved List discovery routes", () => {
     const firstPosition = firstEvents.at(-1)!.globalPosition;
     expect(first.status, await first.clone().text()).toBe(200);
     const firstBody = attachResponseMetadata(await first.json(), first);
-    expect(getMutationResultCommandReceipt(firstBody)).toMatchObject({
-      mode: "eventual",
-      commitPositions: decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)),
-    });
     expect(decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual([
       {
         sourceContextName: "collections",
@@ -141,6 +137,10 @@ describe("Saved List discovery routes", () => {
       },
     ]);
     expect(first.headers.get("Chase-Sets-Commit-Position")).toBe(firstPosition);
+    expect(getMutationResultCommandReceipt(firstBody)).toMatchObject({
+      mode: "eventual",
+      commitPositions: decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)),
+    });
     expect(first.headers.get("Chase-Sets-Consistency")).toBe("eventual");
     expect(first.headers.get("Chase-Sets-Commit-Event-Ids")).toBe(
       decodeCommitReceipt(first.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))?.[0]?.eventIds.join(","),
@@ -162,6 +162,11 @@ describe("Saved List discovery routes", () => {
       },
     ]);
     expect(existing.headers.get("Chase-Sets-Commit-Position")).toBe(existingPosition);
+    expect(existing.headers.get("Chase-Sets-Consistency")).toBe("eventual");
+    expect(getMutationResultCommandReceipt(attachResponseMetadata(await existing.json(), existing))).toMatchObject({
+      mode: "eventual",
+      commitPositions: decodeCommitReceipt(existing.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)),
+    });
     expect(events.map((item) => item.event)).toEqual(["list_created", "product_added", "product_added"]);
     for (let index = 3; index <= 6; index += 1) {
       const before = events.length;

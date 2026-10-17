@@ -183,6 +183,8 @@ describeDb("durable Saved List recovery", () => {
       "SELECT event_id, global_position::text FROM event_store_events ORDER BY global_position",
     );
     expect(appends).toBe(4);
+    expect(stored.rows).toHaveLength(2);
+    expect(firstAttemptEventIds).toHaveLength(1);
     expect(observed.result).toMatchObject({ status: "applied" });
     expectRecoveryReceipt(observed.metadata, stored.rows, firstAttemptEventIds);
   });
@@ -225,7 +227,7 @@ describeDb("durable Saved List recovery", () => {
     ).toBe("0");
   });
 
-  it("rejects premature request-scope recording in rollback and commit-failure controls", async () => {
+  it("rejects premature request-scope recording after a rollback", async () => {
     const rollbackPrepared = await ready();
     const rollbackBaseStore = createPostgresEventStore({ pool: pools.collections });
     let rollbackAppends = 0;
@@ -234,13 +236,13 @@ describeDb("durable Saved List recovery", () => {
     let rollbackError: unknown;
     await runWithEventCommitMetadata(async () => {
       const requestScope = AsyncLocalStorage.snapshot();
+      const prematureStore = prematureRecordingStore(rollbackBaseStore, requestScope);
       const retrying = createSavedListRecoveryRuntime({
         pool: pools.collections,
         eventStore: {
           ...rollbackBaseStore,
           appendToStreamInTransaction: async (client, input) => {
-            const stored = await rollbackBaseStore.appendToStreamInTransaction(client, input);
-            requestScope(() => recordCommittedEvents(stored, "collections"));
+            const stored = await prematureStore.appendToStreamInTransaction(client, input);
             rollbackAppends += 1;
             if (rollbackAppends === 1) rollbackFirstAttemptEventIds = stored.map((event) => event.eventId);
             if (rollbackAppends === 2)
@@ -266,8 +268,15 @@ describeDb("durable Saved List recovery", () => {
     const rollbackStored = await pools.collections.query<StoredRow>(
       "SELECT event_id, global_position::text FROM event_store_events ORDER BY global_position",
     );
+    expect(rollbackAppends).toBe(4);
+    expect(rollbackStored.rows).toHaveLength(2);
+    expect(rollbackFirstAttemptEventIds).toHaveLength(1);
+    expect(rollbackObserved!.eventIds).toContain(rollbackFirstAttemptEventIds[0]);
     expect(() => expectRecoveryReceipt(rollbackObserved!, rollbackStored.rows, rollbackFirstAttemptEventIds)).toThrow();
+  });
 
+  it("rejects premature request-scope recording when commit fails", async () => {
+    const prepared = await ready();
     const failure = new Error("synthetic commit failure");
     const failingPool: PgTransactionalPool = {
       query: pools.collections.query.bind(pools.collections),
@@ -287,7 +296,6 @@ describeDb("durable Saved List recovery", () => {
     let prematureError: unknown;
     await runWithEventCommitMetadata(async () => {
       const requestScope = AsyncLocalStorage.snapshot();
-      const prepared = await ready();
       const failing = createSavedListRecoveryRuntime({
         pool: failingPool,
         eventStore: prematureRecordingStore(createPostgresEventStore({ pool: failingPool }), requestScope),
@@ -303,6 +311,11 @@ describeDb("durable Saved List recovery", () => {
       prematureObserved = getEventCommitMetadata();
     });
     expect(prematureError).toBe(failure);
+    expect(
+      (await pools.collections.query<{ count: string }>("SELECT count(*)::text AS count FROM event_store_events"))
+        .rows[0]?.count,
+    ).toBe("0");
+    expect(prematureObserved!.eventIds).toHaveLength(2);
     expect(() => expectNoRecoveryReceipt(prematureObserved!)).toThrow();
   });
 
