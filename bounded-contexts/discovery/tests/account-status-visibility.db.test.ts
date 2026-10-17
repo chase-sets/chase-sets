@@ -54,8 +54,9 @@ describeDb("Discovery account status visibility on Postgres", () => {
       VALUES ('acc_buyer', 'buyer-one', 'Buyer', 'active');
       INSERT INTO discovery_offer_demand_matches
         (offer_id, buyer_account_id, catalog_catalog_item_id, product_id, item_title, price_amount, price_currency_code,
-         offer_stream_version, quantity_requested, status)
-      VALUES ('off_one', 'acc_buyer', 'cat_one', 'cat_one::', 'Item', '8.00', 'USD', 1, 1, 'submitted');
+         offer_stream_version, quantity_requested, status, selected_options)
+      VALUES ('off_one', 'acc_buyer', 'cat_one', 'cat_one::', 'Item', '8.00', 'USD', 1, 1, 'submitted',
+        '[{"dimensionId":"finish","optionId":"foil"}]'::jsonb);
     `);
   });
   afterAll(async () => {
