@@ -811,6 +811,9 @@ describe("issue-7169-type-resolved-census-matrix", () => {
         .map((form) => `{ ${form} }`)
         .join("\n"),
     }));
+    let rejectedForms = 0;
+    let totalDiagnostics = 0;
+    const reasonCounts = new Map();
     await matrix(cases, ({ root, roots, program, families, fixtures }) => {
       expect(families.families.map(({ name }) => name).sort()).toEqual(familyExpressions.map(([name]) => name).sort());
       const result = analyzeInventoryDynamicDispatch({ repoRoot: root, roots, program, families });
@@ -819,17 +822,27 @@ describe("issue-7169-type-resolved-census-matrix", () => {
       const familyIndex = Number(fixture.match(/case-(\d+)/)?.[1]);
       const forms = formsByFamily.get(cases[familyIndex].family);
       const expectedLines = prelude.split("\n").length + 1;
-      expect(diagnostics).toHaveLength(forms.length);
       for (const [index, form] of forms.entries()) {
         expect(
           diagnostics.some(({ line }) => line === expectedLines + index),
           form,
         ).toBe(true);
       }
+      rejectedForms += forms.length;
+      totalDiagnostics += diagnostics.length;
+      for (const { reason } of diagnostics) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
       emit(
         "family-matrix",
         familyExpressions.map(([family]) => ({ family, m16: 16, p1: 23, rejected: 39 })),
       );
+    });
+    expect(rejectedForms).toBe(663);
+    expect(totalDiagnostics).toBe(744);
+    expect(Object.fromEntries(reasonCounts)).toEqual({
+      FAMILY_DYNAMIC_KEY: 510,
+      FAMILY_TYPE_ERASURE: 119,
+      UNNAMED_FAMILY_MEMBER: 47,
+      FAMILY_ENUMERATION: 68,
     });
   });
 
