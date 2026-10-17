@@ -770,7 +770,7 @@ export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?
 
 /**
  * Reserved `.test` contacts for the local/test seed profile only. Staging
- * contacts are operator inputs read by the platform-api composition (#7367).
+ * contacts are operator inputs read by the platform-api composition.
  */
 const LOCAL_ADMIN_QA_ACTOR_FIXTURE_CONTACTS: AdminQaActorFixtureContacts = {
   ADMIN_QA_PLATFORM_ADMIN_EMAIL: "admin-qa-platform-admin@chasesets.test",

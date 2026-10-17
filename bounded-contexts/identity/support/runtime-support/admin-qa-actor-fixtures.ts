@@ -122,7 +122,7 @@ const CONTACT_KEY_BY_ALIAS: Readonly<Record<string, keyof AdminQaActorFixtureCon
 /**
  * Reconciles stream state, appending only the missing canonical suffix. No
  * Consent is recorded or read: no human affirms anything here, so provisioning
- * authors no synthetic Consent fact (#6120, #8945).
+ * authors no synthetic Consent fact.
  */
 export async function provisionAdminQaActorFixtures(
   services: IdentityServices,
@@ -354,11 +354,12 @@ function outcomeOnly(
   fixture: AdminQaActorFixtureDefinition,
   outcome: AdminQaActorFixtureOutcome,
 ): AdminQaActorFixtureResult {
+  const { actorAlias, roleKey, signInHost, capabilities } = fixture;
   return {
-    actorAlias: fixture.actorAlias,
-    roleKey: fixture.roleKey,
-    signInHost: fixture.signInHost,
-    capabilities: fixture.capabilities,
+    actorAlias,
+    roleKey,
+    signInHost,
+    capabilities,
     outcome,
     createdAccount: false,
     createdUser: false,
