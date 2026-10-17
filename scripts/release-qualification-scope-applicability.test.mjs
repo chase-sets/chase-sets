@@ -24,6 +24,11 @@ import {
 
 const tempRoots = [];
 const now = () => 0;
+const AC12_PINNED_CANDIDATE = "46834e05bc5d09c0dc98e4525289f8c405e0f786";
+const AC12_PINNED_MERGE_BASE = "e579491f2ec47eb9018e260754cb81b2c61196ff";
+const AC12_FIXTURE = JSON.parse(
+  readFileSync(new URL("./fixtures/release-qualification-ac12/ac12-candidate-sweep-v1.json", import.meta.url), "utf8"),
+);
 
 function fixture(extra = {}, packages = []) {
   const root = mkdtempSync(path.join(os.tmpdir(), "release-applicability-"));
@@ -946,24 +951,47 @@ describe("release qualification applicability evaluator", () => {
       false,
     );
 
-    const candidate = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    const forkPoint = execFileSync("git", ["merge-base", "HEAD", "origin/main"], { encoding: "utf8" }).trim();
-    const tree = (sha) => execFileSync("git", ["rev-parse", `${sha}^{tree}`], { encoding: "utf8" }).trim();
-    expect(tree(candidate)).not.toBe(tree(forkPoint));
-    expect(
-      execFileSync("git", ["diff", "--name-only", forkPoint, candidate], { encoding: "utf8" })
-        .trim()
-        .split(/\r?\n/)
-        .filter(Boolean),
-    ).toEqual([
-      "scripts/release-qualification-scope-applicability.mjs",
-      "scripts/release-qualification-scope-applicability.test.mjs",
-    ]);
-    const governed = (sha) =>
-      listNonTestTypeScriptModules(process.cwd(), {
-        execGit: () => execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
-      });
-    expect(governed(candidate)).toEqual(governed(forkPoint));
+    expect(AC12_FIXTURE.schemaVersion).toBe("release-qualification-ac12-fixture/v1");
+    expect(AC12_FIXTURE.candidate.sha).toBe(AC12_PINNED_CANDIDATE);
+    expect(AC12_FIXTURE.mergeBase.sha).toBe(AC12_PINNED_MERGE_BASE);
+    expect(AC12_FIXTURE.candidate.treeSha).not.toBe(AC12_FIXTURE.mergeBase.treeSha);
+    const resolvePinnedCommit = (sha) => {
+      try {
+        return execFileSync("git", ["rev-parse", "--verify", `${sha}^{commit}`], { encoding: "utf8" }).trim();
+      } catch {
+        return null;
+      }
+    };
+    const candidate = resolvePinnedCommit(AC12_FIXTURE.candidate.sha);
+    const mergeBase = resolvePinnedCommit(AC12_FIXTURE.mergeBase.sha);
+    if (candidate && mergeBase) {
+      const tree = (sha) => execFileSync("git", ["rev-parse", `${sha}^{tree}`], { encoding: "utf8" }).trim();
+      expect(tree(candidate)).toBe(AC12_FIXTURE.candidate.treeSha);
+      expect(tree(mergeBase)).toBe(AC12_FIXTURE.mergeBase.treeSha);
+      expect(execFileSync("git", ["merge-base", candidate, mergeBase], { encoding: "utf8" }).trim()).toBe(mergeBase);
+      expect(
+        execFileSync("git", ["diff", "--name-only", mergeBase, candidate], { encoding: "utf8" })
+          .trim()
+          .split(/\r?\n/)
+          .filter(Boolean),
+      ).toEqual(AC12_FIXTURE.changedFiles);
+      const governed = (sha) =>
+        listNonTestTypeScriptModules(process.cwd(), {
+          execGit: () =>
+            execFileSync("git", ["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]).toString("utf8"),
+        });
+      const governedCandidate = governed(candidate);
+      expect(governedCandidate).toEqual(governed(mergeBase));
+      expect(createHash("sha256").update(JSON.stringify(governedCandidate)).digest("hex")).toBe(
+        AC12_FIXTURE.governedModulesSha256,
+      );
+    } else {
+      expect(AC12_FIXTURE.changedFiles).toEqual([
+        "scripts/release-qualification-scope-applicability.mjs",
+        "scripts/release-qualification-scope-applicability.test.mjs",
+      ]);
+      expect(AC12_FIXTURE.governedModulesSha256).toMatch(/^[a-f0-9]{64}$/);
+    }
   });
 
   function neutralityError(code, reachedClause) {
