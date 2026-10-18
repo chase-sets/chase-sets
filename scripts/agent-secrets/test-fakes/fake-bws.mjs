@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +45,26 @@ function writeBulk(bytes) {
   }
 }
 
+function encode(text, encoding = "utf8") {
+  if (encoding === "utf8") return Buffer.from(text, "utf8");
+  const little = Buffer.from(text, "utf16le");
+  return encoding === "utf16le" ? little : little.swap16();
+}
+
+// Mutant output: {{TOKEN}} or {{TOKEN@start-end}} is the injected token (or a
+// slice of it), so no test-written file carries the token. Each segment is
+// flushed into its pipe before the next pause.
+async function writeSegments(segments = []) {
+  for (const { stream, text, encoding, pauseMs } of segments) {
+    if (pauseMs) await sleep(pauseMs);
+    const resolved = text.replace(/\{\{TOKEN(?:@(\d+)-(\d*))?\}\}/g, (_match, start, end) =>
+      token.slice(Number(start ?? 0), end ? Number(end) : undefined),
+    );
+    const target = stream === "stderr" ? process.stderr : process.stdout;
+    await new Promise((resolve) => target.write(encode(resolved, encoding), resolve));
+  }
+}
+
 const [verb, noun] = argv;
 if (verb === "secret" && noun === "list") {
   process.stderr.write(config.listStderr ?? "");
@@ -51,6 +72,7 @@ if (verb === "secret" && noun === "list") {
   process.exitCode = config.listExitCode ?? 0;
 } else if (verb === "run" && config.runNotFound) {
   // bws 2.1.0 answers `run` against a readable project with zero secrets this way.
+  await writeSegments(config.segments);
   process.stderr.write(
     'Error:\n   0: Received error message from server: [404 Not Found] {"message":"Resource not found."}\n',
   );
@@ -59,6 +81,7 @@ if (verb === "secret" && noun === "list") {
   writeBulk(config.bulkBytes ?? 0);
   process.stdout.write(config.stdout ?? "");
   process.stderr.write(config.stderr ?? "");
+  await writeSegments(config.segments);
   process.exitCode = config.exitCode ?? 0;
 } else {
   process.stderr.write("fake bws: unsupported arguments\n");

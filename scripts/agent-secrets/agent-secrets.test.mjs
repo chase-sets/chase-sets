@@ -51,7 +51,7 @@ function helperEnvironment(overrides = {}) {
   return { ...env, ...overrides };
 }
 
-function createSeat({ credential = true, bws = {} } = {}) {
+function createSeat({ credential = true, bws = {}, token = `sentinel-token-${randomUUID()}` } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "agent-secrets-"));
   seats.push(root);
   for (const name of ["with-secrets.ps1", "set-bitwarden-agent-token.ps1"]) {
@@ -62,7 +62,6 @@ function createSeat({ credential = true, bws = {} } = {}) {
     path.join(root, "bitwarden-agent-credential.psm1"),
   );
   copyFileSync(path.join(here, "test-fakes", "fake-bws.mjs"), path.join(root, "fake-bws.mjs"));
-  const token = `sentinel-token-${randomUUID()}`;
   writeFileSync(path.join(root, "stub-credential.json"), JSON.stringify({ present: credential, projectId, token }));
   writeFileSync(path.join(root, "fake-bws.json"), JSON.stringify(bws));
   const fake = path.join(root, "fake-bws.mjs");
@@ -75,12 +74,13 @@ function createSeat({ credential = true, bws = {} } = {}) {
   return { root, token, shim };
 }
 
-function runPwsh(args, { cwd, env, input = "" }) {
+// encoding "buffer" keeps the helper's raw stream bytes for byte-exact checks.
+function runPwsh(args, { cwd, env, input = "", encoding = "utf8" }) {
   const result = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", ...args], {
     cwd,
     env,
     input,
-    encoding: "utf8",
+    encoding,
     maxBuffer: 16 * 1024 * 1024,
     timeout: 120_000,
     windowsHide: true,
@@ -89,11 +89,46 @@ function runPwsh(args, { cwd, env, input = "" }) {
   return result;
 }
 
-function runSeat(seat, script, args, env = {}) {
+function runSeat(seat, script, args, env = {}, { encoding } = {}) {
   return runPwsh(["-File", path.join(seat.root, script), ...args], {
     cwd: seat.root,
     env: helperEnvironment({ CHASE_SETS_BWS_EXE: seat.shim, ...env }),
+    encoding,
   });
+}
+
+// A `bws secret list` document whose values are the given strings.
+function secretList(values) {
+  return JSON.stringify(
+    values.map((value, n) => ({ id: randomUUID(), organizationId: randomUUID(), projectId, key: `KEY_${n}`, value })),
+  );
+}
+
+const encodings = ["utf8", "utf16le", "utf16be"];
+
+function encode(text, encoding) {
+  if (encoding === "utf8") return Buffer.from(text, "utf8");
+  const little = Buffer.from(text, "utf16le");
+  return encoding === "utf16le" ? little : little.swap16();
+}
+
+// Byte equality reported as the first differing offset, so a megabyte stream
+// never floods the failure message.
+function expectSameBytes(actual, expected) {
+  let offset = 0;
+  while (offset < Math.min(actual.length, expected.length) && actual[offset] === expected[offset]) offset += 1;
+  const at = (bytes) => bytes.subarray(offset, offset + 32).toString("hex");
+  expect({ length: actual.length, offset, actual: at(actual) }).toEqual({
+    length: expected.length,
+    offset: expected.length,
+    actual: at(expected),
+  });
+}
+
+function expectNoPattern(bytes, secrets) {
+  for (const secret of secrets) {
+    for (const encoding of encodings) expect(bytes.includes(encode(secret, encoding))).toBe(false);
+  }
 }
 
 function readRecords(seat, name) {
@@ -155,14 +190,18 @@ afterEach(() => {
 });
 
 describe("with-secrets.ps1 -Command", () => {
-  it("hands the token only to the bws environment and records the exact run argv", () => {
+  it("hands the token only to the bws environment and records one secret list, then the exact run argv", () => {
     const seat = createSeat({ bws: { stdout: "child-out\n" } });
     const plain = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"]);
     const isolated = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello", "-NoInheritEnv"]);
 
     expect(plain.status).toBe(0);
     expect(isolated.status).toBe(0);
-    const [first, second] = bwsCalls(seat);
+    const [firstList, first, secondList, second, ...rest] = bwsCalls(seat);
+    expect(rest).toEqual([]);
+    for (const list of [firstList, secondList]) {
+      expect(list.argv).toEqual(["secret", "list", projectId, "--output", "json", "--color", "no"]);
+    }
     const shell = first.argv[4];
     expect(path.isAbsolute(shell)).toBe(true);
     expect(path.basename(shell)).toMatch(/^pwsh(\.exe)?$/i);
@@ -188,6 +227,27 @@ describe("with-secrets.ps1 -Command", () => {
     expect(result.status).toBe(7);
     expect(result.stdout).toBe("child-out\n");
     expect(result.stderr).toBe("child-err\n");
+  });
+
+  it("forwards bytes that only begin a pattern, including a held tail flushed at end of stream", () => {
+    const value = `sentinel-value-${randomUUID()}`;
+    const nearMiss = `${value.slice(0, -1)}!`;
+    const seat = createSeat({
+      bws: {
+        list: secretList([value]),
+        segments: [
+          { stream: "stdout", text: `${nearMiss} \u0000ÿ ` },
+          { stream: "stdout", text: value.slice(0, 20) },
+          { stream: "stderr", text: "{{TOKEN@0-20}}" },
+        ],
+        exitCode: 7,
+      },
+    });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "near miss"], {}, { encoding: "buffer" });
+
+    expect(result.status).toBe(7);
+    expectSameBytes(result.stdout, Buffer.from(`${nearMiss} \u0000ÿ ${value.slice(0, 20)}`, "utf8"));
+    expectSameBytes(result.stderr, Buffer.from(seat.token.slice(0, 20), "utf8"));
   });
 
   it("drains both streams concurrently when the child writes a megabyte to each", () => {
@@ -245,11 +305,196 @@ describe("with-secrets.ps1 -Command", () => {
     expect(command.status).toBe(0);
     expect(check.status).toBe(0);
     const calls = bwsCalls(seat);
-    expect(calls).toHaveLength(2);
+    expect(calls.map((call) => call.argv[0])).toEqual(["secret", "run", "secret"]);
     for (const call of calls) expect(call.bwEnvNames).toEqual([]);
     for (const value of Object.values(sentinels)) {
       expect(filesContaining(seat.root, value, [])).toEqual([]);
     }
+  });
+});
+
+describe("with-secrets.ps1 -Command output scrubbing", () => {
+  const R = "[redacted]";
+  const MiB = 1024 * 1024;
+  const KiB64 = 65536;
+  const notFound =
+    'Error:\n   0: Received error message from server: [404 Not Found] {"message":"Resource not found."}\n';
+  const out = (text, extra = {}) => ({ stream: "stdout", text, ...extra });
+  const err = (text, extra = {}) => ({ stream: "stderr", text, ...extra });
+
+  // v2 extends v1, so only longest-pattern-first turns v2 into one [redacted].
+  // {{TOKEN}} is the token the fake received in BWS_ACCESS_TOKEN.
+  const mutants = [
+    [
+      "whole on stdout",
+      ({ v1, v2 }) => ({
+        segments: [out(`out {{TOKEN}} ${v1} ${v2} end\n`)],
+        stdout: encode(`out ${R} ${R} ${R} end\n`, "utf8"),
+        stderr: Buffer.alloc(0),
+      }),
+    ],
+    [
+      "whole on stderr",
+      ({ v1, v2 }) => ({
+        segments: [err(`err {{TOKEN}} ${v1} ${v2} end\n`)],
+        stdout: Buffer.alloc(0),
+        stderr: encode(`err ${R} ${R} ${R} end\n`, "utf8"),
+      }),
+    ],
+    [
+      "split over two writes with a pause",
+      ({ v1, v2 }) => ({
+        segments: [
+          out("x{{TOKEN@0-9}}"),
+          out(`{{TOKEN@9-}}y${v1.slice(0, 7)}`, { pauseMs: 300 }),
+          out(`${v1.slice(7)}z\n`, { pauseMs: 300 }),
+          err(v2.slice(0, 3)),
+          err(`${v2.slice(3)}\n`, { pauseMs: 300 }),
+        ],
+        stdout: encode(`x${R}y${R}z\n`, "utf8"),
+        stderr: encode(`${R}\n`, "utf8"),
+      }),
+    ],
+    [
+      "in UTF-16LE",
+      ({ v1, v2 }) => ({
+        segments: [
+          out(`le {{TOKEN}} ${v1}\n`, { encoding: "utf16le" }),
+          err(`${v2.slice(0, 5)}`, { encoding: "utf16le" }),
+          err(`${v2.slice(5)}\n`, { encoding: "utf16le", pauseMs: 200 }),
+        ],
+        stdout: encode(`le ${R} ${R}\n`, "utf16le"),
+        stderr: encode(`${R}\n`, "utf16le"),
+      }),
+    ],
+    [
+      "in UTF-16BE",
+      ({ v1, v2 }) => ({
+        segments: [
+          out("be {{TOKEN@0-5}}", { encoding: "utf16be" }),
+          out(`{{TOKEN@5-}} ${v2}\n`, { encoding: "utf16be", pauseMs: 200 }),
+          err(`${v1}\n`, { encoding: "utf16be" }),
+        ],
+        stdout: encode(`be ${R} ${R}\n`, "utf16be"),
+        stderr: encode(`${R}\n`, "utf16be"),
+      }),
+    ],
+    [
+      "back to back",
+      ({ v1, v2 }) => ({
+        segments: [out(`{{TOKEN}}${v1}${v2}{{TOKEN}}\n`), err(`${v2}${v1}{{TOKEN}}`)],
+        stdout: encode(`${R}${R}${R}${R}\n`, "utf8"),
+        stderr: encode(`${R}${R}${R}`, "utf8"),
+      }),
+    ],
+    [
+      "across a 64 KiB boundary of the megabyte stream",
+      ({ v1, v2 }) => ({
+        segments: [
+          out(`${"o".repeat(KiB64 - 9)}{{TOKEN@0-9}}`),
+          out(`{{TOKEN@9-}}${"o".repeat(MiB - KiB64)}`),
+          err(`${"e".repeat(KiB64 - 4)}${v1.slice(0, 4)}`),
+          err(`${v1.slice(4)}${"e".repeat(MiB - KiB64)}${v2}`),
+        ],
+        stdout: encode(`${"o".repeat(KiB64 - 9)}${R}${"o".repeat(MiB - KiB64)}`, "utf8"),
+        stderr: encode(`${"e".repeat(KiB64 - 4)}${R}${"e".repeat(MiB - KiB64)}${R}`, "utf8"),
+      }),
+    ],
+    [
+      "as the last bytes before exit 7",
+      ({ v1 }) => ({
+        segments: [out("done {{TOKEN}}"), err(v1)],
+        stdout: encode(`done ${R}`, "utf8"),
+        stderr: encode(R, "utf8"),
+      }),
+    ],
+    [
+      "on the run 404 path",
+      ({ v1, v2 }) => ({
+        runNotFound: true,
+        status: 1,
+        segments: [err(`{{TOKEN}} ${v1}\n`), out(`${v2}\n`)],
+        stdout: encode(`${R}\n`, "utf8"),
+        stderr: encode(`${R} ${R}\n${notFound}`, "utf8"),
+      }),
+    ],
+  ];
+
+  it.each(mutants)("replaces the token and two values printed %s", (_name, build) => {
+    const v1 = `sentinel-value-${randomUUID()}`;
+    const v2 = `${v1}-longer`;
+    const mutant = build({ v1, v2 });
+    const seat = createSeat({
+      bws: { list: secretList([v1, v2]), segments: mutant.segments, runNotFound: mutant.runNotFound, exitCode: 7 },
+    });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "mutant"], {}, { encoding: "buffer" });
+
+    expect(result.status).toBe(mutant.status ?? 7);
+    for (const stream of [result.stdout, result.stderr]) expectNoPattern(stream, [seat.token, v1, v2]);
+    expectSameBytes(result.stdout, mutant.stdout);
+    expectSameBytes(result.stderr, mutant.stderr);
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret", "run"]);
+    expect(filesContaining(seat.root, seat.token, ["stub-credential.json"])).toEqual([]);
+    for (const value of [v1, v2]) expect(filesContaining(seat.root, value, ["fake-bws.json"])).toEqual([]);
+  });
+
+  // The exported scanner, driven directly: a held partial match is never
+  // written once the scanner aborts, and a failing source pump aborts too.
+  it("writes no held byte when the scanner is aborted mid-match or its source fails", () => {
+    const seat = createSeat();
+    const secret = `sentinel-abort-${randomUUID()}`;
+    const script = [
+      `. '${path.join(seat.root, "with-secrets.ps1")}' -Command unused`,
+      "Initialize-SecretScrubber",
+      `$secret = '${secret}'`,
+      "$utf8 = [Text.Encoding]::UTF8",
+      "function Invoke-Scanner([bool]$abort) {",
+      "  $sink = [IO.MemoryStream]::new()",
+      "  $scrubber = [AgentSecretScrubber]::new([string[]]@($secret), $sink)",
+      "  $head = $utf8.GetBytes('safe ' + $secret.Substring(0, 12))",
+      "  $scrubber.Write($head, 0, $head.Length)",
+      "  $before = $utf8.GetString($sink.ToArray())",
+      "  if ($abort) { $scrubber.Abort() }",
+      "  $scrubber.Complete()",
+      "  $rest = $utf8.GetBytes($secret.Substring(12) + ' later')",
+      "  $scrubber.Write($rest, 0, $rest.Length)",
+      "  $scrubber.Clear()",
+      "  [pscustomobject]@{ before = $before; after = $utf8.GetString($sink.ToArray()) }",
+      "}",
+      "Add-Type -TypeDefinition @'",
+      "using System; using System.IO; using System.Threading; using System.Threading.Tasks;",
+      "public sealed class FailAfterFirstRead : Stream {",
+      "  readonly byte[] first; bool served;",
+      "  public FailAfterFirstRead(byte[] first) { this.first = first; }",
+      "  public override int Read(byte[] buffer, int offset, int count) {",
+      '    if (served) throw new IOException("synthetic pump failure");',
+      "    served = true; Buffer.BlockCopy(first, 0, buffer, offset, first.Length); return first.Length;",
+      "  }",
+      "  public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token) {",
+      "    try { return Task.FromResult(Read(buffer, offset, count)); } catch (Exception e) { return Task.FromException<int>(e); }",
+      "  }",
+      "  public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;",
+      "  public override long Length => throw new NotSupportedException();",
+      "  public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }",
+      "  public override void Flush() { } public override long Seek(long o, SeekOrigin s) => throw new NotSupportedException();",
+      "  public override void SetLength(long v) => throw new NotSupportedException();",
+      "  public override void Write(byte[] b, int o, int c) => throw new NotSupportedException();",
+      "}",
+      "'@",
+      "$sink = [IO.MemoryStream]::new()",
+      "$scrubber = [AgentSecretScrubber]::new([string[]]@($secret), $sink)",
+      "$pump = $scrubber.PumpAsync([FailAfterFirstRead]::new($utf8.GetBytes('safe ' + $secret.Substring(0, 12))), [Diagnostics.Process]::new())",
+      "try { $pump.Wait() } catch { }",
+      "[pscustomobject]@{ aborted = Invoke-Scanner $true; completed = Invoke-Scanner $false; pump = [pscustomobject]@{ faulted = $pump.IsFaulted; after = $utf8.GetString($sink.ToArray()) } } | ConvertTo-Json -Compress",
+    ].join("\n");
+    const result = runPwsh(["-Command", script], { cwd: seat.root, env: helperEnvironment() });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      aborted: { before: "safe ", after: "safe " },
+      completed: { before: "safe ", after: `safe ${secret.slice(0, 12)}` },
+      pump: { faulted: true, after: "safe " },
+    });
   });
 });
 
@@ -283,6 +528,7 @@ describe("with-secrets.ps1 -ListKeys and -Check", () => {
     ["truncated JSON", `[{"key":"ALPHA_KEY","value":"${valueSentinel}"`],
     ["a non-array document", `{"key":"ALPHA_KEY","value":"${valueSentinel}"}`],
     ["an entry without a key", `[{"value":"${valueSentinel}"}]`],
+    ["an entry without a string value", `[{"key":"ALPHA_KEY","value":7,"note":"${valueSentinel}"}]`],
     ["text that is not JSON", `Error: ${valueSentinel}`],
     ["a key that would forge a second output line", `[{"key":"ALPHA_KEY\\n${valueSentinel}","value":"x"}]`],
   ])("refuses %s as unparseable-list without echoing it", (_name, list) => {
@@ -363,6 +609,51 @@ describe("with-secrets.ps1 refusals", () => {
     expect(credentialCalls(seat)).toEqual([]);
     expect(bwsCalls(seat)).toEqual([]);
   });
+
+  // bw.cmd is a working shim to the same fake, so invoking it would be logged.
+  it.each([
+    ["an absolute bw.cmd", (seat) => seat.bwShim],
+    ["an absolute bws.cmd that does not exist", (seat) => path.join(seat.root, "missing", "bws.cmd")],
+  ])("refuses %s as CHASE_SETS_BWS_EXE before reading the credential", (_name, configured) => {
+    const seat = createSeat();
+    seat.bwShim = path.join(seat.root, "bw.cmd");
+    copyFileSync(seat.shim, seat.bwShim);
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"], {
+      CHASE_SETS_BWS_EXE: configured(seat),
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("bws-failed");
+    expect(result.stderr).toContain("an existing bws, bws.exe or bws.cmd");
+    expect(credentialCalls(seat)).toEqual([]);
+    expect(bwsCalls(seat)).toEqual([]);
+  });
+
+  it.each([
+    ["a value under 8 characters", "short7!"],
+    ["a value outside printable ASCII", "café-sentinel-value"],
+    ["a value with a control character", "tab\tsentinel-value"],
+  ])("refuses %s as unscrubbable-value before bws run", (_name, value) => {
+    const other = `sentinel-value-${randomUUID()}`;
+    const seat = createSeat({ bws: { list: secretList([other, value]), stdout: "ran\n" } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"]);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("unscrubbable-value");
+    expect(result.stdout).toBe("");
+    for (const secret of [value, other, seat.token]) expect(result.stderr).not.toContain(secret);
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+  });
+
+  it("refuses a token it cannot scrub as unscrubbable-value before bws run", () => {
+    const seat = createSeat({ token: "short", bws: { stdout: "ran\n" } });
+    const result = runSeat(seat, "with-secrets.ps1", ["-Command", "Write-Output hello"]);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("unscrubbable-value");
+    expect(result.stdout).toBe("");
+    expect(bwsCalls(seat).map((call) => call.argv[0])).toEqual(["secret"]);
+  });
 });
 
 describe("set-bitwarden-agent-token.ps1", () => {
@@ -438,6 +729,7 @@ describe("repo AGENTS.md", () => {
     expect(agents).toContain("## Secrets for agents");
     expect(agents).toContain("pwsh -NoProfile -File scripts/agent-secrets/with-secrets.ps1 -Command '<cmd>'");
     expect(agents).toContain("../main/scripts/agent-secrets/");
+    expect(agents).toContain("never write injected values to a file");
     expect(agents).not.toContain(["orchestrator", "with-secrets"].join("/"));
     for (const [named] of agents.matchAll(/scripts\/agent-secrets\/[\w.-]+\.ps1/g)) {
       expect(existsSync(path.join(repoRoot, named))).toBe(true);
