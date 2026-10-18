@@ -1013,23 +1013,34 @@ describe("release qualification applicability evaluator", () => {
 
   it("AC12 fallback rejects a tampered merge-base tree or governed digest", () => {
     const mergeBase = AC12_FIXTURE.mergeBase.sha;
+    const expectFailureContaining = (run, expected) => {
+      let error;
+      try {
+        run();
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeDefined();
+      expect(String(error)).toContain(expected);
+    };
+
     expect(() => assertAc12PinnedEvidence(AC12_FIXTURE, null, mergeBase)).not.toThrow();
 
     const tamperedTree = structuredClone(AC12_FIXTURE);
     tamperedTree.mergeBase.treeSha = "0".repeat(40);
-    expect(() => assertAc12PinnedEvidence(tamperedTree, null, mergeBase)).toThrowError(
-      expect.stringContaining(tamperedTree.mergeBase.treeSha),
+    expectFailureContaining(
+      () => assertAc12PinnedEvidence(tamperedTree, null, mergeBase),
+      tamperedTree.mergeBase.treeSha,
     );
 
     const tamperedDigest = structuredClone(AC12_FIXTURE);
     tamperedDigest.governedModulesSha256 = "0".repeat(64);
-    expect(() => assertAc12PinnedEvidence(tamperedDigest, null, mergeBase)).toThrowError(
-      expect.stringContaining(tamperedDigest.governedModulesSha256),
+    expectFailureContaining(
+      () => assertAc12PinnedEvidence(tamperedDigest, null, mergeBase),
+      tamperedDigest.governedModulesSha256,
     );
 
-    expect(() => assertAc12PinnedEvidence(AC12_FIXTURE, null, null)).toThrowError(
-      expect.stringContaining(AC12_FIXTURE.mergeBase.sha),
-    );
+    expectFailureContaining(() => assertAc12PinnedEvidence(AC12_FIXTURE, null, null), AC12_FIXTURE.mergeBase.sha);
   });
 
   function neutralityError(code, reachedClause) {
