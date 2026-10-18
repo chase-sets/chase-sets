@@ -12,7 +12,19 @@ import {
   isE2eSpecFile,
   isRouteFile,
 } from "./e2e-suites.mjs";
-import { buildSuiteGrep, commandSuiteInvocation, parseSuiteArgs } from "./run-e2e-suite.mjs";
+import {
+  renderedCopyOwningBatch,
+  renderedCopySweepSpecs,
+  renderedCopyTuples,
+  validateCapturePart,
+} from "../infrastructure/playwright-evidence/rendered-copy.ts";
+import {
+  buildSuiteGrep,
+  commandSuiteInvocation,
+  parseSuiteArgs,
+  prepareRenderedCopyCapturePart,
+  renderedCopyListingOrder,
+} from "./run-e2e-suite.mjs";
 import {
   TCGPLAYER_CONNECTOR_EXTENSION_ID,
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
@@ -353,6 +365,202 @@ describe("run e2e suite", () => {
       expected,
     );
     expect(e2eSuiteIdsForChangedFile("scripts/validate-responsive-evidence-artifacts.mjs")).toEqual(expected);
+  });
+
+  it("routes rendered-copy sweep specs to their complete owning suites", () => {
+    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/rendered-copy-sweep.spec.ts")).toEqual([
+      "marketplace_account",
+      "marketplace_seller",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/rendered-copy-sweep.spec.ts")).toEqual([
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_access",
+    ]);
+    const owners = new Set(renderedCopyTuples.map((tuple) => tuple.suite));
+    expect([...owners].sort()).toEqual(
+      [
+        ...e2eSuiteIdsForChangedFile(renderedCopySweepSpecs.marketplace),
+        ...e2eSuiteIdsForChangedFile(renderedCopySweepSpecs["admin-web"]),
+      ].sort(),
+    );
+    for (const tuple of renderedCopyTuples) {
+      expect(e2eSuites.find((suite) => suite.id === tuple.suite)?.grep, tuple.page).toBe(tuple.tag);
+    }
+  });
+
+  it.each([
+    "rendered-copy.ts",
+    "rendered-copy-baseline.json",
+    "rendered-copy-capture.json",
+    "rendered-copy-collect.json",
+  ])("routes shared %s to every browser suite", (file) => {
+    expect(e2eSuiteIdsForChangedFile(`infrastructure/playwright-evidence/${file}`)).toEqual(
+      e2eSuiteIdsForChangedFile("infrastructure/playwright-evidence/index.ts"),
+    );
+  });
+
+  describe("rendered-copy capture parts", () => {
+    const sha = (seed) => seed.repeat(40).slice(0, 40);
+    const [base, head, checkout] = [sha("b"), sha("c"), sha("d")];
+    const git = (...args) => {
+      const command = args.join(" ");
+      if (command === "show -s --diff-merges=off --format=%P HEAD") return `${base} ${head}`;
+      if (command === "rev-parse HEAD") return checkout;
+      if (command === "diff --name-only " + base + " HEAD")
+        return "scripts/run-e2e-suite.mjs\ninfrastructure/playwright-evidence/rendered-copy.ts";
+      if (command.startsWith("rev-parse ") && command.endsWith("^{tree}"))
+        return sha(command.includes(base) ? "1" : command.includes(head) ? "2" : "3");
+      if (command.startsWith("rev-parse HEAD:")) return sha("a");
+      throw new Error(`unexpected git ${command}`);
+    };
+    const env = {
+      GITHUB_WORKFLOW_REF: "chase-sets/chase-sets/.github/workflows/platform-pr.yml@refs/pull/1/merge",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_RUN_ID: "123",
+      GITHUB_RUN_ATTEMPT: "1",
+      RENDERED_COPY_CAPTURE_JOB_INDEX: "3",
+      RENDERED_COPY_CAPTURE_SOURCE_HEAD: head,
+    };
+    const batch = "marketplace_browse,marketplace_account";
+    const owned = renderedCopyTuples.filter((tuple) => tuple.suite === "marketplace_account");
+    const sweep = renderedCopySweepSpecs.marketplace;
+    const report = {
+      config: { projects: [{ name: "marketplace-chromium" }, { name: "admin-web-chromium" }] },
+      suites: [
+        {
+          file: "deployables/marketplace/e2e/browse.spec.ts",
+          specs: [
+            {
+              title: "browse",
+              file: "deployables/marketplace/e2e/browse.spec.ts",
+              line: 4,
+              column: 1,
+              tests: [{ projectName: "marketplace-chromium" }],
+            },
+          ],
+        },
+        {
+          file: sweep,
+          suites: [
+            {
+              specs: [
+                {
+                  title: "planted",
+                  file: sweep,
+                  line: 200,
+                  column: 3,
+                  tests: [{ projectName: "marketplace-chromium" }],
+                },
+              ],
+            },
+          ],
+          specs: [
+            { title: "census", file: sweep, line: 90, column: 1, tests: [{ projectName: "marketplace-chromium" }] },
+            ...owned.map((tuple) => ({
+              title: `rendered copy ${tuple.persona} ${tuple.page} ${tuple.tag} @browser-e2e-seed`,
+              file: sweep,
+              line: 100,
+              column: 3,
+              tests: [{ projectName: "marketplace-chromium" }],
+            })),
+          ],
+        },
+      ],
+    };
+    const zero = {
+      "typed-id": 0,
+      "seed-id": 0,
+      "object-string": 0,
+      "template-placeholder": 0,
+      "hedged-plural": 0,
+      "iso-instant": 0,
+    };
+    const observation = (tuple, retry, count) => ({
+      schema: "rendered-copy-observation/v1",
+      tuple,
+      retry,
+      durationMs: 1_000,
+      witness: "populated",
+      counts: { ...zero, "seed-id": count },
+      fields:
+        count === 0
+          ? []
+          : [
+              {
+                page: tuple.page,
+                class: "seed-id",
+                selector: "main",
+                label: null,
+                prefix: "off_",
+                token: "SB8-COPY-01",
+                issue: 9937,
+                count,
+                samples: ["off_seed_planted"],
+              },
+            ],
+    });
+    const offers = owned.find((tuple) => tuple.page === "/account/offers/submitted");
+    const observations = [
+      ...owned.filter((tuple) => tuple !== offers).map((tuple) => observation(tuple, 0, 0)),
+      observation(offers, 0, 4),
+      observation(offers, 1, 2),
+    ];
+    const prepare = (overrides = {}) =>
+      prepareRenderedCopyCapturePart({
+        batch,
+        env,
+        git,
+        report,
+        observations,
+        capturedAt: "2026-10-18T05:00:00.000Z",
+        ...overrides,
+      });
+
+    it("lists the batch in normal order: projects, files, then declaration line", () => {
+      expect(renderedCopyListingOrder(report).map(({ title }) => title)).toEqual([
+        "browse",
+        "census",
+        ...owned.map((tuple) => `rendered copy ${tuple.persona} ${tuple.page} ${tuple.tag} @browser-e2e-seed`),
+        "planted",
+      ]);
+    });
+
+    it("assembles one validated part from the highest Playwright retry, counting each tuple once", () => {
+      const part = prepare();
+      expect(validateCapturePart(part)).toEqual([]);
+      expect(part.tuples).toHaveLength(owned.length);
+      const offersTuple = part.tuples.find((tuple) => tuple.page === offers.page);
+      expect(offersTuple).toMatchObject({ retry: 1, position: 3, counts: { "seed-id": 2 } });
+      expect(part.fields).toEqual([expect.objectContaining({ page: offers.page, count: 2, token: "SB8-COPY-01" })]);
+      expect(part.listing).toEqual([
+        { path: "deployables/marketplace/e2e/browse.spec.ts", blob: sha("a"), tests: 1 },
+        { path: sweep, blob: sha("a"), tests: owned.length + 2 },
+      ]);
+      expect(part.checkout.parents).toEqual([base, head]);
+      expect(part.run).toMatchObject({ id: 123, attempt: 1, jobIndex: 3, batch, workflow: "platform-pr.yml" });
+    });
+
+    it("fails an eligible batch whose final observation is missing instead of emitting a partial part", () => {
+      expect(() => prepare({ observations: observations.filter((entry) => entry.tuple !== offers) })).toThrow(
+        "eligible tuples missing a final observation",
+      );
+    });
+
+    it("rejects a part whose PR head is not the second checkout parent", () => {
+      expect(() => prepare({ env: { ...env, RENDERED_COPY_CAPTURE_SOURCE_HEAD: sha("e") } })).toThrow(
+        "checkout.parents: must be [B, PR head]",
+      );
+    });
+
+    it("treats batches without sweep tuples as ineligible, not missing", () => {
+      expect(renderedCopyOwningBatch("marketplace_browse,marketplace_checkout")).toBe(false);
+      expect(renderedCopyOwningBatch("admin_platform,admin_auth")).toBe(false);
+      expect(renderedCopyOwningBatch(batch)).toBe(true);
+    });
   });
 
   it("routes catalog admin integration routes to admin coverage", () => {
