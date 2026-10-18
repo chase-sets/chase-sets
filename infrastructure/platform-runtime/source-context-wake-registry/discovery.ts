@@ -16,5 +16,6 @@ export const discoveryWakeRegistryEntry = registryEntry({
     "discovery.item-detail-checkout-handoff",
     "discovery.item-detail-listing-publication-self-refresh",
     "discovery.item-detail-ship-from-setup-self-refresh",
+    "discovery.saved-list-addition-picker-self-refresh",
   ],
 });

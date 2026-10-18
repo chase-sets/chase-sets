@@ -251,6 +251,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `discovery.item-detail-add-to-sell-list-semantic-handoff` | discovery | critical | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `discovery.item-detail-checkout-handoff` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `discovery.item-detail-listing-publication-self-refresh` | discovery | critical | exact wait | poll-bounded until wave 3 |
+| `discovery.saved-list-addition-picker-self-refresh` | discovery | critical | exact wait | deferred until wave 4 |
 | `discovery.item-detail-ship-from-setup-self-refresh` | discovery | important | not-post-write-read exception (discovery, review 2026-07-31) | poll-bounded until wave 3 |
 | `fulfillment.seller-shipment-self-refresh` | fulfillment | important | exact wait | poll-bounded until wave 2 |
 | `fulfillment.shipment-mutation-owner-recovery` | fulfillment | important | exact wait | poll-bounded until wave 2 |
