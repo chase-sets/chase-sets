@@ -2,6 +2,11 @@ const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const LABEL = /^[A-Za-z0-9 ()'&,./+-]{1,64}$/;
 const MONEY = /^\d{1,7}\.\d{2}$/;
 const INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+const CALENDAR_DATE = /^\d{4}-\d\d-\d\d$/;
+const ASCII = /^[\x00-\x7F]*$/;
+const HEX_DIGEST = /^[0-9a-f]{64}$/;
+const HISTORY_ROW_CAP = 250;
+const HISTORY_BUCKET_CAP = 53;
 export const PART_TEXT_MAX_BYTES = 30000;
 export type TcgplayerMarketObservationPhase = "price-points" | "secondary";
 export type EndpointStatus = "observed" | "unavailable" | "not-requested";
@@ -156,6 +161,90 @@ export class TcgplayerMarketObservationContractError extends Error {
     this.code = code;
   }
 }
+// Grammar key lists in grammar order. Each list is the single ordering
+// definition for its level: the parsers close the level with it and the
+// canonical writer rebuilds the level from it, so the two cannot drift.
+const REQUEST_KEYS = ["contractVersion", "requestId", "phase", "issuedAt", "products", "posture"] as const;
+const REQUEST_PRODUCT_KEYS = ["productId", "skuIds", "skuTargetCount"] as const;
+const POSTURE_KEYS = [
+  "salesOffset",
+  "salesLimit",
+  "salesPageSize",
+  "salesPageBudget",
+  "salesConditions",
+  "salesLanguages",
+  "salesVariants",
+  "salesListingType",
+  "listingsVerifiedOnly",
+  "listingsPageSize",
+  "listingsPageBudget",
+  "listingsDeliveredCeiling",
+  "historyRange",
+  "timeoutMs",
+] as const;
+const BATCH_KEYS = ["contractVersion", "requestId", "phase", "posture", "products"] as const;
+const PRICE_POINTS_PRODUCT_KEYS = ["productId", "pricePoints"] as const;
+const SECONDARY_PRODUCT_KEYS = ["productId", "sales", "listings", "history"] as const;
+const ENDPOINT_KEYS = [
+  "status",
+  "httpStatusClass",
+  "credentialsMode",
+  "requestedAt",
+  "responseObservedAt",
+  "rejectedRows",
+  "rows",
+] as const;
+const SALES_METADATA_KEYS = [
+  "coverage",
+  "pagesFetched",
+  "returnedCount",
+  "firstReportedTotal",
+  "lastReportedTotal",
+  "firstResultCount",
+  "lastResultCount",
+  "lastNextPage",
+] as const;
+const LISTINGS_METADATA_KEYS = ["coverage", "pagesFetched", "returnedCount", "reportedTotal"] as const;
+const HISTORY_METADATA_KEYS = ["coverage", "resultCount", "bucketCount"] as const;
+const PRICE_POINT_KEYS = ["skuId", "marketPrice", "lowestPrice", "highestPrice", "priceCount", "calculatedAt"] as const;
+const SALE_KEYS = [
+  "condition",
+  "variant",
+  "language",
+  "listingType",
+  "quantity",
+  "purchasePrice",
+  "shippingPrice",
+  "orderDate",
+] as const;
+const LISTING_KEYS = ["sellerOrdinal", "condition", "printing", "language", "price", "sellerShippingPrice"] as const;
+const HISTORY_KEYS = ["skuId", "variant", "language", "condition", "buckets"] as const;
+const BUCKET_KEYS = [
+  "bucketStartDate",
+  "marketPrice",
+  "quantitySold",
+  "transactionCount",
+  "lowSalePrice",
+  "lowSalePriceWithShipping",
+  "highSalePrice",
+  "highSalePriceWithShipping",
+] as const;
+const PART_KEYS = ["batchId", "requestId", "phase", "partIndex", "text"] as const;
+const ADMISSION_KEYS = [
+  "batchId",
+  "requestId",
+  "phase",
+  "contractVersion",
+  "partCount",
+  "textBytes",
+  "digest",
+  "grantId",
+  "creatorMembershipId",
+  "creatorUserId",
+  "admittedAt",
+] as const;
+const HISTORY_EVENT_KEYS = ["streamVersion", "data"] as const;
+type EndpointKind = "sales" | "listings" | "history";
 const bad = (code: string): never => {
   throw new TcgplayerMarketObservationContractError(code);
 };
@@ -164,6 +253,10 @@ function rec(v: unknown, keys: readonly string[], code: string): Record<string, 
   const r = v as Record<string, unknown>;
   if (Object.keys(r).some((k) => !keys.includes(k)) || keys.some((k) => !Object.hasOwn(r, k))) bad(code);
   return r;
+}
+function pick(value: object, keys: readonly string[]): Record<string, unknown> {
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(keys.map((key) => [key, source[key]]));
 }
 function arr(v: unknown, code: string): unknown[] {
   if (!Array.isArray(v)) bad(code);
@@ -189,22 +282,6 @@ function label(v: unknown, code: string): string {
 function ascending(a: readonly number[], code: string) {
   for (let i = 1; i < a.length; i++) if (a[i]! <= a[i - 1]!) bad(code);
 }
-const POSTURE_KEYS = [
-  "salesOffset",
-  "salesLimit",
-  "salesPageSize",
-  "salesPageBudget",
-  "salesConditions",
-  "salesLanguages",
-  "salesVariants",
-  "salesListingType",
-  "listingsVerifiedOnly",
-  "listingsPageSize",
-  "listingsPageBudget",
-  "listingsDeliveredCeiling",
-  "historyRange",
-  "timeoutMs",
-] as const;
 function parsePosture(v: unknown): TcgplayerMarketObservationPosture {
   const p = rec(v, POSTURE_KEYS, "invalid_posture");
   const ints = (x: unknown) => {
@@ -239,7 +316,7 @@ function parsePosture(v: unknown): TcgplayerMarketObservationPosture {
   };
 }
 export function parseTcgplayerMarketObservationRequest(v: unknown): TcgplayerMarketObservationRequest {
-  const r = rec(v, ["contractVersion", "requestId", "phase", "issuedAt", "products", "posture"], "invalid_request");
+  const r = rec(v, REQUEST_KEYS, "invalid_request");
   if (
     r.contractVersion !== 1 ||
     typeof r.requestId !== "string" ||
@@ -250,7 +327,7 @@ export function parseTcgplayerMarketObservationRequest(v: unknown): TcgplayerMar
   const ps = arr(r.products, "invalid_request");
   if (ps.length < 1 || ps.length > 5) bad("invalid_request_product_count");
   const products = ps.map((x) => {
-    const p = rec(x, ["productId", "skuIds", "skuTargetCount"], "invalid_request_product");
+    const p = rec(x, REQUEST_PRODUCT_KEYS, "invalid_request_product");
     const ids = arr(p.skuIds, "invalid_request_sku").map((n) =>
       integer(n, 1, Number.MAX_SAFE_INTEGER, "invalid_request_sku"),
     );
@@ -279,11 +356,7 @@ export function parseTcgplayerMarketObservationRequest(v: unknown): TcgplayerMar
 }
 const nullableMoney = (v: unknown, c: string) => (v === null ? null : money(v, c));
 function parsePrice(v: unknown, p: TcgplayerMarketObservationRequestProduct): PricePoint {
-  const x = rec(
-    v,
-    ["skuId", "marketPrice", "lowestPrice", "highestPrice", "priceCount", "calculatedAt"],
-    "invalid_price_point",
-  );
+  const x = rec(v, PRICE_POINT_KEYS, "invalid_price_point");
   const skuId = integer(x.skuId, 1, Number.MAX_SAFE_INTEGER, "invalid_price_point");
   if (!p.skuIds.includes(skuId)) bad("invalid_price_point");
   return {
@@ -296,11 +369,7 @@ function parsePrice(v: unknown, p: TcgplayerMarketObservationRequestProduct): Pr
   };
 }
 function parseSale(v: unknown): Sale {
-  const x = rec(
-    v,
-    ["condition", "variant", "language", "listingType", "quantity", "purchasePrice", "shippingPrice", "orderDate"],
-    "invalid_sale",
-  );
+  const x = rec(v, SALE_KEYS, "invalid_sale");
   return {
     condition: label(x.condition, "invalid_sale"),
     variant: label(x.variant, "invalid_sale"),
@@ -313,11 +382,7 @@ function parseSale(v: unknown): Sale {
   };
 }
 function parseListing(v: unknown): Listing {
-  const x = rec(
-    v,
-    ["sellerOrdinal", "condition", "printing", "language", "price", "sellerShippingPrice"],
-    "invalid_listing",
-  );
+  const x = rec(v, LISTING_KEYS, "invalid_listing");
   return {
     sellerOrdinal: integer(x.sellerOrdinal, 1, Number.MAX_SAFE_INTEGER, "invalid_listing"),
     condition: label(x.condition, "invalid_listing"),
@@ -328,29 +393,16 @@ function parseListing(v: unknown): Listing {
   };
 }
 function parseHistory(v: unknown, p: TcgplayerMarketObservationRequestProduct): HistoryRow {
-  const x = rec(v, ["skuId", "variant", "language", "condition", "buckets"], "invalid_history");
+  const x = rec(v, HISTORY_KEYS, "invalid_history");
   const skuId = integer(x.skuId, 1, Number.MAX_SAFE_INTEGER, "invalid_history");
   if (!p.skuIds.includes(skuId)) bad("invalid_history");
   const bs = arr(x.buckets, "invalid_history");
-  if (bs.length > 53) bad("invalid_history");
+  if (bs.length > HISTORY_BUCKET_CAP) bad("invalid_history");
   const buckets = bs.map((y) => {
-    const b = rec(
-      y,
-      [
-        "bucketStartDate",
-        "marketPrice",
-        "quantitySold",
-        "transactionCount",
-        "lowSalePrice",
-        "lowSalePriceWithShipping",
-        "highSalePrice",
-        "highSalePriceWithShipping",
-      ],
-      "invalid_history_bucket",
-    );
+    const b = rec(y, BUCKET_KEYS, "invalid_history_bucket");
     if (
       typeof b.bucketStartDate !== "string" ||
-      !/^\d{4}-\d\d-\d\d$/.test(b.bucketStartDate) ||
+      !CALENDAR_DATE.test(b.bucketStartDate) ||
       !Number.isFinite(Date.parse(`${b.bucketStartDate}T00:00:00.000Z`)) ||
       new Date(`${b.bucketStartDate}T00:00:00.000Z`).toISOString().slice(0, 10) !== b.bucketStartDate
     )
@@ -376,22 +428,17 @@ function parseHistory(v: unknown, p: TcgplayerMarketObservationRequestProduct): 
     buckets,
   };
 }
-function metadata(v: unknown, k: "sales" | "listings" | "history", p: TcgplayerMarketObservationPosture) {
+const metadataKeysOf = (k: EndpointKind): readonly string[] =>
+  k === "sales" ? SALES_METADATA_KEYS : k === "listings" ? LISTINGS_METADATA_KEYS : HISTORY_METADATA_KEYS;
+const rowCapOf = (k: EndpointKind, p: TcgplayerMarketObservationPosture): number =>
+  k === "sales"
+    ? Math.min(p.salesLimit, p.salesPageSize * p.salesPageBudget)
+    : k === "listings"
+      ? p.listingsPageSize * p.listingsPageBudget
+      : HISTORY_ROW_CAP;
+function metadata(v: unknown, k: EndpointKind, p: TcgplayerMarketObservationPosture) {
   if (k === "sales") {
-    const x = rec(
-      v,
-      [
-        "coverage",
-        "pagesFetched",
-        "returnedCount",
-        "firstReportedTotal",
-        "lastReportedTotal",
-        "firstResultCount",
-        "lastResultCount",
-        "lastNextPage",
-      ],
-      "invalid_sales_metadata",
-    );
+    const x = rec(v, SALES_METADATA_KEYS, "invalid_sales_metadata");
     if (
       !["complete", "request-cap-truncated", "page-budget-truncated", "inconsistent", "unknown"].includes(
         String(x.coverage),
@@ -401,12 +448,7 @@ function metadata(v: unknown, k: "sales" | "listings" | "history", p: TcgplayerM
     return {
       coverage: x.coverage as SalesMetadata["coverage"],
       pagesFetched: integer(x.pagesFetched, 0, p.salesPageBudget, "invalid_sales_metadata"),
-      returnedCount: integer(
-        x.returnedCount,
-        0,
-        Math.min(p.salesLimit, p.salesPageSize * p.salesPageBudget),
-        "invalid_sales_metadata",
-      ),
+      returnedCount: integer(x.returnedCount, 0, rowCapOf("sales", p), "invalid_sales_metadata"),
       firstReportedTotal:
         x.firstReportedTotal === null
           ? null
@@ -432,7 +474,7 @@ function metadata(v: unknown, k: "sales" | "listings" | "history", p: TcgplayerM
     };
   }
   if (k === "listings") {
-    const x = rec(v, ["coverage", "pagesFetched", "returnedCount", "reportedTotal"], "invalid_listings_metadata");
+    const x = rec(v, LISTINGS_METADATA_KEYS, "invalid_listings_metadata");
     if (
       !["complete", "ceiling-truncated", "page-budget-truncated", "inconsistent", "unknown"].includes(
         String(x.coverage),
@@ -442,61 +484,29 @@ function metadata(v: unknown, k: "sales" | "listings" | "history", p: TcgplayerM
     return {
       coverage: x.coverage as ListingsMetadata["coverage"],
       pagesFetched: integer(x.pagesFetched, 0, p.listingsPageBudget, "invalid_listings_metadata"),
-      returnedCount: integer(
-        x.returnedCount,
-        0,
-        p.listingsPageSize * p.listingsPageBudget,
-        "invalid_listings_metadata",
-      ),
+      returnedCount: integer(x.returnedCount, 0, rowCapOf("listings", p), "invalid_listings_metadata"),
       reportedTotal:
         x.reportedTotal === null
           ? null
           : integer(x.reportedTotal, 0, Number.MAX_SAFE_INTEGER, "invalid_listings_metadata"),
     };
   }
-  const x = rec(v, ["coverage", "resultCount", "bucketCount"], "invalid_history_metadata");
+  const x = rec(v, HISTORY_METADATA_KEYS, "invalid_history_metadata");
   if (!["observed", "inconsistent", "unknown"].includes(String(x.coverage))) bad("invalid_history_metadata");
   return {
     coverage: x.coverage as HistoryMetadata["coverage"],
-    resultCount: integer(x.resultCount, 0, 250, "invalid_history_metadata"),
-    bucketCount: integer(x.bucketCount, 0, 13250, "invalid_history_metadata"),
+    resultCount: integer(x.resultCount, 0, HISTORY_ROW_CAP, "invalid_history_metadata"),
+    bucketCount: integer(x.bucketCount, 0, HISTORY_ROW_CAP * HISTORY_BUCKET_CAP, "invalid_history_metadata"),
   };
 }
 function endpoint(
   v: unknown,
-  k: "sales" | "listings" | "history",
+  k: EndpointKind,
   p: TcgplayerMarketObservationRequestProduct,
   r: TcgplayerMarketObservationRequest,
 ) {
-  const keys =
-    k === "sales"
-      ? [
-          "coverage",
-          "pagesFetched",
-          "returnedCount",
-          "firstReportedTotal",
-          "lastReportedTotal",
-          "firstResultCount",
-          "lastResultCount",
-          "lastNextPage",
-        ]
-      : k === "listings"
-        ? ["coverage", "pagesFetched", "returnedCount", "reportedTotal"]
-        : ["coverage", "resultCount", "bucketCount"];
-  const x = rec(
-    v,
-    [
-      "status",
-      "httpStatusClass",
-      "credentialsMode",
-      "requestedAt",
-      "responseObservedAt",
-      "rejectedRows",
-      "rows",
-      ...keys,
-    ],
-    "invalid_endpoint",
-  );
+  const metadataKeys = metadataKeysOf(k);
+  const x = rec(v, [...ENDPOINT_KEYS, ...metadataKeys], "invalid_endpoint");
   if (
     !["observed", "unavailable", "not-requested"].includes(String(x.status)) ||
     !["none", "4xx", "5xx", "other"].includes(String(x.httpStatusClass))
@@ -512,18 +522,29 @@ function endpoint(
   const requested = x.requestedAt === null ? null : instant(x.requestedAt, "invalid_endpoint");
   const response = x.responseObservedAt === null ? null : instant(x.responseObservedAt, "invalid_endpoint");
   if (
-    status === "observed"
-      ? x.httpStatusClass !== "none" ||
-        mode === null ||
-        requested === null ||
-        response === null ||
-        Date.parse(response) < Date.parse(requested)
-      : status === "unavailable"
-        ? mode === null || requested === null || response !== null || x.httpStatusClass === "none"
-        : mode !== null || requested !== null || response !== null || x.httpStatusClass !== "none"
+    status === "observed" &&
+    (x.httpStatusClass !== "none" ||
+      mode === null ||
+      requested === null ||
+      response === null ||
+      Date.parse(response) < Date.parse(requested))
   )
     bad("invalid_endpoint_matrix");
+  if (
+    status === "unavailable" &&
+    (x.httpStatusClass === "none" || mode === null || requested === null || response !== null)
+  )
+    bad("invalid_endpoint_matrix");
+  if (
+    status === "not-requested" &&
+    (x.httpStatusClass !== "none" || mode !== null || requested !== null || response !== null)
+  )
+    bad("invalid_endpoint_matrix");
+  const posture = r.posture!;
+  const cap = rowCapOf(k, posture);
+  const rejectedRows = integer(x.rejectedRows, 0, cap, "invalid_endpoint");
   const rows = arr(x.rows, "invalid_endpoint");
+  if (rows.length > cap) bad("invalid_endpoint_cap");
   const parsed =
     k === "sales"
       ? rows.map(parseSale)
@@ -539,16 +560,8 @@ function endpoint(
   }
   if (k === "history" && new Set((parsed as HistoryRow[]).map((row) => row.skuId)).size !== parsed.length)
     bad("invalid_history");
-  const m = metadata(Object.fromEntries(keys.map((key) => [key, x[key]])), k, r.posture!);
-  const cap =
-    k === "sales"
-      ? Math.min(r.posture!.salesLimit, r.posture!.salesPageSize * r.posture!.salesPageBudget)
-      : k === "listings"
-        ? r.posture!.listingsPageSize * r.posture!.listingsPageBudget
-        : 250;
-  if (parsed.length > cap || integer(x.rejectedRows, 0, cap, "invalid_endpoint") > cap) bad("invalid_endpoint_cap");
+  const m = metadata(pick(x, metadataKeys), k, posture);
   if (status !== "observed") {
-    const rejectedRows = integer(x.rejectedRows, 0, cap, "invalid_endpoint");
     if (rejectedRows !== 0 || parsed.length !== 0 || (m as { coverage: string }).coverage !== "unknown")
       bad("invalid_endpoint_matrix");
     if (k === "sales") {
@@ -578,7 +591,7 @@ function endpoint(
     credentialsMode: mode,
     requestedAt: requested,
     responseObservedAt: response,
-    rejectedRows: x.rejectedRows as number,
+    rejectedRows,
     rows: parsed,
     ...m,
   };
@@ -595,7 +608,7 @@ export function parseTcgplayerMarketObservationBatch(
   } catch {
     bad("invalid_batch_json");
   }
-  const b = rec(raw, ["contractVersion", "requestId", "phase", "posture", "products"], "invalid_batch");
+  const b = rec(raw, BATCH_KEYS, "invalid_batch");
   if (
     b.contractVersion !== 1 ||
     b.requestId !== r.requestId ||
@@ -607,16 +620,18 @@ export function parseTcgplayerMarketObservationBatch(
   if (ps.length !== r.products.length) bad("invalid_batch_products");
   const products = ps.map((v, i) => {
     const p = r.products[i]!;
+    const x = rec(
+      v,
+      r.phase === "price-points" ? PRICE_POINTS_PRODUCT_KEYS : SECONDARY_PRODUCT_KEYS,
+      "invalid_batch_product",
+    );
+    if (x.productId !== p.productId) bad("invalid_batch_product");
     if (r.phase === "price-points") {
-      const x = rec(v, ["productId", "pricePoints"], "invalid_batch_product");
-      if (x.productId !== p.productId) bad("invalid_batch_product");
       const rows = arr(x.pricePoints, "invalid_price_points").map((y) => parsePrice(y, p));
-      if (rows.length > p.skuIds.length || new Set(rows.map((y) => y.skuId)).size !== rows.length)
-        bad("invalid_price_points");
+      if (rows.length > p.skuIds.length) bad("invalid_price_points");
+      if (new Set(rows.map((y) => y.skuId)).size !== rows.length) bad("invalid_price_points");
       return { productId: p.productId, pricePoints: rows };
     }
-    const x = rec(v, ["productId", "sales", "listings", "history"], "invalid_batch_product");
-    if (x.productId !== p.productId) bad("invalid_batch_product");
     return {
       productId: p.productId,
       sales: endpoint(x.sales, "sales", p, r),
@@ -628,106 +643,79 @@ export function parseTcgplayerMarketObservationBatch(
   if (JSON.stringify(out) !== text) bad("non_canonical_batch");
   return out as TcgplayerMarketObservationBatch;
 }
+function writeEndpoint(
+  endpointValue: object,
+  rowKeys: readonly string[],
+  metadataKeys: readonly string[],
+  bucketKeys?: readonly string[],
+): Record<string, unknown> {
+  const out = pick(endpointValue, ENDPOINT_KEYS);
+  out.rows = (out.rows as readonly object[]).map((row) => {
+    const written = pick(row, rowKeys);
+    if (bucketKeys) written.buckets = (written.buckets as readonly object[]).map((bucket) => pick(bucket, bucketKeys));
+    return written;
+  });
+  return { ...out, ...pick(endpointValue, metadataKeys) };
+}
 export function canonicalizeTcgplayerMarketObservationBatch(value: TcgplayerMarketObservationBatch): string {
   const candidate = value as unknown as Record<string, unknown>;
   if (
     !candidate ||
     typeof candidate !== "object" ||
-    typeof candidate.phase !== "string" ||
-    !Array.isArray(candidate.products)
+    (candidate.phase !== "price-points" && candidate.phase !== "secondary") ||
+    !Array.isArray(candidate.products) ||
+    (candidate.posture !== null && (typeof candidate.posture !== "object" || Array.isArray(candidate.posture)))
   )
-    return JSON.stringify(value);
-  const posture =
-    value.posture === null
-      ? null
-      : {
-          salesOffset: value.posture.salesOffset,
-          salesLimit: value.posture.salesLimit,
-          salesPageSize: value.posture.salesPageSize,
-          salesPageBudget: value.posture.salesPageBudget,
-          salesConditions: value.posture.salesConditions,
-          salesLanguages: value.posture.salesLanguages,
-          salesVariants: value.posture.salesVariants,
-          salesListingType: value.posture.salesListingType,
-          listingsVerifiedOnly: value.posture.listingsVerifiedOnly,
-          listingsPageSize: value.posture.listingsPageSize,
-          listingsPageBudget: value.posture.listingsPageBudget,
-          listingsDeliveredCeiling: value.posture.listingsDeliveredCeiling,
-          historyRange: value.posture.historyRange,
-          timeoutMs: value.posture.timeoutMs,
-        };
+    bad("invalid_batch");
+  const posture = value.posture === null ? null : pick(value.posture, POSTURE_KEYS);
   const products = value.products.map((product) => {
     if (value.phase === "price-points") {
       const priceProduct = product as PricePointsProduct;
       return {
         productId: priceProduct.productId,
-        pricePoints: priceProduct.pricePoints.map((row) => ({
-          skuId: row.skuId,
-          marketPrice: row.marketPrice,
-          lowestPrice: row.lowestPrice,
-          highestPrice: row.highestPrice,
-          priceCount: row.priceCount,
-          calculatedAt: row.calculatedAt,
-        })),
+        pricePoints: priceProduct.pricePoints.map((row) => pick(row, PRICE_POINT_KEYS)),
       };
     }
     const secondary = product as SecondaryProduct;
-    const writeEndpoint = (endpointValue: Endpoint<unknown, object>, kind: "sales" | "listings" | "history") => {
-      const metadataKeys =
-        kind === "sales"
-          ? [
-              "coverage",
-              "pagesFetched",
-              "returnedCount",
-              "firstReportedTotal",
-              "lastReportedTotal",
-              "firstResultCount",
-              "lastResultCount",
-              "lastNextPage",
-            ]
-          : kind === "listings"
-            ? ["coverage", "pagesFetched", "returnedCount", "reportedTotal"]
-            : ["coverage", "resultCount", "bucketCount"];
-      const out: Record<string, unknown> = {
-        status: endpointValue.status,
-        httpStatusClass: endpointValue.httpStatusClass,
-        credentialsMode: endpointValue.credentialsMode,
-        requestedAt: endpointValue.requestedAt,
-        responseObservedAt: endpointValue.responseObservedAt,
-        rejectedRows: endpointValue.rejectedRows,
-        rows: endpointValue.rows,
-      };
-      for (const key of metadataKeys) out[key] = (endpointValue as Record<string, unknown>)[key];
-      return out;
-    };
     return {
       productId: secondary.productId,
-      sales: writeEndpoint(secondary.sales as Endpoint<unknown, object>, "sales"),
-      listings: writeEndpoint(secondary.listings as Endpoint<unknown, object>, "listings"),
-      history: writeEndpoint(secondary.history as Endpoint<unknown, object>, "history"),
+      sales: writeEndpoint(secondary.sales, SALE_KEYS, SALES_METADATA_KEYS),
+      listings: writeEndpoint(secondary.listings, LISTING_KEYS, LISTINGS_METADATA_KEYS),
+      history: writeEndpoint(secondary.history, HISTORY_KEYS, HISTORY_METADATA_KEYS, BUCKET_KEYS),
     };
   });
   return JSON.stringify({ contractVersion: 1, requestId: value.requestId, phase: value.phase, posture, products });
 }
 export async function digestTcgplayerMarketObservationBatchText(text: string): Promise<string> {
-  if (typeof text !== "string" || !/^\x00*[\x00-\x7F]*$/.test(text)) bad("invalid_batch_text");
+  if (typeof text !== "string" || !ASCII.test(text)) bad("invalid_batch_text");
   const d = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 export function splitTcgplayerMarketObservationBatchText(text: string): readonly string[] {
-  if (typeof text !== "string" || !/^[\x00-\x7F]*$/.test(text) || text.length === 0) bad("invalid_batch_text");
+  if (typeof text !== "string" || !ASCII.test(text) || text.length === 0) bad("invalid_batch_text");
   const bytes = new TextEncoder().encode(text),
     parts: string[] = [];
   for (let i = 0; i < bytes.length; i += PART_TEXT_MAX_BYTES)
     parts.push(new TextDecoder().decode(bytes.slice(i, i + PART_TEXT_MAX_BYTES)));
   return parts;
 }
+// One-entry memo keyed on the request's exact JSON text. Part and admission
+// parsers call maxBatchTextBytes once per event, and materializing the maximal
+// batch costs hundreds of milliseconds per call; the memo keeps the exact
+// byte computation and only skips repeating it for the same request text.
+let maxBatchTextBytesMemo: { key: string; bytes: number } | null = null;
 export function maxBatchTextBytes(request: TcgplayerMarketObservationRequest): number {
+  const key = JSON.stringify(request);
+  if (maxBatchTextBytesMemo !== null && maxBatchTextBytesMemo.key === key) return maxBatchTextBytesMemo.bytes;
+  const bytes = maximalBatchTextBytes(request);
+  maxBatchTextBytesMemo = { key, bytes };
+  return bytes;
+}
+function maximalBatchTextBytes(request: TcgplayerMarketObservationRequest): number {
   const maxLabel = "A".repeat(64);
   const maxMoney = "9999999.99";
   const maxInstant = "9999-12-31T23:59:59.999Z";
   const maxSkuId = Math.max(...request.products.flatMap((product) => product.skuIds));
-  const maxProduct = Math.max(...request.products.map((product) => product.productId));
   const maximalPricePoint = (skuId: number) => ({
     skuId,
     marketPrice: maxMoney,
@@ -759,7 +747,7 @@ export function maxBatchTextBytes(request: TcgplayerMarketObservationRequest): n
     variant: maxLabel,
     language: maxLabel,
     condition: maxLabel,
-    buckets: Array.from({ length: 53 }, (_, index) => {
+    buckets: Array.from({ length: HISTORY_BUCKET_CAP }, (_, index) => {
       const date = new Date(Date.UTC(2020, 0, index + 1)).toISOString().slice(0, 10);
       return {
         bucketStartDate: date,
@@ -773,7 +761,7 @@ export function maxBatchTextBytes(request: TcgplayerMarketObservationRequest): n
       };
     }),
   });
-  const maximalEndpoint = (kind: "sales" | "listings" | "history", cap: number) => {
+  const maximalEndpoint = (kind: EndpointKind, cap: number) => {
     if (kind === "sales")
       return {
         status: "observed" as const,
@@ -812,26 +800,22 @@ export function maxBatchTextBytes(request: TcgplayerMarketObservationRequest): n
       credentialsMode: "include" as const,
       requestedAt: maxInstant,
       responseObservedAt: maxInstant,
-      rejectedRows: 250,
-      rows: Array.from({ length: 250 }, maximalHistory),
+      rejectedRows: HISTORY_ROW_CAP,
+      rows: Array.from({ length: HISTORY_ROW_CAP }, maximalHistory),
       coverage: "inconsistent" as const,
-      resultCount: 250,
-      bucketCount: 13250,
+      resultCount: HISTORY_ROW_CAP,
+      bucketCount: HISTORY_ROW_CAP * HISTORY_BUCKET_CAP,
     };
   };
   const products = request.products.map((product) => {
     if (request.phase === "price-points")
       return { productId: product.productId, pricePoints: product.skuIds.map((skuId) => maximalPricePoint(skuId)) };
-    const salesCap = Math.min(
-      request.posture!.salesLimit,
-      request.posture!.salesPageSize * request.posture!.salesPageBudget,
-    );
-    const listingsCap = request.posture!.listingsPageSize * request.posture!.listingsPageBudget;
+    const posture = request.posture!;
     return {
       productId: product.productId,
-      sales: maximalEndpoint("sales", salesCap),
-      listings: maximalEndpoint("listings", listingsCap),
-      history: maximalEndpoint("history", 250),
+      sales: maximalEndpoint("sales", rowCapOf("sales", posture)),
+      listings: maximalEndpoint("listings", rowCapOf("listings", posture)),
+      history: maximalEndpoint("history", HISTORY_ROW_CAP),
     };
   });
   return new TextEncoder().encode(
@@ -854,14 +838,14 @@ export function parsePartPayload(
   requestInput: TcgplayerMarketObservationRequest,
 ): TcgplayerMarketObservationPartPayload {
   const r = parseTcgplayerMarketObservationRequest(requestInput),
-    p = rec(v, ["batchId", "requestId", "phase", "partIndex", "text"], "invalid_part");
+    p = rec(v, PART_KEYS, "invalid_part");
   if (typeof p.batchId !== "string" || !UUID.test(p.batchId) || p.requestId !== r.requestId || p.phase !== r.phase)
     bad("invalid_part_identity");
   const text = p.text as string;
   if (
     typeof text !== "string" ||
     text.length === 0 ||
-    !/^[\x00-\x7F]*$/.test(text) ||
+    !ASCII.test(text) ||
     new TextEncoder().encode(text).byteLength > PART_TEXT_MAX_BYTES
   )
     bad("invalid_part_text");
@@ -878,23 +862,7 @@ export function parseAdmissionPayload(
   requestInput: TcgplayerMarketObservationRequest,
 ): TcgplayerMarketObservationAdmissionPayload {
   const r = parseTcgplayerMarketObservationRequest(requestInput),
-    p = rec(
-      v,
-      [
-        "batchId",
-        "requestId",
-        "phase",
-        "contractVersion",
-        "partCount",
-        "textBytes",
-        "digest",
-        "grantId",
-        "creatorMembershipId",
-        "creatorUserId",
-        "admittedAt",
-      ],
-      "invalid_admission",
-    );
+    p = rec(v, ADMISSION_KEYS, "invalid_admission");
   if (
     typeof p.batchId !== "string" ||
     !UUID.test(p.batchId) ||
@@ -910,7 +878,7 @@ export function parseAdmissionPayload(
   if (
     Math.ceil(textBytes / PART_TEXT_MAX_BYTES) !== partCount ||
     typeof p.digest !== "string" ||
-    !/^[0-9a-f]{64}$/.test(p.digest)
+    !HEX_DIGEST.test(p.digest)
   )
     bad("invalid_admission");
   for (const id of [p.creatorMembershipId, p.creatorUserId])
@@ -929,6 +897,14 @@ export function parseAdmissionPayload(
     admittedAt: instant(p.admittedAt, "invalid_admission"),
   };
 }
+function contractAttempt<T>(parse: () => T): T | null {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof TcgplayerMarketObservationContractError) return null;
+    throw error;
+  }
+}
 export async function assembleAdmittedTcgplayerMarketObservationBatch(
   history: readonly TcgplayerMarketObservationHistoryEvent[],
   requestInput: TcgplayerMarketObservationRequest,
@@ -940,34 +916,29 @@ export async function assembleAdmittedTcgplayerMarketObservationBatch(
     if (!event || typeof event !== "object" || event.streamVersion !== i + 1) bad("misordered_history");
   }
   const events = history.map((e) => {
-    const x = rec(e, ["streamVersion", "data"], "invalid_history_event");
+    const x = rec(e, HISTORY_EVENT_KEYS, "invalid_history_event");
     return {
       streamVersion: integer(x.streamVersion, 1, Number.MAX_SAFE_INTEGER, "invalid_history_version"),
       data: x.data,
     };
   });
   let admission: TcgplayerMarketObservationAdmissionPayload | null = null;
+  let admissionVersion = 0;
   const partEvents: { streamVersion: number; payload: TcgplayerMarketObservationPartPayload }[] = [];
   for (const e of events) {
-    let isAdmission = false;
-    try {
-      const a = parseAdmissionPayload(e.data, r);
+    const admitted = contractAttempt(() => parseAdmissionPayload(e.data, r));
+    if (admitted) {
       if (admission) bad("duplicate_admission");
-      admission = a;
-      isAdmission = true;
-    } catch (error) {
-      if (error instanceof TcgplayerMarketObservationContractError && error.code === "duplicate_admission") throw error;
+      admission = admitted;
+      admissionVersion = e.streamVersion;
+      continue;
     }
-    if (!isAdmission) {
-      try {
-        partEvents.push({ streamVersion: e.streamVersion, payload: parsePartPayload(e.data, r) });
-      } catch {
-        bad("invalid_history_event");
-      }
-    }
+    const part = contractAttempt(() => parsePartPayload(e.data, r)) ?? bad("invalid_history_event");
+    partEvents.push({ streamVersion: e.streamVersion, payload: part });
   }
   if (!admission) bad("missing_admission");
   const admitted = admission as TcgplayerMarketObservationAdmissionPayload;
+  if (events.some((e) => e.streamVersion > admissionVersion)) bad("event_after_admission");
   if (partEvents.some((event) => event.payload.batchId !== admitted.batchId)) bad("foreign_part");
   if (partEvents.length !== admitted.partCount) bad("invalid_history_parts");
   const byIndex = new Map<number, { streamVersion: number; payload: TcgplayerMarketObservationPartPayload }>();
@@ -981,14 +952,10 @@ export async function assembleAdmittedTcgplayerMarketObservationBatch(
     if (i < admitted.partCount - 1 && new TextEncoder().encode(e.payload.text).byteLength !== PART_TEXT_MAX_BYTES)
       bad("short_part");
   }
-  if (events.some((e) => e.streamVersion > admitted.partCount + 1)) bad("event_after_admission");
-  const last = events.find((e) => e.streamVersion === admitted.partCount + 1);
-  if (!last) bad("missing_admission");
+  if (admissionVersion !== admitted.partCount + 1) bad("misordered_history");
   const text = Array.from({ length: admitted.partCount }, (_, i) => byIndex.get(i)!.payload.text).join("");
-  if (
-    new TextEncoder().encode(text).byteLength !== admitted.textBytes ||
-    (await digestTcgplayerMarketObservationBatchText(text)) !== admitted.digest
-  )
-    bad("invalid_history_digest");
+  const textBytes = new TextEncoder().encode(text).byteLength;
+  const digest = await digestTcgplayerMarketObservationBatchText(text);
+  if (textBytes !== admitted.textBytes || digest !== admitted.digest) bad("invalid_history_digest");
   return parseTcgplayerMarketObservationBatch(text, r);
 }

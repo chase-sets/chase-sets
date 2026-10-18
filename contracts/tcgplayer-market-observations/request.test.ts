@@ -34,30 +34,69 @@ const validPosture = {
   historyRange: "annual",
   timeoutMs: 1000,
 };
+const secondaryBase = { ...base, phase: "secondary" as const, posture: validPosture };
+const product = (productId: number, skuIds: number[] = [1]) => ({ productId, skuIds, skuTargetCount: skuIds.length });
+const range = (count: number) => Array.from({ length: count }, (_, i) => i + 1);
+const maximalProducts = range(5).map((productId) => product(productId, range(250)));
+// Policy decoder bounds restated from provider-observation-policy.ts:66-98
+// (contracts/ cannot import a bounded context).
+const postureBounds: [field: string, min: number, max: number][] = [
+  ["salesLimit", 1, 10000],
+  ["salesPageSize", 1, 250],
+  ["salesPageBudget", 1, 100],
+  ["listingsPageSize", 1, 250],
+  ["listingsPageBudget", 1, 100],
+  ["timeoutMs", 1, 120000],
+];
+const boundCases: [name: string, field: string, value: number, expected: string][] = postureBounds.flatMap(
+  ([field, min, max]) => [
+    [`R15 ${field} ${min - 1} (below the decoder bound)`, field, min - 1, "invalid_posture"],
+    [`R15 ${field} ${min} (lower bound)`, field, min, "accepted"],
+    [`R15 ${field} ${max} (upper bound)`, field, max, "accepted"],
+    [`R15 ${field} ${max + 1} (above the decoder bound)`, field, max + 1, "invalid_posture"],
+  ],
+);
+const rejections: [name: string, change: Record<string, unknown>, expected: string][] = [
+  ["R02 6 products", { products: range(6).map((id) => product(id)) }, "invalid_request_product_count"],
+  ["R03 251 SKUs in one product", { products: [product(1, range(251))] }, "invalid_request_sku_count"],
+  ["R04 duplicate product id", { products: [product(1), product(1)] }, "invalid_request_product_ids"],
+  ["R05 non-ascending product ids", { products: [product(2), product(1)] }, "invalid_request_product_ids"],
+  ["R06 duplicate SKU id", { products: [product(1, [1, 1])] }, "invalid_request_skus"],
+  ["R07 non-ascending SKU ids", { products: [product(1, [2, 1])] }, "invalid_request_skus"],
+  ["R08 product id 0", { products: [product(0)] }, "invalid_request_product_id"],
+  ["R09 product id 2^31", { products: [product(2147483648)] }, "invalid_request_product_id"],
+  [
+    "R10 skuTargetCount below the SKU count",
+    { products: [{ ...product(1, [1, 2]), skuTargetCount: 1 }] },
+    "invalid_request_target",
+  ],
+  ["R11 uppercase requestId", { requestId: base.requestId.toUpperCase() }, "invalid_request"],
+  ["R12 nested unknown key in a product", { products: [{ ...product(1), extra: true }] }, "invalid_request_product"],
+  [
+    "R12 nested unknown key in the posture",
+    { ...secondaryBase, posture: { ...validPosture, extra: true } },
+    "invalid_posture",
+  ],
+  ["R13 a valid posture on price-points", { posture: validPosture }, "invalid_request_posture_presence"],
+  ["R14 null posture on secondary", { phase: "secondary", posture: null }, "invalid_request_posture_presence"],
+];
 
-describe("TCGplayer market observation request", () => {
+describe("TCGplayer market observation request (AC1)", () => {
   it("accepts the bounded request and preserves truncation target", () =>
     expect(parseTcgplayerMarketObservationRequest(base).products[0]?.skuTargetCount).toBe(3));
-  it("accepts the five-product and 250-SKU maxima", () => {
-    const products = Array.from({ length: 5 }, (_, i) => ({
-      productId: i + 1,
-      skuIds: Array.from({ length: 250 }, (_, j) => j + 1),
-      skuTargetCount: 250,
-    }));
-    expect(() => parseTcgplayerMarketObservationRequest({ ...base, products })).not.toThrow();
+  it("R01 accepts the five-product, 250-SKU maximum on secondary with a valid posture, and on price-points", () => {
+    const secondary = parseTcgplayerMarketObservationRequest({ ...secondaryBase, products: maximalProducts });
+    expect(secondary.products).toHaveLength(5);
+    expect(secondary.products.every((p) => p.skuIds.length === 250)).toBe(true);
+    expect(secondary.posture).toEqual(validPosture);
+    expect(() => parseTcgplayerMarketObservationRequest({ ...base, products: maximalProducts })).not.toThrow();
   });
-  it.each([
-    ["nested unknown key", { products: [{ ...base.products[0], extra: true }] }, "invalid_request_product"],
-    ["uppercase request id", { requestId: base.requestId.toUpperCase() }, "invalid_request"],
-    ["valid posture on price points", { posture: validPosture }, "invalid_request_posture_presence"],
-    ["null posture on secondary", { phase: "secondary", posture: null }, "invalid_request_posture_presence"],
-    ["duplicate sku", { products: [{ ...base.products[0], skuIds: [1, 1] }] }, "invalid_request_skus"],
-    [
-      "too many products",
-      { products: Array.from({ length: 6 }, (_, i) => ({ productId: i + 1, skuIds: [1], skuTargetCount: 1 })) },
-      "invalid_request_product_count",
-    ],
-  ])("rejects %s with %s", (_name, change, expected) => expect(code({ ...base, ...change })).toBe(expected));
+  it.each(rejections)("%s is rejected with its fixed code", (_name, change, expected) =>
+    expect(code({ ...base, ...change })).toBe(expected),
+  );
+  it.each(boundCases)("%s", (_name, field, value, expected) =>
+    expect(code({ ...secondaryBase, posture: { ...validPosture, [field]: value } })).toBe(expected),
+  );
   it("strictness/N2 mutant loses the fixed non-array SKU code", () => {
     const invalid = { ...base, products: [{ ...base.products[0], skuIds: "not-an-array" }] };
     const mutant = sourceMutant<(value: unknown) => unknown>(
