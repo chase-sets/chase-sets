@@ -31,7 +31,11 @@ export const ISSUE_READINESS_RULES = Object.freeze([
 // force-added top-level .orchestrator source files; every other .orchestrator
 // path is machine-local output and stays allowed.
 export const CONTROLLER_TREE_PATHS = Object.freeze({
-  directories: Object.freeze([".orchestrator/contracts/", ".orchestrator/controller-skills/", ".orchestrator/fixtures/"]),
+  directories: Object.freeze([
+    ".orchestrator/contracts/",
+    ".orchestrator/controller-skills/",
+    ".orchestrator/fixtures/",
+  ]),
   topLevelSuffixes: Object.freeze([
     ".ps1",
     ".psm1",
