@@ -22,7 +22,12 @@ export type SavedListRouteActionData =
   | Readonly<{ status: "ready"; preparation: SavedListPickerPreparation }>
   | Readonly<{ status: "registration-required"; href: string }>
   | Readonly<{ status: "options-required"; href: string }>
-  | Readonly<{ status: "saved"; result: SavedListAdditionResponse; trackedQuantity: number }>;
+  | Readonly<{
+      status: "saved";
+      result: SavedListAdditionResponse;
+      trackedQuantity: number;
+      postWriteToken?: string;
+    }>;
 
 export type SavedListClaimLoadState = Readonly<{
   preparation: SavedListPickerPreparation | null;

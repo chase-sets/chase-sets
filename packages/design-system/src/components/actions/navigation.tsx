@@ -355,6 +355,13 @@ export interface TopNavProps extends Omit<HTMLAttributes<HTMLElement>, "classNam
   actions?: ReactNode;
   mobileActionsLabel?: string;
   width?: LayoutWidth;
+  /**
+   * Resolved search-row phase channel from the owning shell. When omitted,
+   * TopNav renders exactly as it does without the collapse behavior; when
+   * provided, the nav keeps a constant reserved flow box while only the
+   * painted surface and the search row respond to the phase.
+   */
+  searchRowState?: "expanded" | "collapsed";
 }
 
 function TopNavActionsMenu({
@@ -457,6 +464,7 @@ export function TopNav({
   actions,
   mobileActionsLabel,
   width = "full",
+  searchRowState,
   ...rest
 }: TopNavProps) {
   const groupId = useId();
@@ -477,85 +485,135 @@ export function TopNav({
 
       return 0;
     });
+  const brandGroup = (
+    <Inline gap={4} wrap={false}>
+      {brand}
+      {renderActivePillGroup(
+        groupId,
+        motionSettings.reducedMotion,
+        <Show above="md" display="flex">
+          <Inline gap={1} wrap={false}>
+            {primaryItems.map((item) =>
+              renderNavigationItem(
+                item,
+                isNavigationItemActive(item, activeKey),
+                "horizontal",
+                groupId,
+                onSelect,
+                activeKey,
+                motionSettings.reducedMotion,
+                Link,
+              ),
+            )}
+          </Inline>
+        </Show>,
+      )}
+    </Inline>
+  );
+  const actionsGroup = (
+    <Inline gap={2} wrap={false}>
+      {actions && mobileActionsLabel ? (
+        <>
+          <Show above="md" display="flex">
+            <Inline gap={2} wrap={false}>
+              {actions}
+            </Inline>
+          </Show>
+          <TopNavActionsMenu
+            actions={actions}
+            activeKey={activeKey}
+            items={[...primaryItems, ...utilityItems]}
+            label={mobileActionsLabel}
+            onSelect={onSelect}
+          />
+        </>
+      ) : (
+        actions
+      )}
+      {utilityItems.length > 0
+        ? renderActivePillGroup(
+            `${groupId}-utility`,
+            motionSettings.reducedMotion,
+            <Show above="md" display="flex">
+              <Inline gap={1} wrap={false}>
+                {utilityItems.map((item) =>
+                  renderNavigationItem(
+                    item,
+                    isNavigationItemActive(item, activeKey),
+                    "horizontal",
+                    `${groupId}-utility`,
+                    onSelect,
+                    activeKey,
+                    motionSettings.reducedMotion,
+                    Link,
+                  ),
+                )}
+              </Inline>
+            </Show>,
+          )
+        : null}
+    </Inline>
+  );
+
+  // One stable structure for every phase and width, so the search control is
+  // server-rendered and hydrated once and never remounts on a phase or
+  // breakpoint change. Below md the nav's contribution to document flow stays
+  // constant at the expanded height while only the painted surface shrinks.
+  // The row collapses to a zero-height grid row but stays mounted, so it remains
+  // in sequential focus and reveals on focus. Every override is max-md scoped.
+  const navClassName = cx(
+    searchRowState !== undefined
+      ? "sticky top-0 z-sticky max-md:h-[7.75rem] max-md:pointer-events-none"
+      : "sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
+  );
+  const slotClassName = cx(
+    "order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1",
+    searchRowState !== undefined && "grid",
+    searchRowState !== undefined && !motionSettings.reducedMotion && "transition-[grid-template-rows] duration-200",
+    searchRowState !== undefined &&
+      (searchRowState === "collapsed" ? "pointer-events-none grid-rows-[0fr]" : "grid-rows-[1fr]"),
+  );
+  const searchSlot = search ? (
+    <div data-search-row-slot={searchRowState !== undefined ? "" : undefined} className={slotClassName}>
+      {searchRowState !== undefined ? (
+        <div className="pointer-events-auto min-h-0 max-md:overflow-hidden">{search}</div>
+      ) : (
+        search
+      )}
+    </div>
+  ) : null;
+  const headerContent = (
+    <Container width={width} paddingX={0}>
+      <Cluster justify="between" gap={4}>
+        {brandGroup}
+        {searchSlot}
+        {actionsGroup}
+      </Cluster>
+    </Container>
+  );
 
   return (
     <nav
       {...rest}
       aria-label={navLabel}
-      className="sticky top-0 z-sticky border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl"
+      data-shell-header-box={searchRowState !== undefined ? "reserved" : undefined}
+      className={navClassName}
     >
-      <Container width={width} paddingX={0}>
-        <Cluster justify="between" gap={4}>
-          <Inline gap={4} wrap={false}>
-            {brand}
-            {renderActivePillGroup(
-              groupId,
-              motionSettings.reducedMotion,
-              <Show above="md" display="flex">
-                <Inline gap={1} wrap={false}>
-                  {primaryItems.map((item) =>
-                    renderNavigationItem(
-                      item,
-                      isNavigationItemActive(item, activeKey),
-                      "horizontal",
-                      groupId,
-                      onSelect,
-                      activeKey,
-                      motionSettings.reducedMotion,
-                      Link,
-                    ),
-                  )}
-                </Inline>
-              </Show>,
-            )}
-          </Inline>
-          {search ? (
-            <div className="order-3 w-full md:order-none md:min-w-64 md:max-w-xl md:flex-1">{search}</div>
-          ) : null}
-          <Inline gap={2} wrap={false}>
-            {actions && mobileActionsLabel ? (
-              <>
-                <Show above="md" display="flex">
-                  <Inline gap={2} wrap={false}>
-                    {actions}
-                  </Inline>
-                </Show>
-                <TopNavActionsMenu
-                  actions={actions}
-                  activeKey={activeKey}
-                  items={[...primaryItems, ...utilityItems]}
-                  label={mobileActionsLabel}
-                  onSelect={onSelect}
-                />
-              </>
-            ) : (
-              actions
-            )}
-            {utilityItems.length > 0
-              ? renderActivePillGroup(
-                  `${groupId}-utility`,
-                  motionSettings.reducedMotion,
-                  <Show above="md" display="flex">
-                    <Inline gap={1} wrap={false}>
-                      {utilityItems.map((item) =>
-                        renderNavigationItem(
-                          item,
-                          isNavigationItemActive(item, activeKey),
-                          "horizontal",
-                          `${groupId}-utility`,
-                          onSelect,
-                          activeKey,
-                          motionSettings.reducedMotion,
-                          Link,
-                        ),
-                      )}
-                    </Inline>
-                  </Show>,
-                )
-              : null}
-          </Inline>
-        </Cluster>
-      </Container>
+      {searchRowState !== undefined ? (
+        <div
+          data-shell-header-box="painted"
+          className={cx(
+            "pointer-events-auto border-b border-muted bg-background/overlay px-4 py-3 shadow-tokenSm backdrop-blur-xl",
+            "max-md:overflow-hidden",
+            !motionSettings.reducedMotion && "transition-[height] duration-200",
+            searchRowState === "collapsed" ? "max-md:h-16" : "max-md:h-[7.75rem]",
+          )}
+        >
+          {headerContent}
+        </div>
+      ) : (
+        headerContent
+      )}
     </nav>
   );
 }

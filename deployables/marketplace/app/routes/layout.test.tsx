@@ -13,21 +13,37 @@ import {
   type RenderOptions,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactElement, ReactNode } from "react";
+import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import { resolveWebHostActiveKey } from "@chase-sets/platform-runtime/web";
+import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
 import { webContextRegistry } from "../generated/web-context-registry";
-import { resolveMarketplaceAccountMenuItems, resolveMarketplaceActiveKey, resolveMarketplaceNavItems } from "../host";
+import {
+  resolveMarketplaceAccountMenuItems,
+  resolveMarketplaceActiveKey,
+  resolveMarketplaceNavItems,
+  resolveMarketplaceRouteConfigRecords,
+} from "../host";
 
 const preferenceDefaults = { density: "comfortable", reducedMotion: "user", locale: "en", timeZone: "UTC" };
 
-const { mockUseLocation, mockUseNavigate, mockUseRouteLoaderData } = vi.hoisted(() => ({
+const {
+  mockUseLocation,
+  mockUseMatches,
+  mockUseNavigate,
+  mockUseRouteLoaderData,
+  marketplaceShellRouteIdentities,
+  realRouterMode,
+} = vi.hoisted(() => ({
   mockUseLocation: vi.fn(),
+  mockUseMatches: vi.fn(),
   mockUseNavigate: vi.fn(),
   mockUseRouteLoaderData: vi.fn(),
+  marketplaceShellRouteIdentities: [] as Array<string | undefined>,
+  realRouterMode: { enabled: false },
 }));
 
 vi.mock("react-router", async () => {
@@ -35,15 +51,37 @@ vi.mock("react-router", async () => {
 
   return {
     ...actual,
-    Outlet: () => <main>Marketplace content</main>,
-    useLocation: mockUseLocation,
-    useNavigate: () => mockUseNavigate,
-    useRouteLoaderData: mockUseRouteLoaderData,
+    Outlet: (props: Parameters<typeof actual.Outlet>[0]) =>
+      realRouterMode.enabled ? <actual.Outlet {...props} /> : <main>Marketplace content</main>,
+    useLocation: (...args: Parameters<typeof actual.useLocation>) =>
+      realRouterMode.enabled ? actual.useLocation(...args) : mockUseLocation(),
+    useMatches: (...args: Parameters<typeof actual.useMatches>) =>
+      realRouterMode.enabled ? actual.useMatches(...args) : mockUseMatches(),
+    useNavigate: (...args: Parameters<typeof actual.useNavigate>) =>
+      realRouterMode.enabled ? actual.useNavigate(...args) : () => mockUseNavigate(),
+    useRouteLoaderData: (...args: Parameters<typeof actual.useRouteLoaderData>) =>
+      realRouterMode.enabled ? actual.useRouteLoaderData(...args) : mockUseRouteLoaderData(),
   };
 });
 
-import { MemoryRouter } from "react-router";
-import MarketplaceLayoutRoute, { loader } from "./layout";
+vi.mock("@chase-sets/design-system", async () => {
+  const actual = await vi.importActual<typeof import("@chase-sets/design-system")>("@chase-sets/design-system");
+  return {
+    ...actual,
+    MarketplaceShell: (props: ComponentProps<typeof actual.MarketplaceShell>) => {
+      marketplaceShellRouteIdentities.push(props.routeIdentity);
+      return <actual.MarketplaceShell {...props} />;
+    },
+  };
+});
+
+import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
+import { index as routeIndex, route as routeConfig } from "@react-router/dev/routes";
+import MarketplaceLayoutRoute, { loader, marketplaceSearchRouteId } from "./layout";
+import {
+  observeSearchRowEvents,
+  type SearchRowObservation,
+} from "../../../../packages/design-system/src/patterns/app-shells/search-row-phase";
 
 // DiscoveryShellLayout registers the DS RouterLinkAdapter, so rendering it requires
 // router context — exactly as it has in the production app tree.
@@ -53,6 +91,38 @@ function ssr(ui: ReactElement) {
 
 function render(ui: ReactNode, options?: RenderOptions) {
   return renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
+}
+
+function renderWithRealRouter(initialEntry: string) {
+  realRouterMode.enabled = true;
+  const searchRouteRecord = resolveMarketplaceRouteConfigRecords().find((record) => record.routeId === "search");
+  expect(searchRouteRecord).toBeDefined();
+  const registeredSearchRoute = toRouteConfigEntry(searchRouteRecord!, {
+    index: routeIndex,
+    route: routeConfig,
+  });
+  expect(registeredSearchRoute.id).toBe(marketplaceSearchRouteId);
+  const router = createMemoryRouter(
+    [
+      {
+        id: "root",
+        path: "/",
+        loader: () => ({ actor: null, cartCount: 0 }),
+        element: <MarketplaceLayoutRoute />,
+        children: [
+          {
+            id: registeredSearchRoute.id,
+            path: registeredSearchRoute.path,
+            element: <div>Search route</div>,
+          },
+          { id: "routes/not-found", path: "*", element: <div>Not found route</div> },
+        ],
+      },
+    ],
+    { initialEntries: [initialEntry] },
+  );
+  const view = renderWithoutRouter(<RouterProvider router={router} />);
+  return { router, view };
 }
 
 const actorDisplay = {
@@ -170,6 +240,7 @@ describe("marketplace route layout", () => {
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Preferences saved" }));
   });
   beforeEach(() => {
+    mockUseMatches.mockReturnValue([]);
     mockUseLocation.mockReturnValue({
       pathname: "/search",
       search: "",
@@ -179,6 +250,7 @@ describe("marketplace route layout", () => {
   });
 
   afterEach(() => {
+    realRouterMode.enabled = false;
     vi.unstubAllGlobals();
   });
 
@@ -1452,4 +1524,104 @@ describe("marketplace-thin-host source-shape check", () => {
     expect(loaderBlock(layout)).toBe(loaderBlock(base));
     expect(authPrompt(layout)).toEqual(authPrompt(base));
   });
+});
+
+describe("marketplace search-row route identity", () => {
+  it("uses the registered search match and ignores same-pathname query changes", () => {
+    mockUseRouteLoaderData.mockReturnValue({ actor: null, cartCount: 0 });
+    mockUseLocation.mockReturnValue({ pathname: "/search", search: "?q=charizard", hash: "" });
+    mockUseMatches.mockReturnValue([{ id: marketplaceSearchRouteId }]);
+    marketplaceShellRouteIdentities.length = 0;
+    const view = render(<MarketplaceLayoutRoute />);
+    expect(marketplaceShellRouteIdentities.at(-1)).toBe("/search");
+
+    mockUseLocation.mockReturnValue({ pathname: "/search", search: "?q=pikachu", hash: "#results" });
+    view.rerender(<MarketplaceLayoutRoute />);
+    expect(marketplaceShellRouteIdentities.at(-1)).toBe("/search");
+
+    mockUseMatches.mockReturnValue([{ id: "routes/not-found" }]);
+    mockUseLocation.mockReturnValue({ pathname: "/search/x", search: "", hash: "" });
+    view.rerender(<MarketplaceLayoutRoute />);
+    expect(marketplaceShellRouteIdentities.at(-1)).toBe("/search/x");
+    view.unmount();
+  });
+
+  it("emits no route change for a same-pathname query or dimension navigation", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
+    Object.defineProperty(window, "scrollY", { configurable: true, writable: true, value: 2000 });
+    const observations: SearchRowObservation[] = [];
+    const stopObserving = observeSearchRowEvents((observation) => observations.push(observation));
+    const pinned = renderWithRealRouter("/items/pinned-card");
+    try {
+      const input = await screen.findByRole("combobox");
+      act(() => input.focus());
+      await waitFor(() =>
+        expect(pinned.view.container.querySelector('[data-search-row-state="expanded"]')).toBeTruthy(),
+      );
+      const before = observations.at(-1)?.state;
+      expect(before).toMatchObject({ phase: "expanded", lastScrollY: 2000 });
+      observations.length = 0;
+
+      await act(async () => {
+        await pinned.router.navigate("?dimension.condition=raw");
+      });
+      expect(observations.filter((observation) => observation.event.type === "routechange")).toHaveLength(0);
+      expect(pinned.view.container.querySelector('[data-search-row-state="expanded"]')).toBeTruthy();
+      act(() => window.dispatchEvent(new Event("scroll")));
+      expect(observations.at(-1)?.state).toEqual(before);
+    } finally {
+      pinned.view.unmount();
+      stopObserving();
+    }
+
+    Object.defineProperty(window, "scrollY", { configurable: true, writable: true, value: 2000 });
+    const searchObservations: SearchRowObservation[] = [];
+    const stopSearchObserving = observeSearchRowEvents((observation) => searchObservations.push(observation));
+    const search = renderWithRealRouter("/search?q=before");
+    try {
+      await waitFor(() => expect(search.view.container.querySelector("[data-search-row-state]")).toBeTruthy());
+      const beforeSearch = searchObservations.at(-1)?.state;
+      searchObservations.length = 0;
+      await act(async () => {
+        await search.router.navigate("?q=after");
+      });
+      expect(searchObservations.filter((observation) => observation.event.type === "routechange")).toHaveLength(0);
+      expect(search.view.container.querySelector('[data-search-row-state="expanded"]')).toBeTruthy();
+      expect(beforeSearch).toMatchObject({ phase: "expanded", lastScrollY: 2000 });
+      act(() => window.dispatchEvent(new Event("scroll")));
+      expect(searchObservations.at(-1)?.state).toEqual(beforeSearch);
+    } finally {
+      search.view.unmount();
+      stopSearchObserving();
+    }
+  });
+
+  it.each([
+    ["/search", "/search", "expanded"],
+    ["/SEARCH", "/search", "expanded"],
+    ["/Search", "/search", "expanded"],
+    ["/search/", "/search", "expanded"],
+    ["/search//", "/search", "expanded"],
+    ["/%73earch", "/search", "expanded"],
+    ["/search/x", "/search/x", "collapsed"],
+    ["/search%2Fx", "/search%2Fx", "collapsed"],
+  ] as const)(
+    "derives canonical search identity from the active matched route for %s",
+    async (entry, expectedIdentity, expectedPhase) => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
+      Object.defineProperty(window, "scrollY", { configurable: true, writable: true, value: 2000 });
+      marketplaceShellRouteIdentities.length = 0;
+      const { view } = renderWithRealRouter(entry);
+      try {
+        await waitFor(() =>
+          expect(view.container.querySelector(`[data-search-row-state="${expectedPhase}"]`)).toBeTruthy(),
+        );
+        expect(marketplaceShellRouteIdentities.at(-1)).toBe(expectedIdentity);
+      } finally {
+        view.unmount();
+      }
+    },
+  );
 });
