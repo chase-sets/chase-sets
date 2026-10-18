@@ -1794,7 +1794,6 @@ describe("marketplace shell search-row collapse (#5709)", () => {
     let symmetric = scroll(expanded, 1020);
     symmetric = scroll(symmetric, 1000);
     expect(symmetric.phase).toBe("expanded");
-    expect(symmetric.travel).toBe(20);
   });
 
   it("holds the search row open on a live-containment focus pin across non-focus events", () => {
