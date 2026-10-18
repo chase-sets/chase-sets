@@ -7,7 +7,7 @@ import {
 } from "@chase-sets/platform-runtime/post-write-tokens";
 import { t } from "@chase-sets/localization";
 import { readApiErrorCode } from "@chase-sets/http/responses";
-import { createDiscoveryRequestApiClient } from "./api-client";
+import { createDiscoveryRequestApiClient, DiscoveryApiError } from "./api-client";
 import {
   CollectionsApiError,
   type SavedListDestination,
@@ -173,7 +173,9 @@ export async function loadSavedListClaimPreparation(
 export function savedListActionError(error: unknown) {
   if (
     error instanceof UnresolvedPostWriteTokenError ||
-    (error instanceof CollectionsApiError &&
+    // The receipted picker read is a Discovery call; Collections reads can
+    // wait on a receipt too. Both time out with the same platform code.
+    ((error instanceof CollectionsApiError || error instanceof DiscoveryApiError) &&
       error.status === 503 &&
       readApiErrorCode(error.body) === "projection_freshness_timeout")
   ) {

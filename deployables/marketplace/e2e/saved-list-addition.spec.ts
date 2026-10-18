@@ -10,11 +10,18 @@ const hosts = [
   { name: "Item Detail", path: marketplaceBrowserE2eSeedContract.itemDetail.routePath },
 ] as const;
 
+// Add to List is a client-only fetcher control: a click that lands before
+// hydration attaches its handler is a no-op, so wait for the hydrated element.
+async function clickHydratedAddToList(page: Page) {
+  const button = page.getByRole("button", { name: /^Add Charizard .* to a Saved List$/ }).first();
+  await expect
+    .poll(() => button.evaluate((element) => Object.keys(element).some((key) => key.startsWith("__reactProps$"))))
+    .toBe(true);
+  await button.click();
+}
+
 async function openPicker(page: Page) {
-  await page
-    .getByRole("button", { name: /^Add Charizard .* to a Saved List$/ })
-    .first()
-    .click();
+  await clickHydratedAddToList(page);
   const dialog = page.getByRole("dialog", { name: "Add to List", exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("radio", { name: /Create a new Saved List/ })).toBeVisible();
@@ -55,10 +62,7 @@ test.describe("marketplace Add to List route data", () => {
       context,
     }) => {
       await page.goto(host.path, { waitUntil: "domcontentloaded" });
-      await page
-        .getByRole("button", { name: /^Add Charizard .* to a Saved List$/ })
-        .first()
-        .click();
+      await clickHydratedAddToList(page);
       await expect(page).toHaveURL(/\/register\?returnTo=/);
       const registration = new URL(page.url());
       expect(registration.pathname).toBe("/register");
