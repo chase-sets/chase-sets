@@ -178,6 +178,39 @@ const catalogCountPreparationDelta = [
     purpose: "application-runtime",
   },
 ];
+// #9964 delta: the idle draft retirement job builds its own staging kubeconfig the way the preview sweep does.
+const idleDraftRetirementJob = "retire-idle-draft-previews";
+const idleDraftRetirementContextStep = "name:Configure staging Kubernetes context for idle draft retirement#5";
+const idleDraftRetirementDelta = [
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: idleDraftRetirementContextStep,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  },
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: idleDraftRetirementContextStep,
+    secretName: "SPACES_ACCESS_ID",
+    purpose: "spaces-evidence",
+  },
+  {
+    file: ".github/workflows/platform-preview-cleanup.yml",
+    jobId: idleDraftRetirementJob,
+    stepAnchor: idleDraftRetirementContextStep,
+    secretName: "SPACES_SECRET_KEY",
+    purpose: "spaces-evidence",
+  },
+];
 // #9587 threads the canonical staging Admin keys into only the isolated count lifecycle run and receipt-validation steps.
 const catalogCountLifecycleDelta = [
   {
@@ -511,10 +544,11 @@ describe("managed Postgres authority source generator", () => {
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
         ...catalogCountPreparationDelta,
+        ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1623);
+    expect(expected.grants).toHaveLength(1627);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
