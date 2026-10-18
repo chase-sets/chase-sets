@@ -72,6 +72,10 @@ jobs:
               | head -n 1
           )"
 
+          [[ "$existing_issue" =~ ^[^-].*$ ]] || {
+            echo "existing_issue must be a non-option value." >&2
+            exit 1
+          }
           if [ -n "${existing_issue}" ]; then
             gh issue edit "${existing_issue}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
             echo "Updated DigitalOcean token rotation issue #${existing_issue}."

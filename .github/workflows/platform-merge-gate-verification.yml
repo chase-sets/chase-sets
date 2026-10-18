@@ -445,6 +445,14 @@ jobs:
           IMAGE_REPOSITORY_REF: ${{ steps.image.outputs.repository }}
         run: |
           set -euo pipefail
+          [[ "$IMAGE_REPOSITORY_REF" =~ ^[^-].*$ ]] || {
+            echo "IMAGE_REPOSITORY_REF must be a non-option value." >&2
+            exit 1
+          }
+          [[ "$IMAGE_DIGEST" =~ ^[^-].*$ ]] || {
+            echo "IMAGE_DIGEST must be a non-option value." >&2
+            exit 1
+          }
           mkdir -p artifacts/merge-gate
           kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" -o json > artifacts/merge-gate/gate-pods.json
           # Only platform-image containers count: the namespace also runs the
@@ -486,6 +494,10 @@ jobs:
           pod="$(kubectl get pods --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             -l app.kubernetes.io/component=platform-api \
             -o jsonpath='{.items[0].metadata.name}')"
+          [[ "$pod" =~ ^[^-].*$ ]] || {
+            echo "pod must be a non-option value." >&2
+            exit 1
+          }
           kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" "$pod" -- \
             env EPHEMERAL_VERIFICATION_NAMESPACE="$CHASE_SETS_KUBERNETES_NAMESPACE" \
               REPRESENTATIVE_COMMERCE_STATE_CONFIRM='seed staging commerce' \

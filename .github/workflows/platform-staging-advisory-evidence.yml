@@ -402,6 +402,10 @@ jobs:
           )"
           if [ "$ADVISORY_RESULT" = "success" ]; then
             if [ -n "$existing_issue" ]; then
+              [[ "$existing_issue" =~ ^[^-].*$ ]] || {
+                echo "existing_issue must be a non-option value." >&2
+                exit 1
+              }
               gh issue close "$existing_issue" \
                 --repo "${GITHUB_REPOSITORY}" \
                 --comment "Advisory staging evidence recovered for ${RELEASE_COMMIT}: ${RUN_URL}"
@@ -423,6 +427,10 @@ jobs:
           EOF
           )"
           if [ -n "$existing_issue" ]; then
+            [[ "$existing_issue" =~ ^[^-].*$ ]] || {
+              echo "existing_issue must be a non-option value." >&2
+              exit 1
+            }
             gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
           else
             gh issue create \

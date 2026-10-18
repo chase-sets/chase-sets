@@ -450,6 +450,11 @@ jobs:
             "$contract_root/.github/workflows" \
             "$contract_root/infrastructure/digitalocean/platform"
           cp .github/workflows/platform-production.yml "$contract_root/.github/workflows/platform-production.yml"
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          [[ "$release_commit" =~ ^[^-].*$ ]] || {
+            echo "release_commit must be a non-option value." >&2
+            exit 1
+          }
           for source_path in \
             infrastructure/digitalocean/platform/main.tf \
             infrastructure/digitalocean/platform/locals.tf \
@@ -597,6 +602,10 @@ jobs:
           RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_IMAGE" =~ ^[^-].*$ ]] || {
+            echo "RELEASE_IMAGE must be a non-option value." >&2
+            exit 1
+          }
 
           # Build-time success does not prove runtime success (issue #1417):
           # start each web component with its deployed command and health check
@@ -650,6 +659,10 @@ jobs:
           RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_IMAGE" =~ ^[^-].*$ ]] || {
+            echo "RELEASE_IMAGE must be a non-option value." >&2
+            exit 1
+          }
           docker push "$RELEASE_IMAGE"
           echo "Pushed release image ${RELEASE_IMAGE}"
 
@@ -659,6 +672,10 @@ jobs:
           RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_IMAGE" =~ ^[^-].*$ ]] || {
+            echo "RELEASE_IMAGE must be a non-option value." >&2
+            exit 1
+          }
           digest="$(docker buildx imagetools inspect "$RELEASE_IMAGE" --format '{{.Manifest.Digest}}')"
           if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "Release image ${RELEASE_IMAGE} did not resolve to an immutable sha256 digest." >&2
@@ -1066,6 +1083,10 @@ jobs:
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          [[ "$release_commit" =~ ^[^-].*$ ]] || {
+            echo "release_commit must be a non-option value." >&2
+            exit 1
+          }
           git checkout --detach "$release_commit"
           checked_out_commit="$(git rev-parse HEAD)"
           if [ "$checked_out_commit" != "$release_commit" ]; then
@@ -1257,6 +1278,10 @@ jobs:
           AUTOMATIC_RELEASE: ${{ inputs.dispatch_source == 'automatic' && 'true' || 'false' }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[^-].*$ ]] || {
+            echo "RELEASE_COMMIT must be a non-option value." >&2
+            exit 1
+          }
           if ! [[ "$RELEASE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "Candidate ${RELEASE_COMMIT} has no immutable release image digest; refusing staging mutation." >&2
             exit 1
@@ -1330,6 +1355,10 @@ jobs:
           ACTIVE_RELEASE_IMAGE_DIGEST: ${{ steps.activate_release.outputs.active_image_digest }}
         run: |
           set -euo pipefail
+          [[ "$ACTIVE_RELEASE_IMAGE" =~ ^[^-].*$ ]] || {
+            echo "ACTIVE_RELEASE_IMAGE must be a non-option value." >&2
+            exit 1
+          }
           doctl registry login --expiry-seconds 3600
           if ! docker buildx imagetools inspect "$ACTIVE_RELEASE_IMAGE" >/dev/null; then
             echo "Active release image ${ACTIVE_RELEASE_IMAGE} no longer exists." >&2
@@ -1712,6 +1741,10 @@ jobs:
           catalog_asset_s3_bucket="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_bucket)"
           catalog_asset_s3_endpoint="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_endpoint)"
           catalog_asset_s3_region="$(terraform -chdir=infrastructure/digitalocean/platform output -raw catalog_asset_s3_region)"
+          [[ "$catalog_asset_public_base_url" =~ ^[^-].*$ ]] || {
+            echo "catalog_asset_public_base_url must be a non-option value." >&2
+            exit 1
+          }
           if [ -z "$catalog_asset_public_base_url" ] || [ -z "$catalog_asset_s3_bucket" ] || [ -z "$catalog_asset_s3_endpoint" ] || [ -z "$catalog_asset_s3_region" ]; then
             echo "Staging catalog asset runtime env outputs are required before Kubernetes deploy." >&2
             exit 1
@@ -1868,6 +1901,10 @@ jobs:
           PLATFORM_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[^-].*$ ]] || {
+            echo "RELEASE_COMMIT must be a non-option value." >&2
+            exit 1
+          }
           gh workflow run platform-staging-advisory-evidence.yml \
             --repo "${{ github.repository }}" \
             --ref main \
@@ -1908,6 +1945,10 @@ jobs:
           landing_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
+          [[ "$catalog_asset_public_base_url" =~ ^[^-].*$ ]] || {
+            echo "catalog_asset_public_base_url must be a non-option value." >&2
+            exit 1
+          }
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           staging_root_marketplace_domain="$(terraform output -json staging_root_marketplace_domains | jq -r '.[0] // empty')"
           if [ -z "$landing_domain" ] || [ -z "$admin_domain" ] || [ -z "$catalog_asset_public_base_url" ] || [ -z "$marketplace_domain" ] || [ -z "$staging_root_marketplace_domain" ]; then
@@ -2044,6 +2085,10 @@ jobs:
                 | first // error("no ready platform-api pod runs the exact deployed image digest")
               ')"
           pod="$(jq -er '.podName' <<<"$pod_record")"
+          [[ "$pod" =~ ^[^-].*$ ]] || {
+            echo "pod must be a non-option value." >&2
+            exit 1
+          }
           image_id="$(jq -er '.imageID' <<<"$pod_record")"
 
           kubectl exec --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --container platform-api "$pod" -- \
@@ -2551,6 +2596,10 @@ jobs:
               --json number \
               --jq '.[0].number // empty'
           )"
+          [[ "$existing_issue" =~ ^[^-].*$ ]] || {
+            echo "existing_issue must be a non-option value." >&2
+            exit 1
+          }
           if [ -n "$existing_issue" ]; then
             gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
           else
@@ -2580,6 +2629,10 @@ jobs:
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          [[ "$release_commit" =~ ^[^-].*$ ]] || {
+            echo "release_commit must be a non-option value." >&2
+            exit 1
+          }
           git checkout --detach "$release_commit"
 
       - name: Resolve staging release health metadata
@@ -2590,6 +2643,10 @@ jobs:
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          [[ "$release_commit" =~ ^[^-].*$ ]] || {
+            echo "release_commit must be a non-option value." >&2
+            exit 1
+          }
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           committed_at="$(git show -s --format=%cI "$release_commit")"
           if ! node ./scripts/release-health-github-metadata.mjs \
@@ -2914,6 +2971,10 @@ jobs:
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          [[ "$release_commit" =~ ^[^-].*$ ]] || {
+            echo "release_commit must be a non-option value." >&2
+            exit 1
+          }
           git checkout --detach "$release_commit"
           checked_out_commit="$(git rev-parse HEAD)"
           if [ "$checked_out_commit" != "$release_commit" ]; then
@@ -3663,6 +3724,10 @@ jobs:
               | sort \
               | tail -n 1
           )"
+          [[ "$release_tag" =~ ^[^-].*$ ]] || {
+            echo "release_tag must be a non-option value." >&2
+            exit 1
+          }
           if [ -z "$release_tag" ]; then
             echo "Production marker ${last_known_good_commit} has no release-* tag; refusing mutation without rollback identity." >&2
             exit 1
@@ -4222,6 +4287,10 @@ jobs:
           public_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
+          [[ "$catalog_asset_public_base_url" =~ ^[^-].*$ ]] || {
+            echo "catalog_asset_public_base_url must be a non-option value." >&2
+            exit 1
+          }
           marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
           smoke_urls=("https://${public_domain}" "https://${admin_domain}")
           if [ "${TF_VAR_production_runtime_profile:-landing}" = "landing" ]; then
@@ -4473,6 +4542,10 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[^-].*$ ]] || {
+            echo "RELEASE_COMMIT must be a non-option value." >&2
+            exit 1
+          }
           tree_hash="$(git rev-parse "${RELEASE_COMMIT}^{tree}")"
           node ./scripts/promoted-release.mjs create \
             --out artifacts/release-health/promoted-release.json \
@@ -4516,6 +4589,10 @@ jobs:
           ROLLBACK_OBSERVED_DIGEST: ${{ steps.production_rollback.outputs.rollback_observed_digest || '' }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[^-].*$ ]] || {
+            echo "RELEASE_COMMIT must be a non-option value." >&2
+            exit 1
+          }
           if [ "$PRODUCTION_ROLLBACK_RESULT" = "success" ]; then
             terminal="rolled-back"
             terminal_commit="$ROLLBACK_TARGET_COMMIT"
@@ -4535,6 +4612,10 @@ jobs:
           if [ "$AUTOMATIC_RELEASE" = "true" ]; then
             git fetch origin main
             latest_main="$(git rev-parse origin/main)"
+            [[ "$latest_main" =~ ^[^-].*$ ]] || {
+              echo "latest_main must be a non-option value." >&2
+              exit 1
+            }
             if [ "$latest_main" != "$RELEASE_COMMIT" ]; then
               pending_commit="$latest_main"
               coalesced_count="$(git rev-list --count "${RELEASE_COMMIT}..${latest_main}")"
@@ -4571,6 +4652,10 @@ jobs:
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          [[ "$release_commit" =~ ^[^-].*$ ]] || {
+            echo "release_commit must be a non-option value." >&2
+            exit 1
+          }
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           committed_at="$(git show -s --format=%cI "$release_commit")"
           if ! node ./scripts/release-health-github-metadata.mjs \
@@ -4912,6 +4997,10 @@ jobs:
               fi
               issue_json="$(printf '%s' "${encoded_issue}" | base64 --decode)"
               issue_number="$(jq -r '.number' <<< "${issue_json}")"
+              [[ "$issue_number" =~ ^[^-].*$ ]] || {
+                echo "issue_number must be a non-option value." >&2
+                exit 1
+              }
               issue_title="$(jq -r '.title' <<< "${issue_json}")"
               issue_body="$(jq -r '.body // ""' <<< "${issue_json}")"
               issue_action="$(node ./scripts/platform-deploy-incident.mjs \
@@ -4942,6 +5031,10 @@ jobs:
               --json number \
               --jq '.[0].number // empty'
           )"
+          [[ "$existing_issue" =~ ^[^-].*$ ]] || {
+            echo "existing_issue must be a non-option value." >&2
+            exit 1
+          }
 
           if [ -n "${existing_issue}" ]; then
             gh issue comment "${existing_issue}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
@@ -5019,6 +5112,10 @@ jobs:
               --json number \
               --jq '.[0].number // empty'
           )"
+          [[ "$existing_issue" =~ ^[^-].*$ ]] || {
+            echo "existing_issue must be a non-option value." >&2
+            exit 1
+          }
 
           if [ -n "${existing_issue}" ]; then
             gh issue comment "${existing_issue}" --repo "${GITHUB_REPOSITORY}" --body "${body}"
@@ -5097,6 +5194,10 @@ jobs:
             if [ -z "${issue_number}" ]; then
               continue
             fi
+            [[ "$issue_number" =~ ^[^-].*$ ]] || {
+              echo "issue_number must be a non-option value." >&2
+              exit 1
+            }
 
             gh issue close "${issue_number}" \
               --repo "${GITHUB_REPOSITORY}" \
