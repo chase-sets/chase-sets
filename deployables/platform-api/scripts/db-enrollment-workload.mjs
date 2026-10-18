@@ -1121,13 +1121,33 @@ async function main() {
   const captureBytes = readFileSync(capturePath);
   const capture = JSON.parse(captureBytes.toString("utf8"));
   const commit = capture.provenance?.sourceBase;
-  if (!hex40.test(commit ?? "") || capture.provenance.captureParent !== commit) {
-    throw new Error("capture provenance must name one frozen source as both sourceBase and captureParent");
+  const provenance = capture.provenance ?? {};
+  const measuredCheckout = provenance.event === "pull_request";
+  if (
+    !hex40.test(commit ?? "") ||
+    (measuredCheckout ? provenance.checkoutSha !== commit : provenance.captureParent !== commit)
+  ) {
+    throw new Error("capture provenance must bind the frozen source to its measured checkout or capture parent");
   }
   localObjectGit(toolingRoot, ["cat-file", "-e", `${commit}^{commit}`], {
     stdio: "ignore",
     failure: `frozen source ${commit} is not available locally; fetch it outside CI (for example ${values.ref ?? "its pull request ref"})`,
   });
+  if (measuredCheckout) {
+    const parents = localObjectGit(toolingRoot, ["cat-file", "-p", commit], { encoding: "utf8" })
+      .split("\n\n", 1)[0]
+      .split("\n")
+      .filter((line) => line.startsWith("parent "))
+      .map((line) => line.slice(7));
+    if (
+      parents.length !== 2 ||
+      canonicalJson(parents) !== canonicalJson(provenance.parents) ||
+      provenance.captureParent !== provenance.eventHeadSha ||
+      !parents.includes(provenance.eventHeadSha)
+    ) {
+      throw new Error("measured pull-request checkout must bind its exact Git parents and event head");
+    }
+  }
   const historicalHead = values["historical-head"];
   if (historicalHead !== undefined) {
     if (!hex40.test(historicalHead)) throw new Error("--historical-head must be a full commit SHA");
