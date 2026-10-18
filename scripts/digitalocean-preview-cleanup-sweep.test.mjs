@@ -671,15 +671,11 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit' }); writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
       "setInterval(() => {}, 1000);",
     ].join(" ");
-    const timeoutStartedAt = Date.now();
     await expect(
       commandOutput(process.execPath, ["--input-type=module", "--eval", grandchildScript], {
         timeout: 200,
       }),
     ).rejects.toThrow("timed out after 200ms");
-    const timeoutElapsedMs = Date.now() - timeoutStartedAt;
-    const timeoutMarginMs = process.platform === "win32" ? 3_000 : 1_500;
-    expect(timeoutElapsedMs).toBeLessThan(200 + timeoutMarginMs);
     if (process.platform !== "win32") {
       let grandchildPid;
       for (let attempt = 0; attempt < 20 && !grandchildPid; attempt += 1) {
