@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import onePieceSetReferenceFixture from "../../__fixtures__/scrydex-one-piece-set-reference/normal.json";
+import lorcanaSetReferenceFixture from "../../__fixtures__/scrydex-lorcana-set-reference/normal.json";
 import {
   createScrydexOnePieceProviderAdapter,
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
@@ -6,8 +8,15 @@ import {
   SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
   SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   type ScrydexOnePieceCredentials,
 } from "./adapter";
+import { ProviderAdapterRegistry } from "../../provider-adapters/registry";
+import { getActiveCatalogProviderIntegrationProfileVersion } from "../../provider-integration-profiles";
+import {
+  catalogSyncAcceptedScopeMappingFromRow,
+  previewCatalogSyncProviderParticipation,
+} from "../catalog-sync-scope-planner";
 
 // Every credential, identifier, URL, and usage value below is synthetic. The usage
 // body follows the real Scrydex `data` envelope captured by the host on 2026-10-09.
@@ -299,37 +308,218 @@ describe("accepted set-name coordinates", () => {
     expect(subject.fetch.mock.calls[0]?.[0]).toContain("/account/v1/usage");
   });
 
-  it("keeps explicit coordinates authoritative over setName and refuses blank explicit keys", async () => {
-    const subject = adapter();
-    await expect(
-      subject.adapter.planImport({
-        unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
-        scopeKey: "synthetic",
-        values: { expansionId: "explicit", setName: "accepted" },
+  it.each([
+    {
+      label: "One Piece",
+      productDomain: "one-piece",
+      fixture: onePieceSetReferenceFixture,
+      unitKeys: [
+        SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+        SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      ],
+      profiles: [
+        "one-piece-set-reference-data",
+        "one-piece-card-print-source-observation",
+        "one-piece-sealed-product-source-observation",
+      ],
+      planKeys: [
+        "scrydex:one-piece:set:op-01",
+        "scrydex:one-piece:expansion:op-01:cards",
+        "scrydex:one-piece:expansion:op-01:sealed",
+      ],
+      scopeRecordId: "scrydex-one-piece-op-01",
+    },
+    {
+      label: "Lorcana",
+      productDomain: "lorcana",
+      fixture: lorcanaSetReferenceFixture,
+      unitKeys: [
+        SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+        SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      ],
+      profiles: ["lorcana-set-reference-data", "lorcana-card-print-source-observation"],
+      planKeys: ["scrydex:lorcana:set:1", "scrydex:lorcana:expansion:1:cards"],
+      scopeRecordId: "scrydex-lorcana-1",
+    },
+  ] as const)("plans the $label normal fixture through discovery, mapping, planner, and adapter", async (scenario) => {
+    const calls: string[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (request) => {
+      const url = new URL(String(request));
+      calls.push(url.toString());
+      if (url.pathname === "/account/v1/usage") {
+        return Response.json(syntheticUsageBody());
+      }
+      expect(url.pathname).toMatch(/\/expansions$/);
+      return Response.json({
+        data: [scenario.fixture.expansion],
+        count: 1,
+        total_count: 1,
+        page: 1,
+        page_size: 100,
+      });
+    });
+    const adapter = createScrydexOnePieceProviderAdapter({
+      credentials: syntheticCredentials,
+      baseUrl: syntheticBaseUrl,
+      lorcanaBaseUrl: `${syntheticBaseUrl}/../lorcana/v1`,
+      fetch,
+      now: () => observedAt,
+      countReader: { read: async () => null },
+      countEnvironment: "test",
+      countAccountRevision: "synthetic-revision",
+      cacheStore: { read: async () => null, write: vi.fn() },
+    });
+    const option = (await adapter.listOptions({ unitKey: scenario.unitKeys[0], optionKind: "sets" })).items[0]!;
+    expect(option.value).toBe(scenario.fixture.expansion.id);
+    const rows = scenario.unitKeys.map((unitKey) =>
+      catalogSyncAcceptedScopeMappingFromRow({
+        scope_record_id: scenario.scopeRecordId,
+        provider_key: "scrydex",
+        unit_key: unitKey,
+        product_line_id: null,
+        series_id: null,
+        set_id: null,
+        set_name: option.value,
+        mapping_id: `mapping-${unitKey}`,
+        review_status: "accepted",
+        updated_at: "2026-10-09T12:00:00.000Z",
       }),
-    ).resolves.toMatchObject({ planKey: "scrydex:one-piece:set:explicit" });
-    await expect(
-      subject.adapter.planImport({
-        unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
-        scopeKey: "synthetic",
-        values: { expansionId: "", setName: "accepted" },
-      }),
-    ).rejects.toThrow("requires expansionId");
-    await expect(
-      subject.adapter.planImport({
-        unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        scopeKey: "synthetic",
-        values: { cardId: "", setName: "accepted" },
-      }),
-    ).rejects.toThrow("requires cardId");
-    await expect(
-      subject.adapter.planImport({
-        unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-        scopeKey: "synthetic",
-        values: { sealedProductId: "", setName: "accepted" },
-      }),
-    ).rejects.toThrow("requires sealedProductId");
+    );
+    const versions = scenario.profiles.map(
+      (profileKey) => getActiveCatalogProviderIntegrationProfileVersion("scrydex", { profileKey })!,
+    );
+    const planningStart = calls.length;
+    const preview = await previewCatalogSyncProviderParticipation({
+      scope: {
+        scopeVersion: "catalog-sync-scope-v2",
+        productDomain: scenario.productDomain,
+        reference: { kind: "set", scopeRecordId: scenario.scopeRecordId },
+      },
+      acceptedScopeMappings: rows,
+      providerProfileVersions: versions,
+      providerAdapterRegistry: new ProviderAdapterRegistry([adapter]),
+    });
+    expect(preview.units).toHaveLength(scenario.unitKeys.length);
+    expect(preview.units.every((unit) => unit.blockers.length === 0)).toBe(true);
+    expect(preview.units.map((unit) => unit.childExecutionScope?.setName)).toEqual(
+      scenario.unitKeys.map(() => option.value),
+    );
+    const plans = await Promise.all(
+      preview.units.map((unit) =>
+        adapter.planImport({
+          unitKey: unit.unitKey,
+          scopeKey: "set-name",
+          values: {
+            setName: unit.childExecutionScope!.setName!,
+          },
+        }),
+      ),
+    );
+    expect(plans.map((plan) => plan.planKey)).toEqual(scenario.planKeys);
+    expect(calls.slice(planningStart).every((url) => new URL(url).pathname === "/account/v1/usage")).toBe(true);
+    expect(calls.slice(planningStart)).toHaveLength(scenario.unitKeys.length * 2);
   });
+
+  it.each(["one-piece", "lorcana"] as const)(
+    "keeps %s explicit coordinates authoritative over setName",
+    async (productDomain) => {
+      const subject = adapter();
+      const setUnit =
+        productDomain === "one-piece"
+          ? SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY
+          : SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY;
+      const cardUnit =
+        productDomain === "one-piece"
+          ? SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+          : SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
+      const sealedUnit =
+        productDomain === "one-piece"
+          ? SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+          : SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
+      const setCoordinates = [
+        [{ setId: "set-id", setName: "accepted" }, `scrydex:${productDomain}:set:set-id`],
+        [{ id: "id", setName: "accepted" }, `scrydex:${productDomain}:set:id`],
+        [{ parentValue: "parent", setName: "accepted" }, `scrydex:${productDomain}:set:parent`],
+      ] as const;
+      for (const [values, planKey] of setCoordinates) {
+        await expect(
+          subject.adapter.planImport({ unitKey: setUnit, scopeKey: "synthetic", values }),
+        ).resolves.toMatchObject({ planKey });
+      }
+      for (const [values, planKey] of [
+        [{ expansionId: "expansion", setName: "accepted" }, `scrydex:${productDomain}:expansion:expansion:cards`],
+        [{ setId: "set-id", setName: "accepted" }, `scrydex:${productDomain}:expansion:set-id:cards`],
+        [{ parentValue: "parent", setName: "accepted" }, `scrydex:${productDomain}:expansion:parent:cards`],
+      ] as const) {
+        await expect(
+          subject.adapter.planImport({ unitKey: cardUnit, scopeKey: "synthetic", values }),
+        ).resolves.toMatchObject({ planKey });
+      }
+      await expect(
+        subject.adapter.planImport({
+          unitKey: cardUnit,
+          scopeKey: "synthetic",
+          values: { cardId: "card", setName: "accepted" },
+        }),
+      ).resolves.toMatchObject({ planKey: `scrydex:${productDomain}:card:card` });
+      for (const [values, planKey] of [
+        [{ expansionId: "expansion", setName: "accepted" }, `scrydex:${productDomain}:expansion:expansion:sealed`],
+        [{ setId: "set-id", setName: "accepted" }, `scrydex:${productDomain}:expansion:set-id:sealed`],
+        [{ parentValue: "parent", setName: "accepted" }, `scrydex:${productDomain}:expansion:parent:sealed`],
+      ] as const) {
+        await expect(
+          subject.adapter.planImport({ unitKey: sealedUnit, scopeKey: "synthetic", values }),
+        ).resolves.toMatchObject({ planKey });
+      }
+      await expect(
+        subject.adapter.planImport({
+          unitKey: sealedUnit,
+          scopeKey: "synthetic",
+          values: { sealedProductId: "product", setName: "accepted" },
+        }),
+      ).resolves.toMatchObject({ planKey: `scrydex:${productDomain}:sealed:product` });
+      await expect(
+        subject.adapter.planImport({
+          unitKey: sealedUnit,
+          scopeKey: "synthetic",
+          values: { sealedId: "sealed", setName: "accepted" },
+        }),
+      ).resolves.toMatchObject({ planKey: `scrydex:${productDomain}:sealed:sealed` });
+      await expect(
+        subject.adapter.planImport({
+          unitKey: setUnit,
+          scopeKey: "synthetic",
+          values: { expansionId: "explicit", setName: "accepted" },
+        }),
+      ).resolves.toMatchObject({ planKey: `scrydex:${productDomain}:set:explicit` });
+      await expect(
+        subject.adapter.planImport({
+          unitKey: setUnit,
+          scopeKey: "synthetic",
+          values: { expansionId: "", setName: "accepted" },
+        }),
+      ).rejects.toThrow("requires expansionId");
+      await expect(
+        subject.adapter.planImport({
+          unitKey: cardUnit,
+          scopeKey: "synthetic",
+          values: { cardId: "", setName: "accepted" },
+        }),
+      ).rejects.toThrow("requires cardId");
+      await expect(
+        subject.adapter.planImport({
+          unitKey: sealedUnit,
+          scopeKey: "synthetic",
+          values: { sealedProductId: "", setName: "accepted" },
+        }),
+      ).rejects.toThrow("requires sealedProductId");
+      expect(subject.fetch).toHaveBeenCalledTimes(16);
+      expect(
+        subject.fetch.mock.calls.every(([request]) => new URL(String(request)).pathname === "/account/v1/usage"),
+      ).toBe(true);
+    },
+  );
 });
 
 import {
