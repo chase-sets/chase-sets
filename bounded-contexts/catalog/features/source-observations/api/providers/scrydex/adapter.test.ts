@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createScrydexOnePieceProviderAdapter,
   SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
   type ScrydexOnePieceCredentials,
 } from "./adapter";
 
@@ -254,6 +258,80 @@ describe("Scrydex usage snapshot boundary", () => {
     expect(first.fetch).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("accepted set-name coordinates", () => {
+  function adapter() {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (request) => {
+      expect(new URL(String(request)).pathname).toBe("/account/v1/usage");
+      throw new Error("synthetic denied provider fetch");
+    });
+    return {
+      adapter: createScrydexOnePieceProviderAdapter({
+        credentials: syntheticCredentials,
+        baseUrl: syntheticBaseUrl,
+        fetch,
+        now: () => observedAt,
+        countReader: { read: async () => null },
+        countEnvironment: "test",
+        countAccountRevision: "synthetic-revision",
+        cacheStore: { read: async () => null, write: vi.fn() },
+      }),
+      fetch,
+    };
+  }
+
+  it.each([
+    [SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY, "scrydex:one-piece:set:op-01"],
+    [SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY, "scrydex:one-piece:expansion:op-01:cards"],
+    [SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY, "scrydex:one-piece:expansion:op-01:sealed"],
+    [SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY, "scrydex:lorcana:set:1"],
+    [SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY, "scrydex:lorcana:expansion:1:cards"],
+  ])("plans %s from the accepted setName coordinate", async (unitKey, planKey) => {
+    const subject = adapter();
+    const plan = await subject.adapter.planImport({
+      unitKey,
+      scopeKey: "synthetic",
+      values: { setName: unitKey.includes("lorcana") ? "1" : "op-01" },
+    });
+
+    expect(plan.planKey).toBe(planKey);
+    expect(subject.fetch).toHaveBeenCalledOnce();
+    expect(subject.fetch.mock.calls[0]?.[0]).toContain("/account/v1/usage");
+  });
+
+  it("keeps explicit coordinates authoritative over setName and refuses blank explicit keys", async () => {
+    const subject = adapter();
+    await expect(
+      subject.adapter.planImport({
+        unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+        scopeKey: "synthetic",
+        values: { expansionId: "explicit", setName: "accepted" },
+      }),
+    ).resolves.toMatchObject({ planKey: "scrydex:one-piece:set:explicit" });
+    await expect(
+      subject.adapter.planImport({
+        unitKey: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+        scopeKey: "synthetic",
+        values: { expansionId: "", setName: "accepted" },
+      }),
+    ).rejects.toThrow("requires expansionId");
+    await expect(
+      subject.adapter.planImport({
+        unitKey: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        scopeKey: "synthetic",
+        values: { cardId: "", setName: "accepted" },
+      }),
+    ).rejects.toThrow("requires cardId");
+    await expect(
+      subject.adapter.planImport({
+        unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        scopeKey: "synthetic",
+        values: { sealedProductId: "", setName: "accepted" },
+      }),
+    ).rejects.toThrow("requires sealedProductId");
+  });
+});
+
 import {
   acquireScrydexPageOneCount,
   scrydexCountQuery,
