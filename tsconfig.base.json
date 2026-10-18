@@ -993,6 +993,9 @@
       "@chase-sets/stripe-payments": [
         "./infrastructure/stripe-payments/index.ts"
       ],
+      "@chase-sets/tcgplayer-market-observations": [
+        "./contracts/tcgplayer-market-observations/index.ts"
+      ],
       "@chase-sets/twilio-messaging": [
         "./infrastructure/twilio-messaging/index.ts"
       ],

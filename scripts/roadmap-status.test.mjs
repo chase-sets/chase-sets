@@ -585,9 +585,9 @@ describe("roadmap publication authority", () => {
   });
 
   it("binds backlog-model outcome and scheduling contract", () => {
-    const docs = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8").replaceAll(
-      "\r\n",
-      "\n",
+    const prose = readFileSync(path.join(repoRoot, "docs", "contributing", "backlog-model.md"), "utf8").replace(
+      /\s+/g,
+      " ",
     );
     for (const literal of [
       "Milestone = finite outcome membership and exit-gate closure",
@@ -598,7 +598,11 @@ describe("roadmap publication authority", () => {
       "Malformed or duplicate metadata is an explicit error",
       "A milestone without outcome metadata is not",
       "Completion forecasting is owned by #7465.",
-      "Outcome order** is agent-owned order within a named track",
+      "Outcome order** is agent-owned order across all committed outcomes",
+      "Committed outcomes compare by their outcome `order` alone, across tracks, then by milestone number; track names never decide rank.",
+      "`scripts/next-work.mjs` is the computed Selection.",
+      "An evidenced p0 emergency may run ahead of its rank only with a recorded `p0-emergency` reason (#9946).",
+      "belongs to one **lane class**: `product` is `kind:product`; `ops` is `kind:ops` or a title starting `[controller]`; `other` is everything else.",
       "Blocker** is a native correctness edge, never a scheduling opinion",
       "Dispatch rank** is agent-maintained issue order inside the selected outcome",
       "p0 interrupts an active lane only",
@@ -607,7 +611,7 @@ describe("roadmap publication authority", () => {
       "p3 is opportunistic",
       "drained merge queue with no sibling pull",
     ])
-      expect(docs).toContain(literal);
+      expect(prose).toContain(literal);
   });
 
   it("binds Probe ladder lifecycle and authority boundaries to the documentation contract", () => {

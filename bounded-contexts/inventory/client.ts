@@ -267,14 +267,6 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async searchCatalogItems(query = ""): Promise<ListResponse<InventoryCatalogItemSnapshot>> {
-      return parseJsonResponse(
-        await client["catalog-items"].$get({
-          query: Object.fromEntries(new URLSearchParams(query)),
-          header: headers,
-        }),
-      );
-    },
     async createItem(body: InventoryCreateItemRequest) {
       return parseJsonResponse(await client.items.$post({ json: body, header: headers }));
     },
