@@ -18,12 +18,12 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/pricing": "workspace:*",
     "@chase-sets/public-presence": "workspace:*",
-    "@react-router/node": "7.14.0",
-    "@react-router/serve": "7.14.0",
+    "@react-router/node": "7.18.4",
+    "@react-router/serve": "7.18.4",
     "isbot": "^5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "react-router": "^7.14.0"
+    "react-router": "^7.18.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",

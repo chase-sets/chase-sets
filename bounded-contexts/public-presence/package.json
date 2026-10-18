@@ -41,9 +41,9 @@
     "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/public-docs": "workspace:*",
-    "hono": "^4.12.12",
+    "hono": "^4.13.13",
     "react": "^19.2.5",
-    "react-router": "^7.14.0"
+    "react-router": "^7.18.4"
   },
   "devDependencies": {
     "@chase-sets/typescript-compiler-api": "workspace:*",
