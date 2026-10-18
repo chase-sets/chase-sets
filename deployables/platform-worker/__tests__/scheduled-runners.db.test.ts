@@ -370,7 +370,6 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         terms: {
           currency: "USD",
           adjustmentBps: 0,
-          itemCommitmentAllowance: "20.00",
           offers: [
             {
               offerId,
