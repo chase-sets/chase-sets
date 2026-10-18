@@ -20,17 +20,36 @@ const sortedDataJson = (configMapData) =>
         .map((key) => [key, configMapData[key]]),
     ),
   );
+const message = "Chase Sets is temporarily unavailable. Please try again in a minute.";
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function expectConfigLine(config, line) {
+  expect(config).toMatch(new RegExp(`^\\s*${escapeRegExp(line)}$`, "m"));
+}
+
+function expectOrderedLines(config, lines) {
+  let previous = -1;
+  for (const line of lines) {
+    expectConfigLine(config, line);
+    const index = config.indexOf(line, previous + 1);
+    expect(index).toBeGreaterThan(previous);
+    previous = index;
+  }
+}
 
 function assertMaintenanceConfig(candidate) {
   const candidateBackend = candidate.defaultBackend;
-  const candidateData = candidateBackend.extraConfigMaps[0].data;
-  expect(candidate.controller.config).toMatchObject({
+  expect(candidate.controller.config).toEqual({
+    "use-proxy-protocol": "false",
+    "use-forwarded-headers": "true",
+    "ssl-redirect": "true",
     "custom-http-errors": "502,503,504",
     "disable-proxy-intercept-errors": "true",
   });
   expect(candidateBackend).toMatchObject({
     enabled: true,
-    replicaCount: 1,
+    replicaCount: 2,
+    minAvailable: 1,
     port: 8080,
     image: {
       registry: "docker.io",
@@ -45,34 +64,89 @@ function assertMaintenanceConfig(candidate) {
     },
     serviceAccount: { automountServiceAccountToken: false },
     resources: { requests: { cpu: "10m", memory: "32Mi" } },
+    topologySpreadConstraints: [
+      { maxSkew: 1, topologyKey: "kubernetes.io/hostname", whenUnsatisfiable: "ScheduleAnyway" },
+    ],
   });
+
+  expect(candidateBackend.extraConfigMaps).toHaveLength(1);
+  expect(candidateBackend.extraConfigMaps[0].name).toBe("ingress-nginx-maintenance");
+  const candidateData = candidateBackend.extraConfigMaps[0].data;
   expect(candidateBackend.podAnnotations["chase-sets.com/maintenance-config-sha256"]).toBe(
     digest(sortedDataJson(candidateData)),
   );
   expect(candidateData).toEqual({
-    "502.json":
-      '{"status":502,"error":"bad_gateway","message":"Chase Sets is temporarily unavailable. Please try again in a minute."}\n',
-    "503.json":
-      '{"status":503,"error":"service_unavailable","message":"Chase Sets is temporarily unavailable. Please try again in a minute."}\n',
-    "504.json":
-      '{"status":504,"error":"gateway_timeout","message":"Chase Sets is temporarily unavailable. Please try again in a minute."}\n',
+    "502.json": `{"status":502,"error":"bad_gateway","message":"${message}"}\n`,
+    "503.json": `{"status":503,"error":"service_unavailable","message":"${message}"}\n`,
+    "504.json": `{"status":504,"error":"gateway_timeout","message":"${message}"}\n`,
     "default.conf": expect.any(String),
     "maintenance.html": expect.any(String),
   });
 
   const config = candidateData["default.conf"];
-  expect(config).toContain("error_page 502 =502 $maintenance_uri;");
-  expect(config).toContain("error_page 503 =503 $maintenance_uri;");
-  expect(config).toContain("error_page 504 =504 $maintenance_uri;");
-  expect(config).not.toContain("proxy_intercept_errors on");
-  expect(config).toContain("return 404;");
-  expect(config).toContain('return 200 "ok\\n";');
+  expectOrderedLines(config, [
+    "map $http_x_format $maintenance_format {",
+    "default json;",
+    String.raw`~*(^|,)\s*(application/json|text/event-stream)(\s*\x3B[^,]*)?(,|$) json;`,
+    String.raw`~*(^|,)\s*text/html[^,]*\x3B\s*q=0(?:\.0*)?(?:\s*,|$) json;`,
+    String.raw`~*(^|,)\s*text/html(?:\s*\x3B[^,]*)?(,|$) html;`,
+    "}",
+    'map "$http_x_code:$maintenance_format" $maintenance_uri {',
+    '"502:html" /maintenance.html;',
+    '"503:html" /maintenance.html;',
+    '"504:html" /maintenance.html;',
+    '"502:json" /502.json;',
+    '"503:json" /503.json;',
+    '"504:json" /504.json;',
+    "}",
+  ]);
+  for (const line of [
+    "error_page 502 =502 $maintenance_uri;",
+    "error_page 503 =503 $maintenance_uri;",
+    "error_page 504 =504 $maintenance_uri;",
+    "if ($http_x_code = 502) { return 502; }",
+    "if ($http_x_code = 503) { return 503; }",
+    "if ($http_x_code = 504) { return 504; }",
+    "return 404;",
+    'return 200 "ok\\n";',
+  ]) {
+    expectConfigLine(config, line);
+  }
+  expect(config.match(/^\s*add_header Retry-After 60 always;$/gm)).toHaveLength(2);
+  expect(config.match(/^\s*add_header Cache-Control no-store always;$/gm)).toHaveLength(2);
+  for (const [start, end] of [
+    ["location = /maintenance.html {", "location ~ ^/(502|503|504)\\.json$ {"],
+    ["location ~ ^/(502|503|504)\\.json$ {", "location / {"],
+  ]) {
+    const startIndex = config.indexOf(start);
+    const endIndex = config.indexOf(end, startIndex + start.length);
+    const block = startIndex >= 0 && endIndex >= 0 ? config.slice(startIndex, endIndex) : undefined;
+    expect(block).toBeDefined();
+    expect(block).toContain("internal;");
+    expect(block).toContain("add_header Retry-After 60 always;");
+    expect(block).toContain("add_header Cache-Control no-store always;");
+  }
+  expectConfigLine(config, "default_type text/html;");
+  expectConfigLine(config, "charset utf-8;");
 
   const html = candidateData["maintenance.html"];
-  expect(html).toContain("Chase Sets");
-  expect(html).toContain("We'll be right back");
-  expect(html).toContain("Chase Sets is temporarily unavailable. Please try again in a minute.");
-  expect(html).not.toMatch(/\b(?:src|href)\s*=|url\(|https?:\/\//i);
+  expect(html).toContain("<div>Chase Sets</div>");
+  expect(html).toContain("<h1>We'll be right back</h1>");
+  expect(html).toContain(`<p>${message}</p>`);
+  expect(html).toContain("max-width: 32rem");
+  for (const token of [
+    "--background: #f7f5f1",
+    "--card: #ffffff",
+    "--foreground: #211d33",
+    "--text-secondary: #4d4763",
+    "--border: #e6e2d9",
+    "--radius-lg: 0.75rem",
+    "--space-8: 2rem",
+    "--space-6: 1.5rem",
+  ]) {
+    expect(html).toContain(token);
+  }
+  expect(html).not.toMatch(/<script\b|\bsrc\s*=|\bhref\s*=|url\(|https?:\/\//i);
   expect(classifyBrandFoilContent(Buffer.from(html, "utf8"))).toEqual([]);
 
   for (const [code, error] of [
@@ -80,41 +154,37 @@ function assertMaintenanceConfig(candidate) {
     [503, "service_unavailable"],
     [504, "gateway_timeout"],
   ]) {
-    expect(JSON.parse(candidateData[`${code}.json`])).toEqual({
-      status: code,
-      error,
-      message: "Chase Sets is temporarily unavailable. Please try again in a minute.",
-    });
+    expect(JSON.parse(candidateData[`${code}.json`])).toEqual({ status: code, error, message });
   }
 
-  expect(candidateBackend.extraVolumes).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        name: "maintenance-config",
-        configMap: { name: "ingress-nginx-maintenance", items: [{ key: "default.conf", path: "default.conf" }] },
-      }),
-      expect.objectContaining({
-        name: "maintenance-bodies",
-        configMap: {
-          name: "ingress-nginx-maintenance",
-          items: expect.arrayContaining([
-            { key: "maintenance.html", path: "maintenance.html" },
-            { key: "502.json", path: "502.json" },
-            { key: "503.json", path: "503.json" },
-            { key: "504.json", path: "504.json" },
-          ]),
-        },
-      }),
-      expect.objectContaining({ name: "nginx-tmp", emptyDir: { medium: "Memory", sizeLimit: "16Mi" } }),
-    ]),
-  );
-  expect(candidateBackend.extraVolumeMounts).not.toEqual(
-    expect.arrayContaining([expect.objectContaining({ subPath: expect.anything() })]),
-  );
+  expect(candidateBackend.extraVolumes).toEqual([
+    {
+      name: "maintenance-config",
+      configMap: { name: "ingress-nginx-maintenance", items: [{ key: "default.conf", path: "default.conf" }] },
+    },
+    {
+      name: "maintenance-bodies",
+      configMap: {
+        name: "ingress-nginx-maintenance",
+        items: [
+          { key: "maintenance.html", path: "maintenance.html" },
+          { key: "502.json", path: "502.json" },
+          { key: "503.json", path: "503.json" },
+          { key: "504.json", path: "504.json" },
+        ],
+      },
+    },
+    { name: "nginx-tmp", emptyDir: { medium: "Memory", sizeLimit: "16Mi" } },
+  ]);
+  expect(candidateBackend.extraVolumeMounts).toEqual([
+    { name: "maintenance-config", mountPath: "/etc/nginx/conf.d", readOnly: true },
+    { name: "maintenance-bodies", mountPath: "/opt/chase-sets-maintenance", readOnly: true },
+    { name: "nginx-tmp", mountPath: "/tmp" },
+  ]);
 }
 
 describe("ingress maintenance default backend contract", () => {
-  it("pins the controller interception policy, worker, files, and safe mounts", () => {
+  it("pins controller policy, worker, files, negotiation, headers, and safe mounts", () => {
     assertMaintenanceConfig(values);
   });
 
@@ -127,6 +197,38 @@ describe("ingress maintenance default backend contract", () => {
   it("rejects an interception-enabled mutant", () => {
     const mutant = parse(source);
     mutant.controller.config["disable-proxy-intercept-errors"] = "false";
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects a missing /tmp mount", () => {
+    const mutant = parse(source);
+    mutant.defaultBackend.extraVolumeMounts = mutant.defaultBackend.extraVolumeMounts.filter(
+      ({ name }) => name !== "nginx-tmp",
+    );
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects HTML-first format precedence", () => {
+    const mutant = parse(source);
+    const config = mutant.defaultBackend.extraConfigMaps[0].data["default.conf"];
+    const htmlLine = String.raw`~*(^|,)\s*text/html(?:\s*\x3B[^,]*)?(,|$) html;`;
+    mutant.defaultBackend.extraConfigMaps[0].data["default.conf"] = config
+      .replace(new RegExp(`^\\s*${htmlLine}\\s*$`, "m"), "")
+      .replace(/^(\s*)default json;$/m, `$1${htmlLine}\n$1default json;`);
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects a missing HTML charset", () => {
+    const mutant = parse(source);
+    mutant.defaultBackend.extraConfigMaps[0].data["default.conf"] = mutant.defaultBackend.extraConfigMaps[0].data[
+      "default.conf"
+    ].replace(/^\s*charset utf-8;\s*$/m, "");
+    expect(() => assertMaintenanceConfig(mutant)).toThrow();
+  });
+
+  it("rejects a single maintenance replica", () => {
+    const mutant = parse(source);
+    mutant.defaultBackend.replicaCount = 1;
     expect(() => assertMaintenanceConfig(mutant)).toThrow();
   });
 });

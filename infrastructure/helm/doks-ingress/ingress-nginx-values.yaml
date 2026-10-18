@@ -69,7 +69,12 @@ controller:
 
 defaultBackend:
   enabled: true
-  replicaCount: 1
+  replicaCount: 2
+  minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
   image:
     registry: docker.io
     image: nginxinc/nginx-unprivileged
@@ -90,13 +95,14 @@ defaultBackend:
       cpu: 10m
       memory: 32Mi
   podAnnotations:
-    chase-sets.com/maintenance-config-sha256: 66a8858a021a9c86d2684861ef6e5a6281d1d5e071091c89a8d2ee28e4db787b
+    chase-sets.com/maintenance-config-sha256: 3aaf832ea25f9154e4f07ae7b2eac3d1a3c56196d8c096e1b632953f47fc3efe
   extraConfigMaps:
     - name: ingress-nginx-maintenance
       data:
         default.conf: |
           map $http_x_format $maintenance_format {
             default json;
+            # JSON and SSE must win over browser HTML preferences.
             ~*(^|,)\s*(application/json|text/event-stream)(\s*\x3B[^,]*)?(,|$) json;
             ~*(^|,)\s*text/html[^,]*\x3B\s*q=0(?:\.0*)?(?:\s*,|$) json;
             ~*(^|,)\s*text/html(?:\s*\x3B[^,]*)?(,|$) html;
@@ -128,6 +134,7 @@ defaultBackend:
             location = /maintenance.html {
               internal;
               default_type text/html;
+              charset utf-8;
               add_header Retry-After 60 always;
               add_header Cache-Control no-store always;
               try_files /maintenance.html =503;
