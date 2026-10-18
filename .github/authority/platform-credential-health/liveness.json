@@ -1,0 +1,81 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "DIGITALOCEAN_READONLY_TOKEN",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "ENVIRONMENT_SECRETS_TOKEN",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "PROJECTS_TOKEN",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "RELEASE_EVIDENCE_SPACES_ACCESS_ID",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "RELEASE_EVIDENCE_SPACES_SECRET_KEY",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "SEED_PACKS_SPACES_ACCESS_ID",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "SEED_PACKS_SPACES_SECRET_KEY",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "credential-rotation"
+    },
+    {
+      "file": ".github/workflows/platform-credential-health.yml",
+      "jobId": "liveness",
+      "stepAnchor": "name:Check credential liveness#2",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "credential-rotation"
+    }
+  ]
+}
