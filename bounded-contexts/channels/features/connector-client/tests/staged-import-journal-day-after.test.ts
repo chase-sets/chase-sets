@@ -183,6 +183,7 @@ describe("staged-import-journal-day-after (file-serial, synthetic, no provider a
   );
   it("acked is inert until 24 h after ack, then swept at most 32 per wake", async () => {
     const f = await fixture([1000]);
+    f.claims.length = 0;
     const coordinator = createConnectorOperationCoordinator(f.ports);
     for (let batch = 0; batch < 5; batch++) {
       for (let index = 0; index < Math.min(8, 33 - batch * 8); index++) f.claims.push(f.claim(`${batch}-${index}`));
