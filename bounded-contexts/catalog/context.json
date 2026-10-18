@@ -847,6 +847,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /grant",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /",
         "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /grant"
       ],
       "visibleDestination": {

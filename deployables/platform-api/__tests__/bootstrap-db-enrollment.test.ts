@@ -1114,7 +1114,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("derives the complete frozen six-entry non-bootstrap census independently of suffixes", async () => {
     const fixture = await createDbCensusFixture();
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
-    expect(census.dbEntries).toHaveLength(18);
+    expect(census.dbEntries).toHaveLength(16);
     expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
     expect(census.dbEntries.filter((entry) => !census.bootstrapEntries.includes(entry)).sort()).toEqual(
@@ -1126,7 +1126,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   it.each(["test:unit", "test:fast"])("rejects Catalog and nested DB leaks from %s (N1)", async (name) => {
     for (const entry of [
       "__tests__/seed-command-catalog.db.test.ts",
-      "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
+      "__tests__/operator-session/operator-extension-route-contract.db.test.ts",
     ]) {
       const fixture = await createDbCensusFixture();
       await editScripts(fixture, (scripts) => {
@@ -1177,7 +1177,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it.each([
     ["absent-entry", 0],
-    ["operator-session", 5],
+    ["operator-session", 3],
   ] as const)("rejects filter %s resolving to %i entries (N7)", async (filter, count) => {
     const fixture = await createDbCensusFixture();
     await editScripts(fixture, (scripts) => {
