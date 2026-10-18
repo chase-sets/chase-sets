@@ -383,7 +383,7 @@ Keep those artifacts with the issue or PR that requested the drill.
 
 ## Runtime Secret Rotation
 
-Rotate provider credentials in the protected GitHub Environment first, then run Platform Deploy so the Secret exporter and workloads move atomically. Verify the Secret checksum changed and all workloads rolled. Do not patch the Kubernetes Secret directly except under an active incident, and reconcile any emergency patch through the workflow immediately.
+Rotate provider credentials in the protected GitHub Environment first, then run Platform Deploy so the Secret exporter and workloads move atomically. The daily credential health check and its alert levels are in [Credential Rotation](./credential-rotation.md). Verify the Secret checksum changed and all workloads rolled. Do not patch the Kubernetes Secret directly except under an active incident, and reconcile any emergency patch through the workflow immediately.
 
 ## Ingress, Certificates, And Load Balancer
 
