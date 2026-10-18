@@ -671,11 +671,15 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit' }); writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
       "setInterval(() => {}, 1000);",
     ].join(" ");
+    const timeoutStartedAt = Date.now();
     await expect(
       commandOutput(process.execPath, ["--input-type=module", "--eval", grandchildScript], {
         timeout: 200,
       }),
     ).rejects.toThrow("timed out after 200ms");
+    const timeoutElapsedMs = Date.now() - timeoutStartedAt;
+    const timeoutMarginMs = process.platform === "win32" ? 3_000 : 1_500;
+    expect(timeoutElapsedMs).toBeLessThan(200 + timeoutMarginMs);
     if (process.platform !== "win32") {
       let grandchildPid;
       for (let attempt = 0; attempt < 20 && !grandchildPid; attempt += 1) {
@@ -746,29 +750,38 @@ describe("digitalocean-preview-cleanup-sweep", () => {
 
   it("fails closed at the discovery budget", async () => {
     const calls = { namespaces: 0, lookups: 0 };
-    const result = await discoverPreviewCleanupTargets(
-      discoveryOptions({ discoveryBudgetMs: 35, discoveryCommandTimeoutMs: 1_000 }),
-      {
-        awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-3.tfstate" }] }),
-        listDatabaseClusters: async () => [],
-        listDomains: async () => [],
-        listDomainRecords: async () => [],
-        listNamespaces: async () => {
-          calls.namespaces += 1;
-          return new Promise(() => {});
-        },
-        fetchPullRequest: async () => {
-          calls.lookups += 1;
-          return { state: "closed", merged: true };
-        },
+    let nowMs = 0;
+    const result = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryCommandTimeoutMs: 1_000 }), {
+      awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-3.tfstate" }] }),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => {
+        nowMs = 8 * 60 * 1_000 - 30;
+        return [];
       },
-    );
+      listNamespaces: async () => {
+        calls.namespaces += 1;
+        return new Promise(() => {});
+      },
+      fetchPullRequest: async () => {
+        calls.lookups += 1;
+        return { state: "closed", merged: true };
+      },
+      clock: () => nowMs,
+    });
     expect(calls).toEqual({ namespaces: 1, lookups: 0 });
     expect(result.record.result).toBe("failure");
     expect(result.record.errors).toContain("budget-exhausted");
     expect(result.record.targets).toEqual([]);
     expect(result.matrix.include).toEqual([]);
     expect(result.record.phases).toHaveLength(5);
+    expect(result.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
     expect(result.record.phases[3]).toMatchObject({ name: "namespace-list", error: "budget-exhausted", count: null });
     expect(result.record.phases[4]).toMatchObject({
       name: "pr-lookups",
@@ -856,6 +869,64 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     expect(nonDiscoverCalls).toHaveBeenCalledWith("doctl", ["databases", "list", "--output", "json"], {});
   });
 
+  it("records bounded discover transport without bounding inventory or dry-run cleanup", async () => {
+    const transportCalls = [];
+    const fetchMock = vi.fn((url, init = {}) => {
+      transportCalls.push({ url, init });
+      if (init.signal) {
+        return new Promise((resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("timed out", "AbortError")), {
+            once: true,
+          });
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ state: "closed", merged: true }) });
+    });
+    const databaseClusters = [{ id: "db-30", name: "chase-sets-pr-30-postgres", tags: ["preview"] }];
+    const inventoryOptions = {
+      repository: "chase-sets/chase-sets",
+      githubToken: "token",
+      checkedAt: "2026-07-10T12:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const inventory = await buildPreviewDatabaseClusterInventory(inventoryOptions, {
+        listDatabaseClusters: async () => databaseClusters,
+      });
+      const cleanup = await cleanupLeakedPreviewDatabaseClusters(inventoryOptions, {
+        listDatabaseClusters: async () => databaseClusters,
+      });
+
+      const expectedCluster = {
+        clusterId: "db-30",
+        clusterName: "chase-sets-pr-30-postgres",
+        classification: "preview-*",
+        prNumber: 30,
+        pullRequestState: "closed",
+        leaked: true,
+        previewManagedClusterViolation: true,
+        conclusion: "leaked-preview-managed-cluster-violation",
+      };
+      expect(inventory.clusters).toEqual([expectedCluster]);
+      expect(cleanup.clusters).toEqual([expectedCluster]);
+      expect(cleanup.selectedDeletionClusters).toEqual([expectedCluster]);
+      expect(transportCalls.slice(0, 2).every(({ init }) => init.signal === undefined)).toBe(true);
+
+      const discover = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryPullRequestTimeoutMs: 25 }), {
+        awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-30.tfstate" }] }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => [],
+      });
+      expect(transportCalls[2].init.signal).toBeDefined();
+      expect(discover.record.errors).toContain("PR #30 lookup failed: timed out after 25ms.");
+      expect(discover.record.targets).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("records discovery phases and volume", async () => {
     const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
       awsJson: async () => ({
@@ -920,24 +991,90 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     });
     expect(warning.record.warnings[0]).toMatch(/database cluster listing failed/);
     expect(warning.record.phases[1].count).toBeNull();
+    expect(warning.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(warning.record.phases.map((phase) => phase.count)).toEqual([0, null, 0, 0, 0]);
 
-    const invalid = await discoverPreviewCleanupTargets({});
-    expect(invalid.record.phases.every((phase) => phase.error === "invalid-options")).toBe(true);
-
-    const perCallWarning = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryCommandTimeoutMs: 20 }), {
-      awsJson: async () => ({ Contents: [] }),
+    const stateListFailure = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => {
+        throw new Error("state unavailable");
+      },
       listDatabaseClusters: async () => [],
       listDomains: async () => [],
       listDomainRecords: async () => [],
       listNamespaces: async () => [],
     });
-    expect(perCallWarning.record.phases[3].error).toBeNull();
+    expect(stateListFailure.record.result).toBe("failure");
+    expect(stateListFailure.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(stateListFailure.record.phases.map((phase) => phase.count)).toEqual([null, null, null, null, null]);
+    expect(stateListFailure.record.phases[0].error).toBe("state unavailable");
+    expect(
+      stateListFailure.record.phases.slice(1).every((phase) => phase.error === "skipped-after-state-list-failure"),
+    ).toBe(true);
+
+    const invalid = await discoverPreviewCleanupTargets({});
+    expect(invalid.record.phases.every((phase) => phase.error === "invalid-options")).toBe(true);
+    expect(invalid.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(invalid.record.phases.map((phase) => phase.count)).toEqual([null, null, null, null, null]);
+
+    let lookupCount = 0;
+    const perCallWarning = await discoverPreviewCleanupTargets(
+      discoveryOptions({ discoveryCommandTimeoutMs: 30, discoveryBudgetMs: 1_000 }),
+      {
+        awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-31.tfstate" }] }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => new Promise(() => {}),
+        fetchPullRequest: async () => {
+          lookupCount += 1;
+          return { state: "closed", merged: false };
+        },
+      },
+    );
+    expect(perCallWarning.record.result).toBe("warning");
+    expect(perCallWarning.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(perCallWarning.record.phases.map((phase) => phase.count)).toEqual([1, 0, 0, null, 1]);
+    expect(perCallWarning.record.phases[3].error).toMatch(/timed out/);
+    expect(lookupCount).toBe(1);
 
     const budget = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryBudgetMs: 1 }), {
       awsJson: async () => new Promise(() => {}),
     });
     expect(budget.record.result).toBe("failure");
-    expect(budget.record.matrix ?? { include: [] }).toEqual({ include: [] });
+    expect(budget.matrix.include).toEqual([]);
+    expect(budget.record.targets).toEqual([]);
+    expect(budget.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(budget.record.phases.map((phase) => phase.count)).toEqual([null, null, null, null, null]);
   });
 });
 
