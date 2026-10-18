@@ -1,4 +1,3 @@
-// @ts-nocheck
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const LABEL = /^[A-Za-z0-9 ()'&,./+-]{1,64}$/;
 const MONEY = /^\d{1,7}\.\d{2}$/;
@@ -168,24 +167,24 @@ function rec(v: unknown, keys: readonly string[], code: string): Record<string, 
 }
 function arr(v: unknown, code: string): unknown[] {
   if (!Array.isArray(v)) bad(code);
-  return v;
+  return v as unknown[];
 }
 function integer(v: unknown, min: number, max: number, code: string): number {
   if (typeof v !== "number" || !Number.isSafeInteger(v) || v < min || v > max) bad(code);
-  return v;
+  return v as number;
 }
 function instant(v: unknown, code: string): string {
   if (typeof v !== "string" || !INSTANT.test(v) || !Number.isFinite(Date.parse(v)) || new Date(v).toISOString() !== v)
     bad(code);
-  return v;
+  return v as string;
 }
 function money(v: unknown, code: string): string {
   if (typeof v !== "string" || !MONEY.test(v)) bad(code);
-  return v;
+  return v as string;
 }
 function label(v: unknown, code: string): string {
   if (typeof v !== "string" || !LABEL.test(v)) bad(code);
-  return v;
+  return v as string;
 }
 function ascending(a: readonly number[], code: string) {
   for (let i = 1; i < a.length; i++) if (a[i]! <= a[i - 1]!) bad(code);
@@ -230,8 +229,8 @@ function parsePosture(v: unknown): TcgplayerMarketObservationPosture {
     salesConditions: ints(p.salesConditions),
     salesLanguages: ints(p.salesLanguages),
     salesVariants: ints(p.salesVariants),
-    salesListingType: p.salesListingType,
-    listingsVerifiedOnly: p.listingsVerifiedOnly,
+    salesListingType: p.salesListingType as TcgplayerMarketObservationPosture["salesListingType"],
+    listingsVerifiedOnly: p.listingsVerifiedOnly as boolean,
     listingsPageSize: integer(p.listingsPageSize, 1, 250, "invalid_posture"),
     listingsPageBudget: integer(p.listingsPageBudget, 1, 100, "invalid_posture"),
     listingsDeliveredCeiling: money(p.listingsDeliveredCeiling, "invalid_posture"),
@@ -252,7 +251,9 @@ export function parseTcgplayerMarketObservationRequest(v: unknown): TcgplayerMar
   if (ps.length < 1 || ps.length > 5) bad("invalid_request_product_count");
   const products = ps.map((x) => {
     const p = rec(x, ["productId", "skuIds", "skuTargetCount"], "invalid_request_product");
-    const ids = arr(p.skuIds).map((n) => integer(n, 1, Number.MAX_SAFE_INTEGER, "invalid_request_sku"));
+    const ids = arr(p.skuIds, "invalid_request_sku").map((n) =>
+      integer(n, 1, Number.MAX_SAFE_INTEGER, "invalid_request_sku"),
+    );
     if (ids.length < 1 || ids.length > 250) bad("invalid_request_sku_count");
     ascending(ids, "invalid_request_skus");
     return {
@@ -269,8 +270,8 @@ export function parseTcgplayerMarketObservationRequest(v: unknown): TcgplayerMar
   if ((r.phase === "price-points") !== (posture === null)) bad("invalid_request_posture_presence");
   return {
     contractVersion: 1,
-    requestId: r.requestId,
-    phase: r.phase,
+    requestId: r.requestId as string,
+    phase: r.phase as TcgplayerMarketObservationPhase,
     issuedAt: instant(r.issuedAt, "invalid_request_issued_at"),
     products,
     posture,
@@ -350,11 +351,12 @@ function parseHistory(v: unknown, p: TcgplayerMarketObservationRequestProduct): 
     if (
       typeof b.bucketStartDate !== "string" ||
       !/^\d{4}-\d\d-\d\d$/.test(b.bucketStartDate) ||
-      !Number.isFinite(Date.parse(`${b.bucketStartDate}T00:00:00.000Z`))
+      !Number.isFinite(Date.parse(`${b.bucketStartDate}T00:00:00.000Z`)) ||
+      new Date(`${b.bucketStartDate}T00:00:00.000Z`).toISOString().slice(0, 10) !== b.bucketStartDate
     )
       bad("invalid_history_bucket");
     return {
-      bucketStartDate: b.bucketStartDate,
+      bucketStartDate: b.bucketStartDate as string,
       marketPrice: nullableMoney(b.marketPrice, "invalid_history_bucket"),
       quantitySold: integer(b.quantitySold, 0, Number.MAX_SAFE_INTEGER, "invalid_history_bucket"),
       transactionCount: integer(b.transactionCount, 1, Number.MAX_SAFE_INTEGER, "invalid_history_bucket"),
@@ -528,6 +530,15 @@ function endpoint(
       : k === "listings"
         ? rows.map(parseListing)
         : rows.map((y) => parseHistory(y, p));
+  if (k === "listings") {
+    let maxSeen = 0;
+    for (const row of parsed as Listing[]) {
+      if (row.sellerOrdinal > maxSeen + 1) bad("invalid_listing_ordinal");
+      if (row.sellerOrdinal === maxSeen + 1) maxSeen = row.sellerOrdinal;
+    }
+  }
+  if (k === "history" && new Set((parsed as HistoryRow[]).map((row) => row.skuId)).size !== parsed.length)
+    bad("invalid_history");
   const m = metadata(Object.fromEntries(keys.map((key) => [key, x[key]])), k, r.posture!);
   const cap =
     k === "sales"
@@ -536,8 +547,31 @@ function endpoint(
         ? r.posture!.listingsPageSize * r.posture!.listingsPageBudget
         : 250;
   if (parsed.length > cap || integer(x.rejectedRows, 0, cap, "invalid_endpoint") > cap) bad("invalid_endpoint_cap");
-  if (status !== "observed" && ((m as { coverage: string }).coverage !== "unknown" || parsed.length !== 0))
-    bad("invalid_endpoint_matrix");
+  if (status !== "observed") {
+    const rejectedRows = integer(x.rejectedRows, 0, cap, "invalid_endpoint");
+    if (rejectedRows !== 0 || parsed.length !== 0 || (m as { coverage: string }).coverage !== "unknown")
+      bad("invalid_endpoint_matrix");
+    if (k === "sales") {
+      const sales = m as SalesMetadata;
+      if (
+        sales.pagesFetched !== 0 ||
+        sales.returnedCount !== 0 ||
+        sales.firstReportedTotal !== null ||
+        sales.lastReportedTotal !== null ||
+        sales.firstResultCount !== null ||
+        sales.lastResultCount !== null ||
+        sales.lastNextPage !== null
+      )
+        bad("invalid_endpoint_matrix");
+    } else if (k === "listings") {
+      const listings = m as ListingsMetadata;
+      if (listings.pagesFetched !== 0 || listings.returnedCount !== 0 || listings.reportedTotal !== null)
+        bad("invalid_endpoint_matrix");
+    } else {
+      const history = m as HistoryMetadata;
+      if (history.resultCount !== 0 || history.bucketCount !== 0) bad("invalid_endpoint_matrix");
+    }
+  }
   return {
     status,
     httpStatusClass: x.httpStatusClass as HttpStatusClass,
@@ -595,7 +629,85 @@ export function parseTcgplayerMarketObservationBatch(
   return out as TcgplayerMarketObservationBatch;
 }
 export function canonicalizeTcgplayerMarketObservationBatch(value: TcgplayerMarketObservationBatch): string {
-  return JSON.stringify(value);
+  const candidate = value as unknown as Record<string, unknown>;
+  if (
+    !candidate ||
+    typeof candidate !== "object" ||
+    typeof candidate.phase !== "string" ||
+    !Array.isArray(candidate.products)
+  )
+    return JSON.stringify(value);
+  const posture =
+    value.posture === null
+      ? null
+      : {
+          salesOffset: value.posture.salesOffset,
+          salesLimit: value.posture.salesLimit,
+          salesPageSize: value.posture.salesPageSize,
+          salesPageBudget: value.posture.salesPageBudget,
+          salesConditions: value.posture.salesConditions,
+          salesLanguages: value.posture.salesLanguages,
+          salesVariants: value.posture.salesVariants,
+          salesListingType: value.posture.salesListingType,
+          listingsVerifiedOnly: value.posture.listingsVerifiedOnly,
+          listingsPageSize: value.posture.listingsPageSize,
+          listingsPageBudget: value.posture.listingsPageBudget,
+          listingsDeliveredCeiling: value.posture.listingsDeliveredCeiling,
+          historyRange: value.posture.historyRange,
+          timeoutMs: value.posture.timeoutMs,
+        };
+  const products = value.products.map((product) => {
+    if (value.phase === "price-points") {
+      const priceProduct = product as PricePointsProduct;
+      return {
+        productId: priceProduct.productId,
+        pricePoints: priceProduct.pricePoints.map((row) => ({
+          skuId: row.skuId,
+          marketPrice: row.marketPrice,
+          lowestPrice: row.lowestPrice,
+          highestPrice: row.highestPrice,
+          priceCount: row.priceCount,
+          calculatedAt: row.calculatedAt,
+        })),
+      };
+    }
+    const secondary = product as SecondaryProduct;
+    const writeEndpoint = (endpointValue: Endpoint<unknown, object>, kind: "sales" | "listings" | "history") => {
+      const metadataKeys =
+        kind === "sales"
+          ? [
+              "coverage",
+              "pagesFetched",
+              "returnedCount",
+              "firstReportedTotal",
+              "lastReportedTotal",
+              "firstResultCount",
+              "lastResultCount",
+              "lastNextPage",
+            ]
+          : kind === "listings"
+            ? ["coverage", "pagesFetched", "returnedCount", "reportedTotal"]
+            : ["coverage", "resultCount", "bucketCount"];
+      const out: Record<string, unknown> = {
+        status: endpointValue.status,
+        httpStatusClass: endpointValue.httpStatusClass,
+        credentialsMode: endpointValue.credentialsMode,
+        requestedAt: endpointValue.requestedAt,
+        responseObservedAt: endpointValue.responseObservedAt,
+        rejectedRows: endpointValue.rejectedRows,
+        rows: endpointValue.rows,
+      };
+      for (const key of metadataKeys) out[key] = (endpointValue as Record<string, unknown>)[key];
+      return out;
+    };
+    return {
+      productId: secondary.productId,
+      sales: writeEndpoint(secondary.sales as Endpoint<unknown, object>, "sales"),
+      listings: writeEndpoint(secondary.listings as Endpoint<unknown, object>, "listings"),
+      history: writeEndpoint(secondary.history as Endpoint<unknown, object>, "history"),
+    };
+  });
+  return JSON.stringify({ contractVersion: 1, requestId: value.requestId, phase: value.phase, posture, products });
 }
 export async function digestTcgplayerMarketObservationBatchText(text: string): Promise<string> {
   if (typeof text !== "string" || !/^\x00*[\x00-\x7F]*$/.test(text)) bad("invalid_batch_text");
@@ -611,7 +723,126 @@ export function splitTcgplayerMarketObservationBatchText(text: string): readonly
   return parts;
 }
 export function maxBatchTextBytes(request: TcgplayerMarketObservationRequest): number {
-  return new TextEncoder().encode(JSON.stringify(request)).byteLength * 1000;
+  const maxLabel = "A".repeat(64);
+  const maxMoney = "9999999.99";
+  const maxInstant = "9999-12-31T23:59:59.999Z";
+  const maxSkuId = Math.max(...request.products.flatMap((product) => product.skuIds));
+  const maxProduct = Math.max(...request.products.map((product) => product.productId));
+  const maximalPricePoint = (skuId: number) => ({
+    skuId,
+    marketPrice: maxMoney,
+    lowestPrice: maxMoney,
+    highestPrice: maxMoney,
+    priceCount: Number.MAX_SAFE_INTEGER,
+    calculatedAt: maxInstant,
+  });
+  const maximalSale = () => ({
+    condition: maxLabel,
+    variant: maxLabel,
+    language: maxLabel,
+    listingType: maxLabel,
+    quantity: Number.MAX_SAFE_INTEGER,
+    purchasePrice: maxMoney,
+    shippingPrice: maxMoney,
+    orderDate: maxInstant,
+  });
+  const maximalListing = (sellerOrdinal: number) => ({
+    sellerOrdinal,
+    condition: maxLabel,
+    printing: maxLabel,
+    language: maxLabel,
+    price: maxMoney,
+    sellerShippingPrice: maxMoney,
+  });
+  const maximalHistory = () => ({
+    skuId: maxSkuId,
+    variant: maxLabel,
+    language: maxLabel,
+    condition: maxLabel,
+    buckets: Array.from({ length: 53 }, (_, index) => {
+      const date = new Date(Date.UTC(2020, 0, index + 1)).toISOString().slice(0, 10);
+      return {
+        bucketStartDate: date,
+        marketPrice: maxMoney,
+        quantitySold: Number.MAX_SAFE_INTEGER,
+        transactionCount: Number.MAX_SAFE_INTEGER,
+        lowSalePrice: maxMoney,
+        lowSalePriceWithShipping: maxMoney,
+        highSalePrice: maxMoney,
+        highSalePriceWithShipping: maxMoney,
+      };
+    }),
+  });
+  const maximalEndpoint = (kind: "sales" | "listings" | "history", cap: number) => {
+    if (kind === "sales")
+      return {
+        status: "observed" as const,
+        httpStatusClass: "none" as const,
+        credentialsMode: "include" as const,
+        requestedAt: maxInstant,
+        responseObservedAt: maxInstant,
+        rejectedRows: cap,
+        rows: Array.from({ length: cap }, maximalSale),
+        coverage: "request-cap-truncated" as const,
+        pagesFetched: 100,
+        returnedCount: cap,
+        firstReportedTotal: Number.MAX_SAFE_INTEGER,
+        lastReportedTotal: Number.MAX_SAFE_INTEGER,
+        firstResultCount: Number.MAX_SAFE_INTEGER,
+        lastResultCount: Number.MAX_SAFE_INTEGER,
+        lastNextPage: "Yes" as const,
+      };
+    if (kind === "listings")
+      return {
+        status: "observed" as const,
+        httpStatusClass: "none" as const,
+        credentialsMode: "include" as const,
+        requestedAt: maxInstant,
+        responseObservedAt: maxInstant,
+        rejectedRows: cap,
+        rows: Array.from({ length: cap }, (_, index) => maximalListing(index + 1)),
+        coverage: "page-budget-truncated" as const,
+        pagesFetched: 100,
+        returnedCount: cap,
+        reportedTotal: Number.MAX_SAFE_INTEGER,
+      };
+    return {
+      status: "observed" as const,
+      httpStatusClass: "none" as const,
+      credentialsMode: "include" as const,
+      requestedAt: maxInstant,
+      responseObservedAt: maxInstant,
+      rejectedRows: 250,
+      rows: Array.from({ length: 250 }, maximalHistory),
+      coverage: "inconsistent" as const,
+      resultCount: 250,
+      bucketCount: 13250,
+    };
+  };
+  const products = request.products.map((product) => {
+    if (request.phase === "price-points")
+      return { productId: product.productId, pricePoints: product.skuIds.map((skuId) => maximalPricePoint(skuId)) };
+    const salesCap = Math.min(
+      request.posture!.salesLimit,
+      request.posture!.salesPageSize * request.posture!.salesPageBudget,
+    );
+    const listingsCap = request.posture!.listingsPageSize * request.posture!.listingsPageBudget;
+    return {
+      productId: product.productId,
+      sales: maximalEndpoint("sales", salesCap),
+      listings: maximalEndpoint("listings", listingsCap),
+      history: maximalEndpoint("history", 250),
+    };
+  });
+  return new TextEncoder().encode(
+    JSON.stringify({
+      contractVersion: 1,
+      requestId: request.requestId,
+      phase: request.phase,
+      posture: request.posture,
+      products,
+    }),
+  ).byteLength;
 }
 export function maxPartCount(request: TcgplayerMarketObservationRequest): number {
   return Math.max(1, Math.ceil(maxBatchTextBytes(request) / PART_TEXT_MAX_BYTES));
@@ -626,7 +857,7 @@ export function parsePartPayload(
     p = rec(v, ["batchId", "requestId", "phase", "partIndex", "text"], "invalid_part");
   if (typeof p.batchId !== "string" || !UUID.test(p.batchId) || p.requestId !== r.requestId || p.phase !== r.phase)
     bad("invalid_part_identity");
-  const text = p.text;
+  const text = p.text as string;
   if (
     typeof text !== "string" ||
     text.length === 0 ||
@@ -635,9 +866,9 @@ export function parsePartPayload(
   )
     bad("invalid_part_text");
   return {
-    batchId: p.batchId,
-    requestId: r.requestId,
-    phase: r.phase,
+    batchId: p.batchId as string,
+    requestId: r.requestId as string,
+    phase: r.phase as TcgplayerMarketObservationPhase,
     partIndex: integer(p.partIndex, 0, maxPartCount(r) - 1, "invalid_part_index"),
     text,
   };
@@ -685,16 +916,16 @@ export function parseAdmissionPayload(
   for (const id of [p.creatorMembershipId, p.creatorUserId])
     if (typeof id !== "string" || id.length < 1 || id.length > 128) bad("invalid_admission");
   return {
-    batchId: p.batchId,
+    batchId: p.batchId as string,
     requestId: r.requestId,
     phase: r.phase,
     contractVersion: 1,
     partCount,
     textBytes,
-    digest: p.digest,
-    grantId: p.grantId,
-    creatorMembershipId: p.creatorMembershipId,
-    creatorUserId: p.creatorUserId,
+    digest: p.digest as string,
+    grantId: p.grantId as string,
+    creatorMembershipId: p.creatorMembershipId as string,
+    creatorUserId: p.creatorUserId as string,
     admittedAt: instant(p.admittedAt, "invalid_admission"),
   };
 }
@@ -704,6 +935,10 @@ export async function assembleAdmittedTcgplayerMarketObservationBatch(
 ): Promise<TcgplayerMarketObservationBatch> {
   const r = parseTcgplayerMarketObservationRequest(requestInput);
   if (!Array.isArray(history) || history.length < 2) bad("invalid_history");
+  for (let i = 0; i < history.length; i++) {
+    const event = history[i];
+    if (!event || typeof event !== "object" || event.streamVersion !== i + 1) bad("misordered_history");
+  }
   const events = history.map((e) => {
     const x = rec(e, ["streamVersion", "data"], "invalid_history_event");
     return {
@@ -732,26 +967,27 @@ export async function assembleAdmittedTcgplayerMarketObservationBatch(
     }
   }
   if (!admission) bad("missing_admission");
-  if (partEvents.length !== admission.partCount) bad("invalid_history_parts");
+  const admitted = admission as TcgplayerMarketObservationAdmissionPayload;
+  if (partEvents.some((event) => event.payload.batchId !== admitted.batchId)) bad("foreign_part");
+  if (partEvents.length !== admitted.partCount) bad("invalid_history_parts");
   const byIndex = new Map<number, { streamVersion: number; payload: TcgplayerMarketObservationPartPayload }>();
   for (const e of partEvents) {
     if (byIndex.has(e.payload.partIndex)) bad("duplicate_part");
     byIndex.set(e.payload.partIndex, e);
   }
-  for (let i = 0; i < admission.partCount; i++) {
-    const e = byIndex.get(i);
-    if (!e || e.streamVersion !== i + 1) bad("misordered_part");
-    if (i < admission.partCount - 1 && new TextEncoder().encode(e.payload.text).byteLength !== PART_TEXT_MAX_BYTES)
+  for (let i = 0; i < admitted.partCount; i++) {
+    const e = byIndex.get(i) ?? bad("misordered_part");
+    if (e.streamVersion !== i + 1) bad("misordered_part");
+    if (i < admitted.partCount - 1 && new TextEncoder().encode(e.payload.text).byteLength !== PART_TEXT_MAX_BYTES)
       bad("short_part");
   }
-  if (events.some((e) => e.streamVersion !== e.streamVersion || e.streamVersion > admission!.partCount + 1))
-    bad("event_after_admission");
-  const last = events.find((e) => e.streamVersion === admission!.partCount + 1);
+  if (events.some((e) => e.streamVersion > admitted.partCount + 1)) bad("event_after_admission");
+  const last = events.find((e) => e.streamVersion === admitted.partCount + 1);
   if (!last) bad("missing_admission");
-  const text = Array.from({ length: admission.partCount }, (_, i) => byIndex.get(i)!.payload.text).join("");
+  const text = Array.from({ length: admitted.partCount }, (_, i) => byIndex.get(i)!.payload.text).join("");
   if (
-    new TextEncoder().encode(text).byteLength !== admission.textBytes ||
-    (await digestTcgplayerMarketObservationBatchText(text)) !== admission.digest
+    new TextEncoder().encode(text).byteLength !== admitted.textBytes ||
+    (await digestTcgplayerMarketObservationBatchText(text)) !== admitted.digest
   )
     bad("invalid_history_digest");
   return parseTcgplayerMarketObservationBatch(text, r);
