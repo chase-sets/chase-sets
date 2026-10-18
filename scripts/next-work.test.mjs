@@ -485,7 +485,7 @@ describe("next-work collection", () => {
     const recovered = scriptedGitHub(
       graphqlRouter(() => {
         pass += 1;
-        return { json: issuesPage(pass === 1 ? [second] : [second, third], { totalCount: 2 }) };
+        return { json: issuesPage(pass === 1 ? [third] : [second, third], { totalCount: 2 }) };
       }),
     );
     expect((await collectNextWorkFacts(recovered.options)).issues).toHaveLength(2);
@@ -507,13 +507,18 @@ describe("next-work collection", () => {
 
     // Each incomplete shape fails closed after exactly one retry.
     const overflowFrom =
-      (id) =>
+      (id, totalCount = 2) =>
       ({ body }) =>
         body.query === BLOCKED_BY_QUERY
-          ? { json: { data: { node: { id, blockedBy: connection([edge(602, "CLOSED")], { totalCount: 2 }) } } } }
+          ? { json: { data: { node: { id, blockedBy: connection([edge(602, "CLOSED")], { totalCount }) } } } }
           : undefined;
+    const overflowing = issuesPage([
+      rawIssue(8, {
+        blockedBy: connection([edge(601, "CLOSED")], { hasNextPage: true, endCursor: "b-8", totalCount: 2 }),
+      }),
+    ]);
     const incompleteShapes = {
-      "short page count": [issuesPage([second], { totalCount: 2 })],
+      "short page count": [issuesPage([rawIssue(9)], { totalCount: 2 })],
       "closedByPullRequestsReferences overflow": [
         issuesPage([
           rawIssue(4, {
@@ -532,15 +537,8 @@ describe("next-work collection", () => {
       ],
       "reducer join failure": [issuesPage([rawIssue(6, { blocking: connection([edge(404)]) })])],
       "non-open root issue": [issuesPage([rawIssue(7, { state: "CLOSED" })])],
-      "overflow page for another issue": [
-        issuesPage([
-          rawIssue(8, {
-            blockedBy: connection([edge(601, "CLOSED")], { hasNextPage: true, endCursor: "b-8", totalCount: 2 }),
-          }),
-        ]),
-        overflowFrom("I_999"),
-        6,
-      ],
+      "overflow page for another issue": [overflowing, overflowFrom("I_999"), 6],
+      "overflow pages short of totalCount": [overflowing, overflowFrom("I_8", 3), 6],
     };
     for (const [shape, [page, extra, requestCount = 4]] of Object.entries(incompleteShapes)) {
       const failing = scriptedGitHub(graphqlRouter(() => ({ json: page }), extra));
@@ -550,10 +548,11 @@ describe("next-work collection", () => {
       expect(failing.requests, shape).toHaveLength(requestCount);
     }
 
-    // Provider errors fail closed at once, without a whole-pass retry.
+    // Provider errors fail closed at once, without a whole-pass retry, even
+    // when the body would otherwise parse as a complete page.
     for (const response of [
-      { json: { errors: [{ message: "denied" }], data: { repository: null } } },
-      { status: 502 },
+      { json: { errors: [{ message: "denied" }], data: issuesPage([rawIssue(2)]).data } },
+      { status: 502, json: issuesPage([rawIssue(2)]) },
     ]) {
       const failing = scriptedGitHub(graphqlRouter(() => response));
       await expect(collectNextWorkFacts(failing.options)).rejects.toMatchObject({ code: "NEXT_WORK_REQUEST_FAILED" });
