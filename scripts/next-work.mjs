@@ -10,6 +10,7 @@ import {
   findOutcomeOrderTies,
   isExecutableOutcome,
   readOutcomePolicy,
+  readSteeringPolicy,
 } from "./milestone-policy.mjs";
 
 export const SCHEMA_VERSION = "next-work/v1";
@@ -185,6 +186,17 @@ export function rankNextWork(facts, options = {}) {
   const excludedMilestones = normalizeExcludedMilestones(options.excludeMilestones ?? []);
   const excluded = new Set(excludedMilestones);
   const milestonesByNumber = new Map(facts.milestones.map((milestone) => [milestone.number, milestone]));
+  const steeringByNumber = new Map();
+  const steeringDefects = [];
+  for (const milestone of facts.milestones) {
+    const steering = readSteeringPolicy(milestone);
+    if (steering === null) continue;
+    if (String(milestone.state ?? "").toLowerCase() === "open" && !isExecutableOutcome(milestone)) {
+      steeringDefects.push({ code: "STEERING_ON_NON_EXECUTABLE", milestones: [milestone.number] });
+      continue;
+    }
+    if (isExecutableOutcome(milestone)) steeringByNumber.set(milestone.number, steering);
+  }
   const rankedMilestones = facts.milestones.filter(
     (milestone) => isExecutableOutcome(milestone) && !excluded.has(milestone.number),
   );
@@ -205,6 +217,7 @@ export function rankNextWork(facts, options = {}) {
       continue;
     }
     const policy = readOutcomePolicy(milestone);
+    const steering = steeringByNumber.get(milestone.number) ?? null;
     const lane = laneClass(issue);
     buckets[lane].push({
       milestone,
@@ -216,7 +229,7 @@ export function rankNextWork(facts, options = {}) {
         type: issue.issueType,
         laneClass: lane,
         ...action(issue, milestone),
-        steered: false,
+        steered: steering !== null,
         milestone: { number: milestone.number, title: milestone.title, track: policy.track, order: policy.order },
         priority: priority(issue),
         dispatchRank: issue.dispatchRank,
@@ -235,14 +248,27 @@ export function rankNextWork(facts, options = {}) {
       buckets[name].sort(compareRanked).map(({ entry }, index) => ({ ...entry, rank: index + 1 })),
     ]),
   );
+  const steering = [...steeringByNumber]
+    .map(([number, policy]) => {
+      const milestone = milestonesByNumber.get(number);
+      const outcome = readOutcomePolicy(milestone);
+      return {
+        milestone: number,
+        title: milestone.title,
+        order: outcome.order,
+        source: policy.source,
+        until: policy.until,
+      };
+    })
+    .sort((left, right) => left.order - right.order || left.milestone - right.milestone);
   return {
     schemaVersion: SCHEMA_VERSION,
     generatedAt: options.generatedAt ?? facts.collectedAt ?? null,
     repository: facts.repository,
     excludedMilestones,
     collection: facts.collection,
-    steering: [],
-    defects: findOutcomeOrderTies(rankedMilestones),
+    steering,
+    defects: [...findOutcomeOrderTies(rankedMilestones), ...steeringDefects],
     classes,
     excluded: exclusions,
   };

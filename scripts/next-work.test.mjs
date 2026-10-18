@@ -14,6 +14,8 @@ const CLASSIFIED = ["priority:p1", "area:delivery", "kind:product"];
 
 const marker = (track, order, status = "committed") =>
   `<!-- outcome: ${JSON.stringify({ version: 1, track, order, status })} -->`;
+const steeringMarker = (until = "until Todd answers the priority question") =>
+  `<!-- steering: ${JSON.stringify({ version: 1, source: "https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123", until })} -->`;
 
 function outcome(number, track, order, { status = "committed", state = "open", description } = {}) {
   return {
@@ -152,6 +154,37 @@ describe("next-work ranking", () => {
     ]);
   });
 
+  it("ranks steered outcomes before every unsteered outcome", () => {
+    const steered = outcome(500, "delivery", 500, { description: `${marker("delivery", 500)}\n${steeringMarker()}` });
+    const unsteered = outcome(100, "delivery", 100);
+    const document = rankNextWork(
+      facts([steered, unsteered], [issue(1, { milestone: 500 }), issue(2, { milestone: 100 })]),
+    );
+    expect(document.classes.product.map(({ issue: number, steered: value }) => [number, value])).toEqual([
+      [1, true],
+      [2, false],
+    ]);
+  });
+
+  it("lists current steering and reports steering on a non-executable milestone", () => {
+    const current = outcome(10, "delivery", 100, { description: `${marker("delivery", 100)}\n${steeringMarker()}` });
+    const candidate = outcome(11, "delivery", 200, {
+      status: "candidate",
+      description: `${marker("delivery", 200, "candidate")}\n${steeringMarker()}`,
+    });
+    const document = rankNextWork(facts([current, candidate], [issue(1, { milestone: 10 })]));
+    expect(document.steering).toEqual([
+      {
+        milestone: 10,
+        title: "Outcome 10",
+        order: 100,
+        source: "https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123",
+        until: "until Todd answers the priority question",
+      },
+    ]);
+    expect(document.defects).toContainEqual({ code: "STEERING_ON_NON_EXECUTABLE", milestones: [11] });
+  });
+
   it("reports one cross-track tie group and ignores excluded milestones", () => {
     const tied = [
       outcome(189, "commerce", 90),
@@ -286,11 +319,31 @@ describe("next-work CLI", () => {
     expect((await run([], tied)).code).toBe(0);
     expect((await run(["--check", "--exclude-milestone", "218"], tied)).code).toBe(0);
 
+    const steeredCandidate = outcome(218, "delivery", 91, {
+      status: "candidate",
+      description: `${marker("delivery", 91, "candidate")}\n${steeringMarker()}`,
+    });
+    expect(
+      (await run(["--check"], facts([outcome(189, "commerce", 90), steeredCandidate], [issue(1, { milestone: 189 })])))
+        .code,
+    ).toBe(1);
+
     const failed = await run(["--check", "--json", "out.json"], new Error("NEXT_WORK_FACTS_INCOMPLETE: short"));
     expect(failed).toMatchObject({ code: 2, stdout: "", stderr: "NEXT_WORK_FACTS_INCOMPLETE: short\n" });
     expect(failed.files.size).toBe(0);
     expect((await run(["--top", "0"], unique)).code).toBe(2);
     expect((await run(["--exclude-milestone", "x"], unique)).code).toBe(2);
+  });
+
+  it("fails closed on a malformed steering marker", async () => {
+    const malformed = facts(
+      [outcome(189, "commerce", 90, { description: `${marker("commerce", 90)}\n<!-- steering: {"version":1 ` })],
+      [issue(1, { milestone: 189 })],
+    );
+    const output = await run(["--json", "out.json"], malformed);
+    expect(output.code).toBe(2);
+    expect(output.files.size).toBe(0);
+    expect(output.stderr).toContain("STEERING_METADATA_MALFORMED");
   });
 });
 

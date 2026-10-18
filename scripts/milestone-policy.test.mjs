@@ -6,10 +6,13 @@ import {
   findOutcomeOrderTies,
   isExecutableOutcome,
   readOutcomePolicy,
+  readSteeringPolicy,
 } from "./milestone-policy.mjs";
 
 const marker = (track, order, status = "committed") =>
   `<!-- outcome: ${JSON.stringify({ version: 1, track, order, status })} -->`;
+const steering = (until = "until the priority question is answered") =>
+  `<!-- steering: ${JSON.stringify({ version: 1, source: "https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123", until })} -->`;
 const milestone = (id, title, description, overrides = {}) => ({
   id,
   number: Number(id.replace(/\D/g, "")) || 1,
@@ -65,6 +68,49 @@ describe("milestone outcome policy", () => {
     for (const description of cases) {
       expect(() => readOutcomePolicy(milestone("M1", "Wave 1", description))).toThrow(MilestonePolicyError);
     }
+  });
+
+  it("reads one steering marker and rejects duplicate, malformed or invalid ones", () => {
+    const valid = milestone("M1", "Wave 1", steering());
+    const parsed = readSteeringPolicy(valid);
+    expect(parsed).toEqual({
+      version: 1,
+      source: "https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123",
+      until: "until the priority question is answered",
+    });
+    expect(Object.isFrozen(parsed)).toBe(true);
+
+    const cases = [
+      ["duplicate", steering() + steering(), "STEERING_METADATA_DUPLICATE"],
+      ["malformed", '<!-- steering: {"version":1 ', "STEERING_METADATA_MALFORMED"],
+      [
+        "unknown key",
+        '<!-- steering: {"version":1,"source":"https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123","until":"x","extra":true} -->',
+        "STEERING_METADATA_INVALID",
+      ],
+      ["wrong version", steering().replace('"version":1', '"version":2'), "STEERING_METADATA_INVALID"],
+      [
+        "invalid source",
+        steering().replace(
+          "https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123",
+          "https://example.com/ruling",
+        ),
+        "STEERING_METADATA_INVALID",
+      ],
+      ["empty until", steering("").replace('"until":""', '"until":""'), "STEERING_METADATA_INVALID"],
+      ["long until", steering("x".repeat(501)), "STEERING_METADATA_INVALID"],
+    ];
+    for (const [name, description, code] of cases) {
+      expect(() => readSteeringPolicy(milestone("M1", `Wave 1 ${name}`, description))).toThrowError(
+        expect.objectContaining({ code }),
+      );
+    }
+  });
+
+  it("outcome metadata reads unchanged beside a steering marker", () => {
+    const withoutSteering = milestone("M1", "Wave 1", marker("commerce", 100));
+    const withSteering = milestone("M1", "Wave 1", `${marker("commerce", 100)}\n${steering()}`);
+    expect(readOutcomePolicy(withSteering)).toEqual(readOutcomePolicy(withoutSteering));
   });
 
   it("excludes candidates and closed outcomes from executable policy", () => {
