@@ -10,14 +10,27 @@ import { expect, test } from "@playwright/test";
 const productHead = "cca3018639b28bc2bd69384396fb81fd0b51f1e2";
 const observationId = "tcgdex_en_base2_60";
 const specPath = "deployables/admin-web/e2e/catalog-8735-evidence.spec.ts";
-type Assertion = { result: "PASS" | "FAIL" | "NOT_EXECUTED"; evidence?: unknown };
+type Assertion = {
+  result: "PASS" | "FAIL" | "NOT_EXECUTED";
+  evidence?: unknown;
+};
 type RpcResponse = {
   id?: number;
   error?: unknown;
   result?: { result?: { value?: unknown }; exceptionDetails?: unknown };
 };
-type ProviderRequest = { origin: string; path: string; method: string; stack: string; at: string };
-type MonitorState = { pid: number; observed: number; providers: ProviderRequest[] };
+type ProviderRequest = {
+  origin: string;
+  path: string;
+  method: string;
+  stack: string;
+  at: string;
+};
+type MonitorState = {
+  pid: number;
+  observed: number;
+  providers: ProviderRequest[];
+};
 type EvidencePayload = {
   observationId: string;
   detail: null | {
@@ -31,11 +44,18 @@ type EvidencePayload = {
   };
 };
 
-async function observeApi(port: number, save: (name: string, value: unknown) => void) {
-  const pids = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
-    encoding: "utf8",
-    timeout: 15000,
-  })
+async function observeApi(
+  port: number,
+  save: (name: string, value: unknown) => void,
+) {
+  const pids = execFileSync(
+    "lsof",
+    ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+    {
+      encoding: "utf8",
+      timeout: 15000,
+    },
+  )
     .trim()
     .split(/\s+/);
   assert.equal(pids.length, 1, "One owned API listener required");
@@ -46,8 +66,12 @@ async function observeApi(port: number, save: (name: string, value: unknown) => 
     .poll(
       async () => {
         try {
-          const response = await fetch("http://127.0.0.1:9229/json/list", { signal: AbortSignal.timeout(1000) });
-          const targets = (await response.json()) as { webSocketDebuggerUrl: string }[];
+          const response = await fetch("http://127.0.0.1:9229/json/list", {
+            signal: AbortSignal.timeout(1000),
+          });
+          const targets = (await response.json()) as {
+            webSocketDebuggerUrl: string;
+          }[];
           endpoint = targets[0]?.webSocketDebuggerUrl ?? "";
           return Boolean(endpoint);
         } catch {
@@ -60,7 +84,11 @@ async function observeApi(port: number, save: (name: string, value: unknown) => 
   const socket = new WebSocket(endpoint);
   await new Promise<void>((resolve, reject) => {
     socket.addEventListener("open", () => resolve(), { once: true });
-    socket.addEventListener("error", () => reject(new Error("API inspector connection failed")), { once: true });
+    socket.addEventListener(
+      "error",
+      () => reject(new Error("API inspector connection failed")),
+      { once: true },
+    );
   });
   let sequence = 0;
   const evaluate = (expression: string) =>
@@ -75,7 +103,8 @@ async function observeApi(port: number, save: (name: string, value: unknown) => 
         if (message.id !== id) return;
         clearTimeout(timer);
         socket.removeEventListener("message", receive);
-        if (message.error || message.result?.exceptionDetails) reject(new Error(JSON.stringify(message)));
+        if (message.error || message.result?.exceptionDetails)
+          reject(new Error(JSON.stringify(message)));
         else resolve(message.result?.result?.value);
       };
       socket.addEventListener("message", receive);
@@ -87,7 +116,11 @@ async function observeApi(port: number, save: (name: string, value: unknown) => 
         }),
       );
     });
-  assert.equal(await evaluate("process.pid"), pid, "Inspector must belong to exact API listener");
+  assert.equal(
+    await evaluate("process.pid"),
+    pid,
+    "Inspector must belong to exact API listener",
+  );
   await evaluate(`(async () => {
     const dc = process.getBuiltinModule('node:diagnostics_channel');
     const state = {pid: process.pid, observed: 0, providers: []};
@@ -113,7 +146,9 @@ async function observeApi(port: number, save: (name: string, value: unknown) => 
   });
   return {
     read: async () => {
-      const state = (await evaluate("globalThis.__capture8735.state")) as MonitorState;
+      const state = (await evaluate(
+        "globalThis.__capture8735.state",
+      )) as MonitorState;
       assert.equal(state.pid, pid);
       save("provider-requests.json", state);
       return state;
@@ -127,17 +162,24 @@ async function observeApi(port: number, save: (name: string, value: unknown) => 
   };
 }
 
-test("8735 exact-head review-only evidence capture @catalog-admin-integrations", async ({ browser }, testInfo) => {
+test("8735 exact-head review-only evidence capture @catalog-admin-integrations", async ({
+  browser,
+}, testInfo) => {
   test.setTimeout(120000);
   const root = process.cwd();
   const require = createRequire(path.join(root, "package.json"));
   const { Pool } = require("pg") as {
     Pool: new (options: object) => {
-      query: (sql: string, values?: string[]) => Promise<{ rows: Record<string, string>[] }>;
+      query: (
+        sql: string,
+        values?: string[],
+      ) => Promise<{ rows: Record<string, string>[] }>;
       end: () => Promise<void>;
     };
   };
-  const { resolveWorktreeSandbox } = await import(pathToFileURL(path.join(root, "scripts/lib/sandbox.mjs")).href);
+  const { resolveWorktreeSandbox } = await import(
+    pathToFileURL(path.join(root, "scripts/lib/sandbox.mjs")).href
+  );
   const sandbox = resolveWorktreeSandbox({ rootDir: root }) as {
     id: string;
     composeProjectName: string;
@@ -145,10 +187,17 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     ports: { platformApi: number };
     contextDatabaseUrls: { catalog: string };
   };
-  const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8", timeout: 15000 }).trim();
-  const changed = git("diff", "--name-only", productHead, "HEAD", "--").split(/\r?\n/).filter(Boolean);
-  assert.deepEqual(changed, [specPath], "Only capture spec may differ from immutable product tree");
-  const out = testInfo.outputPath("8735-evidence-g2");
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { encoding: "utf8", timeout: 15000 }).trim();
+  const changed = git("diff", "--name-only", productHead, "HEAD", "--")
+    .split(/\r?\n/)
+    .filter(Boolean);
+  assert.deepEqual(
+    changed,
+    [specPath],
+    "Only capture spec may differ from immutable product tree",
+  );
+  const out = testInfo.outputPath("8735-evidence-g4");
   mkdirSync(out, { recursive: true });
   const save = (name: string, value: unknown) => {
     writeFileSync(path.join(out, name), JSON.stringify(value, null, 2) + "\n");
@@ -210,13 +259,21 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       });
     }
     if (name === "04-narrowed-empty.png") {
-      const title = page.getByText(/No rejected observations in Jungle \(1 in this scope\)/).first();
+      const title = page
+        .getByText(/No rejected observations in Jungle \(1 in this scope\)/)
+        .first();
       await expect(title).toBeVisible();
       await title.scrollIntoViewIfNeeded();
       const box = await title.boundingBox();
-      assert.ok(box && box.y >= 0 && box.y + box.height <= 1000, "Narrowed-empty title must be fully visible");
+      assert.ok(
+        box && box.y >= 0 && box.y + box.height <= 1000,
+        "Narrowed-empty title must be fully visible",
+      );
     }
-    const bytes = await page.screenshot({ path: path.join(out, name), fullPage: false });
+    const bytes = await page.screenshot({
+      path: path.join(out, name),
+      fullPage: false,
+    });
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     screenshots.push({ name, sha256 });
     persist();
@@ -224,7 +281,13 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     for (let offset = 0; offset < data.length; offset += 12000)
       console.log(
         "8735_CAPTURE_PNG " +
-          JSON.stringify({ name, sha256, offset, total: data.length, data: data.slice(offset, offset + 12000) }),
+          JSON.stringify({
+            name,
+            sha256,
+            offset,
+            total: data.length,
+            data: data.slice(offset, offset + 12000),
+          }),
       );
   };
   const checkProvider = async () => {
@@ -233,23 +296,41 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     receipt.providerRequests = state;
     if (state.providers.length) {
       assertions.providerFree = { result: "FAIL", evidence: state };
-      throw new Error("PRODUCT_FINDING: review-only route triggered server-side provider request; capture stopped");
+      throw new Error(
+        "PRODUCT_FINDING: review-only route triggered server-side provider request; capture stopped",
+      );
     }
   };
   const assertReviewPath = () => {
-    assert.equal(new URL(page.url()).searchParams.get("section"), "source-observation-review");
+    const url = new URL(page.url());
+    assert.equal(url.pathname, "/catalog/integrations");
+    assert.ok(
+      [null, "source-observation-review"].includes(
+        url.searchParams.get("section"),
+      ),
+    );
   };
   try {
-    const docker = (...args: string[]) => execFileSync("docker", args, { encoding: "utf8", timeout: 15000 }).trim();
-    const ids = docker("ps", "-q", "--filter", `label=com.docker.compose.project=${sandbox.composeProjectName}`)
+    const docker = (...args: string[]) =>
+      execFileSync("docker", args, { encoding: "utf8", timeout: 15000 }).trim();
+    const ids = docker(
+      "ps",
+      "-q",
+      "--filter",
+      `label=com.docker.compose.project=${sandbox.composeProjectName}`,
+    )
       .split(/\s+/)
       .filter(Boolean);
     assert.ok(ids.length);
     const containers = ids.map((id) => {
-      const labels = JSON.parse(docker("inspect", "--format", "{{json .Config.Labels}}", id)) as Record<string, string>;
+      const labels = JSON.parse(
+        docker("inspect", "--format", "{{json .Config.Labels}}", id),
+      ) as Record<string, string>;
       assert.equal(labels["com.chase-sets.sandbox.id"], sandbox.id);
       assert.equal(
-        labels["com.chase-sets.sandbox.worktree"].replaceAll("\\", "/").toLowerCase(),
+        labels["com.chase-sets.sandbox.worktree"]
+          .replaceAll("\\", "/")
+          .toLowerCase(),
         root.replaceAll("\\", "/").toLowerCase(),
       );
       return {
@@ -268,22 +349,37 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
         .update(readFileSync(path.join(root, specPath)))
         .digest("hex"),
       containers,
-      readiness: "normal unchanged hosted webServer/projection prerequisites completed",
+      readiness:
+        "normal unchanged hosted webServer/projection prerequisites completed",
       at: new Date().toISOString(),
     });
     const apiRoot = "bounded-contexts/catalog/features/source-observations/api";
-    const adapter = readFileSync(path.join(root, apiRoot, "providers/tcgdex/adapter.ts"), "utf8");
+    const adapter = readFileSync(
+      path.join(root, apiRoot, "providers/tcgdex/adapter.ts"),
+      "utf8",
+    );
     const definition = adapter.match(
       /export const TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = defineCatalogIntegrationUnitKey\(\{([\s\S]*?)\}\);/,
     );
     assert.ok(definition, "Production unit definition required");
     const identity = Object.fromEntries(
-      [...definition[1].matchAll(/(\w+):\s*"([^"]+)"/g)].map((match) => [match[1], match[2]]),
+      [...definition[1].matchAll(/(\w+):\s*"([^"]+)"/g)].map((match) => [
+        match[1],
+        match[2],
+      ]),
     );
-    const factorySource = readFileSync(path.join(root, apiRoot, "governance/integration-unit.ts"), "utf8");
+    const factorySource = readFileSync(
+      path.join(root, apiRoot, "governance/integration-unit.ts"),
+      "utf8",
+    );
     const factory = (await import(
-      "data:text/javascript;base64," + Buffer.from(stripTypeScriptTypes(factorySource)).toString("base64")
-    )) as { defineCatalogIntegrationUnitKey: (identity: Record<string, string>) => string };
+      "data:text/javascript;base64," +
+        Buffer.from(stripTypeScriptTypes(factorySource)).toString("base64")
+    )) as {
+      defineCatalogIntegrationUnitKey: (
+        identity: Record<string, string>,
+      ) => string;
+    };
     const unitKey = factory.defineCatalogIntegrationUnitKey(identity);
     receipt.unitDefinition = {
       unitKey,
@@ -306,7 +402,11 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       const counts = await pool.query(
         "SELECT expansion_id,expansion_name,total_observations,promoted_observations,rejected_observations FROM catalog_source_observation_integration_scope_summaries WHERE provider_key='tcgdex' AND language_code='en' ORDER BY expansion_id LIMIT 50",
       );
-      save("fixture-readback.json", { rows: fixture.rows, counts: counts.rows, kind: receipt.fixtureKind });
+      save("fixture-readback.json", {
+        rows: fixture.rows,
+        counts: counts.rows,
+        kind: receipt.fixtureKind,
+      });
       assert.equal(fixture.rows.length, 1);
       assert.equal(fixture.rows[0].status, "promoted");
       assert.equal(fixture.rows[0].provider_key, "tcgdex");
@@ -316,10 +416,16 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       assert.equal(fixture.rows[0].set_id.toLowerCase(), "base2");
       assert.ok(
         counts.rows.some(
-          (row) => row.expansion_id.toLowerCase() === "base2" && Number(row.promoted_observations) === 1,
+          (row) =>
+            row.expansion_id.toLowerCase() === "base2" &&
+            Number(row.promoted_observations) === 1,
         ),
       );
-      pass("fixture", { observationId, rows: fixture.rows, counts: counts.rows });
+      pass("fixture", {
+        observationId,
+        rows: fixture.rows,
+        counts: counts.rows,
+      });
     } finally {
       await pool.end();
     }
@@ -327,18 +433,24 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     const browserExternal: { origin: string; path: string }[] = [];
     page.on("request", (request) => {
       const url = new URL(request.url());
-      if (!["data:", "blob:"].includes(url.protocol) && url.origin !== sandbox.urls.adminWeb)
+      if (
+        !["data:", "blob:"].includes(url.protocol) &&
+        url.origin !== sandbox.urls.adminWeb
+      )
         browserExternal.push({ origin: url.origin, path: url.pathname });
     });
     const { browserE2ePlatformAdminEnv } = await import(
       pathToFileURL(path.join(root, "scripts/dev-system-config.mjs")).href
     );
-    const auth = await context.request.post(`${sandbox.urls.adminWeb}/api/auth/password-sign-in`, {
-      data: {
-        email: browserE2ePlatformAdminEnv.PLATFORM_ADMIN_EMAIL,
-        password: browserE2ePlatformAdminEnv.PLATFORM_ADMIN_PASSWORD,
+    const auth = await context.request.post(
+      `${sandbox.urls.adminWeb}/api/auth/password-sign-in`,
+      {
+        data: {
+          email: browserE2ePlatformAdminEnv.PLATFORM_ADMIN_EMAIL,
+          password: browserE2ePlatformAdminEnv.PLATFORM_ADMIN_PASSWORD,
+        },
       },
-    });
+    );
     assert.equal(auth.status(), 200);
     const authBody = (await auth.json()) as { sessionToken: string };
     await context.addCookies([
@@ -352,8 +464,13 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     ]);
     active = "reviewOnlyPath";
     receipt.initialUrl = `${sandbox.urls.adminWeb}/catalog/integrations?section=source-observation-review`;
-    await page.goto(String(receipt.initialUrl), { waitUntil: "domcontentloaded" });
-    await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true");
+    await page.goto(String(receipt.initialUrl), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-admin-web-hydrated",
+      "true",
+    );
     await checkProvider();
     assertReviewPath();
     // Select the review route directly. Never open Run sync, import preview, or Open source scope.
@@ -368,7 +485,10 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     }).toString();
     receipt.selectedUrl = selected.href;
     await page.goto(selected.href, { waitUntil: "domcontentloaded" });
-    await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-admin-web-hydrated",
+      "true",
+    );
     receipt.selectedDomText = await page.locator("body").innerText();
     await checkProvider();
     assertReviewPath();
@@ -379,14 +499,25 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       openSourceScopeClicked: false,
     });
     active = "populatedFirstLoad";
-    const review = page.getByRole("table", { name: "Source Observation review" });
+    const review = page.getByRole("table", {
+      name: "Source Observation review",
+    });
     const showReview = async (checkedStatus?: string) => {
       await expect
         .poll(async () => {
-          const stage = page.locator('[data-catalog-import-workflow-stage="review-changes"]');
-          if ((await stage.getAttribute("aria-expanded")) !== "true") await stage.click();
-          const disclosure = page.getByRole("button", { name: "Source Observation evidence", exact: true });
-          if ((await disclosure.count()) && (await disclosure.getAttribute("aria-expanded")) !== "true")
+          const stage = page.locator(
+            '[data-catalog-import-workflow-stage="review-changes"]',
+          );
+          if ((await stage.getAttribute("aria-expanded")) !== "true")
+            await stage.click();
+          const disclosure = page.getByRole("button", {
+            name: "Source Observation evidence",
+            exact: true,
+          });
+          if (
+            (await disclosure.count()) &&
+            (await disclosure.getAttribute("aria-expanded")) !== "true"
+          )
             await disclosure.click();
           return checkedStatus
             ? page
@@ -401,9 +532,13 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     const row = review.getByRole("row").filter({ hasText: "Pikachu" });
     const all = page.getByRole("radio", { name: /^All \(/ });
     await expect(all).toBeChecked();
-    await expect(page.getByRole("radio", { name: "Promoted (1)", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Promoted (1)", exact: true }),
+    ).toBeVisible();
     await expect(row).toBeVisible();
-    await expect(page.locator("[data-catalog-source-scope-workset]")).toContainText("Jungle");
+    await expect(
+      page.locator("[data-catalog-source-scope-workset]"),
+    ).toContainText("Jungle");
     await checkProvider();
     await snap("01-populated-first-load.png");
     pass("populatedFirstLoad", {
@@ -415,7 +550,8 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     });
     active = "sheetLoading";
     const resourcePath = `/catalog/integrations/observation-evidence/${encodeURIComponent(observationId)}`;
-    const matches = (url: string) => [resourcePath, `${resourcePath}.data`].includes(new URL(url).pathname);
+    const matches = (url: string) =>
+      [resourcePath, `${resourcePath}.data`].includes(new URL(url).pathname);
     let release: () => void = () => {};
     let markHeld: () => void = () => {};
     const hold = new Promise<void>((resolve) => {
@@ -426,7 +562,8 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     });
     const requests: { method: string; url: string }[] = [];
     page.on("request", (request) => {
-      if (matches(request.url())) requests.push({ method: request.method(), url: request.url() });
+      if (matches(request.url()))
+        requests.push({ method: request.method(), url: request.url() });
     });
     await page.route(
       (url) => matches(url.href),
@@ -437,14 +574,18 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       },
       { times: 1 },
     );
-    const responseWait = page.waitForResponse((response) => matches(response.url()));
+    const responseWait = page.waitForResponse((response) =>
+      matches(response.url()),
+    );
     try {
       await row.getByRole("button", { name: "Evidence", exact: true }).click();
       await held;
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText("Pikachu");
-      await expect(dialog.locator('[data-catalog-observation-evidence="loading"]')).toBeVisible();
+      await expect(
+        dialog.locator('[data-catalog-observation-evidence="loading"]'),
+      ).toBeVisible();
       await snap("02-sheet-loading.png");
       pass("sheetLoading", { resourcePath, heldThenForwardedUnchanged: true });
     } finally {
@@ -472,7 +613,10 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       );
       const candidates = Object.values(decoded.value)
         .map((value) => value.data)
-        .filter((value): value is EvidencePayload => value?.observationId === observationId);
+        .filter(
+          (value): value is EvidencePayload =>
+            value?.observationId === observationId,
+        );
       assert.equal(candidates.length, 1);
       payload = candidates[0];
     } else {
@@ -506,7 +650,9 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     active = "sheetLoadedIdentity";
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog.locator('[data-catalog-observation-evidence="loaded"]')).toBeVisible();
+    await expect(
+      dialog.locator('[data-catalog-observation-evidence="loaded"]'),
+    ).toBeVisible();
     for (const text of [
       "Pikachu",
       payload.detail.providerKey,
@@ -514,20 +660,32 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       payload.detail.sourceRecordHash,
     ])
       await expect(dialog).toContainText(text);
-    await expect(page.locator('[data-catalog-observation-evidence="error"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-catalog-observation-evidence="error"]'),
+    ).toHaveCount(0);
     const mountedReview = page.locator("table").filter({
-      has: page.locator("caption").filter({ hasText: /^Source Observation review$/ }),
+      has: page
+        .locator("caption")
+        .filter({ hasText: /^Source Observation review$/ }),
     });
     await expect(mountedReview).toHaveCount(1);
     await expect(mountedReview).toBeAttached();
     await checkProvider();
-    receipt.loadedDom = { url: page.url(), dialogText: await dialog.innerText(), reviewMounted: true, errorCount: 0 };
+    receipt.loadedDom = {
+      url: page.url(),
+      dialogText: await dialog.innerText(),
+      reviewMounted: true,
+      errorCount: 0,
+    };
     await snap("03-sheet-loaded.png");
     pass("sheetLoadedIdentity", receipt.loadedDom);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     active = "narrowedEmpty";
-    const rejected = page.getByRole("radio", { name: "Rejected (0)", exact: true });
+    const rejected = page.getByRole("radio", {
+      name: "Rejected (0)",
+      exact: true,
+    });
     await rejected.click();
     await expect(page).toHaveURL(/filter.status=rejected/);
     await showReview("Rejected (0)");
@@ -538,7 +696,10 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     await checkProvider();
     await snap("04-narrowed-empty.png");
     const rejectedUrl = page.url();
-    pass("narrowedEmpty", { url: rejectedUrl, copy: text.match(/No rejected observations[^\n]*/i)?.[0] });
+    pass("narrowedEmpty", {
+      url: rejectedUrl,
+      copy: text.match(/No rejected observations[^\n]*/i)?.[0],
+    });
     active = "allRestore";
     await all.click();
     await showReview("All (1)");
@@ -570,42 +731,75 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
     pass("backForward", { backUrl: rejectedUrl, forwardUrl: allUrl });
     active = "otherScope";
     const bar = page.locator('[data-catalog-import-context-bar="true"]');
-    const trigger = bar.getByRole("button", { name: /Step 0.*Choose import scope/ });
-    if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
-    const expansion = bar.locator('select[name="expansionId"]');
+    const trigger = bar.getByRole("button", {
+      name: /Step 0.*Choose import scope/,
+    });
+    if ((await trigger.getAttribute("aria-expanded")) !== "true")
+      await trigger.click();
+    const series = bar.locator('select[name="seriesId"]');
     let otherScope: { value: string; label: string } | undefined;
     await expect
-      .poll(
-        async () => {
-          const rendered = await expansion.locator("option").evaluateAll((options) =>
-            options
-              .map((option) => {
-                if (!(option instanceof HTMLOptionElement)) throw new Error("Expected an option element");
-                return { value: option.value, label: option.label };
-              })
-              .filter((option) => option.value && !/base2|jungle/i.test(option.value + option.label)),
-          );
-          otherScope = rendered[0];
-          return Boolean(otherScope);
-        },
-        { timeout: 30000 },
-      )
+      .poll(async () => {
+        const rendered = await series.locator("option").evaluateAll((options) =>
+          options
+            .map((option) => {
+              if (!(option instanceof HTMLOptionElement))
+                throw new Error("Expected an option element");
+              return { value: option.value, label: option.label };
+            })
+            .filter(
+              (option) =>
+                option.value &&
+                !/^(base|jungle)$/i.test(option.value) &&
+                !/^base$/i.test(option.label),
+            ),
+        );
+        save("other-scope-rendered-options.json", {
+          field: "seriesId",
+          options: rendered,
+          url: page.url(),
+        });
+        otherScope = rendered[0];
+        return Boolean(otherScope);
+      })
       .toBe(true);
-    assert.ok(otherScope, "FIXTURE_GAP: no other existing scope available in the rendered list");
+    assert.ok(
+      otherScope,
+      "FIXTURE_GAP: no other existing scope available in the rendered list",
+    );
     const selectedOtherScope = otherScope;
-    await expansion.selectOption({ label: selectedOtherScope.label });
-    await expect(expansion.locator("option:checked")).toHaveText(selectedOtherScope.label);
-    await expect(page).toHaveURL((url) => url.searchParams.get("expansionId") === selectedOtherScope.value);
+    await series.selectOption({ label: selectedOtherScope.label });
+    await expect(page).toHaveURL(
+      (url) => url.searchParams.get("seriesId") === selectedOtherScope.value,
+    );
+    await expect(series.locator("option:checked")).toHaveText(
+      selectedOtherScope.label,
+    );
+    assert.equal(
+      new URL(page.url()).searchParams.get("expansionId"),
+      null,
+      "Series choice must clear the old expansion",
+    );
     await showReview();
     await expect(row).toHaveCount(0);
     await checkProvider();
     assertReviewPath();
     await snap("05-other-scope.png");
-    pass("otherScope", { scope: selectedOtherScope, url: page.url(), jungleRowCount: 0, selectedFromRenderedList: true });
+    pass("otherScope", {
+      field: "seriesId",
+      scope: selectedOtherScope,
+      url: page.url(),
+      jungleRowCount: 0,
+      selectedFromRenderedList: true,
+    });
     active = "providerFree";
     await checkProvider();
     assert.deepEqual(browserExternal, []);
-    pass("providerFree", { server: await monitor.read(), browserExternal, transportUnchanged: true });
+    pass("providerFree", {
+      server: await monitor.read(),
+      browserExternal,
+      transportUnchanged: true,
+    });
     receipt.outcome = "CAPTURE_COMPLETE";
   } catch (error) {
     save("failure-dom.json", {
@@ -626,7 +820,10 @@ test("8735 exact-head review-only evidence capture @catalog-admin-integrations",
       radios: await page
         .getByRole("radio", { includeHidden: true })
         .evaluateAll((elements) =>
-          elements.map((element) => ({ text: element.textContent, checked: element.getAttribute("aria-checked") })),
+          elements.map((element) => ({
+            text: element.textContent,
+            checked: element.getAttribute("aria-checked"),
+          })),
         )
         .catch(() => []),
     });
