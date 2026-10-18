@@ -147,6 +147,26 @@ describe("doks cluster addons planner", () => {
     );
   });
 
+  it("captures ingress-nginx release drift before the staging policy upgrade", () => {
+    const workflow = readFileSync(resolve(".github", "workflows", "platform-production.yml"), "utf8");
+    const stepStart = workflow.indexOf("      - name: Apply staging ingress-nginx forwarded-header policy");
+    const stepEnd = workflow.indexOf("\n      - name:", stepStart + 1);
+    expect(stepStart).toBeGreaterThanOrEqual(0);
+    expect(stepEnd).toBeGreaterThan(stepStart);
+
+    const step = workflow.slice(stepStart, stepEnd);
+    const metadataIndex = step.indexOf("helm get metadata ingress-nginx --namespace ingress-nginx");
+    const valuesIndex = step.indexOf("helm get values ingress-nginx --namespace ingress-nginx --output yaml");
+    const selectorIndex = step.indexOf("node ./scripts/doks-cluster-addons.mjs --environment staging --component ingress-nginx");
+
+    expect(step).toContain("set -euo pipefail");
+    expect(metadataIndex).toBeGreaterThanOrEqual(0);
+    expect(valuesIndex).toBeGreaterThan(metadataIndex);
+    expect(selectorIndex).toBeGreaterThan(valuesIndex);
+    expect(step).not.toMatch(/^\s+env:/m);
+    expect(step).not.toContain("DIGITALOCEAN_ACCESS_TOKEN");
+  });
+
   it("installs cert-manager before the cluster issuers that need its CRDs", () => {
     const steps = planClusterAddons({ environment: "staging" });
     const certManagerIndex = steps.findIndex((step) => step.name === "install cert-manager");

@@ -1563,7 +1563,11 @@ jobs:
 
       - name: Apply staging ingress-nginx forwarded-header policy
         if: env.SHOULD_DEPLOY != 'false'
-        run: node ./scripts/doks-cluster-addons.mjs --environment staging --component ingress-nginx
+        run: |
+          set -euo pipefail
+          helm get metadata ingress-nginx --namespace ingress-nginx || echo "ingress-nginx release metadata unavailable before upgrade"
+          helm get values ingress-nginx --namespace ingress-nginx --output yaml || echo "ingress-nginx release values unavailable before upgrade"
+          node ./scripts/doks-cluster-addons.mjs --environment staging --component ingress-nginx
 
       # #9268: the staging preview wildcard certificate's DNS-01 solver reads
       # cert-manager/digitalocean-dns-token. Re-apply it from the current

@@ -1,6 +1,29 @@
+import { connect } from "node:net";
 import { describe, expect, it } from "vitest";
-import { shouldRouteToApi, xForwardedHeaders } from "./platform-compose-ingress.mjs";
+import { createComposeIngressServer, shouldRouteToApi, xForwardedHeaders } from "./platform-compose-ingress.mjs";
 import { platformApiIngressPrefixes } from "./render-platform-helm-values.mjs";
+
+async function listen(server) {
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  return server.address().port;
+}
+
+function sendRaw(port, request) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.on("connect", () => socket.end(request));
+    socket.on("data", (chunk) => {
+      response += chunk;
+    });
+    socket.on("end", () => resolve(response));
+    socket.on("error", reject);
+  });
+}
 
 describe("platform-compose-ingress", () => {
   it("routes every real Helm ingress API prefix to platform-api, matching the rendered chart", () => {
@@ -70,5 +93,74 @@ describe("platform-compose-ingress", () => {
       "x-forwarded-host": "staging.chasesets.com",
       "x-forwarded-proto": "https",
     });
+  });
+
+  it("sanitizes client forwarded headers at the handler boundary", async () => {
+    let upstreamHeaders;
+    const server = createComposeIngressServer({
+      webTarget: "http://web.test",
+      apiTarget: "http://api.test",
+      fetchImpl: async (_url, options) => {
+        upstreamHeaders = Object.fromEntries(options.headers);
+        return new Response("ok");
+      },
+    });
+
+    try {
+      const port = await listen(server);
+      await sendRaw(
+        port,
+        [
+          "GET / HTTP/1.1",
+          "Host: staging.chasesets.com",
+          "X-Forwarded-Host: attacker.invalid",
+          "x-forwarded-host: second.invalid",
+          "X-Forwarded-Proto: https",
+          "x-forwarded-proto: ftp",
+          "Connection: close",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+
+      expect(upstreamHeaders["x-forwarded-host"]).toBe("staging.chasesets.com");
+      expect(upstreamHeaders["x-forwarded-proto"]).toBe("http");
+      expect(Object.values(upstreamHeaders).join("\n")).not.toContain("attacker.invalid");
+      expect(Object.values(upstreamHeaders).join("\n")).not.toContain("second.invalid");
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it("does not pass spoofed forwarded host through an HTTP/1.0 request without Host", async () => {
+    let upstreamHeaders;
+    const server = createComposeIngressServer({
+      webTarget: "http://web.test",
+      apiTarget: "http://api.test",
+      fetchImpl: async (_url, options) => {
+        upstreamHeaders = Object.fromEntries(options.headers);
+        return new Response("ok");
+      },
+    });
+
+    try {
+      const port = await listen(server);
+      await sendRaw(
+        port,
+        [
+          "GET / HTTP/1.0",
+          "X-Forwarded-Host: attacker.invalid",
+          "X-Forwarded-Proto: https",
+          "Connection: close",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+
+      expect(upstreamHeaders).not.toHaveProperty("x-forwarded-host");
+      expect(upstreamHeaders["x-forwarded-proto"]).toBe("http");
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
   });
 });
