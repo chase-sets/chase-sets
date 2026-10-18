@@ -56,7 +56,9 @@ function assertAc12PinnedEvidence(AC12_FIXTURE, candidate, mergeBase) {
   }
 
   if (!mergeBase) throw new Error(`AC12_PINNED_MERGE_BASE ${AC12_FIXTURE.mergeBase.sha}`);
-  expect(tree(mergeBase)).toBe(AC12_FIXTURE.mergeBase.treeSha);
+  expect(tree(mergeBase), `AC12_PINNED_MERGE_BASE_TREE ${AC12_FIXTURE.mergeBase.treeSha}`).toBe(
+    AC12_FIXTURE.mergeBase.treeSha,
+  );
   expect(AC12_FIXTURE.changedFiles).toEqual([
     "scripts/release-qualification-scope-applicability.mjs",
     "scripts/release-qualification-scope-applicability.test.mjs",
@@ -65,6 +67,7 @@ function assertAc12PinnedEvidence(AC12_FIXTURE, candidate, mergeBase) {
     createHash("sha256")
       .update(JSON.stringify(governed(mergeBase)))
       .digest("hex"),
+    `AC12_GOVERNED_MODULES_DIGEST ${AC12_FIXTURE.governedModulesSha256}`,
   ).toBe(AC12_FIXTURE.governedModulesSha256);
 }
 
