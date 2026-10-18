@@ -28,6 +28,7 @@ import {
   UCP_MCP_APP_RESOURCE_MIME_TYPE,
   UCP_MCP_TOOLS,
   UCP_VERSION,
+  moneyToMinorUnits,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpEnvelope,
@@ -66,6 +67,7 @@ export {
   UCP_SHOPPING_SERVICE,
   UCP_SPEC_BASE_URL,
   UCP_VERSION,
+  moneyToMinorUnits,
   unsupportedUcpOperation,
   type UcpBusinessProfile,
   type UcpCapabilityDeclaration,
@@ -416,7 +418,7 @@ const UCP_MCP_CHECKOUT_HANDOFF_HTML = `<!doctype html>
     function render(result) {
       const payload = result?.structuredContent ?? result ?? {};
       const action = payload.action ?? {};
-      const message = payload.messages?.[0]?.message || action.reason || "Use trusted Chase Sets checkout before any order or payment is finalized.";
+      const message = payload.messages?.[0]?.content || payload.messages?.[0]?.message || action.reason || "Use trusted Chase Sets checkout before any order or payment is finalized.";
       const url = typeof action.url === "string" ? action.url : "";
       const checkoutId = payload.checkout?.id || payload.id || "";
 
@@ -1702,7 +1704,11 @@ function ucpMcpToolLimitEnvelope(reason: string) {
 export function createUcpProfileRoutes(options: Pick<CreateUcpRoutesOptions, "businessSigningKeys"> = {}) {
   const app = new Hono();
 
-  app.get("/ucp", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
+  app.get("/ucp", (c) =>
+    c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys), 200, {
+      "Cache-Control": "public, max-age=300",
+    }),
+  );
 
   return app;
 }
@@ -1733,7 +1739,11 @@ export function createUcpRestRoutes(options: CreateUcpRoutesOptions = {}) {
       : c.json(await invokeRestHandler(options.restHandlers, operation, handlerInput(c, params)));
   };
 
-  app.get("/", (c) => c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys)));
+  app.get("/", (c) =>
+    c.json(buildBusinessProfile(requestOrigin(c.req.raw), options.businessSigningKeys), 200, {
+      "Cache-Control": "public, max-age=300",
+    }),
+  );
 
   app.post("/catalog/search", (c) => invoke(c, "search_catalog"));
   app.post("/catalog/lookup", (c) => invoke(c, "lookup_catalog"));

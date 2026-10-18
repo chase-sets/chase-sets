@@ -377,7 +377,7 @@ async function expectUcpEndpoints(origin) {
     body: JSON.stringify({ query: "charizard", limit: 1 }),
   });
   const catalog = await catalogResponse.json();
-  if (catalog.ucp?.status !== "ok") {
+  if (catalog.ucp?.status !== "success") {
     throw new Error("UCP REST profile-less catalog did not succeed.");
   }
 

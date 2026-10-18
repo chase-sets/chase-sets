@@ -1,5 +1,5 @@
 import { formatMoney } from "@chase-sets/localization";
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, moneyToMinorUnits, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import type { DiscoveryItemsServices } from "../item-support/runtime";
 import type { DiscoverySearchItemRow } from "../../features/search/read-model/queries";
@@ -86,7 +86,6 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
     mcpToolHandlers: handlers,
   };
 }
-
 function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
   const productUrl = marketplaceUrl(request, `/items/${row.slug}`);
   const imageUrls = productImageUrls(row);
@@ -335,9 +334,3 @@ function marketplaceActions(url: string, availableQuantity: number) {
   };
 }
 
-function moneyToMinorUnits(amount: string) {
-  const normalized = amount.trim();
-  const [dollars = "0", cents = ""] = normalized.split(".");
-  const minor = `${dollars}${cents.padEnd(2, "0").slice(0, 2)}`.replace(/^0+(?=\d)/, "");
-  return minor || "0";
-}

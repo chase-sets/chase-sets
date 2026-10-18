@@ -1,3 +1,5 @@
+import { moneyToCents } from "@chase-sets/primitives/money";
+
 // Universal Commerce Protocol (UCP) shopping profile for the 2026-08-25 spec.
 export const UCP_VERSION = "2026-08-25";
 export const UCP_SPEC_BASE_URL = `https://ucp.dev/${UCP_VERSION}`;
@@ -17,9 +19,20 @@ export const UCP_CAPABILITIES = {
 export const UCP_REST_ENDPOINT_PATH = "/ucp/v1";
 export const UCP_MCP_ENDPOINT_PATH = "/ucp/mcp";
 
+export function moneyToMinorUnits(value: string): number {
+  return Number(moneyToCents(value));
+}
+
 export type UcpTransport = "rest" | "mcp";
 export type UcpResponseStatus = "success" | "error";
-export type UcpMessageSeverity = "info" | "warning" | "error" | "requires_buyer_input" | "requires_buyer_review";
+export type UcpMessageSeverity =
+  | "info"
+  | "warning"
+  | "error"
+  | "recoverable"
+  | "unrecoverable"
+  | "requires_buyer_input"
+  | "requires_buyer_review";
 
 export type UcpServiceDeclaration = Readonly<{
   version: string;
@@ -106,29 +119,7 @@ export type UcpMcpSecurityScheme =
   | Readonly<{ type: "oauth2"; scopes: readonly string[] }>;
 
 const ERROR_RESPONSE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    ucp: {
-      type: "object",
-      properties: { version: { const: UCP_VERSION }, status: { const: "error" } },
-      required: ["version", "status"],
-    },
-    messages: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          type: { const: "error" },
-          code: { type: "string" },
-          content: { type: "string" },
-          severity: { type: "string" },
-        },
-        required: ["type", "code", "content", "severity"],
-      },
-    },
-  },
-  required: ["ucp", "messages"],
+  $ref: "https://ucp.dev/2026-08-25/schemas/common/types/error_response.json",
 } as const;
 
 const CHECKOUT_OUTPUT_SCHEMA = {
@@ -137,7 +128,18 @@ const CHECKOUT_OUTPUT_SCHEMA = {
 const ORDER_OUTPUT_SCHEMA = {
   anyOf: [{ $ref: "https://ucp.dev/2026-08-25/schemas/shopping/order.json" }, ERROR_RESPONSE_SCHEMA],
 } as const;
-const CATALOG_OUTPUT_SCHEMA = { anyOf: [{ type: "object", required: ["products"] }, ERROR_RESPONSE_SCHEMA] } as const;
+const CATALOG_SEARCH_OUTPUT_SCHEMA = {
+  anyOf: [
+    { $ref: "https://ucp.dev/2026-08-25/schemas/shopping/catalog_search.json#/$defs/search_response" },
+    ERROR_RESPONSE_SCHEMA,
+  ],
+} as const;
+const CATALOG_LOOKUP_OUTPUT_SCHEMA = {
+  anyOf: [
+    { $ref: "https://ucp.dev/2026-08-25/schemas/shopping/catalog_lookup.json#/$defs/lookup_response" },
+    ERROR_RESPONSE_SCHEMA,
+  ],
+} as const;
 
 const CATALOG_READ_SECURITY = [{ type: "noauth" }] as const;
 const CHECKOUT_MANAGE_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }] as const;
@@ -259,7 +261,7 @@ export const UCP_MCP_TOOLS = [
         },
       },
     },
-    outputSchema: CATALOG_OUTPUT_SCHEMA,
+    outputSchema: CATALOG_SEARCH_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Searching marketplace products",
@@ -287,7 +289,7 @@ export const UCP_MCP_TOOLS = [
         },
       },
     },
-    outputSchema: CATALOG_OUTPUT_SCHEMA,
+    outputSchema: CATALOG_LOOKUP_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Looking up marketplace products",
@@ -310,7 +312,7 @@ export const UCP_MCP_TOOLS = [
       },
       required: ["id"],
     },
-    outputSchema: CATALOG_OUTPUT_SCHEMA,
+    outputSchema: CATALOG_LOOKUP_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Loading product detail",
@@ -540,21 +542,25 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
       message.code,
     ...(message.target ? { target: message.target } : {}),
   }));
-  const resource =
-    Object.keys(payload).length === 1 && ["checkout", "product", "order"].some((key) => Object.hasOwn(payload, key))
-      ? payload[Object.keys(payload)[0]]
-      : payload;
+  const resourceKey = Object.keys(payload).find((key) => ["checkout", "product", "order"].includes(key));
+  const resource = resourceKey
+    ? {
+        ...(payload[resourceKey] as Readonly<Record<string, unknown>>),
+        ...Object.fromEntries(Object.entries(payload).filter(([key]) => key !== resourceKey)),
+      }
+    : payload;
   return {
     ucp: {
       version: UCP_VERSION,
       status: normalizedStatus,
+      ...(resourceKey === "checkout" && normalizedStatus === "success" ? { payment_handlers: {} } : {}),
     },
+    ...(resource as TPayload),
     ...(normalizedStatus === "error"
       ? { messages: normalizedMessages }
       : normalizedMessages.length > 0
         ? { messages: normalizedMessages }
         : {}),
-    ...(resource as TPayload),
   };
 }
 

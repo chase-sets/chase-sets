@@ -1,4 +1,5 @@
-import { createUcpEnvelope, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { createUcpEnvelope, moneyToMinorUnits, type UcpEnvelope } from "@chase-sets/platform-runtime/ucp";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import type { UcpOperationHandlerInput } from "@chase-sets/platform-runtime/ucp";
 import type { OrderingServices } from "../runtime-support/services";
 import type { OrderingOrderDetailRow, OrderingOrderListRow } from "../../features/orders/read-model/queries";
@@ -56,7 +57,6 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
     mcpToolHandlers: handlers,
   };
 }
-
 function requireOrderReadAccess(input: UcpOperationHandlerInput) {
   if (!input.actor) {
     return {
@@ -92,7 +92,7 @@ function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | 
     checkout_id: row.source_reference_id ?? row.order_id,
     permalink_url: new URL(
       perspective === "purchase" ? `/account/purchases/${row.order_id}` : `/account/sales/${row.order_id}`,
-      request.url,
+      resolvePublicRequestOrigin(request),
     ).href,
     currency: "USD",
     status: row.status,
@@ -208,9 +208,3 @@ function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function moneyToMinorUnits(amount: string) {
-  const normalized = amount.trim();
-  const [dollars = "0", cents = ""] = normalized.split(".");
-  const minor = `${dollars}${cents.padEnd(2, "0").slice(0, 2)}`.replace(/^0+(?=\d)/, "");
-  return Number(minor || "0");
-}

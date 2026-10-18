@@ -300,7 +300,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     f.getOrderFacts.mockResolvedValue([{ id: "ord_1", readyForFulfillmentAt: "2026-10-16T00:02:00Z" }]);
     f.setTime("2026-10-19T00:00:00Z");
     const completed = await f.restHandlers.complete_checkout(input());
-    expect(completed).toMatchObject({ status: "completed", order: [{ id: "ord_1" }] });
+    expect(completed).toMatchObject({ status: "completed", order: { id: "ord_1" } });
     expect(completed.messages).toBeUndefined();
     expect(completed).not.toHaveProperty("continue_url");
     f.setSession(session({ cancelled_at: "2026-10-16T01:00:00Z" }));
@@ -397,7 +397,7 @@ describe("UCP state lifecycle AC2 and expiry AC6", () => {
     await f.restHandlers.cancel_checkout(input());
     noWrites(f);
     const result = await f.restHandlers.cancel_checkout(input({}, false, true));
-    expect(result).toMatchObject({ checkout: { status: "canceled" } });
+    expect(result).toMatchObject({ status: "canceled" });
     expect(f.writes.cancelSession).toHaveBeenCalledTimes(1);
   });
   it("preserves authentication, authorization and closed-rail refusals", async () => {

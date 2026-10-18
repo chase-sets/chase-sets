@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   createUcpEnvelope,
+  moneyToMinorUnits,
   readUcpRequestMeta,
   type UcpEnvelope,
   type UcpOperationHandlerInput,
@@ -105,14 +106,15 @@ export function createCheckoutUcpHandlers(
           })));
     const state = checkoutUcpState(session, facts, payment, preview, currentTime);
     const snapshot = session.fulfillment_preview_snapshot;
-    const totals = snapshot?.totals ?? {
-      itemSubtotalAmount: "0",
-      shippingAmount: "0",
-      salesTaxAmount: "0",
-      totalAmount: "0",
-    };
+    const totals = snapshot?.totals ?? preparedPreview?.totals;
+    const fallbackUnitPrice = totals
+      ? Math.round(
+          moneyToMinorUnits(totals.itemSubtotalAmount) /
+            Math.max(1, session.lines.reduce((sum, line) => sum + line.quantity, 0)),
+        )
+      : 0;
     const linePrice = (line: (typeof session.lines)[number]) =>
-      Math.round(Number(line.offerPriceAmount ?? "0") * 100) || 0;
+      line.offerPriceAmount ? moneyToMinorUnits(line.offerPriceAmount) : fallbackUnitPrice;
     return {
       id: session.session_id,
       status: state.status,
@@ -134,16 +136,18 @@ export function createCheckoutUcpHandlers(
           { type: "total", amount: linePrice(line) * line.quantity },
         ],
       })),
-      totals: [
-        { type: "subtotal", amount: moneyToMinorUnits(totals.itemSubtotalAmount) },
-        { type: "fulfillment", amount: moneyToMinorUnits(totals.shippingAmount) },
-        { type: "tax", amount: moneyToMinorUnits(totals.salesTaxAmount) },
-        { type: "total", amount: moneyToMinorUnits(totals.totalAmount) },
+      totals: totals
+        ? [
+            { type: "subtotal", amount: moneyToMinorUnits(totals.itemSubtotalAmount) },
+            { type: "fulfillment", amount: moneyToMinorUnits(totals.shippingAmount) },
+            { type: "tax", amount: moneyToMinorUnits(totals.salesTaxAmount) },
+            { type: "total", amount: moneyToMinorUnits(totals.totalAmount) },
+          ]
+        : [],
+      links: [
+        { type: "terms_of_service", url: `${resolvePublicRequestOrigin(input.request)}/terms` },
+        { type: "privacy_policy", url: `${resolvePublicRequestOrigin(input.request)}/privacy` },
       ],
-      links: {
-        terms: `${resolvePublicRequestOrigin(input.request)}/terms`,
-        privacy: `${resolvePublicRequestOrigin(input.request)}/privacy`,
-      },
       order_ids: session.order_ids,
       payment_id: session.payment_id,
       offer_id: session.submitted_offer_id,
@@ -152,17 +156,27 @@ export function createCheckoutUcpHandlers(
       created_at: session.created_at,
       updated_at: session.updated_at,
       ...(state.continue ? { continue_url: checkoutContinueUrl(input.request, session.session_id) } : {}),
-      ...(session.handoff_expires_at ? { expires_at: session.handoff_expires_at } : {}),
-      ...(state.order
+      ...(!["canceled", "completed"].includes(state.status)
         ? {
-            order: state.order.map((fact) => ({
-              id: fact.id,
-              label: fact.label ?? fact.id,
-              permalink_url: new URL(
-                fact.permalinkUrl ?? `/account/purchases/${encodeURIComponent(fact.id)}`,
-                resolvePublicRequestOrigin(input.request),
-              ).href,
-            })),
+            expires_at: hasOrders
+              ? new Date(currentTime.getTime() + handoffTtlMs).toISOString()
+              : session.handoff_expires_at,
+          }
+        : {}),
+      ...(state.order?.length
+        ? {
+            order: {
+              id: state.order[0].id,
+              ...(state.order.length > 1
+                ? { permalink_url: `${resolvePublicRequestOrigin(input.request)}/account/purchases` }
+                : {
+                    label: state.order[0].label ?? state.order[0].id,
+                    permalink_url: new URL(
+                      state.order[0].permalinkUrl ?? `/account/purchases/${encodeURIComponent(state.order[0].id)}`,
+                      resolvePublicRequestOrigin(input.request),
+                    ).href,
+                  }),
+            },
           }
         : {}),
       ...(state.messages.length ? { messages: state.messages } : {}),
@@ -245,7 +259,7 @@ export function createCheckoutUcpHandlers(
       const session = await loadSession(input);
       assertHandoffLive(session, now());
       const derived = await payload(input, session);
-      return createUcpEnvelope("success", { checkout: derived }, derived.messages ?? []);
+      return createUcpEnvelope("success", { checkout: derived });
     }),
     cancel_checkout: handler("orders.manage", async (input) => {
       const session = await loadSession(input);
@@ -256,13 +270,7 @@ export function createCheckoutUcpHandlers(
         { sessionId: session.session_id, accountId: input.actor!.accountId as AccountId },
         input.context!,
       );
-      return createUcpEnvelope("success", {
-        checkout: await payload(input, result.session),
-        released_reservation_ids: released.map((reservation) => reservation.holdId),
-        ...(result.commitPosition ? { commit_position: result.commitPosition } : {}),
-        ...(result.commitEventIds ? { commit_event_ids: result.commitEventIds } : {}),
-        ...(result.commitPositions ? { commit_positions: result.commitPositions } : {}),
-      });
+      return createUcpEnvelope("success", { checkout: await payload(input, result.session) });
     }),
   };
   return {
@@ -326,6 +334,12 @@ export function checkoutUcpState(
   orderFacts: readonly CheckoutUcpOrderFact[] = [],
   paymentSummary: Readonly<{ status?: string | null }> | null = null,
   currentPreview: Readonly<{
+    totals?: Readonly<{
+      itemSubtotalAmount: string;
+      shippingAmount: string;
+      salesTaxAmount: string;
+      totalAmount: string;
+    }>;
     readyLineKeys?: readonly string[];
     unavailableLines?: readonly unknown[];
     unavailableLineKeys?: readonly string[];
@@ -337,8 +351,15 @@ export function checkoutUcpState(
     recoverability: "requires_buyer_input" | "unrecoverable",
     target?: string,
   ) => ({
-    severity: "warning" as const,
+    type: "error" as const,
+    severity: recoverability,
     code,
+    content: {
+      payment_required: "Payment is required to continue checkout.",
+      payment_confirmation_required: "Buyer confirmation is required to continue payment.",
+      checkout_expired: "This checkout has expired. Start a new checkout.",
+      item_unavailable: "This item is no longer available.",
+    }[code],
     message: {
       payment_required: "Payment is required to continue checkout.",
       payment_confirmation_required: "Buyer confirmation is required to continue payment.",
@@ -346,7 +367,7 @@ export function checkoutUcpState(
       item_unavailable: "This item is no longer available.",
     }[code],
     recoverability,
-    ...(target ? { target } : {}),
+    ...(target ? { path: target, target } : {}),
   });
   const completeFacts =
     session.order_ids.length > 0 &&
@@ -427,11 +448,6 @@ function readSelectedOptions(value: unknown) {
           optionId: readString(entry.optionId ?? entry.option_id) ?? "",
         }))
     : [];
-}
-function moneyToMinorUnits(amount: string) {
-  const normalized = amount.trim();
-  const [dollars = "0", cents = ""] = normalized.split(".");
-  return Number(`${dollars}${cents.padEnd(2, "0").slice(0, 2)}`.replace(/^0+(?=\d)/, "") || "0");
 }
 function validationError(error: unknown) {
   return createUcpEnvelope("error", {}, [

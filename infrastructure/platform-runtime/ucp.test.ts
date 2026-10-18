@@ -152,12 +152,18 @@ describe("UCP profile routes", () => {
     ]);
   });
 
-  it("serves the business profile from the request origin", async () => {
-    const app = new Hono().route("/.well-known", createUcpProfileRoutes());
+  it.each([
+    ["/.well-known/ucp", (app: Hono) => app.route("/.well-known", createUcpProfileRoutes())],
+    ["/ucp/v1", (app: Hono) => app.route("/ucp/v1", createUcpRestRoutes())],
+  ])("serves the business profile from %s with a cache contract", async (path, mount) => {
+    const app = new Hono();
+    mount(app);
 
-    const response = await app.request("https://marketplace.example/.well-known/ucp");
+    const response = await app.request(`https://marketplace.example${path}`);
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
+    expect(response.headers.has("Location")).toBe(false);
     await expect(response.json()).resolves.toMatchObject({
       ucp: {
         version: UCP_VERSION,

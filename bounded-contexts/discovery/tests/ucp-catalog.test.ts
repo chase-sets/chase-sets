@@ -154,7 +154,7 @@ describe("Discovery UCP catalog handlers", () => {
           title: "Charizard",
           url: "https://marketplace.example/items/charizard-cat_1",
           image_urls: ["https://images.example/charizard.jpg"],
-          price: { currency: "EUR", amount: "1234" },
+          price: { currency: "EUR", amount: 1234 },
           availability: {
             status: "available",
             quantity: 3,

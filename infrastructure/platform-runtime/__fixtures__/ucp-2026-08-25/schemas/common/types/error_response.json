@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ucp.dev/2026-08-25/schemas/common/types/error_response.json",
+  "title": "Error Response",
+  "description": "Generic UCP error response.",
+  "type": "object",
+  "required": ["ucp", "messages"],
+  "additionalProperties": false,
+  "properties": {
+    "ucp": {
+      "$ref": "https://ucp.dev/2026-08-25/schemas/ucp.json#/$defs/error"
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "https://ucp.dev/2026-08-25/schemas/common/types/message.json"
+      }
+    },
+    "continue_url": {
+      "type": "string",
+      "format": "uri"
+    }
+  }
+}

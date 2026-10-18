@@ -9,7 +9,7 @@ const functionNode = syntax.statements.find(
   (node) => ts.isFunctionDeclaration(node) && node.name?.text === "expectUcpEndpoints",
 );
 
-function fixture(checkoutStatus = 400, catalogStatus = "ok") {
+function fixture(checkoutStatus = 400, catalogStatus = "success") {
   const origin = "https://synthetic-marketplace.example";
   const calls = [];
   const fetch = vi.fn(async (_label, url) => {
@@ -65,6 +65,10 @@ describe("UCP platform smoke negotiation", () => {
   });
   it("detects a broken profile-less catalog extension", async () => {
     const { probe, origin } = fixture(400, "error");
+    await expect(probe(origin)).rejects.toThrow("catalog");
+  });
+  it("rejects the retired ok catalog envelope", async () => {
+    const { probe, origin } = fixture(400, "ok");
     await expect(probe(origin)).rejects.toThrow("catalog");
   });
 });
