@@ -429,7 +429,7 @@ export async function discoverPreviewCleanupTargets(options, dependencies = {}) 
   };
 }
 
-// #9964: an idle draft is a live chase-sets-pr-<n> namespace whose PR is open
+// An idle draft is a live chase-sets-pr-<n> namespace whose PR is open
 // and draft and whose namespace (recreated by every deploy) is at least 24h
 // old. Retiring it loses only the browsable URL; the next push rebuilds it.
 // A PR missing from the open listing is `not-open`, which is never selected,
