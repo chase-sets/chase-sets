@@ -143,3 +143,16 @@ describe("UCP envelopes", () => {
     });
   });
 });
+
+describe("UCP 2026-08-25 contract", () => {
+  it("publishes canonical profile fields and root resources", () => {
+    const profile = buildUcpBusinessProfile("https://shop.example");
+    expect(profile.ucp.version).toBe("2026-08-25");
+    expect(profile.ucp.payment_handlers).toEqual({});
+    expect(profile.ucp).not.toHaveProperty("supported_versions");
+    expect(createUcpEnvelope("success", { checkout: { id: "chk_1" } })).toEqual({
+      ucp: { version: "2026-08-25", status: "success" },
+      id: "chk_1",
+    });
+  });
+});

@@ -420,7 +420,7 @@ const UCP_MCP_CHECKOUT_HANDOFF_HTML = `<!doctype html>
       const url = typeof action.url === "string" ? action.url : "";
       const checkoutId = payload.checkout?.id || payload.id || "";
 
-      if (!url && !checkoutId && payload.ucp?.status !== "requires_action") {
+      if (!url && !checkoutId && payload.ucp?.status !== "success") {
         app.innerHTML = '<section class="empty">Checkout handoff details will appear here when trusted UI is required.</section>';
         return;
       }
@@ -1109,7 +1109,7 @@ function idempotencyInProgressEnvelope() {
 }
 
 function shouldStoreIdempotencyResponse(response: UcpEnvelope): boolean {
-  return response.ucp.status === "ok" || response.ucp.status === "requires_action";
+  return response.ucp.status === "success";
 }
 
 function createMemoryUcpIdempotencyStore(): UcpIdempotencyStore {
@@ -1340,11 +1340,7 @@ export function createUcpProfileKeyResolver(resolveProfile: UcpProfileResolver):
 }
 
 function findProfileSigningKey(profile: Readonly<Record<string, unknown>>, keyId: string) {
-  const keys = [
-    ...readArray(profile.keys),
-    ...readArray(profile.signing_keys),
-    ...readArray(readObject(profile.ucp)?.signing_keys),
-  ];
+  const keys = [...readArray(profile.keys)];
   for (const entry of keys) {
     const key = readObject(entry);
     if (!key || key.kid !== keyId) {

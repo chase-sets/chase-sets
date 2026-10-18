@@ -104,6 +104,15 @@ export function createCheckoutUcpHandlers(
             line: session.lines[0],
           })));
     const state = checkoutUcpState(session, facts, payment, preview, currentTime);
+    const snapshot = session.fulfillment_preview_snapshot;
+    const totals = snapshot?.totals ?? {
+      itemSubtotalAmount: "0",
+      shippingAmount: "0",
+      salesTaxAmount: "0",
+      totalAmount: "0",
+    };
+    const linePrice = (line: (typeof session.lines)[number]) =>
+      Math.round(Number(line.offerPriceAmount ?? "0") * 100) || 0;
     return {
       id: session.session_id,
       status: state.status,
@@ -111,18 +120,30 @@ export function createCheckoutUcpHandlers(
       shipping_option: session.shipping_option,
       optimization_goal: session.optimization_goal,
       shipping_address: session.shipping_address,
+      currency: payment?.currency_code ?? "USD",
       line_items: session.lines.map((line) => ({
-        catalog_item_id: line.catalogItemId,
-        product_id: line.productId,
-        listing_id: line.listingId,
-        title: line.itemTitle,
-        subtitle: line.itemSubtitle,
-        selected_options: line.selectedOptions,
-        product_summary: line.productSummary,
+        id: line.listingId ?? line.productId,
+        item: {
+          id: line.listingId ?? line.productId,
+          title: line.itemTitle ?? line.productSummary ?? line.listingId,
+          price: linePrice(line),
+        },
         quantity: line.quantity,
-        fulfillment_mode: line.fulfillmentMode ?? "optimize",
-        availability_state: line.availabilityState ?? "available",
+        totals: [
+          { type: "subtotal", amount: linePrice(line) * line.quantity },
+          { type: "total", amount: linePrice(line) * line.quantity },
+        ],
       })),
+      totals: [
+        { type: "subtotal", amount: moneyToMinorUnits(totals.itemSubtotalAmount) },
+        { type: "fulfillment", amount: moneyToMinorUnits(totals.shippingAmount) },
+        { type: "tax", amount: moneyToMinorUnits(totals.salesTaxAmount) },
+        { type: "total", amount: moneyToMinorUnits(totals.totalAmount) },
+      ],
+      links: {
+        terms: `${resolvePublicRequestOrigin(input.request)}/terms`,
+        privacy: `${resolvePublicRequestOrigin(input.request)}/privacy`,
+      },
       order_ids: session.order_ids,
       payment_id: session.payment_id,
       offer_id: session.submitted_offer_id,
@@ -202,10 +223,10 @@ export function createCheckoutUcpHandlers(
       });
       const session = await checkout.sessions.getSession(prepared.sessionId, input.actor!.accountId);
       if (!session) throw new CheckoutDomainError("Checkout was not found after creation.", "not_found");
-      return createUcpEnvelope("ok", { checkout: await payload(input, session, prepared.fulfillmentPreview) });
+      return createUcpEnvelope("success", { checkout: await payload(input, session, prepared.fulfillmentPreview) });
     }),
     get_checkout: handler("orders.view", async (input) =>
-      createUcpEnvelope("ok", { checkout: await payload(input, await loadSession(input)) }),
+      createUcpEnvelope("success", { checkout: await payload(input, await loadSession(input)) }),
     ),
     update_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
@@ -217,29 +238,25 @@ export function createCheckoutUcpHandlers(
         JSON.stringify(session.lines.map((line) => ({ listingId: line.listingId, quantity: line.quantity })))
       )
         throw new CheckoutDomainError("Checkout line updates are not supported.", "line_items_update_unsupported");
-      return createUcpEnvelope("ok", { checkout: await payload(input, session) });
+      return createUcpEnvelope("success", { checkout: await payload(input, session) });
     }),
     complete_checkout: handler("orders.manage", async (input) => {
       if (options.checkoutClosed) return closed();
       const session = await loadSession(input);
       assertHandoffLive(session, now());
       const derived = await payload(input, session);
-      return createUcpEnvelope(
-        derived.status === "requires_escalation" ? "requires_action" : "ok",
-        { checkout: derived },
-        derived.messages ?? [],
-      );
+      return createUcpEnvelope("success", { checkout: derived }, derived.messages ?? []);
     }),
     cancel_checkout: handler("orders.manage", async (input) => {
       const session = await loadSession(input);
       if (!["Signature-Input", "Signature", "Content-Digest"].some((name) => input.request.headers.has(name)))
-        return createUcpEnvelope("ok", { checkout: await payload(input, session) });
+        return createUcpEnvelope("success", { checkout: await payload(input, session) });
       const released = await releaseCheckoutInventoryReservations(input.request, session);
       const result = await checkout.sessions.cancelSession(
         { sessionId: session.session_id, accountId: input.actor!.accountId as AccountId },
         input.context!,
       );
-      return createUcpEnvelope("ok", {
+      return createUcpEnvelope("success", {
         checkout: await payload(input, result.session),
         released_reservation_ids: released.map((reservation) => reservation.holdId),
         ...(result.commitPosition ? { commit_position: result.commitPosition } : {}),
@@ -410,6 +427,11 @@ function readSelectedOptions(value: unknown) {
           optionId: readString(entry.optionId ?? entry.option_id) ?? "",
         }))
     : [];
+}
+function moneyToMinorUnits(amount: string) {
+  const normalized = amount.trim();
+  const [dollars = "0", cents = ""] = normalized.split(".");
+  return Number(`${dollars}${cents.padEnd(2, "0").slice(0, 2)}`.replace(/^0+(?=\d)/, "") || "0");
 }
 function validationError(error: unknown) {
   return createUcpEnvelope("error", {}, [

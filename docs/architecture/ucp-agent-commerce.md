@@ -78,7 +78,7 @@ Writes must be replay-safe by `(platform profile, actor/account scope, operation
 
 HTTP Message Signature verification belongs in infrastructure. The runtime can verify request signatures when configured with a UCP profile/key resolver; production composition wires a Postgres-backed profile/key cache with TTL refresh and cached failure diagnostics. The runtime emits observer events for signed-write rejection, signature verification failure, idempotency replay/conflict, and operation completion so hosts can log and meter UCP traffic without moving protocol decisions into deployables. Observability records bounded-cardinality metrics for those observer events and Grafana provisions UCP operation/security panels and starter alerts.
 
-Business signing key publication also belongs in infrastructure. When `UCP_BUSINESS_SIGNING_PRIVATE_JWK` and `UCP_BUSINESS_SIGNING_KEY_ID` are configured, the public key is published in `/.well-known/ucp` `signing_keys`; no UCP response is signed with it.
+Business signing key publication also belongs in infrastructure. When `UCP_BUSINESS_SIGNING_PRIVATE_JWK` and `UCP_BUSINESS_SIGNING_KEY_ID` are configured, the public key is published in `/.well-known/ucp` `keys[]`; no UCP response is signed with it. The served contract is UCP `2026-08-25`; no multi-version negotiation or legacy signing-key alias is published or interpreted.
 
 General response signing is not part of the v1 production baseline. UCP REST and MCP responses, including checkout, rely on HTTPS transport, OAuth/signed-request enforcement for protected writes, audit, and idempotency evidence. If a future agent profile requires response verification, define one response-signature scheme across REST and MCP before advertising it as a capability.
 

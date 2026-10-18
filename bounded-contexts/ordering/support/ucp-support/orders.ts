@@ -32,12 +32,12 @@ export function createOrderingUcpHandlers(ordering: Pick<OrderingServices, "orde
 
       const purchase = await ordering.orders.getPurchase(orderId, access.actor.accountId);
       if (purchase) {
-        return createUcpEnvelope("ok", orderToUcpOrder(purchase, "purchase"));
+        return createUcpEnvelope("success", orderToUcpOrder(purchase, "purchase", input.request));
       }
 
       const sale = await ordering.orders.getSale(orderId, access.actor.accountId);
       if (sale) {
-        return createUcpEnvelope("ok", orderToUcpOrder(sale, "sale"));
+        return createUcpEnvelope("success", orderToUcpOrder(sale, "sale", input.request));
       }
 
       return createUcpEnvelope("error", {}, [
@@ -85,12 +85,15 @@ function requireOrderReadAccess(input: UcpOperationHandlerInput) {
   return { actor: input.actor };
 }
 
-function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | "sale") {
+function orderToUcpOrder(row: OrderingOrderDetailRow, perspective: "purchase" | "sale", request: Request) {
   return {
     id: row.order_id,
     label: `${perspective === "purchase" ? "Purchase" : "Sale"} ${row.display_reference}`,
     checkout_id: row.source_reference_id ?? row.order_id,
-    permalink_url: perspective === "purchase" ? `/account/purchases/${row.order_id}` : `/account/sales/${row.order_id}`,
+    permalink_url: new URL(
+      perspective === "purchase" ? `/account/purchases/${row.order_id}` : `/account/sales/${row.order_id}`,
+      request.url,
+    ).href,
     currency: "USD",
     status: row.status,
     line_items: row.lines.map((line) => ({

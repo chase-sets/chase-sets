@@ -163,7 +163,7 @@ Configure the business signing key to publish it in `/.well-known/ucp`:
 - `UCP_BUSINESS_SIGNING_PRIVATE_JWK`: EC private JWK for the current signing key. Keep it in environment-scoped secrets.
 - `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`: JSON array of previous public JWKs retained during rotation.
 
-After restart, verify `/.well-known/ucp` includes `signing_keys` with public JWKs only. The runtime publishes the key set and signs no UCP response with it.
+After restart, verify `/.well-known/ucp` includes top-level `keys[]` with public JWKs only. The runtime publishes the UCP `2026-08-25` key set and signs no UCP response with it. Re-open the retired `2026-04-08` profile only if an onboarding platform cannot negotiate `2026-08-25`.
 
 Rotate by adding the current public key to `UCP_BUSINESS_SIGNING_PREVIOUS_PUBLIC_JWKS`, installing the new private JWK and key id, deploying, then removing old public keys.
 

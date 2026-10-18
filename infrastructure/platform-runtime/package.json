@@ -71,13 +71,13 @@
     "test:db": "vitest run --config ./vitest.config.ts durable-job-store.db.test.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts bulk-append-lane.db.test.ts mcp-audit-log.db.test.ts"
   },
   "dependencies": {
-    "@chase-sets/evidence-window-provider-write": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/evidence-window-provider-write": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
@@ -88,10 +88,11 @@
     "react-router": "^7.14.0"
   },
   "devDependencies": {
-    "@chase-sets/typescript-compiler-api": "workspace:*",
     "@chase-sets/ordering": "workspace:*",
+    "@chase-sets/typescript-compiler-api": "workspace:*",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@react-router/dev": "^7.14.0",
+    "ajv": "8.20.0",
     "typescript": "^7.0.0",
     "vitest": "^4.1.4"
   },

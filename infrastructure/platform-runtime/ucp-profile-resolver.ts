@@ -44,6 +44,7 @@ globalV6.addSubnet("2000::", 3, "ipv6");
 
 export type UcpPlatformProfile = Readonly<Record<string, unknown>> &
   Readonly<{
+    keys?: readonly Readonly<Record<string, unknown>>[];
     ucp: Readonly<{
       version: string;
       services: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
@@ -198,9 +199,7 @@ function validProfile(value: unknown): value is UcpPlatformProfile {
           (order) => Array.isArray(order) && order.every((key) => typeof key === "string"),
         ))) &&
     (ucp.capabilities === undefined || registry(ucp.capabilities, "capability")) &&
-    [value.keys, value.signing_keys, ucp.signing_keys].every(
-      (keys) => keys === undefined || (Array.isArray(keys) && keys.every(publicKey)),
-    )
+    (value.keys === undefined || (Array.isArray(value.keys) && value.keys.every(publicKey)))
   );
 }
 function publicAddress(address: string) {

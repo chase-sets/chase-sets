@@ -40,7 +40,7 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
         includeTotal: true,
       });
 
-      return createUcpEnvelope("ok", {
+      return createUcpEnvelope("success", {
         products: result.items.map((row) => searchRowToProduct(row, input.request)),
         count: result.items.length,
         total: result.total,
@@ -57,7 +57,7 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
       const ids = readIds(body);
       const products = await resolveProductIds(items, ids, input.request);
 
-      return createUcpEnvelope("ok", {
+      return createUcpEnvelope("success", {
         products,
         count: products.length,
       });
@@ -69,7 +69,7 @@ export function createDiscoveryUcpHandlers(items: DiscoveryItemsServices): Disco
       const item = id ? await items.detail.getItemDetail(id) : null;
 
       return item
-        ? createUcpEnvelope("ok", { product: detailRowToProduct(item, input.request) })
+        ? createUcpEnvelope("success", { product: detailRowToProduct(item, input.request) })
         : createUcpEnvelope("error", {}, [
             {
               severity: "error",
@@ -94,8 +94,8 @@ function searchRowToProduct(row: DiscoverySearchItemRow, request: Request) {
   return {
     id: row.catalog_item_id,
     title: row.title,
+    description: row.description ?? row.subtitle ?? row.title,
     subtitle: row.subtitle,
-    description: row.description,
     url: productUrl,
     image_urls: imageUrls,
     availability: availability(row.market_summary),
@@ -137,8 +137,7 @@ function detailRowToProduct(row: DiscoveryItemDetailRow, request: Request) {
     ),
     product_schema: row.product_schema,
     variants: row.market_listings.map((listing) => ({
-      id: listing.product_id,
-      listing_id: listing.listing_id,
+      id: listing.listing_id,
       title: listing.product_summary ?? row.title,
       price: price(listing.price_amount, listing.price_currency_code),
       availability: {

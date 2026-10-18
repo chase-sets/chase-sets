@@ -1,5 +1,5 @@
-// Universal Commerce Protocol (UCP) shopping profile for the 2026-04-08 spec.
-export const UCP_VERSION = "2026-04-08";
+// Universal Commerce Protocol (UCP) shopping profile for the 2026-08-25 spec.
+export const UCP_VERSION = "2026-08-25";
 export const UCP_SPEC_BASE_URL = `https://ucp.dev/${UCP_VERSION}`;
 export const UCP_LATEST_SPEC_BASE_URL = "https://ucp.dev/latest";
 
@@ -18,8 +18,8 @@ export const UCP_REST_ENDPOINT_PATH = "/ucp/v1";
 export const UCP_MCP_ENDPOINT_PATH = "/ucp/mcp";
 
 export type UcpTransport = "rest" | "mcp";
-export type UcpResponseStatus = "ok" | "error" | "requires_action";
-export type UcpMessageSeverity = "info" | "warning" | "error";
+export type UcpResponseStatus = "success" | "error";
+export type UcpMessageSeverity = "info" | "warning" | "error" | "requires_buyer_input" | "requires_buyer_review";
 
 export type UcpServiceDeclaration = Readonly<{
   version: string;
@@ -44,20 +44,21 @@ export type UcpSigningJsonWebKey = Readonly<
 >;
 
 export type UcpBusinessProfile = Readonly<{
-  signing_keys?: readonly UcpSigningJsonWebKey[];
+  keys?: readonly UcpSigningJsonWebKey[];
   ucp: Readonly<{
     version: string;
     services: Readonly<Record<string, readonly UcpServiceDeclaration[]>>;
     capabilities: Readonly<Record<string, readonly UcpCapabilityDeclaration[]>>;
-    supported_versions: Readonly<Record<string, string>>;
-    signing_keys?: readonly UcpSigningJsonWebKey[];
+    payment_handlers: Readonly<Record<string, readonly Readonly<Record<string, unknown>>[]>>;
   }>;
 }>;
 
 export type UcpMessage = Readonly<{
+  type?: "error";
   severity: UcpMessageSeverity;
   code: string;
-  message: string;
+  content?: string;
+  message?: string;
   target?: string;
 }>;
 
@@ -104,29 +105,51 @@ export type UcpMcpSecurityScheme =
   | Readonly<{ type: "noauth" }>
   | Readonly<{ type: "oauth2"; scopes: readonly string[] }>;
 
-const UCP_ENVELOPE_OUTPUT_SCHEMA = {
+const ERROR_RESPONSE_SCHEMA = {
   type: "object",
-  additionalProperties: true,
+  additionalProperties: false,
   properties: {
     ucp: {
       type: "object",
-      properties: {
-        version: { type: "string" },
-        status: { type: "string" },
-      },
+      properties: { version: { const: UCP_VERSION }, status: { const: "error" } },
       required: ["version", "status"],
     },
     messages: {
       type: "array",
-      items: { type: "object", additionalProperties: true },
+      items: {
+        type: "object",
+        properties: {
+          type: { const: "error" },
+          code: { type: "string" },
+          content: { type: "string" },
+          severity: { type: "string" },
+        },
+        required: ["type", "code", "content", "severity"],
+      },
     },
   },
-  required: ["ucp"],
+  required: ["ucp", "messages"],
 } as const;
+
+const CHECKOUT_OUTPUT_SCHEMA = {
+  anyOf: [{ $ref: "https://ucp.dev/2026-08-25/schemas/shopping/checkout.json" }, ERROR_RESPONSE_SCHEMA],
+} as const;
+const ORDER_OUTPUT_SCHEMA = {
+  anyOf: [{ $ref: "https://ucp.dev/2026-08-25/schemas/shopping/order.json" }, ERROR_RESPONSE_SCHEMA],
+} as const;
+const CATALOG_OUTPUT_SCHEMA = { anyOf: [{ type: "object", required: ["products"] }, ERROR_RESPONSE_SCHEMA] } as const;
 
 const CATALOG_READ_SECURITY = [{ type: "noauth" }] as const;
 const CHECKOUT_MANAGE_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.checkout:manage"] }] as const;
 const ORDER_READ_SECURITY = [{ type: "oauth2", scopes: ["dev.ucp.shopping.order:read"] }] as const;
+const UCP_META_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    "ucp-agent": { type: "object", properties: { profile: { type: "string", format: "uri" } }, required: ["profile"] },
+    "idempotency-key": { type: "string" },
+  },
+} as const;
 
 function readAnnotations() {
   return {
@@ -220,6 +243,7 @@ export const UCP_MCP_TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         query: { type: "string", description: "Search text such as a card name, set, tag, or category." },
         limit: { type: "number", minimum: 1, maximum: 50 },
         cursor: { type: "string" },
@@ -235,7 +259,7 @@ export const UCP_MCP_TOOLS = [
         },
       },
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CATALOG_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Searching marketplace products",
@@ -253,6 +277,7 @@ export const UCP_MCP_TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         id: { type: "string", description: "Single catalog item or product identifier to resolve." },
         ids: {
           type: "array",
@@ -262,7 +287,7 @@ export const UCP_MCP_TOOLS = [
         },
       },
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CATALOG_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Looking up marketplace products",
@@ -280,11 +305,12 @@ export const UCP_MCP_TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         id: { type: "string", description: "Catalog item or product identifier to retrieve." },
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CATALOG_OUTPUT_SCHEMA,
     securitySchemes: CATALOG_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Loading product detail",
@@ -301,10 +327,10 @@ export const UCP_MCP_TOOLS = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: { checkout: checkoutResourceSchema },
+      properties: { meta: UCP_META_SCHEMA, checkout: checkoutResourceSchema },
       required: ["checkout"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CHECKOUT_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Creating checkout session",
@@ -322,11 +348,12 @@ export const UCP_MCP_TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         id: { type: "string", description: "Checkout session id." },
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CHECKOUT_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading checkout session",
@@ -344,12 +371,13 @@ export const UCP_MCP_TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         id: { type: "string", description: "Checkout session id." },
         checkout: checkoutResourceSchema,
       },
       required: ["id", "checkout"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CHECKOUT_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations(),
     invoking: "Updating checkout session",
@@ -365,16 +393,15 @@ export const UCP_MCP_TOOLS = [
     resultResourceUri: UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
     inputSchema: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         id: { type: "string", description: "Checkout session id." },
-        shipping_address: { type: "object", additionalProperties: true },
-        acknowledged_material_changes: { type: "boolean" },
-        marketplace_checkout_fee_quote_fingerprint: { type: "string" },
+        checkout: checkoutResourceSchema,
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CHECKOUT_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, openWorld: true }),
     invoking: "Preparing trusted checkout handoff",
@@ -385,18 +412,19 @@ export const UCP_MCP_TOOLS = [
     title: "Cancel Checkout",
     capability: UCP_CAPABILITIES.checkout,
     description:
-      "Use this only when the user asks to cancel or abandon checkout. Cancelling releases active checkout reservations before order or payment commitment.",
+      "Use this only when the user asks to cancel or abandon checkout. OAuth cancellation is a no-write read of checkout state; signed cancellation releases active reservations before order or payment commitment.",
     idempotencyKeyRequired: true,
     resultResourceUri: UCP_MCP_CART_REVIEW_RESOURCE_URI,
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         id: { type: "string", description: "Checkout session id." },
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: CHECKOUT_OUTPUT_SCHEMA,
     securitySchemes: CHECKOUT_MANAGE_SECURITY,
     annotations: writeAnnotations({ destructive: true, idempotent: true }),
     invoking: "Cancelling checkout session",
@@ -412,11 +440,12 @@ export const UCP_MCP_TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
+        meta: UCP_META_SCHEMA,
         id: { type: "string", description: "Order id." },
       },
       required: ["id"],
     },
-    outputSchema: UCP_ENVELOPE_OUTPUT_SCHEMA,
+    outputSchema: ORDER_OUTPUT_SCHEMA,
     securitySchemes: ORDER_READ_SECURITY,
     annotations: readAnnotations(),
     invoking: "Reading marketplace order",
@@ -437,10 +466,10 @@ export function buildUcpBusinessProfile(
   const baseUrl = normalizeUcpOrigin(origin);
   const signingKeys = options.signingKeys?.length ? options.signingKeys : undefined;
   return {
-    ...(signingKeys ? { signing_keys: signingKeys } : {}),
+    ...(signingKeys ? { keys: signingKeys } : {}),
     ucp: {
       version: UCP_VERSION,
-      ...(signingKeys ? { signing_keys: signingKeys } : {}),
+      payment_handlers: {},
       services: {
         [UCP_SHOPPING_SERVICE]: [
           {
@@ -460,18 +489,34 @@ export function buildUcpBusinessProfile(
         ],
       },
       capabilities: {
-        [UCP_CAPABILITIES.catalogSearch]: [capability("catalog/search", "shopping/catalog_search.json")],
-        [UCP_CAPABILITIES.catalogLookup]: [capability("catalog/lookup", "shopping/catalog_lookup.json")],
-        [UCP_CAPABILITIES.checkout]: [capability("checkout", "shopping/checkout.json")],
-        [UCP_CAPABILITIES.order]: [capability("order", "shopping/order.json")],
+        [UCP_CAPABILITIES.catalogSearch]: [
+          capability("catalog/search", "shopping/catalog_search.json", {
+            scopes: { "catalog:read": "Read public catalog search results." },
+          }),
+        ],
+        [UCP_CAPABILITIES.catalogLookup]: [
+          capability("catalog/lookup", "shopping/catalog_lookup.json", {
+            scopes: { "catalog:read": "Read public catalog product details." },
+          }),
+        ],
+        [UCP_CAPABILITIES.checkout]: [
+          capability("checkout", "shopping/checkout.json", {
+            scopes: {
+              "dev.ucp.shopping.checkout:manage": "Create, read, update, complete, and cancel checkout sessions.",
+            },
+          }),
+        ],
+        [UCP_CAPABILITIES.order]: [
+          capability("order", "shopping/order.json", {
+            scopes: { "dev.ucp.shopping.order:read": "Read linked buyer and seller orders." },
+          }),
+        ],
         [UCP_CAPABILITIES.identityLinking]: [
           capability("identity-linking", "common/identity_linking.json", {
+            scopes: { "identity:link": "Link an agent to a buyer account." },
             oauth_authorization_server: `${baseUrl}/.well-known/oauth-authorization-server`,
           }),
         ],
-      },
-      supported_versions: {
-        [UCP_VERSION]: `${baseUrl}/.well-known/ucp`,
       },
     },
   };
@@ -482,13 +527,34 @@ export function createUcpEnvelope<TPayload extends Readonly<Record<string, unkno
   payload: TPayload,
   messages: readonly UcpMessage[] = [],
 ): UcpEnvelope<TPayload> {
+  const normalizedStatus = status;
+  const normalizedMessages = messages.map((message) => ({
+    type: "error" as const,
+    severity: message.severity,
+    code: message.code,
+    content:
+      message.content ??
+      (typeof message.message === "string"
+        ? message.message
+        : (message.message as { message?: string } | undefined)?.message) ??
+      message.code,
+    ...(message.target ? { target: message.target } : {}),
+  }));
+  const resource =
+    Object.keys(payload).length === 1 && ["checkout", "product", "order"].some((key) => Object.hasOwn(payload, key))
+      ? payload[Object.keys(payload)[0]]
+      : payload;
   return {
     ucp: {
       version: UCP_VERSION,
-      status,
+      status: normalizedStatus,
     },
-    ...(messages.length > 0 ? { messages } : {}),
-    ...payload,
+    ...(normalizedStatus === "error"
+      ? { messages: normalizedMessages }
+      : normalizedMessages.length > 0
+        ? { messages: normalizedMessages }
+        : {}),
+    ...(resource as TPayload),
   };
 }
 
