@@ -87,6 +87,27 @@ import type { SourceObservationProviderImportRuntime } from "./source-observatio
 import type { SourceObservationPromotionReapplyRuntime } from "./source-observation-promotion-reapply-runtime";
 
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
+const RETIRED_TCGPLAYER_MESSAGE = "TCGplayer server transport is retired; use the browser handoff.";
+
+function assertProviderTransportNotRetired(providerKey: string): void {
+  if (providerKey.trim().toLowerCase() === "tcgplayer") {
+    throw new SourceObservationIntegrationJobLifecycleCommandError("unsupported_action", RETIRED_TCGPLAYER_MESSAGE);
+  }
+}
+
+function retiredProviderResult(scope: SourceObservationIntegrationJobScope): SourceObservationIntegrationJobResult {
+  return summarizeIntegrationJobOutcomes(1, [
+    {
+      providerKey: scope.provider ?? "",
+      languageCode: scope.language ?? "",
+      expansionId: null,
+      status: "failed",
+      observed: 0,
+      reapplied: 0,
+      reason: RETIRED_TCGPLAYER_MESSAGE,
+    },
+  ]);
+}
 
 export type SourceObservationIntegrationJobRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
@@ -188,6 +209,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationImportPreview> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    assertProviderTransportNotRetired(scope.provider ?? "");
     rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider });
     rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: scope.provider });
     const providerProfileVersion = await requireCatalogImportProfileVersion(
@@ -218,6 +240,7 @@ export function createSourceObservationIntegrationJobRuntime({
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    assertProviderTransportNotRetired(scope.provider ?? "");
     rolloutControlPolicy.assertAllowed({
       capability: input.action === "import" ? "import" : "reapply",
       providerKey: scope.provider,
@@ -618,6 +641,32 @@ export function createSourceObservationIntegrationJobRuntime({
       if (!context) {
         throw new Error("Source Observation integration job is missing event context.");
       }
+      if ((job.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
+        const outcome = {
+          providerKey: job.scope.provider ?? "tcgplayer",
+          languageCode: job.scope.language ?? "",
+          expansionId: claim.unit.payload.observationId,
+          status: "failed" as const,
+          observed: 0,
+          reapplied: 0,
+          reason: RETIRED_TCGPLAYER_MESSAGE,
+        };
+        await requireSourceObservationJobClaim(
+          integrationWorkUnitStore.recordTerminal({
+            jobId: claim.job.jobId,
+            unitId: claim.unit.unitId,
+            claimOwnerId: claim.claimOwnerId,
+            claimToken: claim.claimToken,
+            state: "failed",
+            unitResult: outcome,
+            errorMessage: outcome.reason,
+            parentProgress: claim.job.progress,
+            parentResult: claim.job.result,
+            resolveParentUpdate: (queryable) => integrationParentUpdateFromWorkUnits(queryable, job),
+          }),
+        );
+        return 1;
+      }
       const runReapplyObservation = createSourceObservationWorkUnitSideEffectRunner(integrationWorkUnitStore, claim, {
         signal: input.signal,
         throwIfLeaseLost: input.throwIfLeaseLost,
@@ -743,6 +792,14 @@ export function createSourceObservationIntegrationJobRuntime({
   > {
     throwIfJobRunCancelled(input.context);
     const scope = normalizeIntegrationJobScope(input.job.scope);
+    if ((scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
+      const result = retiredProviderResult(scope);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, "failed", "completed"),
+        result,
+      };
+    }
     rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider });
     rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: scope.provider });
     const providerProfileVersion = await requireCatalogImportProfileVersionForJob(
@@ -776,6 +833,14 @@ export function createSourceObservationIntegrationJobRuntime({
     }>
   > {
     throwIfJobRunCancelled(input.context);
+    if ((input.job.scope.provider ?? "").trim().toLowerCase() === "tcgplayer") {
+      const result = retiredProviderResult(input.job.scope);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, "failed", "completed"),
+        result,
+      };
+    }
     rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: input.job.scope.provider });
     const scope = integrationScopeToObservationScope(input.job.scope);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(input.job.progress.total, []);

@@ -34,10 +34,6 @@ import {
 import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 import { createPromotionAliasReader } from "./promotion/provider-promotion-alias-reader";
 import {
-  buildTcgplayerAutomationSourceObservationPayload,
-  type TcgplayerAutomationProductDetail,
-} from "./providers/tcgplayer-automation-catalog-client";
-import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderProfileVersionSelector,
@@ -928,38 +924,11 @@ export function prepareProviderAdapterSourceObservationPayload(input: {
     };
   }
 
-  if (input.providerProfile.connector.kind !== "tcgplayer-automation-client") {
-    return { kind: "payload", payload: input.payload };
+  if (input.providerProfile.connector.kind === "tcgplayer-automation-client") {
+    return { kind: "failure", reason: "TCGplayer server transport is retired; use the browser handoff." };
   }
 
-  if (!isJsonRecord(input.payload)) {
-    return { kind: "failure", reason: "TCGplayer adapter returned an invalid product detail payload." };
-  }
-
-  if (input.payload.kind === "product-detail-failure") {
-    return {
-      kind: "failure",
-      reason: typeof input.payload.reason === "string" ? input.payload.reason : "TCGplayer product detail failed.",
-    };
-  }
-
-  if (input.payload.kind !== "product-detail" || !isJsonRecord(input.payload.detail)) {
-    return { kind: "failure", reason: "TCGplayer adapter returned an unsupported product payload." };
-  }
-
-  const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
-  if (!selectedOptionMapping) {
-    return { kind: "failure", reason: "TCGplayer import profile must define selected option mapping." };
-  }
-
-  return {
-    kind: "payload",
-    payload: buildTcgplayerAutomationSourceObservationPayload({
-      detail: input.payload.detail as TcgplayerAutomationProductDetail,
-      selectedOptionMapping,
-      externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
-    }),
-  };
+  return { kind: "payload", payload: input.payload };
 }
 
 export async function defaultSourceObservationImportProviderKey(

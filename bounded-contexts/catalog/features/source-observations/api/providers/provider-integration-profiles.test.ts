@@ -159,10 +159,6 @@ describe("catalog provider integration profiles", () => {
       capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
       connector: {
         kind: "tcgplayer-automation-client",
-        catalogBoundary: {
-          acceptedEvidence: ["product-id", "sku-id", "product-condition-id", "set-name", "product-line"],
-          excludedEvidence: ["listing-price", "sales-history", "order", "message", "seller-inventory"],
-        },
       },
       normalizedObservationMapping: { kind: "provider-product" },
       catalogFieldMapping: {
@@ -311,20 +307,6 @@ describe("catalog provider integration profiles", () => {
     const connector = tcgplayerAutomationClientProviderProfile.connector;
 
     expect(connector.kind).toBe("tcgplayer-automation-client");
-    expect(connector.catalogBoundary.acceptedEvidence).toEqual([
-      "product-id",
-      "sku-id",
-      "product-condition-id",
-      "set-name",
-      "product-line",
-    ]);
-    expect(connector.catalogBoundary.excludedEvidence).toEqual([
-      "listing-price",
-      "sales-history",
-      "order",
-      "message",
-      "seller-inventory",
-    ]);
     expect(tcgplayerAutomationClientProviderProfile.externalReferenceExtractionRules.rules).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

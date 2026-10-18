@@ -230,13 +230,6 @@ type CatalogSyncAttempt = Readonly<{
   previousJobRows: readonly string[];
 }>;
 
-type TargetedTcgplayerPokemonProgress = {
-  checkpoint: string;
-  nextBlocker: string;
-  observed: readonly string[];
-  lastLoggedAt: number;
-};
-
 type LorcanaDownstreamSmokeResult = Readonly<{
   mode: "promote" | "reapply";
   providerKey: string;
@@ -1364,25 +1357,23 @@ function providerJourneysForScope(scope: string): readonly ProviderSyncJourney[]
   if (previewProbeScopeSkipsMutatingJourney(scope)) return [];
   return scope === "all-provider-regression"
     ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
-    : scope === "retired-provider-journey"
-      ? []
-      : scope === "lorcana-launch"
-        ? lorcanaLaunchProviderSyncJourneys
-        : scope === "staging-representative-catalog"
-          ? stagingRepresentativeCatalogProviderSyncJourneys
-          : scope === "pokemon-matrix"
-            ? pokemonMatrixProviderSyncJourneys
-            : scope === "mtg-matrix"
-              ? mtgMatrixProviderSyncJourneys
-              : scope === "yugioh-matrix"
-                ? yugiohMatrixProviderSyncJourneys
-                : scope === "one-piece-matrix"
-                  ? onePieceMatrixProviderSyncJourneys
-                  : scope === "lorcana-matrix"
-                    ? lorcanaMatrixProviderSyncJourneys
-                    : scope === "full-matrix-uat"
-                      ? providerProductLineFormMatrixJourneys
-                      : onePieceLaunchProviderSyncJourneys;
+    : scope === "lorcana-launch"
+      ? lorcanaLaunchProviderSyncJourneys
+      : scope === "staging-representative-catalog"
+        ? stagingRepresentativeCatalogProviderSyncJourneys
+        : scope === "pokemon-matrix"
+          ? pokemonMatrixProviderSyncJourneys
+          : scope === "mtg-matrix"
+            ? mtgMatrixProviderSyncJourneys
+            : scope === "yugioh-matrix"
+              ? yugiohMatrixProviderSyncJourneys
+              : scope === "one-piece-matrix"
+                ? onePieceMatrixProviderSyncJourneys
+                : scope === "lorcana-matrix"
+                  ? lorcanaMatrixProviderSyncJourneys
+                  : scope === "full-matrix-uat"
+                    ? providerProductLineFormMatrixJourneys
+                    : onePieceLaunchProviderSyncJourneys;
 }
 const providerSyncJourneys = providerJourneysForScope(providerUatJourneyScope);
 
@@ -3066,18 +3057,11 @@ test.describe("catalog staging provider sync UAT", () => {
                 journey.unitKey,
                 selectedScope,
                 syncAttempt.previousJobRows,
-                undefined,
                 { allowPartialWithReview: journey.allowPartialWithReview },
               );
             }
           });
         }
-      });
-    }
-
-    if (providerUatJourneyScope === "retired-provider-journey") {
-      await test.step("TCGplayer Pokemon Catalog sync child scope and merge-candidate promotion", async () => {
-        await expectTargetedTcgplayerPokemonCatalogSync(page);
       });
     }
 
@@ -3327,7 +3311,7 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number, retry: 
       executedIds.push(selectedId);
       progress.current = { ...progress.current, executed: true, importJobId: currentSearchParam(page, "jobId") };
       await budget.run(() =>
-        expectImportJobSettledForSelectedUnit(page, member.unitKey, selected, sync.previousJobRows, undefined, {
+        expectImportJobSettledForSelectedUnit(page, member.unitKey, selected, sync.previousJobRows, {
           allowPartialWithReview: member.journey.allowPartialWithReview,
         }),
       );
@@ -3883,134 +3867,6 @@ async function syncSelectedProviderUnit(
   );
 }
 
-async function expectTargetedTcgplayerPokemonCatalogSync(page: Page): Promise<void> {
-  const progress = createTargetedTcgplayerPokemonProgress();
-  try {
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      "shared importer surface is ready for targeted TCGplayer Pokemon UAT",
-      "select Product Line Pokemon and Set Name Base Set from the operator UI",
-    );
-    const selectedScope = await selectProviderScope(page, tcgplayerPokemonProviderSyncJourney);
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      `selected source scope ${selectedScope.displayLabel}`,
-      "start Catalog sync for the selected provider participation row",
-      selectedScope.fields.map((field) => `${field.name}:${field.value}`),
-    );
-    const catalogSyncAttempt = await startCatalogSyncForSelectedProviderUnit(
-      page,
-      tcgplayerPokemonProviderSyncJourney.unitKey,
-      selectedScope,
-      progress,
-    );
-    await expectCatalogSyncChildImportForSelectedUnit(
-      page,
-      tcgplayerPokemonProviderSyncJourney.unitKey,
-      selectedScope,
-      catalogSyncAttempt.previousJobRows,
-      progress,
-    );
-    await expectImportJobSettledForSelectedUnit(
-      page,
-      tcgplayerPokemonProviderSyncJourney.unitKey,
-      selectedScope,
-      catalogSyncAttempt.previousJobRows,
-      progress,
-      { allowPartialWithReview: true },
-    );
-    await promoteTcgplayerPokemonMergeCandidateFromReview(page, selectedScope, progress);
-  } catch (error) {
-    throw new Error(targetedTcgplayerPokemonFailureMessage(progress, error));
-  }
-}
-
-async function startCatalogSyncForSelectedProviderUnit(
-  page: Page,
-  unitKey: string,
-  selectedScope: SelectedProviderScope,
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<CatalogSyncAttempt> {
-  await expandWorkflowStage(page, "run-sync");
-  const commandForm = page
-    .locator(`form[data-catalog-primary-workbench-command="${catalogWorkbenchCommand.sync}"]`)
-    .first();
-  await expect(commandForm).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  const participationRow = catalogSyncParticipationRowForUnit(page, unitKey);
-  await expect(participationRow).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(participationRow.getByText(unitKey, { exact: true })).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(
-    participationRow.getByText(/ingestionUnitKey:tcgplayer:pokemon:single-card:source-observation-import/i),
-  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(participationRow.getByText(/productLineId:3|setName:Base Set|provider:tcgplayer/i).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Catalog sync provider participation row is visible",
-    "enable/select the participation row and submit Start Catalog sync",
-    [await visibleLocatorText(participationRow)],
-  );
-
-  const participationCheckbox = participationRow.getByRole("checkbox").first();
-  await expect(participationCheckbox)
-    .toBeEnabled({ timeout: sourceOptionTimeoutMs })
-    .catch(async () => {
-      throw new Error(
-        `Catalog sync readiness blocks ${unitKey} for ${selectedScope.displayLabel}: the participation row is visible but not selectable. ${await visibleLocatorText(
-          participationRow,
-        )}`,
-      );
-    });
-  if (!(await participationCheckbox.isChecked().catch(() => false))) {
-    await selectCatalogSyncParticipationRow(participationRow, participationCheckbox);
-  }
-  await expect(participationCheckbox).toBeChecked({ timeout: sourceOptionTimeoutMs });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Catalog sync provider participation row is selected",
-    "submit Start Catalog sync and wait for command feedback",
-    [await visibleLocatorText(participationRow)],
-  );
-
-  const startButton = commandForm.getByRole("button", { name: "Start Catalog sync" });
-  await expect(startButton)
-    .toBeEnabled({ timeout: sourceOptionTimeoutMs })
-    .catch(async () => {
-      throw new Error(
-        `Catalog sync readiness blocks ${unitKey} for ${selectedScope.displayLabel}: Start Catalog sync is disabled. ${await visibleLocatorText(
-          commandForm,
-        )}`,
-      );
-    });
-  const previousJobRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
-
-  await startButton.click();
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Start Catalog sync was submitted",
-    "observe queued command feedback or parent Catalog sync-run progress",
-  );
-  await expectCatalogSyncCommandAcceptedOrRunVisible(page, progress);
-  return { previousJobRows };
-}
-
-function catalogSyncParticipationRowForUnit(page: Page, unitKey: string): Locator {
-  return page
-    .locator(
-      `[data-catalog-sync-participation-row="true"][data-catalog-sync-participation-unit="${cssAttrValue(unitKey)}"]`,
-    )
-    .filter({ visible: true })
-    .first();
-}
-
-async function visibleLocatorText(locator: Locator): Promise<string> {
-  return locator
-    .innerText({ timeout: 2_000 })
-    .then(normalizeWhitespace)
-    .catch(() => "row text unavailable");
-}
-
 async function selectCatalogSyncParticipationRow(participationRow: Locator, checkbox: Locator): Promise<void> {
   await checkCheckboxThroughVisibleLabel(participationRow, checkbox);
 }
@@ -4028,262 +3884,12 @@ async function checkCheckboxThroughVisibleLabel(container: Locator, checkbox: Lo
   await checkbox.check({ timeout: controlActionTimeoutMs });
 }
 
-const targetedTcgplayerPokemonObservedLimit = 3;
-const targetedTcgplayerPokemonObservedMaxLength = 1_200;
-
-function createTargetedTcgplayerPokemonProgress(): TargetedTcgplayerPokemonProgress {
-  return {
-    checkpoint: "targeted TCGplayer Pokemon UAT started",
-    nextBlocker: "reach the shared importer operator UI",
-    observed: [],
-    lastLoggedAt: 0,
-  };
-}
-
-function recordTargetedTcgplayerPokemonProgress(
-  progress: TargetedTcgplayerPokemonProgress | undefined,
-  checkpoint: string,
-  nextBlocker: string,
-  observed: readonly string[] = [],
-  throttleMs = 0,
-): void {
-  if (!progress) {
-    return;
-  }
-  const now = Date.now();
-  progress.checkpoint = checkpoint;
-  progress.nextBlocker = nextBlocker;
-  progress.observed = observed
-    .map(sanitizeTargetedTcgplayerPokemonEvidence)
-    .filter(Boolean)
-    .slice(0, targetedTcgplayerPokemonObservedLimit);
-  if (throttleMs > 0 && now - progress.lastLoggedAt < throttleMs) {
-    return;
-  }
-  progress.lastLoggedAt = now;
-  console.log(targetedTcgplayerPokemonProgressMessage(progress));
-}
-
-function targetedTcgplayerPokemonProgressMessage(progress: TargetedTcgplayerPokemonProgress): string {
-  const observed = progress.observed.length > 0 ? ` observed="${progress.observed.join(" | ")}"` : "";
-  return `[catalog-staging-provider-uat] retired-provider-journey checkpoint="${sanitizeTargetedTcgplayerPokemonEvidence(
-    progress.checkpoint,
-  )}" nextBlocker="${sanitizeTargetedTcgplayerPokemonEvidence(progress.nextBlocker)}"${observed}`;
-}
-
-function targetedTcgplayerPokemonFailureMessage(progress: TargetedTcgplayerPokemonProgress, error: unknown): string {
-  const observed = progress.observed.length > 0 ? ` Observed operator UI: ${progress.observed.join(" | ")}.` : "";
-  return `TCGplayer Pokemon targeted UAT failed after checkpoint "${sanitizeTargetedTcgplayerPokemonEvidence(
-    progress.checkpoint,
-  )}". Next concrete blocker: ${sanitizeTargetedTcgplayerPokemonEvidence(progress.nextBlocker)}.${observed} Original error: ${sanitizeTargetedTcgplayerPokemonEvidence(
-    error instanceof Error ? error.message : String(error),
-  )}`;
-}
-
-function sanitizeTargetedTcgplayerPokemonEvidence(value: string): string {
-  return sanitizeSupportSafeEvidence(value, targetedTcgplayerPokemonObservedMaxLength);
-}
-
 function sanitizeSupportSafeEvidence(value: string, maxLength = supportSafeDiagnosticMaxLength): string {
   const sanitized = normalizeWhitespace(value)
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
     .replace(/\b(password|secret|token|authorization|api[-_\s]?key|cookie|session)\s*[:=]\s*\S+/gi, "$1:[redacted]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email redacted]");
   return sanitized.length > maxLength ? `${sanitized.slice(0, maxLength)}... [truncated]` : sanitized;
-}
-
-async function expectCatalogSyncCommandAcceptedOrRunVisible(
-  page: Page,
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<void> {
-  const deadline = Date.now() + syncTimeoutMs;
-  const syncRun = page.locator("[data-catalog-sync-run]").first();
-  while (Date.now() < deadline) {
-    if (await syncRun.isVisible({ timeout: 500 }).catch(() => false)) {
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "parent Catalog sync-run progress is visible",
-        "wait for the child import job row for the selected Pokemon scope",
-        [await visibleLocatorText(syncRun)],
-      );
-      return;
-    }
-    if (
-      await page
-        .getByText("Command queued")
-        .first()
-        .isVisible({ timeout: 500 })
-        .catch(() => false)
-    ) {
-      await expectCommandQueued(page);
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "Catalog sync command queued feedback is visible",
-        "wait for parent Catalog sync-run progress and the child import job row",
-      );
-      return;
-    }
-    await page.waitForTimeout(500);
-  }
-
-  throw new Error("Catalog sync did not show queued command feedback or visible parent sync-run progress.");
-}
-
-async function expectCatalogSyncChildImportForSelectedUnit(
-  page: Page,
-  unitKey: string,
-  selectedScope: SelectedProviderScope,
-  previousJobRows: readonly string[],
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<void> {
-  const previous = new Set(previousJobRows.map(normalizeWhitespace));
-  const syncRun = page.locator("[data-catalog-sync-run]").first();
-  const deadline = Date.now() + sourceOptionTimeoutMs;
-  let observedRows: readonly string[] = [];
-
-  while (Date.now() < deadline) {
-    await expandWorkflowStage(page, "run-sync");
-    await expect(syncRun).toBeVisible({ timeout: sourceOptionTimeoutMs });
-    observedRows = await visibleImportJobRowTexts(page, unitKey, selectedScope);
-    const childRow = observedRows.find((row) => !previous.has(row)) ?? observedRows[0];
-    if (childRow && /import job .*(?:queued|running|completed|partial)/i.test(childRow)) {
-      await expect(syncRun.getByText(/Child jobs/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
-      await expectVisibleCatalogSyncChildJobRow(syncRun);
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "Catalog sync child import row is visible",
-        "wait for the child import job to reach completed terminal state",
-        [childRow],
-      );
-      return;
-    }
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      "waiting for Catalog sync child import row",
-      "Catalog sync parent run has not yet exposed a new child row for the selected Pokemon scope",
-      observedRows,
-      30_000,
-    );
-    await page.waitForTimeout(1_000);
-  }
-
-  throw new Error(
-    `Catalog sync did not expose a visible child import row for ${unitKey} and ${selectedScope.displayLabel}. Observed rows: ${
-      observedRows.join(" | ") || "none"
-    }`,
-  );
-}
-
-async function expectVisibleCatalogSyncChildJobRow(syncRun: Locator): Promise<void> {
-  const childJobsTable = syncRun.getByRole("table", { name: /Catalog sync child jobs/i }).first();
-  await expect(childJobsTable).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await expect(
-    childJobsTable.getByRole("row", { name: /TCGplayer Pokemon.*(?:Queued|Running|Completed|Partial)/i }).first(),
-  ).toBeVisible({ timeout: sourceOptionTimeoutMs });
-}
-
-async function promoteTcgplayerPokemonMergeCandidateFromReview(
-  page: Page,
-  selectedScope: SelectedProviderScope,
-  progress?: TargetedTcgplayerPokemonProgress,
-): Promise<void> {
-  await expandWorkflowStage(page, "review-changes");
-  const reviewModule = mergeCandidateReviewModule(page);
-  await expect(reviewModule).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "Merged candidate review module is visible",
-    "find an enabled TCGplayer Pokemon merge-candidate Promote action",
-    [await visibleLocatorText(reviewModule)],
-  );
-
-  const candidate = await firstMergeCandidateRowWithEnabledPromotion(reviewModule);
-  if (!candidate) {
-    const reviewText = await reviewModule
-      .innerText({ timeout: 2_000 })
-      .then(normalizeWhitespace)
-      .catch(() => "Merged candidate review text was not visible.");
-    throw new Error(
-      `TCGplayer Pokemon targeted UAT could not find an enabled merge-candidate Promote action for ${
-        selectedScope.displayLabel
-      }. ${reviewText}`,
-    );
-  }
-
-  const { row, promoteButton } = candidate;
-  await expect(row.getByText(/tcgplayer/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "enabled TCGplayer Pokemon merge-candidate Promote action is visible",
-    "open the evidence sheet and verify generated command payloads are visible",
-    [await visibleLocatorText(row)],
-  );
-  await openMergeCandidateEvidenceSheet(page, row);
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    "merge-candidate evidence sheet is visible",
-    "submit the Promote action and observe command queued feedback",
-  );
-  await expect(promoteButton).toBeEnabled({ timeout: sourceOptionTimeoutMs });
-  await promoteButton.click();
-  await expectCommandQueued(page);
-  recordTargetedTcgplayerPokemonProgress(
-    progress,
-    `TCGplayer Pokemon merge-candidate promotion queued for ${selectedScope.displayLabel}`,
-    "durable promotion command accepted; targeted UAT path is complete",
-  );
-}
-
-function mergeCandidateReviewModule(page: Page): Locator {
-  return page
-    .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Merged candidate review" }) })
-    .first();
-}
-
-type MergeCandidatePromoteTarget = Readonly<{
-  row: Locator;
-  promoteButton: Locator;
-}>;
-
-async function firstMergeCandidateRowWithEnabledPromotion(
-  reviewModule: Locator,
-): Promise<MergeCandidatePromoteTarget | null> {
-  const promoteButtons = reviewModule.getByRole("button", { name: /^Promote\b/i });
-  const deadline = Date.now() + sourceOptionTimeoutMs;
-  while (Date.now() < deadline) {
-    const count = await promoteButtons.count();
-    for (let index = 0; index < count; index += 1) {
-      const promoteButton = promoteButtons.nth(index);
-      if (await promoteButton.isEnabled({ timeout: 500 }).catch(() => false)) {
-        const row = promoteButton.locator("xpath=ancestor::tr[1]");
-        if (
-          await row
-            .getByText(/tcgplayer/i)
-            .first()
-            .isVisible({ timeout: 500 })
-            .catch(() => false)
-        ) {
-          return { row, promoteButton };
-        }
-      }
-    }
-    await reviewModule.page().waitForTimeout(1_000);
-  }
-
-  return null;
-}
-
-async function openMergeCandidateEvidenceSheet(page: Page, row: Locator): Promise<void> {
-  await row.getByRole("button", { name: "Evidence" }).click();
-  await expect(page.getByRole("heading", { name: /Candidate detail:/i }).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  await expect(page.getByText("Generated command payloads", { exact: true }).first()).toBeVisible({
-    timeout: sourceOptionTimeoutMs,
-  });
-  await expect(page.getByText(/Promote .* source/i).first()).toBeVisible({ timeout: sourceOptionTimeoutMs });
-  await page.keyboard.press("Escape").catch(() => undefined);
 }
 
 async function expectImportPreflight(
@@ -4500,7 +4106,6 @@ async function expectImportJobSettledForSelectedUnit(
   unitKey: string,
   selectedScope: SelectedProviderScope,
   previousJobRows: readonly string[],
-  progress?: TargetedTcgplayerPokemonProgress,
   options: Readonly<{ allowPartialWithReview?: boolean }> = {},
 ): Promise<void> {
   const previous = new Set(previousJobRows.map(normalizeWhitespace));
@@ -4521,40 +4126,14 @@ async function expectImportJobSettledForSelectedUnit(
         await expect(partialRow.getByRole("link", { name: "Review observations" }).first()).toBeVisible({
           timeout: sourceOptionTimeoutMs,
         });
-        recordTargetedTcgplayerPokemonProgress(
-          progress,
-          "child import job reached partial terminal state with reviewable observations",
-          "open Review changes and promote a TCGplayer Pokemon merge candidate",
-          [unsuccessful],
-        );
         return;
       }
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        "child import job reached an unsuccessful terminal state",
-        "inspect the visible import job row and provider readiness before rerunning the targeted path",
-        [unsuccessful],
-      );
       throw new Error(`Import job for ${unitKey} reached an unsuccessful terminal state: ${unsuccessful}`);
     }
     const completed = changedRows.find(importJobRowReachedCompletedTerminal);
     if (completed) {
-      recordTargetedTcgplayerPokemonProgress(
-        progress,
-        `child import job completed for ${selectedScope.displayLabel}`,
-        "open Review changes and promote a TCGplayer Pokemon merge candidate",
-        [completed],
-      );
       return;
     }
-
-    recordTargetedTcgplayerPokemonProgress(
-      progress,
-      "waiting for child import job terminal state",
-      "child import job has not reached a new completed row for the selected Pokemon scope",
-      observedRows,
-      30_000,
-    );
     await page.waitForTimeout(2_000);
   }
 

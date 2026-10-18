@@ -39,7 +39,6 @@ import {
   type PlatformPostageConfig,
   type PlatformStripeConnectAccountsApi,
   type PlatformStripeEffectiveMode,
-  type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
   isPlatformApiRuntimeProfile,
@@ -66,7 +65,6 @@ import type {
   ReadConsistencyRouteTuning,
 } from "@chase-sets/bounded-context-runtime";
 import { apiContextRegistry } from "./generated/api-context-registry";
-import type { SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 import {
   parseChannelCredentialKeyring,
   type ChannelCredentialKeyring,
@@ -91,8 +89,6 @@ export type PlatformApiProviderModeObservation = Readonly<{
 }>;
 
 export type PlatformApiPostageConfig = PlatformPostageConfig<true>;
-export type PlatformApiTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
-
 
 export type PlatformApiSocialLoginProviderConfig = Readonly<{
   clientId: string;
@@ -338,7 +334,6 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     checkoutClosed: boolean;
     offerLifecycleOpen: boolean;
     channelCredentialKeyring: ChannelCredentialKeyring | null;
-    catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
     ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
@@ -346,7 +341,6 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     stripeEffectiveMode: PlatformStripeEffectiveMode;
     mobileMessaging: PlatformApiMobileMessagingConfig;
     postage: PlatformApiPostageConfig;
-    tcgplayerAutomation: PlatformApiTcgplayerAutomationConfig | null;
     socialLogin: PlatformApiSocialLoginConfig;
     adminGoogleWorkspaceSso: PlatformApiAdminGoogleWorkspaceSsoConfig | null;
     catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
@@ -874,7 +868,6 @@ export function loadConfig(): PlatformApiConfig {
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     offerLifecycleOpen: getBooleanEnv("CHASE_SETS_OFFER_LIFECYCLE_OPEN", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
-    catalogOperatorSessionKeyring: null,
     ebayAccountDeletionConfiguration: parseEbayAccountDeletionConfiguration(
       process.env.EBAY_ACCOUNT_DELETION_ENDPOINT,
       process.env.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN,
@@ -887,7 +880,6 @@ export function loadConfig(): PlatformApiConfig {
     },
     mobileMessaging,
     postage,
-    tcgplayerAutomation: null,
     stripeGoLive: {
       apiVersion: STRIPE_API_VERSION,
       requiredWebhookEvents: requiredStripeWebhookEvents(stripeProvider.connectAccountsApi),

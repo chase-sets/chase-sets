@@ -30,8 +30,6 @@ describe("Shipment Group admission worker host capability", () => {
       },
       channelSaleRecorder: createPlatformChannelSaleRecorder(pool),
       inventoryCleanupAuthority: { kind: "not-mounted" },
-      tcgplayerMarketTransport: { kind: "not-mounted" },
-      tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
       commercialTermsResolver: createNoopCommercialTermsResolver(),
       channelConnectionIdentityReader: { resolve: async () => null },
     };

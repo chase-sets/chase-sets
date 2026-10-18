@@ -4,7 +4,6 @@ import {
   getPlatformWorkerContextsForRuntimeProfile,
   loadConfig,
 } from "../src/config";
-import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 import { selectSettlementBootstrapDatabaseUrl } from "../src/database-pools";
 import { createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
 
@@ -58,20 +57,6 @@ const envNames = [
   "GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS",
   "GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE",
   "GOOGLE_SHOPPING_DIAGNOSTICS_PREVIOUS_ISSUE_CHUNK_SIZE",
-  "TCGPLAYER_AUTOMATION_USER_AGENT",
-  "TCGPLAYER_AUTOMATION_REQUEST_DELAY_MS",
-  "TCGPLAYER_AUTOMATION_RATE_LIMIT_COOLDOWN_MS",
-  "TCGPLAYER_AUTOMATION_MAX_CONCURRENT_REQUESTS",
-  "TCGPLAYER_AUTOMATION_ADAPTIVE_ENABLED",
-  "TCGPLAYER_AUTOMATION_MIN_REQUEST_DELAY_MS",
-  "TCGPLAYER_AUTOMATION_MAX_REQUEST_DELAY_MS",
-  "TCGPLAYER_AUTOMATION_LEARNED_MIN_DELAY_MS",
-  "TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON",
-  "TCGPLAYER_AUTOMATION_ADAPTIVE_INCREASE_MULTIPLIER",
-  "TCGPLAYER_AUTOMATION_ADAPTIVE_FLOOR_STEP_MS",
-  "TCGPLAYER_AUTOMATION_ADAPTIVE_DECREASE_AMOUNT_MS",
-  "TCGPLAYER_AUTOMATION_ADAPTIVE_SUCCESS_THRESHOLD",
-  "TCGPLAYER_AUTOMATION_MAX_RETRIES",
   "NOTIFICATION_EMAIL_PROVIDER",
   "SES_AWS_REGION",
   "SES_AWS_ACCESS_KEY_ID",
@@ -233,37 +218,6 @@ describe("platform worker config", () => {
       else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
     }
   });
-  it("loads the optional Catalog operator-session keyring and fails malformed startup", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
-    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = "";
-    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
-    const keyBase64 = Buffer.alloc(32, 7).toString("base64");
-    const logs = ["log", "error", "warn", "info", "debug"] as const;
-    const spies = logs.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
-    try {
-      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
-        activeKeyId: "synthetic",
-        keys: [{ keyId: "synthetic", keyBase64 }],
-      });
-      expect(loadConfig().catalogOperatorSessionKeyring?.activeKeyId).toBe("synthetic");
-      expect(loadConfig().tcgplayerAutomation).toMatchObject({ auth: { tcgAuthCookie: null } });
-      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = `malformed-synthetic-marker${keyBase64}`;
-      let message = "";
-      try {
-        loadConfig();
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).toBe("invalid-keyring");
-      const output = JSON.stringify({ message, logs: spies.map((spy) => spy.mock.calls) });
-      expect(output).not.toContain("malformed-synthetic-marker");
-      expect(output).not.toContain(keyBase64);
-      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
-    } finally {
-      for (const spy of spies) spy.mockRestore();
-    }
-  });
   it("defaults the repricing dry-run lane to one and reads its configured count", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     expect(loadConfig().pricingRepricingDryRunJobLaneCount).toBe(1);
@@ -282,7 +236,6 @@ describe("platform worker config", () => {
     expect(config.evidenceWindowAdmissionSecret).toBeUndefined();
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
-    expect(config.tcgplayerAutomation).toBeNull();
     expect(config.googleMerchant).toEqual({ syncEnabled: false, dryRun: true });
     expect(config.discoverySearchEmbeddings).toEqual({
       apiKey: null,
@@ -500,112 +453,6 @@ describe("platform worker config", () => {
       credentialSecretName: "google-merchant-service-account",
       productionSyncApprovalReference: "GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04",
     });
-  });
-
-  it("does not configure TCGplayer automation from the retired cookie alone", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
-
-    expect(loadConfig().tcgplayerAutomation).toBeNull();
-  });
-
-  it("ignores the retired TCGplayer cookie and loads operator-session config", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
-    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
-      activeKeyId: "synthetic",
-      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
-    });
-    process.env.TCGPLAYER_AUTOMATION_USER_AGENT = "Chase Sets staging provider proof";
-    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
-      mpSearchApi: { requestDelayMs: 500, maxConcurrentRequests: 1 },
-    });
-
-    const config = loadConfig().tcgplayerAutomation;
-
-    expect(config).toMatchObject({
-      auth: {
-        tcgAuthCookie: null,
-        userAgent: "Chase Sets staging provider proof",
-      },
-      domainConfigs: {
-        mpSearchApi: expect.objectContaining({
-          requestDelayMs: 500,
-          rateLimitCooldownMs: 100_000,
-          maxConcurrentRequests: 1,
-        }),
-        mpApi: expect.objectContaining({
-          requestDelayMs: 10_000,
-          maxConcurrentRequests: 2,
-        }),
-      },
-      maxRetries: 3,
-    });
-  });
-
-  it("redacts TCGplayer automation credentials from log descriptions", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
-    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
-      activeKeyId: "synthetic",
-      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
-    });
-
-    const description = describeTcgplayerAutomationConfigForLogs(loadConfig().tcgplayerAutomation);
-
-    expect(description).toMatchObject({
-      configured: true,
-      auth: {
-        tcgAuthCookie: "[missing]",
-        userAgent: "[configured]",
-      },
-    });
-    expect(JSON.stringify(description)).not.toMatch(/fixture-cookie-value|TCGAuthTicket|fixture-cookie-value/i);
-  });
-
-  it("raises unsafe TCGplayer overrides to the shared-budget floors", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
-    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
-      activeKeyId: "synthetic",
-      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
-    });
-    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
-      mpApi: {
-        requestDelayMs: 1,
-        rateLimitCooldownMs: 1,
-        maxConcurrentRequests: 99,
-        minRequestDelayMs: 1,
-        learnedMinDelayMs: 1,
-      },
-      mpSearchApi: { rateLimitCooldownMs: 1 },
-    });
-
-    const config = loadConfig().tcgplayerAutomation!;
-    expect(config.domainConfigs.mpApi).toMatchObject({
-      requestDelayMs: 10_000,
-      rateLimitCooldownMs: 30_000,
-      maxConcurrentRequests: 2,
-      minRequestDelayMs: 10_000,
-      learnedMinDelayMs: 10_000,
-    });
-    expect(config.domainConfigs.mpSearchApi.rateLimitCooldownMs).toBe(100_000);
-  });
-
-  it("rejects malformed TCGplayer domain config instead of silently weakening provider budgets", () => {
-    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
-    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
-    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
-      activeKeyId: "synthetic",
-      keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
-    });
-    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
-      unknownDomain: { requestDelayMs: 0 },
-    });
-
-    expect(() => loadConfig()).toThrow(
-      "TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON contains unsupported domain 'unknownDomain'.",
-    );
   });
 
   it("redacts Google Merchant credential references from log descriptions", () => {

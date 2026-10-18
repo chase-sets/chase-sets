@@ -58,8 +58,6 @@ const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
 const syntheticPricingHostPorts = {
-  tcgplayerMarketTransport: { kind: "not-mounted" },
-  tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
   channelConnectionIdentityReader: { resolve: async () => null },
 } satisfies PricingHostPorts;
@@ -590,7 +588,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       (host.services["platform-operations"] as PlatformOperationsServices).supportRequests.attachmentCleanup;
     const cleanupRunner = (host: WorkerHostRuntime) => {
       const runners = registeredRunnersOf(host);
-      expect(runners).toHaveLength(EXPECTED_REGISTERED_RUNNER_COUNT + 1);
+      expect(runners).toHaveLength(EXPECTED_REGISTERED_RUNNER_COUNT);
       return runners.find((runner) => runner.name === "support-evidence-operation-cleanup")!;
     };
     const host = compose(1);

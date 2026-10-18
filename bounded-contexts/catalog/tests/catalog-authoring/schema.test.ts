@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-model/schema";
 import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "../../support/authoring-support/schema";
 
@@ -46,7 +47,7 @@ describe("catalog authoring schema composition", () => {
   });
 
   it("clears grants and drops retired TCGplayer custody tables in one idempotent migration", () => {
-    const migration = catalogAuthoringSchemaMigrations.find(
+    const migration: BcSchemaMigration | undefined = catalogAuthoringSchemaMigrations.find(
       ({ migrationId }) => migrationId === "20261018_catalog_remove_tcgplayer_server_custody",
     );
     expect(migration).toBeDefined();

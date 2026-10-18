@@ -1,28 +1,21 @@
-# TCGplayer Automation Operations
+# TCGplayer Automation Operations (Retired Server Transport)
 
-TCGplayer integration calls use the automation-app client behavior reviewed from
-`todd-skelton/tcgplayer-automation-app` at commit `bf42aa8`. Do not replace this
-runbook with assumptions from the official TCGplayer API docs.
+Chase Sets does not make TCGplayer integration calls. The server transport,
+credential configuration, cookie custody, and market-capture jobs are retired.
+Browser extensions relay provider data and no extension code reads or pushes
+TCGplayer cookies.
 
-Catalog owns product-line, set-name, product-detail, Source Observation, and
-external reference ingestion. Pricing owns market price, latest sales, active
-listing, and price-history signals. Inventory consumes Catalog-owned references
-for import resolution. Provider transport configuration belongs in operations
-and infrastructure, not deployable-local code.
+Catalog retains provider-neutral Source Observation and external-reference
+records. Any queued TCGplayer integration job is terminally failed without a
+request; new server enqueue and preview commands return an explicit retired-
+provider refusal.
 
-## Secret Provisioning
+## Secret Provisioning (Prohibited)
 
-The [TCGplayer Operator Extension](../../deployables/tcgplayer-operator-extension/README.md)
-is the primary path for Todd's operator session. It forwards the applicable
-`TCGAuthTicket_Production` cookie into encrypted Catalog custody; it never takes
-a password or another user's credentials. Use the configured provider user agent
-with the resolved cookie. No secret edit, deploy, or restart is needed to adopt a
-stored revision: Catalog and Pricing resolve custody on each automation request.
-
-The environment cookie is retired. A stored session is required; unreadable
-custody refuses requests instead of silently falling back. Local fixture-backed
-development needs no provider credential. Live jobs need a usable resolved
-operator session.
+The extension never accepts, reads, stores, or forwards a TCGplayer cookie or
+credential. Do not provision `TCGPLAYER_AUTOMATION_*` or
+`CATALOG_OPERATOR_SESSION_KEYRING_JSON`; those settings are removed. Pairing
+grants contain no provider credential and are used only for browser handoff.
 
 ### Pairing
 

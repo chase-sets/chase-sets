@@ -25,9 +25,7 @@ import type { ChannelConnectionIdentityReader } from "../../features/economics/d
 import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
 
 export type PricingHostPorts = Readonly<{
-  /** Retained as an explicit unmounted compatibility port; server transport is retired. */
-  tcgplayerMarketTransport?: { kind: "not-mounted" } | unknown;
-  tcgplayerMarketCaptureReceiptSink?: { kind: "not-mounted" } | unknown;
+  [key: string]: unknown;
   commercialTermsResolver: CommercialTermsResolver;
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
 }>;

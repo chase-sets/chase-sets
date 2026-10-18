@@ -23,7 +23,6 @@ import {
   type PlatformPoolConfig,
   type PlatformPostageConfig,
   type PlatformStripeEffectiveMode,
-  type PlatformTcgplayerAutomationConfig,
 } from "@chase-sets/platform-runtime/config-schema";
 import {
   isPlatformWorkerRuntimeProfile,
@@ -31,7 +30,6 @@ import {
 } from "@chase-sets/platform-runtime/runtime-profiles";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
-import type { SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 import {
   parseSupportEvidenceCleanupBinding,
   type SupportEvidenceCleanupBinding,
@@ -40,12 +38,9 @@ import {
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
 
 export type PlatformWorkerPoolConfig = PlatformPoolConfig;
-export type PlatformWorkerTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 export type PlatformWorkerConfig = Readonly<{
   channelCredentialKeyring: ChannelCredentialKeyring | null;
-  catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
-  tcgplayerAutomation: PlatformWorkerTcgplayerAutomationConfig | null;
   runtimeProfile: PlatformWorkerRuntimeProfile;
   deploymentEnvironment: DeploymentEnvironment;
   sharedDatabaseUrl: string | null;
@@ -226,7 +221,6 @@ export type PlatformWorkerPaymentProcessorConfig = PlatformPaymentProcessorConfi
 export type PlatformWorkerMoneyMovementConfig = PlatformMoneyMovementConfig;
 
 export type PlatformWorkerPostageConfig = PlatformPostageConfig<false>;
-
 
 export type PlatformWorkerGoogleMerchantConfig =
   | Readonly<{
@@ -658,8 +652,6 @@ export function loadConfig(): PlatformWorkerConfig {
       includeWebhookSecret: false,
     }),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
-    catalogOperatorSessionKeyring: null,
-    tcgplayerAutomation: null,
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,

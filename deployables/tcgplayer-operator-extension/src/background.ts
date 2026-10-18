@@ -1,7 +1,4 @@
-import {
-  createOperatorBackground,
-  type OperatorAdapters,
-} from "@chase-sets/catalog/client";
+import { createOperatorBackground, type OperatorAdapters } from "@chase-sets/catalog/client";
 
 const adapters: OperatorAdapters = {
   storage: {
@@ -13,13 +10,10 @@ const adapters: OperatorAdapters = {
       await chrome.storage.local.set({ [key]: value });
     },
   },
-  readCookie: async () => null,
-  async schedule() {},
   async badge(required) {
     await chrome.action.setBadgeText({ text: required ? "!" : "" });
   },
   fetch: globalThis.fetch.bind(globalThis),
-  now: Date.now,
 };
 const background = createOperatorBackground(adapters);
 chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {

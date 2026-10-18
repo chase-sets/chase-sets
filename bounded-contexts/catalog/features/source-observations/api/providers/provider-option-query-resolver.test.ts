@@ -79,7 +79,7 @@ describe("#9424 sealed option bridges and completed cache", () => {
       const run = async () => {
         const registry = new ProviderAdapterRegistry([subject]);
         if (domain === "one-piece")
-          return queryProviderIntegrationOptions(request, { query }, null, undefined, undefined, registry);
+          return queryProviderIntegrationOptions(request, { query }, null, undefined, registry);
         // Lorcana's sealed unit stays inactive. Exercise its bridge without enabling it.
         let pagination: { totalCount: number; pageSize: number } | null = null;
         const version = catalogProviderIntegrationProfileVersions.find(

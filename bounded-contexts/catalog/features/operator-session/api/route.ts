@@ -27,7 +27,9 @@ export function operatorSessionAdminRoutes(services: Services) {
     }
     await next();
   });
+  app.get("/", (c) => services.execute("metadata", c.req.raw, c.get("actor")));
   app.post("/grant", (c) => services.execute("mint", c.req.raw, c.get("actor")));
+  app.delete("/", (c) => services.execute("disconnect", c.req.raw, c.get("actor")));
   return app;
 }
 

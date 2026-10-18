@@ -476,7 +476,6 @@ export function createSourceObservationRuntime(
           input,
           deps.db,
           rolloutControlPolicy,
-          undefined,
           profileVersions,
           providerAdapterRegistry,
           deps.sourceObservationTelemetry,
@@ -486,12 +485,7 @@ export function createSourceObservationRuntime(
           capability: "provider-option-query",
           providerKey: input.providerKey,
         });
-        return listProviderIntegrationOptions(
-          input,
-          undefined,
-          profileVersions,
-          providerAdapterRegistry,
-        );
+        return listProviderIntegrationOptions(input, profileVersions, providerAdapterRegistry);
       },
       getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
       getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),

@@ -394,7 +394,6 @@ describeDb("Pricing Own-Sale Observation projection and reads (#7782)", () => {
 
 function pricingServices(pool: PgTransactionalPool) {
   return pricingModule.createServices(pool, {
-    tcgplayerMarketTransport: { kind: "not-mounted" },
     tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver: createNoopCommercialTermsResolver(),
     channelConnectionIdentityReader: { resolve: async () => null },
