@@ -1,5 +1,15 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { InventoryCatalogItemSnapshot } from "../../inventory-items/integrations/catalog/queries";
+import type { InventoryStorageLocation } from "../../storage-locations/api/contracts";
+import {
+  nativeCsvImportAdapter,
+  tcgplayerCsvImportAdapter,
+  type NormalizedInventoryImportRow,
+} from "../domain/import-source-adapters";
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 import { InventoryImportBatchPage } from "./import-batch-page";
 
@@ -313,5 +323,494 @@ describe("InventoryImportBatchPage", () => {
     expect(html).toContain(
       "/account/listings/new?inventoryItemId=inv_1&amp;afterWrite=fresh&amp;postWriteHandoff=handoff",
     );
+  });
+});
+
+const pickerRequestPattern = /^(\/api\/marketplace\/items\/suggest\?q=[^&]+|\/api\/inventory\/catalog-items\/[^/?&]+)$/;
+
+const storageLocation: InventoryStorageLocation = {
+  storage_location_id: "loc_1",
+  account_id: "acc_1",
+  name: "Main shelf",
+  description: null,
+  ship_from_code: "CHI",
+  ship_from_address: {
+    name: "Chase Sets",
+    line1: "100 Market St",
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+  },
+  is_archived: false,
+  updated_at: timestamp,
+};
+
+const conditionSchema: NonNullable<InventoryCatalogItemSnapshot["product_schema"]> = {
+  canonicalDimensionOrder: [{ dimensionId: "condition", dimensionName: "Condition" }],
+  dimensions: [
+    {
+      dimensionId: "condition",
+      dimensionName: "Condition",
+      required: true,
+      appliesWhen: [],
+      allowedOptions: [
+        { optionId: "near_mint", code: "NM", label: "Near Mint" },
+        { optionId: "lightly_played", code: "LP", label: "Lightly Played" },
+      ],
+    },
+  ],
+};
+
+function catalogSnapshot(overrides: Partial<InventoryCatalogItemSnapshot> = {}): InventoryCatalogItemSnapshot {
+  return {
+    catalog_item_id: "cat_zard",
+    language_code: "en",
+    title: "Charizard",
+    subtitle: "Base Set 4/102",
+    blueprint_id: "bpr_card",
+    status: "active",
+    product_schema: conditionSchema,
+    updated_at: timestamp,
+    ...overrides,
+  };
+}
+
+// "Zard" is an alias: neither suggestion label contains it, so a default substring filter would hide both.
+const zardSuggestions = [
+  {
+    catalogItemId: "cat_zard",
+    title: "Charizard",
+    subtitle: "Base Set 4/102",
+    slug: "charizard-cat-zard",
+    category: "Pokemon TCG",
+  },
+  {
+    catalogItemId: "cat_zard_ex",
+    title: "Charizard ex",
+    subtitle: "Obsidian Flames",
+    slug: "charizard-ex",
+    category: null,
+  },
+];
+
+function suggestionsResponse(items: readonly unknown[]) {
+  return Response.json({ items, count: items.length });
+}
+
+function deferredResponse() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+function stubPickerFetch(respond: (url: string) => Response | Promise<Response>) {
+  const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => Promise.resolve(respond(String(input))));
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
+}
+
+function requestedUrls(fetch: { mock: { calls: ReadonlyArray<readonly [RequestInfo | URL, RequestInit?]> } }) {
+  return fetch.mock.calls.map(([input]) => String(input));
+}
+
+function unresolvedRow(overrides: Partial<InventoryImportBatchRow> = {}): InventoryImportBatchRow {
+  return row({
+    status: "rejected",
+    resolution_status: "unresolved",
+    catalog_item_id: null,
+    product_id: null,
+    selected_options: [],
+    validation_errors: ["Catalog item is required."],
+    ...overrides,
+  });
+}
+
+// Rows exactly as the source adapters normalize them, so the seed reads the persisted adapter fields.
+function adapterRow(
+  normalized: NormalizedInventoryImportRow | undefined,
+  overrides: Partial<InventoryImportBatchRow> = {},
+) {
+  return unresolvedRow({
+    raw_row: normalized!.rawRow,
+    external_reference: normalized!.externalReference,
+    row_note: normalized!.values.rowNote?.trim() || null,
+    ...overrides,
+  });
+}
+
+function tcgplayerRow(csvText: string) {
+  return adapterRow(tcgplayerCsvImportAdapter.normalize({ csvText, quantityMode: "add" })[0]);
+}
+
+function renderResolveRow(
+  resolveRow: InventoryImportBatchRow,
+  sourceKey: InventoryImportBatch["source_key"] = "tcgplayer-csv",
+) {
+  render(
+    <InventoryImportBatchPage
+      batches={[batch({ source_key: sourceKey })]}
+      storageLocations={[storageLocation]}
+      detail={{ ...detail([resolveRow]), source_key: sourceKey }}
+      currentPath="/account/inventory/imports/imb_1?resolveRowId=imr_1"
+    />,
+  );
+  const input = screen.getByRole("combobox", { name: "Catalog item" }) as HTMLInputElement;
+  return { input, form: input.closest("form")! };
+}
+
+function hiddenCatalogItemId() {
+  return (document.querySelector('input[name="catalogItemId"]') as HTMLInputElement).value;
+}
+
+function applyButton() {
+  // An open listbox hides the rest of the drawer from the accessibility tree; the gate is read either way.
+  return screen.getByText("Apply row fix").closest("button") as HTMLButtonElement;
+}
+
+function optionLabels() {
+  return within(screen.getByRole("listbox", { name: "Catalog item" }))
+    .queryAllByRole("option")
+    .map((option) => option.textContent?.trim());
+}
+
+// A bare change event looks like autofill to the combobox, so open it the way a seller's click does first.
+async function openAndEnter(user: ReturnType<typeof userEvent.setup>, input: HTMLInputElement, value: string) {
+  await user.click(input);
+  fireEvent.change(input, { target: { value } });
+}
+
+function settle(ms = 400) {
+  return new Promise((done) => setTimeout(done, ms));
+}
+
+describe("Import row Catalog picker", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    {
+      seed: "platform displayName",
+      row: () => tcgplayerRow("SKU,Product Name,Set Name,Condition,Quantity\n8812,Charizard,Base Set,Near Mint,1"),
+      query: "Charizard | Base Set | Near Mint",
+    },
+    {
+      seed: "adapter rowNote without a displayName",
+      row: () => tcgplayerRow("Product Name,Set Name,Condition,Quantity\nCharizard,Base Set,Near Mint,1"),
+      query: "Charizard | Base Set | Near Mint",
+    },
+    {
+      seed: "displayName ahead of a different rowNote (synthetic)",
+      row: () =>
+        unresolvedRow({
+          external_reference: { providerKey: "tcgplayer", externalKey: "sku:8812", displayName: "Charizard ex" },
+          row_note: "binder page 4",
+        }),
+      query: "Charizard ex",
+    },
+    {
+      seed: "blank displayName and rowNote",
+      row: () => tcgplayerRow("SKU,Quantity\n8812,1"),
+      query: "",
+    },
+    {
+      seed: "native row without evidence",
+      row: () =>
+        adapterRow(
+          nativeCsvImportAdapter.normalize({
+            csvText: "catalogItemId,storageLocationId,totalQuantity\n,loc_1,1",
+            quantityMode: "add",
+          })[0],
+        ),
+      query: "",
+    },
+  ])("seeds the $seed without an implicit selection or request", async ({ row: seededRow, query }) => {
+    const fetch = stubPickerFetch(() => suggestionsResponse([]));
+    const { input } = renderResolveRow(seededRow());
+
+    expect(input.value).toBe(query);
+    await settle();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(applyButton().disabled).toBe(true);
+    expect(screen.queryByText("Searching catalog items...")).toBeNull();
+  });
+
+  it("requests suggestions for seeded text only after the seller edits it", async () => {
+    const fetch = stubPickerFetch(() => suggestionsResponse(zardSuggestions));
+    const { input } = renderResolveRow(
+      tcgplayerRow("SKU,Product Name,Set Name,Condition,Quantity\n8812,Charizard,Base Set,Near Mint,1"),
+    );
+
+    await openAndEnter(userEvent.setup(), input, "Zard");
+
+    await waitFor(() =>
+      expect(optionLabels()).toEqual(["Charizard - Base Set 4/102", "Charizard ex - Obsidian Flames"]),
+    );
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=Zard"]);
+  });
+
+  it.each(["saved-list", "tcgplayer-csv", "native-csv"] as const)(
+    "restores a %s row's Catalog item ID with one exact GET ahead of its displayName and rowNote",
+    async (sourceKey) => {
+      const fetch = stubPickerFetch(() => Response.json(catalogSnapshot()));
+      const { input } = renderResolveRow(
+        unresolvedRow({
+          catalog_item_id: "cat_zard",
+          selected_options: [{ dimensionId: "condition", optionId: "lightly_played" }],
+          external_reference: { providerKey: "tcgplayer", externalKey: "sku:8812", displayName: "Charizard holo" },
+          row_note: "binder page 4",
+        }),
+        sourceKey,
+      );
+
+      expect(input.value).toBe("");
+      expect(screen.getByText("Loading catalog item...")).toBeTruthy();
+      await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
+      expect(input.value).toBe("Charizard - Base Set 4/102");
+      expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("lightly_played");
+      expect(applyButton().disabled).toBe(false);
+      await settle();
+      expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_zard"]);
+    },
+  );
+
+  it("loads a pasted Catalog item ID with one exact GET and keeps it unselected until it is chosen", async () => {
+    const user = userEvent.setup();
+    const fetch = stubPickerFetch(() => Response.json(catalogSnapshot()));
+    const { input } = renderResolveRow(tcgplayerRow("Product Name,Quantity\nCharizard,1"));
+
+    await openAndEnter(user, input, " cat_zard ");
+
+    const candidate = await screen.findByRole("option", { name: "Charizard - Base Set 4/102" });
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_zard"]);
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(applyButton().disabled).toBe(true);
+
+    await user.click(candidate);
+
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
+    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+    expect(applyButton().disabled).toBe(false);
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_zard"]);
+  });
+
+  it("hydrates only an explicit suggestion choice and posts only the hydrated identity and complete Options", async () => {
+    const user = userEvent.setup();
+    const hydration = deferredResponse();
+    const fetch = stubPickerFetch((url) =>
+      url.startsWith("/api/marketplace/") ? suggestionsResponse(zardSuggestions) : hydration.promise,
+    );
+    const { input, form } = renderResolveRow(unresolvedRow({ storage_location_id: "loc_1" }));
+
+    await openAndEnter(user, input, "Zard");
+    await user.click(await screen.findByRole("option", { name: "Charizard - Base Set 4/102" }));
+
+    expect(requestedUrls(fetch)).toEqual([
+      "/api/marketplace/items/suggest?q=Zard",
+      "/api/inventory/catalog-items/cat_zard",
+    ]);
+    expect(screen.getByText("Loading catalog item...")).toBeTruthy();
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(applyButton().disabled).toBe(true);
+
+    await act(async () => {
+      hydration.resolve(Response.json(catalogSnapshot()));
+    });
+    await waitFor(() => expect(applyButton().disabled).toBe(false));
+
+    await user.click(input);
+    await user.click(await screen.findByRole("option", { name: "Charizard - Base Set 4/102" }));
+    expect(requestedUrls(fetch)).toHaveLength(2);
+
+    expect([...new FormData(form).entries()].map(([key, value]) => [key, String(value)])).toEqual([
+      ["intent", "resolve-row"],
+      ["batchId", "imb_1"],
+      ["rowId", "imr_1"],
+      ["catalogItemId", "cat_zard"],
+      ["selectedOptions", JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }])],
+      ["storageLocationId", "loc_1"],
+    ]);
+    for (const url of requestedUrls(fetch)) {
+      expect(url).toMatch(pickerRequestPattern);
+    }
+  });
+
+  it.each([
+    {
+      failure: "missing",
+      response: () =>
+        Response.json({ error: { code: "not_found", message: "Catalog item not found." } }, { status: 404 }),
+      message: "Catalog item not found.",
+    },
+    {
+      failure: "inactive",
+      response: () => Response.json(catalogSnapshot({ status: "retired" })),
+      message: "This catalog item is not active. Choose an active catalog item.",
+    },
+  ])("clears a $failure row ID and blocks the row fix without a fallback search", async ({ response, message }) => {
+    const fetch = stubPickerFetch(response);
+    const { input } = renderResolveRow(
+      unresolvedRow({
+        catalog_item_id: "cat_zard",
+        external_reference: { providerKey: "tcgplayer", externalKey: "sku:8812", displayName: "Charizard holo" },
+      }),
+    );
+
+    await screen.findByText(message);
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.value).toBe("");
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(applyButton().disabled).toBe(true);
+    await settle();
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_zard"]);
+  });
+
+  it("keeps the row fix blocked while a hydrated item's required Options are incomplete", async () => {
+    stubPickerFetch(() =>
+      Response.json(
+        catalogSnapshot({
+          product_schema: {
+            canonicalDimensionOrder: [
+              ...conditionSchema.canonicalDimensionOrder,
+              { dimensionId: "grade", dimensionName: "Grade" },
+            ],
+            dimensions: [
+              ...conditionSchema.dimensions,
+              { dimensionId: "grade", dimensionName: "Grade", required: true, appliesWhen: [], allowedOptions: [] },
+            ],
+          },
+        }),
+      ),
+    );
+    renderResolveRow(unresolvedRow({ catalog_item_id: "cat_zard" }));
+
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
+    expect(screen.getByLabelText("Grade")).toBeTruthy();
+    expect(applyButton().disabled).toBe(true);
+  });
+
+  it("refuses stale row Options, offers the item unselected, and resets Options on an explicit choice", async () => {
+    const user = userEvent.setup();
+    const fetch = stubPickerFetch(() => Response.json(catalogSnapshot()));
+    const { input } = renderResolveRow(
+      unresolvedRow({
+        catalog_item_id: "cat_zard",
+        selected_options: [{ dimensionId: "condition", optionId: "damaged" }],
+      }),
+    );
+
+    await screen.findByText(
+      "The saved product options no longer match this catalog item. Choose the catalog item again to set its options.",
+    );
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(applyButton().disabled).toBe(true);
+
+    await user.click(input);
+    await user.click(await screen.findByRole("option", { name: "Charizard - Base Set 4/102" }));
+
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
+    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+    expect(requestedUrls(fetch)).toEqual(["/api/inventory/catalog-items/cat_zard"]);
+  });
+
+  it.each([
+    {
+      state: "populated",
+      response: () => suggestionsResponse(zardSuggestions),
+      status: "Choose the catalog item from the visible search results.",
+      invalid: false,
+    },
+    {
+      state: "empty",
+      response: () => suggestionsResponse([]),
+      status: "No active catalog items matched that search.",
+      invalid: false,
+    },
+    {
+      state: "error",
+      response: () => Response.json({ error: { message: "Suggestions are unavailable." } }, { status: 503 }),
+      status: "Suggestions are unavailable.",
+      invalid: true,
+    },
+  ])("announces the $state suggestions state", async ({ response, status, invalid }) => {
+    const fetch = stubPickerFetch(response);
+    const { input } = renderResolveRow(unresolvedRow());
+
+    fireEvent.change(input, { target: { value: "Zard" } });
+
+    await screen.findByText(status);
+    expect(input.getAttribute("aria-invalid") === "true").toBe(invalid);
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=Zard"]);
+    expect(hiddenCatalogItemId()).toBe("");
+  });
+
+  it("stays idle under two trimmed characters and settles 250 ms before one suggestions request", () => {
+    vi.useFakeTimers();
+    const fetch = stubPickerFetch(() => suggestionsResponse([]));
+    const { input } = renderResolveRow(unresolvedRow());
+
+    fireEvent.change(input, { target: { value: " z " } });
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(screen.queryByText("Searching catalog items...")).toBeNull();
+
+    fireEvent.change(input, { target: { value: "Za" } });
+    expect(screen.getByText("Searching catalog items...")).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(249);
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(requestedUrls(fetch)).toEqual(["/api/marketplace/items/suggest?q=Za"]);
+  });
+
+  it("aborts superseded suggestions, ignores reverse-order completions, and resets Options on edit", async () => {
+    const user = userEvent.setup();
+    const stale = deferredResponse();
+    const latest = deferredResponse();
+    const fetch = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockImplementationOnce(() => Promise.resolve(Response.json(catalogSnapshot())))
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementationOnce(() => latest.promise);
+    vi.stubGlobal("fetch", fetch);
+    const { input, form } = renderResolveRow(unresolvedRow({ catalog_item_id: "cat_zard" }));
+    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
+
+    await openAndEnter(user, input, "Zard");
+    expect(hiddenCatalogItemId()).toBe("");
+    expect(screen.queryByLabelText("Condition")).toBeNull();
+    expect(new FormData(form).get("selectedOptions")).toBe("[]");
+    expect(applyButton().disabled).toBe(true);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    fireEvent.change(input, { target: { value: "Zard ex" } });
+    expect(fetch.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+
+    await act(async () => {
+      latest.resolve(suggestionsResponse([zardSuggestions[1]]));
+    });
+    await waitFor(() => expect(optionLabels()).toEqual(["Charizard ex - Obsidian Flames"]));
+    await act(async () => {
+      stale.resolve(suggestionsResponse([zardSuggestions[0]]));
+    });
+    expect(optionLabels()).toEqual(["Charizard ex - Obsidian Flames"]);
+    expect(requestedUrls(fetch)).toEqual([
+      "/api/inventory/catalog-items/cat_zard",
+      "/api/marketplace/items/suggest?q=Zard",
+      "/api/marketplace/items/suggest?q=Zard+ex",
+    ]);
   });
 });

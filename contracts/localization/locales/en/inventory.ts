@@ -156,6 +156,10 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id": "Catalog item",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.lookup.failed":
     "Catalog item lookup failed.",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.not.active":
+    "This catalog item is not active. Choose an active catalog item.",
+  "inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.options.stale":
+    "The saved product options no longer match this catalog item. Choose the catalog item again to set its options.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.choose.the.visible.catalog.item":
     "Choose the catalog item from the visible search results.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item": "Create Inventory Item",
