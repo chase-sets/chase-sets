@@ -31,6 +31,10 @@ describeDb("Offer lifecycle visibility on Postgres", () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(marketplaceModule, pools.marketplace);
     await pools.marketplace.query(
+      `INSERT INTO marketplace_account_pages (account_id, display_name, status)
+       VALUES ('acc_seller', 'Seller', 'active'), ('acc_buyer', 'Buyer', 'active')`,
+    );
+    await pools.marketplace.query(
       `INSERT INTO marketplace_supply_items (
         item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity
       ) VALUES ('inv_seller', 'acc_seller', 'cat_one', 'cat_one::', 'loc_fixture', 10)`,
@@ -144,5 +148,40 @@ describeDb("Offer lifecycle visibility on Postgres", () => {
 
     await project("marketplace.offer.withdrawn", 5);
     await expectHidden("withdrawn", "6.00");
+  });
+
+  it("hides submitted Offers for suspended and closed buyers, then restores only after reactivation", async () => {
+    await project("marketplace.offer.submitted", 1, {
+      catalogItemId: "cat_one",
+      productId: "cat_one::",
+      itemTitle: "Item",
+      itemSubtitle: null,
+      productSummary: null,
+      shippingDestinationSnapshot: {
+        name: "Buyer",
+        line1: "1 Main",
+        city: "Chicago",
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      },
+      priceAmount: "5.00",
+      priceCurrencyCode: "USD",
+      quantityRequested: 1,
+    });
+    await expectOpenAt("5.00");
+    await pools.marketplace.query(
+      `UPDATE marketplace_account_pages SET status = 'suspended' WHERE account_id = 'acc_buyer'`,
+    );
+    expect((await reads()).publicOffer).toBeNull();
+    expect((await reads()).matches).toEqual([]);
+    await pools.marketplace.query(
+      `UPDATE marketplace_account_pages SET status = 'closed' WHERE account_id = 'acc_buyer'`,
+    );
+    expect((await reads()).publicOffer).toBeNull();
+    await pools.marketplace.query(
+      `UPDATE marketplace_account_pages SET status = 'active' WHERE account_id = 'acc_buyer'`,
+    );
+    await expectOpenAt("5.00");
   });
 });

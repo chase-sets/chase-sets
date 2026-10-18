@@ -186,13 +186,6 @@
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
-      "secretName": "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE",
-      "purpose": "terraform-infra"
-    },
-    {
-      "file": ".github/workflows/platform-pr.yml",
-      "jobId": "preview-deploy-smoke",
-      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "VOYAGE_API_KEY",
       "purpose": "terraform-infra"
     },

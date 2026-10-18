@@ -8,6 +8,7 @@ import type {
   CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchScopeContext,
   CatalogPrimaryWorkbenchSourceObservationEvidenceDetail,
 } from "../api/primary-workbench-admin-contracts";
 import type { SourceObservationProductContentsPromotionLine } from "../domain/domain";
@@ -42,16 +43,14 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewComposition = Readonly
 export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
   context: CatalogPrimaryWorkbenchRouteContext,
   pagination: Readonly<{ limit?: number; offset?: number }> = {},
+  selectedScope: CatalogPrimaryWorkbenchScopeContext = scopeContextFromRouteContext(context),
 ): string | null {
   if (!context.providerKey) {
     return null;
   }
 
   const params = new URLSearchParams();
-  const scope = scopeContextToObservationFilterScope(
-    scopeContextFromRouteContext(context),
-    context.sourceObservationFilters,
-  );
+  const scope = scopeContextToObservationFilterScope(selectedScope, context.sourceObservationFilters);
   params.set("provider", context.providerKey);
   params.set("limit", String(pagination.limit ?? defaultReviewPageSize));
   params.set("offset", String(pagination.offset ?? 0));

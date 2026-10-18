@@ -15,7 +15,7 @@ import { t } from "@chase-sets/localization";
 import type { OneTimeApiKeySecret } from "../../api-keys/api/one-time-secret";
 import { actionFields, actionTargetField, type AttemptBinding, type MutationAction } from "../domain/contract";
 import { descriptorDisposition, formIntentDigest, type ClientState, type MutationDescriptor } from "./descriptor";
-import { sendMutation } from "./transport";
+import { sendMutation, type MutationFailure } from "./transport";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
 
 type Controller = Readonly<{
@@ -23,11 +23,19 @@ type Controller = Readonly<{
   activeForm: HTMLFormElement | null;
   ready: boolean;
   isHeld: (form: HTMLFormElement) => boolean;
-  submit: (event: FormEvent<HTMLFormElement>) => void;
+  submit: (event: FormEvent<HTMLFormElement>, onMutation?: MutationNotificationHandler) => void;
 }>;
 const MutationContext = createContext<Controller | null>(null);
 
-export function AccountMutationForm(props: RouterFormProps) {
+export type MutationNotification =
+  | Readonly<{ type: "accepted" }>
+  | Readonly<{ type: "failure"; failure: MutationFailure }>;
+export type MutationNotificationHandler = (notification: MutationNotification) => void;
+
+export function AccountMutationForm({
+  onMutation,
+  ...props
+}: RouterFormProps & { onMutation?: MutationNotificationHandler }) {
   const controller = useContext(MutationContext);
   const ref = useRef<HTMLFormElement>(null);
   const entered = useRef<FormData | null>(null);
@@ -76,7 +84,7 @@ export function AccountMutationForm(props: RouterFormProps) {
         event.preventDefault();
         if (!controller?.ready || busy) return;
         entered.current = new FormData(event.currentTarget);
-        controller.submit(event);
+        controller.submit(event, onMutation);
       }}
     />
   );
@@ -107,6 +115,7 @@ export function AccountMutationBoundary({
   const descriptor = useRef<MutationDescriptor | null>(null);
   const held = useRef(new Map<string, MutationDescriptor>());
   const [heldPairs, setHeldPairs] = useState<readonly string[]>([]);
+  const [callerPresented, setCallerPresented] = useState(false);
   const busy = useRef(false);
   const generation = useRef(0);
   const actorKey = `${actor.tenantId}:${actor.userId}:${actor.accountId}`;
@@ -156,6 +165,7 @@ export function AccountMutationBoundary({
     setState("editing");
     setActiveForm(null);
     setSuggestion(null);
+    setCallerPresented(false);
     setReady(!parent);
     return () => {
       generation.current += 1;
@@ -165,16 +175,24 @@ export function AccountMutationBoundary({
     };
   }, [actorKey, parent !== null]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  const activeNotification = useRef<MutationNotificationHandler | undefined>(undefined);
+
+  function submit(event: FormEvent<HTMLFormElement>, onMutation?: MutationNotificationHandler) {
     event.preventDefault();
     const native = event.nativeEvent as SubmitEvent;
-    submitForm(event.currentTarget, native.submitter as HTMLButtonElement | HTMLInputElement | null);
+    submitForm(
+      event.currentTarget,
+      native.submitter as HTMLButtonElement | HTMLInputElement | null,
+      undefined,
+      onMutation,
+    );
   }
 
   function submitForm(
     form: HTMLFormElement,
     submitter: HTMLButtonElement | HTMLInputElement | null,
     choice?: "accept-suggested" | "keep-original",
+    onMutation?: MutationNotificationHandler,
   ) {
     if (!ready || busy.current || parent || held.current.has(pair(form))) return;
     busy.current = true;
@@ -199,6 +217,17 @@ export function AccountMutationBoundary({
     setSecret(null);
     setSecretLost(false);
     setSuggestion(null);
+    setCallerPresented(false);
+    if (onMutation !== undefined) activeNotification.current = onMutation;
+    else if (!choice) activeNotification.current = undefined;
+    const notify = (notification: MutationNotification) => {
+      try {
+        activeNotification.current?.(notification);
+        return Boolean(activeNotification.current);
+      } catch {
+        return false;
+      }
+    };
     const currentGeneration = generation.current;
     void (async () => {
       let sent = false;
@@ -224,6 +253,7 @@ export function AccountMutationBoundary({
         const sentAt = new Date().toISOString();
         remember({ ...descriptor.current!, sentAt, observedAt: sentAt });
         sent = true;
+        notify({ type: "accepted" });
         setState("submitting");
         const result = await sendMutation({
           route: location.pathname,
@@ -251,11 +281,24 @@ export function AccountMutationBoundary({
               action: result.action,
             },
           });
+        const delivered =
+          result.state === "failed-safe" &&
+          !result.suggestedAddress &&
+          form.isConnected &&
+          Boolean(activeNotification.current);
+        const failure: MutationFailure = result.failure ?? {
+          intent: action as MutationAction,
+          target,
+          message: t("identity.accountManagement.state.failed-safe"),
+          errors: null,
+        };
+        const handedOff = delivered && notify({ type: "failure", failure });
+        if (handedOff) setCallerPresented(true);
         if (descriptor.current && descriptorDisposition(descriptor.current, result.state, actor) === "discard")
           remember(null);
         if (result.state === "ambiguous") hold(form);
         else busy.current = ["reauth-required", "route-denied"].includes(result.state);
-        status.current?.focus();
+        if (!handedOff) status.current?.focus();
         if (result.state === "succeeded") {
           if (result.destination && result.destination !== location.pathname)
             await navigate(result.destination, { replace: true });
@@ -280,7 +323,7 @@ export function AccountMutationBoundary({
     >
       <Stack gap={3}>
         <Stack ref={status} tabIndex={-1} role="status" aria-live="polite">
-          {state !== "editing" ? (
+          {state !== "editing" && !(state === "failed-safe" && callerPresented) ? (
             <Banner
               tone={
                 ["ambiguous", "conflict"].includes(state)
