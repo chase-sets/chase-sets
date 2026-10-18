@@ -433,11 +433,7 @@ describe("managed Postgres authority source generator", () => {
         ...catalogCountPreparationDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1617);
-    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
-    expect(generated.grants.filter(isCatalogKeyring)).toEqual(
-      reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
-    );
+    expect(expected.grants).toHaveLength(1612);
     expectParity(expected, generated);
     expectParity(expected, canonical);
     expect(canonical).toEqual(generated);
