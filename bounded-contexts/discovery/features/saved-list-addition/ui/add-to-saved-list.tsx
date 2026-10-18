@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
+import { DEFAULT_FRESH_WRITE_MAX_AGE_MS } from "@chase-sets/http/responses";
 import { useEffect, useRef, useState } from "react";
+import { useFetcher, useLocation } from "react-router";
 import {
   Banner,
   Button,
@@ -32,15 +34,19 @@ export function AddToSavedListControl({
   tone?: "primary" | "secondary" | "ghost";
   size?: "sm" | "md" | "lg";
 }>) {
+  const location = useLocation();
   const [open, setOpen] = useState(Boolean(initialPreparation || initialError));
   const [preparation, setPreparation] = useState(initialPreparation);
   const [destinationValue, setDestinationValue] = useState(NEW_LIST_VALUE);
   const [newListTitle, setNewListTitle] = useState("");
   const [trackedQuantity, setTrackedQuantity] = useState(1);
-  const [busy, setBusy] = useState(false);
+  const fetcher = useFetcher<SavedListRouteActionData | { error?: unknown }>();
+  const busy = fetcher.state !== "idle";
   const [error, setError] = useState(initialError);
   const [saved, setSaved] = useState<Extract<SavedListRouteActionData, { status: "saved" }> | null>(null);
+  const [postWriteToken, setPostWriteToken] = useState<Readonly<{ token: string; storedAtMs: number }> | null>(null);
   const requestIdRef = useRef(0);
+  const pendingRequestRef = useRef<{ id: number; productKey: string } | null>(null);
   const previousProductKeyRef = useRef(productKey);
   const productKeyRef = useRef(productKey);
   productKeyRef.current = productKey;
@@ -51,9 +57,46 @@ export function AddToSavedListControl({
     requestIdRef.current += 1;
     setPreparation(null);
     setSaved(null);
+    setPostWriteToken(null);
     setError(null);
     setOpen(false);
   }, [productKey]);
+
+  useEffect(() => {
+    const request = pendingRequestRef.current;
+    if (fetcher.state !== "idle" || !request) return;
+    pendingRequestRef.current = null;
+    if (request.id !== requestIdRef.current || request.productKey !== productKeyRef.current) return;
+
+    const data = fetcher.data;
+    if (typeof data === "object" && data !== null && "status" in data) {
+      if (data.status === "registration-required" || data.status === "options-required") {
+        window.location.assign(data.href);
+        return;
+      }
+      if (data.status === "ready") {
+        setPreparation(data.preparation);
+        setSaved(null);
+        setOpen(true);
+        return;
+      }
+      if (data.status === "saved") {
+        if (data.postWriteToken) setPostWriteToken({ token: data.postWriteToken, storedAtMs: Date.now() });
+        setSaved(data);
+        return;
+      }
+    }
+    setError(
+      typeof data === "object" &&
+        data !== null &&
+        "error" in data &&
+        typeof data.error === "string" &&
+        data.error.trim()
+        ? data.error
+        : t("collections.features.savedLists.ui.addToList.error.description"),
+    );
+    setOpen(true);
+  }, [fetcher.data, fetcher.state]);
 
   useEffect(() => {
     if (!preparation) return;
@@ -78,54 +121,22 @@ export function AddToSavedListControl({
     }
   }, [initialError, initialPreparation]);
 
-  const prepare = async () => {
-    const requestId = requestIdRef.current + 1;
-    const requestedProductKey = productKeyRef.current;
-    requestIdRef.current = requestId;
-    setBusy(true);
+  const prepare = () => {
+    pendingRequestRef.current = { id: ++requestIdRef.current, productKey: productKeyRef.current };
     setError(null);
     const formData = new FormData();
     formData.set("intent", "prepare-saved-list");
     for (const [key, value] of Object.entries(prepareFields)) formData.set(key, value);
-    try {
-      const response = await fetch(window.location.href, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
-      const data = (await response.json()) as SavedListRouteActionData | { error?: string };
-      if (!response.ok) throw new Error("error" in data ? data.error : undefined);
-      if (requestIdRef.current !== requestId || productKeyRef.current !== requestedProductKey) return;
-      if ("status" in data && (data.status === "registration-required" || data.status === "options-required")) {
-        window.location.assign(data.href);
-        return;
-      }
-      if ("status" in data && data.status === "ready") {
-        setPreparation(data.preparation);
-        setSaved(null);
-        setOpen(true);
-      }
-    } catch (caught) {
-      if (requestIdRef.current === requestId && productKeyRef.current === requestedProductKey) {
-        setError(
-          caught instanceof Error && caught.message
-            ? caught.message
-            : t("collections.features.savedLists.ui.addToList.error.description"),
-        );
-        setOpen(true);
-      }
-    } finally {
-      if (requestIdRef.current === requestId) setBusy(false);
-    }
+    void fetcher.submit(formData, {
+      method: "post",
+      action: currentPostWriteAction(location.pathname, location.search, freshPostWriteToken(postWriteToken)),
+      defaultShouldRevalidate: false,
+    });
   };
 
-  const submit = async () => {
+  const submit = () => {
     if (!preparation) return;
-    const requestId = requestIdRef.current + 1;
-    const requestedProductKey = productKeyRef.current;
-    requestIdRef.current = requestId;
-    setBusy(true);
+    pendingRequestRef.current = { id: ++requestIdRef.current, productKey: productKeyRef.current };
     setError(null);
     const formData = new FormData();
     formData.set("intent", "commit-saved-list");
@@ -134,34 +145,11 @@ export function AddToSavedListControl({
     formData.set("destinationKind", destinationValue === NEW_LIST_VALUE ? "new" : "existing");
     if (destinationValue === NEW_LIST_VALUE) formData.set("newListTitle", newListTitle);
     else formData.set("listId", destinationValue);
-    try {
-      const response = await fetch(window.location.href, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
-      const data = (await response.json()) as SavedListRouteActionData | { error?: string };
-      if (!response.ok) throw new Error("error" in data ? data.error : undefined);
-      if (
-        requestIdRef.current === requestId &&
-        productKeyRef.current === requestedProductKey &&
-        "status" in data &&
-        data.status === "saved"
-      ) {
-        setSaved(data);
-      }
-    } catch (caught) {
-      if (requestIdRef.current === requestId && productKeyRef.current === requestedProductKey) {
-        setError(
-          caught instanceof Error && caught.message
-            ? caught.message
-            : t("collections.features.savedLists.ui.addToList.error.description"),
-        );
-      }
-    } finally {
-      if (requestIdRef.current === requestId) setBusy(false);
-    }
+    void fetcher.submit(formData, {
+      method: "post",
+      action: currentPostWriteAction(location.pathname, location.search, freshPostWriteToken(postWriteToken)),
+      defaultShouldRevalidate: false,
+    });
   };
 
   const listItems: Array<{ value: string; label: string; description: string }> =
@@ -291,4 +279,17 @@ export function AddToSavedListControl({
       </CommerceSheet>
     </>
   );
+}
+
+function currentPostWriteAction(pathname: string, search: string, postWriteToken: string | null) {
+  if (!postWriteToken) return undefined;
+  const url = new URL(`${pathname}${search}`, "https://chase-sets.local");
+  url.searchParams.set("postWriteToken", postWriteToken);
+  return `${url.pathname}${url.search}`;
+}
+
+function freshPostWriteToken(state: Readonly<{ token: string; storedAtMs: number }> | null) {
+  if (!state) return null;
+  if (Date.now() - state.storedAtMs >= DEFAULT_FRESH_WRITE_MAX_AGE_MS) return null;
+  return state.token;
 }
