@@ -168,7 +168,7 @@ prioritization section. Remove the marker only after that answer and record the
 removal on #4129. Agents translate active steering
 into outcome order and issue Dispatch rank; they do not ask Todd to edit either.
 The marker description must be a string; other shapes fail closed with
-`STEERING_DESCRIPTION_INVALID`, and an `until` value must not contain `-->`.
+`STEERING_DESCRIPTION_INVALID`, and an `until` value must not contain the HTML comment closing delimiter.
 A later calculated score or routine review cannot silently reverse steering.
 Only genuinely new product, legal, provider-authority, or similarly consequential
 choices outside accepted scope use the existing decision route.
