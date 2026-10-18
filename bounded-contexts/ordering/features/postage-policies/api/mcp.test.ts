@@ -125,12 +125,12 @@ function native(fakeServices: PostagePolicyServices) {
   return { app, call, state, audits };
 }
 
-function storedRuntime() {
+function storedRuntime(projectedEventCount = Number.POSITIVE_INFINITY) {
   const { eventStore, allEvents } = createInMemoryEventStore();
   const db: PgQueryable = {
     async query<Row>(sql: string, values: readonly unknown[] = []) {
       const states = new Map<string, typeof initialPostagePolicyState>();
-      for (const event of allEvents) {
+      for (const event of allEvents.slice(0, projectedEventCount)) {
         const id = String(event.payload.policyId);
         states.set(
           id,
@@ -638,10 +638,10 @@ describe("ordering postage policy MCP handlers", () => {
     expect(fake.clonePolicy).toHaveBeenCalledOnce();
   });
 
-  it("preserves an active lifecycle status when revising an active policy", async () => {
+  it("returns a revise write result without consulting the lifecycle projection", async () => {
     const fakeServices = {
       ...services(),
-      getPolicy: vi.fn(async () => ({ status: "active" })),
+      getPolicy: vi.fn(async () => null),
     } as unknown as PostagePolicyServices;
     const handlers = createOrderingPostagePolicyMcpHandlers(fakeServices);
 
@@ -657,7 +657,60 @@ describe("ordering postage policy MCP handlers", () => {
       }),
     );
 
-    expect(result).toMatchObject({ status: "active" });
+    expect(result).toMatchObject({ status: "revised" });
+    expect(fakeServices.getPolicy).not.toHaveBeenCalled();
+  });
+
+  it("revises through the aggregate while the projection lags and replays success", async () => {
+    const first = storedRuntime(0);
+    const firstBoundary = native(first.runtime);
+    const created = await firstBoundary.call("ordering.create-postage-policy", createArguments);
+    expect(created.result.isError).not.toBe(true);
+    const firstId = created.result.structuredContent!.policyId;
+    const reviseInput = {
+      ...createArguments,
+      id: firstId,
+      label: "Revised while catching up",
+      idempotencyKey: "lagged-revise",
+      confirmationText: "Revise Postage Policy.",
+    };
+    const revised = await firstBoundary.call("ordering.revise-postage-policy", reviseInput);
+    expect(revised.result.isError).not.toBe(true);
+    expect(revised.result.structuredContent).toMatchObject({ status: "revised", version: 2 });
+    expect(first.allEvents).toHaveLength(2);
+    expect(await firstBoundary.call("ordering.revise-postage-policy", reviseInput)).toEqual(revised);
+    expect(first.allEvents).toHaveLength(2);
+
+    const second = storedRuntime(1);
+    const secondBoundary = native(second.runtime);
+    const secondCreated = await secondBoundary.call("ordering.create-postage-policy", {
+      ...createArguments,
+      idempotencyKey: "lagged-active-create",
+    });
+    const secondId = secondCreated.result.structuredContent!.policyId;
+    const activated = await secondBoundary.call("ordering.activate-postage-policy", {
+      id: secondId,
+      activationReason: "publish",
+      idempotencyKey: "lagged-active-activate",
+      confirmationText: "Activate Postage Policy.",
+      confirmed: true,
+    });
+    expect(activated.result.isError).not.toBe(true);
+    const activeRevision = await secondBoundary.call("ordering.revise-postage-policy", {
+      ...createArguments,
+      id: secondId,
+      label: "Revised active policy",
+      idempotencyKey: "lagged-active-revise",
+      confirmationText: "Revise Postage Policy.",
+    });
+    expect(activeRevision.result.isError).not.toBe(true);
+    expect(activeRevision.result.structuredContent).toMatchObject({ status: "revised", version: 3 });
+    const aggregate = second.allEvents.reduce(
+      (state, event) =>
+        evolvePostagePolicy(state, { type: event.eventType, data: event.payload } as PostagePolicyEvent),
+      initialPostagePolicyState,
+    );
+    expect(aggregate.status).toBe("active");
   });
 
   it("rejects unauthorised actors before reading or writing", async () => {

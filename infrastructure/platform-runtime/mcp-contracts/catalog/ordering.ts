@@ -110,7 +110,7 @@ const postagePolicyReceiptOutput = objectSchema(
     id: stringProperty("Postage policy identifier."),
     policyId: stringProperty("Postage policy identifier."),
     version: integerProperty("Committed aggregate version."),
-    status: stringProperty("Lifecycle write result."),
+    status: stringProperty("Write result: draft, revised, active, or retired."),
   },
   ["id", "policyId", "version", "status"],
 );

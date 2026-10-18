@@ -104,7 +104,10 @@ function policyCommand(args: Readonly<Record<string, unknown>>) {
   };
 }
 
-function receipt(result: Readonly<{ policyId: string; version: number }>, status: "draft" | "active" | "retired") {
+function receipt(
+  result: Readonly<{ policyId: string; version: number }>,
+  status: "draft" | "revised" | "active" | "retired",
+) {
   return {
     id: result.policyId,
     policyId: result.policyId,
@@ -169,14 +172,12 @@ export function createOrderingPostagePolicyMcpHandlers(
   const revisePolicy: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = requirePermission(actor, "postage-policies.manage");
     const policyId = readMcpTypedIdArgument(args, "id", "opp");
-    const current = await services.getPolicy(policyId);
-    if (!current) throw new Error("Postage policy not found.");
     const result = await services.revisePolicy(
       policyId,
       { ...policyCommand(args), revisedByUserId: scopedActor.userId },
       createActorEventStoreContext(scopedActor),
     );
-    return receipt(result, current.status === "active" ? "active" : "draft");
+    return receipt(result, "revised");
   };
 
   const activatePolicy: McpToolHandler = async ({ actor, arguments: args }) => {
