@@ -114,7 +114,8 @@ const etbSuggestions = [
 
 const SUGGEST_URL = "/api/marketplace/items/suggest";
 const CATALOG_ITEM_URL = "/api/inventory/catalog-items";
-const ALLOWED_PICKER_REQUEST = /^\/api\/marketplace\/items\/suggest\?q=[^&]+$|^\/api\/inventory\/catalog-items\/[^/?&]+$/;
+const ALLOWED_PICKER_REQUEST =
+  /^\/api\/marketplace\/items\/suggest\?q=[^&]+$|^\/api\/inventory\/catalog-items\/[^/?&]+$/;
 
 type PickerRequest = { url: string; signal: AbortSignal | null };
 let pickerRequests: PickerRequest[] | null = null;
@@ -156,9 +157,7 @@ const settle = (ms = 0) =>
 
 function renderPicker(createForm?: Parameters<typeof MarketplaceListingCreatePage>[0]["createForm"]) {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  return render(
-    <MarketplaceListingCreatePage inventoryItems={[]} hasListingStockLocation createForm={createForm} />,
-  );
+  return render(<MarketplaceListingCreatePage inventoryItems={[]} hasListingStockLocation createForm={createForm} />);
 }
 
 function catalogInput() {
@@ -489,9 +488,21 @@ describe("listing create catalog picker", () => {
   });
 
   it.each([
-    ["missing", () => Response.json({ error: { code: "not_found" } }, { status: 404 }), "No active catalog items matched that search."],
-    ["inactive", () => Response.json({ ...acerolaItem, status: "archived" }), "No active catalog items matched that search."],
-    ["mismatched", () => Response.json({ ...acerolaItem, catalog_item_id: "cat_other" }), "No active catalog items matched that search."],
+    [
+      "missing",
+      () => Response.json({ error: { code: "not_found" } }, { status: 404 }),
+      "No active catalog items matched that search.",
+    ],
+    [
+      "inactive",
+      () => Response.json({ ...acerolaItem, status: "archived" }),
+      "No active catalog items matched that search.",
+    ],
+    [
+      "mismatched",
+      () => Response.json({ ...acerolaItem, catalog_item_id: "cat_other" }),
+      "No active catalog items matched that search.",
+    ],
     ["failing", () => Response.json({ error: "unavailable" }, { status: 503 }), "Catalog item lookup failed."],
   ])("fails an initial %s ID visibly with no suggestion fallback", async (_case, respond, message) => {
     const requests = stubPickerFetch(catalogRoutes({ [acerolaUrl]: respond }));
@@ -545,8 +556,7 @@ describe("listing create catalog picker", () => {
 
     await settle(0);
 
-    const notice =
-      "Product options changed since this listing was started. Choose the current options to continue.";
+    const notice = "Product options changed since this listing was started. Choose the current options to continue.";
     expect(screen.getByText(notice)).toBeTruthy();
     expect((screen.getByLabelText("Form") as HTMLSelectElement).value).toBe(scenario.formValue);
     expect((screen.getByLabelText(scenario.clearedDimension) as HTMLSelectElement).value).toBe("");
@@ -702,7 +712,15 @@ describe("listing create catalog picker", () => {
         [`${SUGGEST_URL}?q=Char`]: () => stale.promise,
         [`${SUGGEST_URL}?q=Charm`]: () =>
           Response.json({
-            items: [{ catalogItemId: "cat_charmander", title: "Charmander", subtitle: null, slug: "charmander", category: null }],
+            items: [
+              {
+                catalogItemId: "cat_charmander",
+                title: "Charmander",
+                subtitle: null,
+                slug: "charmander",
+                category: null,
+              },
+            ],
             count: 1,
           }),
       }),
@@ -719,7 +737,9 @@ describe("listing create catalog picker", () => {
 
     stale.resolve(
       Response.json({
-        items: [{ catalogItemId: "cat_charizard", title: "Charizard", subtitle: null, slug: "charizard", category: null }],
+        items: [
+          { catalogItemId: "cat_charizard", title: "Charizard", subtitle: null, slug: "charizard", category: null },
+        ],
         count: 1,
       }),
     );
