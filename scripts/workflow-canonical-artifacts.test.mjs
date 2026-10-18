@@ -151,7 +151,7 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 68, scannedSurfaces: 31, totalSurfaces: 31 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 68, scannedSurfaces: 33, totalSurfaces: 33 });
     expect(current.findings).toHaveLength(21);
     const idleDraftRecord = {
       workflowFile: ".github/workflows/platform-preview-cleanup.yml",
@@ -166,6 +166,14 @@ jobs:
     ]);
     expect(current.surfaces).toEqual(
       expect.arrayContaining([
+        ...["metadata", "report"].map((name) =>
+          expect.objectContaining({
+            workflowFile: ".github/workflows/platform-credential-health.yml",
+            outPath: `artifacts/credential-health/${name}.json`,
+            uploadPath: `artifacts/credential-health/${name}.json`,
+            missingFileBehavior: "error",
+          }),
+        ),
         expect.objectContaining({
           workflowFile: ".github/workflows/browser-boundary-diagnostics.yml",
           outPath: "artifacts/browser-boundary-diagnostics/summary.json",

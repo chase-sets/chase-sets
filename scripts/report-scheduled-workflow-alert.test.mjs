@@ -166,11 +166,6 @@ const callerCases = [
     advisory: true,
   },
   { file: "platform-delivery-health.yml", producers: ["publish"], schedules: ["17 * * * *", "43 8 * * *"] },
-  {
-    file: "platform-digitalocean-token-rotation-reminder.yml",
-    producers: ["remind"],
-    schedules: ["17 14 6 1,4,7,10 *"],
-  },
   { file: "platform-merge-group-failure-signatures.yml", producers: ["evaluate"], schedules: ["37 12 * * *"] },
   { file: "platform-merge-queue-posture.yml", producers: ["posture"], schedules: ["17 11 * * *"] },
   {
