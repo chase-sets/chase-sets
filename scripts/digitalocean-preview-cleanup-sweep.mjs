@@ -1,4 +1,4 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import process from "node:process";
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -88,31 +88,84 @@ export function commandOutput(command, args, options = {}) {
       }
     };
 
-    child = execFile(
-      command,
-      args,
-      {
+    if (timeoutMs === undefined) {
+      child = execFile(
+        command,
+        args,
+        {
+          cwd: options.cwd,
+          env: options.env,
+          maxBuffer: 20 * 1024 * 1024,
+          windowsHide: true,
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            const message = stderr.trim() || stdout.trim() || error.message;
+            finish(reject, new Error(`${command} ${args.join(" ")} failed: ${message}`));
+            return;
+          }
+
+          finish(resolve, stdout);
+        },
+      );
+    } else {
+      const stdout = [];
+      const stderr = [];
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
+      let outputError;
+      child = spawn(command, args, {
         cwd: options.cwd,
         env: options.env,
-        maxBuffer: 20 * 1024 * 1024,
         windowsHide: true,
-        ...(useProcessGroup ? { detached: true } : {}),
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const message = stderr.trim() || stdout.trim() || error.message;
+        detached: useProcessGroup,
+      });
+      const collect = (chunks, streamName) => (chunk) => {
+        const bytes = Buffer.byteLength(chunk);
+        if (streamName === "stdout") {
+          stdoutBytes += bytes;
+          if (stdoutBytes > 20 * 1024 * 1024) {
+            outputError ??= new Error(`${command} ${args.join(" ")} failed: stdout maxBuffer exceeded.`);
+            terminate();
+            return;
+          }
+        } else {
+          stderrBytes += bytes;
+          if (stderrBytes > 20 * 1024 * 1024) {
+            outputError ??= new Error(`${command} ${args.join(" ")} failed: stderr maxBuffer exceeded.`);
+            terminate();
+            return;
+          }
+        }
+        chunks.push(chunk);
+      };
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", collect(stdout, "stdout"));
+      child.stderr?.on("data", collect(stderr, "stderr"));
+      child.once("error", (error) => {
+        outputError ??= error;
+      });
+      child.once("close", (code, signal) => {
+        if (outputError) {
+          const message = outputError.message;
+          finish(reject, new Error(message));
+          return;
+        }
+        if (code !== 0) {
+          const message = stderr.join("").trim() || stdout.join("").trim() || `process exited with ${signal ?? code}`;
           finish(reject, new Error(`${command} ${args.join(" ")} failed: ${message}`));
           return;
         }
-
-        finish(resolve, stdout);
-      },
-    );
+        finish(resolve, stdout.join(""));
+      });
+    }
 
     if (timeoutMs !== undefined) {
       timeoutId = setTimeout(() => {
+        const error = timeoutError();
+        finish(reject, error);
         terminate();
-        finish(reject, timeoutError());
       }, timeoutMs);
       timeoutId.unref?.();
     }
@@ -434,6 +487,18 @@ function normalizeNamespaceList(value) {
   return Array.isArray(value?.items) ? value.items : [];
 }
 
+function countPreviewDnsZoneRecords(records, zone) {
+  const normalizedZone = normalizeDnsName(zone);
+  const previewZone = normalizeDnsName(`${PREVIEW_DNS_ENVIRONMENT_LABEL}.${PREVIEW_DNS_BASE_DOMAIN}`);
+  return (Array.isArray(records) ? records : []).filter((record) => {
+    const name = normalizeDnsName(record?.name ?? record?.Name);
+    const fqdn = name === "@" || name === "" ? normalizedZone : `${name}.${normalizedZone}`;
+    return normalizedZone === previewZone
+      ? fqdn === normalizedZone || fqdn.endsWith(`.${normalizedZone}`)
+      : fqdn === previewZone || fqdn.endsWith(`.${previewZone}`);
+  }).length;
+}
+
 export async function discoverPreviewCleanupTargets(options = {}, dependencies = {}) {
   const now = createClock(dependencies);
   const startedAtMs = now();
@@ -667,7 +732,7 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
     }
     const records = normalizeRecordList(recordsResult.value);
     record.dnsRecordCandidates = selectPreviewDnsRecordTargets(records, zone);
-    phases[2].count = record.dnsRecordCandidates.reduce((count, candidate) => count + candidate.records.length, 0);
+    phases[2].count = countPreviewDnsZoneRecords(records, zone);
   } catch (error) {
     phases[2].count = null;
     phases[2].error = error.code === "DISCOVERY_BUDGET" ? "budget-exhausted" : describeError(error);
@@ -705,9 +770,8 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
     if (namespacesResult.error) {
       throw namespacesResult.error;
     }
-    const namespaces = normalizeNamespaceList(namespacesResult.value);
-    phases[3].count = namespaces.length;
-    record.namespaceCandidates = selectPreviewNamespaceTargets(namespaces);
+    phases[3].count = normalizeNamespaceList(namespacesResult.value).length;
+    record.namespaceCandidates = selectPreviewNamespaceTargets(namespacesResult.value);
   } catch (error) {
     phases[3].count = null;
     phases[3].error = error.code === "DISCOVERY_BUDGET" ? "budget-exhausted" : describeError(error);
