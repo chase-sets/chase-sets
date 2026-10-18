@@ -34,7 +34,7 @@ async function fixture(durations = [1000, 1000]) {
       if (failures.report) return new Response(null, { status: 500 });
     }
     const response = await request(req);
-    if (failures.overrun && req.url.startsWith("https://synthetic-provider.invalid")) f.advance(1);
+    if (failures.overrun && new URL(req.url).origin === "https://synthetic-provider.invalid") f.advance(1);
     return response;
   };
   const claim = (id: string) => ({

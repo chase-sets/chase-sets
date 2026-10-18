@@ -56,7 +56,7 @@ async function handle(kinds: readonly Kind[], edits: readonly Edit[] = []) {
     },
     request: async (request) => {
       if (request.url.includes("dispatch-policy") && hooks.failPolicy) return new Response(null, { status: 500 });
-      if (request.url.startsWith("https://synthetic-provider.invalid")) hooks.provider?.();
+      if (new URL(request.url).origin === "https://synthetic-provider.invalid") hooks.provider?.();
       return f.request(request);
     },
   });
