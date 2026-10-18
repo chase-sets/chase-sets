@@ -1,11 +1,16 @@
 {
-  "capturedAt": "2026-10-18T18:34:35.582Z",
-  "note": "Sanitized slices of public LorcanaJSON files, read without credentials for #10037 and #10048. A slice keeps only records and fields the capture recorded; card ids appear only where captured.",
+  "capturedAt": "2026-10-18T21:44:02.2877482Z",
+  "note": "Sanitized slices of public LorcanaJSON files, each read once without credentials for #10048. Both digests equal the ones the #10037 review probe recorded. A slice keeps the records its kept rule names and, of each record, only the listed fields with their values unchanged; a field absent or null in the source is omitted.",
   "files": {
     "all-cards.json": {
       "sourceUrl": "https://lorcanajson.org/files/current/en/allCards.json",
       "sha256": "a68a667a15f787a0f263b6ad9d7ca90a5829b0b06382b90206197eb3ed7f01b6",
-      "kept": "metadata; the set keys (entry fields were not captured); every promoGrouping D23 card; the set 1 cards numbered 1 outside D23",
+      "bytes": 9553983,
+      "kept": "metadata; every set entry; every card with a promoGrouping, the 16 D23 cards first in promo-number order and the rest in file order; the set 1 card numbered 1 without a promoGrouping",
+      "fields": {
+        "sets": ["name", "releaseDate", "prereleaseDate", "type", "number"],
+        "cards": ["id", "code", "setCode", "number", "fullName", "promoGrouping", "promoSource"]
+      },
       "capturedPromoGroupingCounts": {
         "P1": 39,
         "P2": 35,
@@ -23,7 +28,24 @@
     "setdata.1.json": {
       "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
       "sha256": "da671419acd129235627dd06e9f495e81c9fee0d1b14e0ee2721d0fbc73214a5",
-      "kept": "the promo cards numbered 1; the set header and the non-promo card 1-041 come from the repo's setdata.1 validation slice in catalog-fixture-transports.ts",
+      "bytes": 628985,
+      "kept": "metadata, code, name and releaseDate; every card numbered 1, in file order",
+      "fields": {
+        "cards": [
+          "id",
+          "code",
+          "number",
+          "fullName",
+          "rarity",
+          "type",
+          "color",
+          "images.full",
+          "images.thumbnail",
+          "externalLinks.tcgPlayerId",
+          "promoGrouping",
+          "promoSource"
+        ]
+      },
       "capturedCounts": {
         "cards": 245,
         "promoCards": 29,

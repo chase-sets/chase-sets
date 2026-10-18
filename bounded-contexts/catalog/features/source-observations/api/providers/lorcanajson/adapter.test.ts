@@ -32,6 +32,8 @@ const capturedFiles: Readonly<Record<string, unknown>> = {
   [SETDATA_1_URL]: setdata1,
 };
 const d23Cards = allCards.cards.filter((card) => card.promoGrouping === "D23");
+// Every promo grouping the captured allCards.json publishes.
+const CAPTURED_PROMO_GROUPINGS = ["C1", "C2", "CC1", "D23", "DIS", "P1", "P2", "P3", "P4", "PD1", "RPH"];
 
 describe("LorcanaJSON promo groupings", () => {
   it("lists promo groupings as set options without changing set options", async () => {
@@ -44,14 +46,15 @@ describe("LorcanaJSON promo groupings", () => {
       fetch: recordingFetch({ [ALL_CARDS_URL]: withoutPromoGroupings(allCards) }).fetch,
     }).listOptions({ unitKey: LORCANAJSON_LORCANA_SET_REFERENCE_DATA_UNIT_KEY, optionKind: "sets" });
     const groupingOptions = items.filter((item) => item.metadata?.promoGrouping);
+    const capturedGroupingCounts = provenance.files["all-cards.json"].capturedPromoGroupingCounts;
 
     expect(recorded.urls).toEqual([ALL_CARDS_URL]);
-    expect(groupingOptions.map((item) => [item.value, item.label])).toEqual([
-      ["C1", "C1"],
-      ["CC1", "CC1"],
-      ["D23", "D23"],
-      ["P1", "P1"],
-    ]);
+    expect(groupingOptions.map((item) => [item.value, item.label])).toEqual(
+      CAPTURED_PROMO_GROUPINGS.map((code) => [code, code]),
+    );
+    expect(Object.fromEntries(groupingOptions.map((item) => [item.value, Number(item.metadata?.cardCount)]))).toEqual(
+      capturedGroupingCounts,
+    );
     expect(groupingOptions.find((item) => item.value === "D23")).toEqual({
       value: "D23",
       label: "D23",
@@ -64,8 +67,12 @@ describe("LorcanaJSON promo groupings", () => {
         generatedOn: "2026-10-16T16:43:42",
       },
     });
-    expect(d23Cards).toHaveLength(provenance.files["all-cards.json"].capturedPromoGroupingCounts.D23);
+    expect(d23Cards).toHaveLength(capturedGroupingCounts.D23);
     expect(control.items.map((item) => item.value).sort()).toEqual(Object.keys(allCards.sets).sort());
+    expect(Object.fromEntries(control.items.map((item) => [item.value, item.label]))).toEqual(
+      Object.fromEntries(Object.entries(allCards.sets).map(([setCode, set]) => [setCode, set.name])),
+    );
+    expect(control.items.find((item) => item.value === "1")?.label).toBe("The First Chapter");
     expect(items.filter((item) => !item.metadata?.promoGrouping)).toEqual(control.items);
   });
 
@@ -290,18 +297,38 @@ describe("LorcanaJSON promo groupings", () => {
     const adapter = createLorcanajsonProviderAdapter({ fetch: recorded.fetch });
     const planFor = (values: Readonly<Record<string, string>>) =>
       adapter.planImport({ unitKey: LORCANAJSON_LORCANA_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY, scopeKey: "set", values });
-    const homeSet = cardPayloads(await collectPayloads(adapter.fetchPayloads(await planFor({ setCode: "1" }))));
-    const grouping = cardPayloads(await collectPayloads(adapter.fetchPayloads(await planFor({ setCode: "D23" }))));
+    const importCards = async (values: Readonly<Record<string, string>>) =>
+      cardPayloads(await collectPayloads(adapter.fetchPayloads(await planFor(values))));
+    const homeSet = await importCards({ setCode: "1" });
+    const grouping = await importCards({ setCode: "D23" });
+    // Every captured set 1 card numbered 1: one home-set card and four promo-grouped cards.
+    const [homeSetCard, ...otherHomeSetCards] = setdata1.cards.filter((card) => !("promoGrouping" in card));
+    const promoCards = setdata1.cards.filter((card) => "promoGrouping" in card);
+    const promoCardIds = new Set(promoCards.map((card) => String(card.id)));
 
     expect(recorded.urls).toEqual([SETDATA_1_URL, ALL_CARDS_URL]);
-    expect(setdata1.cards.filter((card) => "promoGrouping" in card)).toHaveLength(4);
-    expect(homeSet.map((card) => card.cardId)).toEqual(["1-041"]);
-    expect(homeSet.filter((card) => card.cardNumber === "1")).toEqual([]);
+    expect(otherHomeSetCards).toEqual([]);
+    expect(promoCardIds.size).toBe(4);
+    expect(homeSet).toEqual([
+      expect.objectContaining({
+        cardId: String(homeSetCard!.id),
+        cardNumber: "1",
+        name: homeSetCard!.fullName,
+        setCode: "1",
+        setName: setdata1.name,
+        releaseDate: setdata1.releaseDate,
+        sourceUrl: SETDATA_1_URL,
+      }),
+    ]);
+    expect(homeSet.filter((card) => promoCardIds.has(card.cardId))).toEqual([]);
     const homeObservationIds = new Set(homeSet.map((card) => card.observationId));
     expect(grouping.filter((card) => homeObservationIds.has(card.observationId))).toEqual([]);
     expect(grouping.map((card) => card.observationId)).toContain("lorcanajson_card_en_1191");
+    expect((await importCards({ setCode: "1", cardNumber: "1" })).map((card) => card.cardId)).toEqual([
+      String(homeSetCard!.id),
+    ]);
     await expect(
-      collectPayloads(adapter.fetchPayloads(await planFor({ setCode: "1", cardNumber: "1" }))),
+      importCards({ setCode: "1", cardName: promoCards.find((card) => card.promoGrouping === "C1")!.fullName }),
     ).rejects.toThrow("LorcanaJSON set '1' did not include the requested card payload.");
   });
 });
