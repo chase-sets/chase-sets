@@ -11,8 +11,9 @@ describeDb("public bearer grant scope", () => {
   it("bearer authorizes only public unpair and does not expose removed custody routes", async () => {
     const app = mounted(catalogManifest, db());
     const grant = await mint(app);
+    const bearerOnlyApp = mounted(catalogManifest, db(), { actor: null });
     for (const path of [adminPath, adminPath + "/grant", publicPath + "/tcgplayer"]) {
-      const response = await app.request(base + path, { headers: { authorization: "Bearer " + grant } });
+      const response = await bearerOnlyApp.request(base + path, { headers: { authorization: "Bearer " + grant } });
       expect([404, 405]).toContain(response.status);
       expect(response.headers.get("cache-control")).toBe("no-store");
     }

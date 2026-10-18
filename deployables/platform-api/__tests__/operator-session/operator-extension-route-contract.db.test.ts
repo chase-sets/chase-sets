@@ -8,12 +8,12 @@ describeDb("operator-extension-route-contract: mounted pairing surface", () => {
 
   it("mounts metadata, mint, and bearer unpair without a server-side provider session", async () => {
     const app = mounted(catalogManifest, db());
-    const metadataBefore = await admin(app, "GET", adminPath + "/metadata");
+    const metadataBefore = await admin(app, "GET", adminPath);
     expect(metadataBefore.status).toBe(200);
     expect(await metadataBefore.json()).toMatchObject({ custodyAvailable: false, grant: null });
 
     const grant = await mint(app);
-    const metadataAfter = await admin(app, "GET", adminPath + "/metadata");
+    const metadataAfter = await admin(app, "GET", adminPath);
     expect(await metadataAfter.json()).toMatchObject({ custodyAvailable: false, grant: { active: true } });
 
     const response = await unpair(app, grant);

@@ -181,12 +181,12 @@ test.describe.serial("catalog admin scopes", () => {
       planningBlockerAlerts.filter({
         has: page.getByText("TCGplayer automation credential/session readiness is missing.", { exact: true }),
       }),
-    ).toHaveCount(4);
+    ).toHaveCount(0);
     await expect(
       planningBlockerAlerts.filter({
         has: page.getByText("TCGplayer automation transport is not configured in this runtime.", { exact: true }),
       }),
-    ).toHaveCount(4);
+    ).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Confirm and enqueue", exact: true })).toHaveCount(0);
   });
 });
