@@ -872,18 +872,21 @@ describe("render platform Helm values", () => {
       () => buildPreviewDoksIngressValues({ previewIdentifier: "pr-123" }),
       "pr-123-marketplace.preview.chasesets.com",
     ],
-  ])("routes /channel-connector to platform-api ahead of / on every %s host", (_environment, render, marketplaceHost) => {
-    const doksIngress = render();
+  ])(
+    "routes /channel-connector to platform-api ahead of / on every %s host",
+    (_environment, render, marketplaceHost) => {
+      const doksIngress = render();
 
-    expect(doksIngress.hosts.map((host) => host.host)).toContain(marketplaceHost);
-    for (const host of doksIngress.hosts) {
-      const paths = host.paths.map((route) => route.path);
-      const connectorIndex = paths.indexOf("/channel-connector");
+      expect(doksIngress.hosts.map((host) => host.host)).toContain(marketplaceHost);
+      for (const host of doksIngress.hosts) {
+        const paths = host.paths.map((route) => route.path);
+        const connectorIndex = paths.indexOf("/channel-connector");
 
-      expect(host.paths[connectorIndex], host.host).toEqual({ path: "/channel-connector", service: "platform-api" });
-      expect(connectorIndex, host.host).toBeLessThan(paths.indexOf("/"));
-    }
-  });
+        expect(host.paths[connectorIndex], host.host).toEqual({ path: "/channel-connector", service: "platform-api" });
+        expect(connectorIndex, host.host).toBeLessThan(paths.indexOf("/"));
+      }
+    },
+  );
 
   it("renders DOKS live ingress hosts after the staging serving flag flips", () => {
     const stagingValues = buildPlatformHelmStagingValues({
