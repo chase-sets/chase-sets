@@ -22,6 +22,7 @@ import {
   frozenProfileDiagnostics,
   HOST_NAME,
   ordinaryBoot,
+  requirePlatformOperationsContext,
   payoutsMissingFromStreams,
   policyDocumentStreamPrefix,
   pools,

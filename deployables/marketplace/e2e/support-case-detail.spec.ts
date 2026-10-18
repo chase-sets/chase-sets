@@ -25,7 +25,7 @@ test.describe("marketplace support case detail", () => {
     await signInWithPassword(sellerPage, origin, marketplaceBrowserE2eSellerCredentials());
 
     await sellerPage.goto(supportRequestPath, { waitUntil: "domcontentloaded" });
-    await expect(sellerPage.getByRole("heading", { name: supportRequestId })).toBeVisible();
+    await expect(sellerPage.getByRole("heading", { name: "SUP-F6K7M8N9" })).toBeVisible();
     await expect(sellerPage.getByText("Product arrived damaged")).toBeVisible();
     const sellerStatus = await sellerPage.getByText(/^Current status:/).textContent();
     if (sellerStatus === "Current status: Waiting on seller") {

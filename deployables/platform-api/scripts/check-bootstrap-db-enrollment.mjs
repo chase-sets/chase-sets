@@ -358,7 +358,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
         referenceDurationMs: 113954,
-        identity: "9e25aef167dc384f",
+        identity: "b1847c8f651e1077",
       }),
       Object.freeze({
         name: "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",

@@ -102,9 +102,7 @@ describe("support request projection", () => {
     await expect(handlers["support.support-request.opened"]?.(event)).resolves.toBeUndefined();
 
     expect(db.query).toHaveBeenCalledTimes(2);
-    expect(projectedReferences.get("sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toBe(
-      "SUP-E6K7M8N9",
-    );
+    expect(projectedReferences.get("sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toBe("SUP-E6K7M8N9");
     expect(db.query.mock.calls[1]?.[0]).not.toContain("display_reference = EXCLUDED.display_reference");
   });
 
