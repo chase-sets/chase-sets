@@ -129,7 +129,9 @@ describe("next-work ranking", () => {
       excludedMilestones: [],
       collection: { requests: 1, wallSeconds: 0 },
       steering: [],
-      defects: [],
+      // Outcomes 10 and 11 share order 100 to exercise the milestone-number
+      // tiebreak, so the ranking still reports them as an ED4 tie.
+      defects: [{ code: "OUTCOME_ORDER_TIE", order: 100, milestones: [10, 11] }],
     });
   });
 
