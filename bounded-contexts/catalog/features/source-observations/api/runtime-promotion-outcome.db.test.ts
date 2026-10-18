@@ -186,12 +186,12 @@ describeDb("source observation promotion outcome db", () => {
         ).resolves.toBe(1);
       }
 
-      await expect(
-        runtime.retryIntegrationJob({ jobId: "retired-import-queued", context }),
-      ).rejects.toMatchObject({ code: "unsupported_action" });
-      await expect(
-        runtime.resumeIntegrationJob({ jobId: "retired-import-claimed", context }),
-      ).rejects.toMatchObject({ code: "unsupported_action" });
+      await expect(runtime.retryIntegrationJob({ jobId: "retired-import-queued", context })).rejects.toMatchObject({
+        code: "unsupported_action",
+      });
+      await expect(runtime.resumeIntegrationJob({ jobId: "retired-import-claimed", context })).rejects.toMatchObject({
+        code: "unsupported_action",
+      });
       await expect(
         runtime.processNextIntegrationJob({ claimOwnerId: "retired-proof-after-lifecycle", claimTtlMs: 60_000 }),
       ).resolves.toBe(0);
@@ -237,21 +237,27 @@ describeDb("source observation promotion outcome db", () => {
         [jobs.map(([jobId]) => jobId)],
       );
       expect(persisted.rows).toHaveLength(jobs.length);
-      expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-import")).every(isTerminalRetirement)).toBe(true);
-      expect(isTerminalRetirement({
-        status: "queued",
-        attempt_count: 1,
-        error_message: null,
-        claim_owner_id: null,
-      })).toBe(false);
-      expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-import"))).toEqual(
-        jobs.filter(([, action]) => action === "import").map(([jobId]) => ({
-          job_id: jobId,
-          status: "failed",
+      expect(
+        persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-import")).every(isTerminalRetirement),
+      ).toBe(true);
+      expect(
+        isTerminalRetirement({
+          status: "queued",
           attempt_count: 1,
-          error_message: "TCGplayer server transport is retired; use the browser handoff.",
+          error_message: null,
           claim_owner_id: null,
-        })),
+        }),
+      ).toBe(false);
+      expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-import"))).toEqual(
+        jobs
+          .filter(([, action]) => action === "import")
+          .map(([jobId]) => ({
+            job_id: jobId,
+            status: "failed",
+            attempt_count: 1,
+            error_message: "TCGplayer server transport is retired; use the browser handoff.",
+            claim_owner_id: null,
+          })),
       );
       expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-reapply"))).toHaveLength(2);
       expect(persisted.rows.filter(({ job_id }) => job_id.startsWith("retired-reapply"))).not.toEqual(

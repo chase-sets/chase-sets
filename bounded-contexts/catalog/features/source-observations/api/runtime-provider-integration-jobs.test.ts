@@ -27,7 +27,6 @@ import {
   withoutRolloutUnitKey,
 } from "./seeding/runtime-test-harness";
 
-
 const BASE_SET_SCOPE_RECORD_ID = "scope_pokemon_base_set";
 
 function acceptedScopeMappingRow(
@@ -1006,15 +1005,11 @@ describe("source observation runtime: provider integration jobs", () => {
       acceptedUnitKey: "mtgjson:mtg:set:reference-data",
       renewSucceeds: true,
     });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      harness.referenceData,
-    );
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
     try {
-      await expect(
-        services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 }),
-      ).resolves.toBe(1);
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }

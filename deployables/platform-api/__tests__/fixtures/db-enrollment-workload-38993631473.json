@@ -13,7 +13,7 @@
     "ref": "refs/pull/9710/head"
   },
   "selectorsSha256": "bcf6348282ba58d198791e0ef64aa71b3f2c961837a3fadc8ded98610bdf4da0",
-  "bindingsSha256": "bc8705aabab925354ef8b26b04ed9abc8e80d61e313ecfda50b1b693685d2113",
+  "bindingsSha256": "9cabf353a1dd7a2197bc4dd0d92f26fdd970043fe170447401f851960670c67d",
   "bindings": [
     [
       "W1 case identities",
@@ -351,7 +351,7 @@
       [
         {
           "name": "mounts metadata, mint, and bearer unpair without a server-side provider session",
-          "identity": "c2b5998f361288e7"
+          "identity": "f1b52e662bf81bb3"
         }
       ]
     ],
@@ -383,7 +383,7 @@
       [
         {
           "name": "bearer authorizes only public unpair and does not expose removed custody routes",
-          "identity": "4917466d887f2f39"
+          "identity": "d8a6ee905783d826"
         },
         {
           "name": "empty public unpair body and invalid bearer are rejected without durable changes",
@@ -513,7 +513,7 @@
     [
       "W1 file",
       "deployables/platform-api/__tests__/operator-session/operator-extension-route-contract.db.test.ts",
-      "26327eed61a9b82bd7389e69475e7a43bc192d07e24c82f7ec6f9c141af45e8e"
+      "497ded24654522b68b484a9c8f5b4d715ec91adad8123abb7ad555046db2a2af"
     ],
     [
       "W1 file",
@@ -523,7 +523,7 @@
     [
       "W1 file",
       "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
-      "978c8eac17a73d8c15717dd86e096d268c371d93c0bbccbbebd6f885546e8d82"
+      "44c71cac0f5319926b00e47d1aee49f7d7fa74d8fbf6971375b1cad316bba59c"
     ],
     [
       "W1 file",

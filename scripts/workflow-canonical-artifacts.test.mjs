@@ -151,8 +151,19 @@ jobs:
     const current = scanWorkflowCanonicalArtifacts();
     const baseline = createWorkflowCanonicalArtifactBaseline(current);
 
-    expect(current.discovery).toMatchObject({ scannedFiles: 68, scannedSurfaces: 29, totalSurfaces: 29 });
+    expect(current.discovery).toMatchObject({ scannedFiles: 68, scannedSurfaces: 31, totalSurfaces: 31 });
     expect(current.findings).toHaveLength(21);
+    const idleDraftRecord = {
+      workflowFile: ".github/workflows/platform-preview-cleanup.yml",
+      outPath: "artifacts/release-health/platform-preview-idle-drafts.json",
+      uploadPath: "artifacts/release-health/platform-preview-idle-drafts.json",
+      missingFileBehavior: "error",
+    };
+    // The re-check in the dispatched run and the scheduled retirement job each upload their own record.
+    expect(current.surfaces.filter(({ outPath }) => outPath === idleDraftRecord.outPath)).toEqual([
+      expect.objectContaining(idleDraftRecord),
+      expect.objectContaining(idleDraftRecord),
+    ]);
     expect(current.surfaces).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
