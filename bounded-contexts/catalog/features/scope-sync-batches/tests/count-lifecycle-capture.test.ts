@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   closeMultiContextTestPools,
@@ -11,6 +12,7 @@ import { Hono } from "hono";
 import { createCountCaptureDbFixture } from "./count-capture-db-fixture";
 import {
   captureActor,
+  captureAt,
   captureAuthority,
   captureContext,
   captureScope,
@@ -24,7 +26,7 @@ import {
   readCountCaptureRoster,
 } from "../api/count-capture-lifecycle";
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../source-observations/api/providers/provider-integration-profile-store";
-import { readCountCaptureEffects } from "../read-model/count-capture-store";
+import { readCountCaptureEffects, type CountCaptureRun } from "../read-model/count-capture-store";
 import {
   countCaptureCollectionSchema,
   countCapturePhaseCaps,
@@ -192,87 +194,55 @@ describe("staging count capture lifecycle", () => {
     return { result, intents, identity };
   }
 
-  type CaptureRunPayload = {
-    schemaVersion: number;
-    status: "open" | "stopped" | "frozen";
-    request: unknown;
-    phases: readonly string[];
-    sends: readonly { status: unknown }[];
-    receipt?: { schemaVersion?: string };
-  };
-
-  async function captureRunPayload(f: Awaited<ReturnType<typeof createCountCaptureDbFixture>>) {
-    return (
-      await f.pool.query("SELECT payload FROM catalog_scope_sync_count_capture_history ORDER BY position DESC LIMIT 1")
-    ).rows[0]?.payload as CaptureRunPayload;
-  }
-
+  type Fixture = Awaited<ReturnType<typeof createCountCaptureDbFixture>>;
   type Replacements = readonly (readonly [string, string])[];
   type HostileKind = "replay" | "refresh" | "refused-authority" | "cap-overflow";
   type HostileMutant = { lifecycle?: Replacements; store?: Replacements };
+  type LedgerSample = { fetch: number; count: number; capture: number };
+  type BoundaryAction = { intent: string; status: number; outcome: string };
 
   const hostileGuardId = (kind: HostileKind) => `count-capture-${kind}`;
   const hostileBoundary = (kind: HostileKind) => (kind === "refresh" ? "capture-baseline" : "count-acquire");
+  const hostileNext = (kind: HostileKind) => (kind === "refresh" ? "capture-initial-notice" : "preview");
 
-  async function assertSettledHostileState(
-    f: Awaited<ReturnType<typeof createCountCaptureDbFixture>>,
-    kind: HostileKind,
-    result: unknown,
-    progressed: boolean,
-    fetchBefore: number,
-    intents: readonly string[],
-  ) {
-    const payload = await captureRunPayload(f);
-    const countLedger = await f.countStore.history();
-    expect(payload.schemaVersion).toBe(1);
-    expect(payload.request).toBeNull();
-    expect(payload.status).toBe(progressed ? "frozen" : "stopped");
-    expect(payload.phases.at(-1)).toBe(
-      progressed ? "freeze" : hostileBoundary(kind) === "capture-baseline" ? "baseline" : "acquisition",
+  // The latest persisted payload of every run, in admission order.
+  async function captureRuns(f: Fixture) {
+    const rows = await f.pool.query<{ run_id: string; payload: unknown }>(
+      "SELECT run_id, payload FROM catalog_scope_sync_count_capture_history ORDER BY position",
     );
-    expect(payload.sends.every((send) => send.status !== null)).toBe(true);
-    expect(countLedger.every((entry) => entry.credits === 1 && entry.outcome === "complete")).toBe(true);
-    if (progressed) expect(f.fetch.mock.calls.length).toBeGreaterThan(fetchBefore);
-    else expect(f.fetch.mock.calls.length).toBe(fetchBefore);
-    if (progressed) {
-      expect(payload.receipt?.schemaVersion).toMatch(/^scope-sync-count-lifecycle(?:-stop)?\/v1$/);
-      expect(result).toEqual(payload.receipt);
-      expect(intents.at(-1)).toBe("capture-freeze");
-    } else {
-      expect(result).toMatchObject({ schemaVersion: "scope-sync-count-lifecycle-stop/v1", evidence: {} });
-      expect(payload.receipt).toBeUndefined();
-      expect(intents.at(-1)).toBe(hostileBoundary(kind));
-    }
+    const latest = new Map<string, CountCaptureRun>();
+    for (const row of rows.rows) latest.set(row.run_id, row.payload as CountCaptureRun);
+    return [...latest.values()];
   }
 
-  async function runHostilePair(kind: HostileKind, mutant: HostileMutant) {
-    const controlFixture = await createCountCaptureDbFixture(pools.catalog);
-    const control = await hostile(controlFixture, kind);
-    await assertSettledHostileState(controlFixture, kind, control.stop, false, control.fetchBefore, control.intents);
-    let red: unknown;
-    try {
-      await assertSettledHostileState(controlFixture, kind, control.stop, true, control.fetchBefore, control.intents);
-    } catch (error) {
-      red = error;
-    }
-    expect(red).toBeDefined();
-    console.log(`AC2 guard=${hostileGuardId(kind)} RED`);
-
-    await resetMultiContextTestSchemas(pools);
-    const mutantFixture = await createCountCaptureDbFixture(pools.catalog);
-    const mutated = await hostile(mutantFixture, kind, mutant);
-    await assertSettledHostileState(mutantFixture, kind, mutated.stop, true, mutated.fetchBefore, mutated.intents);
-    console.log(`AC2 guard=${hostileGuardId(kind)} GREEN`);
+  async function ledgerSample(f: Fixture): Promise<LedgerSample> {
+    return {
+      fetch: f.fetch.mock.calls.length,
+      count: (await f.countStore.history()).length,
+      capture: (await captureRuns(f)).flatMap((run) => run.sends).length,
+    };
   }
 
-  async function hostile(
-    f: Awaited<ReturnType<typeof createCountCaptureDbFixture>>,
-    kind: HostileKind,
-    mutant?: HostileMutant,
-  ) {
+  const actionOutcome = (body: unknown) => {
+    const value = body as { retained?: unknown; baseline?: unknown; error?: { code?: unknown } };
+    if (value.retained === true) return "retained";
+    if (value.baseline) return "admitted";
+    return String(value.error?.code ?? "unrecognized");
+  };
+
+  // One awaited journey per half with the same deps and fields; only the admitted mutation differs.
+  // The hook records the guarded action, then synthetically cuts at the first genuine next intent
+  // before it posts. Intact controls never reach that cut; the conforming journey runs without it.
+  async function observeHostile(kind: HostileKind, mutant?: HostileMutant) {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    const boundary = hostileBoundary(kind);
+    const seen: { action: BoundaryAction | null; cut: string | null; before: LedgerSample | null } = {
+      action: null,
+      cut: null,
+      before: null,
+    };
     let refuse = false;
     let raise = false;
-    let fetchBefore = 0;
     const countAuthority =
       kind === "refused-authority"
         ? async () => ({ ...(await f.countStore.authority()), allowed: !refuse })
@@ -287,88 +257,290 @@ describe("staging count capture lifecycle", () => {
             },
           }
         : undefined;
-    const overrides = {
+    const store = mutant?.store ? captureStoreMutant(mutant.store)(f.pool, () => f.clock.now) : f.store;
+    const deps = captureDeps(f, {
       ...(countAuthority ? { countAuthority } : {}),
       ...(counts ? { counts } : {}),
-    };
-    const hook = async (intent: string, post: () => Promise<Response>) => {
-      if (intent === "count-acquire") {
-        if (kind === "replay" || kind === "refresh") {
-          expect((await post()).ok).toBe(true);
-          fetchBefore = f.fetch.mock.calls.length;
-          return post();
-        }
-        if (kind === "refused-authority") {
-          refuse = true;
-        }
-        if (kind === "cap-overflow") {
-          raise = true;
-        }
-        fetchBefore = f.fetch.mock.calls.length;
-      }
-      return post();
-    };
-
-    if (kind === "refresh") {
-      const first = journey(f, f.lifecycle, hook);
-      await first.result;
-      const secondStore = mutant?.store ? captureStoreMutant(mutant.store)(f.pool, () => f.clock.now) : f.store;
-      const secondLifecycle = mutant?.lifecycle
-        ? captureLifecycleMutant(mutant.lifecycle)(captureDeps(f, { ...overrides, store: secondStore }))
-        : createCountCaptureLifecycle(captureDeps(f, { ...overrides, store: secondStore }));
-      const second = journey(f, secondLifecycle);
-      const stop = await second.result;
-      return { stop, intents: second.intents, fetchBefore };
-    }
-
-    const store = mutant?.store ? captureStoreMutant(mutant.store)(f.pool, () => f.clock.now) : f.store;
+      store,
+    });
     const lifecycle = mutant?.lifecycle
-      ? captureLifecycleMutant(mutant.lifecycle)(captureDeps(f, { ...overrides, store }))
-      : createCountCaptureLifecycle(captureDeps(f, { ...overrides, store }));
-    const run = journey(f, lifecycle, hook);
-    const stop = await run.result;
-    return { stop, intents: run.intents, fetchBefore };
+      ? captureLifecycleMutant(mutant.lifecycle)(deps)
+      : createCountCaptureLifecycle(deps);
+    const record = async (response: Response) => {
+      seen.action = {
+        intent: boundary,
+        status: response.status,
+        outcome: actionOutcome(await response.clone().json()),
+      };
+      return response;
+    };
+    const cut = async (intent: string, post: () => Promise<Response>) => {
+      if (intent === hostileNext(kind)) {
+        seen.cut = intent;
+        throw new Error(`AC2 synthetic cut before ${intent}`);
+      }
+      if (intent !== boundary) return post();
+      if (kind === "replay") {
+        await post();
+        seen.before = await ledgerSample(f);
+        return record(await post());
+      }
+      if (kind === "refused-authority") refuse = true;
+      if (kind === "cap-overflow") raise = true;
+      seen.before = await ledgerSample(f);
+      return record(await post());
+    };
+
+    // Refresh replays one dispatch: journey one is the uncut, unmutated replay stop.
+    let firstJourney: { runner: unknown; lastIntent: string | null } | null = null;
+    let original: CountCaptureRun | null = null;
+    if (kind === "refresh") {
+      const first = journey(f, f.lifecycle, async (intent, post) => {
+        if (intent !== "count-acquire") return post();
+        await post();
+        return post();
+      });
+      firstJourney = { runner: await first.result, lastIntent: first.intents.at(-1) ?? null };
+      original = (await captureRuns(f))[0] ?? null;
+    }
+    const run = journey(f, lifecycle, cut);
+    const runner = await run.result;
+    return {
+      runner,
+      intents: run.intents,
+      ...seen,
+      after: await ledgerSample(f),
+      firstJourney,
+      original,
+      runs: await captureRuns(f),
+      counts: await f.countStore.history(),
+    };
+  }
+  type HostileObservation = Awaited<ReturnType<typeof observeHostile>>;
+
+  // The settled runner and persisted-ledger matrix. Dynamic IDs are reduced to their binding.
+  function hostileState(o: HostileObservation) {
+    const quoteId = o.runs[0]?.quote?.quoteId;
+    return {
+      runner: o.runner,
+      lastIntent: o.intents.at(-1) ?? null,
+      cut: o.cut,
+      freezeIntent: o.intents.includes("capture-freeze"),
+      firstJourney: o.firstJourney,
+      originalUnchanged: o.original && isDeepStrictEqual(o.original, o.runs[0]),
+      runs: o.runs.map((run) => ({
+        schemaVersion: run.schemaVersion,
+        status: run.status,
+        phase: run.phases.at(-1) ?? null,
+        request: run.request,
+        receipt: run.receipt,
+        frozenAt: run.frozenAt,
+        sends: run.sends.length,
+        quoteCap: run.quote?.cap ?? null,
+        acquisition: run.acquisition && (run.acquisition.quoteId === run.quote?.quoteId ? "bound" : "unbound"),
+      })),
+      counts: o.counts
+        .map((entry) => ({
+          kind: entry.kind,
+          credits: entry.credits,
+          outcome: entry.outcome,
+          quote: entry.quoteId === quoteId ? "bound" : "unbound",
+        }))
+        .sort((a, b) => a.kind.localeCompare(b.kind)),
+      countCredits: o.counts.reduce((total, entry) => total + entry.credits, 0),
+      sends: o.runs
+        .flatMap((run) =>
+          run.sends.map((send) => ({
+            phase: send.phase,
+            category: send.category,
+            status: send.status,
+            request: send.requestId === run.sends[0]?.requestId ? "shared" : "split",
+          })),
+        )
+        .sort((a, b) => a.category.localeCompare(b.category)),
+      delta: o.before && {
+        fetch: o.after.fetch - o.before.fetch,
+        count: o.after.count - o.before.count,
+        capture: o.after.capture - o.before.capture,
+      },
+    };
+  }
+
+  const stopAt = (phase: string) => ({
+    schemaVersion: "scope-sync-count-lifecycle-stop/v1",
+    stoppedAt: captureAt,
+    phase,
+    reason: "capture-stopped",
+    evidence: {},
+  });
+  const settledRun = {
+    schemaVersion: 1,
+    phase: "acquisition",
+    request: null,
+    receipt: null,
+    frozenAt: null,
+    quoteCap: countCapturePhaseCaps.acquisition,
+  };
+  const acquiredRun = (status: "open" | "stopped") => ({ ...settledRun, status, sends: 2, acquisition: "bound" });
+  const refusedRun = {
+    ...settledRun,
+    status: "stopped",
+    request: {
+      requestId: expect.stringMatching(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/),
+      phase: "acquisition",
+    },
+    sends: 0,
+    acquisition: null,
+  };
+  const admittedRun = { ...settledRun, status: "open", phase: "baseline", sends: 0, quoteCap: null, acquisition: null };
+  const acquired = {
+    counts: ["cards", "sealed"].map((kind) => ({ kind, credits: 1, outcome: "complete", quote: "bound" })),
+    countCredits: 2,
+    sends: ["cards", "sealed"].map((category) => ({ phase: "acquisition", category, status: 200, request: "shared" })),
+  };
+  const zero = { fetch: 0, count: 0, capture: 0 };
+  const single = { freezeIntent: false, firstJourney: null, originalUnchanged: null };
+  const refreshed = {
+    freezeIntent: false,
+    firstJourney: { runner: stopAt("acquisition"), lastIntent: "count-acquire" },
+    originalUnchanged: true,
+  };
+  const refusedPair = {
+    intact: {
+      ...single,
+      runner: stopAt("acquisition"),
+      lastIntent: "count-acquire",
+      cut: null,
+      runs: [refusedRun],
+      counts: [],
+      countCredits: 0,
+      sends: [],
+      delta: zero,
+    },
+    disabled: {
+      ...single,
+      ...acquired,
+      runner: stopAt("preview"),
+      lastIntent: "preview",
+      cut: "preview",
+      runs: [acquiredRun("open")],
+      delta: { fetch: 2, count: 2, capture: 2 },
+    },
+  };
+  const hostileRows = {
+    replay: {
+      intact: {
+        ...single,
+        ...acquired,
+        runner: stopAt("acquisition"),
+        lastIntent: "count-acquire",
+        cut: null,
+        runs: [acquiredRun("stopped")],
+        delta: zero,
+      },
+      disabled: {
+        ...single,
+        ...acquired,
+        runner: stopAt("preview"),
+        lastIntent: "preview",
+        cut: "preview",
+        runs: [acquiredRun("open")],
+        delta: zero,
+      },
+    },
+    refresh: {
+      intact: {
+        ...refreshed,
+        ...acquired,
+        runner: stopAt("baseline"),
+        lastIntent: "capture-baseline",
+        cut: null,
+        runs: [acquiredRun("stopped")],
+        delta: zero,
+      },
+      disabled: {
+        ...refreshed,
+        ...acquired,
+        runner: stopAt("baseline"),
+        lastIntent: "capture-initial-notice",
+        cut: "capture-initial-notice",
+        runs: [acquiredRun("stopped"), admittedRun],
+        delta: zero,
+      },
+    },
+    "refused-authority": refusedPair,
+    "cap-overflow": refusedPair,
+  };
+
+  const progressionFor = (kind: HostileKind) => ({
+    guard: hostileGuardId(kind),
+    action: { intent: hostileBoundary(kind), status: 200, outcome: kind === "refresh" ? "admitted" : "retained" },
+    next: hostileNext(kind),
+  });
+
+  const observedProgression = (kind: HostileKind, o: HostileObservation) => {
+    const at = o.intents.indexOf(hostileBoundary(kind));
+    return { guard: hostileGuardId(kind), action: o.action, next: at < 0 ? null : (o.intents[at + 1] ?? null) };
+  };
+
+  // The one guard-boundary assertion both halves run: the guarded action succeeded and the
+  // runner's genuine next intent followed it.
+  function expectProgression(kind: HostileKind, o: HostileObservation) {
+    expect(observedProgression(kind, o), `AC2 progression guard=${hostileGuardId(kind)}`).toEqual(progressionFor(kind));
+  }
+
+  // Intact RED is only that matcher's own failure at the refused boundary. Its success, or any
+  // other error, fails the test.
+  function expectIntactRed(kind: HostileKind, o: HostileObservation) {
+    const guard = hostileGuardId(kind);
+    let failure: unknown;
+    try {
+      expectProgression(kind, o);
+    } catch (error) {
+      failure = error;
+    }
+    const red = failure as { name?: unknown; message?: unknown; expected?: unknown; actual?: unknown } | undefined;
+    expect(red?.name, `AC2 guard=${guard} RED error`).toBe("AssertionError");
+    expect(String(red?.message).startsWith(`AC2 progression guard=${guard}: `), `AC2 guard=${guard} RED matcher`).toBe(
+      true,
+    );
+    expect(red?.expected).toEqual(progressionFor(kind));
+    expect(red?.actual).toEqual({
+      guard,
+      action: { intent: hostileBoundary(kind), status: 409, outcome: "capture-stopped" },
+      next: null,
+    });
+    console.log(
+      `AC2 guard=${guard} RED boundary=${hostileBoundary(kind)} expected=${JSON.stringify(red?.expected)} actual=${JSON.stringify(red?.actual)}`,
+    );
+  }
+
+  async function runHostilePair(kind: HostileKind, mutant: HostileMutant) {
+    const guard = hostileGuardId(kind);
+    const intact = await observeHostile(kind);
+    expect(hostileState(intact), `AC2 state guard=${guard} intact`).toEqual(hostileRows[kind].intact);
+    expectIntactRed(kind, intact);
+
+    await resetMultiContextTestSchemas(pools);
+    const disabled = await observeHostile(kind, mutant);
+    expect(hostileState(disabled), `AC2 state guard=${guard} disabled`).toEqual(hostileRows[kind].disabled);
+    expectProgression(kind, disabled);
+    console.log(
+      `AC2 guard=${guard} GREEN boundary=${hostileBoundary(kind)} actual=${JSON.stringify(observedProgression(kind, disabled))}`,
+    );
   }
 
   it("rejects unsafe lifecycle (replay)", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    const result = await hostile(f, "replay");
-    const { fetchBefore } = result;
-    expect(f.fetch).toHaveBeenCalledTimes(fetchBefore);
-    expect(await f.countStore.history()).toMatchObject([
-      { credits: 1, outcome: "complete" },
-      { credits: 1, outcome: "complete" },
-    ]);
-    expect(await captureRunPayload(f)).toMatchObject({ status: "stopped", sends: expect.any(Array) });
-    expect((await captureRunPayload(f)).sends).toHaveLength(2);
+    expect(hostileState(await observeHostile("replay"))).toEqual(hostileRows.replay.intact);
   });
   it("rejects unsafe lifecycle (refresh)", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    await hostile(f, "refresh");
-    expect(await f.countStore.history()).toMatchObject([
-      { credits: 1, outcome: "complete" },
-      { credits: 1, outcome: "complete" },
-    ]);
-    expect(await captureRunPayload(f)).toMatchObject({ status: "stopped", sends: expect.any(Array) });
-    expect((await captureRunPayload(f)).sends).toHaveLength(2);
-    expect(
-      new Set(
-        (await f.pool.query("SELECT run_id FROM catalog_scope_sync_count_capture_history")).rows.map((r) => r.run_id),
-      ).size,
-    ).toBe(1);
+    expect(hostileState(await observeHostile("refresh"))).toEqual(hostileRows.refresh.intact);
   });
   it("rejects unsafe lifecycle (refused authority)", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    const { fetchBefore } = await hostile(f, "refused-authority");
-    expect(f.fetch).toHaveBeenCalledTimes(fetchBefore);
-    expect(await f.countStore.history()).toEqual([]);
-    expect(await captureRunPayload(f)).toMatchObject({ status: "stopped", sends: [] });
+    expect(hostileState(await observeHostile("refused-authority"))).toEqual(hostileRows["refused-authority"].intact);
   });
   it("rejects unsafe lifecycle (cap overflow)", async () => {
-    const f = await createCountCaptureDbFixture(pools.catalog);
-    await hostile(f, "cap-overflow");
-    expect(await f.countStore.history()).toEqual([]);
-    expect(await captureRunPayload(f)).toMatchObject({ status: "stopped", sends: [] });
+    expect(hostileState(await observeHostile("cap-overflow"))).toEqual(hostileRows["cap-overflow"].intact);
   });
 
   it("the replay guard-disabled mutant proceeds past acquisition", async () => {
