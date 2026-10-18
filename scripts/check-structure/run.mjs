@@ -42,6 +42,7 @@ import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-s
 import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
+import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
@@ -1946,6 +1947,8 @@ export async function runStructureCheck(options = {}) {
   violations.push(...jsonImportAttributesResult.violations);
   const channelConnectionContractProvenance = await validateChannelConnectionContractProvenance({ repoRoot });
   violations.push(...channelConnectionContractProvenance.violations);
+  const cancellationProducerUniqueness = validateCancellationProducerUniqueness({ repoRoot });
+  violations.push(...cancellationProducerUniqueness.violations);
   const connectorFakeGraph = await validateConnectorFakeGraph({ repoRoot });
   violations.push(...connectorFakeGraph.violations);
   const boundedContextPackages = [...contextManifests.values()].map(({ packageName }) => packageName);
