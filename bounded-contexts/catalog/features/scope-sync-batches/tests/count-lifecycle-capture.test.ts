@@ -192,10 +192,19 @@ describe("staging count capture lifecycle", () => {
     return { result, intents, identity };
   }
 
+  type CaptureRunPayload = {
+    schemaVersion: number;
+    status: "open" | "stopped" | "frozen";
+    request: unknown;
+    phases: readonly string[];
+    sends: readonly { status: unknown }[];
+    receipt?: { schemaVersion?: string };
+  };
+
   async function captureRunPayload(f: Awaited<ReturnType<typeof createCountCaptureDbFixture>>) {
     return (
       await f.pool.query("SELECT payload FROM catalog_scope_sync_count_capture_history ORDER BY position DESC LIMIT 1")
-    ).rows[0]?.payload as { status: string; sends: unknown[] };
+    ).rows[0]?.payload as CaptureRunPayload;
   }
 
   type Replacements = readonly (readonly [string, string])[];
@@ -213,14 +222,7 @@ describe("staging count capture lifecycle", () => {
     fetchBefore: number,
     intents: readonly string[],
   ) {
-    const payload = (await captureRunPayload(f)) as {
-      schemaVersion: number;
-      status: "open" | "stopped" | "frozen";
-      request: unknown;
-      phases: readonly string[];
-      sends: readonly { status: unknown }[];
-      receipt?: { schemaVersion?: string };
-    };
+    const payload = await captureRunPayload(f);
     const countLedger = await f.countStore.history();
     expect(payload.schemaVersion).toBe(1);
     expect(payload.request).toBeNull();
