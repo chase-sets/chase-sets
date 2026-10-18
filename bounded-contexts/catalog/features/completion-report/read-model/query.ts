@@ -20,6 +20,13 @@ import {
   type ProviderProductionClass,
   type ProviderUsageCheckState,
 } from "../domain/manifest";
+import {
+  classifyProviderAgreement,
+  type ProviderAgreement,
+  type ProviderAgreementCandidate,
+} from "../domain/provider-agreement";
+import type { CatalogMergeCandidateIdentity } from "../../source-observations/domain/catalog-merge-candidate";
+import type { SourceObservationNormalized } from "../../source-observations/domain/domain";
 
 // Database-mode facts for a Production Catalog Completion Report. Every fact is
 // read from Catalog-owned tables inside one read-only repeatable-read snapshot,
@@ -37,6 +44,7 @@ export type ProductionCatalogReportedFacts = Readonly<{
   // Integration durable jobs still queued or running anywhere in Catalog.
   nonTerminalIntegrationJobCount: number;
   publicationCountsByStatus: Readonly<Record<string, number>>;
+  providerAgreement: ProviderAgreement;
 }>;
 
 export type ProductionCatalogDatabaseFacts = Readonly<{
@@ -206,6 +214,7 @@ async function readProductionCatalogCompletionFacts(
     legacyProfileMarkerCount: await queryLegacyProfileMarkerCount(tx),
     nonTerminalIntegrationJobCount: await queryNonTerminalIntegrationJobCount(tx),
     publicationCountsByStatus: catalogItemsByStatus,
+    providerAgreement: await queryProviderAgreement(tx, scopeRecordIds),
   };
 
   const catalogItems: ManifestCatalogItemCounts = {
@@ -424,6 +433,73 @@ async function queryMergeCandidates(
       duplicatePreventionBlocked: conflicts.some((conflict) => conflict.kind === "duplicate-prevention"),
     };
   });
+}
+
+async function queryProviderAgreement(tx: PgQueryable, scopeRecordIds: readonly string[]): Promise<ProviderAgreement> {
+  const scopeResult = await tx.query<{ scope_record_id: string; product_domain: string }>(
+    `SELECT scope_record_id, product_domain
+       FROM catalog_scope_records
+      WHERE scope_record_id = ANY($1::text[])
+      ORDER BY scope_record_id ASC`,
+    [scopeRecordIds],
+  );
+  const domainByScope = new Map(scopeResult.rows.map((row) => [row.scope_record_id, row.product_domain]));
+  const candidates: ProviderAgreementCandidate[] = [];
+  type ProviderAgreementRow = {
+    candidate_id: string;
+    scope_record_id: string;
+    product_domain: string;
+    page_candidate_count: number;
+    provider_key: string | null;
+    normalized: SourceObservationNormalized | null;
+    identity_json: CatalogMergeCandidateIdentity;
+  };
+  let cursor: string | null = null;
+  for (;;) {
+    const result: { rows: readonly ProviderAgreementRow[] } = await tx.query<ProviderAgreementRow>(
+      `WITH candidate_page AS (
+         SELECT candidate.candidate_id, candidate.scope_record_id, scope.product_domain,
+                count(*) OVER () AS page_candidate_count
+           FROM catalog_merge_candidates candidate
+           JOIN catalog_scope_records scope ON scope.scope_record_id = candidate.scope_record_id
+          WHERE candidate.scope_record_id = ANY($1::text[])
+            AND ($2::text IS NULL OR candidate.candidate_id > $2)
+          ORDER BY candidate.candidate_id ASC
+          LIMIT 1000
+       )
+       SELECT page.candidate_id, page.scope_record_id, page.product_domain,
+              member.provider_key, observation.normalized, candidate.identity_json
+         FROM candidate_page page
+         JOIN catalog_merge_candidates candidate ON candidate.candidate_id = page.candidate_id
+         LEFT JOIN catalog_merge_candidate_observations member ON member.candidate_id = page.candidate_id
+         LEFT JOIN catalog_source_observations observation ON observation.observation_id = member.observation_id
+        ORDER BY page.candidate_id ASC, member.observation_id ASC`,
+      [scopeRecordIds, cursor],
+    );
+    if (result.rows.length === 0) break;
+    const page = new Map<string, { productDomain: string; members: ProviderAgreementCandidate["members"] }>();
+    for (const row of result.rows) {
+      const candidate = page.get(row.candidate_id) ?? {
+        productDomain: row.product_domain ?? domainByScope.get(row.scope_record_id) ?? "unknown",
+        members: [],
+      };
+      if (row.provider_key && row.normalized) {
+        candidate.members = [
+          ...candidate.members,
+          { providerKey: row.provider_key, row: { normalized: row.normalized }, identity: row.identity_json },
+        ];
+      }
+      page.set(row.candidate_id, candidate);
+    }
+    candidates.push(...page.values());
+    const nextCursor: string | null = result.rows.at(-1)?.candidate_id ?? null;
+    if (!nextCursor || Number(result.rows[0]?.page_candidate_count ?? 0) < 1000) break;
+    cursor = nextCursor;
+  }
+  return classifyProviderAgreement(
+    scopeResult.rows.map((row) => row.product_domain),
+    candidates,
+  );
 }
 
 async function queryPromotionOutcomes(
