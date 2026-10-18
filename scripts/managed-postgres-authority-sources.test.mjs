@@ -359,6 +359,33 @@ const credentialHealthDelta = [
     purpose: "credential-rotation",
   })),
 ];
+// #10045 delta: the staging cluster add-on dispatch's state-read context step and its step-local DigitalOcean token.
+const stagingClusterAddonsWorkflow = ".github/workflows/platform-staging-cluster-addons.yml";
+const stagingClusterAddonsJob = "apply-staging-cluster-addons";
+const stagingClusterAddonsDelta = [
+  ...[
+    ["DIGITALOCEAN_ACCESS_TOKEN", "digitalocean-ops"],
+    ["SPACES_ACCESS_ID", "spaces-evidence"],
+    ["SPACES_SECRET_KEY", "spaces-evidence"],
+  ].map(([secretName, purpose]) => ({
+    file: stagingClusterAddonsWorkflow,
+    jobId: stagingClusterAddonsJob,
+    stepAnchor: "name:Configure staging Kubernetes context#7",
+    secretName,
+    purpose,
+  })),
+  ...[
+    "name:Probe DigitalOcean token presence#9",
+    "name:Apply staging cluster add-ons#10",
+    "name:Scan evidence for the DigitalOcean token#13",
+  ].map((stepAnchor) => ({
+    file: stagingClusterAddonsWorkflow,
+    jobId: stagingClusterAddonsJob,
+    stepAnchor,
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "digitalocean-ops",
+  })),
+];
 // #9721 reviewed removal: the retired mandate verifier's URL, auth-token and timeout grants at its five forwarding
 // sinks, plus #9876's six retired TCGplayer cookie grants, as zero-based record indices in the immutable `migrationBase` manifest. Secret names are not repeated here so
 // the issue's literal sweep stays exact; parity below binds each index to the generated manifest and source fragments.
@@ -578,9 +605,10 @@ describe("managed Postgres authority source generator", () => {
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
         ...credentialHealthDelta,
+        ...stagingClusterAddonsDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1639);
+    expect(expected.grants).toHaveLength(1645);
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
     expect(generated.grants.filter(isCatalogKeyring)).toEqual(
       reviewedCatalogDelta.map(applyReviewedStepInsertions).filter(isCatalogKeyring),
