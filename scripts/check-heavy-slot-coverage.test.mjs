@@ -59,6 +59,8 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "infrastructure/stripe-appearance/vitest.config.ts",
     "playwright.config.ts",
     "scripts/browser-e2e-probe.mjs",
+    // The handoff command performs two connector builds and therefore uses build admission.
+    "scripts/build-connector-extension-handoff.mjs",
     "scripts/check-structure/brand-foil-proof.mjs",
     "scripts/check-structure/browser-e2e-disclosure-guard.mjs",
     "scripts/check-structure/provider-scope-picker-shape-guard.mjs",
@@ -73,7 +75,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 84);
+  assert.equal(result.entrypoints.length, 85);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],

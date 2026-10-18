@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { build, loadConfigFromFile } from "vite";
+import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { operatorFileInventory } from "./prepare-operator-extension-evidence.mjs";
 
 const clientIdPattern = /^cc_client_[0-9a-f-]{36}$/;
@@ -120,6 +121,7 @@ function parseArgs(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  acquireHeavySlot("build");
   const { target, clientId } = parseArgs(process.argv.slice(2));
   if (!target || !clientId) throw new Error("connector-handoff-arguments-refused");
   await buildConnectorExtensionHandoff({ target, clientId });

@@ -1,13 +1,24 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+  vi.stubEnv("VITE_PLATFORM_API_URL", "");
+  vi.stubEnv("PLATFORM_API_URL", "");
+  vi.stubEnv("VITE_CONNECTOR_CLIENT_ID", "");
+});
+
 import { connectorTargets, connectorViteConfig } from "../vite.config";
 
+beforeEach(() => {
+  vi.stubEnv("VITE_PLATFORM_API_URL", "");
+  vi.stubEnv("PLATFORM_API_URL", "");
+  vi.stubEnv("VITE_CONNECTOR_CLIENT_ID", "");
+});
 afterEach(() => vi.unstubAllEnvs());
 
 const clientId = "cc_client_12345678-1234-1234-1234-123456789abc";
 
 describe("extension-build-target-contract", () => {
   it("binds deployed modes to generated marketplace origins and the public client", () => {
-    vi.stubEnv("PLATFORM_API_URL", "");
     vi.stubEnv("VITE_CONNECTOR_CLIENT_ID", clientId);
     expect(connectorViteConfig("connector-staging").define?.["import.meta.env.VITE_PLATFORM_API_URL"]).toBe(
       JSON.stringify(connectorTargets.staging),
