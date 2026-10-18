@@ -83,7 +83,7 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
     rule: "committed rendered-copy record, baseline, toggle and classifier plus both sweeps, read at HEAD and its frozen main ref",
     evidence: [
       "scripts/rendered-copy-provenance.test.mjs:26-73,241-248",
-      "infrastructure/playwright-evidence/rendered-copy.ts:237-241,1568-1618",
+      "infrastructure/playwright-evidence/rendered-copy.ts:238-242,1569-1619",
     ],
     include: exact(
       "infrastructure/playwright-evidence/rendered-copy-baseline.json",

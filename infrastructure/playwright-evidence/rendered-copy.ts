@@ -205,6 +205,7 @@ export const renderedCopyGuardFootprint: readonly string[] = [
   ".github/workflows/platform-pr.yml",
   "bounded-contexts/catalog/features/attention-queue/ui/attention-queue-panel.tsx",
   "bounded-contexts/marketplace/features/offers/ui/submitted-offer-list-page.tsx",
+  "bounded-contexts/public-presence/features/policies/domain/canonical-claim-guard.test.ts",
   "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
   "deployables/marketplace/app/smoke-auth-support.test.ts",
   "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",

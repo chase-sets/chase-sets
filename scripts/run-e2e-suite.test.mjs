@@ -655,6 +655,37 @@ describe("run e2e suite", () => {
       expect(validateCapturePart(part)).toEqual(["part.listing[0].blob: missing predecessor blob"]);
     });
 
+    // The hosted B..checkout of the capture PR, which carries the host-authorized
+    // (#9940 9940-d3) re-pin of the verify-static-surfaces digest.
+    const captureDiff = [
+      ".github/workflows/platform-pr.yml",
+      "bounded-contexts/public-presence/features/policies/domain/canonical-claim-guard.test.ts",
+      "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
+      "deployables/marketplace/app/smoke-auth-support.test.ts",
+      "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
+      "infrastructure/playwright-evidence/package.json",
+      "infrastructure/playwright-evidence/rendered-copy-baseline.json",
+      "infrastructure/playwright-evidence/rendered-copy-collect.json",
+      "infrastructure/playwright-evidence/rendered-copy.ts",
+      "scripts/ci-gate-plan.test.mjs",
+      "scripts/e2e-suites.mjs",
+      "scripts/fixtures/ci-e2e-selection.json",
+      "scripts/rendered-copy-provenance.test.mjs",
+      "scripts/run-e2e-suite.mjs",
+      "scripts/run-e2e-suite.test.mjs",
+      "scripts/verify-static-scoped.test.mjs",
+      "scripts/verify-static-surfaces.mjs",
+      "tsconfig.base.json",
+    ];
+
+    it("assembles a part whose B..checkout diff carries the authorized canonical-claim digest re-pin", () => {
+      const part = prepare({
+        git: (...args) => (args.join(" ") === `diff --name-only ${base} HEAD` ? captureDiff.join("\n") : git(...args)),
+      });
+      expect(validateCapturePart(part)).toEqual([]);
+      expect(part.diff).toEqual(captureDiff);
+    });
+
     it("fails an eligible batch whose final observation is missing instead of emitting a partial part", () => {
       expect(() => prepare({ observations: observations.filter((entry) => entry.tuple !== offers) })).toThrow(
         "eligible tuples missing a final observation",
