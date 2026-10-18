@@ -60,14 +60,6 @@ async function clickAction(context: BrowserContext, page: Page) {
   }
 }
 
-async function status(worker: Worker) {
-  return worker.evaluate(async () => ({
-    status: await chrome.runtime.sendMessage({ type: "status" }).catch(() => null),
-    badge: await chrome.action.getBadgeText({}),
-    title: await chrome.action.getTitle({}),
-  }));
-}
-
 export async function runPairingDrill(input: PairingDrillInput): Promise<PairingDrillReceipt> {
   refuseProviderEnvironment(process.env);
   if (!/^https?:\/\//.test(input.platformOrigin)) throw new Error("connector-drill-platform-origin-refused");
