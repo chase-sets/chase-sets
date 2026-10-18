@@ -94,8 +94,7 @@ function podName(pod) {
 function componentForPod(pod, containerName) {
   const labels = pod?.metadata?.labels ?? {};
   return (
-    labels["app.kubernetes.io/component"] ??
-    (PREVIEW_COMPONENTS.includes(containerName) ? containerName : podName(pod))
+    labels["app.kubernetes.io/component"] ?? (PREVIEW_COMPONENTS.includes(containerName) ? containerName : podName(pod))
   );
 }
 
@@ -199,7 +198,10 @@ function podContainerStatuses(pod, containerName) {
 export function computeSizing(values, nodes, maxNodes) {
   const components = values?.components ?? {};
   const requestSources = [
-    ...PREVIEW_COMPONENTS.slice(0, 5).map((name) => [`components.${name}`, components[name]?.resources?.requests?.memory]),
+    ...PREVIEW_COMPONENTS.slice(0, 5).map((name) => [
+      `components.${name}`,
+      components[name]?.resources?.requests?.memory,
+    ]),
     ["previewPostgres", values?.previewPostgres?.resources?.requests?.memory],
     ["components.platform-bootstrap", components["platform-bootstrap"]?.resources?.requests?.memory],
   ];
@@ -272,13 +274,15 @@ async function listSnapshot(dependencies, { includeEvents = true } = {}) {
     ["autoscaler", kubectlJson(["configmap", "cluster-autoscaler-status", "--namespace", "kube-system"], dependencies)],
   ];
   if (includeEvents) reads.push(["events", kubectlJson(["events", "--all-namespaces"], dependencies)]);
-  const settled = await Promise.all(reads.map(async ([name, promise]) => {
-    try {
-      return { name, value: await promise };
-    } catch (error) {
-      return { name, error: String(error?.message ?? error) };
-    }
-  }));
+  const settled = await Promise.all(
+    reads.map(async ([name, promise]) => {
+      try {
+        return { name, value: await promise };
+      } catch (error) {
+        return { name, error: String(error?.message ?? error) };
+      }
+    }),
+  );
   const values = new Map(settled.filter((entry) => !entry.error).map((entry) => [entry.name, entry.value]));
   const errors = settled.filter((entry) => entry.error).map((entry) => `${entry.name}: ${entry.error}`);
   return {
@@ -386,7 +390,10 @@ export async function collectSnapshot({
       .filter((node) => node.name && node.pool === PREVIEW_POOL_VALUE)
       .map(async (node) => {
         try {
-          return { node, value: await kubectlRaw(`/api/v1/nodes/${encodeURIComponent(node.name)}/proxy/stats/summary`, dependencies) };
+          return {
+            node,
+            value: await kubectlRaw(`/api/v1/nodes/${encodeURIComponent(node.name)}/proxy/stats/summary`, dependencies),
+          };
         } catch (error) {
           errors.push(`stats/summary ${node.name}: ${String(error?.message ?? error)}`);
           return { node, value: null };
@@ -395,7 +402,10 @@ export async function collectSnapshot({
   );
   const statObservations = stats.flatMap(({ value }) => statsObservations(value, snapshot, seenAt));
   const statKeys = new Set(statObservations.map((observation) => observation.key));
-  const observations = [...statObservations, ...baseObservations.filter((observation) => !statKeys.has(observation.key))];
+  const observations = [
+    ...statObservations,
+    ...baseObservations.filter((observation) => !statKeys.has(observation.key)),
+  ];
   let computedSizing = sizing ?? null;
   if (computedSizing === null && dependencies.values) {
     try {
@@ -431,8 +441,8 @@ export async function runCensus({
   const startedAt = now().toISOString();
   const errors = [];
   let peaks = new Map();
-  let latest = null;
-  let events = [];
+  let latest = { nodeRecords: [], namespaces: [], autoscalerStatus: null, sizing: null };
+  const rawEvents = [];
   let lastEventRead = Number.NEGATIVE_INFINITY;
   const endAt = Date.now() + (mode === "sample" ? durationMinutes * 60_000 : 0);
   dependencies = { ...dependencies, values, maxNodes };
@@ -445,14 +455,20 @@ export async function runCensus({
       includeEvents: shouldReadEvents,
     });
     const reads = result.successfulReads ?? new Set();
-    if (!latest) latest = result;
     if (reads.has("nodes") && reads.has("pods") && reads.has("namespaces")) latest.nodeRecords = result.nodeRecords;
     if (reads.has("namespaces")) latest.namespaces = result.namespaces;
     if (reads.has("autoscaler")) latest.autoscalerStatus = result.autoscalerStatus;
-    if (result.sizing !== null && !result.errors.some((error) => error.startsWith("sizing:"))) latest.sizing = result.sizing;
+    if (
+      reads.has("nodes") &&
+      reads.has("pods") &&
+      reads.has("namespaces") &&
+      result.sizing !== null &&
+      !result.errors.some((error) => error.startsWith("sizing:"))
+    )
+      latest.sizing = result.sizing;
     peaks = result.peaks;
     if (shouldReadEvents && reads.has("events")) {
-      events = dedupeEvents([...events, ...result.events]);
+      rawEvents.push(...result.snapshot.events);
       lastEventRead = Date.now();
     }
     errors.push(...result.errors);
@@ -463,13 +479,19 @@ export async function runCensus({
   if (mode === "sample") {
     const final = await collectSnapshot({ dependencies, peaks, seenAt: now().toISOString(), includeEvents: true });
     const reads = final.successfulReads ?? new Set();
-    if (!latest) latest = final;
     if (reads.has("nodes") && reads.has("pods") && reads.has("namespaces")) latest.nodeRecords = final.nodeRecords;
     if (reads.has("namespaces")) latest.namespaces = final.namespaces;
     if (reads.has("autoscaler")) latest.autoscalerStatus = final.autoscalerStatus;
-    if (final.sizing !== null && !final.errors.some((error) => error.startsWith("sizing:"))) latest.sizing = final.sizing;
+    if (
+      reads.has("nodes") &&
+      reads.has("pods") &&
+      reads.has("namespaces") &&
+      final.sizing !== null &&
+      !final.errors.some((error) => error.startsWith("sizing:"))
+    )
+      latest.sizing = final.sizing;
     peaks = final.peaks;
-    if (reads.has("events")) events = dedupeEvents([...events, ...final.events]);
+    if (reads.has("events")) rawEvents.push(...final.snapshot.events);
     errors.push(...final.errors);
   }
 
@@ -487,7 +509,7 @@ export async function runCensus({
     nodes: latest?.nodeRecords ?? [],
     namespaces: latest?.namespaces ?? [],
     containers: peakContainers,
-    events,
+    events: dedupeEvents(rawEvents),
     autoscalerStatus: latest?.autoscalerStatus ?? null,
     sizing: latest?.sizing ?? null,
     thinSamples: peakContainers.filter((entry) => entry.thinSample).map((entry) => entry.key),
