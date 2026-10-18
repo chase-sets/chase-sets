@@ -7,12 +7,11 @@ export const operatorManifest = {
   version: "0.1.0",
   key: operatorPublicKey,
   incognito: "not_allowed",
-  permissions: ["cookies", "storage", "alarms"],
+  permissions: ["storage"],
   externally_connectable: {
     matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"],
   },
   host_permissions: [
-    "https://store.tcgplayer.com/*",
     "https://admin.staging.chasesets.com/*",
     "https://admin.chasesets.com/*",
   ],

@@ -14,7 +14,6 @@ import {
   loadPoolConfig,
   loadPostageConfig,
   loadStripeProviderConfig,
-  loadTcgplayerAutomationConfig,
   resolveEnumEnv,
   resolveMobileMessagingProvider,
   type DeploymentEnvironment,
@@ -32,7 +31,7 @@ import {
 } from "@chase-sets/platform-runtime/runtime-profiles";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
-import { parseSecretEnvelopeKeyring, type SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
+import type { SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 import {
   parseSupportEvidenceCleanupBinding,
   type SupportEvidenceCleanupBinding,
@@ -41,10 +40,12 @@ import {
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
 
 export type PlatformWorkerPoolConfig = PlatformPoolConfig;
+export type PlatformWorkerTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 export type PlatformWorkerConfig = Readonly<{
   channelCredentialKeyring: ChannelCredentialKeyring | null;
   catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
+  tcgplayerAutomation: PlatformWorkerTcgplayerAutomationConfig | null;
   runtimeProfile: PlatformWorkerRuntimeProfile;
   deploymentEnvironment: DeploymentEnvironment;
   sharedDatabaseUrl: string | null;
@@ -144,7 +145,6 @@ export type PlatformWorkerConfig = Readonly<{
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   mobileMessaging: PlatformWorkerMobileMessagingConfig;
   postage: PlatformWorkerPostageConfig;
-  tcgplayerAutomation: PlatformWorkerTcgplayerAutomationConfig | null;
   googleMerchant: PlatformWorkerGoogleMerchantConfig;
   notificationEmail: PlatformWorkerNotificationEmailConfig;
 }>;
@@ -227,7 +227,6 @@ export type PlatformWorkerMoneyMovementConfig = PlatformMoneyMovementConfig;
 
 export type PlatformWorkerPostageConfig = PlatformPostageConfig<false>;
 
-export type PlatformWorkerTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
 
 export type PlatformWorkerGoogleMerchantConfig =
   | Readonly<{
@@ -291,7 +290,6 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 }
 
 export function loadConfig(): PlatformWorkerConfig {
-  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
   loadCatalogProviderSendWindowEnabled(process.env);
   const runtimeProfile = loadRuntimeProfile();
   const deploymentEnvironment = loadDeploymentEnvironment();
@@ -659,9 +657,9 @@ export function loadConfig(): PlatformWorkerConfig {
         "EASYPOST_API_KEY is required for platform worker postage label work in production.",
       includeWebhookSecret: false,
     }),
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
-    catalogOperatorSessionKeyring,
+    catalogOperatorSessionKeyring: null,
+    tcgplayerAutomation: null,
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,

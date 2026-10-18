@@ -392,16 +392,6 @@
       "portName": "channelConnectionIdentityReader",
       "providedBy": "channels",
       "purpose": "Resolve account-qualified Channel Connection identity before provider selection for the channel-connection Economics scope."
-    },
-    {
-      "portName": "tcgplayerMarketTransport",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Supply Pricing's concrete TCGplayer price-point and market-evidence transport; non-worker hosts mount not-mounted."
-    },
-    {
-      "portName": "tcgplayerMarketCaptureReceiptSink",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Retain privacy-safe TCGplayer market-capture receipts whose field summaries are captured before decoding; non-worker hosts mount not-mounted."
     }
   ],
   "apiDeployables": ["platform-api"],

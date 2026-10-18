@@ -27,9 +27,7 @@ export function operatorSessionAdminRoutes(services: Services) {
     }
     await next();
   });
-  app.get("/", (c) => services.execute("metadata", c.req.raw, c.get("actor")));
   app.post("/grant", (c) => services.execute("mint", c.req.raw, c.get("actor")));
-  app.delete("/", (c) => services.execute("disconnect", c.req.raw, c.get("actor")));
   return app;
 }
 
@@ -39,7 +37,6 @@ export function operatorSessionPublicRoutes(services: Services) {
     c.header("Cache-Control", "no-store");
     await next();
   });
-  app.put("/tcgplayer", (c) => services.execute("push", c.req.raw));
   app.delete("/grant", (c) => services.execute("unpair", c.req.raw));
   return app;
 }

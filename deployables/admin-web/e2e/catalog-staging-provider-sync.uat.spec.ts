@@ -137,7 +137,6 @@ const uatTestTimeoutMs =
 const supportedProviderUatJourneyScopes = [
   "one-piece-launch",
   "lorcana-launch",
-  "tcgplayer-pokemon-targeted",
   "all-provider-regression",
   "staging-representative-catalog",
   "pokemon-matrix",
@@ -1365,7 +1364,7 @@ function providerJourneysForScope(scope: string): readonly ProviderSyncJourney[]
   if (previewProbeScopeSkipsMutatingJourney(scope)) return [];
   return scope === "all-provider-regression"
     ? [...lorcanaLaunchProviderSyncJourneys, ...onePieceLaunchProviderSyncJourneys, ...yugiohProviderSyncJourneys]
-    : scope === "tcgplayer-pokemon-targeted"
+    : scope === "retired-provider-journey"
       ? []
       : scope === "lorcana-launch"
         ? lorcanaLaunchProviderSyncJourneys
@@ -3076,7 +3075,7 @@ test.describe("catalog staging provider sync UAT", () => {
       });
     }
 
-    if (providerUatJourneyScope === "tcgplayer-pokemon-targeted") {
+    if (providerUatJourneyScope === "retired-provider-journey") {
       await test.step("TCGplayer Pokemon Catalog sync child scope and merge-candidate promotion", async () => {
         await expectTargetedTcgplayerPokemonCatalogSync(page);
       });
@@ -4067,7 +4066,7 @@ function recordTargetedTcgplayerPokemonProgress(
 
 function targetedTcgplayerPokemonProgressMessage(progress: TargetedTcgplayerPokemonProgress): string {
   const observed = progress.observed.length > 0 ? ` observed="${progress.observed.join(" | ")}"` : "";
-  return `[catalog-staging-provider-uat] tcgplayer-pokemon-targeted checkpoint="${sanitizeTargetedTcgplayerPokemonEvidence(
+  return `[catalog-staging-provider-uat] retired-provider-journey checkpoint="${sanitizeTargetedTcgplayerPokemonEvidence(
     progress.checkpoint,
   )}" nextBlocker="${sanitizeTargetedTcgplayerPokemonEvidence(progress.nextBlocker)}"${observed}`;
 }

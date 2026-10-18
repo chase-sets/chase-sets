@@ -415,9 +415,6 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
-      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
-        secret: true
-        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -747,9 +744,6 @@ components:
       - name: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
         secret: true
         secretKey: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN"
-      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
-        secret: true
-        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"

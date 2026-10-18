@@ -513,7 +513,6 @@ export function createSourceObservationProviderImportRuntime({
       return bindProviderAdapter(
         createTcgplayerProviderAdapter({
           loadProfileVersions: async () => [profileVersion],
-          client: deps.tcgplayerAutomationCatalogClient,
         }),
       );
     }

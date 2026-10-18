@@ -1,7 +1,5 @@
 import {
   createOperatorBackground,
-  operatorCookieName,
-  operatorCookieUrl,
   type OperatorAdapters,
 } from "@chase-sets/catalog/client";
 
@@ -15,10 +13,8 @@ const adapters: OperatorAdapters = {
       await chrome.storage.local.set({ [key]: value });
     },
   },
-  readCookie: () => chrome.cookies.get({ name: operatorCookieName, url: operatorCookieUrl, storeId: "0" }),
-  async schedule(environment, when) {
-    await chrome.alarms.create(`operator-session.${environment}`, { when });
-  },
+  readCookie: async () => null,
+  async schedule() {},
   async badge(required) {
     await chrome.action.setBadgeText({ text: required ? "!" : "" });
   },
@@ -52,22 +48,3 @@ chrome.runtime.onMessageExternal.addListener((message: unknown, sender, respond)
     .then(respond);
   return true;
 });
-chrome.cookies.onChanged.addListener((change) => {
-  void background.cookieChanged(change);
-});
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "operator-session.renew") void background.resume();
-  else if (alarm.name === "operator-session.staging") void background.alarm("staging");
-  else if (alarm.name === "operator-session.production") void background.alarm("production");
-});
-async function resume() {
-  await chrome.alarms.create("operator-session.renew", { periodInMinutes: 30 });
-  await background.resume();
-}
-chrome.runtime.onInstalled.addListener(() => {
-  void resume();
-});
-chrome.runtime.onStartup.addListener(() => {
-  void resume();
-});
-void resume();

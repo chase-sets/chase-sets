@@ -44,4 +44,23 @@ describe("catalog authoring schema composition", () => {
       ]),
     );
   });
+
+  it("clears grants and drops retired TCGplayer custody tables in one idempotent migration", () => {
+    const migration = catalogAuthoringSchemaMigrations.find(
+      ({ migrationId }) => migrationId === "20261018_catalog_remove_tcgplayer_server_custody",
+    );
+    expect(migration).toBeDefined();
+    expect(migration?.statements).toEqual([
+      "DROP TABLE IF EXISTS catalog_tcgplayer_operator_session_outcomes",
+      "DROP TABLE IF EXISTS catalog_tcgplayer_operator_sessions",
+    ]);
+    expect(migration?.dataStep).toBeTypeOf("function");
+  });
+
+  it("does not create retired custody tables on a fresh database", () => {
+    expect(catalogAuthoringSchemaSql).not.toContain("CREATE TABLE IF NOT EXISTS catalog_tcgplayer_operator_sessions");
+    expect(catalogAuthoringSchemaSql).not.toContain(
+      "CREATE TABLE IF NOT EXISTS catalog_tcgplayer_operator_session_outcomes",
+    );
+  });
 });

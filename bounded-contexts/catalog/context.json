@@ -7,7 +7,6 @@
     "category",
     "blueprint",
     "field",
-    "operator-session",
     "component",
     "dimension",
     "display-template",
@@ -61,19 +60,9 @@
   "seedRequirements": [],
   "hostPorts": [
     {
-      "portName": "catalogOperatorSessionConfiguration",
-      "providedBy": "platform-api",
-      "purpose": "Supplies the existing operator custody factory configuration and keyring; Catalog owns grant authority."
-    },
-    {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
-    },
-    {
-      "portName": "tcgplayerAutomationCatalogClient",
-      "providedBy": "platform-api, platform-worker",
-      "purpose": "Provides Catalog-owned TCGplayer provider option queries and source observation imports with the runtime automation client configured by deployable-owned credentials."
     },
     {
       "portName": "sourceObservationTelemetry",
@@ -88,11 +77,6 @@
       "mountPath": "/api/catalog",
       "kind": "primary",
       "requiresAuth": true
-    },
-    {
-      "mountPath": "/api/public/catalog/operator-session",
-      "kind": "additional",
-      "requiresAuth": false
     }
   ],
   "projectionGroups": [

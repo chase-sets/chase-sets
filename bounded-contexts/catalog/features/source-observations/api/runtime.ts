@@ -359,7 +359,6 @@ export function createSourceObservationRuntime(
     }),
     createTcgplayerProviderAdapter({
       loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
-      client: deps.tcgplayerAutomationCatalogClient,
     }),
     createMtgjsonProviderAdapter(),
     createLorcanajsonProviderAdapter(),
@@ -477,7 +476,7 @@ export function createSourceObservationRuntime(
           input,
           deps.db,
           rolloutControlPolicy,
-          deps.tcgplayerAutomationCatalogClient,
+          undefined,
           profileVersions,
           providerAdapterRegistry,
           deps.sourceObservationTelemetry,
@@ -489,7 +488,7 @@ export function createSourceObservationRuntime(
         });
         return listProviderIntegrationOptions(
           input,
-          deps.tcgplayerAutomationCatalogClient,
+          undefined,
           profileVersions,
           providerAdapterRegistry,
         );

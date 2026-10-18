@@ -29,7 +29,6 @@ import {
   loadPostageConfig,
   loadStorageConfig,
   loadStripeProviderConfig,
-  loadTcgplayerAutomationConfig,
   PLATFORM_DATA_PROFILES,
   resolveMobileMessagingProvider,
   type DeploymentEnvironment,
@@ -67,13 +66,13 @@ import type {
   ReadConsistencyRouteTuning,
 } from "@chase-sets/bounded-context-runtime";
 import { apiContextRegistry } from "./generated/api-context-registry";
+import type { SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 import {
   parseChannelCredentialKeyring,
   type ChannelCredentialKeyring,
   parseEbayAccountDeletionConfiguration,
   type EbayAccountDeletionConfiguration,
 } from "@chase-sets/channels/server";
-import { parseSecretEnvelopeKeyring, type SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 
 export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
@@ -92,8 +91,8 @@ export type PlatformApiProviderModeObservation = Readonly<{
 }>;
 
 export type PlatformApiPostageConfig = PlatformPostageConfig<true>;
-
 export type PlatformApiTcgplayerAutomationConfig = PlatformTcgplayerAutomationConfig;
+
 
 export type PlatformApiSocialLoginProviderConfig = Readonly<{
   clientId: string;
@@ -339,18 +338,18 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     checkoutClosed: boolean;
     offerLifecycleOpen: boolean;
     channelCredentialKeyring: ChannelCredentialKeyring | null;
-    ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
     catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
+    ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
     stripeEffectiveMode: PlatformStripeEffectiveMode;
     mobileMessaging: PlatformApiMobileMessagingConfig;
     postage: PlatformApiPostageConfig;
+    tcgplayerAutomation: PlatformApiTcgplayerAutomationConfig | null;
     socialLogin: PlatformApiSocialLoginConfig;
     adminGoogleWorkspaceSso: PlatformApiAdminGoogleWorkspaceSsoConfig | null;
     catalogAssetStorage: PlatformApiCatalogAssetStorageConfig;
-    tcgplayerAutomation: PlatformApiTcgplayerAutomationConfig | null;
     listingPhotoStorage: PlatformApiListingPhotoStorageConfig;
     discoverySearchEmbeddings: PlatformApiDiscoverySearchEmbeddingConfig;
     stripeGoLive: StripeGoLiveCheckReport;
@@ -753,7 +752,6 @@ function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironmen
 }
 
 export function loadConfig(): PlatformApiConfig {
-  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
   loadCatalogProviderSendWindowEnabled(process.env);
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
@@ -876,11 +874,11 @@ export function loadConfig(): PlatformApiConfig {
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     offerLifecycleOpen: getBooleanEnv("CHASE_SETS_OFFER_LIFECYCLE_OPEN", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    catalogOperatorSessionKeyring: null,
     ebayAccountDeletionConfiguration: parseEbayAccountDeletionConfiguration(
       process.env.EBAY_ACCOUNT_DELETION_ENDPOINT,
       process.env.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN,
     ),
-    catalogOperatorSessionKeyring,
     providerModeObservation: {
       mode: stripeProvider.effectiveMode,
       paymentProcessorKind: stripeProvider.paymentProcessor.kind,
@@ -889,6 +887,7 @@ export function loadConfig(): PlatformApiConfig {
     },
     mobileMessaging,
     postage,
+    tcgplayerAutomation: null,
     stripeGoLive: {
       apiVersion: STRIPE_API_VERSION,
       requiredWebhookEvents: requiredStripeWebhookEvents(stripeProvider.connectAccountsApi),
@@ -898,7 +897,6 @@ export function loadConfig(): PlatformApiConfig {
       liveSecretKeyLikely: stripeProvider.keyClassification.serverKeyMode === "live",
     },
     catalogAssetStorage,
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     listingPhotoStorage,
     discoverySearchEmbeddings: {
       apiKey: getOptionalEnv("VOYAGE_API_KEY"),
