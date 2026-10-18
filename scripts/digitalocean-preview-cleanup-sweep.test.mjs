@@ -669,7 +669,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     const detachedGrandchildScript = [
       "const { spawn } = await import('node:child_process');",
       "const { writeFileSync } = await import('node:fs');",
-      `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit', detached: true }); writeFileSync(${JSON.stringify(detachedPidFile)}, String(child.pid));`,
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit', detached: true }); writeFileSync(process.argv[1], String(child.pid));",
       "setInterval(() => {}, 1000);",
     ].join(" ");
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -678,7 +678,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     try {
       const detachedCommand = commandOutput(
         process.execPath,
-        ["--input-type=module", "--eval", detachedGrandchildScript],
+        ["--input-type=module", "--eval", detachedGrandchildScript, detachedPidFile],
         { timeout: 200 },
       ).then(
         () => {
@@ -723,11 +723,11 @@ describe("digitalocean-preview-cleanup-sweep", () => {
     const grandchildScript = [
       "const { spawn } = await import('node:child_process');",
       "const { writeFileSync } = await import('node:fs');",
-      `const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit' }); writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));`,
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000);'], { stdio: 'inherit' }); writeFileSync(process.argv[1], String(child.pid));",
       "setInterval(() => {}, 1000);",
     ].join(" ");
     await expect(
-      commandOutput(process.execPath, ["--input-type=module", "--eval", grandchildScript], {
+      commandOutput(process.execPath, ["--input-type=module", "--eval", grandchildScript, pidFile], {
         timeout: 200,
       }),
     ).rejects.toThrow("timed out after 200ms");
