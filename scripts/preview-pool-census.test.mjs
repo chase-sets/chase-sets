@@ -7,6 +7,7 @@ import {
   PREVIEW_POOL_CENSUS_SCHEMA_VERSION,
   allowlistedKubectlArgs,
   computeSizing,
+  collectSnapshot,
   dedupeEvents,
   filterPreviewNamespaces,
   reduceContainerPeaks,
@@ -19,13 +20,15 @@ const runbookText = readFileSync(resolve("docs/runbooks/doks-platform-operations
 
 const fixtureValues = {
   previewPostgres: { resources: { requests: { memory: "512Mi" } } },
-  platformBootstrap: { resources: { requests: { memory: "512Mi" } } },
-  components: Object.fromEntries(
-    ["public-web", "marketplace", "admin-web", "platform-api", "platform-worker"].map((name) => [
-      name,
-      { resources: { requests: { memory: ["platform-api", "platform-worker"].includes(name) ? "512Mi" : "256Mi" } } },
-    ]),
-  ),
+  components: {
+    ...Object.fromEntries(
+      ["public-web", "marketplace", "admin-web", "platform-api", "platform-worker"].map((name) => [
+        name,
+        { resources: { requests: { memory: ["platform-api", "platform-worker"].includes(name) ? "512Mi" : "256Mi" } } },
+      ]),
+    ),
+    "platform-bootstrap": { resources: { requests: { memory: "512Mi" } } },
+  },
 };
 
 describe("preview-pool-census reducers and controls", () => {
@@ -34,13 +37,13 @@ describe("preview-pool-census reducers and controls", () => {
       filterPreviewNamespaces([
         { metadata: { name: "default" } },
         { metadata: { name: "chase-sets-pr-42", creationTimestamp: "2026-10-18T00:00:00Z" } },
-        { metadata: { name: "chase-sets-gate-7" } },
-        { metadata: { name: "chase-sets-verify-9" } },
+        { metadata: { name: "chase-sets-gate-55-2" } },
+        { metadata: { name: "chase-sets-verify-123456-1" } },
       ]),
     ).toEqual([
-      { kind: "gate", name: "chase-sets-gate-7", creationTimestamp: null },
+      { kind: "gate", name: "chase-sets-gate-55-2", creationTimestamp: null },
       { kind: "pr", name: "chase-sets-pr-42", creationTimestamp: "2026-10-18T00:00:00Z" },
-      { kind: "verify", name: "chase-sets-verify-9", creationTimestamp: null },
+      { kind: "verify", name: "chase-sets-verify-123456-1", creationTimestamp: null },
     ]);
   });
 
@@ -50,11 +53,13 @@ describe("preview-pool-census reducers and controls", () => {
         {
           metadata: { uid: "e1", namespace: "chase-sets-pr-42" },
           reason: "Evicted",
+          firstTimestamp: "2026-10-18T00:00:00Z",
           lastTimestamp: "2026-10-18T00:00:00Z",
         },
         {
           metadata: { uid: "e1", namespace: "chase-sets-pr-42" },
           reason: "Evicted",
+          firstTimestamp: "2026-10-18T00:00:00Z",
           lastTimestamp: "2026-10-18T00:01:00Z",
         },
         { metadata: { uid: "e2" }, reason: "Normal" },
@@ -105,6 +110,41 @@ describe("preview-pool-census reducers and controls", () => {
     expect(allowlistedKubectlArgs(["get", "pods", "-o", "json", "--as", "admin"])).toBe(true);
   });
 
+  it("collects real preview shapes, every node, requests, restart reasons and filtered events", async () => {
+    const previewNamespace = "chase-sets-verify-123456-1";
+    const calls = [];
+    const pod = {
+      metadata: { namespace: previewNamespace, name: "api-1", labels: { "app.kubernetes.io/name": "chase-sets-platform", "app.kubernetes.io/component": "platform-api" }, annotations: { marker: "synthetic" } },
+      spec: { nodeName: "preview-node", containers: [{ name: "postgres", env: [{ name: "TOKEN", value: "sk_test_SYNTHETIC_LEAK_MARKER" }], envFrom: [{ secretRef: { name: "synthetic" } }], resources: { requests: { memory: "512Mi" }, limits: { memory: "1Gi" } } }] },
+      status: { phase: "Running", containerStatuses: [{ name: "postgres", restartCount: 1, state: { running: {} }, lastState: { terminated: { reason: "OOMKilled" } } }] },
+    };
+    const kubectl = async (args) => {
+      calls.push(args);
+      if (args.includes("nodes")) return JSON.stringify({ items: [
+        { metadata: { name: "preview-node", labels: { "chase-sets.com/pool": "preview", "node.kubernetes.io/instance-type": "s-2vcpu-4gb" } }, status: { allocatable: { cpu: "2", memory: "4Gi" }, conditions: [{ type: "Ready", status: "True" }] } },
+        { metadata: { name: "runtime-node", labels: { "chase-sets.com/pool": "runtime" } }, status: { allocatable: { cpu: "2", memory: "4Gi" }, conditions: [] } },
+      ] });
+      if (args.includes("pods")) return JSON.stringify({ items: [pod] });
+      if (args.includes("namespaces")) return JSON.stringify({ items: [{ metadata: { name: previewNamespace } }] });
+      if (args.includes("events")) return JSON.stringify({ items: [
+        { metadata: { uid: "e1", namespace: previewNamespace }, reason: "Evicted", count: 3, firstTimestamp: "2026-10-18T00:00:00Z", lastTimestamp: "2026-10-18T00:05:00Z" },
+        { metadata: { uid: "e2", namespace: "kube-system" }, reason: "FailedScheduling", count: 9 },
+      ] });
+      if (args.includes("configmap")) return JSON.stringify({ data: { status: "ok" } });
+      if (args.includes("--raw")) return JSON.stringify({ pods: [{ podRef: { namespace: previewNamespace, name: "api-1" }, containers: [{ name: "postgres", memory: { workingSetBytes: 42 } }] }] });
+      throw new Error(`unexpected ${args.join(" ")}`);
+    };
+    const result = await collectSnapshot({ dependencies: { kubectl }, sizing: null });
+    expect(result.errors).toEqual([]);
+    expect(result.nodeRecords.map((node) => node.name)).toEqual(["preview-node", "runtime-node"]);
+    expect([...result.peaks.values()][0]).toMatchObject({ component: "platform-api", memoryRequestMi: 512, memoryLimitMi: 1024, terminatedReason: "OOMKilled" });
+    expect(result.events).toEqual([expect.objectContaining({ uid: "e1", count: 3, firstTimestamp: "2026-10-18T00:00:00Z", lastTimestamp: "2026-10-18T00:05:00Z" })]);
+    const text = JSON.stringify(result);
+    expect(text).not.toContain("SYNTHETIC_LEAK_MARKER");
+    expect(text).not.toMatch(/"env(?:From)?"/);
+    expect(calls.some((args) => args.includes("runtime-node"))).toBe(false);
+  });
+
   it("records a failed read as partial instead of silently passing", async () => {
     const record = await runCensus({
       mode: "snapshot",
@@ -125,10 +165,11 @@ describe("preview-pool-census reducers and controls", () => {
         mode: "snapshot",
         dependencies: {
           kubectl: async (args) => {
-            if (args.includes("nodes")) return JSON.stringify({ items: [] });
-            if (args.includes("pods")) return JSON.stringify({ items: [] });
-            if (args.includes("namespaces")) return JSON.stringify({ items: [] });
+            if (args.includes("nodes")) return JSON.stringify({ items: [{ metadata: { name: "n1", labels: { "chase-sets.com/pool": "preview" } }, status: { allocatable: {} } }] });
+            if (args.includes("pods")) return JSON.stringify({ items: [{ metadata: { namespace: "chase-sets-pr-1", name: "p1", labels: { "app.kubernetes.io/component": "platform-api" } }, spec: { nodeName: "n1", containers: [{ name: "api", env: [{ name: "TOKEN", value: "sk_test_SYNTHETIC_LEAK_MARKER" }], envFrom: [{ secretRef: { name: "s" } }], resources: {} }] }, status: { phase: "Running" } }] });
+            if (args.includes("namespaces")) return JSON.stringify({ items: [{ metadata: { name: "chase-sets-pr-1" } }] });
             if (args.includes("events")) return JSON.stringify({ items: [] });
+            if (args.includes("--raw")) return JSON.stringify({ pods: [] });
             return JSON.stringify({ data: { status: "ok" } });
           },
         },
