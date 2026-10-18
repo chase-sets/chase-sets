@@ -209,7 +209,18 @@ export function decodeFeatureFlagReadResult(raw: unknown): FeatureFlagReadResult
 
 function record(raw: unknown): ContractRecord {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return invalid();
-  return raw as ContractRecord;
+  const snapshot: ContractRecord = {};
+  for (const key of Reflect.ownKeys(raw)) {
+    const descriptor = Object.getOwnPropertyDescriptor(raw, key);
+    if (descriptor === undefined || !("value" in descriptor)) return invalid();
+    Object.defineProperty(snapshot, key, {
+      configurable: true,
+      enumerable: true,
+      value: descriptor.value,
+      writable: true,
+    });
+  }
+  return snapshot;
 }
 
 function recordWithExactKeys<const TKeys extends readonly string[]>(raw: unknown, expectedKeys: TKeys): ContractRecord {
@@ -221,7 +232,13 @@ function recordWithExactKeys<const TKeys extends readonly string[]>(raw: unknown
   ) {
     return invalid();
   }
-  return value;
+  const snapshot: ContractRecord = {};
+  for (const key of expectedKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) return invalid();
+    snapshot[key] = descriptor.value;
+  }
+  return snapshot;
 }
 
 function boundedTrimmedString(value: unknown, minimum: number, maximum: number): value is string {
@@ -233,10 +250,19 @@ function boundedSortedUniqueStrings(
   maximum: number,
   validateItem: (item: string) => void,
 ): readonly string[] | null {
-  if (!Array.isArray(value) || value.length > maximum) return null;
+  if (!Array.isArray(value)) return null;
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  if (lengthDescriptor === undefined || !("value" in lengthDescriptor) || lengthDescriptor.value > maximum) return null;
+
+  const copied: string[] = [];
+  for (let index = 0; index < lengthDescriptor.value; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined || !("value" in descriptor)) return null;
+    copied.push(descriptor.value as string);
+  }
 
   let previous: string | undefined;
-  for (const item of value) {
+  for (const item of copied) {
     if (typeof item !== "string") return null;
     try {
       validateItem(item);
@@ -247,7 +273,7 @@ function boundedSortedUniqueStrings(
     previous = item;
   }
 
-  return value;
+  return copied;
 }
 
 function invalid(): never {

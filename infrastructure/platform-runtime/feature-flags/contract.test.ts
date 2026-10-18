@@ -16,6 +16,29 @@ import type {
 const INVALID = "Invalid feature flag contract value.";
 const accountA = "acc_01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const accountB = "acc_01ARZ3NDEKTSV4RRFFQ69G5FB0";
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function canonicalAccount(index: number): string {
+  let value = index;
+  let suffix = "";
+  do {
+    suffix = CROCKFORD[value % CROCKFORD.length] + suffix;
+    value = Math.floor(value / CROCKFORD.length);
+  } while (value > 0);
+  return `acc_${suffix.padStart(26, "0")}`;
+}
+
+function expectInvalid(run: () => unknown): void {
+  let thrown: unknown;
+  try {
+    run();
+  } catch (error) {
+    thrown = error;
+  }
+  expect(Object.getPrototypeOf(thrown)).toBe(TypeError.prototype);
+  expect((thrown as Error).message).toBe(INVALID);
+  expect(Object.hasOwn(thrown as object, "cause")).toBe(false);
+}
 
 function environmentState(overrides: Partial<FeatureFlagEnvironmentState> = {}): FeatureFlagEnvironmentState {
   return {
@@ -80,7 +103,7 @@ describe("decodeFeatureFlagDefinition", () => {
     ];
 
     for (const value of invalidValues) {
-      expect(() => decodeFeatureFlagDefinition(value)).toThrow(INVALID);
+      expectInvalid(() => decodeFeatureFlagDefinition(value));
     }
   });
 });
@@ -117,19 +140,18 @@ describe("decodeFeatureFlagEnvironmentState", () => {
     ];
 
     for (const value of invalidValues) {
-      expect(() => decodeFeatureFlagEnvironmentState(value)).toThrow(INVALID);
+      expectInvalid(() => decodeFeatureFlagEnvironmentState(value));
     }
   });
 
   it("enforces the account and badge count limits", () => {
-    const accounts = Array.from({ length: 1_001 }, (_, index) => {
-      const suffix = index.toString(36).toUpperCase().padStart(26, "0");
-      return `acc_${suffix}`;
-    });
+    const accounts = Array.from({ length: 1_001 }, (_, index) => canonicalAccount(index));
     const badges = Array.from({ length: 65 }, (_, index) => `badge-${index.toString().padStart(2, "0")}`);
 
-    expect(() => decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: accounts }))).toThrow(INVALID);
-    expect(() => decodeFeatureFlagEnvironmentState(environmentState({ badgeAnyOf: badges }))).toThrow(INVALID);
+    const accepted = decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: accounts.slice(0, 1_000) }));
+    expect(accepted.accountAllowlist).toHaveLength(1_000);
+    expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: accounts })));
+    expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ badgeAnyOf: badges })));
   });
 });
 
@@ -164,7 +186,7 @@ describe("decodeFeatureFlagDocument", () => {
     ];
 
     for (const value of invalidValues) {
-      expect(() => decodeFeatureFlagDocument(value)).toThrow(INVALID);
+      expectInvalid(() => decodeFeatureFlagDocument(value));
     }
   });
 });
@@ -214,7 +236,40 @@ describe("decodeFeatureFlagReadResult", () => {
     ];
 
     for (const value of invalidValues) {
-      expect(() => decodeFeatureFlagReadResult(value)).toThrow(INVALID);
+      expectInvalid(() => decodeFeatureFlagReadResult(value));
     }
+  });
+
+  it("rejects accessor records and validates indexed arrays once", () => {
+    const definition = { fallbackValue: true } as { key?: string; fallbackValue: boolean };
+    Object.defineProperty(definition, "key", { get: () => "catalog.new-view", enumerable: true });
+    expectInvalid(() => decodeFeatureFlagDefinition(definition));
+
+    const accessorArray = [accountA];
+    Object.defineProperty(accessorArray, "0", { get: () => accountA, enumerable: true });
+    expectInvalid(() => decodeFeatureFlagEnvironmentState(environmentState({ accountAllowlist: accessorArray })));
+
+    const state = environmentState({ accountAllowlist: [accountA] });
+    Object.defineProperty(state.accountAllowlist, Symbol.iterator, {
+      value: function* () {
+        yield "acc_not-a-canonical-ulid";
+      },
+      enumerable: false,
+    });
+    expect(decodeFeatureFlagEnvironmentState(state).accountAllowlist).toEqual([accountA]);
+
+    const document = documentValue();
+    Object.defineProperty(document, "description", { get: () => "Enable the new catalog view", enumerable: true });
+    expectInvalid(() => decodeFeatureFlagDocument(document));
+
+    const readResult = {
+      status: "found",
+      documentId: "revision-1",
+      updatedAt: "2026-10-17T12:00:00.000Z",
+      schemaVersion: 1,
+      value: environmentState(),
+    } as Record<string, unknown>;
+    Object.defineProperty(readResult, "environment", { get: () => "production", enumerable: true });
+    expectInvalid(() => decodeFeatureFlagReadResult(readResult));
   });
 });
