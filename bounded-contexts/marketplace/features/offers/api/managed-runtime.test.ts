@@ -17,8 +17,9 @@ describe("managed Offer application and commitment", () => {
 
     await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "offer_not_open" });
     expect(f.evaluateTargets).not.toHaveBeenCalled();
-    expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(policyBefore.version);
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe(policyBefore.consumedItemAmount);
+    const policyAfter = await f.policies.get("bop_one", "acc_buyer");
+    expect(policyAfter.version).toBe(policyBefore.version);
+    expect(policyAfter.revision).toBe(policyBefore.revision);
   });
 
   it.each(["acceptance", "price edit"] as const)(
