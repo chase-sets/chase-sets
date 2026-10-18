@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  assembleCaptureRecord,
   attributeRenderedCopy,
   classifyRenderedCopyDrift,
   rejectCandidateDerivedBaseline,
@@ -33,6 +34,10 @@ function gitRepo(cwd, headRef = "HEAD") {
     head: out(["rev-parse", "--verify", `${headRef}^{commit}`]),
     objectType: (sha) => (/^[0-9a-f]{40}$/.test(sha) ? out(["cat-file", "-t", sha]) : null),
     treeOf: (commit) => out(["rev-parse", "--verify", `${commit}^{tree}`]),
+    parentsOf: (commit) => {
+      const parents = out(["show", "-s", "--diff-merges=off", "--format=%P", commit]);
+      return parents === null ? null : parents.split(" ").filter(Boolean);
+    },
     blobAt: (commit, file) => out(["rev-parse", "--verify", `${commit}:${file}`]),
     isAncestor: (ancestor, descendant) => run(["merge-base", "--is-ancestor", ancestor, descendant]).status === 0,
     diffNames: (base, head) => {
@@ -83,7 +88,7 @@ const integrations = "/catalog/integrations";
 // A complete, valid capture over the 32-tuple census with three fields: one
 // anticipated Offer owner, the conditional Catalog attention owner and one
 // unanticipated Catalog field the host must file before INTEGRATED.
-function buildRecord({ base, head, diff, toolBlob, specBlob }) {
+function buildRecord({ base, head, diff, toolBlob, specBlob, checkout = { commit: sha("d"), tree: sha("f") } }) {
   const fields = [
     {
       page: offers,
@@ -132,7 +137,7 @@ function buildRecord({ base, head, diff, toolBlob, specBlob }) {
       jobIndex,
       eligibility: "owning",
       attempt: 1,
-      checkout: sha("d"),
+      checkout: checkout.commit,
       artifact: {
         name: renderedCopyCaptureArtifactName(4242, 1, jobIndex),
         sha256: sha("e").repeat(2).slice(0, 64),
@@ -174,7 +179,7 @@ function buildRecord({ base, head, diff, toolBlob, specBlob }) {
       attempt: 1,
       capturedAt: "2026-10-18T05:00:00.000Z",
     },
-    checkout: { commit: sha("d"), tree: sha("f"), parents: [base.commit, head.commit] },
+    checkout: { ...checkout, parents: [base.commit, head.commit] },
     base,
     head,
     diff,
@@ -312,6 +317,20 @@ describe("rendered-copy lifecycle over real git objects", () => {
     );
     return run("rev-parse", "HEAD");
   };
+  // A commit object with the given tree and ordered parents, as GitHub writes
+  // the pull_request merge ref.
+  const commitTree = (treeSha, parents) =>
+    run(
+      "-c",
+      "user.name=fixture",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "commit-tree",
+      treeSha,
+      ...parents.flatMap((parent) => ["-p", parent]),
+      "-m",
+      "checkout",
+    );
   const variant = (from, files) => {
     run("checkout", "--quiet", "--detach", from);
     for (const [file, content] of Object.entries(files)) {
@@ -339,9 +358,12 @@ describe("rendered-copy lifecycle over real git objects", () => {
     write(renderedCopyFiles.baseline, json({ schema: "rendered-copy-baseline/v1", rows: [] }));
     const H = commit("H capture head");
     const tree = (commit) => run("rev-parse", `${commit}^{tree}`);
+    // H descends from B, so the merge ref's tree is H's.
+    const C = commitTree(tree(H), [B, H]);
     record = buildRecord({
       base: { commit: B, tree: tree(B) },
       head: { commit: H, tree: tree(H) },
+      checkout: { commit: C, tree: tree(C) },
       diff: [
         renderedCopyFiles.baseline,
         renderedCopyFiles.collect,
@@ -355,7 +377,7 @@ describe("rendered-copy lifecycle over real git objects", () => {
       [renderedCopyFiles.baseline]: integratedBaseline(record),
       [renderedCopyFiles.collect]: null,
     });
-    refs = { B, X, H, I, tree };
+    refs = { B, X, H, C, I, tree };
   });
   afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
@@ -416,6 +438,39 @@ describe("rendered-copy lifecycle over real git objects", () => {
     mutate(mutant);
     const head = variant(refs.I, { [renderedCopyFiles.capture]: mutant });
     expect(messages(check(head, refs.B))).toContain(expected);
+  });
+
+  // The recorded parents always read [B, PR head]; only the resolved checkout
+  // object shows whether the capture ran on that merge.
+  it.each([
+    ["a foreign checkout tree", () => ({ tree: sha("9") }), () => `${sha("9")} is not the tree of checkout`],
+    [
+      "a missing checkout object",
+      () => ({ commit: sha("9") }),
+      () => `checkout ${sha("9")} is missing or not a commit`,
+    ],
+    [
+      "a checkout naming a blob",
+      () => ({ commit: run("rev-parse", `${refs.H}:deployables/marketplace/e2e/browse.spec.ts`) }),
+      () => "is missing or not a commit",
+    ],
+    [
+      "a single-parent checkout",
+      () => ({ commit: refs.H, tree: refs.tree(refs.H) }),
+      () => `checkout ${refs.H} has parents ["${refs.B}"], not [B, PR head]`,
+    ],
+    [
+      "a checkout with swapped parents",
+      () => ({ commit: commitTree(refs.tree(refs.H), [refs.H, refs.B]), tree: refs.tree(refs.H) }),
+      () => `has parents ["${refs.H}","${refs.B}"], not [B, PR head]`,
+    ],
+  ])("rejects %s whose recorded parents still claim [B, PR head]", (_name, replace, expected) => {
+    const mutant = clone(record);
+    Object.assign(mutant.checkout, replace());
+    for (const batch of mutant.batches) if (batch.eligibility === "owning") batch.checkout = mutant.checkout.commit;
+    const result = check(variant(refs.I, { [renderedCopyFiles.capture]: mutant }), refs.B);
+    expect(result.state).toBe("INVALID");
+    expect(messages(result)).toContain(expected());
   });
 
   it("rejects a present toggle on an enforced committed-record head and on every merge_group", () => {
@@ -587,6 +642,108 @@ describe("validateCaptureRecord", () => {
     const record = valid();
     mutate(record);
     expect(validateCaptureRecord(record).join("\n")).toContain(expected);
+  });
+
+  const ownerKey = ({ token, page, class: kind, issue }) => JSON.stringify([token, page, kind, issue]);
+
+  it("rejects an Offer field reassigned to another configured owner's token and issue", () => {
+    const record = valid();
+    Object.assign(record.fields[0], { token: "SB8-COPY-02", issue: 9938 });
+    expect(validateCaptureRecord(record).join("\n")).toContain(
+      `owner map: ${offers} seed-id field selector="main" prefix="off_" SB8-COPY-02 issue 9938 matches 0 configured owner rules`,
+    );
+  });
+
+  it("rejects a field borrowing the owner of another selector even when every owner is accounted for", () => {
+    const record = valid();
+    record.fields[1].issue = 9939;
+    record.baseAbsent.push({ token: "SB8-COPY-06", page: integrations, class: "iso-instant", issue: 8720 });
+    expect(validateCaptureRecord(record)).toEqual([
+      `owner map: ${integrations} iso-instant field selector="[data-catalog-attention-queue=\\"true\\"]" SB8-COPY-06 issue 9939 matches 0 configured owner rules; a token field must match exactly one by page, class, selector, label, prefix, token and issue`,
+    ]);
+  });
+
+  it("rejects a capture that omits its base-absent owners, naming each one", () => {
+    const record = valid();
+    const omitted = record.baseAbsent.map(ownerKey);
+    expect(omitted).toHaveLength(5);
+    record.baseAbsent = [];
+    expect(validateCaptureRecord(record)).toEqual(
+      omitted.map((key) => `owner map: configured owner ${key} is neither captured nor explicitly base-absent`),
+    );
+  });
+
+  it.each([
+    [
+      "a duplicated base-absent owner",
+      (record) => record.baseAbsent.push(clone(record.baseAbsent[0])),
+      "is base-absent and base-absent",
+    ],
+    [
+      "a captured owner also base-absent",
+      (record) => record.baseAbsent.push({ token: "SB8-COPY-01", page: offers, class: "seed-id", issue: 9937 }),
+      "is captured and base-absent",
+    ],
+    [
+      "a base-absent owner on another page",
+      (record) => (record.baseAbsent[0].page = offers),
+      "is not a configured owner rule",
+    ],
+    [
+      "a base-absent owner of another class",
+      (record) => (record.baseAbsent[0].class = "seed-id"),
+      "is not a configured owner rule",
+    ],
+    [
+      "a base-absent owner citing another issue",
+      (record) => (record.baseAbsent[0].issue = 9937),
+      "is not a configured owner rule",
+    ],
+    [
+      "a base-absent owner reusing another token",
+      (record) => (record.baseAbsent[0].token = "SB8-COPY-01"),
+      "is not a configured owner rule",
+    ],
+  ])("rejects %s", (_name, mutate, expected) => {
+    const record = valid();
+    mutate(record);
+    expect(validateCaptureRecord(record).join("\n")).toContain(expected);
+  });
+
+  it("accepts the record assembleCaptureRecord builds from the run's parts, supplying every absent owner", () => {
+    const record = valid();
+    const owning = record.batches.filter((batch) => batch.eligibility === "owning");
+    const parts = owning.map((batch) => {
+      const tuples = record.tuples
+        .filter((tuple) => tuple.batch === batch.batch)
+        .map(({ batch: _batch, jobIndex: _jobIndex, ...tuple }) => tuple);
+      const pages = new Set(tuples.map((tuple) => tuple.page));
+      return {
+        schema: "rendered-copy-capture-part/v1",
+        run: { ...record.run, jobIndex: batch.jobIndex, batch: batch.batch },
+        checkout: record.checkout,
+        base: record.base,
+        head: record.head,
+        diff: record.diff,
+        tools: record.tools,
+        listing: batch.listing,
+        tuples,
+        fields: record.fields.filter((field) => pages.has(field.page)),
+      };
+    });
+    const assembled = assembleCaptureRecord({
+      parts,
+      artifacts: new Map(owning.map((batch) => [batch.jobIndex, batch.artifact])),
+      batches: record.batches.map(({ batch, jobIndex, eligibility }) =>
+        eligibility === "scope-skipped" ? { batch, jobIndex, eligibility } : { batch, jobIndex },
+      ),
+    });
+    expect(validateCaptureRecord(assembled)).toEqual([]);
+    expect(assembled.baseAbsent.map(ownerKey)).toEqual(
+      renderedCopyOwnerRules
+        .filter((rule) => !record.fields.some((field) => ownerKey(field) === ownerKey(rule)))
+        .map(ownerKey),
+    );
   });
 });
 

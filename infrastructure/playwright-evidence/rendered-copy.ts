@@ -1201,11 +1201,11 @@ export function assembleCaptureRecord(input: {
         listing: part?.listing ?? [],
       };
     });
-  const owned = new Set(renderedCopyRulesKeys(renderedCopyOwnerRules));
+  const owned = new Set(renderedCopyOwnerRules.map(ownerKey));
   const fields = input.parts
     .flatMap((part) => part.fields)
     .sort((left, right) => ordinal(renderedCopyFieldKey(left), renderedCopyFieldKey(right)));
-  for (const field of fields) owned.delete(JSON.stringify([field.token, field.page, field.class, field.issue]));
+  for (const field of fields) owned.delete(ownerKey(field));
   return {
     schema: "rendered-copy-capture/v1",
     run: {
@@ -1232,27 +1232,69 @@ export function assembleCaptureRecord(input: {
   };
 }
 
-const renderedCopyRulesKeys = (rules: readonly RenderedCopyOwnerRule[]) =>
-  rules.map((rule) => JSON.stringify([rule.token, rule.page, rule.class, rule.issue]));
+const ownerKey = (
+  owner: Readonly<{ token: string | null; page: string; class: RenderedCopyClass; issue: number | null }>,
+) => JSON.stringify([owner.token, owner.page, owner.class, owner.issue]);
+
+// A token field is owned only by the configured rule it reproduces exactly;
+// borrowing another rule's token or issue is a reassignment, not ownership.
+const ownerRulesOf = (field: RenderedCopyField & Readonly<{ issue: number | null }>) =>
+  renderedCopyOwnerRules.filter(
+    (rule) =>
+      rule.page === field.page &&
+      rule.class === field.class &&
+      rule.selector === field.selector &&
+      rule.label === field.label &&
+      rule.prefix === field.prefix &&
+      rule.token === field.token &&
+      rule.issue === field.issue,
+  );
 
 // Each field has one owner (or is unanticipated), each (page, class, issue) is
 // unique, and the fields of a page/class sum to the tuple's observed count.
+// With `baseAbsent`, every configured owner is captured or base-absent once.
 export function validateOwnerMap(input: {
   fields: readonly RenderedCopyObservedField[];
   tuples: readonly Readonly<{ page: string; counts: RenderedCopyCounts }>[];
   baseline?: readonly RenderedCopyBaselineRow[];
+  baseAbsent?: RenderedCopyCapture["baseAbsent"];
 }): string[] {
   const violations: string[] = [];
   const fieldKeys = new Set<string>();
   const ownerKeys = new Set<string>();
+  const owners = new Map(renderedCopyOwnerRules.map((rule) => [ownerKey(rule), [] as string[]]));
   for (const field of input.fields) {
     const key = renderedCopyFieldKey(field);
     if (fieldKeys.has(key)) violations.push(`owner map: duplicate field ${fieldName(field)}`);
     fieldKeys.add(key);
     if (field.issue !== null) {
-      const ownerKey = JSON.stringify([field.page, field.class, field.issue]);
-      if (ownerKeys.has(ownerKey)) violations.push(`owner map: duplicate owner ${ownerKey}`);
-      ownerKeys.add(ownerKey);
+      const pageClassIssue = JSON.stringify([field.page, field.class, field.issue]);
+      if (ownerKeys.has(pageClassIssue)) violations.push(`owner map: duplicate owner ${pageClassIssue}`);
+      ownerKeys.add(pageClassIssue);
+    }
+    if (field.token === null) continue;
+    const rules = ownerRulesOf(field);
+    if (rules.length === 1) owners.get(ownerKey(rules[0]!))!.push("captured");
+    else {
+      violations.push(
+        `owner map: ${fieldName(field)} issue ${field.issue} matches ${rules.length} configured owner rules; a token field must match exactly one by page, class, selector, label, prefix, token and issue`,
+      );
+    }
+  }
+  if (input.baseAbsent) {
+    input.baseAbsent.forEach((entry, index) => {
+      const sources = owners.get(ownerKey(entry));
+      if (sources) sources.push("base-absent");
+      else violations.push(`owner map: baseAbsent[${index}] ${ownerKey(entry)} is not a configured owner rule`);
+    });
+    for (const [key, sources] of owners) {
+      if (sources.length === 0) {
+        violations.push(`owner map: configured owner ${key} is neither captured nor explicitly base-absent`);
+      } else if (sources.length > 1) {
+        violations.push(
+          `owner map: configured owner ${key} is ${sources.join(" and ")}; each owner is captured or base-absent exactly once`,
+        );
+      }
     }
   }
   for (const tuple of input.tuples) {
@@ -1420,17 +1462,6 @@ export function validateCaptureRecord(value: unknown): string[] {
       if (!closedKeys(entry, where, ["token", "page", "class", "issue"], violations)) return;
       if (!tokenPattern.test(String(entry.token))) violations.push(`${where}.token: invalid`);
       if (!isClass(entry.class) || !boundedInt(entry.issue, 1, 1_000_000)) violations.push(`${where}: invalid owner`);
-      const present =
-        Array.isArray(value.fields) &&
-        value.fields.some(
-          (field) =>
-            isObject(field) &&
-            field.token === entry.token &&
-            field.page === entry.page &&
-            field.class === entry.class &&
-            field.issue === entry.issue,
-        );
-      if (present) violations.push(`${where}: a base-absent owner cannot also own a captured field`);
     });
   }
   if (violations.length === 0) {
@@ -1438,6 +1469,7 @@ export function validateCaptureRecord(value: unknown): string[] {
       ...validateOwnerMap({
         fields: value.fields as unknown as RenderedCopyObservedField[],
         tuples: value.tuples as unknown as RenderedCopyPartTuple[],
+        baseAbsent: value.baseAbsent as unknown as RenderedCopyCapture["baseAbsent"],
       }),
     );
   }
@@ -1509,6 +1541,7 @@ export type RenderedCopyRepo = Readonly<{
   head: string;
   objectType(sha: string): string | null;
   treeOf(commit: string): string | null;
+  parentsOf(commit: string): string[] | null;
   blobAt(commit: string, file: string): string | null;
   isAncestor(ancestor: string, descendant: string): boolean;
   diffNames(base: string, head: string): string[] | null;
@@ -1547,6 +1580,22 @@ function checkRecordObjects(
     violations.push(`capture.head: PR head ${record.head.commit} is missing`);
   else if (repo.treeOf(record.head.commit) !== record.head.tree) {
     violations.push(`capture.head.tree: ${record.head.tree} is not the tree of PR head ${record.head.commit}`);
+  }
+  // The recorded parents are only claims; the checkout object itself must be
+  // the merge of B and the PR head that the capture ran on.
+  const checkout = record.checkout;
+  if (repo.objectType(checkout.commit) !== "commit") {
+    violations.push(`capture.checkout: checkout ${checkout.commit} is missing or not a commit`);
+  } else {
+    if (repo.treeOf(checkout.commit) !== checkout.tree) {
+      violations.push(`capture.checkout.tree: ${checkout.tree} is not the tree of checkout ${checkout.commit}`);
+    }
+    const parents = repo.parentsOf(checkout.commit);
+    if (!sameJson(parents, [record.base.commit, record.head.commit])) {
+      violations.push(
+        `capture.checkout.parents: checkout ${checkout.commit} has parents ${JSON.stringify(parents)}, not [B, PR head] = [${record.base.commit}, ${record.head.commit}]`,
+      );
+    }
   }
   const diff = repo.diffNames(record.base.commit, record.head.commit);
   if (!diff || !sameJson(diff, record.diff)) {
