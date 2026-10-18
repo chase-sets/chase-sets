@@ -86,7 +86,25 @@ async function readAuthoritySources(repositoryRoot) {
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
     });
-    files = [...new Set(stdout.split("\0").filter((file) => file.endsWith(".json")))].sort();
+    const trackedFiles = [...new Set(stdout.split("\0").filter((file) => file.endsWith(".json")))];
+    // Git preserves the indexed spelling on case-insensitive filesystems, so a case-only
+    // rename can otherwise evade the owner-case guard. Match tracked paths to their actual
+    // directory entries while still ignoring unrelated untracked authority files.
+    const actualByFoldedPath = new Map();
+    for (const absolute of await listFiles(resolve(root, AUTHORITY_ROOT))) {
+      const actual = toRepoPath(root, absolute);
+      if (!actual.endsWith(".json")) continue;
+      const folded = actual.toLowerCase();
+      const candidates = actualByFoldedPath.get(folded) ?? [];
+      candidates.push(actual);
+      actualByFoldedPath.set(folded, candidates);
+    }
+    files = trackedFiles
+      .map((file) => {
+        const candidates = actualByFoldedPath.get(file.toLowerCase()) ?? [];
+        return candidates.length === 1 ? candidates[0] : file;
+      })
+      .sort();
   } catch {
     return { fragments: [], errors: ["tracked authority sources cannot be enumerated"] };
   }
