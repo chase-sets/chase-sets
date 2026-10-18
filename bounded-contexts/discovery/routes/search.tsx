@@ -50,6 +50,7 @@ import {
   prepareSavedListAddition,
   savedListActionError,
 } from "../support/request-support/saved-list-addition";
+import { navigateAfterWriteFromSourcesWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 
 const PAGE_SIZE = 24;
 const INTERPRETED_PARAM = "interpreted";
@@ -446,7 +447,9 @@ function isBulkAddActionData(
 
 async function handleAction(intent: string, { request, params, formData }: FormActionContext) {
   if (intent === "commit-saved-list") {
-    return commitSavedListAddition(request, formData);
+    return commitSavedListAddition(request, formData, (...args) =>
+      navigateAfterWriteFromSourcesWithPlatformPostWriteToken(...args),
+    );
   }
   if (intent === "prepare-saved-list") {
     try {
