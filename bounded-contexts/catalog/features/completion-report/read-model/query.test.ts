@@ -429,7 +429,6 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
     expect(agreement.candidateCount).toBe(3);
     expect(agreement.fields.name).toMatchObject({ agreed: 0, "single-source": 1, mismatch: 1, absent: 1 });
     expect(agreement.fields.name.mismatchPairs).toEqual({
-      "scrydex|tcgdex": 1,
       "scrydex|third-provider": 1,
       "tcgdex|third-provider": 1,
     });

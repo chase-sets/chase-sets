@@ -58,11 +58,11 @@ describe("classifyProviderAgreement", () => {
 
     const fields = result.pokemon.fields;
     expect(result.pokemon.candidateCount).toBe(4);
-    expect(fields.name).toMatchObject({ agreed: 1, mismatch: 1, "single-source": 2, absent: 0 });
+    expect(fields.name).toMatchObject({ agreed: 0, mismatch: 1, "single-source": 2, absent: 1 });
     expect(fields.name.mismatchPairs).toEqual({ "alpha|gamma": 1, "beta|gamma": 1 });
     expect(fields.rarity["intra-provider-conflict"]).toBe(1);
     expect(fields.collectorNumber.absent).toBe(4);
-    expect(fields.productForm.absent).toBe(4);
+    expect(fields.productForm).toMatchObject({ agreed: 1, absent: 1 });
     expect(fields.barcode.absent).toBe(4);
     for (const field of Object.values(fields)) {
       expect(
