@@ -51,6 +51,10 @@ jobs:
             echo "release_ref must be a 40-character lowercase hexadecimal commit SHA." >&2
             exit 1
           fi
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Dispatch this workflow from main; got ${GITHUB_REF}." >&2
+            exit 1
+          fi
           echo "Admitted staging cluster add-on dispatch for ${RELEASE_REF}."
 
   apply-staging-cluster-addons:

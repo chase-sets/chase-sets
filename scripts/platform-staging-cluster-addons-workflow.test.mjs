@@ -77,7 +77,8 @@ function assertDispatchBoundary(raw) {
   expect(refusal.env).toEqual({ CONFIRM: "${{ inputs.confirm }}", RELEASE_REF: "${{ inputs.release_ref }}" });
   expect(refusal.run).toContain(`if [ "$CONFIRM" != "${CONFIRM}" ]; then`);
   expect(refusal.run).toContain('if ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then');
-  expect(refusal.run.match(/^\s+exit 1$/gm)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  expect(refusal.run).toContain('if [ "$GITHUB_REF" != "refs/heads/main" ]; then');
+  expect(refusal.run.match(/^\s+exit 1$/gm)?.length ?? 0).toBeGreaterThanOrEqual(3);
 
   const apply = workflow.jobs[APPLY_JOB];
   expect(asList(apply.needs)).toEqual([REFUSE_JOB]);
@@ -331,6 +332,11 @@ describe("Platform Staging Cluster Add-ons workflow contract (#10045)", () => {
         "dispatch boundary",
         "no hex refusal",
         (raw) => replaceOnce(raw, 'if ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then', 'if [ -z "$RELEASE_REF" ]; then'),
+      ],
+      [
+        "dispatch boundary",
+        "a non-main workflow ref",
+        (raw) => replaceOnce(raw, '"$GITHUB_REF" != "refs/heads/main"', '-z "$GITHUB_REF"'),
       ],
       [
         "dispatch boundary",
