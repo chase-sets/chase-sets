@@ -322,9 +322,7 @@ describe("#9424 real sealed Scope Sync Batch runtime", () => {
       const preview = await f.runtime.preview({ selection, budget: limits, context });
       expect(preview.status).toBe("blocked");
       expect(preview.blockers.map((item) => item.code)).toContain(
-        mode === "budget"
-          ? "credited-provider-budget-exceeded"
-          : "credited-provider-estimate-unavailable",
+        mode === "budget" ? "credited-provider-budget-exceeded" : "credited-provider-estimate-unavailable",
       );
       if (mode === "unchecked") {
         expect(preview.blockers).toContainEqual(
