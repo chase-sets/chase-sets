@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DIGITALOCEAN_PREVIEW_CLEANUP_SWEEP_VERSION,
   PREVIEW_DATABASE_DELETE_CONFIRMATION,
@@ -8,6 +8,7 @@ import {
   cleanupLeakedPreviewDatabaseClusters,
   cleanupMatrixForTargets,
   classifyDatabaseCluster,
+  commandOutput,
   combinePreviewCleanupCandidates,
   destroyPreviewDnsRecords,
   discoverPreviewCleanupTargets,
@@ -26,6 +27,18 @@ import {
 } from "./digitalocean-preview-cleanup-sweep.mjs";
 
 describe("digitalocean-preview-cleanup-sweep", () => {
+  const discoveryOptions = (overrides = {}) => ({
+    bucket: "chase-sets-terraform-state",
+    endpointUrl: "https://nyc3.digitaloceanspaces.com",
+    prefix: "platform/previews",
+    repository: "chase-sets/chase-sets",
+    githubToken: "token",
+    checkoutRef: "main",
+    imageSha: "abc123",
+    checkedAt: "2026-07-10T12:00:00.000Z",
+    ...overrides,
+  });
+
   it("extracts preview PR numbers only from platform preview state keys", () => {
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.tfstate")).toBe(123);
     expect(previewPrNumberFromStateKey("platform/previews/pr-123.backup")).toBeNull();
@@ -639,5 +652,131 @@ describe("digitalocean-preview-cleanup-sweep", () => {
       { fqdn: "*.pr-70.preview.chasesets.com", id: "wild-70" },
       { fqdn: "pr-70.preview.chasesets.com", id: "apex-70" },
     ]);
+  });
+
+  it("bounds a hung provider command", async () => {
+    await expect(
+      commandOutput(process.execPath, ["--input-type=module", "--eval", "setInterval(() => {}, 1000);"], {
+        timeout: 40,
+      }),
+    ).rejects.toThrow("timed out after 40ms");
+
+    const result = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryCommandTimeoutMs: 25 }), {
+      awsJson: () => new Promise(() => {}),
+      listDatabaseClusters: async () => [],
+      listDomains: async () => [],
+      listDomainRecords: async () => [],
+      listNamespaces: async () => [],
+    });
+    expect(result.record.phases[0]).toMatchObject({ name: "state-list", count: null });
+    expect(result.record.phases[0].error).toMatch(/timed out/);
+    expect(result.record.phases.slice(1).every((phase) => phase.error === "skipped-after-state-list-failure")).toBe(
+      true,
+    );
+  });
+
+  it("aborts a stalled PR lookup", async () => {
+    const fetchMock = vi.fn((url, init) => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Promise((resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new DOMException("timed out", "AbortError")), {
+            once: true,
+          });
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ state: "closed", merged: false }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await discoverPreviewCleanupTargets(discoveryOptions({ discoveryPullRequestTimeoutMs: 25 }), {
+        awsJson: async () => ({
+          Contents: [{ Key: "platform/previews/pr-1.tfstate" }, { Key: "platform/previews/pr-2.tfstate" }],
+        }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => [],
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0][1].signal).toBeDefined();
+      expect(result.record.errors).toContain("PR #1 lookup failed: timed out after 25ms.");
+      expect(result.record.targets).toEqual([expect.objectContaining({ prNumber: 2, selected: true })]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("fails closed at the discovery budget", async () => {
+    const calls = { namespaces: 0, lookups: 0 };
+    const result = await discoverPreviewCleanupTargets(
+      discoveryOptions({ discoveryBudgetMs: 35, discoveryCommandTimeoutMs: 1_000 }),
+      {
+        awsJson: async () => ({ Contents: [{ Key: "platform/previews/pr-3.tfstate" }] }),
+        listDatabaseClusters: async () => [],
+        listDomains: async () => [],
+        listDomainRecords: async () => [],
+        listNamespaces: async () => {
+          calls.namespaces += 1;
+          return new Promise(() => {});
+        },
+        fetchPullRequest: async () => {
+          calls.lookups += 1;
+          return { state: "closed", merged: true };
+        },
+      },
+    );
+    expect(calls).toEqual({ namespaces: 1, lookups: 0 });
+    expect(result.record.result).toBe("failure");
+    expect(result.record.errors).toContain("budget-exhausted");
+    expect(result.record.targets).toEqual([]);
+    expect(result.matrix.include).toEqual([]);
+    expect(result.record.phases).toHaveLength(5);
+    expect(result.record.phases[3]).toMatchObject({ name: "namespace-list", error: "budget-exhausted", count: null });
+    expect(result.record.phases[4]).toMatchObject({
+      name: "pr-lookups",
+      startedAt: null,
+      durationMs: null,
+      count: null,
+      error: "budget-exhausted",
+    });
+  });
+
+  it("records discovery phases and volume", async () => {
+    const result = await discoverPreviewCleanupTargets(discoveryOptions(), {
+      awsJson: async () => ({
+        Contents: [
+          { Key: "platform/previews/pr-4.tfstate", Size: 180 },
+          { Key: "platform/previews/pr-5.tfstate", Size: 2_048 },
+          { Key: "platform/previews/pr-6.tfstate", Size: 70_000 },
+          { Key: "platform/previews/pr-7.tfstate", Size: 2_000_000 },
+        ],
+      }),
+      listDatabaseClusters: async () => [{ id: "db-8", name: "chase-sets-pr-8-postgres", tags: ["preview"] }],
+      listDomains: async () => [{ name: "chasesets.com" }],
+      listDomainRecords: async () => [
+        { id: "preview-record", type: "A", name: "pr-9.preview", data: "159.203.145.65" },
+        { id: "unrelated", type: "CNAME", name: "assets", data: "cdn" },
+      ],
+      listNamespaces: async () => [{ metadata: { name: "chase-sets-pr-10" } }],
+      fetchPullRequest: async () => ({ state: "closed", merged: false }),
+    });
+    expect(result.record.result).toBe("success");
+    expect(result.record.stateObjectCount).toBe(4);
+    expect(result.record.stateObjectBytes).toEqual({
+      under1KiB: 1,
+      "1KiBTo64KiB": 1,
+      "64KiBTo1MiB": 1,
+      atLeast1MiB: 1,
+    });
+    expect(result.record.candidateCount).toBe(7);
+    expect(result.record.closedTargetCount).toBe(7);
+    expect(result.record.phases.map((phase) => phase.name)).toEqual([
+      "state-list",
+      "database-list",
+      "dns-list",
+      "namespace-list",
+      "pr-lookups",
+    ]);
+    expect(result.record.phases.map((phase) => phase.count)).toEqual([4, 1, 1, 1, 7]);
   });
 });
