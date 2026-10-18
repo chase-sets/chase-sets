@@ -318,10 +318,11 @@ function ageReasons(entry, ageDays, remainingDays) {
 
 const LIVENESS_LEVELS = { live: null, dead: "failure", unknown: "warning", absent: "warning" };
 
-// The level classifier (runbook "Levels"). `metadata` is a collectSecretMetadata document (or null),
-// `liveness` maps scope -> runLivenessRow document, and `jobResults` carries
-// the producing jobs' results when known. A failed or absent collection is a
-// warning; it never reports success.
+// The level classifier (runbook "Levels"). `metadata` is a
+// collectSecretMetadata document (or null), `liveness` maps scope ->
+// runLivenessRow document, and `jobResults` carries the producing jobs'
+// results when known. A failed or absent collection is a warning; it never
+// reports success.
 export function classifyCredentialHealth({
   inventory,
   metadata = null,
