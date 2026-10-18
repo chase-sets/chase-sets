@@ -217,6 +217,34 @@ describe("project status derivation", () => {
       "changed during collection",
     );
   });
+  it("projects board order across tracks", () => {
+    const milestone = (number, track, order) => ({
+      number,
+      title: `Outcome ${number}`,
+      state: "OPEN",
+      description: `<!-- outcome: {"version":1,"track":"${track}","order":${order},"status":"committed"} -->`,
+    });
+    const items = [
+      {
+        itemId: "commerce",
+        outcomeOrder: null,
+        issue: issue({ number: 1, milestone: milestone(50, "commerce", 300) }),
+      },
+      {
+        itemId: "delivery",
+        outcomeOrder: null,
+        issue: issue({ number: 2, milestone: milestone(250, "delivery", 100) }),
+      },
+      { itemId: "catalog", outcomeOrder: null, issue: issue({ number: 3, milestone: milestone(5, "catalog", 200) }) },
+      { itemId: "tied", outcomeOrder: null, issue: issue({ number: 4, milestone: milestone(240, "ops", 200) }) },
+    ];
+    expect(planOutcomeOrderUpdates(items).map(({ itemId, to }) => [itemId, to])).toEqual([
+      ["commerce", 4],
+      ["delivery", 1],
+      ["catalog", 2],
+      ["tied", 3],
+    ]);
+  });
   it("keeps candidate outcome work out of Refined using live milestone metadata", () => {
     const milestone = {
       number: 200,

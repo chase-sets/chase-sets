@@ -35,6 +35,41 @@ const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
 // #8449 delta: the five baseline Channels keyring Apply-step grants with only `secretName` changed.
 const reviewedCatalogDelta = [
+  {
+    file: ".github/workflows/platform-ephemeral-verification.yml",
+    jobId: "verify-release",
+    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-merge-gate-verification.yml",
+    jobId: "verify",
+    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-pr.yml",
+    jobId: "preview-deploy-smoke",
+    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-production",
+    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#31",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
   // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
   {
     file: ".github/workflows/catalog-completion-report.yml",
@@ -139,6 +174,51 @@ const catalogCountPreparationDelta = [
     file: ".github/workflows/catalog-staging-count-preparation.yml",
     jobId: "prepare-counts",
     stepAnchor: "name:Validate count preparation receipt#4",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+];
+// #9587 threads the canonical staging Admin keys into only the isolated count lifecycle run and receipt-validation steps.
+const catalogCountLifecycleDelta = [
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Capture count lifecycle without confirmation#4",
+    secretName: "PLATFORM_ADMIN_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "CATALOG_ADMIN_E2E_PASSWORD",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
+    secretName: "PLATFORM_ADMIN_EMAIL",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/catalog-staging-provider-uat.yml",
+    jobId: "scope-sync-count-lifecycle",
+    stepAnchor: "name:Validate exact runner-scanned receipt#5",
     secretName: "PLATFORM_ADMIN_PASSWORD",
     purpose: "application-runtime",
   },
@@ -431,9 +511,12 @@ describe("managed Postgres authority source generator", () => {
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
         ...catalogCountPreparationDelta,
+        ...catalogCountLifecycleDelta,
       ],
     };
-    expect(expected.grants).toHaveLength(1612);
+    expect(expected.grants).toHaveLength(1618);
+    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
+    expect(generated.grants.filter(isCatalogKeyring)).toEqual([]);
     expectParity(expected, generated);
     expectParity(expected, canonical);
     expect(canonical).toEqual(generated);

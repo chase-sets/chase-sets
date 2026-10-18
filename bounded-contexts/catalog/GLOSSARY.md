@@ -49,6 +49,8 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Product Content Line`
 - `Product Content Type`
 - `Product Content Inclusion Policy`
+- `TCGplayer Market Observation Request`
+- `TCGplayer Market Observation Batch`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 

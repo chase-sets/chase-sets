@@ -2,12 +2,13 @@
 // Minimal path-based reverse proxy standing in for the Kubernetes ingress
 // (infrastructure/helm/platform templates) in the CI compose boot+smoke job.
 // Real preview/staging/production ingress routes each domain's
-// `/.well-known`, `/ucp`, `/mcp`, and `/api...` paths straight to the
-// platform-api Service and everything else to that domain's web service; a
-// browser (or platform-smoke.mjs) never reaches the web app process for API
-// paths. Compose has no ingress layer, so this process fills that gap for
-// exactly one domain per invocation, using the SAME prefix list the Helm
-// chart renders (`platformApiIngressPrefixes`) so the two can never drift.
+// `/.well-known`, `/ucp`, `/mcp`, `/channel-connector`, and `/api...` paths
+// straight to the platform-api Service and everything else to that domain's
+// web service; a browser (or platform-smoke.mjs) never reaches the web app
+// process for API paths. Compose has no ingress layer, so this process fills
+// that gap for exactly one domain per invocation, using the SAME prefix list
+// the Helm chart renders (`platformApiIngressPrefixes`) so the two can never
+// drift.
 import { createServer } from "node:http";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
