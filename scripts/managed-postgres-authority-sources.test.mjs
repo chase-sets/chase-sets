@@ -239,14 +239,14 @@ const ebayAccountDeletionDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
     purpose: "application-runtime",
   },
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
     purpose: "application-runtime",
   },
