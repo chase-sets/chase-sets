@@ -173,6 +173,7 @@ function catalogItemPickerReducer(
         : text.length >= CATALOG_ITEM_SUGGESTION_MIN_LENGTH
           ? { kind: "suggestions", query: text }
           : null;
+      // An edit also drops the row's saved Options, so only the initial restore reuses them.
       return {
         ...state,
         query: action.text,
@@ -183,6 +184,7 @@ function catalogItemPickerReducer(
         choice: null,
         catalogItem: null,
         selectedOptions: {},
+        rowSelectedOptions: {},
         lookup,
       };
     }
