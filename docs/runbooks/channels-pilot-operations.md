@@ -56,8 +56,8 @@ connection ids, and state names are not seller-identifying and may be logged.
 
 ### Seller Connector Build And Load
 
-Register one public client per environment from an authenticated operator
-session. The request is an ordinary `POST` to the environment origin:
+Register one public client per environment. The request is an ordinary `POST`
+to the environment origin (the register mount does not require a seller actor):
 
 ```http
 POST <origin>/channel-connector/oauth/register
@@ -67,12 +67,26 @@ Content-Type: application/json
 ```
 
 Keep only the returned public `cc_client_<uuid>` identifier. Verify the
-registration before building: an unauthenticated `GET` to
-`<origin>/channel-connector/oauth/authorize` with the registered client and
-the pinned redirect returns `302` with
-`error_description=authorization_refused`; an unregistered client returns
-`400`. Record the client id and the two status observations in the executing
-issue, never in a trace or connector receipt.
+registration before building. The authorize route requires all six query
+parameters, including a 43-character base64url challenge and state; these
+literal PowerShell probes must not follow the callback redirect:
+
+```powershell
+$origin = 'https://marketplace.staging.chasesets.com'
+$redirect = 'https://ebnhngdhefamkdjajldafonajgkadfhh.chromiumapp.org/ucp/oauth/callback'
+$challenge = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+$state = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+$registered = '<client-id>'
+$unregistered = 'cc_client_00000000-0000-4000-8000-000000000000'
+$authorize = "$origin/channel-connector/oauth/authorize?response_type=code&client_id={0}&redirect_uri={1}&code_challenge=$challenge&code_challenge_method=S256&state=$state"
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $registered)).StatusCode
+# Expected: 302, with Location containing error_description=authorization_refused.
+(Invoke-WebRequest -MaximumRedirection 0 -SkipHttpErrorCheck -Uri ($authorize -f $unregistered)).StatusCode
+# Expected: 400.
+```
+
+Record the client id and the two status observations in the executing issue,
+never in a trace or connector receipt.
 
 Build a reproducible handoff from a clean worktree. Replace `<client-id>` with
 the registered public identifier:
@@ -84,8 +98,9 @@ pnpm --filter @chase-sets/app-tcgplayer-connector-extension run build:handoff --
 Inspect `artifacts/connector-extension/handoff.json`. It binds the source
 commit, target origin, public client id, pinned extension id, version, and
 every emitted-file digest, and records that both builds were identical. Load
-the emitted unpacked directory in Chromium (`chrome://extensions` → **Load
-unpacked**), then reload the extension after a rebuild. Remove the unpacked
+the retained unpacked directory at
+`artifacts/connector-extension/<target>/` in Chromium (`chrome://extensions` →
+**Load unpacked**), then reload that directory after a rebuild. Remove the unpacked
 extension when the session ends. This procedure never contacts TCGplayer; only
 the extension's separately governed browser flow can do so.
 

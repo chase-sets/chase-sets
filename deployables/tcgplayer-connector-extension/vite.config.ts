@@ -11,7 +11,7 @@ import {
 } from "./__tests__/harness/origins";
 
 const clientIdPattern = /^cc_client_[0-9a-f-]{36}$/;
-const localOriginPattern = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+const localOriginPattern = /^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/;
 export const connectorTargets = {
   staging: linkIntentOrigins["marketplace-web"].staging,
   production: linkIntentOrigins["marketplace-web"].production,
@@ -45,21 +45,29 @@ function deployedPlatformOrigin(target: "staging" | "production") {
   return expected;
 }
 
-export const manifestInput = {
-  platformOrigin: localPlatformOrigin(),
-  hostRegistry: connectorHostRegistry,
-  permissionRegistry: ["identity", "storage", "alarms"],
-};
+export function connectorManifestInput(mode: ConnectorBuildMode = "connector-local") {
+  const harness = mode === "harness";
+  const target = mode === "connector-staging" ? "staging" : mode === "connector-production" ? "production" : null;
+  if (!harness && !["connector-local", "connector-staging", "connector-production"].includes(mode))
+    throw new Error("connector-build-mode-refused");
+  return harness
+    ? {
+        platformOrigin: harnessPlatform,
+        hostRegistry: harnessHosts,
+        permissionRegistry: ["identity", "storage", "alarms"],
+      }
+    : {
+        platformOrigin: target ? deployedPlatformOrigin(target) : localPlatformOrigin(),
+        hostRegistry: connectorHostRegistry,
+        permissionRegistry: ["identity", "storage", "alarms"],
+      };
+}
 
 export function connectorViteConfig(mode: ConnectorBuildMode = "connector-local"): UserConfig {
   const harness = mode === "harness";
   if (!harness && !["connector-local", "connector-staging", "connector-production"].includes(mode))
     throw new Error("connector-build-mode-refused");
-  const target = mode === "connector-staging" ? "staging" : mode === "connector-production" ? "production" : null;
-  const platformOrigin = harness ? harnessPlatform : target ? deployedPlatformOrigin(target) : localPlatformOrigin();
-  const input = harness
-    ? { ...manifestInput, platformOrigin: harnessPlatform, hostRegistry: harnessHosts }
-    : { ...manifestInput, platformOrigin };
+  const input = connectorManifestInput(mode);
   if (harness) {
     assertHarnessOrigins(process.env.VITE_PLATFORM_API_URL ?? harnessPlatform, input.hostRegistry);
     if (
@@ -87,6 +95,7 @@ export function connectorViteConfig(mode: ConnectorBuildMode = "connector-local"
     define: {
       "import.meta.env.VITE_PLATFORM_API_URL": JSON.stringify(input.platformOrigin),
       "import.meta.env.VITE_CONNECTOR_CLIENT_ID": JSON.stringify(configuredClientId()),
+      "import.meta.env.VITE_CONNECTOR_DRILL": JSON.stringify(process.env.VITE_CONNECTOR_DRILL ?? "false"),
       ...(harness
         ? {
             "import.meta.env.VITE_HARNESS_EXECUTOR_UNIT": JSON.stringify(

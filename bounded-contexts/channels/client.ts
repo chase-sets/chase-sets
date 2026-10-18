@@ -7,6 +7,7 @@ export {
   TCGPLAYER_CONNECTOR_EXTENSION_KEY,
   TCGPLAYER_CONNECTOR_REDIRECT_URI,
 } from "./features/connector-client/domain/identity";
+export { deriveChromeExtensionId } from "./features/connector-client/domain/derive-chrome-extension-id";
 export {
   composeTcgplayerOrderInbound,
   assertTcgplayerOrderRecord,

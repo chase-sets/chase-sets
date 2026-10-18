@@ -16,9 +16,11 @@ export async function loopbackPlatform(
   options: {
     port?: number;
     requirePairingCode?: boolean;
+    clientId?: string;
     handle?: (request: IncomingMessage, reply: ServerResponse) => Promise<boolean>;
   } = {},
 ) {
+  const clientId = options.clientId ?? synthetic.clientId;
   let response: "success" | "hold" | (typeof closedErrors)[number] = "success";
   let authorizeCount = 0;
   let tokenCount = 0;
@@ -68,7 +70,7 @@ export async function loopbackPlatform(
         [...query.keys()].length === keys.length &&
         keys.every((key) => query.getAll(key).length === 1) &&
         query.get("response_type") === "code" &&
-        query.get("client_id") === synthetic.clientId &&
+        query.get("client_id") === clientId &&
         query.get("redirect_uri") === TCGPLAYER_CONNECTOR_REDIRECT_URI &&
         query.get("code_challenge_method") === "S256" &&
         /^[A-Za-z0-9_-]{43}$/.test(query.get("code_challenge") ?? "") &&
@@ -113,7 +115,7 @@ export async function loopbackPlatform(
         Object.keys(body).sort().join() ===
           ["grant_type", "client_id", "redirect_uri", "code", "code_verifier"].sort().join() &&
         body.grant_type === "authorization_code" &&
-        body.client_id === synthetic.clientId &&
+        body.client_id === clientId &&
         body.redirect_uri === TCGPLAYER_CONNECTOR_REDIRECT_URI &&
         body.code === synthetic.code &&
         typeof verifier === "string" &&
@@ -135,6 +137,14 @@ export async function loopbackPlatform(
             : { error: "invalid-request" },
         ),
       );
+      return;
+    }
+    if (url.pathname === "/channel-connector/oauth/revoke") {
+      if (request.method !== "POST") {
+        reply.writeHead(400).end();
+        return;
+      }
+      reply.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ revoked: true }));
       return;
     }
     if (url.pathname.startsWith("/account/channels")) {

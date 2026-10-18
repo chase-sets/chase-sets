@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { BrowserContext, Page, Worker } from "@playwright/test";
 import { TCGPLAYER_CONNECTOR_EXTENSION_ID, TCGPLAYER_CONNECTOR_REDIRECT_URI } from "@chase-sets/channels/client";
@@ -7,7 +5,7 @@ import { fixtureWorker } from "../__tests__/support/browser-observation";
 import { launchInstallation } from "./extension-installation";
 
 const providerEnvironment = /^(?:TCGPLAYER_|PROVIDER.*(?:SESSION|CREDENTIAL)|CONNECTOR.*CONFIG_ROOT)/i;
-const secretMarker = /(code|token|pkce|cookie|session|magic[-_ ]?link)/i;
+export const pairingDrillForbiddenMarkers = ["code=", "token=", "pkce", "cookie=", "session=", "magic-link"] as const;
 
 export type PairingDrillReceipt = {
   artifactDigest: string;
@@ -29,6 +27,8 @@ export type PairingDrillInput = {
   artifactDigest: string;
   signIn: (page: Page, platformOrigin: string) => Promise<void>;
   preparePairing: (platformOrigin: string) => Promise<void>;
+  revoke: (worker: Worker) => Promise<void>;
+  tracePath?: string;
   launch?: typeof launchInstallation;
 };
 
@@ -42,10 +42,10 @@ function suffix(value: string) {
 }
 
 function safePath(url: URL) {
-  return `${url.pathname}${url.search ? "?" + url.search : ""}`.replace(
-    /[?&](?:code|token|state|client_id)=[^&]*/gi,
-    "",
-  );
+  return url.pathname
+    .split("/")
+    .map((segment) => (segment.startsWith("connection_") ? segment.slice(-4) : segment))
+    .join("/");
 }
 
 async function clickAction(context: BrowserContext, page: Page) {
@@ -72,7 +72,7 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
   const states: PairingDrillReceipt["states"] = [];
   const recordState = async (worker: Worker) => {
     const value = await worker.evaluate(async () => ({
-      state: (await chrome.runtime.sendMessage({ type: "status" }).catch(() => null))?.status?.state ?? "unknown",
+      state: await chrome.action.getTitle({}),
       badge: await chrome.action.getBadgeText({}),
       title: await chrome.action.getTitle({}),
     }));
@@ -89,7 +89,7 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
         path: safePath(url),
         status: response.status(),
         at: new Date().toISOString(),
-        reservation: "none",
+        reservation: url.pathname.endsWith("/claim") && response.ok() ? "present" : "none",
       });
       await route.fulfill({ response });
       return;
@@ -111,8 +111,12 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     const worker = await fixtureWorker(context, "/background.js");
     await recordState(worker);
     await worker.evaluate(() => fetch("https://connector-drill-canary.invalid/").catch(() => null));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (aborted.get("https://connector-drill-canary.invalid|worker")?.count !== 1)
+      throw new Error("connector-drill-canary-unobserved");
     const preparedAt = new Date().toISOString();
     await input.preparePairing(input.platformOrigin);
+    const clickedAt = new Date().toISOString();
     await clickAction(context, page);
     const pairedAt = Date.now() + 30_000;
     while (Date.now() < pairedAt) {
@@ -120,13 +124,10 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (!states.some((row) => row.state === "paired-idle")) throw new Error("connector-drill-pairing-timeout");
-    const clickedAt = new Date().toISOString();
     await clickAction(context, page);
     await new Promise((resolve) => setTimeout(resolve, 200));
     await recordState(worker);
-    await worker.evaluate(() => {
-      void chrome.runtime.sendMessage({ type: "unpair" });
-    });
+    await input.revoke(worker);
     const revokedAt = Date.now() + 30_000;
     while (Date.now() < revokedAt) {
       const state = await recordState(worker);
@@ -152,15 +153,8 @@ export async function runPairingDrill(input: PairingDrillInput): Promise<Pairing
     };
   } finally {
     await context.tracing
-      .stop({ path: resolve("artifacts/connector-extension/pairing-drill-trace.zip") })
+      .stop({ path: input.tracePath ?? resolve("artifacts/connector-extension/pairing-drill-trace.zip") })
       .catch(() => {});
     await context.close();
   }
-}
-
-export function scanRetainedPairingArtifacts(path: string) {
-  if (!existsSync(path)) throw new Error("connector-drill-artifacts-missing");
-  const bytes = readFileSync(path);
-  if (secretMarker.test(bytes.toString("utf8"))) throw new Error("connector-drill-secret-retained");
-  return { sha256: createHash("sha256").update(bytes).digest("hex"), clean: true };
 }

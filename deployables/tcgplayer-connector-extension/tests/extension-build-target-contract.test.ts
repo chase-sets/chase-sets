@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildConnectorManifest } from "@chase-sets/channels";
 
 vi.hoisted(() => {
   vi.stubEnv("VITE_PLATFORM_API_URL", "");
@@ -6,7 +7,7 @@ vi.hoisted(() => {
   vi.stubEnv("VITE_CONNECTOR_CLIENT_ID", "");
 });
 
-import { connectorTargets, connectorViteConfig } from "../vite.config";
+import { connectorManifestInput, connectorTargets, connectorViteConfig } from "../vite.config";
 
 beforeEach(() => {
   vi.stubEnv("VITE_PLATFORM_API_URL", "");
@@ -29,6 +30,19 @@ describe("extension-build-target-contract", () => {
     expect(connectorViteConfig("connector-production").define?.["import.meta.env.VITE_CONNECTOR_CLIENT_ID"]).toBe(
       JSON.stringify(clientId),
     );
+    expect(buildConnectorManifest(connectorManifestInput("connector-staging")).host_permissions).toContain(
+      `${connectorTargets.staging}/*`,
+    );
+  });
+
+  it("accepts a deployed environment only when its explicit origin matches", () => {
+    vi.stubEnv("VITE_CONNECTOR_CLIENT_ID", clientId);
+    vi.stubEnv("VITE_PLATFORM_API_URL", connectorTargets.production);
+    expect(connectorViteConfig("connector-production").define?.["import.meta.env.VITE_PLATFORM_API_URL"]).toBe(
+      JSON.stringify(connectorTargets.production),
+    );
+    vi.stubEnv("VITE_PLATFORM_API_URL", connectorTargets.staging);
+    expect(() => connectorViteConfig("connector-production")).toThrow("connector-deployed-origin-refused");
   });
 
   it.each([
@@ -52,5 +66,24 @@ describe("extension-build-target-contract", () => {
     expect(() => connectorViteConfig("connector-production")).toThrow("connector-deployed-origin-refused");
     vi.stubEnv("VITE_PLATFORM_API_URL", "https://wrong.example/path");
     expect(() => connectorViteConfig("connector-local")).toThrow("connector-local-origin-refused");
+  });
+
+  it.each([
+    ["http://localhost:6182/path", "path"],
+    ["http://localhost:6182?query=1", "query"],
+    ["http://127.0.0.1:6182/*", "wildcard"],
+    ["https://localhost:6182", "https"],
+    ["http://localhost", "missing-port"],
+  ])("refuses one local origin mutant (%s)", (value) => {
+    vi.stubEnv("VITE_PLATFORM_API_URL", value);
+    expect(() => connectorViteConfig("connector-local")).toThrow("connector-local-origin-refused");
+  });
+
+  it("does not use PLATFORM_API_URL as a local fallback", () => {
+    vi.stubEnv("PLATFORM_API_URL", "http://localhost:9999");
+    vi.stubEnv("VITE_PLATFORM_API_URL", "");
+    expect(connectorViteConfig("connector-local").define?.["import.meta.env.VITE_PLATFORM_API_URL"]).toBe(
+      JSON.stringify("http://localhost:6182"),
+    );
   });
 });

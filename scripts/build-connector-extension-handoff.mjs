@@ -1,28 +1,22 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { build, loadConfigFromFile } from "vite";
+import { build } from "vite";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { operatorFileInventory } from "./prepare-operator-extension-evidence.mjs";
+import { TCGPLAYER_CONNECTOR_EXTENSION_ID } from "../bounded-contexts/channels/features/connector-client/domain/identity.ts";
+import { deriveChromeExtensionId } from "../bounded-contexts/channels/features/connector-client/domain/derive-chrome-extension-id.ts";
+import { linkIntentOrigins } from "../infrastructure/platform-runtime/link-intent-origins.generated.ts";
 
 const clientIdPattern = /^cc_client_[0-9a-f-]{36}$/;
 const targetPattern = /^(staging|production)$/;
 const connectorTargets = {
-  staging: "https://marketplace.staging.chasesets.com",
-  production: "https://marketplace.chasesets.com",
+  staging: linkIntentOrigins["marketplace-web"].staging,
+  production: linkIntentOrigins["marketplace-web"].production,
 };
-const TCGPLAYER_CONNECTOR_EXTENSION_ID = "ebnhngdhefamkdjajldafonajgkadfhh";
 const providerEnvironment = /^(?:TCGPLAYER_|PROVIDER.*(?:SESSION|CREDENTIAL)|CONNECTOR.*CONFIG_ROOT)/i;
-
-function deriveChromeExtensionId(publicKey) {
-  const digest = createHash("sha256").update(Buffer.from(publicKey, "base64")).digest().subarray(0, 16);
-  return [...digest]
-    .map((byte) => `${String.fromCharCode(97 + (byte >> 4))}${String.fromCharCode(97 + (byte & 15))}`)
-    .join("");
-}
 
 export function requireCleanWorktree(root) {
   const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], {
@@ -41,24 +35,17 @@ function same(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-async function buildOnce({ root, mode, outDir, env }) {
+export async function buildOnce({ root, mode, outDir, env }) {
   const previous = process.env.VITE_CONNECTOR_CLIENT_ID;
   process.env.VITE_CONNECTOR_CLIENT_ID = env.VITE_CONNECTOR_CLIENT_ID;
   try {
-    const loaded = await loadConfigFromFile(
-      { command: "build", mode },
-      resolve(root, "deployables/tcgplayer-connector-extension/vite.config.ts"),
-      root,
-      "silent",
-      undefined,
-      "runner",
-    );
-    if (!loaded) throw new Error("connector-handoff-config-missing");
     await build({
-      ...loaded.config,
       root: resolve(root, "deployables/tcgplayer-connector-extension"),
+      configFile: resolve(root, "deployables/tcgplayer-connector-extension/vite.config.ts"),
+      configLoader: "runner",
       mode,
-      build: { ...loaded.config.build, outDir, emptyOutDir: true },
+      logLevel: "warn",
+      build: { outDir, emptyOutDir: true },
     });
   } finally {
     if (previous === undefined) delete process.env.VITE_CONNECTOR_CLIENT_ID;
@@ -71,6 +58,7 @@ export async function buildConnectorExtensionHandoff({
   target,
   clientId,
   output = resolve(root, "artifacts/connector-extension/handoff.json"),
+  buildExtension = buildOnce,
 }) {
   if (!targetPattern.test(target)) throw new Error("connector-handoff-target-refused");
   if (!clientIdPattern.test(clientId)) throw new Error("connector-handoff-client-id-refused");
@@ -82,8 +70,8 @@ export async function buildConnectorExtensionHandoff({
   const second = join(temp, "second");
   try {
     const env = { VITE_CONNECTOR_CLIENT_ID: clientId };
-    await buildOnce({ root, mode: `connector-${target}`, outDir: first, env });
-    await buildOnce({ root, mode: `connector-${target}`, outDir: second, env });
+    await buildExtension({ root, mode: `connector-${target}`, outDir: first, env });
+    await buildExtension({ root, mode: `connector-${target}`, outDir: second, env });
     const firstFiles = operatorFileInventory(first);
     const secondFiles = operatorFileInventory(second);
     const firstManifest = JSON.parse(readFileSync(join(first, "manifest.json"), "utf8"));
@@ -92,6 +80,8 @@ export async function buildConnectorExtensionHandoff({
       throw new Error("connector-handoff-builds-differ");
     const extensionId = deriveChromeExtensionId(firstManifest.key);
     if (extensionId !== TCGPLAYER_CONNECTOR_EXTENSION_ID) throw new Error("connector-handoff-extension-id-refused");
+    if (!firstManifest.host_permissions?.includes(`${connectorTargets[target]}/*`))
+      throw new Error("connector-handoff-origin-mismatch");
     const handoff = {
       schemaVersion: 1,
       sourceCommit,
@@ -103,6 +93,10 @@ export async function buildConnectorExtensionHandoff({
       twoBuildsIdentical: true,
       files: firstFiles,
     };
+    const retained = resolve(root, "artifacts/connector-extension", target);
+    rmSync(retained, { recursive: true, force: true });
+    mkdirSync(retained, { recursive: true });
+    cpSync(first, retained, { recursive: true });
     mkdirSync(resolve(output, ".."), { recursive: true });
     writeFileSync(output, `${JSON.stringify(handoff, null, 2)}\n`);
     return handoff;
