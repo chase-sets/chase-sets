@@ -61,6 +61,7 @@ import {
   redactDeployDiagnosticText,
 } from "./platform-deploy-incident.mjs";
 import { assertExclusiveMarkerWriter } from "./production-release-marker.mjs";
+import { previewPostgresDemand } from "./lib/browser-e2e-postgres-demand.mjs";
 
 const sampleValues = {
   components: {
@@ -5934,5 +5935,198 @@ describe("admission webhook root cause", () => {
       ],
     });
     expect(rootCause.rootCauseCode).toBe("unknown");
+  });
+});
+
+describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
+  const nativeHelm = spawnSync("helm", ["version", "--short"], { encoding: "utf8" }).status === 0;
+  // Script CI has Docker but not a native Helm binary; use the chart job's pinned image.
+  const helmTemplate = (args) =>
+    execFileSync(
+      nativeHelm ? "helm" : "docker",
+      nativeHelm ? args : ["run", "--rm", "-v", `${process.cwd()}:/repo`, "-w", "/repo", "alpine/helm:3.15.4", ...args],
+      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
+    );
+  // The exact deploy argv, rendered instead of installed.
+  const templateArgs = (upgradeArgs) => {
+    expect(upgradeArgs.slice(0, 2)).toEqual(["upgrade", "--install"]);
+    const rest = upgradeArgs.slice(4);
+    const timeoutIndex = rest.indexOf("--timeout");
+    return [
+      "template",
+      upgradeArgs[2],
+      upgradeArgs[3],
+      ...rest.filter(
+        (arg, index) =>
+          !["--create-namespace", "--wait", "--atomic", "--timeout"].includes(arg) && index !== timeoutIndex + 1,
+      ),
+    ];
+  };
+  const deployArgs = (environment, namespace) =>
+    buildHelmUpgradeArgs({
+      release: namespace,
+      namespace,
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      envOverrides: {
+        DEPLOYMENT_ENVIRONMENT: environment,
+        ...(environment === "preview" ? { PREVIEW_IDENTIFIER: "pr-123" } : {}),
+      },
+      env: { DOKS_INGRESS_TARGET: "203.0.113.10", PRODUCTION_DOKS_INGRESS_TARGET: "203.0.113.20" },
+    });
+  const documents = (output) =>
+    output
+      .split(/^---\s*$/m)
+      .map((part) => parseYaml(part))
+      .filter(Boolean);
+
+  it("renders the demand-derived max_connections into every preview release", () => {
+    const { demand, settings } = previewPostgresDemand();
+    const reservations = settings.superuser_reserved_connections + settings.reserved_connections;
+    expect(settings.max_connections).toBe(50 * Math.ceil((demand + reservations + 8) / 50));
+    // PR, merge-gate and ephemeral-verification previews share buildHelmUpgradeArgs.
+    for (const namespace of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
+      const postgres = documents(helmTemplate(templateArgs(deployArgs("preview", namespace)))).find(
+        (item) =>
+          item.kind === "Deployment" && item.metadata.labels["app.kubernetes.io/component"] === "preview-postgres",
+      );
+      expect(postgres.spec.template.spec.containers[0].args).toEqual([
+        "-c",
+        `max_connections=${settings.max_connections}`,
+        "-c",
+        `reserved_connections=${settings.reserved_connections}`,
+        "-c",
+        `superuser_reserved_connections=${settings.superuser_reserved_connections}`,
+      ]);
+    }
+  });
+
+  it("refuses a preview render without max_connections", () => {
+    expect(() =>
+      helmTemplate([
+        ...templateArgs(deployArgs("preview", "chase-sets-pr-123")),
+        "--set",
+        "previewPostgres.settings=null",
+      ]),
+    ).toThrow(/previewPostgres\.settings\.max_connections is required/);
+  });
+
+  it("keeps staging and production renders independent of the preview connection settings", () => {
+    for (const environment of ["staging", "production"]) {
+      const args = templateArgs(deployArgs(environment, "chase-sets-platform"));
+      const rendered = helmTemplate(args);
+      expect(rendered).not.toContain("preview-postgres");
+      expect(rendered).not.toContain("max_connections");
+      expect(helmTemplate([...args, "--set", "previewPostgres.settings=null"])).toBe(rendered);
+    }
+  });
+
+  it("adds preview-postgres state, logs and the structural snapshot only to opted-in diagnostics", () => {
+    const options = { values: sampleValues, release: "chase-sets-pr-7", namespace: "chase-sets-pr-7", tailLines: 50 };
+    const base = buildDiagnosticsCommands(options);
+    const withPreview = buildDiagnosticsCommands({ ...options, previewPostgres: true });
+    const selector = "app.kubernetes.io/instance=chase-sets-pr-7,app.kubernetes.io/component=preview-postgres";
+    const deployment = "chase-sets-pr-7-chase-sets-platform-preview-postgres";
+
+    expect(JSON.stringify(base)).not.toContain("preview-postgres");
+    expect(withPreview.slice(0, base.length)).toEqual(base);
+    expect(withPreview.slice(base.length)).toEqual([
+      ["kubectl", ["get", "deployment", deployment, "--namespace", "chase-sets-pr-7", "--output", "wide"]],
+      ["kubectl", ["describe", "deployment", deployment, "--namespace", "chase-sets-pr-7"]],
+      ["kubectl", ["get", "pods", "--namespace", "chase-sets-pr-7", "--selector", selector, "--output", "wide"]],
+      ["kubectl", ["describe", "pods", "--namespace", "chase-sets-pr-7", "--selector", selector]],
+      [
+        "kubectl",
+        ["logs", "--namespace", "chase-sets-pr-7", "--selector", selector, "--all-containers", "--tail", "50"],
+      ],
+      [
+        "kubectl",
+        [
+          "logs",
+          "--namespace",
+          "chase-sets-pr-7",
+          "--selector",
+          selector,
+          "--all-containers",
+          "--previous",
+          "--tail",
+          "50",
+        ],
+      ],
+      ...platformKubernetesDeployment.buildPreviewPostgresConnectionSnapshotCommands(options),
+    ]);
+  });
+
+  it("snapshots only the connection ceiling, reservations and grouped held-connection counts", () => {
+    const [[command, args], ...rest] = platformKubernetesDeployment.buildPreviewPostgresConnectionSnapshotCommands({
+      release: "chase-sets-pr-7",
+      namespace: "chase-sets-pr-7",
+    });
+    expect(rest).toEqual([]);
+    expect(command).toBe("kubectl");
+    expect(args.slice(0, args.indexOf("--command"))).toEqual([
+      "exec",
+      "--namespace",
+      "chase-sets-pr-7",
+      "deployment/chase-sets-pr-7-chase-sets-platform-preview-postgres",
+      "--container",
+      "postgres",
+      "--",
+      "psql",
+      "--no-psqlrc",
+      "--username",
+      "postgres",
+      "--dbname",
+      "postgres",
+      "--set",
+      "ON_ERROR_STOP=1",
+      "--pset",
+      "pager=off",
+    ]);
+    const statements = args.filter((_, index) => args[index - 1] === "--command");
+    expect(statements).toEqual(platformKubernetesDeployment.previewPostgresConnectionSnapshotStatements);
+    expect(statements.slice(0, 3)).toEqual([
+      "SHOW max_connections",
+      "SHOW superuser_reserved_connections",
+      "SHOW reserved_connections",
+    ]);
+    expect(statements[3]).toMatch(/GROUP BY datname, usename, state/);
+    const sql = statements.join("\n").toLowerCase();
+    for (const forbidden of ["query", "client_addr", "client_hostname", "client_port", "application_name"]) {
+      expect(sql).not.toContain(forbidden);
+    }
+    expect(sql).not.toMatch(/select\s+\*/);
+  });
+
+  it("runs the snapshot once and reports a failed probe through its exit code", async () => {
+    expect(parseArgs(["diagnostics", "--preview-postgres", "true"], {}).previewPostgres).toBe(true);
+    expect(parseArgs(["diagnostics"], {}).previewPostgres).toBeUndefined();
+    const argv = ["preview-postgres-snapshot", "--namespace", "chase-sets-pr-7", "--release", "chase-sets-pr-7"];
+    for (const [code, expected] of [
+      [0, 0],
+      [2, 1],
+    ]) {
+      const calls = [];
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(
+          platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+            argv,
+            {},
+            {
+              spawn: completedSpawn(calls, [{ code }]),
+            },
+          ),
+        ).resolves.toBe(expected);
+      } finally {
+        error.mockRestore();
+      }
+      expect(calls.map((call) => [call.command, call.args])).toEqual(
+        platformKubernetesDeployment.buildPreviewPostgresConnectionSnapshotCommands({
+          release: "chase-sets-pr-7",
+          namespace: "chase-sets-pr-7",
+        }),
+      );
+    }
   });
 });

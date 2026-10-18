@@ -1511,6 +1511,7 @@ jobs:
           node ./scripts/platform-kubernetes-secret.mjs --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"
 
       - name: Deploy preview Kubernetes release
+        id: preview_deploy
         env:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
         run: |
@@ -1650,6 +1651,34 @@ jobs:
           PLATFORM_API_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
           PLATFORM_AUTH_BASE_URL: https://${{ steps.preview_domains.outputs.marketplace_domain }}
         run: pnpm run stripe:money-smoke -- --edge-check --seller-flow
+
+      # #10022: a structural preview Postgres snapshot just after the smokes
+      # (connection ceiling and reservations, then held client connections by
+      # database, role and state; never query text or client addresses). A
+      # failed probe is reported, not retried, and never fails the job itself.
+      - name: Snapshot preview Postgres connections
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          pnpm run platform:kubernetes-deployment -- preview-postgres-snapshot \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" ||
+            echo "::warning::Preview Postgres connection snapshot failed; this run records no held-connection count."
+
+      # Server-side evidence for a failure after a successful deploy (deploy
+      # failures keep the diagnostics step above): workload state, events and
+      # log tails, plus preview-postgres and its snapshot. Never masks the
+      # original failure.
+      - name: Capture preview server diagnostics
+        if: failure() && steps.preview_deploy.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          pnpm run platform:kubernetes-deployment -- diagnostics \
+            --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
+            --release "$CHASE_SETS_HELM_RELEASE" \
+            --preview-postgres true || true
 
   compose-preview-smoke:
     name: Compose Boot Smoke
