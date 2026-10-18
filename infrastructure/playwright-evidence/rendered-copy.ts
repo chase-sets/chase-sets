@@ -938,6 +938,19 @@ function checkIdentity(value: JsonObject, where: string, violations: string[]) {
   }
 }
 
+// A batch declares tests in deployable specs and in bounded-context browser
+// suites alike, so a predecessor is any repo-relative POSIX TypeScript path;
+// its blob, not its location, binds the bytes that ran.
+function isRepoRelativeTypeScriptPath(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value.endsWith(".ts") &&
+    value
+      .split("/")
+      .every((segment) => segment !== "" && segment !== "." && segment !== ".." && !segment.includes("\\"))
+  );
+}
+
 function checkListing(value: unknown, where: string, violations: string[]): RenderedCopyListingGroup[] {
   if (!Array.isArray(value) || value.length > 2_000) {
     violations.push(`${where}: must be an ordered list of at most 2000 spec groups`);
@@ -945,8 +958,7 @@ function checkListing(value: unknown, where: string, violations: string[]): Rend
   }
   value.forEach((group, index) => {
     if (!closedKeys(group, `${where}[${index}]`, ["path", "blob", "tests"], violations)) return;
-    if (!/^deployables\/[a-z-]+\/e2e\/.+\.spec\.ts$/.test(String(group.path)))
-      violations.push(`${where}[${index}].path: invalid`);
+    if (!isRepoRelativeTypeScriptPath(group.path)) violations.push(`${where}[${index}].path: invalid`);
     if (!shaPattern.test(String(group.blob))) violations.push(`${where}[${index}].blob: missing predecessor blob`);
     if (!boundedInt(group.tests, 1, 5_000)) violations.push(`${where}[${index}].tests: invalid`);
   });
