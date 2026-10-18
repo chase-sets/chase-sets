@@ -750,6 +750,9 @@
       "@chase-sets/platform-runtime/evidence-window-provider-write-executor": [
         "./infrastructure/platform-runtime/evidence-window-provider-write-executor.ts"
       ],
+      "@chase-sets/platform-runtime/feature-flags/contract": [
+        "./infrastructure/platform-runtime/feature-flags/contract.ts"
+      ],
       "@chase-sets/platform-runtime/health": [
         "./infrastructure/platform-runtime/health.ts"
       ],
