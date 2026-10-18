@@ -3031,6 +3031,52 @@ describe("DigitalOcean platform configuration", () => {
     expect(previewPostgresTemplate).toContain(".Values.global.tolerations");
   });
 
+  it("#10022: snapshots preview Postgres after the smokes and captures server diagnostics only after a successful deploy", () => {
+    const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
+    const stepIndex = (name) => {
+      const index = deployJob.indexOf(`- name: ${name}\n`);
+      expect(index).toBeGreaterThan(-1);
+      return index;
+    };
+    const deployStep = workflowStep(deployJob, "Deploy preview Kubernetes release");
+    const snapshotStep = workflowStep(deployJob, "Snapshot preview Postgres connections");
+    const diagnosticsStep = workflowStep(deployJob, "Capture preview server diagnostics");
+
+    expect(deployStep).toContain("id: preview_deploy\n");
+    expect(stepIndex("Smoke check")).toBeLessThan(stepIndex("Stripe money smoke"));
+    expect(stepIndex("Stripe money smoke")).toBeLessThan(stepIndex("Snapshot preview Postgres connections"));
+    expect(stepIndex("Snapshot preview Postgres connections")).toBeLessThan(
+      stepIndex("Capture preview server diagnostics"),
+    );
+    expect(deployJob.slice(stepIndex("Capture preview server diagnostics") + 1)).not.toContain("\n      - name:");
+
+    // AC4: always prints only the structural snapshot, and a failed probe never fails the job.
+    expect(snapshotStep).toContain("        if: always()\n");
+    expect(snapshotStep).toContain("        continue-on-error: true\n");
+    expect(snapshotStep).toContain("pnpm run platform:kubernetes-deployment -- preview-postgres-snapshot \\");
+    expect(snapshotStep).toContain('--namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+    expect(snapshotStep).toContain('--release "$CHASE_SETS_HELM_RELEASE"');
+    expect(snapshotStep).not.toContain("platform:kubernetes-deployment -- diagnostics");
+
+    // AC3: only after a successful deploy, never masking the original failure.
+    expect(diagnosticsStep).toContain("        if: failure() && steps.preview_deploy.outcome == 'success'\n");
+    expect(diagnosticsStep).toContain("        continue-on-error: true\n");
+    expect(diagnosticsStep).toContain("pnpm run platform:kubernetes-deployment -- diagnostics \\");
+    expect(diagnosticsStep).toContain("--preview-postgres true || true");
+    // Deploy failures keep the earlier diagnostics step, which runs before any smoke.
+    expect(workflowStep(deployJob, "Capture preview Kubernetes deploy diagnostics")).toContain(
+      "        if: failure()\n",
+    );
+    expect(stepIndex("Capture preview Kubernetes deploy diagnostics")).toBeLessThan(stepIndex("Smoke check"));
+
+    // The smoke's own timeouts and retries are unchanged.
+    const moneySmokeStep = workflowStep(deployJob, "Stripe money smoke");
+    expect(moneySmokeStep).toContain(
+      "SMOKE_INVITATION_PROJECTION_TIMEOUT_MS: ${{ vars.PREVIEW_STRIPE_MONEY_SMOKE_INVITATION_PROJECTION_TIMEOUT_MS || '300000' }}",
+    );
+    expect(moneySmokeStep).toContain("run: pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+  });
+
   it("#4857: previews never publish per-preview DNS or issue their own certificate", () => {
     const deployJob = workflowJob(platformPrWorkflow, "preview-deploy-smoke");
 
