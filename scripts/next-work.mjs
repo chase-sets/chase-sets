@@ -260,7 +260,7 @@ function retryAfterMs(response) {
 
 function createTransport({ fetchImplementation, token, sleep, now, pageIntervalMs }) {
   let lastStart = null;
-  const counters = { requests: 0, rateLimitWaits: 0 };
+  const counters = { requests: 0 };
 
   async function send(url, init) {
     for (let waits = 0; ; waits += 1) {
@@ -283,7 +283,6 @@ function createTransport({ fetchImplementation, token, sleep, now, pageIntervalM
         if (waits >= MAX_RATE_LIMIT_WAITS) {
           throw new NextWorkError("NEXT_WORK_RATE_LIMITED", `HTTP ${response.status} after ${waits} waits for ${url}`);
         }
-        counters.rateLimitWaits += 1;
         await sleep(retryAfterMs(response));
         continue;
       }

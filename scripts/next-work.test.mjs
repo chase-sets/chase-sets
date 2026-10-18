@@ -237,6 +237,12 @@ describe("next-work ranking", () => {
     });
     const excludedTotal = Object.values(document.excluded).reduce((sum, count) => sum + count, 0);
     expect(excludedTotal + Object.keys(actions).length).toBe(issues.length);
+
+    // An issue is never ranked or counted twice, or without its unlock count.
+    expect(() => rankNextWork(facts(milestones, [issue(14), issue(14)]))).toThrow("NEXT_WORK_FACTS_INCOMPLETE");
+    expect(() => rankNextWork(facts(milestones, [issue(14, { unlockCount: undefined })]))).toThrow(
+      "NEXT_WORK_FACTS_INCOMPLETE",
+    );
   });
 });
 
@@ -312,12 +318,12 @@ function rawIssue(number, overrides = {}) {
     blocking: connection([]),
     closedByPullRequestsReferences: connection([]),
     projectItems: connection([
+      { project: { number: 1, owner: { login: "someone-else" } }, dispatchRank: { number: 1 }, status: null },
       {
         project: { number: 1, owner: { login: "chase-sets" } },
         dispatchRank: { number: number * 10 },
         status: { name: "Refined" },
       },
-      { project: { number: 1, owner: { login: "someone-else" } }, dispatchRank: { number: 1 }, status: null },
     ]),
     ...overrides,
   };
@@ -370,9 +376,12 @@ const MILESTONES = [
   },
 ];
 
-function graphqlRouter(pagesByCursor, extra = () => undefined) {
+function graphqlRouter(pagesByCursor, extra = () => undefined, milestonePages = [MILESTONES]) {
   return (request) => {
-    if (request.method === "GET") return { json: MILESTONES };
+    if (request.method === "GET") {
+      const page = Number(new URL(request.url).searchParams.get("page"));
+      return { json: milestonePages[page - 1] ?? [] };
+    }
     const routed = extra(request);
     if (routed !== undefined) return routed;
     expect(request.body.query).toBe(ISSUES_QUERY);
@@ -482,29 +491,73 @@ describe("next-work collection", () => {
     expect((await collectNextWorkFacts(recovered.options)).issues).toHaveLength(2);
     expect(recovered.requests).toHaveLength(4);
 
+    // Open milestones are paged until a short REST page.
+    const filler = Array.from({ length: 100 }, (_, index) => ({
+      node_id: `MI_${1000 + index}`,
+      number: 1000 + index,
+      title: `Filler ${index}`,
+      description: null,
+      state: "open",
+    }));
+    const paged = scriptedGitHub(
+      graphqlRouter(() => ({ json: issuesPage([rawIssue(2)]) }), undefined, [filler, MILESTONES]),
+    );
+    expect((await collectNextWorkFacts(paged.options)).milestones).toHaveLength(101);
+    expect(paged.requests.filter(({ method }) => method === "GET")).toHaveLength(2);
+
     // Each incomplete shape fails closed after exactly one retry.
+    const overflowFrom =
+      (id) =>
+      ({ body }) =>
+        body.query === BLOCKED_BY_QUERY
+          ? { json: { data: { node: { id, blockedBy: connection([edge(602, "CLOSED")], { totalCount: 2 }) } } } }
+          : undefined;
     const incompleteShapes = {
-      "short page count": issuesPage([second], { totalCount: 2 }),
-      "closedByPullRequestsReferences overflow": issuesPage([
-        rawIssue(4, {
-          closedByPullRequestsReferences: connection(Array(10).fill({ number: 9, state: "OPEN" }), {
-            hasNextPage: true,
-            endCursor: "pr-10",
-            totalCount: 11,
+      "short page count": [issuesPage([second], { totalCount: 2 })],
+      "closedByPullRequestsReferences overflow": [
+        issuesPage([
+          rawIssue(4, {
+            closedByPullRequestsReferences: connection(Array(10).fill({ number: 9, state: "OPEN" }), {
+              hasNextPage: true,
+              endCursor: "pr-10",
+              totalCount: 11,
+            }),
           }),
-        }),
-      ]),
-      "projectItems overflow": issuesPage([
-        rawIssue(5, { projectItems: connection([], { hasNextPage: true, endCursor: "item-10", totalCount: 11 }) }),
-      ]),
-      "reducer join failure": issuesPage([rawIssue(6, { blocking: connection([edge(404)]) })]),
+        ]),
+      ],
+      "projectItems overflow": [
+        issuesPage([
+          rawIssue(5, { projectItems: connection([], { hasNextPage: true, endCursor: "item-10", totalCount: 11 }) }),
+        ]),
+      ],
+      "reducer join failure": [issuesPage([rawIssue(6, { blocking: connection([edge(404)]) })])],
+      "non-open root issue": [issuesPage([rawIssue(7, { state: "CLOSED" })])],
+      "overflow page for another issue": [
+        issuesPage([
+          rawIssue(8, {
+            blockedBy: connection([edge(601, "CLOSED")], { hasNextPage: true, endCursor: "b-8", totalCount: 2 }),
+          }),
+        ]),
+        overflowFrom("I_999"),
+        6,
+      ],
     };
-    for (const [shape, page] of Object.entries(incompleteShapes)) {
-      const failing = scriptedGitHub(graphqlRouter(() => ({ json: page })));
+    for (const [shape, [page, extra, requestCount = 4]] of Object.entries(incompleteShapes)) {
+      const failing = scriptedGitHub(graphqlRouter(() => ({ json: page }), extra));
       await expect(collectNextWorkFacts(failing.options), shape).rejects.toMatchObject({
         code: "NEXT_WORK_FACTS_INCOMPLETE",
       });
-      expect(failing.requests, shape).toHaveLength(4);
+      expect(failing.requests, shape).toHaveLength(requestCount);
+    }
+
+    // Provider errors fail closed at once, without a whole-pass retry.
+    for (const response of [
+      { json: { errors: [{ message: "denied" }], data: { repository: null } } },
+      { status: 502 },
+    ]) {
+      const failing = scriptedGitHub(graphqlRouter(() => response));
+      await expect(collectNextWorkFacts(failing.options)).rejects.toMatchObject({ code: "NEXT_WORK_REQUEST_FAILED" });
+      expect(failing.requests).toHaveLength(2);
     }
 
     // Rate limiting waits at most three times (default 60 s) for one page.
