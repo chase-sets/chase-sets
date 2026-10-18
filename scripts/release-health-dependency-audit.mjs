@@ -6,9 +6,9 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { writeJsonRecord } from "./lib/output-file.mjs";
+import { buildPackageManagerInvocation } from "./lib/process.mjs";
 
 export const DEPENDENCY_AUDIT_SCHEMA_VERSION = "dependency-audit/v1";
-export const AUDIT_COMMAND = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 export const AUDIT_ARGS = Object.freeze(["audit", "--json"]);
 
 const SEVERITY_ORDER = Object.freeze({ critical: 0, high: 1, moderate: 2, low: 3, info: 4, unknown: 5 });
@@ -28,13 +28,11 @@ export function normalizeAuditAdvisories(payload) {
     throw new Error("audit payload must be an object.");
   }
   const rawAdvisories = payload.advisories;
-  if (!(Array.isArray(rawAdvisories) || (rawAdvisories && typeof rawAdvisories === "object"))) {
-    throw new Error("audit payload advisories must be an object or array.");
+  if (!rawAdvisories || typeof rawAdvisories !== "object" || Array.isArray(rawAdvisories)) {
+    throw new Error("audit payload advisories must be an object.");
   }
 
-  const entries = Array.isArray(rawAdvisories)
-    ? rawAdvisories.map((advisory, index) => [String(index), advisory])
-    : Object.entries(rawAdvisories);
+  const entries = Object.entries(rawAdvisories);
   return entries.map(([key, advisory]) => {
     if (!advisory || typeof advisory !== "object" || Array.isArray(advisory)) {
       throw new Error(`audit advisory ${key} must be an object.`);
@@ -57,10 +55,10 @@ export function normalizeAuditAdvisories(payload) {
     });
     const severity = normalizeSeverity(advisory.severity);
     return {
-      module: stringOrUnknown(advisory.module_name ?? advisory.module ?? key),
+      module: stringOrUnknown(advisory.module_name),
       severity,
-      ghsa: stringOrUnknown(advisory.github_advisory_id ?? advisory.ghsa ?? "unknown"),
-      patchedRange: stringOrUnknown(advisory.patched_versions ?? advisory.patchedRange ?? "unknown"),
+      ghsa: stringOrUnknown(advisory.github_advisory_id),
+      patchedRange: stringOrUnknown(advisory.patched_versions),
       findings: normalizedFindings,
     };
   });
@@ -111,7 +109,7 @@ export function classifyDependencyAudit({ exitCode, stdout = "", stderr = "", ch
   return {
     schemaVersion: DEPENDENCY_AUDIT_SCHEMA_VERSION,
     checkedAt,
-    command: [AUDIT_COMMAND, ...AUDIT_ARGS].join(" "),
+    command: "pnpm audit --json",
     exitCode: Number.isInteger(exitCode) ? exitCode : null,
     result,
     alertStatus: result,
@@ -160,8 +158,11 @@ export function renderDependencyAuditMarkdown(record) {
   return `${lines.join("\n")}\n`;
 }
 
-export function runPnpmAudit({ spawnImpl = spawnSync } = {}) {
-  const result = spawnImpl(AUDIT_COMMAND, AUDIT_ARGS, {
+export function runPnpmAudit({
+  spawnImpl = spawnSync,
+  invocation = buildPackageManagerInvocation([...AUDIT_ARGS]),
+} = {}) {
+  const result = spawnImpl(invocation.command, invocation.args, {
     encoding: "utf8",
     windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
@@ -201,7 +202,7 @@ function buildWarningRecord({ checkedAt, exitCode, errorClass, errorMessage }) {
   return {
     schemaVersion: DEPENDENCY_AUDIT_SCHEMA_VERSION,
     checkedAt,
-    command: [AUDIT_COMMAND, ...AUDIT_ARGS].join(" "),
+    command: "pnpm audit --json",
     exitCode: Number.isInteger(exitCode) ? exitCode : null,
     result: "warning",
     alertStatus: "warning",
