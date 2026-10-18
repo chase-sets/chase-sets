@@ -3540,8 +3540,9 @@ async function signInThroughVisibleForm(
   const passwordChoice = page.getByRole("radio", { name: /^Password$/ }).first();
   const emailInput = page.getByRole("textbox", { name: /email|phone/i });
   // One combined wait per pass; separate timed waits would each spend their
-  // full timeout on every control the current step does not render.
-  const signInStep = importer.or(passwordInput).or(passwordChoice).or(emailInput).first();
+  // full timeout on every control the current step does not render. Hidden
+  // controls stay in the DOM between steps, so only visible ones count.
+  const signInStep = importer.or(passwordInput).or(passwordChoice).or(emailInput).filter({ visible: true }).first();
 
   const deadline = Date.now() + pageReadyTimeoutMs;
   while (Date.now() < deadline) {
