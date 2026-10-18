@@ -20,7 +20,9 @@ describe("UCP 2026-08-25 contract", () => {
     expect(files.length).toBeGreaterThanOrEqual(66);
     const ajv = new Ajv2020({ strict: false, validateFormats: false });
     for (const path of files) ajv.addSchema(JSON.parse(readFileSync(path, "utf8")), relative(rootPath, path));
-    const schema = ajv.getSchema("profile.json#/$defs/business_schema") ?? ajv.compile({ $ref: "profile.json#/$defs/business_schema" });
+    const schema =
+      ajv.getSchema("profile.json#/$defs/business_schema") ??
+      ajv.compile({ $ref: "profile.json#/$defs/business_schema" });
     const profile = buildUcpBusinessProfile("https://shop.example", {
       signingKeys: [{ kty: "EC", crv: "P-256", x: "x", y: "y", kid: "current" }],
     });

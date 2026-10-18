@@ -38,23 +38,17 @@
           "description": "Total number of matching items, if available."
         }
       },
-      "required": [
-        "has_next_page"
-      ],
+      "required": ["has_next_page"],
       "if": {
         "properties": {
           "has_next_page": {
             "const": true
           }
         },
-        "required": [
-          "has_next_page"
-        ]
+        "required": ["has_next_page"]
       },
       "then": {
-        "required": [
-          "cursor"
-        ]
+        "required": ["cursor"]
       }
     }
   }

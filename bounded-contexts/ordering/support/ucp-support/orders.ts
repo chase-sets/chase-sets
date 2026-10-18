@@ -206,4 +206,3 @@ function addressToUcp(address: OrderingOrderDetailRow["shipping_destination_snap
 function readString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
-

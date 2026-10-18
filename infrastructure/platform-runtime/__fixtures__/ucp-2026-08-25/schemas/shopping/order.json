@@ -9,9 +9,7 @@
       "title": "Platform Order Schema",
       "description": "Platform's order capability configuration.",
       "type": "object",
-      "required": [
-        "webhook_url"
-      ],
+      "required": ["webhook_url"],
       "properties": {
         "webhook_url": {
           "type": "string",
@@ -22,16 +20,7 @@
     }
   },
   "type": "object",
-  "required": [
-    "ucp",
-    "id",
-    "checkout_id",
-    "permalink_url",
-    "line_items",
-    "fulfillment",
-    "currency",
-    "totals"
-  ],
+  "required": ["ucp", "id", "checkout_id", "permalink_url", "line_items", "fulfillment", "currency", "totals"],
   "properties": {
     "ucp": {
       "$ref": "https://ucp.dev/2026-08-25/schemas/ucp.json#/$defs/response_order_schema"

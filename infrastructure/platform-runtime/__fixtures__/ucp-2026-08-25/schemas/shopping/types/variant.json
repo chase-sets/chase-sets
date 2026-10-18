@@ -4,12 +4,7 @@
   "title": "Variant",
   "description": "A purchasable variant of a product with specific option selections.",
   "type": "object",
-  "required": [
-    "id",
-    "title",
-    "description",
-    "price"
-  ],
+  "required": ["id", "title", "description", "price"],
   "properties": {
     "id": {
       "type": "string",
@@ -23,10 +18,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "type",
-          "value"
-        ],
+        "required": ["type", "value"],
         "properties": {
           "type": {
             "type": "string",

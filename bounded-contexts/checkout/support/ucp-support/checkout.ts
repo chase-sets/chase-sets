@@ -110,7 +110,10 @@ export function createCheckoutUcpHandlers(
     const fallbackUnitPrice = totals
       ? Math.round(
           moneyToMinorUnits(totals.itemSubtotalAmount) /
-            Math.max(1, session.lines.reduce((sum, line) => sum + line.quantity, 0)),
+            Math.max(
+              1,
+              session.lines.reduce((sum, line) => sum + line.quantity, 0),
+            ),
         )
       : 0;
     const linePrice = (line: (typeof session.lines)[number]) =>

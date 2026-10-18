@@ -4,10 +4,7 @@
   "title": "Price Range",
   "description": "A price range representing minimum and maximum values (e.g., a common example in retail shopping is when prices vary across product variants).",
   "type": "object",
-  "required": [
-    "min",
-    "max"
-  ],
+  "required": ["min", "max"],
   "properties": {
     "min": {
       "$ref": "https://ucp.dev/2026-08-25/schemas/common/types/price.json",

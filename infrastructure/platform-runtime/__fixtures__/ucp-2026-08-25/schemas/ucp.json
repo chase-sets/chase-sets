@@ -22,9 +22,7 @@
           "description": "Maximum compatible version (inclusive). When absent, no upper bound."
         }
       },
-      "required": [
-        "min"
-      ],
+      "required": ["min"],
       "additionalProperties": true
     },
     "requires": {
@@ -76,9 +74,7 @@
     "entity": {
       "type": "object",
       "description": "Shared foundation for all UCP entities.",
-      "required": [
-        "version"
-      ],
+      "required": ["version"],
       "properties": {
         "version": {
           "$ref": "#/$defs/version",
@@ -108,9 +104,7 @@
     "base": {
       "description": "Base UCP metadata with shared properties for all schema types.",
       "type": "object",
-      "required": [
-        "version"
-      ],
+      "required": ["version"],
       "properties": {
         "version": {
           "$ref": "#/$defs/version"
@@ -122,10 +116,7 @@
         },
         "status": {
           "type": "string",
-          "enum": [
-            "success",
-            "error"
-          ],
+          "enum": ["success", "error"],
           "default": "success",
           "description": "Application-level status of the UCP operation."
         },
@@ -182,9 +173,7 @@
               "const": "success"
             }
           },
-          "required": [
-            "status"
-          ]
+          "required": ["status"]
         }
       ]
     },
@@ -200,9 +189,7 @@
               "const": "error"
             }
           },
-          "required": [
-            "status"
-          ]
+          "required": ["status"]
         }
       ]
     },
@@ -214,10 +201,7 @@
           "$ref": "#/$defs/base"
         },
         {
-          "required": [
-            "services",
-            "payment_handlers"
-          ],
+          "required": ["services", "payment_handlers"],
           "properties": {
             "services": {
               "additionalProperties": {
@@ -252,10 +236,7 @@
           "$ref": "#/$defs/base"
         },
         {
-          "required": [
-            "services",
-            "payment_handlers"
-          ],
+          "required": ["services", "payment_handlers"],
           "properties": {
             "supported_versions": {
               "type": "object",
@@ -301,9 +282,7 @@
           "$ref": "#/$defs/base"
         },
         {
-          "required": [
-            "payment_handlers"
-          ],
+          "required": ["payment_handlers"],
           "properties": {
             "services": {
               "additionalProperties": {

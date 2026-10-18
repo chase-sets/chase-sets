@@ -39,10 +39,7 @@
           "$ref": "#/$defs/base"
         },
         {
-          "required": [
-            "spec",
-            "schema"
-          ]
+          "required": ["spec", "schema"]
         }
       ]
     },
@@ -54,9 +51,7 @@
           "$ref": "#/$defs/base"
         },
         {
-          "required": [
-            "schema"
-          ]
+          "required": ["schema"]
         }
       ]
     },

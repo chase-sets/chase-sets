@@ -16,10 +16,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": [
-                "display_text",
-                "amount"
-              ],
+              "required": ["display_text", "amount"],
               "properties": {
                 "display_text": {
                   "type": "string",
@@ -41,26 +38,14 @@
           "properties": {
             "type": {
               "not": {
-                "enum": [
-                  "subtotal",
-                  "items_discount",
-                  "discount",
-                  "fulfillment",
-                  "tax",
-                  "fee",
-                  "total"
-                ]
+                "enum": ["subtotal", "items_discount", "discount", "fulfillment", "tax", "fee", "total"]
               }
             }
           },
-          "required": [
-            "type"
-          ]
+          "required": ["type"]
         },
         "then": {
-          "required": [
-            "display_text"
-          ]
+          "required": ["display_text"]
         }
       }
     ]
@@ -73,9 +58,7 @@
             "const": "subtotal"
           }
         },
-        "required": [
-          "type"
-        ]
+        "required": ["type"]
       },
       "minContains": 1,
       "maxContains": 1
@@ -87,9 +70,7 @@
             "const": "total"
           }
         },
-        "required": [
-          "type"
-        ]
+        "required": ["type"]
       },
       "minContains": 1,
       "maxContains": 1

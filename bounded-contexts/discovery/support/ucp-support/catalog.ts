@@ -332,4 +332,3 @@ function marketplaceActions(url: string, availableQuantity: number) {
         : null,
   };
 }
-
