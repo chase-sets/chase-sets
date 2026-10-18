@@ -260,6 +260,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-coverage.yml": "ci",
     "platform-database-restore-drill.yml": "release",
     "platform-db-duration-drift.yml": "ci",
+    "platform-dependency-audit.yml": "ci",
     "platform-delivery-health.yml": "ci",
     "platform-digitalocean-drift-digest.yml": "ci",
     "platform-digitalocean-token-rotation-reminder.yml": "ci",

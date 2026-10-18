@@ -209,6 +209,10 @@ export const SUBCOMMANDS = {
     script: "release-health-db-duration-drift.mjs",
     description: "Collect DB duration drift and explicitly pending baseline cohorts.",
   },
+  "release-health:dependency-audit": {
+    script: "release-health-dependency-audit.mjs",
+    description: "Report high and critical production dependency advisories.",
+  },
   "release-health:merge-group-failure-signatures": {
     script: "release-health-merge-group-failure-signatures.mjs",
     description: "Evaluate delivery failure signatures, canonical circuit issues, and lane holds.",

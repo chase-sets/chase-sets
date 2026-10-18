@@ -1,0 +1,86 @@
+name: Platform Dependency Audit
+
+on:
+  schedule:
+    - cron: "59 6 * * *"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: platform-dependency-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit production dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      alert_status: ${{ steps.audit.outputs.alert_status }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - name: Run dependency audit
+        id: audit
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-health
+          pnpm run ops -- release-health:dependency-audit \
+            --out artifacts/release-health/dependency-audit.json \
+            --markdown-out artifacts/release-health/dependency-audit.md \
+            --github-output "$GITHUB_OUTPUT" \
+            --checked-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload dependency audit artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-dependency-audit
+          path: artifacts/release-health/dependency-audit.json
+          if-no-files-found: error
+          retention-days: 30
+
+  reporter:
+    name: Report dependency audit status
+    needs: audit
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Report dependency audit failure
+        if: ${{ needs.audit.result == 'failure' || (needs.audit.result == 'success' && needs.audit.outputs.alert_status == 'failure') }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Dependency Audit
+          alert-status: failure
+          alert-summary: High or critical production dependency advisories were found. See the dependency audit artifact.
+
+      - name: Report dependency audit warning
+        if: ${{ needs.audit.result == 'success' && needs.audit.outputs.alert_status == 'warning' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Dependency Audit
+          alert-status: warning
+          alert-summary: Dependency audit could not produce a trustworthy result. See the dependency audit artifact.
+
+      - name: Report dependency audit recovery
+        if: ${{ needs.audit.result == 'success' && needs.audit.outputs.alert_status == 'success' }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Dependency Audit
+          alert-status: success
+          alert-summary: Dependency audit completed without high or critical production advisories.
