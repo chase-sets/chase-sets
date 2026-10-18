@@ -79,6 +79,21 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
       ...prefix("scripts", "packages/typescript-compiler-api"),
     ],
   },
+  "scripts/rendered-copy-provenance.test.mjs": {
+    rule: "committed rendered-copy record, baseline, toggle and classifier plus both sweeps, read at HEAD and its frozen main ref",
+    evidence: [
+      "scripts/rendered-copy-provenance.test.mjs:26-73,241-248",
+      "infrastructure/playwright-evidence/rendered-copy.ts:238-242,1569-1619",
+    ],
+    include: exact(
+      "infrastructure/playwright-evidence/rendered-copy-baseline.json",
+      "infrastructure/playwright-evidence/rendered-copy-capture.json",
+      "infrastructure/playwright-evidence/rendered-copy-collect.json",
+      "infrastructure/playwright-evidence/rendered-copy.ts",
+      "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
+      "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
+    ),
+  },
   "scripts/check-structure/issue-reference-comments.test.mjs": {
     rule: "code comments under four source roots and the script-owned scanner/allowlist",
     evidence: [

@@ -457,6 +457,98 @@ describe("shared CI gate plan", () => {
     }
   });
 
+  it("keeps exhaustive families for the rendered-copy sweeps, record, baseline, toggle and classifier", () => {
+    const browserSuites = e2eSuites
+      .filter(({ deployable }) => deployable === "marketplace" || deployable === "admin-web")
+      .map(({ id }) => id)
+      .sort();
+    const sweepOwners = {
+      "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts": ["marketplace_account", "marketplace_seller"],
+      "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts": [
+        "admin_access",
+        "admin_commerce",
+        "admin_growth",
+        "admin_support",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+      ],
+    };
+    const shared = [
+      "rendered-copy.ts",
+      "rendered-copy-baseline.json",
+      "rendered-copy-capture.json",
+      "rendered-copy-collect.json",
+    ].map((file) => `infrastructure/playwright-evidence/${file}`);
+    const expected = new Map([
+      ...Object.entries(sweepOwners),
+      ...shared.map((file) => [file, browserSuites]),
+      ["tsconfig.base.json", browserSuites],
+      ["deployables/marketplace/app/smoke-auth-support.test.ts", []],
+    ]);
+    for (const [file, suites] of expected) {
+      const fixtureCase = scopedCases.find(({ changedFiles }) => changedFiles.length === 1 && changedFiles[0] === file);
+      expect(fixtureCase, file).toBeDefined();
+      expect([...fixtureCase.scope.e2eSuiteIds].sort(), file).toEqual(suites);
+      if (suites.length > 0) {
+        expect(
+          selectionFixture.families.some(({ pattern }) => new RegExp(pattern.slice(1, -1)).test(file)),
+          file,
+        ).toBe(true);
+      }
+    }
+
+    // Real renames select both the old and the new owner, never only one side.
+    const temporary = mkdtempSync(path.join(os.tmpdir(), "ci-e2e-rendered-copy-"));
+    const git = (args) =>
+      execFileSync("git", args, { cwd: temporary, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const commit = () => {
+      git(["add", "--all"]);
+      git([
+        "-c",
+        "user.name=CI",
+        "-c",
+        "user.email=ci@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+      ]);
+      return git(["rev-parse", "HEAD"]);
+    };
+    try {
+      git(["init", "--quiet"]);
+      const marketplace = "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts";
+      const toggle = "infrastructure/playwright-evidence/rendered-copy-collect.json";
+      for (const file of [marketplace, toggle]) {
+        mkdirSync(path.dirname(path.join(temporary, file)), { recursive: true });
+        writeFileSync(path.join(temporary, file), `${file}\n`);
+      }
+      let base = commit();
+      for (const [from, to, suites] of [
+        [
+          marketplace,
+          "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
+          [...sweepOwners[marketplace], ...Object.values(sweepOwners)[1]].sort(),
+        ],
+        [toggle, "infrastructure/playwright-evidence/rendered-copy-capture.json", browserSuites],
+      ]) {
+        mkdirSync(path.dirname(path.join(temporary, to)), { recursive: true });
+        git(["mv", from, to]);
+        const head = commit();
+        const changedFiles = listChangedFiles(base, head, { cwd: temporary });
+        expect(changedFiles).toEqual([from, to].sort());
+        const scope = classifyChanges({ changedFiles, workspaces });
+        expect([...scope.e2eSuiteIds].sort()).toEqual(suites);
+        expect(executedSuiteIds(createCiGatePlan({ mode: "merge-group", scope }))).toEqual(suites);
+        base = head;
+      }
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  });
+
   it("locks baseline-versus-candidate selection with only enumerated E2E deltas", () => {
     expect(selectionFixture.baseSha).toBe(E2E_SELECTION_BASE_SHA);
     assertPreservedSelection();

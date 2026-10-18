@@ -276,6 +276,17 @@ describe("scoped guard-test selection", () => {
       ],
     ],
     [
+      "scripts/rendered-copy-provenance.test.mjs",
+      [
+        "infrastructure/playwright-evidence/rendered-copy-baseline.json",
+        "infrastructure/playwright-evidence/rendered-copy-capture.json",
+        "infrastructure/playwright-evidence/rendered-copy-collect.json",
+        "infrastructure/playwright-evidence/rendered-copy.ts",
+        "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
+        "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
+      ],
+    ],
+    [
       "scripts/check-structure/issue-reference-comments.test.mjs",
       [
         "bounded-contexts/catalog/domain.ts",
@@ -309,7 +320,7 @@ describe("scoped guard-test selection", () => {
     },
   );
 
-  it("has exactly nine existing, line-cited guard surfaces", () => {
+  it("has exactly ten existing, line-cited guard surfaces", () => {
     expect(Object.keys(VERIFY_STATIC_GUARD_TEST_SURFACES).sort()).toEqual(
       representativeSurfaces.map(([file]) => file).sort(),
     );
