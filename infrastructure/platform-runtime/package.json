@@ -18,6 +18,7 @@
     "./durable-job-web": "./durable-job-web.ts",
     "./error-handler": "./error-handler.ts",
     "./evidence-window-provider-write-executor": "./evidence-window-provider-write-executor.ts",
+    "./feature-flags/contract": "./feature-flags/contract.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",
     "./internal-auth": "./internal-auth.ts",

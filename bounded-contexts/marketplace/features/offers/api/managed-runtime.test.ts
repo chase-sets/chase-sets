@@ -7,6 +7,21 @@ import { managedFixture } from "../tests/managed-fixture";
 import { context, terms } from "../../offer-policy/tests/fixtures";
 
 describe("managed Offer application and commitment", () => {
+  it("rejects a policy-bound suspended buyer before managed acceptance", async () => {
+    const f = await managedFixture(createInMemoryEventStore().eventStore);
+    const params = await f.acceptance();
+    const policyBefore = await f.policies.get("bop_one", "acc_buyer");
+    f.evaluateTargets.mockClear();
+    const fixtureRow = (await f.db.query()).rows[0]!;
+    f.db.query.mockResolvedValue({ rows: [{ ...fixtureRow, account_status: "suspended" }], rowCount: 1 });
+
+    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "offer_not_open" });
+    expect(f.evaluateTargets).not.toHaveBeenCalled();
+    const policyAfter = await f.policies.get("bop_one", "acc_buyer");
+    expect(policyAfter.version).toBe(policyBefore.version);
+    expect(policyAfter.revision).toBe(policyBefore.revision);
+  });
+
   it.each(["acceptance", "price edit"] as const)(
     "records exactly the returned managed %s events",
     async (operation) => {

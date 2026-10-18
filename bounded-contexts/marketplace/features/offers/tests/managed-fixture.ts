@@ -12,6 +12,7 @@ export async function managedFixture(store: EventStore, pricing?: ManagedOfferPr
         {
           offer_id: "off_one",
           buyer_account_id: "acc_buyer",
+          account_status: "active",
           catalog_catalog_item_id: "cat_one",
           product_id: "cat_one::",
           item_title: "Item",

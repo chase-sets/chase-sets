@@ -70,6 +70,12 @@ describeDb("marketplace schema upgrades", () => {
   it("keeps fixed demand actionable and managed Match queries closed across target, held, pause, projection lag and stop", async () => {
     const pool = pools.marketplace;
     await bootstrapContextDatabase(marketplaceModule, pool);
+    await pool.query(
+      `INSERT INTO marketplace_account_pages (account_id, display_name, status)
+       VALUES ('acc_buyer', 'Buyer', 'active'),
+              ('acc_one', 'Seller One', 'active'),
+              ('acc_two', 'Seller Two', 'active')`,
+    );
     const store = createPostgresEventStore({ pool });
     let amount = "10.00";
     let held = false;

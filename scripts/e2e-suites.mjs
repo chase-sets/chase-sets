@@ -252,6 +252,10 @@ const e2eSpecSuiteOwnership = [
   },
   { pattern: /^deployables\/marketplace\/e2e\/inventory-recovery\.spec\.ts$/, suites: ["marketplace_seller"] },
   {
+    pattern: /^deployables\/marketplace\/e2e\/marketplace-shell-header\.spec\.ts$/,
+    suites: ["marketplace_browse"],
+  },
+  {
     pattern: /^deployables\/marketplace\/e2e\/rendered-copy-sweep\.spec\.ts$/,
     suites: ["marketplace_account", "marketplace_seller"],
   },

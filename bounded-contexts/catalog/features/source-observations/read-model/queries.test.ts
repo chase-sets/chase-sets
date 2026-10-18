@@ -15,6 +15,67 @@ import {
 } from "./queries";
 
 describe("source observation read-model queries", () => {
+  it("matches the lowercased named TCGdex scope emitted by the workbench against persisted set names", async () => {
+    const db = queryableSequence([[{ count: "1" }], [{ observation_id: "synthetic-jungle-pikachu" }]]);
+    await listSourceObservations(db, { provider: "tcgdex", expansionId: "jungle", limit: 25 });
+    for (const [sql, values] of vi.mocked(db.query).mock.calls) {
+      expect(sql).toContain("provider_key = $1");
+      expect(sql).toContain("LOWER(normalized->>'setId') = LOWER($2)");
+      expect(sql).toContain("LOWER(normalized->>'setName') = LOWER($2)");
+      expect(sql).toContain("LOWER(normalized->>'expansionName') = LOWER($2)");
+      expect(values?.slice(0, 2)).toEqual(["tcgdex", "jungle"]);
+    }
+    const otherProvider = queryableSequence([[{ count: "0" }], []]);
+    await listSourceObservations(otherProvider, { provider: "tcgplayer", expansionId: "Jungle" });
+    expect(otherProvider.query).toHaveBeenNthCalledWith(1, expect.not.stringContaining("LOWER("), [
+      "tcgplayer",
+      "Jungle",
+    ]);
+  });
+  it("applies Eligible's observed/changed union to count and list before pagination, and to promotion scope", async () => {
+    const db = queryableSequence([[{ count: "2" }], [{ observation_id: "synthetic-changed", status: "changed" }]]);
+    const scope = { provider: "tcgdex", expansionId: "base2", status: "eligible" };
+    const result = await listSourceObservations(db, { ...scope, limit: 1, offset: 1 });
+    expect(result).toEqual({ items: [{ observation_id: "synthetic-changed", status: "changed" }], total: 2 });
+    expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("status = ANY($3::text[])"), [
+      "tcgdex",
+      "base2",
+      ["observed", "changed"],
+    ]);
+    expect(db.query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringMatching(/status = ANY\(\$3::text\[\]\)[\s\S]*LIMIT \$4 OFFSET \$5/),
+      ["tcgdex", "base2", ["observed", "changed"], 1, 1],
+    );
+    const promotion = queryableSequence([[{ count: "2" }], [{ count: "2" }]]);
+    expect(await previewSourceObservationPromotionScope(promotion, scope)).toMatchObject({
+      matched: 2,
+      eligible: 2,
+      terminal: 0,
+    });
+    for (const [sql, values] of vi.mocked(promotion.query).mock.calls) {
+      expect(sql).toContain("status = ANY($3::text[])");
+      expect(values).toEqual(["tcgdex", "base2", ["observed", "changed"]]);
+      expect(values).not.toContain("eligible");
+    }
+    const ids = queryable([{ observation_id: "synthetic-observed" }, { observation_id: "synthetic-changed" }]);
+    expect(await listSourceObservationIdsForPromotion(ids, scope)).toEqual(["synthetic-observed", "synthetic-changed"]);
+    expect(ids.query).toHaveBeenCalledWith(expect.stringContaining("status = ANY($3::text[])"), [
+      "tcgdex",
+      "base2",
+      ["observed", "changed"],
+    ]);
+  });
+
+  it.each(["observed", "changed", "promoted", "rejected"])(
+    "preserves exact %s selectors without the Eligible alias",
+    async (status) => {
+      const db = queryableSequence([[{ count: "1" }], [{ observation_id: `synthetic-${status}`, status }]]);
+      await listSourceObservations(db, { status, limit: 25 });
+      expect(db.query).toHaveBeenNthCalledWith(1, expect.stringContaining("status = $1"), [status]);
+      expect(db.query).toHaveBeenNthCalledWith(2, expect.not.stringContaining("status = ANY"), [status, 25, 0]);
+    },
+  );
   it("previews promoted observations as eligible for explicit promotion resync", async () => {
     const db = queryableSequence([[{ count: "7" }], [{ count: "7" }]]);
 
