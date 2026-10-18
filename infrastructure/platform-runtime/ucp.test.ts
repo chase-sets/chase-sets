@@ -238,12 +238,8 @@ describe("UCP profile routes", () => {
       },
       { kid: "merchant-2025" },
     ];
-    expect(profile).toMatchObject({
-      signing_keys: publishedKeys,
-      ucp: { signing_keys: publishedKeys },
-    });
-    expect(profile.signing_keys[0]).not.toHaveProperty("d");
-    expect(profile.ucp.signing_keys[0]).not.toHaveProperty("d");
+    expect(profile).toMatchObject({ keys: publishedKeys });
+    expect(profile.keys[0]).not.toHaveProperty("d");
   });
 });
 
@@ -307,8 +303,8 @@ describe("UCP REST routes", () => {
 
   it("replays the stored response for duplicate REST writes with the same idempotency key and body", async () => {
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: `chk_${handler.mock.calls.length}` },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: `chk_${handler.mock.calls.length}`,
     }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -333,8 +329,8 @@ describe("UCP REST routes", () => {
     });
 
     expect(handler).toHaveBeenCalledTimes(1);
-    await expect(first.json()).resolves.toMatchObject({ checkout: { id: "chk_1" } });
-    await expect(second.json()).resolves.toMatchObject({ checkout: { id: "chk_1" } });
+    await expect(first.json()).resolves.toMatchObject({ id: "chk_1" });
+    await expect(second.json()).resolves.toMatchObject({ id: "chk_1" });
   });
 
   it("returns retry-later for duplicate REST writes while the first request is still pending", async () => {
@@ -344,8 +340,8 @@ describe("UCP REST routes", () => {
       started.resolve();
       await release.promise;
       return {
-        ucp: { version: UCP_VERSION, status: "ok" as const },
-        checkout: { id: "chk_1" },
+        ucp: { version: UCP_VERSION, status: "success" as const },
+        id: "chk_1",
       };
     });
     const app = new Hono().route(
@@ -378,7 +374,7 @@ describe("UCP REST routes", () => {
       messages: [{ code: "idempotency_key_in_progress" }],
     });
     await expect(firstResponse.json()).resolves.toMatchObject({
-      checkout: { id: "chk_1" },
+      id: "chk_1",
     });
     expect(handler).toHaveBeenCalledTimes(1);
   });
@@ -391,8 +387,8 @@ describe("UCP REST routes", () => {
         messages: [{ severity: "error" as const, code: "temporary_failure", message: "Try again." }],
       }))
       .mockImplementationOnce(async () => ({
-        ucp: { version: UCP_VERSION, status: "ok" as const },
-        checkout: { id: "chk_retry" },
+        ucp: { version: UCP_VERSION, status: "success" as const },
+        id: "chk_retry",
       }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -422,15 +418,15 @@ describe("UCP REST routes", () => {
       messages: [{ code: "temporary_failure" }],
     });
     await expect(second.json()).resolves.toMatchObject({
-      ucp: { status: "ok" },
-      checkout: { id: "chk_retry" },
+      ucp: { status: "success" },
+      id: "chk_retry",
     });
   });
 
   it("rejects REST idempotency-key reuse with different request bodies", async () => {
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: "chk_1" },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: "chk_1",
     }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -464,8 +460,8 @@ describe("UCP REST routes", () => {
   it("emits observer events for completed writes, replays, and idempotency conflicts", async () => {
     const events: string[] = [];
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: "chk_1" },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: "chk_1",
     }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -499,7 +495,11 @@ describe("UCP REST routes", () => {
       headers: signedHeaders(secondBody, { "Idempotency-Key": "idem_events" }),
     });
 
-    expect(events).toEqual(["completed:create_checkout:ok", "replayed:create_checkout", "conflict:create_checkout"]);
+    expect(events).toEqual([
+      "completed:create_checkout:success",
+      "replayed:create_checkout",
+      "conflict:create_checkout",
+    ]);
   });
 
   it("verifies HTTP Message Signatures when a UCP key resolver is configured", async () => {
@@ -508,8 +508,8 @@ describe("UCP REST routes", () => {
     });
     const publicJwk = publicKey.export({ format: "jwk" });
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: "chk_signed" },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: "chk_signed",
     }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -537,7 +537,7 @@ describe("UCP REST routes", () => {
     expect(response.status).toBe(200);
     expect(handler).toHaveBeenCalledTimes(1);
     await expect(response.json()).resolves.toMatchObject({
-      checkout: { id: "chk_signed" },
+      id: "chk_signed",
     });
   });
 
@@ -547,8 +547,8 @@ describe("UCP REST routes", () => {
     });
     const publicJwk = publicKey.export({ format: "jwk" });
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: "chk_signed" },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: "chk_signed",
     }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -585,7 +585,12 @@ describe("UCP REST routes", () => {
     expect(response.status).toBe(400);
     expect(handler).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
-      messages: [{ message: "Signature-Input created timestamp is outside the allowed freshness window." }],
+      messages: [
+        {
+          code: "signed_request_required",
+          content: "Signature-Input created timestamp is outside the allowed freshness window.",
+        },
+      ],
     });
   });
 
@@ -595,8 +600,8 @@ describe("UCP REST routes", () => {
     });
     const publicJwk = publicKey.export({ format: "jwk" });
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: "chk_signed" },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: "chk_signed",
     }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -631,7 +636,12 @@ describe("UCP REST routes", () => {
     expect(response.status).toBe(400);
     expect(handler).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
-      messages: [{ message: "Signature-Input must cover idempotency-key for signed UCP writes." }],
+      messages: [
+        {
+          code: "signed_request_required",
+          content: "Signature-Input must cover idempotency-key for signed UCP writes.",
+        },
+      ],
     });
   });
 
@@ -641,8 +651,8 @@ describe("UCP REST routes", () => {
     });
     const publicJwk = publicKey.export({ format: "jwk" });
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: "chk_query" },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: "chk_query",
     }));
     const app = new Hono().route(
       "/ucp/v1",
@@ -668,7 +678,7 @@ describe("UCP REST routes", () => {
     expect(response.status).toBe(200);
     expect(handler).toHaveBeenCalledTimes(1);
     await expect(response.json()).resolves.toMatchObject({
-      checkout: { id: "chk_query" },
+      id: "chk_query",
     });
   });
 
@@ -724,7 +734,7 @@ describe("UCP REST routes", () => {
 describe("UCP profile key cache", () => {
   it("uses argument retry keys for signed MCP writes and replays the equivalent header retry", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-    const handler = vi.fn(() => createUcpEnvelope("ok", { checkout: { id: "checkout_1" } }));
+    const handler = vi.fn(() => createUcpEnvelope("success", { id: "checkout_1" }));
     const app = new Hono().route(
       "/ucp/mcp",
       createUcpMcpRoutes({
@@ -759,7 +769,7 @@ describe("UCP profile key cache", () => {
           location === "header" ? { "Idempotency-Key": "shared_retry" } : {},
         ),
       });
-      expect((await response.json()).result.structuredContent.ucp.status).toBe("ok");
+      expect((await response.json()).result.structuredContent.ucp.status).toBe("success");
     }
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ arguments: { id: "checkout_1" } }));
@@ -769,7 +779,7 @@ describe("UCP profile key cache", () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const profile = {
       ...testPlatformProfile,
-      signing_keys: [{ ...publicKey.export({ format: "jwk" }), kid: "platform-2026" }],
+      keys: [{ ...publicKey.export({ format: "jwk" }), kid: "platform-2026" }],
     };
     const fetch = vi.fn(async () => Response.json(profile));
     const profileResolver = createUcpProfileResolver({
@@ -777,7 +787,7 @@ describe("UCP profile key cache", () => {
       fetch,
       lookup: async () => [{ address: "8.8.8.8", family: 4 }],
     });
-    const handler = vi.fn(() => createUcpEnvelope("ok", {}));
+    const handler = vi.fn(() => createUcpEnvelope("success", {}));
     const app = new Hono().route(
       "/ucp/v1",
       buildUcpRestRoutes({
@@ -806,7 +816,7 @@ describe("UCP profile key cache", () => {
         new Response(
           JSON.stringify({
             ...testPlatformProfile,
-            signing_keys: [{ kid: "platform-2026", kty: "RSA", n: "abc", e: "AQAB" }],
+            keys: [{ kid: "platform-2026", kty: "RSA", n: "abc", e: "AQAB" }],
           }),
           { status: 200 },
         ),
@@ -835,7 +845,7 @@ describe("ucp negotiates platform profiles before effects", () => {
       for (const ownProfile of [true, false]) {
         for (const location of ["header", "argument"] as const) {
           if (transport === "rest" && location === "argument") continue;
-          const handler = vi.fn(() => createUcpEnvelope("ok", {}));
+          const handler = vi.fn(() => createUcpEnvelope("success", {}));
           const reserve = vi.fn();
           const negotiationRejected = vi.fn();
           const app = new Hono<{ Variables: { actor: ResolvedActor | null } }>();
@@ -920,7 +930,7 @@ describe("ucp negotiates platform profiles before effects", () => {
   );
 
   it.each(["rest", "mcp"] as const)("rejects an incompatible capability with no effect on %s", async (transport) => {
-    const handler = vi.fn(() => createUcpEnvelope("ok", {}));
+    const handler = vi.fn(() => createUcpEnvelope("success", {}));
     const negotiationRejected = vi.fn();
     const options: CreateUcpRoutesOptions = {
       observer: { negotiationRejected },
@@ -1072,7 +1082,7 @@ describe("UCP Postgres idempotency store", () => {
     await store.put({
       key: "idem_1",
       requestHash: "hash_1",
-      response: { ucp: { version: UCP_VERSION, status: "ok" } },
+      response: { ucp: { version: UCP_VERSION, status: "success" } },
       status: "completed",
       createdAt: "2026-05-16T12:00:00.000Z",
     });
@@ -1113,7 +1123,7 @@ describe("UCP Postgres idempotency store", () => {
     }
     await store.complete({
       ...reserved.record,
-      response: { ucp: { version: UCP_VERSION, status: "ok" } },
+      response: { ucp: { version: UCP_VERSION, status: "success" } },
     });
     await expect(
       store.reserve({
@@ -1123,7 +1133,7 @@ describe("UCP Postgres idempotency store", () => {
       }),
     ).resolves.toMatchObject({
       outcome: "completed",
-      record: { response: { ucp: { status: "ok" } } },
+      record: { response: { ucp: { status: "success" } } },
     });
 
     const abandoned = await store.reserve({
@@ -1157,7 +1167,7 @@ describe("UCP MCP routes", () => {
   });
 
   it("UCP MCP 2026-07-28 stateless scripted HTTP client without initialize", async () => {
-    const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "ok" as const }, products: [] }));
+    const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "success" as const }, products: [] }));
     const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({ mcpToolHandlers: { search_catalog: handler } }));
     // Raw JSON-RPC fetch adapter: the pinned SDK supports legacy revisions only.
     const scriptedFetch: typeof fetch = async (input, init) => app.request(new Request(input, init));
@@ -1205,7 +1215,10 @@ describe("UCP MCP routes", () => {
           UCP_MCP_TOOLS.map((tool) => tool.name),
         );
       } else if (call.method === "tools/call") {
-        expect(body.result.structuredContent).toEqual({ ucp: { version: UCP_VERSION, status: "ok" }, products: [] });
+        expect(body.result.structuredContent).toEqual({
+          ucp: { version: UCP_VERSION, status: "success" },
+          products: [],
+        });
         expect(body.result._meta.ui.resourceUri).toBe(UCP_MCP_PRODUCT_CARDS_RESOURCE_URI);
       } else {
         expect(body.result.contents[0]).toMatchObject({
@@ -1378,7 +1391,7 @@ describe("UCP MCP routes", () => {
       },
     ];
     it.each(rows)("$name", async (row) => {
-      const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "ok" as const } }));
+      const handler = vi.fn(() => ({ ucp: { version: UCP_VERSION, status: "success" as const } }));
       const app = new Hono().route("/ucp/mcp", createUcpMcpRoutes({ mcpToolHandlers: { search_catalog: handler } }));
       const response = await app.request("/ucp/mcp", {
         method: "POST",
@@ -1646,7 +1659,7 @@ describe("UCP MCP routes", () => {
     );
     expect(body.result.tools[0]).toMatchObject({
       inputSchema: { type: "object" },
-      outputSchema: { type: "object" },
+      outputSchema: { anyOf: expect.any(Array) },
       securitySchemes: [{ type: "noauth" }],
       annotations: {
         readOnlyHint: true,
@@ -1919,7 +1932,7 @@ describe("UCP MCP routes", () => {
           messages: [
             {
               code: "tool_call_limited",
-              message: "Too many MCP tool calls are already running for this principal.",
+              content: "Too many MCP tool calls are already running for this principal.",
             },
           ],
         },
@@ -1938,7 +1951,7 @@ describe("UCP MCP routes", () => {
 
   it("passes MCP tool arguments to UCP handlers", async () => {
     const handler = vi.fn(async ({ arguments: args }) => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
+      ucp: { version: UCP_VERSION, status: "success" as const },
       observed: args,
     }));
     const app = new Hono().route(
@@ -1996,7 +2009,7 @@ describe("UCP MCP routes", () => {
       createUcpMcpRoutes({
         mcpToolHandlers: {
           search_catalog: async () => ({
-            ucp: { version: UCP_VERSION, status: "ok" as const },
+            ucp: { version: UCP_VERSION, status: "success" as const },
             products: [
               {
                 id: "cat_1",
@@ -2165,8 +2178,8 @@ describe("UCP MCP routes", () => {
 
   it("replays idempotent MCP tool calls with fresh JSON-RPC ids and rejects changed arguments", async () => {
     const handler = vi.fn(async () => ({
-      ucp: { version: UCP_VERSION, status: "ok" as const },
-      checkout: { id: `chk_${handler.mock.calls.length}` },
+      ucp: { version: UCP_VERSION, status: "success" as const },
+      id: `chk_${handler.mock.calls.length}`,
     }));
     const app = new Hono().route(
       "/ucp/mcp",
@@ -2222,10 +2235,10 @@ describe("UCP MCP routes", () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     await expect(first.json()).resolves.toMatchObject({
-      result: { structuredContent: { checkout: { id: "chk_1" } } },
+      result: { structuredContent: { id: "chk_1" } },
     });
     await expect(replay.json()).resolves.toMatchObject({
-      result: { structuredContent: { checkout: { id: "chk_1" } } },
+      result: { structuredContent: { id: "chk_1" } },
     });
     expect(conflict.status).toBe(200);
     await expect(conflict.json()).resolves.toMatchObject({
@@ -2242,8 +2255,8 @@ describe("UCP MCP routes", () => {
       started.resolve();
       await release.promise;
       return {
-        ucp: { version: UCP_VERSION, status: "ok" as const },
-        checkout: { id: "chk_1" },
+        ucp: { version: UCP_VERSION, status: "success" as const },
+        id: "chk_1",
       };
     });
     const app = new Hono().route(
@@ -2287,7 +2300,7 @@ describe("UCP MCP routes", () => {
       },
     });
     await expect(firstResponse.json()).resolves.toMatchObject({
-      result: { structuredContent: { checkout: { id: "chk_1" } } },
+      result: { structuredContent: { id: "chk_1" } },
     });
     expect(handler).toHaveBeenCalledTimes(1);
   });

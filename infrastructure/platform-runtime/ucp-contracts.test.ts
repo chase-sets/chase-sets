@@ -29,7 +29,7 @@ describe("UCP contract profile", () => {
         endpoint: `https://marketplace.example${UCP_MCP_ENDPOINT_PATH}`,
       }),
     ]);
-    expect(profile.ucp.supported_versions[UCP_VERSION]).toBe("https://marketplace.example/.well-known/ucp");
+    expect(profile.ucp).not.toHaveProperty("supported_versions");
   });
 
   it("declares the v1 capability set used by the profile", () => {
@@ -44,7 +44,9 @@ describe("UCP contract profile", () => {
         UCP_CAPABILITIES.order,
       ].sort(),
     );
-    expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]).not.toHaveProperty("config");
+    expect(profile.ucp.capabilities[UCP_CAPABILITIES.checkout]?.[0]).toMatchObject({
+      config: { scopes: { "dev.ucp.shopping.checkout:manage": expect.any(String) } },
+    });
   });
 
   it("advertises no AP2 capability", () => {
@@ -57,8 +59,9 @@ describe("UCP contract profile", () => {
     expect(serialized).not.toContain("shopping/ap2_mandate.json");
     expect(serialized).not.toContain("completion_requires_trusted_ui_without_ap2_mandate");
     expect(serialized.toLowerCase()).not.toContain("ap2");
-    expect(profile.signing_keys).toEqual([signingKey]);
-    expect(profile.ucp.signing_keys).toEqual([signingKey]);
+    expect(profile.keys).toEqual([signingKey]);
+    expect(profile).not.toHaveProperty("signing_keys");
+    expect(profile.ucp).not.toHaveProperty("signing_keys");
   });
 });
 
@@ -77,7 +80,7 @@ describe("UCP MCP tools", () => {
 
     expect(search).toMatchObject({
       inputSchema: { type: "object" },
-      outputSchema: { type: "object" },
+      outputSchema: { anyOf: expect.any(Array) },
       securitySchemes: [{ type: "noauth" }],
       annotations: { readOnlyHint: true },
     });
@@ -137,8 +140,8 @@ describe("UCP MCP tools", () => {
 
 describe("UCP envelopes", () => {
   it("adds protocol metadata without changing payload fields", () => {
-    expect(createUcpEnvelope("ok", { products: [] })).toEqual({
-      ucp: { version: UCP_VERSION, status: "ok" },
+    expect(createUcpEnvelope("success", { products: [] })).toEqual({
+      ucp: { version: UCP_VERSION, status: "success" },
       products: [],
     });
   });

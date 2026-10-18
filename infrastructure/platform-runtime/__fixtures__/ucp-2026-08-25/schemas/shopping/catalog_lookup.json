@@ -13,9 +13,7 @@
           "$ref": "https://ucp.dev/2026-08-25/schemas/shopping/types/variant.json"
         },
         {
-          "required": [
-            "inputs"
-          ],
+          "required": ["inputs"],
           "properties": {
             "inputs": {
               "type": "array",
@@ -32,9 +30,7 @@
     "lookup_request": {
       "type": "object",
       "description": "Request body for catalog lookup.",
-      "required": [
-        "ids"
-      ],
+      "required": ["ids"],
       "properties": {
         "ids": {
           "type": "array",
@@ -61,10 +57,7 @@
     },
     "lookup_response": {
       "type": "object",
-      "required": [
-        "ucp",
-        "products"
-      ],
+      "required": ["ucp", "products"],
       "properties": {
         "ucp": {
           "$ref": "https://ucp.dev/2026-08-25/schemas/ucp.json#/$defs/response_catalog_schema"
@@ -113,9 +106,7 @@
     "get_product_request": {
       "type": "object",
       "description": "Request body for single-product retrieval. Supports interactive variant narrowing via selected and preferences.",
-      "required": [
-        "id"
-      ],
+      "required": ["id"],
       "properties": {
         "id": {
           "type": "string",
@@ -170,10 +161,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "values"
-            ],
+            "required": ["name", "values"],
             "properties": {
               "name": {
                 "type": "string"
@@ -193,10 +181,7 @@
     },
     "get_product_response": {
       "type": "object",
-      "required": [
-        "ucp",
-        "product"
-      ],
+      "required": ["ucp", "product"],
       "properties": {
         "ucp": {
           "$ref": "https://ucp.dev/2026-08-25/schemas/ucp.json#/$defs/response_catalog_schema"

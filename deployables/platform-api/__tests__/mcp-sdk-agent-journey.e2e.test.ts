@@ -702,7 +702,7 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
 
     checkoutSessions.getSession = vi.fn(async () => buyNowSession);
     const checkoutBody = JSON.stringify(
-      createUcpEnvelope("ok", {
+      createUcpEnvelope("success", {
         marketplace_checkout_fee_quote_fingerprint: "quote_1",
         total_amount: "10.00",
         payment_data: {
@@ -723,12 +723,10 @@ describe("native MCP SDK full commerce journey @mcp-sdk-journey", () => {
       expect(spendCapResponse.status).toBe(200);
       await expect(spendCapResponse.json()).resolves.toMatchObject({
         ucp: {
-          status: "requires_action",
+          status: "success",
         },
-        checkout: {
-          status: "requires_escalation",
-          messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
-        },
+        status: "requires_escalation",
+        messages: [{ code: "payment_required", recoverability: "requires_buyer_input" }],
       });
       expect(paymentsFetch).not.toHaveBeenCalled();
       // The synthetic legacy actor has no agentGrant; no spend reservation is requested.

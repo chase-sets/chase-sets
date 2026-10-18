@@ -522,7 +522,7 @@ describe("checkout-closed-agent-rails", () => {
     const read = vi.spyOn(f.ordering.orders, "getPurchase").mockResolvedValue(order);
     for (const transport of ["rest", "mcp"] as const) {
       expect(await ucpReadOrCancel(f.closed, "get_order", order.order_id, transport)).toMatchObject({
-        ucp: { status: "ok" },
+        ucp: { status: "success" },
         id: order.order_id,
       });
     }
@@ -1123,7 +1123,9 @@ describe("checkout-closed-session-lifecycle", () => {
         { line_id: retainedLineId, quantity: 1 },
       ]);
       for (const transport of ["rest", "mcp"] as const) {
-        expect(await ucpReadOrCancel(f.closed, "get_checkout", a, transport)).toMatchObject({ ucp: { status: "ok" } });
+        expect(await ucpReadOrCancel(f.closed, "get_checkout", a, transport)).toMatchObject({
+          ucp: { status: "success" },
+        });
       }
     }
     expect(store.allEvents).toHaveLength(beforeClosure);
@@ -1132,7 +1134,9 @@ describe("checkout-closed-session-lifecycle", () => {
     expect((await sessions.getSession(b, "acc_synthetic"))?.cancelled_at).toBeTruthy();
     expect((await sessions.getSession(a, "acc_synthetic"))?.cancelled_at).toBeNull();
     for (const transport of ["rest", "mcp"] as const) {
-      expect(await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport)).toMatchObject({ ucp: { status: "ok" } });
+      expect(await ucpReadOrCancel(f.closed, "cancel_checkout", b, transport)).toMatchObject({
+        ucp: { status: "success" },
+      });
     }
     const reopened = buildPlatformApiApp(f.runtime, { ...f.options, checkoutClosed: false });
     const address = {

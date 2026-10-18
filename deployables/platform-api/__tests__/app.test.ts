@@ -47,7 +47,7 @@ function signedUcpHeaders(body: string) {
     "Content-Type": "application/json",
     "UCP-Agent": 'profile="https://agent.example/.well-known/ucp"',
     "Idempotency-Key": "idem_platform_test",
-    "Signature-Input": 'sig1=("@method" "@path" "content-digest");created=1778940000',
+    "Signature-Input": 'sig1=("@method" "@path" "content-digest" "idempotency-key");created=1778940000',
     Signature: "sig1=:placeholder:",
     "Content-Digest": `sha-256=:${createHash("sha256").update(body).digest("base64")}:`,
   };
@@ -1675,7 +1675,7 @@ describe("platform api app wiring", () => {
     expect(response.status).toBe(200);
     expect(searchItems).toHaveBeenCalledWith(expect.objectContaining({ search: "charizard" }));
     await expect(response.json()).resolves.toMatchObject({
-      ucp: { status: "ok" },
+      ucp: { status: "success" },
       products: [{ id: "cat_1", title: "Charizard" }],
     });
   });
@@ -1796,8 +1796,8 @@ describe("platform api app wiring", () => {
         }),
       );
       await expect(response.json()).resolves.toMatchObject({
-        ucp: { status: "ok" },
-        checkout: { id: checkoutSessionId },
+        ucp: { status: "success" },
+        id: checkoutSessionId,
       });
       orders = ["ord_1"];
       await app.request("/ucp/v1/checkout-sessions/chk_0123456789abcdefghijklmnop", {
@@ -1839,7 +1839,7 @@ describe("platform api app wiring", () => {
       nextCursor: null,
     }));
     const completeCheckout = vi.fn(async () =>
-      createUcpEnvelope("ok", {
+      createUcpEnvelope("success", {
         checkout: { id: `chk_${completeCheckout.mock.calls.length}` },
       }),
     );
@@ -2021,7 +2021,7 @@ describe("platform api app wiring", () => {
     await expect(searchResponse.json()).resolves.toMatchObject({
       result: {
         structuredContent: {
-          ucp: { status: "ok" },
+          ucp: { status: "success" },
           products: [{ id: "cat_1", title: "Charizard" }],
         },
       },
@@ -2040,10 +2040,10 @@ describe("platform api app wiring", () => {
     });
     expect(completeCheckout).toHaveBeenCalledTimes(1);
     await expect(firstCompleteResponse.json()).resolves.toMatchObject({
-      result: { structuredContent: { checkout: { id: "chk_1" } } },
+      result: { structuredContent: { id: "chk_1" } },
     });
     await expect(replayCompleteResponse.json()).resolves.toMatchObject({
-      result: { structuredContent: { checkout: { id: "chk_1" } } },
+      result: { structuredContent: { id: "chk_1" } },
     });
     expect(conflictCompleteResponse.status).toBe(200);
     await expect(conflictCompleteResponse.json()).resolves.toMatchObject({

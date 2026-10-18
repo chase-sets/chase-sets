@@ -147,7 +147,7 @@ describe("Discovery UCP catalog handlers", () => {
       }),
     );
     expect(result).toMatchObject({
-      ucp: { status: "ok" },
+      ucp: { status: "success" },
       products: [
         {
           id: "cat_1",
@@ -214,7 +214,7 @@ describe("Discovery UCP catalog handlers", () => {
       expect.objectContaining({ search: "charizard", cursor: "legacy-cursor", includeTotal: true }),
     );
     expect(Object.keys(restarted).sort()).toEqual(Object.keys(fresh).sort());
-    expect(restarted).toMatchObject({ ucp: { status: "ok" }, count: 1, total: 1, next_cursor: "cursor_v2" });
+    expect(restarted).toMatchObject({ ucp: { status: "success" }, count: 1, total: 1, next_cursor: "cursor_v2" });
     expect(JSON.stringify(restarted)).not.toContain("restart");
   });
 
