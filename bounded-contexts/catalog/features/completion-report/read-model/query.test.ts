@@ -367,37 +367,48 @@ describeDb("Production Catalog completion facts from the database (db)", () => {
       observationId: "obs_agreement_old",
       syncRunId: null,
       providerKey: "tcgdex",
-      normalized: pokemonObservation({ name: "Old", cardNumber: "" }),
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Old", cardNumber: "" }),
     });
     await insertObservation(db, {
       observationId: "obs_agreement_a",
       syncRunId: null,
       providerKey: "tcgdex",
-      normalized: pokemonObservation({ name: "Same", cardNumber: "" }),
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Same", cardNumber: "" }),
     });
     await insertObservation(db, {
       observationId: "obs_agreement_b",
       syncRunId: null,
       providerKey: "scrydex",
-      normalized: pokemonObservation({ name: "Same", cardNumber: "" }),
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Same", cardNumber: "" }),
     });
     await insertObservation(db, {
       observationId: "obs_agreement_c",
       syncRunId: null,
       providerKey: "third-provider",
-      normalized: pokemonObservation({ name: "Different", cardNumber: "" }),
+      normalized: pokemonObservation({
+        expansionName: "Set",
+        seriesName: "Series",
+        name: "Different",
+        cardNumber: "",
+      }),
     });
     await insertObservation(db, {
       observationId: "obs_agreement_conflict",
       syncRunId: null,
       providerKey: "tcgdex",
-      normalized: pokemonObservation({ name: "Conflict", cardNumber: "" }),
+      normalized: pokemonObservation({ expansionName: "Set", seriesName: "Series", name: "Conflict", cardNumber: "" }),
     });
     await insertObservation(db, {
       observationId: "obs_agreement_conflict_b",
       syncRunId: null,
       providerKey: "tcgdex",
-      normalized: pokemonObservation({ name: "Conflict", rarity: "Ultra Rare", cardNumber: "" }),
+      normalized: pokemonObservation({
+        expansionName: "Set",
+        seriesName: "Series",
+        name: "Conflict",
+        rarity: "Ultra Rare",
+        cardNumber: "",
+      }),
     });
     await insertMergeCandidate(db, "candidate_agreement", identity, [
       ["obs_agreement_a", "tcgdex"],
