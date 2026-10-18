@@ -1,0 +1,340 @@
+name: Platform Staging Cluster Add-ons
+
+# On-demand full apply of the staging DOKS cluster add-on plan (#10045):
+# ingress-nginx, cert-manager, the DNS-01 token Secret, Argo Rollouts and the
+# ACME ClusterIssuers, in scripts/doks-cluster-addons.mjs order. Platform
+# Deploy only applies the ingress-nginx component to staging; this workflow
+# runs the same unmodified planner the PR dry-run checks, without cutting a
+# release. preflight_only=true proves the ref, context and credential binding
+# and records the release inventory without mutating the cluster.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "apply staging cluster addons" to run the staging DOKS add-on plan.
+        required: true
+        type: string
+      release_ref:
+        description: 40-character commit SHA reachable from main whose planner runs.
+        required: true
+        type: string
+      preflight_only:
+        description: Resolve, bind and inventory only; never run the planner.
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-staging-mutating-operations
+  cancel-in-progress: false
+
+jobs:
+  refuse-invalid-dispatch:
+    name: Refuse Invalid Staging Cluster Add-ons Dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse unconfirmed or unpinned dispatch
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM" != "apply staging cluster addons" ]; then
+            echo 'Confirmation text did not match exactly; expected "apply staging cluster addons".' >&2
+            exit 1
+          fi
+          if ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_ref must be a 40-character lowercase hexadecimal commit SHA." >&2
+            exit 1
+          fi
+          echo "Admitted staging cluster add-on dispatch for ${RELEASE_REF}."
+
+  apply-staging-cluster-addons:
+    name: Apply Staging Cluster Add-ons
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
+    needs: refuse-invalid-dispatch
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      RELEASE_REF: ${{ inputs.release_ref }}
+      PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+      EVIDENCE_DIR: ${{ github.workspace }}/artifacts/staging-cluster-addons
+    steps:
+      - name: Record job start
+        run: echo "JOB_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      # The staging environment admits only the main workflow ref; the commit
+      # checked out here must also be reachable from origin/main.
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          node ./scripts/resolve-release-commit.mjs \
+            --release-ref "$RELEASE_REF" \
+            --checkout true
+          test "$(git rev-parse HEAD)" = "$RELEASE_REF"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      # Install only: the action's auth path runs `doctl auth init -t <token>`,
+      # putting the token on a process command line. doctl reads
+      # DIGITALOCEAN_ACCESS_TOKEN from the environment of the steps that use it.
+      - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          no_auth: "true"
+
+      - name: Configure staging Kubernetes context
+        working-directory: infrastructure/digitalocean/doks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ../../../scripts/terraform-init-with-retry.sh \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key=doks/staging.tfstate \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+          kubeconfig="${RUNNER_TEMP}/chase-sets-staging.kubeconfig"
+          terraform output -raw kubeconfig > "$kubeconfig" || true
+          chmod 600 "$kubeconfig"
+
+          if ! KUBECONFIG="$kubeconfig" kubectl get namespace kube-system --request-timeout=15s >/dev/null 2>&1; then
+            echo "Terraform DOKS kubeconfig output did not contain a usable current-context; refreshing from DigitalOcean cluster identity." >&2
+            cluster_id="$(terraform output -raw cluster_id 2>/dev/null || true)"
+            cluster_name="$(terraform output -raw cluster_name 2>/dev/null || true)"
+            if [ -z "$cluster_id" ] && [ -z "$cluster_name" ]; then
+              cluster_address="$(
+                terraform state list \
+                  | awk '/(^|\.)digitalocean_kubernetes_cluster\./ { print; exit }'
+              )"
+              if [ -n "$cluster_address" ]; then
+                echo "Using staging DOKS cluster Terraform state address ${cluster_address}." >&2
+                cluster_state="$(terraform state show -no-color "$cluster_address")"
+                cluster_id="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "id") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+                cluster_name="$(
+                  printf '%s\n' "$cluster_state" \
+                    | awk -F '=' '
+                        {
+                          key=$1
+                          gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                          if (key == "name") {
+                            value=$2
+                            gsub(/^[[:space:]"]+|[[:space:]"]+$/, "", value)
+                            print value
+                            exit
+                          }
+                        }
+                      '
+                )"
+              fi
+            fi
+            if [ -n "$cluster_id" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_id" > "$kubeconfig"
+            elif [ -n "$cluster_name" ]; then
+              doctl kubernetes cluster kubeconfig show "$cluster_name" > "$kubeconfig"
+            else
+              echo "DOKS Terraform state does not expose cluster_id or cluster_name; cannot configure staging Kubernetes context." >&2
+              exit 1
+            fi
+            chmod 600 "$kubeconfig"
+          fi
+
+          current_context="$(KUBECONFIG="$kubeconfig" kubectl config current-context 2>/dev/null || true)"
+          if [ -z "$current_context" ]; then
+            echo "Staging Kubernetes kubeconfig is present but has no current context after Terraform and DigitalOcean refresh attempts." >&2
+            KUBECONFIG="$kubeconfig" kubectl config get-contexts || true
+            exit 1
+          fi
+
+          # Fail before any Helm command unless the context names the staging
+          # cluster; KUBECONFIG is exported only after this guard passes.
+          case "$current_context" in
+            *production*)
+              echo "Refusing Kubernetes context ${current_context}: it names a production cluster." >&2
+              exit 1
+              ;;
+            *chase-sets-staging*)
+              ;;
+            *)
+              echo "Refusing Kubernetes context ${current_context}: it does not name the chase-sets-staging cluster." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "KUBECONFIG=${kubeconfig}" >> "$GITHUB_ENV"
+          echo "KUBE_CONTEXT=${current_context}" >> "$GITHUB_ENV"
+          echo "Configured staging Kubernetes context: ${current_context}"
+
+      - name: Capture Helm releases before apply
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          helm list -A --all --output json \
+            | jq '[.[] | {name, namespace, chart, app_version, revision, status}]' \
+            > "$EVIDENCE_DIR/helm-releases-before.json"
+          jq -r '.[] | "\(.namespace)/\(.name) chart=\(.chart) app=\(.app_version) revision=\(.revision) status=\(.status)"' \
+            "$EVIDENCE_DIR/helm-releases-before.json"
+
+      # Count-only: the token value is never printed, and preflight runs log
+      # the same probe at the point the planner would read the token.
+      - name: Probe DigitalOcean token presence
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          token_presence_count=0
+          if [ -n "${DIGITALOCEAN_ACCESS_TOKEN:-}" ]; then
+            token_presence_count=1
+          fi
+          echo "DIGITALOCEAN_ACCESS_TOKEN presence count: ${token_presence_count}"
+          echo "TOKEN_PRESENCE_COUNT=${token_presence_count}" >> "$GITHUB_ENV"
+          if [ "$token_presence_count" -ne 1 ]; then
+            echo "The staging environment did not supply DIGITALOCEAN_ACCESS_TOKEN; refusing to continue." >&2
+            exit 1
+          fi
+
+      # The planner pipes the DNS-01 token to kubectl over stdin
+      # (applyDoksDnsTokenSecret); it is never an argument and never printed.
+      - name: Apply staging cluster add-ons
+        id: apply
+        if: inputs.preflight_only == false
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "PLANNER_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          node ./scripts/doks-cluster-addons.mjs --environment staging 2>&1 | tee "$EVIDENCE_DIR/planner-transcript.log"
+
+      - name: Capture Helm releases after apply
+        if: always() && (steps.apply.outcome == 'success' || steps.apply.outcome == 'failure')
+        run: |
+          set -euo pipefail
+          helm list -A --all --output json \
+            | jq '[.[] | {name, namespace, chart, app_version, revision, status}]' \
+            > "$EVIDENCE_DIR/helm-releases-after.json"
+          jq -r '.[] | "\(.namespace)/\(.name) chart=\(.chart) app=\(.app_version) revision=\(.revision) status=\(.status)"' \
+            "$EVIDENCE_DIR/helm-releases-after.json"
+
+      - name: Write staging cluster add-on evidence
+        id: evidence
+        if: always()
+        env:
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+          CHECKED_OUT_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+          ENDED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export CHECKED_OUT_SHA ENDED_AT
+          jq -n '
+            def text($name): ($ENV[$name] // "") | if . == "" then null else . end;
+            {
+              schemaVersion: "staging-cluster-addons-evidence/v1",
+              mode: (if $ENV.PREFLIGHT_ONLY == "true" then "preflight-only" else "apply" end),
+              preflightOnly: ($ENV.PREFLIGHT_ONLY == "true"),
+              repository: text("GITHUB_REPOSITORY"),
+              workflowRef: text("GITHUB_WORKFLOW_REF"),
+              runId: text("GITHUB_RUN_ID"),
+              runAttempt: text("GITHUB_RUN_ATTEMPT"),
+              job: "apply-staging-cluster-addons",
+              releaseRef: text("RELEASE_REF"),
+              releaseCommit: text("release_commit"),
+              checkedOutSha: text("CHECKED_OUT_SHA"),
+              kubernetesContext: text("KUBE_CONTEXT"),
+              tokenPresenceCount: (text("TOKEN_PRESENCE_COUNT") | if . == null then null else tonumber end),
+              jobStartedAt: text("JOB_STARTED_AT"),
+              plannerStartedAt: text("PLANNER_STARTED_AT"),
+              endedAt: text("ENDED_AT"),
+              plannerStep: {
+                id: "apply",
+                name: "Apply staging cluster add-ons",
+                outcome: text("APPLY_OUTCOME")
+              }
+            }' > "$EVIDENCE_DIR/staging-cluster-addons-evidence.json"
+          cat "$EVIDENCE_DIR/staging-cluster-addons-evidence.json"
+          {
+            echo "### Staging cluster add-ons"
+            echo ""
+            echo "- Mode: $(jq -r .mode "$EVIDENCE_DIR/staging-cluster-addons-evidence.json")"
+            echo "- Checked-out commit: ${CHECKED_OUT_SHA:-unresolved}"
+            echo "- Planner step outcome: ${APPLY_OUTCOME:-not reached}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Artifacts are not log-masked: count token occurrences without printing
+      # them (the pattern reaches grep through a file descriptor, not argv) and
+      # refuse the upload when any appear or kubeconfig material is present.
+      - name: Scan evidence for the DigitalOcean token
+        id: scan
+        if: always() && steps.evidence.outcome == 'success'
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if grep -rqE 'certificate-authority-data|client-key-data|current-context:' -- "$EVIDENCE_DIR"; then
+            echo "Evidence contains kubeconfig material; refusing to upload." >&2
+            exit 1
+          fi
+          token_count=0
+          if [ -n "${DIGITALOCEAN_ACCESS_TOKEN:-}" ]; then
+            token_count="$(
+              { grep -rFoh -f <(printf '%s\n' "$DIGITALOCEAN_ACCESS_TOKEN") -- "$EVIDENCE_DIR" || [ "$?" -eq 1 ]; } \
+                | wc -l
+            )"
+          fi
+          echo "DIGITALOCEAN_ACCESS_TOKEN occurrences in evidence: ${token_count}"
+          if [ "$token_count" -ne 0 ]; then
+            echo "Evidence contains the DigitalOcean token value; refusing to upload." >&2
+            exit 1
+          fi
+
+      - name: Upload staging cluster add-on evidence
+        if: always() && steps.scan.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: staging-cluster-addons-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30

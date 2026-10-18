@@ -292,6 +292,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-staging-admin-smoke.yml": "release",
     "platform-staging-advisory-evidence.yml": "release",
     "platform-staging-bootstrap-hook-drill.yml": "release",
+    "platform-staging-cluster-addons.yml": "release",
     "platform-staging-helm-recovery.yml": "release",
     "platform-staging-mixed-version-wake-drills.yml": "release",
     "platform-staging-projection-operations.yml": "release",

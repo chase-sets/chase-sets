@@ -9277,6 +9277,48 @@
       "purpose": "digitalocean-ops"
     },
     {
+      "file": ".github/workflows/platform-staging-cluster-addons.yml",
+      "jobId": "apply-staging-cluster-addons",
+      "stepAnchor": "name:Apply staging cluster add-ons#10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-cluster-addons.yml",
+      "jobId": "apply-staging-cluster-addons",
+      "stepAnchor": "name:Configure staging Kubernetes context#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-cluster-addons.yml",
+      "jobId": "apply-staging-cluster-addons",
+      "stepAnchor": "name:Configure staging Kubernetes context#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-cluster-addons.yml",
+      "jobId": "apply-staging-cluster-addons",
+      "stepAnchor": "name:Configure staging Kubernetes context#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-cluster-addons.yml",
+      "jobId": "apply-staging-cluster-addons",
+      "stepAnchor": "name:Probe DigitalOcean token presence#9",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-cluster-addons.yml",
+      "jobId": "apply-staging-cluster-addons",
+      "stepAnchor": "name:Scan evidence for the DigitalOcean token#13",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
       "file": ".github/workflows/platform-staging-helm-recovery.yml",
       "jobId": "staging-helm-recovery",
       "stepAnchor": "name:Configure staging Kubernetes context#6",
