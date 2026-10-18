@@ -97,6 +97,7 @@
     "bounded-contexts/catalog/support/projection-support/read-model-support.ts",
     "bounded-contexts/channels/features/connection-attention/api/lifecycle.ts",
     "bounded-contexts/channels/features/connection-attention/api/runtime.ts",
+    "bounded-contexts/channels/features/connection-attention/read-model/connector-contribution.ts",
     "bounded-contexts/channels/features/connection-attention/read-model/order-contributions.ts",
     "bounded-contexts/channels/features/connection-attention/read-model/query.ts",
     "bounded-contexts/channels/features/connection-health/api/connector-liveness.ts",

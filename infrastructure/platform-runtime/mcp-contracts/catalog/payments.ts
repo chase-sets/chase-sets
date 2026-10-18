@@ -2,6 +2,7 @@ import {
   type McpServiceDescriptor,
   arrayProperty,
   booleanProperty,
+  guardrails,
   idempotencyKeyProperty,
   objectSchema,
   readTool,
@@ -146,7 +147,9 @@ export const paymentsService = {
             returnUrl: stringProperty("HTTPS URL where the hosted page returns after card setup."),
             idempotencyKey: idempotencyKeyProperty(),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
-            dryRun: booleanProperty("Validate without creating a hosted setup session."),
+            dryRun: booleanProperty(
+              "Dry runs are not supported; omit or pass false. True is refused before any setup work.",
+            ),
           },
           ["accountId", "returnUrl", "idempotencyKey", "confirmationText"],
         ),
@@ -158,6 +161,7 @@ export const paymentsService = {
         "sensitive",
       ),
       availability: "available",
+      guardrails: guardrails("sensitive", { dryRunSupported: false }),
       outputSchema: paymentsPaymentMethodSetupOutputSchema,
     },
     {
