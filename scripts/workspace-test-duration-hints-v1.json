@@ -41,6 +41,7 @@
     { "workspace": "@chase-sets/stripe-appearance", "script": "test", "estimatedDurationSeconds": 6 },
     { "workspace": "@chase-sets/stripe-connect", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/stripe-payments", "script": "test", "estimatedDurationSeconds": 4 },
+    { "workspace": "@chase-sets/tcgplayer-market-observations", "script": "test", "estimatedDurationSeconds": 3 },
     { "workspace": "@chase-sets/twilio-messaging", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/web-notifications", "script": "test", "estimatedDurationSeconds": 3 },
     { "workspace": "@chase-sets/app-platform-api", "script": "test:unit", "estimatedDurationSeconds": 64 },
