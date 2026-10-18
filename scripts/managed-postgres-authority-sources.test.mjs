@@ -100,7 +100,7 @@ const reviewedPreviewWildcardDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#28",
+    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#29",
     secretName: "DIGITALOCEAN_ACCESS_TOKEN",
     purpose: "digitalocean-ops",
   },
@@ -317,14 +317,14 @@ const ebayAccountDeletionDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_ENDPOINT",
     purpose: "application-runtime",
   },
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Apply staging Kubernetes runtime secrets#32",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
     secretName: "EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN",
     purpose: "application-runtime",
   },
@@ -340,6 +340,7 @@ const reviewedRetiredVerifierRemovals = new Set([
 const reviewedStepInsertions = [
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 52 },
+  { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
 ];
 
 function applyReviewedStepInsertions(record) {
