@@ -6038,6 +6038,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       [
         "kubectl",
         ["logs", "--namespace", "chase-sets-pr-7", "--selector", selector, "--all-containers", "--tail", "50"],
+        { redact: "postgres-server-log" },
       ],
       [
         "kubectl",
@@ -6052,9 +6053,53 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
           "--tail",
           "50",
         ],
+        { redact: "postgres-server-log" },
       ],
       ...platformKubernetesDeployment.buildPreviewPostgresConnectionSnapshotCommands(options),
     ]);
+  });
+
+  it("prints preview-postgres server-log tails without statement text or password literals", async () => {
+    const serverLog = [
+      "2026-10-18 12:36:28.101 UTC [61] FATAL:  sorry, too many clients already",
+      '2026-10-18 12:36:28.102 UTC [62] ERROR:  role "cs_preview_auth" already exists',
+      "2026-10-18 12:36:28.102 UTC [62] STATEMENT:  create role \"cs_preview_auth\" with login password 'synthetic-password'",
+      "\tselect 1",
+      "2026-10-18 12:36:28.103 UTC [63] LOG:  checkpoint complete",
+      "",
+    ].join("\n");
+    const redacted = platformKubernetesDeployment.redactPostgresServerLog(serverLog);
+    expect(redacted).not.toContain("synthetic-password");
+    expect(redacted).not.toContain("create role");
+    expect(redacted).not.toContain("select 1");
+    expect(redacted).toContain("[62] STATEMENT:  [REDACTED]\n");
+    expect(redacted).toContain("FATAL:  sorry, too many clients already");
+    expect(redacted).toContain("LOG:  checkpoint complete");
+
+    const calls = [];
+    const printed = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => printed.push(String(chunk)));
+    try {
+      await platformKubernetesDeployment.capturePlatformKubernetesDiagnostics({
+        values: sampleValues,
+        release: "chase-sets-pr-7",
+        namespace: "chase-sets-pr-7",
+        previewPostgres: true,
+        spawn: (command, args, options) => {
+          const isServerLog = args[0] === "logs" && args.join(" ").includes("component=preview-postgres");
+          calls.push({ args, stdio: options.stdio });
+          return completedSpawn([], [{ code: 0, stdout: isServerLog ? serverLog : "" }])(command, args, options);
+        },
+      });
+    } finally {
+      write.mockRestore();
+    }
+    const serverLogCalls = calls.filter(
+      ({ args }) => args[0] === "logs" && args.join(" ").includes("component=preview-postgres"),
+    );
+    expect(serverLogCalls).toHaveLength(2);
+    expect(serverLogCalls.every(({ stdio }) => stdio[1] === "pipe")).toBe(true);
+    expect(printed.filter((chunk) => chunk.includes("UTC [62]"))).toEqual([redacted, redacted]);
   });
 
   it("snapshots only the connection ceiling, reservations and grouped held-connection counts", () => {

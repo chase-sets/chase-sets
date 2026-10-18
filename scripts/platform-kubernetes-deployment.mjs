@@ -642,18 +642,33 @@ function buildPreviewPostgresDiagnosticsCommands(options) {
   const deployment = platformHelmPreviewPostgresName({ releaseName: release });
   const selector = `app.kubernetes.io/instance=${release},app.kubernetes.io/component=preview-postgres`;
   const tailLines = String(options.tailLines ?? 300);
+  const serverLog = { redact: "postgres-server-log" };
   return [
     ["kubectl", ["get", "deployment", deployment, "--namespace", namespace, "--output", "wide"]],
     ["kubectl", ["describe", "deployment", deployment, "--namespace", namespace]],
     ["kubectl", ["get", "pods", "--namespace", namespace, "--selector", selector, "--output", "wide"]],
     ["kubectl", ["describe", "pods", "--namespace", namespace, "--selector", selector]],
-    ["kubectl", ["logs", "--namespace", namespace, "--selector", selector, "--all-containers", "--tail", tailLines]],
+    [
+      "kubectl",
+      ["logs", "--namespace", namespace, "--selector", selector, "--all-containers", "--tail", tailLines],
+      serverLog,
+    ],
     [
       "kubectl",
       ["logs", "--namespace", namespace, "--selector", selector, "--all-containers", "--previous", "--tail", tailLines],
+      serverLog,
     ],
     ...buildPreviewPostgresConnectionSnapshotCommands(options),
   ];
+}
+
+// PostgreSQL logs a failed statement's text (log_min_error_statement=error), and preview role
+// DDL embeds its password literal, so server-log tails drop every statement before printing.
+export function redactPostgresServerLog(output) {
+  return redactDiagnosticOutput(output).replace(
+    /\b(STATEMENT|QUERY|CONTEXT):[^\n]*(?:\n[ \t]+[^\n]*)*/g,
+    "$1:  [REDACTED]",
+  );
 }
 
 export function buildDeploymentEvidence(options = {}) {
@@ -3312,14 +3327,23 @@ export async function capturePlatformKubernetesDiagnostics(options = {}) {
   const commands = buildDiagnosticsCommands(options);
   const results = [];
 
-  for (const [command, args] of commands) {
+  for (const [command, args, output] of commands) {
+    const serverLog = output?.redact === "postgres-server-log";
     const result = await runProcess({
       command: command === "kubectl" ? (options.kubectlPath ?? "kubectl") : command,
       args,
       spawn: options.spawn,
-      captureOutput: Boolean(options.captureOutput),
+      captureOutput: Boolean(options.captureOutput) || serverLog,
       allowFailure: true,
     });
+    if (serverLog) {
+      result.stdout = redactPostgresServerLog(result.stdout);
+      result.stderr = redactPostgresServerLog(result.stderr);
+      if (!options.captureOutput) {
+        process.stdout.write(result.stdout);
+        process.stderr.write(result.stderr);
+      }
+    }
     if (options.captureOutput) {
       results.push({ command, args, ...result });
     }
