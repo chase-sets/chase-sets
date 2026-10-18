@@ -914,33 +914,33 @@ describe("inventory create-item Catalog picker", () => {
         "/api/inventory/catalog-items/cat_etb",
       ],
     },
-  ])("does not restore saved Options when the seller edits and then chooses the same $path ID", async ({
-    text,
-    requests,
-  }) => {
-    const user = userEvent.setup();
-    const fetch = stubPickerFetch((url) =>
-      url.startsWith("/api/marketplace/") ? suggestionsResponse(etbSuggestions) : Response.json(catalogSnapshot()),
-    );
-    const { input, form } = renderCreateItemForm({
-      createItemDraft: {
-        catalogItemId: "cat_etb",
-        selectedOptions: [{ dimensionId: "condition", optionId: "lightly_played" }],
-      },
-    });
-    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
-    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("lightly_played");
+  ])(
+    "does not restore saved Options when the seller edits and then chooses the same $path ID",
+    async ({ text, requests }) => {
+      const user = userEvent.setup();
+      const fetch = stubPickerFetch((url) =>
+        url.startsWith("/api/marketplace/") ? suggestionsResponse(etbSuggestions) : Response.json(catalogSnapshot()),
+      );
+      const { input, form } = renderCreateItemForm({
+        createItemDraft: {
+          catalogItemId: "cat_etb",
+          selectedOptions: [{ dimensionId: "condition", optionId: "lightly_played" }],
+        },
+      });
+      await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+      expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("lightly_played");
 
-    await openAndEnter(user, input, text);
-    await user.click(await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" }));
+      await openAndEnter(user, input, text);
+      await user.click(await screen.findByRole("option", { name: "Elite Trainer Box - Scarlet & Violet" }));
 
-    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
-    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
-    expect(new FormData(form).get("selectedOptions")).toBe(
-      JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }]),
-    );
-    expect(requestedUrls(fetch)).toEqual(requests);
-  });
+      await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_etb"));
+      expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+      expect(new FormData(form).get("selectedOptions")).toBe(
+        JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }]),
+      );
+      expect(requestedUrls(fetch)).toEqual(requests);
+    },
+  );
 
   it("no longer exposes the zero-caller substring Catalog search on the Inventory client", () => {
     expect("searchCatalogItems" in createInventoryApiClient({ fetch: vi.fn() })).toBe(false);

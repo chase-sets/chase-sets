@@ -736,33 +736,35 @@ describe("Import row Catalog picker", () => {
         "/api/inventory/catalog-items/cat_zard",
       ],
     },
-  ])("does not restore row Options when the seller edits and then chooses the same $path ID", async ({
-    text,
-    requests,
-  }) => {
-    const user = userEvent.setup();
-    const fetch = stubPickerFetch((url) =>
-      url.startsWith("/api/marketplace/") ? suggestionsResponse(lizardonSuggestions) : Response.json(catalogSnapshot()),
-    );
-    const { input, form } = renderResolveRow(
-      unresolvedRow({
-        catalog_item_id: "cat_zard",
-        selected_options: [{ dimensionId: "condition", optionId: "lightly_played" }],
-      }),
-    );
-    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
-    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("lightly_played");
+  ])(
+    "does not restore row Options when the seller edits and then chooses the same $path ID",
+    async ({ text, requests }) => {
+      const user = userEvent.setup();
+      const fetch = stubPickerFetch((url) =>
+        url.startsWith("/api/marketplace/")
+          ? suggestionsResponse(lizardonSuggestions)
+          : Response.json(catalogSnapshot()),
+      );
+      const { input, form } = renderResolveRow(
+        unresolvedRow({
+          catalog_item_id: "cat_zard",
+          selected_options: [{ dimensionId: "condition", optionId: "lightly_played" }],
+        }),
+      );
+      await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
+      expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("lightly_played");
 
-    await openAndEnter(user, input, text);
-    await user.click(await screen.findByRole("option", { name: "Charizard - Base Set 4/102" }));
+      await openAndEnter(user, input, text);
+      await user.click(await screen.findByRole("option", { name: "Charizard - Base Set 4/102" }));
 
-    await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
-    expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
-    expect(new FormData(form).get("selectedOptions")).toBe(
-      JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }]),
-    );
-    expect(requestedUrls(fetch)).toEqual(requests);
-  });
+      await waitFor(() => expect(hiddenCatalogItemId()).toBe("cat_zard"));
+      expect((screen.getByLabelText("Condition") as HTMLSelectElement).value).toBe("near_mint");
+      expect(new FormData(form).get("selectedOptions")).toBe(
+        JSON.stringify([{ dimensionId: "condition", optionId: "near_mint" }]),
+      );
+      expect(requestedUrls(fetch)).toEqual(requests);
+    },
+  );
 
   it.each([
     {
