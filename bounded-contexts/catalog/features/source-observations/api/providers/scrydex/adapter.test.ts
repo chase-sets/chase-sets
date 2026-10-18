@@ -520,6 +520,48 @@ describe("accepted set-name coordinates", () => {
       ).toBe(true);
     },
   );
+
+  it.each([
+    {
+      productDomain: "one-piece",
+      setUnit: SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+      cardUnit: SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      sealedUnit: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    },
+    {
+      productDomain: "lorcana",
+      setUnit: SCRYDEX_LORCANA_SET_REFERENCE_DATA_UNIT_KEY,
+      cardUnit: SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      sealedUnit: SCRYDEX_LORCANA_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    },
+  ] as const)(
+    "rejects blank explicit coordinates for $productDomain instead of falling through to setName",
+    async (scenario) => {
+      const subject = adapter();
+      const rejectionCases = [
+        [scenario.setUnit, { setId: "", setName: "accepted" }],
+        [scenario.setUnit, { id: "", setName: "accepted" }],
+        [scenario.setUnit, { parentValue: "", setName: "accepted" }],
+        [scenario.cardUnit, { expansionId: "", setName: "accepted" }],
+        [scenario.cardUnit, { setId: "", setName: "accepted" }],
+        [scenario.cardUnit, { parentValue: "", setName: "accepted" }],
+        [scenario.sealedUnit, { expansionId: "", setName: "accepted" }],
+        [scenario.sealedUnit, { setId: "", setName: "accepted" }],
+        [scenario.sealedUnit, { parentValue: "", setName: "accepted" }],
+      ] as const;
+
+      for (const [unitKey, values] of rejectionCases) {
+        await expect(subject.adapter.planImport({ unitKey, scopeKey: "synthetic", values })).rejects.toThrow(
+          /requires/,
+        );
+      }
+
+      expect(subject.fetch).toHaveBeenCalledTimes(rejectionCases.length);
+      expect(
+        subject.fetch.mock.calls.every(([request]) => new URL(String(request)).pathname === "/account/v1/usage"),
+      ).toBe(true);
+    },
+  );
 });
 
 import {
