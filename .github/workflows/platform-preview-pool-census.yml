@@ -33,7 +33,8 @@ jobs:
   census:
     name: Read preview-pool census
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.duration_minutes + 15 }}
+    # The input is capped at 60 minutes; reserve 15 minutes for setup and finalizers.
+    timeout-minutes: 75
     environment: preview
     env:
       AWS_DEFAULT_REGION: us-east-1
