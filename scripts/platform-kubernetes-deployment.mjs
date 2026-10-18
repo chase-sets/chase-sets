@@ -3323,19 +3323,34 @@ export async function helmReleaseExists(options = {}) {
   }
 }
 
+// One hung diagnostics command (a stuck exec or log stream) is killed instead of consuming the step budget.
+export const diagnosticsCommandDeadlineMs = 60_000;
+
+async function runDiagnosticsCommand(options, command, args, captureOutput) {
+  const clock = options.clock ?? systemClock;
+  try {
+    return await runProcess({
+      command: command === "kubectl" ? (options.kubectlPath ?? "kubectl") : command,
+      args,
+      spawn: options.spawn,
+      captureOutput,
+      allowFailure: true,
+      deadline: { clock, at: clock.now() + diagnosticsCommandDeadlineMs },
+    });
+  } catch (error) {
+    if (!(error instanceof ProcessDeadlineError)) throw error;
+    console.error(error.message);
+    return { stdout: "", stderr: error.message, code: null };
+  }
+}
+
 export async function capturePlatformKubernetesDiagnostics(options = {}) {
   const commands = buildDiagnosticsCommands(options);
   const results = [];
 
   for (const [command, args, output] of commands) {
     const serverLog = output?.redact === "postgres-server-log";
-    const result = await runProcess({
-      command: command === "kubectl" ? (options.kubectlPath ?? "kubectl") : command,
-      args,
-      spawn: options.spawn,
-      captureOutput: Boolean(options.captureOutput) || serverLog,
-      allowFailure: true,
-    });
+    const result = await runDiagnosticsCommand(options, command, args, Boolean(options.captureOutput) || serverLog);
     if (serverLog) {
       result.stdout = redactPostgresServerLog(result.stdout);
       result.stderr = redactPostgresServerLog(result.stderr);
@@ -3356,12 +3371,7 @@ export async function capturePlatformKubernetesDiagnostics(options = {}) {
 export async function capturePreviewPostgresConnectionSnapshot(options = {}) {
   let failed = 0;
   for (const [command, args] of buildPreviewPostgresConnectionSnapshotCommands(options)) {
-    const result = await runProcess({
-      command: command === "kubectl" ? (options.kubectlPath ?? "kubectl") : command,
-      args,
-      spawn: options.spawn,
-      allowFailure: true,
-    });
+    const result = await runDiagnosticsCommand(options, command, args, false);
     if (result.code !== 0) failed += 1;
   }
   if (failed > 0) {

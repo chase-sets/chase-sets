@@ -133,6 +133,30 @@ describe("preview Postgres connection demand (#10022)", () => {
     expect(previewPostgresDemand({ readSource: enable(true) }).demand).toBe(baseline.demand);
   });
 
+  it("refuses a database component rendered with more than one pod", () => {
+    expect(() =>
+      previewPostgresDemand({
+        readSource: withRuntimeValues((values) => {
+          values.components["platform-api"].replicas = 2;
+        }),
+      }),
+    ).toThrow("Re-inventory preview replicas: platform-api");
+    expect(() =>
+      previewPostgresDemand({
+        readSource: withRuntimeValues((values) => {
+          values.components["platform-worker"].autoscaling.enabled = true;
+        }),
+      }),
+    ).toThrow("Re-inventory preview replicas: platform-worker");
+    const baseline = previewPostgresDemand();
+    const scaledWeb = previewPostgresDemand({
+      readSource: withRuntimeValues((values) => {
+        values.components["public-web"].replicas = 2;
+      }),
+    });
+    expect(scaledWeb.demand).toBe(baseline.demand);
+  });
+
   it("refuses demand inputs it cannot account for", () => {
     expect(() =>
       previewPostgresDemand({
@@ -145,6 +169,30 @@ describe("preview Postgres connection demand (#10022)", () => {
       }),
     ).toThrow(
       "Preview deploy overrides a connection demand input: .github/workflows/platform-pr.yml: DATABASE_POOL_MAX",
+    );
+    expect(() =>
+      previewPostgresDemand({
+        readSource: withSource(".github/workflows/platform-pr.yml", (source) =>
+          source.replace(
+            'add_optional_runtime_env "SES_AWS_REGION"',
+            'add_optional_runtime_env "DATABASE_POOL_MAX" "2"\n          add_optional_runtime_env "SES_AWS_REGION"',
+          ),
+        ),
+      }),
+    ).toThrow(
+      "Preview deploy overrides a connection demand input: .github/workflows/platform-pr.yml: DATABASE_POOL_MAX",
+    );
+    expect(() =>
+      previewPostgresDemand({
+        readSource: withSource(".github/workflows/platform-ephemeral-verification.yml", (source) =>
+          source.replace(
+            '--runtime-env "DEPLOYMENT_ENVIRONMENT=preview"',
+            '--runtime-env "DEPLOYMENT_ENVIRONMENT=preview" --runtime-env WORKER_PROJECTION_WAKE_RELAY_ENABLED=true',
+          ),
+        ),
+      }),
+    ).toThrow(
+      "Preview deploy overrides a connection demand input: .github/workflows/platform-ephemeral-verification.yml: WORKER_PROJECTION_WAKE_RELAY_ENABLED",
     );
     expect(() =>
       previewPostgresDemand({

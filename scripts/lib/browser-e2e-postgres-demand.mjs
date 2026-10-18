@@ -328,7 +328,8 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
   } = JSON.parse(readSource(runtimeValuesRelativePath));
   const workflows = previewWorkflowPaths.map((file) => ({ file, source: readSource(file) }));
   for (const { file, source } of workflows) {
-    for (const [, name] of source.matchAll(/--runtime-env\s+"([A-Za-z0-9_]+)=/g)) {
+    // Literal overrides, quoted or not, and names passed to the PR workflow's add_optional_runtime_env helper.
+    for (const [, name] of source.matchAll(/(?:--runtime-env|add_optional_runtime_env)\s+"?([A-Za-z0-9_]+)[="\s]/g)) {
       if (previewDemandEnvNames.has(name) || isDatabaseSecretKey(name)) {
         throw new Error(`Preview deploy overrides a connection demand input: ${file}: ${name}`);
       }
@@ -530,6 +531,15 @@ export function previewPostgresDemand({ readSource = defaultReadSource } = {}) {
     );
     if (opensDatabase && !inventory.some((row) => row.process === name)) {
       throw new Error(`Unaccounted preview database consumer: ${name}`);
+    }
+    // Rows count one pod. Each preview workflow installs once into a reset namespace, so no
+    // rolling-update or canary surge pod overlaps; more rendered pods would multiply every row.
+    if (
+      ["service", "worker"].includes(component.kind) &&
+      inventory.some((row) => row.process === name) &&
+      (component.replicas !== 1 || component.autoscaling?.enabled)
+    ) {
+      throw new Error(`Re-inventory preview replicas: ${name}`);
     }
   }
 

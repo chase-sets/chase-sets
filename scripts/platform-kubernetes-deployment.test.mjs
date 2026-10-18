@@ -6174,4 +6174,63 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       );
     }
   });
+
+  it("kills a hung snapshot or diagnostics command at its own deadline and moves on", async () => {
+    const deadlineMs = platformKubernetesDeployment.diagnosticsCommandDeadlineMs;
+    const hangingSpawn = (calls, hangs) => (command, args) => {
+      const call = { command, args, killed: null };
+      calls.push(call);
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = (signal) => {
+        call.killed = signal;
+        return true;
+      };
+      if (!hangs(args, calls.length - 1)) queueMicrotask(() => child.emit("close", 0));
+      return child;
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const snapshotCalls = [];
+      const snapshotClock = manualClock();
+      await expect(
+        runOnClock(
+          snapshotClock,
+          platformKubernetesDeployment.runPlatformKubernetesDeploymentCli(
+            ["preview-postgres-snapshot", "--namespace", "chase-sets-pr-7", "--release", "chase-sets-pr-7"],
+            {},
+            { spawn: hangingSpawn(snapshotCalls, () => true), clock: snapshotClock },
+          ),
+        ),
+      ).resolves.toBe(1);
+      expect(snapshotCalls.map((call) => [call.args[0], call.killed])).toEqual([["exec", "SIGKILL"]]);
+      expect(snapshotClock.now()).toBe(deadlineMs);
+
+      const options = { values: sampleValues, release: "chase-sets-pr-7", namespace: "chase-sets-pr-7" };
+      const commands = buildDiagnosticsCommands({ ...options, previewPostgres: true });
+      const hung = commands.findIndex(([, args]) => args[0] === "logs");
+      const diagnosticsCalls = [];
+      const diagnosticsClock = manualClock();
+      const diagnostics = await runOnClock(
+        diagnosticsClock,
+        platformKubernetesDeployment.capturePlatformKubernetesDiagnostics({
+          ...options,
+          previewPostgres: true,
+          captureOutput: true,
+          clock: diagnosticsClock,
+          spawn: hangingSpawn(diagnosticsCalls, (_, index) => index === hung),
+        }),
+      );
+      expect(diagnosticsCalls.map((call) => call.args)).toEqual(commands.map(([, args]) => args));
+      expect(diagnosticsCalls.map((call, index) => [index, call.killed]).filter(([, killed]) => killed)).toEqual([
+        [hung, "SIGKILL"],
+      ]);
+      expect(diagnostics.commands[hung]).toMatchObject({ code: null, stderr: "kubectl logs exceeded its deadline." });
+      expect(diagnostics.commands.filter((result) => result.code === 0)).toHaveLength(commands.length - 1);
+      expect(diagnosticsClock.now()).toBe(deadlineMs);
+    } finally {
+      error.mockRestore();
+    }
+  });
 });
