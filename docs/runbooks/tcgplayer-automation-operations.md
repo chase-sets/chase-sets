@@ -19,11 +19,10 @@ a password or another user's credentials. Use the configured provider user agent
 with the resolved cookie. No secret edit, deploy, or restart is needed to adopt a
 stored revision: Catalog and Pricing resolve custody on each automation request.
 
-`TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` remains a secret-store fallback only when
-custody is absent or cleared. A stored session takes precedence; unreadable
+The environment cookie is retired. A stored session is required; unreadable
 custody refuses requests instead of silently falling back. Local fixture-backed
-development needs neither source. Live jobs need a usable resolved credential,
-not necessarily an environment cookie.
+development needs no provider credential. Live jobs need a usable resolved
+operator session.
 
 ### Pairing
 

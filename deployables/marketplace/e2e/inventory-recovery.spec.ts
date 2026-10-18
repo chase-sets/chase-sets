@@ -6,8 +6,14 @@ import { signInWithPassword } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 import { registerRestockRecoveryBrowserTests } from "@chase-sets/inventory/seed-support/restock-recovery-browser";
 
-registerRestockRecoveryBrowserTests((page, baseUrl) =>
-  signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials()),
+registerRestockRecoveryBrowserTests(
+  async (page, baseUrl) => {
+    await signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials());
+  },
+  captureAccessibilityEvidence,
+  async (page, baseUrl) => {
+    await signInWithPassword(page, baseUrl, marketplaceBrowserE2eSellerCredentials());
+  },
 );
 
 test.describe("@marketplace-seller issue-7169-c1-boundary-recovery AC9/10/11/13", () => {

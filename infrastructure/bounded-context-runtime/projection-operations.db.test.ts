@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   defineBoundedContextModule,
   defineBcProjectionGroupReset,
@@ -8,7 +8,7 @@ import {
   type BcEventSubscription,
   type BcProjectionGroup,
 } from "@chase-sets/bounded-context-module";
-import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
+import type { ProjectionRunContext, ProjectorHandlerContext } from "@chase-sets/event-core/projector";
 import {
   EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
   createPostgresEventStore,
@@ -54,6 +54,8 @@ if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
+// Fails the ledger race gate well inside the test timeout when the competing claim never arrives.
+const CLAIM_ADMISSION_TIMEOUT_MS = 10_000;
 
 type TestContextName = "source" | "target";
 type TestOrderCommands = Readonly<{
@@ -61,7 +63,7 @@ type TestOrderCommands = Readonly<{
 }>;
 type TestServices = Readonly<{ pool: PgTransactionalPool; orderCommands?: TestOrderCommands }>;
 type TestPorts = {
-  beforeProjectionWrite?: (itemId: string) => Promise<void>;
+  beforeProjectionWrite?: (itemId: string, db: NonNullable<ProjectorHandlerContext["db"]>) => Promise<void>;
   failProjectionOnce?: () => boolean;
   failReactionAfterDispatchOnce?: () => boolean;
   createOrderId?: () => string;
@@ -201,7 +203,7 @@ function createItemsSubscription(): BcEventSubscription {
         }
 
         const itemId = String(event.data.itemId);
-        await targetPorts.beforeProjectionWrite?.(itemId);
+        await targetPorts.beforeProjectionWrite?.(itemId, context.db);
         await context.db.query(
           `INSERT INTO projected_items (item_id, seen_count)
            VALUES ($1, 1)
@@ -296,6 +298,47 @@ async function hasReactionOrderForSource(db: PgTransactionalPool, sourceId: stri
 }
 
 const targetPorts: TestPorts = {};
+
+describe("ledger race claim admission gate", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("times out when the competing claim neither arrives nor settles", async () => {
+    const neverClaimed = createDeferred<void>().promise;
+    const neverSettled = createDeferred<void>().promise;
+    let outcome: string | undefined;
+    void waitForClaimAdmission(neverClaimed, neverSettled, CLAIM_ADMISSION_TIMEOUT_MS).then((value) => {
+      outcome = value;
+    });
+
+    await vi.advanceTimersByTimeAsync(CLAIM_ADMISSION_TIMEOUT_MS - 1);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toBe("timeout");
+  });
+
+  it("reports claim submission or settlement before the bound and clears its timer", async () => {
+    const claimSubmitted = createDeferred<void>();
+    const neverClaimed = createDeferred<void>().promise;
+    const neverSettled = createDeferred<void>().promise;
+    const claimed = waitForClaimAdmission(claimSubmitted.promise, neverSettled, CLAIM_ADMISSION_TIMEOUT_MS);
+    claimSubmitted.resolve();
+    await expect(claimed).resolves.toBe("claim-submitted");
+
+    await expect(waitForClaimAdmission(neverClaimed, Promise.resolve(), CLAIM_ADMISSION_TIMEOUT_MS)).resolves.toBe(
+      "settled",
+    );
+    await expect(
+      waitForClaimAdmission(neverClaimed, Promise.reject(new Error("run failed")), CLAIM_ADMISSION_TIMEOUT_MS),
+    ).resolves.toBe("settled");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
 
 describeDb("projection operations Postgres integration", () => {
   let pools: Readonly<Record<TestContextName, PgTransactionalPool>>;
@@ -967,13 +1010,22 @@ describeDb("projection operations Postgres integration", () => {
     ]);
     const sourceEventStore = createPostgresEventStore({ pool: pools.source });
     const primaryRunner = runtime.subscriptionRunners[0];
-    const competingRunner = createSubscriptionRunner("target", pools.target, pools.source, createItemsSubscription());
+    const competingClaim = createLedgerClaimObserverPool(pools.target);
+    const competingRunner = createSubscriptionRunner(
+      "target",
+      competingClaim.pool,
+      pools.source,
+      createItemsSubscription(),
+    );
     const projectionAttempts: string[] = [];
     const firstProjectionStarted = createDeferred<void>();
     const releaseFirstProjection = createDeferred<void>();
+    let primaryBackendPid = 0;
 
-    targetPorts.beforeProjectionWrite = async (itemId) => {
+    targetPorts.beforeProjectionWrite = async (itemId, db) => {
       projectionAttempts.push(itemId);
+      const pidResult = await db.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      primaryBackendPid = Number(pidResult.rows[0]?.pid);
       firstProjectionStarted.resolve();
       await releaseFirstProjection.promise;
     };
@@ -994,6 +1046,13 @@ describeDb("projection operations Postgres integration", () => {
     await firstProjectionStarted.promise;
     const competingRun = competingRunner.runOnce();
 
+    // Release only once the competing claim is provably waiting on the primary's
+    // uncommitted ledger row; an unsettled run alone may not have read its checkpoint.
+    await expect(
+      waitForClaimAdmission(competingClaim.claimSubmitted.promise, competingRun, CLAIM_ADMISSION_TIMEOUT_MS),
+    ).resolves.toBe("claim-submitted");
+    const claimWait = await waitForBackendBlock(pools.target, primaryBackendPid, competingClaim.claimBackendPid);
+    expect(claimWait).toMatchObject({ wait_event_type: "Lock", wait_event: "transactionid" });
     await expect(hasSettledWithin(competingRun, 50)).resolves.toBe(false);
     releaseFirstProjection.resolve();
 
@@ -2424,11 +2483,25 @@ describeDb("projection operations Postgres integration", () => {
       ],
     });
 
-    // The first (batch) attempt dispatches ord_1 and fails after dispatch; its
-    // transaction rolls back and the pass re-executes the event individually
-    // with a fresh transaction (issue #4751), dispatching ord_2. Atomicity is
-    // proven by what is durably visible: ONLY ord_2 exists — the rolled-back
-    // ord_1 dispatch never leaked a row or an event.
+    // The failed pass rolls back ord_1 without advancing the checkpoint.
+    // Prove the rollback before the next pass retries and dispatches ord_2.
+    await expect(runner.runOnce(createProjectionRunContext())).rejects.toThrow(
+      "reaction failed after command dispatch",
+    );
+    await expect(readReactionOrders()).resolves.toEqual([]);
+    await expect(readReactionOrderEvents()).resolves.toEqual([]);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: expect.any(String), status: "transient" },
+    ]);
+    const failedApplication = await pools.target.query<{ output_global_positions: string[] | null }>(
+      `SELECT output_global_positions
+       FROM event_subscription_applications
+       WHERE projection_key = $1`,
+      [runner.checkpointKey],
+    );
+    expect(failedApplication.rows).toEqual([{ output_global_positions: null }]);
+    await expect(loadSubscriptionCheckpoint(runner.checkpointKey)).resolves.toBeNull();
+
     await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
       processed: 1,
       lastGlobalPosition: "1",
@@ -2624,6 +2697,29 @@ async function hasSettledWithin(promise: Promise<unknown>, timeoutMs: number): P
   ]);
 }
 
+// Distinguishes a submitted competing claim from an early settle or a bounded timeout.
+async function waitForClaimAdmission(
+  claimSubmitted: Promise<void>,
+  run: Promise<unknown>,
+  timeoutMs: number,
+): Promise<"claim-submitted" | "settled" | "timeout"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      claimSubmitted.then(() => "claim-submitted" as const),
+      run.then(
+        () => "settled" as const,
+        () => "settled" as const,
+      ),
+      new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function delay(timeoutMs: number): Promise<void> {
   await new Promise<void>((resolve) => {
     setTimeout(resolve, timeoutMs);
@@ -2664,6 +2760,40 @@ function createQueryCapturePool(
         release: (error?: unknown) => client.release(error),
       };
     },
+  };
+}
+
+// Records the backend that submits the wrapped runner's application-ledger claim.
+function createLedgerClaimObserverPool(pool: PgTransactionalPool) {
+  const claimSubmitted = createDeferred<void>();
+  let claimBackendPid = 0;
+
+  const observedPool: PgTransactionalPool = {
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    query: <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => pool.query<Row>(sql, params),
+    connect: async () => {
+      const client = await pool.connect();
+      const pidResult = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      const backendPid = Number(pidResult.rows[0]?.pid);
+      return {
+        query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+          if (sql.includes("INSERT INTO event_subscription_applications")) {
+            claimBackendPid = backendPid;
+            claimSubmitted.resolve();
+          }
+          return client.query<Row>(sql, params);
+        },
+        release: (error?: unknown) => client.release(error),
+      };
+    },
+  };
+
+  return {
+    pool: observedPool,
+    get claimBackendPid() {
+      return claimBackendPid;
+    },
+    claimSubmitted,
   };
 }
 

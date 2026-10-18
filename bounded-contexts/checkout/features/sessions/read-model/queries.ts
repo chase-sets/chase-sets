@@ -31,12 +31,19 @@ export type CheckoutSessionRow = Readonly<{
   submitted_offer_id: string | null;
   cancelled_at?: string | null;
   created_at: string;
+  handoff_expires_at: string | null;
   updated_at: string;
 }>;
 
 type CheckoutSessionPageRow = Omit<
   CheckoutSessionRow,
-  "lines" | "order_ids" | "order_write_commit_positions" | "source_type" | "shipping_option" | "optimization_goal"
+  | "lines"
+  | "order_ids"
+  | "order_write_commit_positions"
+  | "source_type"
+  | "shipping_option"
+  | "optimization_goal"
+  | "handoff_expires_at"
 > &
   Readonly<{
     source_type: string;
@@ -51,6 +58,7 @@ type CheckoutSessionPageRow = Omit<
     order_ids: unknown;
     order_write_commit_positions: unknown;
     checkout_reservations: unknown;
+    handoff_expires_at: string | Date | null;
   }>;
 
 function mapCommitPositions(value: unknown): CheckoutSourceCommitPosition[] {
@@ -82,6 +90,8 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
       row.source_type === "buy-now" ? "buy-now" : row.source_type === "offer-intent" ? "offer-intent" : "cart",
     optimization_goal: row.optimization_goal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
     fulfillment_preview_snapshot: readCheckoutFulfillmentPreview(row.fulfillment_preview_snapshot),
+    handoff_expires_at:
+      row.handoff_expires_at instanceof Date ? row.handoff_expires_at.toISOString() : (row.handoff_expires_at ?? null),
     shipping_option:
       row.shipping_option === "expedited" || row.shipping_option === "priority" ? row.shipping_option : "standard",
     shipping_address:
@@ -137,6 +147,7 @@ export async function getCheckoutSession(
        payment_id,
        submitted_offer_id,
        cancelled_at,
+       handoff_expires_at,
        created_at,
        updated_at
      FROM checkout_session_pages

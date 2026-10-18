@@ -478,7 +478,6 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
   const providerCredentials = [
     ["SCRYDEX_API_KEY", "TF_VAR_scrydex_api_key"],
     ["SCRYDEX_TEAM_ID", "TF_VAR_scrydex_team_id"],
-    ["TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE", "TF_VAR_tcgplayer_automation_tcg_auth_cookie"],
   ];
   const enforcedSignoffReferences = [
     "CATALOG_INTEGRATION_MAGIC_PRODUCTION_SIGNOFF_REFERENCE",
@@ -655,6 +654,8 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
     // Preserved, not rebuilt: the production environment's provider secrets reach the API and worker
     // runtime Secret through the same step as Stripe and EasyPost.
     const secretStep = jobStep("Apply production Kubernetes runtime secrets").run;
+    expect(jobStep("Validate production configuration").run).not.toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
+    expect(secretStep).not.toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
     for (const [name, envName] of [
       ...providerCredentials,
       ["STRIPE_SECRET_KEY", "TF_VAR_stripe_secret_key"],
@@ -664,6 +665,11 @@ describe("production Catalog integration deploy preflight (#8072)", () => {
     }
     expect(secretStep).toContain("--deployment-environment production");
     const runtimeComponents = JSON.parse(shippedRuntimeValues).components;
+    for (const consumer of ["platform-api", "platform-worker"]) {
+      expect(runtimeComponents[consumer].env).not.toEqual(
+        expect.arrayContaining([{ name: "TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE" }]),
+      );
+    }
     for (const [name, envName] of providerCredentials) {
       expect(deployProduction.env[envName]).toBe(`\${{ secrets.${name} || '' }}`);
       for (const consumer of ["platform-api", "platform-worker"]) {
@@ -1851,7 +1857,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(preflightStep).toContain("--skip-deployed-secret-check");
     expect(preflightStep).toContain("STAGING_REFRESH_ALLOW_CREDITED_PROVIDER_READS");
     expect(preflightStep).toContain("STAGING_REFRESH_NO_SCHEDULED_OVERLAP_CONFIRMED");
-    expect(preflightStep).toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
+    expect(preflightStep).not.toContain("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
     expect(preflightStep).toContain("SCRYDEX_API_KEY");
     expect(preflightStep).toContain("STRIPE_SECRET_KEY");
     expect(preflightStep).toContain("EASYPOST_API_KEY");

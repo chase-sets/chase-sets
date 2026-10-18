@@ -19,7 +19,11 @@ import {
   checkoutPaymentSummarySchemaMigrations,
   checkoutPaymentSummarySchemaSql,
 } from "../../features/sessions/integrations/payments/payment-summary-schema";
-import { checkoutSessionSchemaMigrations, checkoutSessionSchemaSql } from "../../features/sessions/read-model/schema";
+import {
+  checkoutSessionRetainedSchemaSql,
+  checkoutSessionSchemaMigrations,
+  checkoutSessionSchemaSql,
+} from "../../features/sessions/read-model/schema";
 
 export const checkoutSchemaSql = [
   checkoutCatalogProjectionSchemaSql,
@@ -32,6 +36,7 @@ export const checkoutSchemaSql = [
   checkoutPaymentAffordanceSchemaSql,
   checkoutPaymentSummarySchemaSql,
   checkoutSessionSchemaSql,
+  checkoutSessionRetainedSchemaSql,
 ].join("\n");
 
 export const checkoutSchemaMigrations = [

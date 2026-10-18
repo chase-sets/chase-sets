@@ -204,10 +204,11 @@ export function createInventoryApiClient({
     ): Promise<InventoryImportBatchJobStatus> {
       return parseJsonResponse(await client["import-batches"].$post({ json: body, header: headers }));
     },
-    async getImportBatch(id: string): Promise<InventoryImportBatchDetail> {
+    async getImportBatch(id: string, query = ""): Promise<InventoryImportBatchDetail> {
       return parseJsonResponse(
         await client["import-batches"][":id"].$get({
           param: { id },
+          query: Object.fromEntries(new URLSearchParams(query)),
           header: headers,
         }),
       );

@@ -23,8 +23,19 @@ export type McpJsonSchema = Readonly<{
   properties: Readonly<Record<string, McpJsonSchemaProperty>>;
 }>;
 
+export type McpJsonSchemaPrimitiveType = "string" | "number" | "integer" | "boolean" | "array" | "object";
+
+declare const nullableTypeBrand: unique symbol;
+
+/**
+ * Standard JSON Schema `[<T>, "null"]`. Branded so only `nullableProperty`
+ * authors it; the brand is type-only and never serialized.
+ */
+export type McpNullableJsonSchemaType = readonly [McpJsonSchemaPrimitiveType, "null"] &
+  Readonly<{ [nullableTypeBrand]: true }>;
+
 export type McpJsonSchemaProperty = Readonly<{
-  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  type: McpJsonSchemaPrimitiveType | McpNullableJsonSchemaType;
   description: string;
   enum?: readonly string[];
   items?: McpJsonSchemaProperty;
@@ -166,6 +177,19 @@ export const arrayProperty = (description: string, items: McpJsonSchemaProperty)
   type: "array",
   description,
   items,
+});
+
+/**
+ * Accepts `null` alongside the property's own type. Nested rules still apply
+ * to non-null values. `enum` is excluded: JSON Schema clients would refuse a
+ * `null` absent from it, so the published contract would disagree with the
+ * server.
+ */
+export const nullableProperty = (
+  property: McpJsonSchemaProperty & Readonly<{ type: McpJsonSchemaPrimitiveType; enum?: undefined }>,
+): McpJsonSchemaProperty => ({
+  ...property,
+  type: [property.type, "null"] as unknown as McpNullableJsonSchemaType,
 });
 
 // Shared guidance for every write tool's `idempotencyKey` field: the agent

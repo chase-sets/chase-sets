@@ -37,6 +37,7 @@ describe("issue-7169-ac1-caller-partition", () => {
   ])("freezes M16 C1 parity and g7 gains: %s", (_shape, template, rejectsHolds, rejectsRestock) => {
     for (const [family, rejected] of [
       ["holds", rejectsHolds],
+      ["importBatches", rejectsHolds],
       ["restockDecisions", rejectsRestock],
     ] as const) {
       const scan = () =>
