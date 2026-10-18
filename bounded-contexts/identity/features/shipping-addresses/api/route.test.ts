@@ -33,7 +33,11 @@ const addressBody = {
   makeDefault: true,
 };
 
-function buildApp(services: ShippingAddressServices, resolvedActor: ResolvedActor = actor) {
+function buildApp(
+  services: ShippingAddressServices,
+  resolvedActor: ResolvedActor = actor,
+  accountManagement?: Parameters<typeof shippingAddressRoutes>[1],
+) {
   const app = new Hono<IdentityApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", resolvedActor);
@@ -47,7 +51,7 @@ function buildApp(services: ShippingAddressServices, resolvedActor: ResolvedActo
     } as EventStoreContext);
     await next();
   });
-  app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services));
+  app.route("/accounts/:accountId/shipping-addresses", shippingAddressRoutes(services, accountManagement));
   return app;
 }
 
@@ -66,6 +70,28 @@ function buildServices(overrides: Partial<ShippingAddressServices> = {}) {
 }
 
 describe("shipping address API route", () => {
+  it("keyed field rejection emits the unkeyed field body and no mutation receipt", async () => {
+    const services = buildServices();
+    const accountManagement = {
+      submit: vi.fn(async () => ({ outcome: "not-recorded", code: "validation-failed", shippingAddressField: "city" })),
+      lookup: vi.fn(),
+    } as Parameters<typeof shippingAddressRoutes>[1];
+    const response = await buildApp(services, actor, accountManagement).request("/accounts/acc_1/shipping-addresses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "9230f01b-7871-420b-9c32-37139f80f749" },
+      body: JSON.stringify(addressBody),
+    });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "validation_failed",
+        message: expect.any(String),
+        details: [{ field: "city", code: "required", message: expect.any(String) }],
+      },
+    });
+    expect(services.commandHandler).not.toHaveBeenCalled();
+  });
+
   it("preserves rejection parity and no write", async () => {
     const written = vi.fn();
     const services = buildServices({

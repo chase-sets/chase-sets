@@ -15,6 +15,43 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe("issue-7168-ac9-transport-state", () => {
+  it("caller-presented failures notify once per attempt and suppress the controller Banner", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    vi.spyOn(routerApi, "UNSAFE_decodeViaTurboStream").mockResolvedValue({
+      value: {
+        data: {
+          failure: {
+            kind: "validation",
+            status: 400,
+            code: "validation_failed",
+            message: "Name is required.",
+            intent: "update-profile",
+            errors: { fieldErrors: { name: ["Name is required."] }, formErrors: [] },
+          },
+        },
+      },
+    } as never);
+    const fetch = vi.fn().mockResolvedValue(new Response("synthetic", { status: 400 }));
+    vi.stubGlobal("fetch", fetch);
+    const onMutation = vi.fn();
+    renderAccountManagementPage(
+      <AccountMutationForm method="post" onMutation={onMutation}>
+        <HiddenInput name="intent" value="update-profile" />
+        <TextInput name="name" label="Name" />
+        <Button type="submit">Save</Button>
+      </AccountMutationForm>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(false));
+    fireEvent.submit(screen.getByRole("button", { name: "Save" }).closest("form")!);
+    await waitFor(() => expect(onMutation).toHaveBeenCalledTimes(2));
+    expect(onMutation.mock.calls.map(([event]) => event.type)).toEqual(["accepted", "failure"]);
+    expect(onMutation.mock.calls[1][0]).toMatchObject({
+      type: "failure",
+      failure: { intent: "update-profile", target: "acc_test", message: "Name is required." },
+    });
+    expect(screen.queryByText("No change was recorded. Review and submit again.")).toBeNull();
+  });
+
   it("holds only the ambiguous action/target while an unrelated team form still submits", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const observe = vi.fn();

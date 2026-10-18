@@ -6,6 +6,59 @@ const binding = { tenantId: "tnt_test", userId: "usr_test", accountId: "acc_test
 afterEach(() => vi.restoreAllMocks());
 
 describe("issue-7168-ac9-transport-state", () => {
+  it("failure details are admitted only for the direct validated keyed envelope", async () => {
+    const target = "adr_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const failure = {
+      kind: "validation",
+      status: 400,
+      code: "validation_failed",
+      message: "City is required.",
+      intent: "update",
+      classification: "FIELD",
+      shippingAddressId: target,
+      errors: { fieldErrors: { city: ["City is required."] }, formErrors: [] },
+    };
+    vi.spyOn(router, "UNSAFE_decodeViaTurboStream").mockResolvedValue({ value: { data: { failure } } } as never);
+    const fetch = vi.fn().mockResolvedValue(new Response("synthetic", { status: 400 }));
+    const result = await sendMutation({
+      route: "/account/shipping-addresses",
+      action: "update",
+      target,
+      key: "9230f01b-7871-420b-9c32-37139f80f749",
+      form: new FormData(),
+      fetch,
+      binding,
+    });
+    expect(result).toMatchObject({
+      state: "failed-safe",
+      failure: { intent: "update", target, message: failure.message },
+    });
+    expect(Object.isFrozen(result.failure)).toBe(true);
+    expect(Object.isFrozen(result.failure?.errors)).toBe(true);
+
+    for (const patch of [
+      { intent: "create" },
+      { shippingAddressId: "adr_01ARZ3NDEKTSV4RRFFQ69G5FAT" },
+      { shippingAddressId: undefined, intent: "create" },
+      { shippingAddressId: "not-an-address" },
+      { errors: { fieldErrors: { unknown: ["marker"] }, formErrors: [] } },
+    ]) {
+      vi.spyOn(router, "UNSAFE_decodeViaTurboStream").mockResolvedValueOnce({
+        value: { data: { failure: { ...failure, ...patch } } },
+      } as never);
+      const rejected = await sendMutation({
+        route: "/account/shipping-addresses",
+        action: "update",
+        target,
+        key: "f230f01b-7871-420b-9c32-37139f80f749",
+        form: new FormData(),
+        fetch: vi.fn().mockResolvedValue(new Response("synthetic", { status: 400 })),
+        binding,
+      });
+      expect(rejected.failure).toBeUndefined();
+    }
+  });
+
   it("uses one keyed .data POST and one read-only confirmation after possibly-sent loss", async () => {
     const fetch = vi
       .fn()

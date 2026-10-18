@@ -204,6 +204,18 @@ describe("issue-7168-ac6-api-key-secret", () => {
 });
 
 describe("issue-7168-ac7-address-provider-order", () => {
+  it("keyed field rejection retains the field without a receipt or event", async () => {
+    const f = fixture();
+    const result = await f.runtime.submit({
+      ...input,
+      action: "create",
+      target: null,
+      body: { label: "Home", line1: "1 Test St", city: "Chicago", state: "IL", postalCode: "60601", country: "US" },
+    });
+    expect(result).toEqual({ outcome: "not-recorded", code: "validation-failed", shippingAddressField: "name" });
+    expect(f.memory.allEvents).toHaveLength(0);
+  });
+
   it.each(["verified", "corrected", "unverified"] as const)(
     "retains the accepted %s port snapshot and never calls the port on replay",
     async (status) => {
