@@ -328,6 +328,7 @@ describe("staging count capture lifecycle", () => {
   it("the replay guard-disabled mutant proceeds past acquisition", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
     await hostile(f, "replay", {
+      lifecycle: [["countFingerprint(normalized) !== countFingerprint(run.quote)", "false"]],
       store: [
         ["(last !== undefined && phaseOrder(phase) <= phaseOrder(last))", "false"],
         ["index === 0 || phaseOrder(run.phases[index - 1]!) < phaseOrder(phase)", "true"],
@@ -341,6 +342,7 @@ describe("staging count capture lifecycle", () => {
         ],
         ["inPhase.length >= run.quote.cap", "false"],
         ["inPhase.some((entry) => entry.category === send.category)", "false"],
+        ["sends.length !== run.quote?.plannedCredits", "false"],
       ],
     });
   });
