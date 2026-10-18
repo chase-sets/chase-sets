@@ -1,0 +1,193 @@
+{
+  "metadata": {
+    "formatVersion": "2.4.0",
+    "generatedOn": "2026-10-16T16:43:42",
+    "language": "en"
+  },
+  "sets": {
+    "1": {},
+    "2": {},
+    "3": {},
+    "4": {},
+    "5": {},
+    "6": {},
+    "7": {},
+    "8": {},
+    "9": {},
+    "10": {},
+    "11": {},
+    "12": {},
+    "13": {},
+    "14": {},
+    "15": {},
+    "16": {},
+    "Q1": {},
+    "Q2": {},
+    "Q3": {}
+  },
+  "cards": [
+    {
+      "id": 1191,
+      "code": "jd",
+      "setCode": "1",
+      "number": 1,
+      "fullName": "Mickey Mouse - Brave Little Tailor",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Expo 2024 Collector's Set"
+    },
+    {
+      "id": 1192,
+      "code": "je",
+      "setCode": "2",
+      "number": 2,
+      "fullName": "Cinderella - Stouthearted",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Expo 2024 Collector's Set"
+    },
+    {
+      "id": 1193,
+      "code": "jf",
+      "setCode": "3",
+      "number": 3,
+      "fullName": "Ursula - Deceiver",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Expo 2024 Collector's Set"
+    },
+    {
+      "id": 1194,
+      "code": "jg",
+      "setCode": "4",
+      "number": 4,
+      "fullName": "Bruno Madrigal - Undetected Uncle",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Expo 2024 Collector's Set"
+    },
+    {
+      "id": 1195,
+      "code": "jh",
+      "setCode": "5",
+      "number": 5,
+      "fullName": "Vanellope von Schweetz - Sugar Rush Princess",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Expo 2024 Collector's Set"
+    },
+    {
+      "id": 1422,
+      "code": "mW",
+      "setCode": "6",
+      "number": 6,
+      "fullName": "Oswald - The Lucky Rabbit",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Expo 2024 Collector's Set"
+    },
+    {
+      "id": 1432,
+      "code": "n6",
+      "setCode": "4",
+      "number": 7,
+      "fullName": "Mickey Mouse - Playful Sorcerer",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Expo 2024"
+    },
+    {
+      "id": 1895,
+      "code": "uz",
+      "setCode": "8",
+      "number": 8,
+      "fullName": "Iago - Out of Reach",
+      "promoGrouping": "D23",
+      "promoSource": "D23 Gold Membership"
+    },
+    {
+      "id": 3585,
+      "code": "VP",
+      "setCode": "12",
+      "number": 9,
+      "fullName": "Woody - Leader of the Toys",
+      "promoGrouping": "D23"
+    },
+    {
+      "id": 3586,
+      "code": "VQ",
+      "setCode": "11",
+      "number": 10,
+      "fullName": "Angel - Siren Singer",
+      "promoGrouping": "D23"
+    },
+    {
+      "id": 3587,
+      "code": "VR",
+      "setCode": "11",
+      "number": 11,
+      "fullName": "Pocahontas - Following the Wind",
+      "promoGrouping": "D23"
+    },
+    {
+      "id": 3588,
+      "code": "VS",
+      "setCode": "13",
+      "number": 12,
+      "fullName": "Mushu - Stealthy Dragon",
+      "promoGrouping": "D23"
+    },
+    {
+      "id": 3589,
+      "code": "VT",
+      "setCode": "14",
+      "number": 13,
+      "fullName": "Héctor Rivera - Gone to Pieces",
+      "promoGrouping": "D23"
+    },
+    {
+      "id": 3590,
+      "code": "VU",
+      "setCode": "10",
+      "number": 14,
+      "fullName": "Judy Hopps - Uncovering Clues",
+      "promoGrouping": "D23"
+    },
+    {
+      "id": 3591,
+      "code": "VV",
+      "setCode": "12",
+      "number": 15,
+      "fullName": "Mr. Incredible - Taking Out the Trash",
+      "promoGrouping": "D23"
+    },
+    {
+      "id": 2715,
+      "code": "HN",
+      "setCode": "7",
+      "number": 16,
+      "fullName": "Mad Hatter - Unruly Eccentric",
+      "promoGrouping": "D23"
+    },
+    {
+      "code": "01",
+      "setCode": "1",
+      "number": 1,
+      "fullName": "Ariel - On Human Legs"
+    },
+    {
+      "code": "aD",
+      "setCode": "1",
+      "number": 1,
+      "fullName": "Mickey Mouse - Brave Little Tailor",
+      "promoGrouping": "P1"
+    },
+    {
+      "code": "j9",
+      "setCode": "1",
+      "number": 1,
+      "fullName": "Dragon Fire",
+      "promoGrouping": "C1"
+    },
+    {
+      "code": "Qd",
+      "setCode": "1",
+      "number": 1,
+      "fullName": "Ariel - Spectacular Singer",
+      "promoGrouping": "CC1"
+    }
+  ]
+}

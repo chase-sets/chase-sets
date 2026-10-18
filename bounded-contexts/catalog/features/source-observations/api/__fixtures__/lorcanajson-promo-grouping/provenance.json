@@ -1,0 +1,34 @@
+{
+  "capturedAt": "2026-10-18T18:34:35.582Z",
+  "note": "Sanitized slices of public LorcanaJSON files, read without credentials for #10037 and #10048. A slice keeps only records and fields the capture recorded; card ids appear only where captured.",
+  "files": {
+    "all-cards.json": {
+      "sourceUrl": "https://lorcanajson.org/files/current/en/allCards.json",
+      "sha256": "a68a667a15f787a0f263b6ad9d7ca90a5829b0b06382b90206197eb3ed7f01b6",
+      "kept": "metadata; the set keys (entry fields were not captured); every promoGrouping D23 card; the set 1 cards numbered 1 outside D23",
+      "capturedPromoGroupingCounts": {
+        "P1": 39,
+        "P2": 35,
+        "C1": 9,
+        "D23": 16,
+        "P3": 59,
+        "C2": 10,
+        "P4": 8,
+        "PD1": 19,
+        "CC1": 6,
+        "DIS": 7,
+        "RPH": 7
+      }
+    },
+    "setdata.1.json": {
+      "sourceUrl": "https://lorcanajson.org/files/current/en/sets/setdata.1.json",
+      "sha256": "da671419acd129235627dd06e9f495e81c9fee0d1b14e0ee2721d0fbc73214a5",
+      "kept": "the promo cards numbered 1; the set header and the non-promo card 1-041 come from the repo's setdata.1 validation slice in catalog-fixture-transports.ts",
+      "capturedCounts": {
+        "cards": 245,
+        "promoCards": 29,
+        "nonPromo": 216
+      }
+    }
+  }
+}
