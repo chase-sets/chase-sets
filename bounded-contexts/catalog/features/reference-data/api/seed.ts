@@ -4,7 +4,7 @@ import { retryLocalProjectionBlockedStream } from "@chase-sets/bounded-context-r
 import type { CatalogValue } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
-import { sendSeedCommand } from "../../../support/seed-support/context";
+import { seedContext, sendSeedCommand } from "../../../support/seed-support/context";
 import { loadSeedAggregateState, loadSeedStreamEvents } from "../../../support/seed-support/aggregate-state";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import {
@@ -13,6 +13,7 @@ import {
   initialReferenceRecordState,
   initialReferenceTypeState,
   type ReferenceRecordEvent,
+  type ReferenceRecordState,
   type ReferenceRelationship,
   type ReferenceTypeEvent,
 } from "../domain/domain";
@@ -40,6 +41,12 @@ type ReferenceRecordDef = Readonly<{
   description: string;
   attributes?: Readonly<Record<string, CatalogValue>>;
   relationships?: readonly ReferenceRelationship[];
+  /**
+   * Exact values an earlier seed wrote for some of `attributes`. Reconciliation
+   * revises a retained record only while it still holds one of these values,
+   * and only those attributes; any other retained value is left untouched.
+   */
+  supersededAttributes?: Readonly<Record<string, CatalogValue>>;
 }>;
 
 export type PokemonReferenceIds = Readonly<{
@@ -288,21 +295,32 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
       "tcgdex-set-id": "basep",
     },
   ),
-  expansion("prismatic-evolutions", "Prismatic Evolutions", expansionIds.prismaticEvolutions, seriesIds.scarletViolet, {
-    abbreviation: "PRE",
-    "release-date": "2025-01-17",
-    "tcgdex-set-id": "sv8.5",
-  }),
-  expansion("surging-sparks", "Surging Sparks", expansionIds.surgingSparks, seriesIds.scarletViolet, {
-    abbreviation: "SSP",
-    "release-date": "2024-11-08",
-    "tcgdex-set-id": "sv8",
-  }),
-  expansion("twilight-masquerade", "Twilight Masquerade", expansionIds.twilightMasquerade, seriesIds.scarletViolet, {
-    abbreviation: "TWM",
-    "release-date": "2024-05-24",
-    "tcgdex-set-id": "sv6",
-  }),
+  // English TCGdex ids are the exact `/v2/en/sets` ids; earlier seeds wrote
+  // `sv8.5`, `sv8` and `sv6`, which that list does not contain (#10062).
+  expansion(
+    "prismatic-evolutions",
+    "Prismatic Evolutions",
+    expansionIds.prismaticEvolutions,
+    seriesIds.scarletViolet,
+    { abbreviation: "PRE", "release-date": "2025-01-17", "tcgdex-set-id": "sv08.5" },
+    { "tcgdex-set-id": "sv8.5" },
+  ),
+  expansion(
+    "surging-sparks",
+    "Surging Sparks",
+    expansionIds.surgingSparks,
+    seriesIds.scarletViolet,
+    { abbreviation: "SSP", "release-date": "2024-11-08", "tcgdex-set-id": "sv08" },
+    { "tcgdex-set-id": "sv8" },
+  ),
+  expansion(
+    "twilight-masquerade",
+    "Twilight Masquerade",
+    expansionIds.twilightMasquerade,
+    seriesIds.scarletViolet,
+    { abbreviation: "TWM", "release-date": "2024-05-24", "tcgdex-set-id": "sv06" },
+    { "tcgdex-set-id": "sv6" },
+  ),
   magicSet("time-spiral", "Time Spiral", setIds.timeSpiral, {
     "set-code": "TSP",
     "printed-card-count": 301,
@@ -340,6 +358,26 @@ const referenceRecords: readonly ReferenceRecordDef[] = [
     "tcgplayer-set-name": "D23 Promos",
   }),
 ];
+
+/** The seeded Pokemon expansion records that provider promotion must reuse rather than duplicate. */
+export const pokemonExpansionReferenceRecordSeeds = referenceRecords.filter((def) => def.typeKey === "expansion");
+
+/**
+ * Provider-provisioned records that duplicate a seeded record (#10062). While
+ * the seed held `sv8`, TCGdex promotion of English `sv08` could not find the
+ * seeded Surging Sparks by its provider attribute and provisioned
+ * `ref_tcgdex_expansion_sv08` beside it. The seeded record is canonical; the
+ * duplicate is deprecated through the Reference Record lifecycle, which keeps
+ * its history and every Catalog Item and mapping that references it.
+ */
+const duplicateReferenceRecords = [
+  {
+    referenceRecordId: "ref_tcgdex_expansion_sv08" as ReferenceRecordId,
+    canonicalReferenceRecordId: expansionIds.surgingSparks,
+    typeKey: "expansion",
+    attributeKey: "tcgdex-set-id",
+  },
+] as const;
 
 export const referenceDataSeedRequirements = [
   ...referenceTypes.map((def) => ({
@@ -387,6 +425,10 @@ export async function seedReferenceData(services: CatalogServices): Promise<Cata
 
   for (const def of referenceRecords) {
     await reconcileReferenceRecord(services, def);
+  }
+
+  for (const duplicate of duplicateReferenceRecords) {
+    await retireDuplicateReferenceRecord(services, duplicate);
   }
 
   await seedOnePieceReferenceAliases(services);
@@ -599,11 +641,108 @@ async function reconcileReferenceRecord(services: CatalogServices, def: Referenc
     await createReferenceRecord(services, def);
     return;
   }
+  await correctSupersededAttributes(services, def, streamId, aggregate.state);
   if (aggregate.kind === "draft") {
     await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
       type: "PublishReferenceRecord",
     });
   }
+}
+
+async function correctSupersededAttributes(
+  services: CatalogServices,
+  def: ReferenceRecordDef,
+  streamId: string,
+  state: ReferenceRecordState,
+): Promise<void> {
+  const corrected = Object.entries(def.supersededAttributes ?? {}).flatMap(([attributeKey, supersededValue]) => {
+    const value = def.attributes?.[attributeKey];
+    return value !== undefined && state.attributes[attributeKey] === supersededValue
+      ? [[attributeKey, value] as const]
+      : [];
+  });
+  if (corrected.length === 0) {
+    return;
+  }
+
+  await sendSeedCommand(services.referenceData.referenceRecordCommandHandler, streamId, {
+    type: "ReviseReferenceRecord",
+    typeKey: def.typeKey,
+    key: def.key,
+    name: state.name ?? localizedTextMapFromEnglish(def.name),
+    description: state.description,
+    attributes: { ...state.attributes, ...Object.fromEntries(corrected) },
+    relationships: state.relationships,
+  });
+  console.log(
+    `  Reference Record "${def.name}" corrected ${corrected
+      .map(
+        ([attributeKey, value]) => `${attributeKey} '${String(state.attributes[attributeKey])}' -> '${String(value)}'`,
+      )
+      .join(", ")}`,
+  );
+}
+
+/**
+ * Deprecates a provider-provisioned duplicate once its seeded canonical record
+ * holds the same provider attribute value. An absent or already retired
+ * duplicate is left alone, so reconciliation stays idempotent. Any other
+ * retained state fails closed instead of retiring a record the seed did not
+ * expect, including a duplicate that still owns an accepted Provider Scope
+ * Mapping, because sync planning skips mappings on a retired scope record.
+ */
+async function retireDuplicateReferenceRecord(
+  services: CatalogServices,
+  duplicate: (typeof duplicateReferenceRecords)[number],
+): Promise<void> {
+  const streamId = `catalog.reference-record-${duplicate.referenceRecordId}`;
+  const events = await loadSeedStreamEvents<ReferenceRecordEvent>(services.db, streamId);
+  const state = events.reduce(evolveReferenceRecord, initialReferenceRecordState);
+  if (events.length === 0 || state.status === "deprecated" || state.status === "archived") {
+    return;
+  }
+
+  const canonical = (
+    await loadSeedStreamEvents<ReferenceRecordEvent>(
+      services.db,
+      `catalog.reference-record-${duplicate.canonicalReferenceRecordId}`,
+    )
+  ).reduce(evolveReferenceRecord, initialReferenceRecordState);
+  const sharedValue = canonical.attributes[duplicate.attributeKey];
+  const refusal = `Catalog integration bootstrap cannot retire duplicate Reference Record '${duplicate.referenceRecordId}'`;
+  if (
+    state.id !== duplicate.referenceRecordId ||
+    state.typeKey !== duplicate.typeKey ||
+    state.status !== "active" ||
+    canonical.status !== "active" ||
+    sharedValue === undefined ||
+    state.attributes[duplicate.attributeKey] !== sharedValue
+  ) {
+    throw new Error(
+      `${refusal}: expected an active ${duplicate.typeKey} sharing ${duplicate.attributeKey} '${String(sharedValue)}' ` +
+        `with active '${duplicate.canonicalReferenceRecordId}', but found status '${state.status}' and ` +
+        `${duplicate.attributeKey} '${String(state.attributes[duplicate.attributeKey])}'.`,
+    );
+  }
+  const acceptedMappings = await services.providerScopeMappings.listAcceptedMappingsByScopeRecord(
+    duplicate.referenceRecordId,
+  );
+  if (acceptedMappings.length > 0) {
+    throw new Error(`${refusal}: it still owns ${acceptedMappings.length} accepted Provider Scope Mapping(s).`);
+  }
+
+  // Fenced to the history validated above: a revision that lands in between
+  // refuses with a concurrency conflict instead of retiring an unchecked record.
+  await services.referenceData.referenceRecordCommandHandler({
+    streamId,
+    command: { type: "DeprecateReferenceRecord" },
+    context: seedContext,
+    expectedVersion: events.length,
+  });
+  console.log(
+    `  Reference Record '${duplicate.referenceRecordId}' deprecated as a duplicate of ` +
+      `'${duplicate.canonicalReferenceRecordId}' (${duplicate.attributeKey} '${String(sharedValue)}')`,
+  );
 }
 
 function expansion(
@@ -612,6 +751,7 @@ function expansion(
   referenceRecordId: ReferenceRecordId,
   seriesId: ReferenceRecordId,
   attributes: Readonly<Record<string, CatalogValue>>,
+  supersededAttributes?: Readonly<Record<string, CatalogValue>>,
 ): ReferenceRecordDef {
   return {
     referenceRecordId,
@@ -621,6 +761,7 @@ function expansion(
     description: `${name} Pokemon TCG expansion.`,
     attributes,
     relationships: [{ relationshipType: "part-of", referenceId: seriesId }],
+    ...(supersededAttributes ? { supersededAttributes } : {}),
   };
 }
 

@@ -540,6 +540,15 @@ function scalarAttributeText(value: JsonValue | undefined): string | null {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : null;
 }
 
+const provisionableStatusSql = "\n       AND status IN ('draft', 'active')";
+
+/**
+ * Discovers a reuse candidate by type/key, then by provider attribute, offering
+ * a provisionable (draft or active) record first. A retired duplicate's key
+ * therefore gives way to the active record carrying the same provider id. With
+ * no provisionable candidate, a retired one is still offered so its proof
+ * refuses it, rather than provisioning a new record beside it.
+ */
 async function findExistingReferenceRecord(
   deps: CatalogRuntimeDeps,
   def: {
@@ -548,10 +557,25 @@ async function findExistingReferenceRecord(
     attributes?: Readonly<Record<string, JsonValue>>;
   },
 ): Promise<ReferenceRecordReuseCandidate | null> {
+  return (
+    (await findReferenceRecordCandidate(deps, def, provisionableStatusSql)) ??
+    findReferenceRecordCandidate(deps, def, "")
+  );
+}
+
+async function findReferenceRecordCandidate(
+  deps: CatalogRuntimeDeps,
+  def: {
+    typeKey: string;
+    key: string;
+    attributes?: Readonly<Record<string, JsonValue>>;
+  },
+  statusSql: string,
+): Promise<ReferenceRecordReuseCandidate | null> {
   const existing = await deps.db.query<{ reference_record_id: string }>(
     `SELECT reference_record_id
      FROM catalog_reference_records
-     WHERE type_key = $1 AND key = $2
+     WHERE type_key = $1 AND key = $2${statusSql}
      LIMIT 1`,
     [def.typeKey, def.key],
   );
@@ -561,7 +585,7 @@ async function findExistingReferenceRecord(
     return { referenceRecordId: referenceRecordId as ReferenceRecordId, selector: { kind: "type-key" } };
   }
 
-  return findReferenceRecordByProviderAttribute(deps, def);
+  return findReferenceRecordByProviderAttribute(deps, def, statusSql);
 }
 
 async function findReferenceRecordByProviderAttribute(
@@ -570,6 +594,7 @@ async function findReferenceRecordByProviderAttribute(
     typeKey: string;
     attributes?: Readonly<Record<string, JsonValue>>;
   },
+  statusSql: string,
 ): Promise<ReferenceRecordReuseCandidate | null> {
   const providerAttribute = Object.entries(def.attributes ?? {}).find(
     ([key, value]) => isProviderReferenceAttributeKey(key) && typeof value === "string" && value.trim().length > 0,
@@ -586,7 +611,7 @@ async function findReferenceRecordByProviderAttribute(
     `SELECT reference_record_id
      FROM catalog_reference_records
      WHERE type_key = $1
-       AND attributes ->> $2 = $3
+       AND attributes ->> $2 = $3${statusSql}
      LIMIT 1`,
     [def.typeKey, attributeKey, attributeValue],
   );
