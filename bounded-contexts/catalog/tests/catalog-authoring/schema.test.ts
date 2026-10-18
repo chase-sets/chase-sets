@@ -52,6 +52,7 @@ describe("catalog authoring schema composition", () => {
     );
     expect(migration).toBeDefined();
     expect(migration?.statements).toEqual([
+      "SET LOCAL lock_timeout = '5s';",
       "DROP TABLE IF EXISTS catalog_tcgplayer_operator_session_outcomes",
       "DROP TABLE IF EXISTS catalog_tcgplayer_operator_sessions",
     ]);

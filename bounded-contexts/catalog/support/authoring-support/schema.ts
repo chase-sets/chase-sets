@@ -97,6 +97,7 @@ export const catalogAuthoringSchemaMigrations = [
       await db.query("DELETE FROM catalog_operator_session_grants");
     },
     statements: [
+      "SET LOCAL lock_timeout = '5s';",
       "DROP TABLE IF EXISTS catalog_tcgplayer_operator_session_outcomes",
       "DROP TABLE IF EXISTS catalog_tcgplayer_operator_sessions",
     ],
