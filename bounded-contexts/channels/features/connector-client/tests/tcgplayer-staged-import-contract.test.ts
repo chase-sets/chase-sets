@@ -41,13 +41,14 @@ const member = {
 
 describe("tcgplayer-staged-import-classification-contract", () => {
   it.each([
-    ["unknown top-level", { ...tcgplayerStagedImportCandidateClassification, extra: true }],
+    ["unknown top-level", { ...tcgplayerStagedImportCandidateClassification, extra: true }, "invalid-record"],
     [
       "nested unknown",
       {
         ...tcgplayerStagedImportCandidateClassification,
         initialize: [{ ...tcgplayerStagedImportCandidateClassification.initialize[0], extra: true }],
       },
+      "invalid-record",
     ],
     [
       "duplicate field",
@@ -58,6 +59,7 @@ describe("tcgplayer-staged-import-classification-contract", () => {
           tcgplayerStagedImportCandidateClassification.initialize[0],
         ],
       },
+      "duplicate-field",
     ],
     [
       "credential-shaped",
@@ -65,12 +67,15 @@ describe("tcgplayer-staged-import-classification-contract", () => {
         ...tcgplayerStagedImportCandidateClassification,
         initialize: [{ key: "sessionToken", class: { kind: "closed-constant", value: "x" } }],
       },
+      "credential-shaped-field",
     ],
-    ["unclassified", { ...tcgplayerStagedImportCandidateClassification, initialize: [{ key: "x", class: null }] }],
-  ])("rejects %s", (_name, value) =>
-    expect(() => decodeTcgplayerStagedImportFieldClassification(value)).toThrow(
-      /staged-import-classification-(invalid-record|duplicate-field|credential-shaped-field|unclassified-field)/,
-    ),
+    [
+      "unclassified",
+      { ...tcgplayerStagedImportCandidateClassification, initialize: [{ key: "x", class: null }] },
+      "unclassified-field",
+    ],
+  ])("rejects %s", (_name, value, code) =>
+    expect(() => decodeTcgplayerStagedImportFieldClassification(value)).toThrow(`staged-import-classification-${code}`),
   );
 
   it("requires founder-session authority when requested", () => {
@@ -128,36 +133,39 @@ describe("tcgplayer-staged-import-builder-isolation", () => {
   });
 
   it.each([
-    ["empty rows", []],
-    ["invalid price", [{ ...row, "TCG Marketplace Price": "" }]],
-    ["missing id", [{ ...row, "TCGplayer Id": "" }]],
-    ["missing classified reference", [{ ...row, Condition: undefined }]],
-  ])("refuses %s before creating bytes", (_name, composedRows) => {
+    ["empty rows", [], "staged-import-envelope-zero-composed-rows"],
+    [
+      "invalid price",
+      [{ ...row, "TCG Marketplace Price": "" }],
+      "staged-import-envelope-row-outside-observed-input-classes",
+    ],
+    ["missing id", [{ ...row, "TCGplayer Id": "" }], "staged-import-envelope-row-outside-observed-input-classes"],
+    [
+      "missing classified reference",
+      [{ ...row, Condition: undefined }],
+      "staged-import-envelope-missing-reference-column",
+    ],
+  ])("refuses %s before creating bytes", (_name, composedRows, code) => {
     expect(() =>
       buildTcgplayerStagedImportEnvelope({
         classification: tcgplayerStagedImportCandidateClassification,
         composedRows,
         continuation,
       }),
-    ).toThrow(
-      /staged-import-envelope-(zero-composed-rows|row-outside-observed-input-classes|missing-reference-column|invalid-composed-value)/,
-    );
+    ).toThrow(code);
   });
 
-  it("keeps sentinel values out of DTOs and refusal messages", () => {
-    const sentinel = "SENTINEL-builder-7d1\u0001";
-    let refusal: unknown;
-    try {
-      buildTcgplayerStagedImportEnvelope({
-        classification: tcgplayerStagedImportCandidateClassification,
-        composedRows: [{ ...row, "Product Name": sentinel }],
-        continuation: { stagedPricingUploadId: sentinel, batchFileName: sentinel },
-      });
-    } catch (error) {
-      refusal = error;
+  it("keeps a successful unclassified sentinel out of every DTO", () => {
+    const sentinel = "SENTINEL-builder-7d1";
+    const envelope = buildTcgplayerStagedImportEnvelope({
+      classification: tcgplayerStagedImportCandidateClassification,
+      composedRows: [{ ...row, Title: sentinel }],
+      continuation,
+    });
+    for (const body of Object.values(envelope)) {
+      expect(body).not.toContain(sentinel);
+      expect(decodeURIComponent(body)).not.toContain(sentinel);
     }
-    expect(refusal).toMatchObject({ code: "invalid-composed-value" });
-    expect(String((refusal as Error).message)).not.toContain("SENTINEL");
     expect(JSON.stringify(tcgplayerStagedImportCandidateClassification)).not.toContain(sentinel);
     for (const name of [
       "tcgplayer-staged-import-classification.ts",
@@ -172,7 +180,7 @@ describe("tcgplayer-staged-import-builder-isolation", () => {
 });
 
 describe("tcgplayer-staged-import-release-gate", () => {
-  it("checks builder bytes, path, order and releases each phase once", async () => {
+  it("checks builder bytes and refuses a second initialize release", async () => {
     const sink = vi.fn();
     const gate = createTcgplayerStagedImportReleaseGate({
       classification: tcgplayerStagedImportCandidateClassification,
@@ -198,7 +206,7 @@ describe("tcgplayer-staged-import-release-gate", () => {
     expect(gate.stopped()).toBe(true);
   });
 
-  it("rejects mismatched bytes, paths, redirects and out-of-order phases", async () => {
+  it("rejects an out-of-order phase and latches STOP", async () => {
     const sink = vi.fn();
     const gate = createTcgplayerStagedImportReleaseGate({
       classification: tcgplayerStagedImportCandidateClassification,
@@ -216,6 +224,7 @@ describe("tcgplayer-staged-import-release-gate", () => {
       }),
     ).rejects.toThrow("staged-import-release-invalid-request");
     expect(sink).not.toHaveBeenCalled();
+    expect(gate.stopped()).toBe(true);
   });
 
   it("rejects mismatched bodies without invoking the sink", async () => {
@@ -269,14 +278,93 @@ describe("tcgplayer-staged-import-release-gate", () => {
     ).rejects.toThrow("staged-import-release-stopped");
   });
 
-  it("rejects sink failures with an exact code", async () => {
+  const phasePath = {
+    initialize: "/admin/pricing/initializeexportcsv",
+    upload: "/admin/pricing/uploadexportcsv",
+    finalize: "/admin/pricing/finalizeexportcsv",
+  } as const;
+  const phases = ["initialize", "upload", "finalize"] as const;
+  const releaseRequest = (phase: (typeof phases)[number], path: string = phasePath[phase]) => ({
+    phase,
+    method: "POST" as const,
+    path,
+    body: buildTcgplayerStagedImportEnvelope({
+      classification: tcgplayerStagedImportCandidateClassification,
+      composedRows: [row],
+      continuation,
+    })[phase],
+    redirect: "error" as const,
+  });
+  const spyGate = () => {
+    const sink = vi.fn();
     const gate = createTcgplayerStagedImportReleaseGate({
       classification: tcgplayerStagedImportCandidateClassification,
       composedRows: [row],
       continuation,
-      sink: vi.fn(async () => {
-        throw new Error("synthetic sink failure");
+      sink,
+    });
+    return { gate, sink };
+  };
+
+  it("releases the three mapped phases in order exactly once each", async () => {
+    const { gate, sink } = spyGate();
+    for (const phase of phases) await gate.release(releaseRequest(phase));
+    expect(sink).toHaveBeenCalledTimes(3);
+    expect(sink.mock.calls.map(([request]) => request.path)).toEqual(phases.map((phase) => phasePath[phase]));
+    expect(sink.mock.calls.map(([request]) => request.body)).toEqual(
+      phases.map(
+        (phase) =>
+          buildTcgplayerStagedImportEnvelope({
+            classification: tcgplayerStagedImportCandidateClassification,
+            composedRows: [row],
+            continuation,
+          })[phase],
+      ),
+    );
+    expect(gate.stopped()).toBe(false);
+  });
+
+  it.each(phases)("refuses an off-map %s path with the builder body without invoking the sink", async (phase) => {
+    const { gate, sink } = spyGate();
+    for (const prior of phases.slice(0, phases.indexOf(phase))) await gate.release(releaseRequest(prior));
+    const before = sink.mock.calls.length;
+    await expect(gate.release(releaseRequest(phase, "/off/map"))).rejects.toThrow(
+      "staged-import-release-invalid-request",
+    );
+    expect(sink).toHaveBeenCalledTimes(before);
+    expect(gate.stopped()).toBe(true);
+  });
+
+  it.each([0, 1])("latches an explicit stop after %i released phases", async (released) => {
+    const { gate, sink } = spyGate();
+    for (const prior of phases.slice(0, released)) await gate.release(releaseRequest(prior));
+    gate.stop();
+    expect(gate.stopped()).toBe(true);
+    await expect(gate.release(releaseRequest(phases[released]!))).rejects.toThrow("staged-import-release-stopped");
+    expect(sink).toHaveBeenCalledTimes(released);
+  });
+
+  it("refuses a non-POST method before invoking the sink", async () => {
+    const { gate, sink } = spyGate();
+    await expect(
+      gate.release({
+        ...releaseRequest("initialize"),
+        method: "GET" as "POST",
       }),
+    ).rejects.toThrow("staged-import-release-invalid-request");
+    expect(sink).toHaveBeenCalledTimes(0);
+    expect(gate.stopped()).toBe(true);
+  });
+
+  it("rejects sink failures with an exact code", async () => {
+    const sink = vi.fn(async () => {
+      throw new Error("synthetic sink failure");
+    });
+    const gate = createTcgplayerStagedImportReleaseGate({
+      classification: tcgplayerStagedImportCandidateClassification,
+      composedRows: [row],
+      continuation,
+      sink,
     });
     const body = buildTcgplayerStagedImportEnvelope({
       classification: tcgplayerStagedImportCandidateClassification,
@@ -292,7 +380,18 @@ describe("tcgplayer-staged-import-release-gate", () => {
         redirect: "error",
       }),
     ).rejects.toThrow("staged-import-release-sink-failed");
+    expect(sink).toHaveBeenCalledTimes(1);
     expect(gate.stopped()).toBe(true);
+    await expect(
+      gate.release({
+        phase: "upload",
+        method: "POST",
+        path: "/admin/pricing/uploadexportcsv",
+        body: "x",
+        redirect: "error",
+      }),
+    ).rejects.toThrow("staged-import-release-stopped");
+    expect(sink).toHaveBeenCalledTimes(1);
   });
 
   it("closes a concurrent release race", async () => {
@@ -319,7 +418,11 @@ describe("tcgplayer-staged-import-release-gate", () => {
     };
     const settled = await Promise.allSettled([gate.release(request), gate.release(request)]);
     expect(settled.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(settled.find((result) => result.status === "rejected")?.reason?.message).toBe(
+      "staged-import-release-phase-released",
+    );
     expect(sink).toHaveBeenCalledTimes(1);
+    expect(gate.stopped()).toBe(true);
   });
 });
 
@@ -508,25 +611,42 @@ describe("tcgplayer-staged-import-readback-verdict", () => {
     ).toThrow("invalid-record");
   });
 
-  it("isolates sentinel values from verdicts and source holds no provider APIs", () => {
-    const sentinel = readback([
+  it("isolates sentinel values from verdicts after member comparison", () => {
+    const sentinel = "SENTINEL-readback-7d1";
+    const pre = readback([
       {
         id: "1001",
         sellerColumns: {
           "TCGplayer Id": "1001",
           "Total Quantity": "1",
+          "Add to Quantity": "0",
           "TCG Marketplace Price": "1.00",
-          "Product Name": "SENTINEL-7d1",
+          Title: sentinel,
         },
       },
+      preRows[1]!,
     ]);
+    const post = readback([
+      {
+        id: "1001",
+        sellerColumns: {
+          ...pre.rows[0]!.sellerColumns,
+          "Total Quantity": "3",
+          "Add to Quantity": "2",
+          "TCG Marketplace Price": "1.25",
+        },
+      },
+      { ...preRows[1]!, sellerColumns: { ...preRows[1]!.sellerColumns, Title: "changed" } },
+    ]);
+    const validMember = { ...member, csvRow: { "Add to Quantity": "2", "TCG Marketplace Price": "1.25" } };
     const verdict = deriveTcgplayerStagedImportReadbackVerdict({
-      pre: sentinel,
-      post: sentinel,
-      members: [],
+      pre,
+      post,
+      members: [validMember],
       authority,
     });
-    expect(JSON.stringify(verdict)).not.toContain("SENTINEL");
+    expect(verdict).toMatchObject({ kind: "outcome-unknown", reason: "non-member-drift" });
+    expect(JSON.stringify(verdict)).not.toContain(sentinel);
     for (const name of [
       "tcgplayer-staged-import-classification.ts",
       "tcgplayer-staged-import-envelope.ts",
