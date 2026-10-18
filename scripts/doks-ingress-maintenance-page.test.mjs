@@ -41,7 +41,7 @@ function assertMaintenanceConfig(candidate) {
   const candidateBackend = candidate.defaultBackend;
   expect(candidate.controller.config).toEqual({
     "use-proxy-protocol": "false",
-    "use-forwarded-headers": "true",
+    "use-forwarded-headers": "false",
     "ssl-redirect": "true",
     "custom-http-errors": "502,503,504",
     "disable-proxy-intercept-errors": "true",

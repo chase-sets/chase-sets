@@ -100,7 +100,7 @@ const reviewedPreviewWildcardDelta = [
   {
     file: ".github/workflows/platform-production.yml",
     jobId: "deploy-staging",
-    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#28",
+    stepAnchor: "name:Converge staging preview DNS-01 token and renewal#29",
     secretName: "DIGITALOCEAN_ACCESS_TOKEN",
     purpose: "digitalocean-ops",
   },
@@ -262,6 +262,7 @@ const reviewedRetiredVerifierRemovals = new Set([
 const reviewedStepInsertions = [
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
   { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 52 },
+  { file: ".github/workflows/platform-production.yml", jobId: "deploy-staging", position: 28 },
 ];
 
 function applyReviewedStepInsertions(record) {
