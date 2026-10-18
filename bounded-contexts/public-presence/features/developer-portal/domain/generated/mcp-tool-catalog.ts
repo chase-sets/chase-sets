@@ -5301,7 +5301,7 @@ export const mcpToolCatalog = [
         },
         dryRun: {
           type: "boolean",
-          description: "Validate without creating a hosted setup session.",
+          description: "Dry runs are not supported; omit or pass false. True is refused before any setup work.",
         },
       },
     },
@@ -5351,7 +5351,7 @@ export const mcpToolCatalog = [
       },
       idempotencyKey: "required",
       idempotencyAuthority: "platform",
-      dryRunSupported: true,
+      dryRunSupported: false,
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: [

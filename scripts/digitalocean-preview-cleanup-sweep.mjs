@@ -12,6 +12,13 @@ export const DEFAULT_SPACES_ENDPOINT = "https://nyc3.digitaloceanspaces.com";
 export const DEFAULT_PREVIEW_STATE_PREFIX = "platform/previews/";
 export const PREVIEW_DATABASE_TERRAFORM_ADDRESS = "digitalocean_database_cluster.postgres";
 export const PREVIEW_DATABASE_DELETE_CONFIRMATION = "delete leaked preview database clusters";
+export const PLATFORM_PREVIEW_IDLE_DRAFTS_VERSION = "platform-preview-idle-drafts/v1";
+export const IDLE_DRAFT_MINIMUM_AGE_HOURS = 24;
+export const IDLE_DRAFT_MAX_SELECTIONS = 10;
+export const OPEN_PULL_REQUEST_PAGE_SIZE = 100;
+export const OPEN_PULL_REQUEST_MAX_PAGES = 50;
+const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
+const HOUR_MS = 3_600_000;
 
 // Per-preview DNS. Preview hostnames are single-label under
 // preview.chasesets.com (`pr-<n>`, `pr-<n>-marketplace`, `pr-<n>-admin`), so
@@ -206,20 +213,26 @@ export function previewPrNumberFromNamespaceName(name) {
   return match ? Number.parseInt(match[1], 10) : null;
 }
 
+// Every PR deploy deletes and recreates its namespace ("Reset preview
+// namespace" in platform-pr.yml), so `creationTimestamp` is the time of the
+// preview's last deploy. The closed-PR sweep ignores it; idle-draft retirement
+// reads it.
 export function selectPreviewNamespaceTargets(namespaces) {
-  const prNumbers = new Set();
+  const targetsByPr = new Map();
 
   for (const namespace of Array.isArray(namespaces) ? namespaces : []) {
     const name = typeof namespace === "string" ? namespace : (namespace?.metadata?.name ?? namespace?.name ?? "");
     const prNumber = previewPrNumberFromNamespaceName(name);
-    if (prNumber) {
-      prNumbers.add(prNumber);
+    if (prNumber && !targetsByPr.has(prNumber)) {
+      targetsByPr.set(prNumber, {
+        prNumber,
+        namespace: `chase-sets-pr-${prNumber}`,
+        creationTimestamp: namespace?.metadata?.creationTimestamp ?? null,
+      });
     }
   }
 
-  return [...prNumbers]
-    .sort((left, right) => left - right)
-    .map((prNumber) => ({ prNumber, namespace: `chase-sets-pr-${prNumber}` }));
+  return [...targetsByPr.values()].sort((left, right) => left.prNumber - right.prNumber);
 }
 
 export function previewPrNumberFromDatabaseClusterName(name) {
@@ -898,6 +911,174 @@ export async function discoverPreviewCleanupTargets(options = {}, dependencies =
   };
 }
 
+// An idle draft is a live chase-sets-pr-<n> namespace whose PR is open
+// and draft and whose namespace (recreated by every deploy) is at least 24h
+// old. Retiring it loses only the browsable URL; the next push rebuilds it.
+// A PR missing from the open listing is `not-open`, which is never selected,
+// so a listing that drops an entry can only under-select.
+function decideIdleDraftNamespace(target, openPullRequest, checkedAtMs) {
+  const ageMs = checkedAtMs - Date.parse(target.creationTimestamp);
+  const ageHours = Math.round((ageMs / HOUR_MS) * 10) / 10;
+  if (!openPullRequest) {
+    return { ageHours, decision: "not-open", reason: "PR is not open; the closed-PR sweep owns this namespace." };
+  }
+  if (!openPullRequest.draft) {
+    return {
+      ageHours,
+      decision: "open-ready",
+      reason: "PR is open and ready for review; its preview is never retired.",
+    };
+  }
+  if (ageMs >= IDLE_DRAFT_MINIMUM_AGE_HOURS * HOUR_MS) {
+    return {
+      ageHours,
+      decision: "idle-draft",
+      reason: `Open draft; last deploy at least ${IDLE_DRAFT_MINIMUM_AGE_HOURS}h ago.`,
+    };
+  }
+  return {
+    ageHours,
+    decision: "recent-draft",
+    reason: `Open draft; last deploy under ${IDLE_DRAFT_MINIMUM_AGE_HOURS}h ago.`,
+  };
+}
+
+export async function discoverIdleDraftPreviews(options, dependencies = {}) {
+  const recheckPrNumber = options.prNumber ?? null;
+  const record = {
+    schemaVersion: PLATFORM_PREVIEW_IDLE_DRAFTS_VERSION,
+    checkedAt: options.checkedAt,
+    repository: options.repository,
+    mode: recheckPrNumber === null ? "sweep" : "recheck",
+    recheckPrNumber,
+    minimumAgeHours: IDLE_DRAFT_MINIMUM_AGE_HOURS,
+    maxSelections: IDLE_DRAFT_MAX_SELECTIONS,
+    openPullRequestPages: 0,
+    openPullRequestCount: 0,
+    namespaces: [],
+    selected: [],
+    deferred: [],
+    counts: null,
+    recheck: null,
+    result: "failure",
+    errors: validateIdleDraftOptions(options),
+  };
+  const failed = () => ({ record, matrix: { include: [] } });
+  if (record.errors.length > 0) {
+    return failed();
+  }
+
+  const listNamespaces =
+    dependencies.listNamespaces ??
+    (() => commandJson("kubectl", ["get", "namespaces", "-o", "json", "--request-timeout=60s"], dependencies));
+  const fetchOpenPullRequestPage =
+    dependencies.fetchOpenPullRequestPage ??
+    ((page) =>
+      fetchGithubOpenPullRequestPage({ repository: options.repository, githubToken: options.githubToken, page }));
+
+  let targets;
+  try {
+    const listed = await listNamespaces();
+    const items = Array.isArray(listed) ? listed : listed?.items;
+    if (!Array.isArray(items)) {
+      throw new Error("kubectl namespace listing returned no items array.");
+    }
+    targets = selectPreviewNamespaceTargets(items);
+    for (const target of targets) {
+      if (!Number.isFinite(Date.parse(target.creationTimestamp ?? ""))) {
+        throw new Error(`Namespace ${target.namespace} has no parseable creationTimestamp.`);
+      }
+    }
+  } catch (error) {
+    record.errors.push("Preview namespace listing failed; nothing was selected.");
+    record.errors.push(describeError(error));
+    return failed();
+  }
+
+  // Fail closed on any failed, malformed, or unbounded page: an incomplete
+  // listing dispatches nothing.
+  const openPullRequests = new Map();
+  try {
+    for (let page = 1; ; page += 1) {
+      if (page > OPEN_PULL_REQUEST_MAX_PAGES) {
+        throw new Error(`Open pull request listing exceeded ${OPEN_PULL_REQUEST_MAX_PAGES} pages.`);
+      }
+      const items = await fetchOpenPullRequestPage(page);
+      if (!Array.isArray(items)) {
+        throw new Error(`Open pull request page ${page} was not a JSON array.`);
+      }
+      for (const item of items) {
+        if (!Number.isInteger(item?.number) || item?.state !== "open" || typeof item?.draft !== "boolean") {
+          throw new Error(`Open pull request page ${page} returned an entry without number, open state, and draft.`);
+        }
+        openPullRequests.set(item.number, { number: item.number, draft: item.draft });
+      }
+      record.openPullRequestPages = page;
+      if (items.length < OPEN_PULL_REQUEST_PAGE_SIZE) {
+        break;
+      }
+    }
+  } catch (error) {
+    record.errors.push("Open pull request listing failed; nothing was selected.");
+    record.errors.push(describeError(error));
+    return failed();
+  }
+  record.openPullRequestCount = openPullRequests.size;
+
+  const checkedAtMs = Date.parse(options.checkedAt);
+  record.namespaces = targets.map((target) => ({
+    ...target,
+    ...decideIdleDraftNamespace(target, openPullRequests.get(target.prNumber), checkedAtMs),
+  }));
+  const summarize = ({ prNumber, namespace, creationTimestamp, ageHours }) => ({
+    prNumber,
+    namespace,
+    creationTimestamp,
+    ageHours,
+  });
+
+  if (record.mode === "recheck") {
+    const entry = record.namespaces.find((namespace) => namespace.prNumber === recheckPrNumber);
+    const selected = entry?.decision === "idle-draft";
+    record.selected = selected ? [summarize(entry)] : [];
+    record.recheck = {
+      prNumber: recheckPrNumber,
+      decision: entry?.decision ?? null,
+      selected,
+      reason: entry?.reason ?? `No live chase-sets-pr-${recheckPrNumber} namespace exists.`,
+    };
+  } else {
+    const idleDrafts = record.namespaces
+      .filter((namespace) => namespace.decision === "idle-draft")
+      .sort(
+        (left, right) =>
+          Date.parse(left.creationTimestamp) - Date.parse(right.creationTimestamp) || left.prNumber - right.prNumber,
+      )
+      .map(summarize);
+    record.selected = idleDrafts.slice(0, IDLE_DRAFT_MAX_SELECTIONS);
+    record.deferred = idleDrafts.slice(IDLE_DRAFT_MAX_SELECTIONS);
+  }
+
+  const countDecision = (decision) => record.namespaces.filter((namespace) => namespace.decision === decision).length;
+  record.counts = {
+    namespaces: record.namespaces.length,
+    idleDraft: countDecision("idle-draft"),
+    recentDraft: countDecision("recent-draft"),
+    openReady: countDecision("open-ready"),
+    notOpen: countDecision("not-open"),
+    selected: record.selected.length,
+    deferred: record.deferred.length,
+  };
+  record.result = "success";
+  return {
+    record,
+    matrix:
+      record.mode === "recheck"
+        ? cleanupMatrixForTargets(record.selected, { checkoutRef: options.checkoutRef, imageSha: options.imageSha })
+        : { include: [] },
+  };
+}
+
 export async function buildPreviewDatabaseClusterInventory(options, dependencies = {}) {
   const errors = [];
   if (!isNonEmptyString(options.repository)) {
@@ -1454,6 +1635,50 @@ async function fetchGithubPullRequest(input) {
   ]);
 }
 
+async function fetchGithubOpenPullRequestPage(input) {
+  const response = await fetch(
+    `https://api.github.com/repos/${input.repository}/pulls?state=open&per_page=${OPEN_PULL_REQUEST_PAGE_SIZE}&page=${input.page}`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${input.githubToken}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`GitHub open pull request listing page ${input.page} returned ${response.status}.`);
+  }
+
+  return response.json();
+}
+
+function validateIdleDraftOptions(options) {
+  const errors = [];
+  if (!isNonEmptyString(options.repository)) {
+    errors.push("--repo is required.");
+  }
+  if (!isNonEmptyString(options.githubToken)) {
+    errors.push("--github-token is required.");
+  }
+  if (!Number.isFinite(Date.parse(options.checkedAt ?? ""))) {
+    errors.push("--checked-at must be an ISO timestamp.");
+  }
+  const prNumber = options.prNumber ?? null;
+  if (prNumber !== null) {
+    if (!(Number.isInteger(prNumber) && prNumber > 0)) {
+      errors.push("--pr-number must be a positive integer.");
+    }
+    for (const key of ["checkoutRef", "imageSha"]) {
+      if (!isNonEmptyString(options[key])) {
+        errors.push(`--${kebabCase(key)} is required with --pr-number.`);
+      }
+    }
+  }
+  return errors;
+}
+
 function validateDiscoverOptions(options) {
   const errors = [];
   for (const key of ["bucket", "endpointUrl", "prefix", "repository", "checkoutRef", "imageSha", "checkedAt"]) {
@@ -1478,6 +1703,22 @@ function parseDiscoverArgs(argv, env = process.env) {
     imageSha: readOption(argv, "--image-sha", env.PREVIEW_CLEANUP_IMAGE_SHA ?? ""),
     checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
     outPath: readOption(argv, "--out", env.PREVIEW_CLEANUP_SWEEP_OUT),
+    githubOutputPath: readOption(argv, "--github-output", env.GITHUB_OUTPUT),
+  };
+}
+
+function parseIdleDraftArgs(argv, env = process.env) {
+  // A present but empty or non-numeric --pr-number is an invalid re-check,
+  // never a fallback to the full sweep.
+  const rawPrNumber = readOption(argv, "--pr-number", hasOption(argv, "--pr-number") ? "" : null);
+  return {
+    prNumber: rawPrNumber === null ? null : /^\d+$/.test(rawPrNumber) ? Number.parseInt(rawPrNumber, 10) : Number.NaN,
+    repository: readOption(argv, "--repo", env.GITHUB_REPOSITORY ?? ""),
+    githubToken: readOption(argv, "--github-token", env.GITHUB_TOKEN ?? ""),
+    checkoutRef: readOption(argv, "--checkout-ref", ""),
+    imageSha: readOption(argv, "--image-sha", ""),
+    checkedAt: readOption(argv, "--checked-at", new Date().toISOString()),
+    outPath: readOption(argv, "--out", undefined),
     githubOutputPath: readOption(argv, "--github-output", env.GITHUB_OUTPUT),
   };
 }
@@ -1657,6 +1898,22 @@ async function main(argv = process.argv.slice(2)) {
     return result.record.result === "failure" ? 1 : 0;
   }
 
+  if (command === "discover-idle-drafts") {
+    const options = parseIdleDraftArgs(commandArgs);
+    const result = await discoverIdleDraftPreviews(options);
+    await writeOptionalRecord(options.outPath, result.record);
+    await writeGithubOutputs(options.githubOutputPath, {
+      result: result.record.result,
+      target_count: result.record.selected.length,
+      pr_numbers: result.record.selected.map((target) => target.prNumber).join(" "),
+      ...(result.record.mode === "recheck"
+        ? { matrix: JSON.stringify(result.matrix), reason: result.record.recheck?.reason ?? "re-check failed" }
+        : {}),
+    });
+    console.log(JSON.stringify(result.record, null, 2));
+    return result.record.result === "failure" ? 1 : 0;
+  }
+
   if (command === "inventory") {
     const options = parseInventoryArgs(commandArgs);
     const record = await buildPreviewDatabaseClusterInventory(options);
@@ -1698,7 +1955,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   throw new Error(
-    "Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs <discover|inventory|cleanup-databases|import-database|apply-shared-dns|destroy-dns> [options]",
+    "Usage: node scripts/digitalocean-preview-cleanup-sweep.mjs <discover|discover-idle-drafts|inventory|cleanup-databases|import-database|apply-shared-dns|destroy-dns> [options]",
   );
 }
 
