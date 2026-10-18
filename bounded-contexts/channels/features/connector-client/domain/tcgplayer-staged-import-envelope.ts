@@ -76,16 +76,12 @@ function formBody(
   continuation: TcgplayerStagedImportContinuation,
 ): string {
   const params = new URLSearchParams();
-  for (const field of fields) {
-    const repeated = field.key.includes("[n]");
-    if (repeated) {
-      rows.forEach((row, index) =>
-        params.append(keyFor(field, index), fieldValue(field, row, continuation, rows.length)),
-      );
-    } else {
-      params.append(field.key, fieldValue(field, rows[0], continuation, rows.length));
-    }
-  }
+  const repeated = fields.filter((field) => field.key.includes("[n]"));
+  const scalar = fields.filter((field) => !field.key.includes("[n]"));
+  for (const [index, row] of rows.entries())
+    for (const field of repeated)
+      params.append(keyFor(field, index), fieldValue(field, row, continuation, rows.length));
+  for (const field of scalar) params.append(field.key, fieldValue(field, rows[0], continuation, rows.length));
   return params.toString();
 }
 
@@ -93,8 +89,8 @@ function validateRows(rows: readonly Row[]): void {
   if (rows.length === 0) throw new TcgplayerStagedImportEnvelopeError("zero-composed-rows");
   if (rows.length > 500) throw new TcgplayerStagedImportEnvelopeError("row-outside-observed-input-classes");
   for (const row of rows) {
-    const id = row["TCGplayer Id"] ?? row.Id;
-    const price = row["TCG Marketplace Price"] ?? row.MyPrice;
+    const id = row["TCGplayer Id"];
+    const price = row["TCG Marketplace Price"];
     if (typeof id !== "string" || !/^\d+$/.test(id) || typeof price !== "string" || !/^\d+(?:\.\d{1,2})?$/.test(price))
       throw new TcgplayerStagedImportEnvelopeError("row-outside-observed-input-classes");
     for (const key of ["ProOnlineStoreReserveQuantity", "ProOnlineStorePrice"]) {
@@ -120,12 +116,15 @@ export function buildTcgplayerStagedImportEnvelope(
     throw new TcgplayerStagedImportEnvelopeError("classification-unavailable");
   }
   validateRows(input.composedRows);
+  for (const field of classification.upload) {
+    if (field.class.kind !== "verbatim-reference-column") continue;
+    for (const row of input.composedRows)
+      if (typeof row[field.class.column] !== "string")
+        throw new TcgplayerStagedImportEnvelopeError("missing-reference-column");
+  }
   return Object.freeze({
     initialize: formBody(classification.initialize, input.composedRows, input.continuation),
     upload: formBody(classification.upload, input.composedRows, input.continuation),
     finalize: formBody(classification.finalize, input.composedRows, input.continuation),
   });
 }
-
-export const buildStagedImportEnvelope = buildTcgplayerStagedImportEnvelope;
-export const buildStagedImportEnvelopes = buildTcgplayerStagedImportEnvelope;

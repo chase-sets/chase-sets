@@ -184,8 +184,11 @@ export const tcgplayerStagedImportCandidateClassification: TcgplayerStagedImport
   initialize: [derived("filename", "batch-file-name"), constant("type", "csv")],
   upload: [
     reference("data[n][Id]", "TCGplayer Id"),
-    reference("data[n][ProductConditionId]", "ProductConditionId"),
-    reference("data[n][CategoryName]", "CategoryName"),
+    // The founder capture names these fields, while the executable mapper's
+    // staged rows expose the profile columns below.  The candidate remains a
+    // hypothesis, but it must be buildable from real composed rows.
+    reference("data[n][ProductConditionId]", "Condition"),
+    reference("data[n][CategoryName]", "Product Line"),
     reference("data[n][SetName]", "Set Name"),
     reference("data[n][ProductName]", "Product Name"),
     reference("data[n][ConditionName]", "Condition"),
@@ -205,6 +208,3 @@ export const tcgplayerStagedImportCandidateClassification: TcgplayerStagedImport
     constant("type", "csv"),
   ],
 });
-
-export const tcgplayerStagedImportFieldClassification = tcgplayerStagedImportCandidateClassification;
-export const decodeStagedImportFieldClassification = decodeTcgplayerStagedImportFieldClassification;

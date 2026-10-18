@@ -1,3 +1,7 @@
+import {
+  buildTcgplayerStagedImportEnvelope,
+  type TcgplayerStagedImportContinuation,
+} from "./tcgplayer-staged-import-envelope";
 import type { TcgplayerStagedImportFieldClassification } from "./tcgplayer-staged-import-classification";
 
 export type TcgplayerStagedImportPhase = "initialize" | "upload" | "finalize";
@@ -26,56 +30,59 @@ export class TcgplayerStagedImportReleaseError extends Error {
 
 type Sink = (request: TcgplayerStagedImportReleaseRequest) => void | Promise<void>;
 
+const phasePaths: Readonly<Record<TcgplayerStagedImportPhase, string>> = Object.freeze({
+  initialize: "/admin/pricing/initializeexportcsv",
+  upload: "/admin/pricing/uploadexportcsv",
+  finalize: "/admin/pricing/finalizeexportcsv",
+});
+const phaseOrder: readonly TcgplayerStagedImportPhase[] = ["initialize", "upload", "finalize"];
+
 /**
- * Immutable release boundary. The sink is the only place bytes can leave the
- * pure builder, and the latch prevents compensation/replay after any STOP.
+ * Immutable release boundary. The envelope is derived once from the closed
+ * classification and the sink is reached only for the mapped path/body pair.
  */
 export function createTcgplayerStagedImportReleaseGate(
   input: Readonly<{
     classification: TcgplayerStagedImportFieldClassification;
+    composedRows: readonly Readonly<Record<string, unknown>>[];
+    continuation: TcgplayerStagedImportContinuation;
     sink: Sink;
-    expectedBodies?: Readonly<Partial<Record<TcgplayerStagedImportPhase, string>>>;
   }>,
 ): Readonly<{
-  release(request: TcgplayerStagedImportReleaseRequest, expectedBody?: string): Promise<void>;
+  release(request: TcgplayerStagedImportReleaseRequest): Promise<void>;
   stop(): void;
   stopped(): boolean;
 }> {
-  // Keep the classification in the gate's identity. It is intentionally not
-  // serialized or emitted; callers pair expected bytes with this exact object.
-  void input.classification;
+  const envelope = buildTcgplayerStagedImportEnvelope(input);
+  const expectedBodies: Readonly<Record<TcgplayerStagedImportPhase, string>> = Object.freeze(envelope);
   const released = new Set<TcgplayerStagedImportPhase>();
   let stopped = false;
+
+  const refuse = (code: ConstructorParameters<typeof TcgplayerStagedImportReleaseError>[0]): never => {
+    stopped = true;
+    throw new TcgplayerStagedImportReleaseError(code);
+  };
+
   return Object.freeze({
-    async release(request: TcgplayerStagedImportReleaseRequest, expectedBody?: string): Promise<void> {
+    async release(request: TcgplayerStagedImportReleaseRequest): Promise<void> {
       if (stopped) throw new TcgplayerStagedImportReleaseError("stopped");
-      if (released.has(request.phase)) {
-        stopped = true;
-        throw new TcgplayerStagedImportReleaseError("phase-released");
-      }
-      if (request.method !== "POST" || !request.path.startsWith("/") || request.path.includes("?")) {
-        stopped = true;
-        throw new TcgplayerStagedImportReleaseError("invalid-request");
-      }
-      if (request.redirect !== "error") {
-        stopped = true;
-        throw new TcgplayerStagedImportReleaseError("redirect-refused");
-      }
-      const classifiedBody = input.expectedBodies?.[request.phase];
-      if (
-        (expectedBody !== undefined && request.body !== expectedBody) ||
-        (classifiedBody !== undefined && request.body !== classifiedBody)
-      ) {
-        stopped = true;
-        throw new TcgplayerStagedImportReleaseError("body-mismatch");
-      }
+      if (released.has(request.phase)) refuse("phase-released");
+      if (request.method !== "POST" || request.redirect !== "error")
+        refuse(request.redirect !== "error" ? "redirect-refused" : "invalid-request");
+      if (request.path !== phasePaths[request.phase]) refuse("invalid-request");
+      const expectedIndex = phaseOrder.indexOf(request.phase);
+      if (phaseOrder.slice(0, expectedIndex).some((phase) => !released.has(phase))) refuse("invalid-request");
+      if (request.body !== expectedBodies[request.phase]) refuse("body-mismatch");
+
+      // Consume synchronously before invoking an async sink so concurrent
+      // callers cannot both pass the phase check.
+      released.add(request.phase);
       try {
         await input.sink(request);
       } catch {
         stopped = true;
         throw new TcgplayerStagedImportReleaseError("sink-failed");
       }
-      released.add(request.phase);
     },
     stop() {
       stopped = true;
@@ -83,6 +90,3 @@ export function createTcgplayerStagedImportReleaseGate(
     stopped: () => stopped,
   });
 }
-
-export const createStagedImportReleaseGate = createTcgplayerStagedImportReleaseGate;
-export const createStagedImportRelease = createTcgplayerStagedImportReleaseGate;
