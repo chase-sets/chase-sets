@@ -59,10 +59,10 @@ describe("issue-9909 controller hand-off", () => {
     );
   }
   function form(name: string) {
-    return screen.getByRole("button", { name, exact: true }).closest("form")!;
+    return screen.getByRole("button", { name }).closest("form")!;
   }
   async function ready(name = "Save") {
-    await waitFor(() => expect(screen.getByRole("button", { name, exact: true }).matches(":disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name }).matches(":disabled")).toBe(false));
   }
   function assertPrivate(spies: ReturnType<typeof vi.spyOn>[]) {
     expect(document.body.innerHTML).not.toContain(marker);
@@ -177,7 +177,7 @@ describe("issue-9909 controller hand-off", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
     expect(screen.getByRole("status").textContent).not.toBe("");
     expect(onMutation.mock.calls.map(([event]) => event.type)).toEqual(["accepted"]);
-    expect(screen.getByRole("button", { name: "Save", exact: true }).matches(":disabled")).toBe(state === "ambiguous");
+    expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(state === "ambiguous");
   });
   it("caller-presented failures suggestion-choice resubmit retains the original callback", async () => {
     const suggestedAddress = {
@@ -232,7 +232,7 @@ describe("issue-9909 controller hand-off", () => {
       await waitFor(() => expect(document.activeElement).toBe(controllerStatus()));
       expect(controllerStatus().textContent).not.toBe("");
       expect(onMutation.mock.calls.map(([event]) => event.type)).toEqual(["accepted"]);
-      expect(screen.getByRole("button", { name: "Save", exact: true }).matches(":disabled")).toBe(status !== 200);
+      expect(screen.getByRole("button", { name: "Save" }).matches(":disabled")).toBe(status !== 200);
     },
   );
   it("consumer preservation keeps the non-opted account profile Banner and focus", async () => {
@@ -284,14 +284,14 @@ describe("issue-9909 controller hand-off", () => {
     fireEvent.submit(form("Update"));
     await screen.findByText("Saving your change");
     for (const name of ["Create", "Default", "Archive", "Other update", "Duplicate update"])
-      expect(screen.getByRole("button", { name, exact: true }).matches(":disabled")).toBe(false);
+      expect(screen.getByRole("button", { name }).matches(":disabled")).toBe(false);
     fireEvent.submit(form("Update"));
     expect(fetch).toHaveBeenCalledTimes(1);
     lose();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("button", { name: "Update", exact: true }).matches(":disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Update" }).matches(":disabled")).toBe(true);
     for (const name of ["Create", "Default", "Archive", "Other update", "Duplicate update"])
-      expect(screen.getByRole("button", { name, exact: true }).matches(":disabled")).toBe(false);
+      expect(screen.getByRole("button", { name }).matches(":disabled")).toBe(false);
     fireEvent.submit(form("Update"));
     expect(fetch).toHaveBeenCalledTimes(2);
     confirm(Response.json({ outcome: "not-recorded", code: "not-recorded" }));
@@ -301,7 +301,7 @@ describe("issue-9909 controller hand-off", () => {
     expect(screen.queryByText(failedSafe)).toBeNull();
     for (const name of ["Default", "Archive", "Other update"]) {
       const before = fetch.mock.calls.length;
-      screen.getByRole("button", { name, exact: true }).focus();
+      screen.getByRole("button", { name }).focus();
       fireEvent.submit(form(name));
       await screen.findByText(failedSafe);
       await waitFor(() => expect(fetch).toHaveBeenCalledTimes(before + 1));
@@ -314,10 +314,10 @@ describe("issue-9909 controller hand-off", () => {
       .mockResolvedValueOnce(Response.json({ outcome: "indeterminate", code: "INDETERMINATE" }));
     fireEvent.submit(form("Update"));
     await screen.findByText(ambiguous);
-    expect(screen.getByRole("button", { name: "Update", exact: true }).matches(":disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "Duplicate update", exact: true }).matches(":disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Update" }).matches(":disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Duplicate update" }).matches(":disabled")).toBe(true);
     for (const name of ["Create", "Default", "Archive", "Other update"])
-      expect(screen.getByRole("button", { name, exact: true }).matches(":disabled")).toBe(false);
+      expect(screen.getByRole("button", { name }).matches(":disabled")).toBe(false);
     const posts = fetch.mock.calls.filter((call) => call[1].method === "POST").length;
     fireEvent.submit(form("Update"));
     expect(fetch.mock.calls.filter((call) => call[1].method === "POST")).toHaveLength(posts);
