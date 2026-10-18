@@ -261,8 +261,6 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
     WHEN policy.last_stream_version IS DISTINCT FROM policy_stream.current_version THEN 'refresh_required'
     WHEN NOT EXISTS (SELECT 1 FROM jsonb_array_elements(policy.state->'authority'->'offers') selected
                      WHERE selected->>'offerId' = offer.offer_id) THEN 'unavailable'
-    WHEN (policy.state->'authority'->>'itemCommitmentAllowance')::numeric - (policy.state->>'consumedItemAmount')::numeric
-         < offer.price_amount * offer.quantity_requested THEN 'held'
     WHEN evaluation.evidence->>'policyRevision' = policy.state->>'revision'
          AND evaluation.status = 'held' THEN 'held'
     WHEN evaluation.evidence->>'policyRevision' = policy.state->>'revision'

@@ -242,7 +242,6 @@ export function MarketFollowingOfferControls({
     offers.length === 1 && offers[0]?.status === "submitted" ? [offers[0].offer_id] : [],
   );
   const [caps, setCaps] = useState<Record<string, string>>({});
-  const [allowance, setAllowance] = useState("");
   const [adjustment, setAdjustment] = useState("0");
   const [review, setReview] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -275,7 +274,6 @@ export function MarketFollowingOfferControls({
       if (terms) {
         setSelected(terms.offers.map((offer) => offer.offerId));
         setCaps(Object.fromEntries(terms.offers.map((offer) => [offer.offerId, offer.maximumUnitItemAmount])));
-        setAllowance(terms.itemCommitmentAllowance);
         setAdjustment(String(terms.adjustmentBps / 100));
       }
     }
@@ -320,7 +318,6 @@ export function MarketFollowingOfferControls({
       !Number.isInteger(bps) ||
       bps < -2500 ||
       bps > 0 ||
-      !allowance ||
       selectedOffers.some((offer) => offer.price_currency_code !== currency)
     ) {
       setError("invalid_authority");
@@ -330,7 +327,6 @@ export function MarketFollowingOfferControls({
     const terms: BuyerOfferPolicyTerms = {
       currency,
       adjustmentBps: bps,
-      itemCommitmentAllowance: canonical(allowance),
       offers: selectedOffers.map((offer) => ({
         offerId: offer.offer_id,
         offerVersion: offerVersions[offer.offer_id]!,
@@ -408,21 +404,6 @@ export function MarketFollowingOfferControls({
           ))}
         {policy?.authority ? (
           <Stack gap={2}>
-            <Text>
-              {t("marketplace.marketFollowing.allowanceValue", {
-                amount: formatMoney(policy.authority.itemCommitmentAllowance, policy.authority.currency),
-              })}
-            </Text>
-            <Text>
-              {t("marketplace.marketFollowing.consumed", {
-                amount: formatMoney(policy.consumedItemAmount, policy.authority.currency),
-              })}
-            </Text>
-            <Text>
-              {t("marketplace.marketFollowing.remaining", {
-                amount: formatMoney(policy.remainingItemAllowance ?? "0.00", policy.authority.currency),
-              })}
-            </Text>
             {policy.authority.offers.map((offer) => (
               <Text key={offer.offerId} wrap="anywhere">
                 {t("marketplace.marketFollowing.selection", {
@@ -514,19 +495,6 @@ export function MarketFollowingOfferControls({
                     </Stack>
                   ))}
                 {!selectedOffers.length ? <Text>{t("marketplace.marketFollowing.empty")}</Text> : null}
-                <TextInput
-                  label={t("marketplace.marketFollowing.allowance")}
-                  description={t("marketplace.marketFollowing.itemOnly")}
-                  inputMode="decimal"
-                  value={allowance}
-                  required
-                  disabled={pending}
-                  error={errorCopy}
-                  onChange={(event) => {
-                    setAllowance(event.target.value);
-                    edit();
-                  }}
-                />
                 <ProgressiveDisclosure title={t("marketplace.marketFollowing.advanced")}>
                   <TextInput
                     label={t("marketplace.marketFollowing.adjustment")}
@@ -557,7 +525,6 @@ export function MarketFollowingOfferControls({
                   {t("marketplace.marketFollowing.reviewTerms", {
                     currency: reviewTerms.currency,
                     adjustment: reviewTerms.adjustmentBps / 100,
-                    allowance: formatMoney(reviewTerms.itemCommitmentAllowance, reviewTerms.currency),
                   })}
                 </Text>
                 {policy.preview.outcomes.map((outcome) => {

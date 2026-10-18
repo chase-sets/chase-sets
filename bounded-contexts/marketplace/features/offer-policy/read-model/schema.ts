@@ -28,4 +28,17 @@ export const marketplaceBuyerOfferPolicySchemaMigrations: readonly BcSchemaMigra
       "CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_buyer_offer_policy_membership_idx ON marketplace_buyer_offer_policy_memberships (policy_id, offer_id);",
     ],
   },
+  {
+    migrationId: "20261013_marketplace_retire_item_commitment_allowance",
+    description: "Remove retired spending-limit keys while preserving policy authority and memberships.",
+    statements: [
+      `UPDATE marketplace_buyer_offer_policy_pages
+       SET state = state - 'consumedItemAmount'
+         #- '{authority,itemCommitmentAllowance}'
+         #- '{preview,terms,itemCommitmentAllowance}'
+       WHERE state ? 'consumedItemAmount'
+         OR state->'authority' ? 'itemCommitmentAllowance'
+         OR state->'preview'->'terms' ? 'itemCommitmentAllowance';`,
+    ],
+  },
 ];

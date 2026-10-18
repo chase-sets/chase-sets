@@ -9,6 +9,7 @@ import {
   authRetentionSweeps,
 } from "./support/runtime-support/retention-policy";
 import { buildAuthApi } from "./api";
+import { createAuthSessionMcpHandlers } from "./features/sessions/api/mcp";
 import { invitationAttemptSchemaMigrations } from "./features/invitation-acceptance/read-model/schema";
 import {
   buildAuthIdentityAccountCapabilityProjectionHandlers,
@@ -45,6 +46,7 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
   ],
   createServices: (pool, ports) => createAuthServices(pool, ports),
   buildApis: (services) => [{ mountPath: "/api/auth", contextMountOrdinal: 1, router: buildAuthApi(services) }],
+  buildMcpHandlers: (services) => createAuthSessionMcpHandlers(services.sessions),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({

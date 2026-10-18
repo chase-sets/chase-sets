@@ -8,6 +8,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { EventStore } from "@chase-sets/event-core/event-store";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildMarketplaceListingProjectionHandlers } from "../features/listings/read-model/projection";
 import { marketplaceListingSchemaMigrations } from "../features/listings/read-model/schema";
@@ -15,7 +16,12 @@ import { module as marketplaceModule } from "../index";
 import { marketplaceBuyerOfferPolicySchemaMigrations } from "../features/offer-policy/read-model/schema";
 import { buildBuyerOfferPolicyProjectionHandlers } from "../features/offer-policy/read-model/projection";
 import { buyerOfferPolicyCodec } from "../features/offer-policy/domain/codec";
-import { evolveBuyerOfferPolicy, initialBuyerOfferPolicyState } from "../features/offer-policy/domain/domain";
+import {
+  evolveBuyerOfferPolicy,
+  initialBuyerOfferPolicyState,
+  type BuyerOfferPolicyState,
+  type BuyerOfferPolicyPreview,
+} from "../features/offer-policy/domain/domain";
 import { activate, context, fixture, seedOffer, terms } from "../features/offer-policy/tests/fixtures";
 import { createBuyerOfferPolicyRuntime } from "../features/offer-policy/api/runtime";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
@@ -29,6 +35,14 @@ if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }
 const describeDb = adminDatabaseUrl ? describe : describe.skip;
+
+type HistoricalTerms = typeof terms & { itemCommitmentAllowance?: string };
+type HistoricalPolicyState = Omit<BuyerOfferPolicyState, "authority" | "preview"> & {
+  consumedItemAmount?: string;
+  authority: HistoricalTerms | null;
+  preview: (Omit<BuyerOfferPolicyPreview, "terms"> & { terms: HistoricalTerms }) | null;
+};
+type PolicyProjectionRow = { policy_id: string; state: HistoricalPolicyState; last_stream_version: number };
 
 async function readColumnNames(pool: PgTransactionalPool, tableName: string): Promise<string[]> {
   const result = await pool.query<{ column_name: string }>(
@@ -66,7 +80,7 @@ describeDb("marketplace schema upgrades", () => {
     let amount = "10.00";
     let held = false;
     const freshUntil = new Date(Date.now() + 3600000).toISOString();
-    const f = await managedFixture(store, "100.00", {
+    const f = await managedFixture(store, {
       evaluateTargets: async (requests) =>
         requests.map((request) => {
           const evidence = { policyRevision: request.policyRevision, marketPrice: { amount, freshUntil } };
@@ -134,7 +148,7 @@ describeDb("marketplace schema upgrades", () => {
     });
   });
 
-  it("rolls back a debit when a later stream append fails, then races identical retries without duplicate events", async () => {
+  it("rolls back a failed acceptance, then races identical retries without duplicate events", async () => {
     const pool = pools.marketplace;
     await bootstrapContextDatabase(marketplaceModule, pool);
     const store = createPostgresEventStore({ pool });
@@ -144,10 +158,7 @@ describeDb("marketplace schema upgrades", () => {
     await pool.query(`CREATE FUNCTION reject_managed_acceptance() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
         IF NEW.event_type = 'marketplace.offer.accepted' THEN
-          IF NOT EXISTS (SELECT 1 FROM event_store_events WHERE event_type = 'marketplace.offer-policy.commitment-consumed') THEN
-            RAISE EXCEPTION 'fault placement did not follow debit';
-          END IF;
-          RAISE EXCEPTION 'injected after allowance debit before Offer append';
+          RAISE EXCEPTION 'injected Offer append failure';
         END IF;
         RETURN NEW;
       END $$;
@@ -155,10 +166,10 @@ describeDb("marketplace schema upgrades", () => {
       FOR EACH ROW EXECUTE FUNCTION reject_managed_acceptance();`);
     await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({
       code: "infrastructure_failure",
-      details: { cause: "injected after allowance debit before Offer append" },
+      details: { cause: "injected Offer append failure" },
     });
     expect(await store.readAll()).toEqual(before);
-    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("0.00");
+    expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
     await pool.query(
       "DROP TRIGGER reject_managed_acceptance ON event_store_events; DROP FUNCTION reject_managed_acceptance();",
     );
@@ -166,7 +177,6 @@ describeDb("marketplace schema upgrades", () => {
     expect(results[0]).toEqual(results[1]);
     const events = await store.readAll();
     expect(events.slice(before.length).map((event) => event.eventType)).toEqual([
-      "marketplace.offer-policy.commitment-consumed",
       "marketplace.offer.accepted",
       "marketplace.listing.evidence-requirements-refreshed",
       "marketplace.listing.offer-commitment-recorded",
@@ -175,29 +185,280 @@ describeDb("marketplace schema upgrades", () => {
     const project = buildBuyerOfferPolicyProjectionHandlers(pool);
     for (const event of events) if (project[event.eventType]) await project[event.eventType]!(toTransportEvent(event));
     for (const event of events) if (project[event.eventType]) await project[event.eventType]!(toTransportEvent(event));
-    const projection = await pool.query<{ state: { consumedItemAmount: string } }>(
+    const projection = await pool.query<{ state: object }>(
       "SELECT state FROM marketplace_buyer_offer_policy_pages WHERE policy_id = 'bop_one'",
     );
-    expect(projection.rows[0]!.state.consumedItemAmount).toBe("20.00");
+    expect(projection.rows[0]!.state).not.toHaveProperty("consumedItemAmount");
   });
 
-  it("serializes real DB acceptances across different Offers, Listings and sellers sharing one policy", async () => {
+  it("commits both real DB acceptances across different Offers, Listings and sellers sharing one policy", async () => {
     const pool = pools.marketplace;
     await bootstrapContextDatabase(marketplaceModule, pool);
-    const f = await managedFixture(createPostgresEventStore({ pool }));
+    const store = createPostgresEventStore({ pool });
+    let arrivals = 0;
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await managedFixture({
+      ...store,
+      appendToStreams: async (inputs) => {
+        if (inputs.some((input) => input.events.some((event) => event.eventType === "marketplace.offer.accepted"))) {
+          if (++arrivals === 2) release();
+          await barrier;
+        }
+        return store.appendToStreams!(inputs);
+      },
+    });
     const params = await Promise.all([f.acceptance("one"), f.acceptance("two")]);
     const result = await Promise.allSettled(params.map((p) => f.offers.acceptOffer(p, context)));
-    expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    const loser = result[0]!.status === "rejected" ? 0 : 1;
-    await expect(f.offers.acceptOffer(params[loser]!, context)).rejects.toMatchObject({ code: "managed_offer_held" });
+    expect(arrivals).toBe(2);
+    expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(2);
     const events = await f.store.readAll();
     for (const type of [
       "marketplace.offer.accepted",
-      "marketplace.offer-policy.commitment-consumed",
       "marketplace.listing.offer-commitment-recorded",
       "marketplace.seller-listing-availability.commitment-checked",
     ])
-      expect(events.filter((event) => event.eventType === type)).toHaveLength(1);
+      expect(events.filter((event) => event.eventType === type)).toHaveLength(2);
+    expect(events.filter((event) => event.eventType === "marketplace.offer-policy.commitment-consumed")).toEqual([]);
+    expect(
+      events
+        .filter((event) => event.eventType === "marketplace.offer.accepted")
+        .map((event) => event.payload.offerId)
+        .sort(),
+    ).toEqual(["off_one", "off_two"]);
+  });
+
+  it.each([false, true])(
+    "accepts historical 10.00 authority consumed to 9.00 without a debit; concurrent Pause=%s",
+    async (racePause) => {
+      const pool = pools.marketplace;
+      await bootstrapContextDatabase(marketplaceModule, pool);
+      const store = createPostgresEventStore({ pool });
+      let pauseAtAppend = false;
+      let pause!: () => Promise<unknown>;
+      const legacyStore: EventStore = {
+        ...store,
+        appendToStreams: async (inputs) => {
+          if (
+            pauseAtAppend &&
+            inputs.some((input) => input.events.some((event) => event.eventType === "marketplace.offer.accepted"))
+          ) {
+            pauseAtAppend = false;
+            await pause();
+          }
+          return store.appendToStreams!(
+            inputs.map((input) => ({
+              ...input,
+              events: input.events.map((event) =>
+                ["marketplace.offer-policy.previewed", "marketplace.offer-policy.authorized"].includes(event.eventType)
+                  ? {
+                      ...event,
+                      payload: {
+                        ...event.payload,
+                        terms: { ...(event.payload.terms as object), itemCommitmentAllowance: "10.00" },
+                      },
+                    }
+                  : event,
+              ),
+            })),
+          );
+        },
+      };
+      const f = await managedFixture(legacyStore);
+      const authorized = (await store.readStream({ streamId: "marketplace.offer-policy-bop_one" })).at(-1)!;
+      const {
+        previewId: _previewId,
+        policyVersion: _policyVersion,
+        terms: _terms,
+        outcomes: _outcomes,
+        revision: _revision,
+        consentedAt: _consentedAt,
+        ...audit
+      } = authorized.payload;
+      await store.appendToStream({
+        streamId: authorized.streamId,
+        expectedVersion: 3,
+        context,
+        events: [
+          {
+            eventType: "marketplace.offer-policy.commitment-consumed",
+            payload: {
+              ...audit,
+              operationId: "historical_acceptance",
+              offerId: "off_historical",
+              offerVersion: 2,
+              revision: 1,
+              currency: "USD",
+              unitItemAmount: "9.00",
+              quantity: 1,
+              itemAmount: "9.00",
+              consumedItemAmount: "9.00",
+              evaluationEvidence: {},
+            },
+          },
+        ],
+      });
+      f.setTarget({ status: "target", unitItemAmount: "5.00", evidence: {} });
+      await f.offers.applyManagedOffer("off_one" as never, "five_dollars", context);
+      const params = await f.acceptance();
+      pause = () =>
+        f.policies.execute(
+          "bop_one",
+          { type: "PauseBuyerOfferPolicy", expectedVersion: 4, operationId: "racing_pause" },
+          context,
+        );
+      if (racePause) {
+        pauseAtAppend = true;
+        await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({ code: "managed_offer_conflict" });
+        expect((await store.readAll()).filter((event) => event.eventType === "marketplace.offer.accepted")).toEqual([]);
+        expect((await f.policies.get("bop_one", "acc_buyer")).status).toBe("paused");
+      } else {
+        await f.offers.acceptOffer(params, context);
+        expect((await store.readStream({ streamId: "marketplace.offer-off_one" })).at(-1)).toMatchObject({
+          eventType: "marketplace.offer.accepted",
+          payload: { priceAmount: "5.00" },
+        });
+      }
+      const policyEvents = await store.readStream({ streamId: authorized.streamId });
+      expect(policyEvents).toHaveLength(racePause ? 5 : 4);
+      expect(
+        policyEvents.filter((event) => event.eventType === "marketplace.offer-policy.commitment-consumed"),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("removes stored allowance keys once without commands or membership changes and rebuilds clean history", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const { runtime, store } = await fixture();
+    await activate(runtime);
+    const audit = (await store.readStream({ streamId: "marketplace.offer-policy-bop_one" }))[0]!.payload;
+    await store.appendToStream({
+      streamId: "marketplace.offer-policy-bop_one",
+      expectedVersion: 3,
+      context,
+      events: [
+        {
+          eventType: "marketplace.offer-policy.previewed",
+          payload: {
+            ...audit,
+            operationId: "historical_preview",
+            previewId: "b".repeat(64),
+            policyVersion: 3,
+            terms: { ...terms, offers: [{ ...terms.offers[0]!, offerVersion: 2 }] },
+          },
+        },
+        {
+          eventType: "marketplace.offer-policy.commitment-consumed",
+          payload: {
+            ...audit,
+            operationId: "historical_accept",
+            offerId: "off_historical",
+            offerVersion: 2,
+            revision: 1,
+            currency: "USD",
+            unitItemAmount: "9.00",
+            quantity: 1,
+            itemAmount: "9.00",
+            consumedItemAmount: "9.00",
+            evaluationEvidence: {},
+          },
+        },
+      ],
+    });
+    const recorded = (await store.readAll()).map((event) =>
+      ["marketplace.offer-policy.previewed", "marketplace.offer-policy.authorized"].includes(event.eventType)
+        ? {
+            ...event,
+            payload: {
+              ...event.payload,
+              terms: { ...(event.payload.terms as object), itemCommitmentAllowance: "10.00" },
+            },
+          }
+        : event,
+    );
+    const handlers = buildBuyerOfferPolicyProjectionHandlers(pool);
+    for (const event of recorded) await handlers[event.eventType]?.(toTransportEvent(event));
+    const clean = (
+      await pool.query<PolicyProjectionRow>(
+        "SELECT state, last_stream_version FROM marketplace_buyer_offer_policy_pages WHERE policy_id = 'bop_one'",
+      )
+    ).rows[0]!;
+    const membership = (await pool.query("SELECT * FROM marketplace_buyer_offer_policy_memberships ORDER BY offer_id"))
+      .rows;
+    for (const [index, status] of ["draft", "active", "paused", "stopped"].entries()) {
+      const state = {
+        ...clean.state,
+        policyId: `bop_upgrade_${index}`,
+        status,
+        consumedItemAmount: "9.00",
+        authority: status === "draft" ? null : { ...terms, itemCommitmentAllowance: "10.00" },
+        preview:
+          status === "draft" || status === "paused"
+            ? { previewId: "b".repeat(64), policyVersion: 1, terms: { ...terms, itemCommitmentAllowance: "10.00" } }
+            : null,
+      };
+      await pool.query(
+        "INSERT INTO marketplace_buyer_offer_policy_pages (policy_id, buyer_account_id, state, last_stream_version) VALUES ($1, 'acc_buyer', $2::jsonb, 3)",
+        [state.policyId, JSON.stringify(state)],
+      );
+    }
+    const before = (
+      await pool.query<PolicyProjectionRow>(
+        "SELECT policy_id, state, last_stream_version FROM marketplace_buyer_offer_policy_pages ORDER BY policy_id",
+      )
+    ).rows;
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20261013_marketplace_retire_item_commitment_allowance'",
+    );
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const after = (
+      await pool.query<PolicyProjectionRow>(
+        "SELECT policy_id, state, last_stream_version FROM marketplace_buyer_offer_policy_pages ORDER BY policy_id",
+      )
+    ).rows;
+    expect(after).toEqual(
+      before.map((row) => {
+        const { consumedItemAmount: _consumed, ...state } = row.state;
+        if (state.authority) {
+          const { itemCommitmentAllowance: _allowance, ...authority } = state.authority;
+          state.authority = authority;
+        }
+        if (state.preview) {
+          const { itemCommitmentAllowance: _allowance, ...previewTerms } = state.preview.terms;
+          state.preview = { ...state.preview, terms: previewTerms };
+        }
+        return { ...row, state };
+      }),
+    );
+    expect(
+      (await pool.query("SELECT * FROM marketplace_buyer_offer_policy_memberships ORDER BY offer_id")).rows,
+    ).toEqual(membership);
+    expect(
+      (
+        await pool.query(
+          "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20261013_marketplace_retire_item_commitment_allowance'",
+        )
+      ).rows,
+    ).toHaveLength(1);
+    await pool.query("TRUNCATE marketplace_buyer_offer_policy_pages, marketplace_buyer_offer_policy_memberships");
+    for (const event of recorded) await handlers[event.eventType]?.(toTransportEvent(event));
+    const rebuilt = (
+      await pool.query<{ state: BuyerOfferPolicyState }>("SELECT state FROM marketplace_buyer_offer_policy_pages")
+    ).rows[0]!.state;
+    expect(rebuilt).not.toHaveProperty("consumedItemAmount");
+    expect(rebuilt.authority).not.toHaveProperty("itemCommitmentAllowance");
+    expect(rebuilt.preview!.terms).not.toHaveProperty("itemCommitmentAllowance");
+    expect(rebuilt.preview!.previewId).toBe("b".repeat(64));
+    expect((await pool.query("SELECT last_stream_version FROM marketplace_buyer_offer_policy_pages")).rows).toEqual([
+      { last_stream_version: 5 },
+    ]);
+    expect(
+      (await pool.query("SELECT * FROM marketplace_buyer_offer_policy_memberships ORDER BY offer_id")).rows,
+    ).toEqual(membership);
   });
 
   it("upgrades managed work and private audit tables with indexes and replayable evidence", async () => {

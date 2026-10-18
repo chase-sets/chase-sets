@@ -5,7 +5,7 @@ import { createBuyerOfferPolicyRuntime } from "../../offer-policy/api/runtime";
 import { context, seedOffer, terms } from "../../offer-policy/tests/fixtures";
 import type { ManagedOfferPricing, ManagedOfferTarget } from "../api/managed-authority";
 
-export async function managedFixture(store: EventStore, allowance = "30.00", pricing?: ManagedOfferPricing) {
+export async function managedFixture(store: EventStore, pricing?: ManagedOfferPricing) {
   const db = {
     query: vi.fn(async () => ({
       rows: [
@@ -134,7 +134,6 @@ export async function managedFixture(store: EventStore, allowance = "30.00", pri
       operationId: "preview",
       terms: {
         ...terms,
-        itemCommitmentAllowance: allowance,
         offers: [terms.offers[0]!, { ...terms.offers[0]!, offerId: "off_two" }],
       },
     },
