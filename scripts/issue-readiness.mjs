@@ -25,6 +25,49 @@ export const ISSUE_READINESS_RULES = Object.freeze([
   Object.freeze({ id: "ready-09-review-packet", standardItem: 9 }),
 ]);
 
+// Controller-tree paths belong to chase-sets/chase-sets-controller: an issue
+// whose footprint changes them is filed there (docs/contributing/backlog-model.md,
+// Repository routing). These mirror that repository's tracked roots and its
+// force-added top-level .orchestrator source files; every other .orchestrator
+// path is machine-local output and stays allowed.
+export const CONTROLLER_TREE_PATHS = Object.freeze({
+  directories: Object.freeze([".orchestrator/contracts/", ".orchestrator/controller-skills/", ".orchestrator/fixtures/"]),
+  topLevelSuffixes: Object.freeze([
+    ".ps1",
+    ".psm1",
+    ".psd1",
+    ".mjs",
+    ".cjs",
+    ".js",
+    ".cs",
+    ".py",
+    ".sh",
+    ".vbs",
+    ".schema.json",
+    ".fixture.json",
+  ]),
+  topLevelExclusions: Object.freeze(["with-secrets.ps1"]),
+  rootFiles: Object.freeze(["bootstrap-container.ps1", "UPDATE_MAIN_FROM_ORIGIN.ps1"]),
+});
+
+function isControllerTreePath(candidate) {
+  const path = candidate.replace(/^\.\//, "");
+  if (CONTROLLER_TREE_PATHS.rootFiles.includes(path)) return true;
+  if (CONTROLLER_TREE_PATHS.directories.some((directory) => path.startsWith(directory))) return true;
+  const topLevel = /^\.orchestrator\/([^/]+)$/.exec(path);
+  return (
+    topLevel !== null &&
+    !CONTROLLER_TREE_PATHS.topLevelExclusions.includes(topLevel[1]) &&
+    CONTROLLER_TREE_PATHS.topLevelSuffixes.some((suffix) => topLevel[1].endsWith(suffix))
+  );
+}
+
+export function controllerTreeFootprintPaths(footprint) {
+  const withoutCallers = footprint.replace(/\bCallers?\s*:[^\n]*/gi, "");
+  const tokens = withoutCallers.split(/[\s,;()]+/).map((token) => token.replace(/^[`'"]+|[`'".:]+$/g, ""));
+  return [...new Set(tokens.filter((token) => token !== "" && isControllerTreePath(token)))].sort();
+}
+
 const API_ORIGIN = "https://api.github.com";
 const API_VERSION = "2022-11-28";
 const BOT_LOGIN = "github-actions[bot]";
@@ -953,6 +996,12 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     );
   const footprint = fields["Footprint & chain"];
   const operatorActions = fields["Operator actions"];
+  const footprintDeclared =
+    evidencePointers(footprint).size > 0 &&
+    /\bCallers?\s*:\s*\S+/i.test(footprint) &&
+    operatorActions.length > 0 &&
+    (exactNone(operatorActions) || operatorActions.length >= 8);
+  const controllerFootprintPaths = controllerTreeFootprintPaths(footprint);
   const decisions = fields["Decisions already made"];
   const decisionsUnresolved = /\b(?:TBD|unresolved|undecided|decision needed|open question)\b/i.test(decisions);
   const decisionsComplete =
@@ -986,11 +1035,11 @@ function evaluateStructuralReadinessFromInputs(authority, { checkedAt, checkerSh
     rule("ready-04-runnable-verification", verificationCommands.length > 0, ["VERIFICATION_COMMAND_NOT_RUNNABLE"]),
     rule(
       "ready-05-footprint-operators",
-      evidencePointers(footprint).size > 0 &&
-        /\bCallers?\s*:\s*\S+/i.test(footprint) &&
-        operatorActions.length > 0 &&
-        (exactNone(operatorActions) || operatorActions.length >= 8),
-      ["FOOTPRINT_OR_OPERATOR_DECLARATION_MISSING"],
+      footprintDeclared && controllerFootprintPaths.length === 0,
+      [
+        ...(footprintDeclared ? [] : ["FOOTPRINT_OR_OPERATOR_DECLARATION_MISSING"]),
+        ...(controllerFootprintPaths.length === 0 ? [] : ["FOOTPRINT_IN_CONTROLLER_REPOSITORY"]),
+      ].sort(),
     ),
     rule("ready-06-decisions-resolved", decisionsComplete, [
       decisionsUnresolved ? "UNRESOLVED_DECISION_DECLARED" : "DECISION_RESOLUTION_UNPROVEN",
