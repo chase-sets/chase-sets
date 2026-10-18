@@ -297,8 +297,19 @@
       "note": "Ends the browser session; MCP clients hold no admin browser session.",
       "tools": []
     },
-    "sessions": { "pending": "#9238" },
-    "sessions-detail": { "pending": "#9238" }
+    "sessions": { "tools": ["auth.list-sessions"] },
+    "sessions-detail": {
+      "tools": ["auth.get-session", "auth.revoke-session", "auth.switch-session-account"]
+    }
+  },
+  "mcpCapabilities": {
+    "tools": [
+      { "name": "auth.list-sessions", "ownerSlice": "sessions" },
+      { "name": "auth.get-session", "ownerSlice": "sessions" },
+      { "name": "auth.revoke-session", "ownerSlice": "sessions" },
+      { "name": "auth.switch-session-account", "ownerSlice": "sessions" }
+    ],
+    "resources": []
   },
   "deployableContributions": [
     {
