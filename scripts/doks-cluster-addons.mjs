@@ -103,6 +103,7 @@ export const pinned = {
 };
 
 const supportedEnvironments = new Set(["staging", "production"]);
+const supportedComponents = new Set(["ingress-nginx"]);
 
 // Only staging hosts previews, while production needs DNS-01 for the
 // pre-cutover live-host certificate. Both clusters therefore receive the
@@ -121,8 +122,12 @@ export function loadBalancerName(environment) {
 // assert the exact commands without a live cluster.
 export function planClusterAddons(options = {}) {
   const environment = options.environment ?? "staging";
+  const component = options.component;
   if (!supportedEnvironments.has(environment)) {
     throw new Error(`environment must be one of ${[...supportedEnvironments].join(", ")}.`);
+  }
+  if (component !== undefined && !supportedComponents.has(component)) {
+    throw new Error(`component must be one of ${[...supportedComponents].join(", ")}.`);
   }
 
   const installTimeout = options.installTimeout ?? "10m";
@@ -131,7 +136,7 @@ export function planClusterAddons(options = {}) {
   const dns01Zone = environment === "production" ? "chasesets.com" : "preview.chasesets.com";
   const lbAnnotationKey = "controller.service.annotations.service\\.beta\\.kubernetes\\.io/do-loadbalancer-name";
 
-  return [
+  const steps = [
     {
       name: "add ingress-nginx repo",
       command: ["helm", "repo", "add", pinned.ingressNginx.repoName, pinned.ingressNginx.repoUrl, "--force-update"],
@@ -150,9 +155,9 @@ export function planClusterAddons(options = {}) {
         "helm",
         "repo",
         "update",
-        pinned.ingressNginx.repoName,
-        pinned.certManager.repoName,
-        pinned.argoRollouts.repoName,
+        ...(component === "ingress-nginx"
+          ? [pinned.ingressNginx.repoName]
+          : [pinned.ingressNginx.repoName, pinned.certManager.repoName, pinned.argoRollouts.repoName]),
       ],
     },
     {
@@ -242,6 +247,18 @@ export function planClusterAddons(options = {}) {
       ],
     },
   ];
+
+  if (component === "ingress-nginx") {
+    return steps.filter((step) =>
+      [
+        "add ingress-nginx repo",
+        "refresh repos",
+        "install ingress-nginx controller and DigitalOcean load balancer",
+      ].includes(step.name),
+    );
+  }
+
+  return steps;
 }
 
 // Pure manifest builder: never printed or logged with a real token (the
@@ -331,11 +348,16 @@ function parseArgs(argv) {
       options.installTimeout = argv[++index];
     } else if (arg === "--issuer-timeout") {
       options.issuerTimeout = argv[++index];
+    } else if (arg === "--component") {
+      options.component = argv[++index];
+      if (!options.component) {
+        throw new Error("--component requires a value.");
+      }
     } else if (arg === "--dry-run") {
       options.dryRun = true;
     } else {
       throw new Error(
-        "Usage: node ./scripts/doks-cluster-addons.mjs [--environment staging|production] [--install-timeout <duration>] [--issuer-timeout <duration>] [--dry-run]",
+        "Usage: node ./scripts/doks-cluster-addons.mjs [--environment staging|production] [--component ingress-nginx] [--install-timeout <duration>] [--issuer-timeout <duration>] [--dry-run]",
       );
     }
   }

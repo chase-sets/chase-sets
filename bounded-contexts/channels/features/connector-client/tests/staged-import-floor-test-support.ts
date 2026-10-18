@@ -1,10 +1,87 @@
 import { vi } from "vitest";
 import { coordinatorFixture } from "./coordinator-test-support";
-import type { ConnectorExecutor } from "../domain/operation-protocol";
+import type { ConnectorExecutor, ExecutorResult, OperationUnit } from "../domain/operation-protocol";
 import { stagedImportMembershipDigest } from "../domain/staged-import-dispatch";
 import type { StagedImportCapturePlan } from "../domain/staged-import-fit";
+import { deriveClaimedOperationOutcomes } from "../../tcgplayer-csv/domain/lifecycle";
+import type { ChannelSyncRun } from "../../tcgplayer-csv/domain/contracts";
 
-export async function floorFixture(durations = [1000, 1000, 1000]) {
+type RequestKind = StagedImportCapturePlan["requests"][number]["kind"];
+
+/** A synthetic claimed -> validation-rejected settlement whose member outcomes come from the run law. */
+export function validationRejectedResult(
+  unit: OperationUnit,
+  settlement: NonNullable<ExecutorResult["runSettlement"]>,
+  alreadySatisfied: ReadonlySet<string> = new Set(),
+): ExecutorResult {
+  const at = "2026-10-09T00:00:00.000Z";
+  const run: ChannelSyncRun = {
+    runId: settlement.runId,
+    revision: settlement.expectedRunRevision + 1,
+    sequence: 1,
+    connectionId: unit.reservation.connectionId,
+    providerKey: "tcgplayer",
+    reservationId: unit.reservation.reservationId,
+    claimant: { claimantKind: "connector", claimantId: "pairing-1" },
+    leaseExpiresAt: unit.reservation.leaseExpiresAt,
+    manualClaimLeasePolicySnapshot: null,
+    state: "validation-rejected",
+    basisSnapshotId: "synthetic-basis",
+    basisSnapshotGeneration: 1,
+    verificationSnapshotId: null,
+    verificationSnapshotGeneration: null,
+    uploadAttemptedAt: null,
+    uploadFileName: null,
+    importSummary: null,
+    createdAt: at,
+    updatedAt: at,
+    membershipCompleteness: { kind: "complete", total: unit.members.length },
+    members: unit.members.map((member, ordinal) => {
+      if (!("desiredStateSequence" in member) || member.payload.kind !== "draft")
+        throw new Error("synthetic-listing-only");
+      const common = {
+        operationId: member.operationId,
+        attemptId: member.attemptId,
+        claimGeneration: member.claimGeneration,
+        reservationId: unit.reservation.reservationId,
+        channelListingId: member.payload.draft.channelListingId,
+        listingId: `synthetic-listing-${ordinal}`,
+        desiredStateSequence: member.desiredStateSequence,
+        listingRevision: member.payload.draft.listingRevision,
+        payloadDigest: member.payloadDigest,
+        ordinal,
+        externalKey: `synthetic-${ordinal}`,
+        conditionText: null,
+        basisSnapshotId: "synthetic-basis",
+        basisSnapshotGeneration: 1,
+        basisTotalQuantity: 1,
+        basisPriceAmountMinor: 100,
+        targetQuantity: 1,
+        targetPriceAmountMinor: 100,
+        refusalReason: null,
+        mappingDimension: null,
+        mappingSourceKey: null,
+      } as const;
+      return alreadySatisfied.has(member.operationId)
+        ? {
+            ...common,
+            memberKind: "already-satisfied",
+            csvRow: null,
+            providerAction: "not-attempted-already-satisfied",
+          }
+        : { ...common, memberKind: "composed", csvRow: { "TCGplayer Id": common.externalKey } };
+    }),
+  };
+  return {
+    outcomes: deriveClaimedOperationOutcomes(run),
+    runSettlement: { ...settlement, toState: "validation-rejected", uploadAttemptedAt: null },
+  };
+}
+
+export async function floorFixture(
+  durations = [1000, 1000, 1000],
+  kinds: readonly RequestKind[] = durations.map((_, index) => (index === 0 ? "read" : "mutation")),
+) {
   const f = await coordinatorFixture("reservation");
   let monotonic = 0;
   const initial = f.now();
@@ -65,6 +142,7 @@ export async function floorFixture(durations = [1000, 1000, 1000]) {
       composedRows: 1,
       requests: durations.map((duration, index) => ({
         requestId: `synthetic-hop-${index}`,
+        kind: kinds[index]!,
         maximumDurationMs: duration,
       })),
       platformReadMs: 1,
