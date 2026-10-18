@@ -244,26 +244,50 @@ describe("Collections Saved List report-submitted payload", () => {
     ["padded id", { ...validCollectionsSavedListReport, targetId: " saved-list_opaque" }, "IDs must be"],
     ["wrong target", { ...validCollectionsSavedListReport, targetType: "list" }, "targetType must be"],
     ["wrong reason", { ...validCollectionsSavedListReport, reason: "other-reason" }, "reason is invalid"],
-    ["wrong reporter kind", { ...validVisitorCollectionsSavedListReport, reporterKind: "admin" }, "reporterKind must be"],
-    ["timezone-free", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00" }, "submittedAt must be"],
+    [
+      "wrong reporter kind",
+      { ...validVisitorCollectionsSavedListReport, reporterKind: "admin" },
+      "reporterKind must be",
+    ],
+    [
+      "timezone-free",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00" },
+      "submittedAt must be",
+    ],
     ["non-string reportId", { ...validCollectionsSavedListReport, reportId: 123 }, "IDs must be"],
     ["non-string targetId", { ...validCollectionsSavedListReport, targetId: ["saved-list_opaque"] }, "IDs must be"],
-    ["account mismatch", { ...validCollectionsSavedListReport, reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV" }, "account reporter must match"],
+    [
+      "account mismatch",
+      { ...validCollectionsSavedListReport, reporterKey: "acc_01ARYZ6S41TSV4RRFFQ69G5FAV" },
+      "account reporter must match",
+    ],
     [
       "visitor account",
       { ...validVisitorCollectionsSavedListReport, reporterAccountId: "acc_01ARYZ6S41TSV4RRFFQ69G5FAW" },
       "visitor reporter must use",
     ],
-    ["visitor digest", { ...validVisitorCollectionsSavedListReport, reporterKey: "short" }, "visitor reporter must use"],
+    [
+      "visitor digest",
+      { ...validVisitorCollectionsSavedListReport, reporterKey: "short" },
+      "visitor reporter must use",
+    ],
     ["lowercase t", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06t07:30:00Z" }, "submittedAt must be"],
-    ["space separator", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06 07:30:00Z" }, "submittedAt must be"],
+    [
+      "space separator",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-10-06 07:30:00Z" },
+      "submittedAt must be",
+    ],
     ["leap second", { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:60Z" }, "submittedAt must be"],
     [
       "too many fraction digits",
       { ...validCollectionsSavedListReport, submittedAt: "2026-10-06T07:30:00.1234567890Z" },
       "submittedAt must be",
     ],
-    ["impossible calendar", { ...validCollectionsSavedListReport, submittedAt: "2026-02-30T07:30:00Z" }, "submittedAt must be"],
+    [
+      "impossible calendar",
+      { ...validCollectionsSavedListReport, submittedAt: "2026-02-30T07:30:00Z" },
+      "submittedAt must be",
+    ],
   ])("rejects %s", (_label, value, message) => {
     expect(() => parseCollectionsSavedListReportSubmittedPayload(value)).toThrowError(
       expect.objectContaining({ message: expect.stringContaining(message) }),
