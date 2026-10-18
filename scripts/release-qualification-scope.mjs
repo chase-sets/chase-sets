@@ -156,6 +156,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "review-eligibility": "runtime-library",
     "seller-attention-queue": "runtime-library",
     "seller-desk": "runtime-library",
+    "tcgplayer-market-observations": "event-store-persistence",
   }),
 
   // Migration mechanisms (historical paths). Renamed copies are caught by the

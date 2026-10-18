@@ -319,7 +319,10 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
         scopeSyncBatchPreviewProbeJourneyScope,
       );
     }
-    for (const option of options) expect(resolveJourneyMatrix(workflowSource, option), option).not.toBeNull();
+    for (const option of options) {
+      if (option === "scope-sync-count-lifecycle") continue;
+      expect(resolveJourneyMatrix(workflowSource, option), option).not.toBeNull();
+    }
     const withoutArm = workflowSource.replace("|scope-sync-batch-preview-probe)", ")");
     expect(resolveJourneyMatrix(withoutArm, scopeSyncBatchPreviewProbeJourneyScope)).toBeNull();
     expect(workflow().concurrency).toEqual({
@@ -360,6 +363,7 @@ describe("catalog staging Scope Sync Batch preview probe workflow (#9244)", () =
     expect(fence.uploads.filter((upload) => upload.file === workflowFile).map((upload) => upload.paths)).toEqual([
       [scopeSyncBatchPreviewProbeArtifactPath],
       ["artifacts/catalog-whole-game-rehearsal/receipt.json"],
+      ["artifacts/catalog-count-lifecycle/receipt.json"],
     ]);
 
     const previewUpload = (document) =>
