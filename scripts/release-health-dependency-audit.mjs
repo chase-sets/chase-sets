@@ -37,6 +37,13 @@ export function normalizeAuditAdvisories(payload) {
     if (!advisory || typeof advisory !== "object" || Array.isArray(advisory)) {
       throw new Error(`audit advisory ${key} must be an object.`);
     }
+    if (
+      (!Object.hasOwn(advisory, "module_name") && Object.hasOwn(advisory, "module")) ||
+      (!Object.hasOwn(advisory, "github_advisory_id") && Object.hasOwn(advisory, "ghsa")) ||
+      (!Object.hasOwn(advisory, "patched_versions") && Object.hasOwn(advisory, "patchedRange"))
+    ) {
+      throw new Error(`audit advisory ${key} uses unsupported field names.`);
+    }
     const findings = advisory.findings ?? [];
     if (!Array.isArray(findings)) {
       throw new Error(`audit advisory ${key} findings must be an array.`);

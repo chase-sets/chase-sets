@@ -72,8 +72,7 @@ describe("release health dependency audit", () => {
       }),
       checkedAt,
     });
-    expect(result.result).toBe("success");
-    expect(result.advisories[0]).toMatchObject({ module: "unknown", ghsa: "unknown", patchedRange: "unknown" });
+    expect(result).toMatchObject({ result: "warning", alertStatus: "warning", error: { class: "invalid-shape" } });
   });
 
   it("renders alerting advisories in severity then module order with required fields", async () => {
