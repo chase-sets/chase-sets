@@ -60,13 +60,23 @@ describe("nullable MCP input schema vocabulary", () => {
     expect(handWritten.type).toEqual(["string", "null"]);
   });
 
-  it("is not adopted by any published descriptor yet", () => {
+  it("is adopted only by the exact postage-policy nullable inputs", () => {
     const nullablePaths = flattenMcpTools().flatMap((tool) => [
       ...nullableSchemaPaths(tool.inputSchema, `${tool.name}.input`),
       ...(tool.outputSchema ? nullableSchemaPaths(tool.outputSchema, `${tool.name}.output`) : []),
     ]);
 
-    expect(nullablePaths).toEqual([]);
+    expect(nullablePaths.sort()).toEqual([
+      "ordering.clone-postage-policy.input.effectiveUntil",
+      "ordering.create-postage-policy.input.effectiveUntil",
+      "ordering.create-postage-policy.input.insuranceRequiredDeclaredValueAmount",
+      "ordering.create-postage-policy.input.signatureRequiredDeclaredValueAmount",
+      "ordering.preview-postage-policy.input.policy.insuranceRequiredDeclaredValueAmount",
+      "ordering.preview-postage-policy.input.policy.signatureRequiredDeclaredValueAmount",
+      "ordering.revise-postage-policy.input.effectiveUntil",
+      "ordering.revise-postage-policy.input.insuranceRequiredDeclaredValueAmount",
+      "ordering.revise-postage-policy.input.signatureRequiredDeclaredValueAmount",
+    ]);
   });
 });
 

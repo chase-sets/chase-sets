@@ -98,6 +98,9 @@ const sellerVisibilitySql = `
 (
   (
     offer.status = 'submitted'
+    AND offer.price_currency_code IS NOT NULL
+    AND offer.last_stream_version > 0
+    AND buyer.status = 'active'
     AND EXISTS (
       SELECT 1
       FROM marketplace_listing_pages AS listing
@@ -273,6 +276,13 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
   END AS managed_status`;
 }
 
+function buyerVisibleOfferPredicateSql(offerAlias: string, accountAlias: string) {
+  return `${offerAlias}.status = 'submitted'
+    AND ${offerAlias}.price_currency_code IS NOT NULL
+    AND ${offerAlias}.last_stream_version > 0
+    AND ${accountAlias}.status = 'active'`;
+}
+
 function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
   return `
     (seller_offer.status = 'submitted'
@@ -416,8 +426,10 @@ export async function getPublicOffer(db: PgQueryable, offerId: string): Promise<
      FROM marketplace_offer_pages AS offer
      LEFT JOIN marketplace_account_pages AS seller
        ON seller.account_id = offer.accepted_seller_account_id
+     LEFT JOIN marketplace_account_pages AS buyer
+       ON buyer.account_id = offer.buyer_account_id
      WHERE offer.offer_id = $1
-       AND offer.status = 'submitted'`,
+       AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}`,
     [offerId],
   );
 
@@ -504,7 +516,7 @@ export async function getOfferMatch(
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = $1
      WHERE offer.offer_id = $2
-       AND offer.status = 'submitted'
+       AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
        AND ${sellerVisibilitySql}
        AND ${sellerOfferControlsWhereSql()}`,
     [sellerAccountId, offerId],
@@ -532,7 +544,7 @@ export async function getOfferMatchForListing(
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = $1
      WHERE offer.offer_id = $2
-       AND offer.status = 'submitted'
+       AND ${buyerVisibleOfferPredicateSql("offer", "buyer")}
        AND ${sellerVisibilitySql}
        AND ${sellerOfferControlsWhereSql()}`,
     [sellerAccountId, offerId, listingId],
@@ -568,7 +580,7 @@ export async function listOfferMatchesForSellers(
        ON buyer.account_id = offer.buyer_account_id
      LEFT JOIN marketplace_seller_listing_availability_pages AS availability
        ON availability.account_id = seller_account.seller_account_id
-     WHERE offer.status = 'submitted'
+     WHERE ${buyerVisibleOfferPredicateSql("offer", "buyer")}
        AND EXISTS (
          SELECT 1
          FROM marketplace_listing_pages AS listing

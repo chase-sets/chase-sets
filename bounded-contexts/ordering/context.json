@@ -456,7 +456,15 @@
   "mcpCapabilities": {
     "tools": [
       { "name": "ordering.list-orders", "ownerSlice": "orders" },
-      { "name": "ordering.get-order", "ownerSlice": "orders" }
+      { "name": "ordering.get-order", "ownerSlice": "orders" },
+      { "name": "ordering.list-postage-policies", "ownerSlice": "postage-policies" },
+      { "name": "ordering.get-postage-policy", "ownerSlice": "postage-policies" },
+      { "name": "ordering.preview-postage-policy", "ownerSlice": "postage-policies" },
+      { "name": "ordering.create-postage-policy", "ownerSlice": "postage-policies" },
+      { "name": "ordering.revise-postage-policy", "ownerSlice": "postage-policies" },
+      { "name": "ordering.activate-postage-policy", "ownerSlice": "postage-policies" },
+      { "name": "ordering.retire-postage-policy", "ownerSlice": "postage-policies" },
+      { "name": "ordering.clone-postage-policy", "ownerSlice": "postage-policies" }
     ],
     "resources": [{ "uriTemplate": "chase-sets://ordering/{accountId}/orders/{orderId}", "ownerSlice": "orders" }]
   },
@@ -758,8 +766,23 @@
     }
   ],
   "agentCoverage": {
-    "ordering-postage-policies": { "pending": "#9238" },
-    "ordering-postage-policies-detail": { "pending": "#9238" }
+    "ordering-postage-policies": {
+      "tools": [
+        "ordering.list-postage-policies",
+        "ordering.get-postage-policy",
+        "ordering.preview-postage-policy",
+        "ordering.create-postage-policy",
+        "ordering.revise-postage-policy",
+        "ordering.activate-postage-policy",
+        "ordering.retire-postage-policy",
+        "ordering.clone-postage-policy"
+      ]
+    },
+    "ordering-postage-policies-detail": {
+      "exempt": "navigation-only",
+      "note": "This route redirects to ordering-postage-policies and makes no independent domain calls.",
+      "tools": []
+    }
   },
   "deployableContributions": [
     {
