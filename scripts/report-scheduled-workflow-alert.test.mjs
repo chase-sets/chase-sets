@@ -185,6 +185,7 @@ const callerCases = [
       "discover-stale-gate",
       "destroy-stale-gate",
       "report-stale-gate-sweep",
+      "retire-idle-draft-previews",
     ],
     schedules: ["17 10 * * *", "47 */3 * * *"],
   },

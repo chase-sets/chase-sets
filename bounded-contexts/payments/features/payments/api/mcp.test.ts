@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { createMcpRoutes, type McpAuditRecord, type McpIdempotencyStore } from "@chase-sets/platform-runtime/mcp";
+import {
+  createMcpRoutes,
+  type CreateMcpRoutesOptions,
+  type McpAuditRecord,
+  type McpIdempotencyStore,
+} from "@chase-sets/platform-runtime/mcp";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createPaymentMcpHandlers } from "./mcp";
@@ -176,7 +181,136 @@ function setupServices(
   } as unknown as SetupServices;
 }
 
+const setupConfirmationText = "Start Payment Method Setup.";
+
+/**
+ * Mounts the Payments handlers behind the real `createMcpRoutes` dispatch with every pre-handler
+ * sink observable: the evidence-window lookup, platform idempotency reservation, tool-call lease,
+ * and audit. Actor, return URL, confirmation and idempotency key are fixed so a caller varies only
+ * the extra arguments.
+ */
+function setupRouteHarness(fakeServices: SetupServices) {
+  const currentOpenWindow = vi.fn(async () => null);
+  const handlers = createPaymentMcpHandlers(fakeServices, { currentOpenWindow });
+  const reserve = vi.fn<McpIdempotencyStore["reserve"]>(async (input) => ({
+    outcome: "reserved",
+    record: { ...input, response: null, status: "pending" },
+  }));
+  const idempotencyStore = { reserve, get: vi.fn(() => null), put: vi.fn(), complete: vi.fn(), abandon: vi.fn() };
+  const release = vi.fn();
+  const acquire = vi.fn<NonNullable<CreateMcpRoutesOptions["toolCallLimiter"]>["acquire"]>(async () => ({
+    allowed: true,
+    lease: { release },
+  }));
+  const records: McpAuditRecord[] = [];
+  const app = new Hono<{ Variables: { actor: ResolvedActor } }>();
+  app.use("*", async (context, next) => {
+    context.set("actor", managingActor);
+    await next();
+  });
+  app.route(
+    "/",
+    createMcpRoutes({
+      ...handlers,
+      audit: (record) => {
+        records.push(record);
+      },
+      idempotencyStore,
+      toolCallLimiter: { acquire },
+    }),
+  );
+
+  const call = async (extraArguments: Readonly<Record<string, unknown>>) => {
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "setup_request",
+        method: "tools/call",
+        params: {
+          name: "payments.start-payment-method-setup",
+          arguments: {
+            accountId: managingActor.accountId,
+            returnUrl: "https://app.chasesets.test/account/payment-methods",
+            idempotencyKey: "idem_setup_1",
+            confirmationText: setupConfirmationText,
+            ...extraArguments,
+          },
+          confirmation: { confirmed: true, text: setupConfirmationText },
+        },
+      }),
+    });
+    return (await response.json()) as { result: Record<string, unknown> };
+  };
+
+  return { call, currentOpenWindow, idempotencyStore, acquire, release, records };
+}
+
 describe("payment MCP stored-payment-method rail", () => {
+  it("J3 refuses dryRun:true at admission before the evidence-window lookup, reservation, lease and setup service", async () => {
+    const fakeServices = setupServices();
+    const harness = setupRouteHarness(fakeServices);
+
+    const body = await harness.call({ dryRun: true });
+
+    expect(body.result).toEqual({
+      isError: true,
+      content: [{ type: "text", text: "dryRun is not supported for payment method setup MCP writes yet." }],
+    });
+    expect(harness.currentOpenWindow).not.toHaveBeenCalled();
+    expect(harness.idempotencyStore.reserve).not.toHaveBeenCalled();
+    expect(harness.idempotencyStore.complete).not.toHaveBeenCalled();
+    expect(harness.idempotencyStore.abandon).not.toHaveBeenCalled();
+    expect(harness.idempotencyStore.put).not.toHaveBeenCalled();
+    expect(harness.acquire).not.toHaveBeenCalled();
+    expect(fakeServices.createSavedCheckoutSetupSession).not.toHaveBeenCalled();
+    expect(fakeServices.reconcileSavedCheckoutSetupSession).not.toHaveBeenCalled();
+    // The platform's single admission refusal audit is expected; no allowed or failed audit may follow.
+    expect(harness.records).toEqual([
+      expect.objectContaining({
+        outcome: "denied",
+        method: "tools/call",
+        toolName: "payments.start-payment-method-setup",
+        reason: "dryRun is not supported for payment method setup MCP writes yet.",
+      }),
+    ]);
+  });
+
+  it.each([
+    ["omitted", {}],
+    ["explicit false", { dryRun: false }],
+  ])("creates the same hosted setup through the route when dryRun is %s", async (_label, extraArguments) => {
+    const fakeServices = setupServices();
+    const harness = setupRouteHarness(fakeServices);
+
+    const body = await harness.call(extraArguments);
+
+    expect(body.result.isError).toBeUndefined();
+    expect(body.result.structuredContent).toEqual({
+      accountId: "acc_buyer",
+      id: "scs_1",
+      setupReferenceId: "scs_1",
+      status: "requires-action",
+      url: "https://checkout.stripe.test/setup/scs_1",
+      consentText: "Save this card for future purchases.",
+    });
+    expect(JSON.stringify(body)).not.toContain(setupSessionRow.processor_client_secret);
+    expect(fakeServices.createSavedCheckoutSetupSession).toHaveBeenCalledTimes(1);
+    expect(fakeServices.createSavedCheckoutSetupSession).toHaveBeenCalledWith({
+      accountId: "acc_buyer",
+      evidenceWindow: null,
+      returnUrlBase: "https://app.chasesets.test",
+      returnUrlPath: "/account/payment-methods",
+      agentGrantId: null,
+    });
+    expect(harness.currentOpenWindow).toHaveBeenCalledTimes(1);
+    expect(harness.idempotencyStore.reserve).toHaveBeenCalledTimes(1);
+    expect(harness.idempotencyStore.complete).toHaveBeenCalledTimes(1);
+    expect(harness.acquire).toHaveBeenCalledTimes(1);
+    expect(harness.release).toHaveBeenCalledTimes(1);
+    expect(harness.records.map((record) => record.outcome)).toEqual(["allowed"]);
+  });
+
   it("J3 refuses governed raw credentials before the MCP idempotency hash, audit and output sinks", async () => {
     const fakeServices = setupServices();
     const handlers = createPaymentMcpHandlers(fakeServices, {
