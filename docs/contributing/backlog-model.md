@@ -156,12 +156,19 @@ Record explicit Todd steering in the roadmap with its scope and stated end
 condition, and put the ruling's comment URL in the outcome's steering marker.
 If no end condition is stated, preserve it until the requested outcome is
 achieved or Todd supersedes it. A clause that puts an outcome first, or requires
-it immediately after or ahead of a marked outcome, is dispositioned `mark`;
+it immediately after or ahead of a marked outcome, or says to prioritize it, is
+dispositioned `mark`;
 one that only orders unmarked outcomes is `order` and uses a unique outcome
-`order` without a marker; once its condition is met, it is `ended` only after
-Todd answers the section 11 priority question. Remove the marker only after
-that answer and record the removal on #4129. Agents translate active steering
+`order` without a marker. Never mark an `order` clause: a marker lifts the
+outcome above every unmarked outcome. Every marker's `source` is the comment
+holding Todd's ruling; a clause recorded only in a milestone description cites
+the #4129 placement comment that records it. Once its condition is met, it is
+`ended` only after Todd answers the priority question in the roadmap's
+prioritization section. Remove the marker only after that answer and record the
+removal on #4129. Agents translate active steering
 into outcome order and issue Dispatch rank; they do not ask Todd to edit either.
+The marker description must be a string; other shapes fail closed with
+`STEERING_DESCRIPTION_INVALID`, and an `until` value must not contain `-->`.
 A later calculated score or routine review cannot silently reverse steering.
 Only genuinely new product, legal, provider-authority, or similarly consequential
 choices outside accepted scope use the existing decision route.

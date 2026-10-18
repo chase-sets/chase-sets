@@ -580,7 +580,8 @@ export function formatNextWorkText(document, top = DEFAULT_TOP) {
   }
   lines.push(`defects: ${document.defects.length}`);
   for (const defect of document.defects) {
-    lines.push(`  ${defect.code} order ${defect.order}: ${defect.milestones.map((number) => `m${number}`).join(" ")}`);
+    const order = defect.order === undefined ? "" : ` order ${defect.order}`;
+    lines.push(`  ${defect.code}${order}: ${defect.milestones.map((number) => `m${number}`).join(" ")}`);
   }
   return `${lines.join("\n")}\n`;
 }

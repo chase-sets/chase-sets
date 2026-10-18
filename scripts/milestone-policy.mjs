@@ -102,7 +102,8 @@ export function readSteeringPolicy(milestone) {
     Array.isArray(metadata) ||
     Object.keys(metadata).sort().join("\0") !== STEERING_KEYS.join("\0") ||
     metadata.version !== 1 ||
-    !STEERING_SOURCE.test(metadata.source ?? "") ||
+    typeof metadata.source !== "string" ||
+    !STEERING_SOURCE.test(metadata.source) ||
     typeof metadata.until !== "string" ||
     metadata.until.length === 0 ||
     metadata.until.length > 500

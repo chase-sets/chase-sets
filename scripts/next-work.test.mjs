@@ -323,10 +323,13 @@ describe("next-work CLI", () => {
       status: "candidate",
       description: `${marker("delivery", 91, "candidate")}\n${steeringMarker()}`,
     });
-    expect(
-      (await run(["--check"], facts([outcome(189, "commerce", 90), steeredCandidate], [issue(1, { milestone: 189 })])))
-        .code,
-    ).toBe(1);
+    const steeringDefect = await run(
+      ["--check"],
+      facts([outcome(189, "commerce", 90), steeredCandidate], [issue(1, { milestone: 189 })]),
+    );
+    expect(steeringDefect.code).toBe(1);
+    expect(steeringDefect.stdout).toContain("STEERING_ON_NON_EXECUTABLE: m218");
+    expect(steeringDefect.stdout).not.toContain("undefined");
 
     const failed = await run(["--check", "--json", "out.json"], new Error("NEXT_WORK_FACTS_INCOMPLETE: short"));
     expect(failed).toMatchObject({ code: 2, stdout: "", stderr: "NEXT_WORK_FACTS_INCOMPLETE: short\n" });

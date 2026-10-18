@@ -79,10 +79,17 @@ describe("milestone outcome policy", () => {
       until: "until the priority question is answered",
     });
     expect(Object.isFrozen(parsed)).toBe(true);
+    expect(readSteeringPolicy(milestone("M1", "Wave 1", "Exit gates: #1"))).toBeNull();
 
     const cases = [
       ["duplicate", steering() + steering(), "STEERING_METADATA_DUPLICATE"],
       ["malformed", '<!-- steering: {"version":1 ', "STEERING_METADATA_MALFORMED"],
+      ["non-object JSON", "<!-- steering: [] -->", "STEERING_METADATA_INVALID"],
+      [
+        "missing source",
+        steering().replace(',"source":"https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123"', ""),
+        "STEERING_METADATA_INVALID",
+      ],
       [
         "unknown key",
         '<!-- steering: {"version":1,"source":"https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123","until":"x","extra":true} -->',
@@ -97,7 +104,20 @@ describe("milestone outcome policy", () => {
         ),
         "STEERING_METADATA_INVALID",
       ],
-      ["empty until", steering("").replace('"until":""', '"until":""'), "STEERING_METADATA_INVALID"],
+      [
+        "source array",
+        steering().replace(
+          '"https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123"',
+          '["https://github.com/chase-sets/chase-sets/issues/9943#issuecomment-123"]',
+        ),
+        "STEERING_METADATA_INVALID",
+      ],
+      [
+        "non-string until",
+        steering().replace('"until":"until the priority question is answered"', '"until":123'),
+        "STEERING_METADATA_INVALID",
+      ],
+      ["empty until", steering(""), "STEERING_METADATA_INVALID"],
       ["long until", steering("x".repeat(501)), "STEERING_METADATA_INVALID"],
     ];
     for (const [name, description, code] of cases) {
